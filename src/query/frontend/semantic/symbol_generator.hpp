@@ -169,6 +169,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     std::map<std::string, Symbol> symbols;
     // Symbols imported into a `CALL (v1, v2, ...) { ... }` subquery scope.
     std::map<std::string, Symbol> call_subquery_imports;
+    // Index into scopes_ of the scope that opened the innermost enclosing `CALL {}` subquery. A name that resolves
+    // only in a scope below it belongs to the enclosing query and is not visible here without an explicit import.
+    std::optional<size_t> call_subquery_base;
     // Identifiers found in property maps of patterns or as variable length path
     // bounds in a single Match clause. They need to be checked after visiting
     // Match. Identifiers created by naming vertices, edges and paths are *not*
@@ -185,6 +188,10 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
   bool HasSymbol(const std::string &name) const;
+
+  // True if @p name resolves only outside the innermost enclosing `CALL {}` subquery, i.e. it belongs to the
+  // enclosing query and was never imported. Always false when not inside a subquery.
+  bool IsOutsideCallSubquery(const std::string &name) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
