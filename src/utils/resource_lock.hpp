@@ -107,6 +107,11 @@ struct ResourceLock {
   template <> void unlock_state_updater<LockReq::READ>()      { --r_count; };
   template <> void unlock_state_updater<LockReq::READ_ONLY>() { --ro_count; }
 
+  // WRITE omits ro_count, and READ_ONLY omits w_count, because the two are mutually exclusive by
+  // admission (can_acquire<WRITE> demands ro_count == 0, can_acquire<READ_ONLY> demands
+  // w_count == 0), so the omitted count is necessarily 0 whenever the other is being released.
+  // Relax either admission rule without revisiting these and the lock declares itself UNLOCKED
+  // while a holder is still live.
   template <LockReq Req> bool unlock_has_fully_unlocked() const;
   template <> bool unlock_has_fully_unlocked<LockReq::WRITE>() const     { return w_count == 0 && r_count == 0; };
   template <> bool unlock_has_fully_unlocked<LockReq::READ>() const      { return r_count == 0 && ro_count == 0 && w_count == 0; };
@@ -117,6 +122,12 @@ struct ResourceLock {
   // WRITE -> If w_count goes down to 0, READ_ONLY and UNIQUE maybe unblocked, hence: Notify All
   // READ -> If r_count goes down to 0 (and other counts were already 0), UNIQUE maybe unblocked
   // READ_ONLY -> If ro_count goes down to 0, WRITE and  UNIQUE maybe unblocked, hence: Notify All
+  //
+  // WRITE and READ_ONLY notify on a weaker condition than the fully-unlocked one above: dropping to
+  // 0 admits READ_ONLY resp. WRITE even while a READ hold keeps the lock SHARED, and no later event
+  // is guaranteed to fire (that READ may be held indefinitely). READ notifies on exactly the
+  // fully-unlocked condition because no acquirer is gated on r_count, so a READ release can only
+  // ever admit UNIQUE, and only by freeing the lock.
   template <LockReq Req> NotifyKind unlock_should_notify() const;
   template <> NotifyKind unlock_should_notify<LockReq::WRITE>() const { return w_count == 0 ? NotifyKind::All : NotifyKind::None; }
   template <> NotifyKind unlock_should_notify<LockReq::READ>() const { return (r_count == 0 && w_count == 0 && ro_count == 0) ? NotifyKind::All : NotifyKind::None; }
@@ -134,11 +145,11 @@ struct ResourceLock {
   ///
   /// The pending registration is dropped by RAII because it must survive a timeout and an exception
   /// out of the wait too: leak it once and every kind it gates is blocked for the lifetime of the
-  /// process. The handler runs with mtx still held (cv.wait/wait_for re-acquire it
-  /// on every exit path, and `lock` outlives the guard declared after it), which is what serializes
-  /// the deregistration against another thread reading that same counter inside its own wait
-  /// predicate: mutate it off-mtx and the decrement plus notify can land between that thread's
-  /// check and its enqueue on the cv, losing the wake.
+  /// process. The handler runs with mtx still held (cv.wait/wait_for re-acquire it on every exit
+  /// path, and `lock` outlives the guard declared after it), which is what serializes the
+  /// deregistration against another thread reading that same counter inside its own wait predicate:
+  /// mutate it off-mtx and the decrement plus notify can land between that thread's check and its
+  /// enqueue on the cv, losing the wake.
   template <AcquireKind K>
   bool acquire(std::unique_lock<std::mutex> &lock, auto &&wait) {
     pending_add<K>();

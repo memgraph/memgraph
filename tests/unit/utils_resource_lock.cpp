@@ -1028,6 +1028,79 @@ TEST_F(ResourceLockTest, ReadReleaseWakesBothPendingUniqueAndGatedReader) {
   EXPECT_TRUE(reader_acquired.load(std::memory_order_acquire));
 }
 
+// A WRITE release that does not free the lock still has to notify. w_count reaching 0 admits
+// READ_ONLY, which is compatible with the READ hold that keeps the lock in SHARED, so the wake-up
+// cannot be deferred to whenever the lock happens to become free: the READ holder may hold for as
+// long as it likes. Narrowing unlock_should_notify<WRITE> to the fully-unlocked condition (as
+// unlock_should_notify<READ> legitimately is, since no acquirer is gated on r_count) hangs this.
+TEST_F(ResourceLockTest, WriteReleaseWakesGatedReadOnlyWhileReadersStillHold) {
+  using namespace std::chrono_literals;
+
+  auto held_read = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ);    // r_count == 1
+  auto held_write = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE);  // w_count == 1
+
+  std::atomic<bool> ro_acquired{false};
+  auto ro_fut = std::async(std::launch::async, [&] {
+    lock.lock_shared<ResourceLock::LockReq::READ_ONLY>();  // parks on w_count != 0
+    ro_acquired.store(true, std::memory_order_release);
+    lock.unlock_shared<ResourceLock::LockReq::READ_ONLY>();
+  });
+
+  // Let the READ_ONLY acquirer reach cv.wait, then confirm the gate (not scheduling) holds it.
+  std::this_thread::sleep_for(50ms);
+  ASSERT_FALSE(ro_acquired.load(std::memory_order_acquire));
+
+  held_write.unlock();  // w_count 1 -> 0; lock stays SHARED (the READ is still held)
+
+  // Bounded so a lost/absent wake fails the test instead of hanging the suite forever.
+  const auto status = ro_fut.wait_for(5s);
+  EXPECT_EQ(status, std::future_status::ready)
+      << "READ_ONLY acquirer gated on w_count was not woken by the WRITE release";
+  if (status != std::future_status::ready) {
+    held_read.unlock();  // failure path only: rescue the parked thread so ~future cannot block
+    ro_fut.wait();
+    return;
+  }
+  ro_fut.get();
+  EXPECT_TRUE(ro_acquired.load(std::memory_order_acquire));
+
+  held_read.unlock();
+}
+
+// The mirror of the above: a READ_ONLY release that does not free the lock admits WRITE (ro_count
+// reaching 0), which is likewise compatible with the READ hold keeping the lock in SHARED.
+TEST_F(ResourceLockTest, ReadOnlyReleaseWakesGatedWriteWhileReadersStillHold) {
+  using namespace std::chrono_literals;
+
+  auto held_read = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ);            // r_count == 1
+  auto held_read_only = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ_ONLY);  // ro_count == 1
+
+  std::atomic<bool> writer_acquired{false};
+  auto writer_fut = std::async(std::launch::async, [&] {
+    lock.lock_shared<ResourceLock::LockReq::WRITE>();  // parks on ro_count != 0
+    writer_acquired.store(true, std::memory_order_release);
+    lock.unlock_shared<ResourceLock::LockReq::WRITE>();
+  });
+
+  std::this_thread::sleep_for(50ms);
+  ASSERT_FALSE(writer_acquired.load(std::memory_order_acquire));
+
+  held_read_only.unlock();  // ro_count 1 -> 0; lock stays SHARED (the READ is still held)
+
+  const auto status = writer_fut.wait_for(5s);
+  EXPECT_EQ(status, std::future_status::ready)
+      << "WRITE acquirer gated on ro_count was not woken by the READ_ONLY release";
+  if (status != std::future_status::ready) {
+    held_read.unlock();  // failure path only: rescue the parked thread so ~future cannot block
+    writer_fut.wait();
+    return;
+  }
+  writer_fut.get();
+  EXPECT_TRUE(writer_acquired.load(std::memory_order_acquire));
+
+  held_read.unlock();
+}
+
 // Test 4d: mutual-exclusion fuzzer (like Test 1) with UniquePendingScope / ReadOnlyPendingScope
 // try_acquire() mixed in, to cover the new code paths (mtx-protected mutation + adopt_lock).
 TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzzWithPendingScopes) {
