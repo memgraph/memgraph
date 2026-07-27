@@ -342,10 +342,9 @@ void Path::PathExpand::ExpandPath(mgp::Path &path, const mgp::Relationship &rela
 }
 
 void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationships relationships, bool outgoing,
-                                               int64_t path_size,
-                                               std::set<std::pair<std::string_view, int64_t>> &seen) {
+                                               int64_t path_size, std::set<std::pair<std::string, int64_t>> &seen) {
   for (const auto relationship : relationships) {
-    // Type() returns a view into the graph's interned edge-type storage, so it is safe to keep in `seen`.
+    // string_view keeps the GetDirection lookup allocation-free; `seen` below owns its key.
     const std::string_view type = relationship.Type();
     auto wanted_direction = path_data_.helper_.GetDirection(type);
 
@@ -360,10 +359,10 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationshi
         path_data_.helper_.AnyDirected(outgoing)) {
       ExpandPath(path, relationship, path_size);
     } else if (wanted_direction == RelDirection::kBoth) {
-      if (outgoing && seen.contains({type, relationship.To().Id().AsInt()})) {
+      if (outgoing && seen.contains({std::string(type), relationship.To().Id().AsInt()})) {
         ExpandPath(path, relationship, path_size);
       } else {
-        seen.insert({type, relationship.From().Id().AsInt()});
+        seen.insert({std::string(type), relationship.From().Id().AsInt()});
       }
     }
   }
@@ -383,7 +382,7 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
     return;
   }
 
-  std::set<std::pair<std::string_view, int64_t>> seen;
+  std::set<std::pair<std::string, int64_t>> seen;
   this->ExpandFromRelationships(path, node.InRelationships(), false, path_size, seen);
   this->ExpandFromRelationships(path, node.OutRelationships(), true, path_size, seen);
 }
@@ -453,7 +452,7 @@ void Path::PathSubgraph::Parse(const mgp::Value &value) {
 void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int64_t> &pair,
                                                  const mgp::Relationships relationships, bool outgoing,
                                                  std::queue<std::pair<mgp::Node, int64_t>> &queue,
-                                                 std::set<std::pair<std::string_view, int64_t>> &seen) {
+                                                 std::set<std::pair<std::string, int64_t>> &seen) {
   for (const auto relationship : relationships) {
     auto next_node = outgoing ? relationship.To() : relationship.From();
 
@@ -461,7 +460,7 @@ void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int6
       continue;
     }
 
-    // Type() returns a view into the graph's interned edge-type storage, so it is safe to keep in `seen`.
+    // string_view keeps the GetDirection lookup allocation-free; `seen` below owns its key.
     const std::string_view type = relationship.Type();
     auto wanted_direction = path_data_.helper_.GetDirection(type);
 
@@ -478,12 +477,12 @@ void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int6
       path_data_.visited_.insert(next_node.Id().AsInt());
       queue.emplace(std::move(next_node), pair.second + 1);
     } else if (wanted_direction == RelDirection::kBoth) {
-      if (outgoing && seen.contains({type, relationship.To().Id().AsInt()})) {
+      if (outgoing && seen.contains({std::string(type), relationship.To().Id().AsInt()})) {
         // Enqueue only; TryInsertNode emits it once on dequeue with hop/label filters applied.
         path_data_.visited_.insert(next_node.Id().AsInt());
         queue.emplace(std::move(next_node), pair.second + 1);
       } else {
-        seen.insert({type, relationship.From().Id().AsInt()});
+        seen.insert({std::string(type), relationship.From().Id().AsInt()});
       }
     }
   }
@@ -531,7 +530,7 @@ mgp::List Path::PathSubgraph::BFS() {
       continue;
     }
 
-    std::set<std::pair<std::string_view, int64_t>> seen;
+    std::set<std::pair<std::string, int64_t>> seen;
     this->ExpandFromRelationships(pair, pair.first.InRelationships(), false, queue, seen);
     this->ExpandFromRelationships(pair, pair.first.OutRelationships(), true, queue, seen);
   }

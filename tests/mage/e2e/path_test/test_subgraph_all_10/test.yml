@@ -2,18 +2,20 @@ query: >
   MATCH (a:Node {name: "A"})
   CALL path.subgraph_all(a, {relationshipFilter: ['CONNECTED_TO>'], minHops: 2, maxHops: 5})
   YIELD nodes, rels
-  RETURN nodes, rels
+  UNWIND nodes AS node
+  WITH rels, node ORDER BY node.name
+  RETURN collect(node) AS nodes, rels
 
 output:
   - nodes:
       - labels:
           - Node
         properties:
-          name: E
+          name: D
       - labels:
           - Node
         properties:
-          name: D
+          name: E
     rels:
       - label: CONNECTED_TO
         properties: {}

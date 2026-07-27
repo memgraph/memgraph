@@ -114,7 +114,7 @@ struct Config {
   int64_t max_hops = std::numeric_limits<int64_t>::max();
   bool any_incoming = false;
   bool any_outgoing = false;
-  bool filter_start_node = true;
+  bool filter_start_node = false;
   bool begin_sequence_at_start = true;
   bool bfs = false;
 };
@@ -171,7 +171,7 @@ class PathExpand {
 
   void ExpandPath(mgp::Path &path, const mgp::Relationship &relationship, int64_t path_size);
   void ExpandFromRelationships(mgp::Path &path, mgp::Relationships relationships, bool outgoing, int64_t path_size,
-                               std::set<std::pair<std::string_view, int64_t>> &seen);
+                               std::set<std::pair<std::string, int64_t>> &seen);
   void StartAlgorithm(mgp::Node node);
   void Parse(const mgp::Value &value);
   void DFS(mgp::Path &path, int64_t path_size);
@@ -187,7 +187,7 @@ class PathSubgraph {
 
   void ExpandFromRelationships(const std::pair<mgp::Node, int64_t> &pair, mgp::Relationships relationships,
                                bool outgoing, std::queue<std::pair<mgp::Node, int64_t>> &queue,
-                               std::set<std::pair<std::string_view, int64_t>> &seen);
+                               std::set<std::pair<std::string, int64_t>> &seen);
   void Parse(const mgp::Value &value);
   void TryInsertNode(const mgp::Node &node, int64_t hop_count, const LabelBools &label_bools);
   mgp::List BFS();
