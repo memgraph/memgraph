@@ -208,6 +208,7 @@ bool SymbolGenerator::PreVisit(CypherUnion &) {
   // Currently only CALL and EXISTS subqueries can contain complete queries with UNION.
   next_scope.in_call_subquery = prev_scope.in_call_subquery;
   next_scope.in_exists_subquery = prev_scope.in_exists_subquery;
+  next_scope.call_subquery_base = prev_scope.call_subquery_base;
   // Carry over explicit `CALL (v1, v2) { ... }` imports so each UNION branch
   // within the subquery still sees the imported variables.
   next_scope.call_subquery_imports = prev_scope.call_subquery_imports;
@@ -271,6 +272,8 @@ bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
 
 bool SymbolGenerator::PreVisit(CallSubquery &call_sub) {
   Scope new_scope{.in_call_subquery = true};
+  // The scope about to be pushed is the subquery's outermost one; names below it need an explicit import.
+  new_scope.call_subquery_base = scopes_.size();
 
   if (call_sub.has_variable_scope_) {
     // `CALL (...) { ... }`: resolve imports against the current outer scope
@@ -444,8 +447,10 @@ bool SymbolGenerator::PostVisit(Match &) {
 
 bool SymbolGenerator::PreVisit(Foreach &for_each) {
   const auto &name = for_each.named_expression_->name_;
+  auto const call_subquery_base = scopes_.back().call_subquery_base;
   scopes_.emplace_back(Scope());
   scopes_.back().in_foreach = true;
+  scopes_.back().call_subquery_base = call_subquery_base;
   for_each.named_expression_->MapTo(
       CreateSymbol(name, true, Symbol::Type::ANY, for_each.named_expression_->token_position_));
   return true;
@@ -464,9 +469,16 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     throw SemanticException("Variables are not allowed in {}.", scope.in_skip ? "SKIP" : "LIMIT");
   }
 
+  // An un-imported name of the enclosing query is out of scope inside a `CALL {}` subquery, so a pattern occurrence
+  // of it declares a fresh variable instead of referencing the outer one. Referencing it would resolve to the outer
+  // symbol and make the branch write through its frame slot, which the subquery shares with its caller.
+  const bool shadows_outer_name = scope.in_pattern && IsOutsideCallSubquery(ident.name_);
+  // Whether the name is in scope here. A shadowed outer name is not, so the rules below treat it as undeclared:
+  // patterns declare it afresh, while `exists()` - which may not introduce variables - rejects it.
+  const bool name_in_scope = HasSymbol(ident.name_) && !shadows_outer_name;
+
   if (scope.in_exists_pattern && (scope.visiting_edge || scope.in_node_atom)) {
-    auto has_symbol = HasSymbol(ident.name_);
-    if (!has_symbol && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
+    if (!name_in_scope && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
       throw SemanticException("Unbounded variables are not allowed in exists!");
     }
   }
@@ -476,11 +488,12 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
 
   Symbol symbol;
   if ((scope.in_exists_subquery || is_in_pattern_comprehension_filter) && (scope.visiting_edge || scope.in_node_atom)) {
-    auto has_symbol = HasSymbol(ident.name_);
-    if (!has_symbol) {
+    if (!name_in_scope) {
       ident.user_declared_ = false;
-      symbol = GetOrCreateSymbol(
-          ident.name_, ident.user_declared_, scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE);
+      auto const type = scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE;
+      // A shadowed outer name is still found by GetOrCreateSymbol, so declare it here instead.
+      symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, type)
+                                  : GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
     } else {
       symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
     }
@@ -495,19 +508,21 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     //  `MATCH (n) CREATE (n)` should throw an error that `n` is already
     //  declared. While `MATCH (n) CREATE (n) -[:R]-> (n)` is allowed,
     //  since `n` now references the bound node instead of declaring it.
-    if ((scope.in_create_node || scope.in_create_edge) && HasSymbol(ident.name_)) {
+    if ((scope.in_create_node || scope.in_create_edge) && name_in_scope) {
       throw RedeclareVariableError(ident.name_);
     }
     auto type = Symbol::Type::VERTEX;
     if (scope.visiting_edge) {
       // Edge referencing is not allowed (like in Neo4j):
       // `MATCH (n) - [r] -> (n) - [r] -> (n) RETURN r` is not allowed.
-      if (HasSymbol(ident.name_)) {
+      if (name_in_scope) {
         throw RedeclareVariableError(ident.name_);
       }
       type = scope.visiting_edge->IsVariable() ? Symbol::Type::EDGE_LIST : Symbol::Type::EDGE;
     }
-    symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
+    // A shadowed outer name must not resolve to the enclosing query's symbol, so declare it in this scope.
+    symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, type)
+                                : GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
   } else if (scope.in_pattern && !scope.in_pattern_atom_identifier && scope.in_match) {
     if (scope.in_edge_range && scope.visiting_edge && scope.visiting_edge->identifier_ &&
         scope.visiting_edge->identifier_->name_ == ident.name_) {
@@ -702,7 +717,8 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   }
 
   if (exists.HasSubquery()) {
-    scopes_.emplace_back(Scope{.in_exists_subquery = true});  // NOLINT(hicpp-use-emplace,modernize-use-emplace)
+    // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
+    scopes_.emplace_back(Scope{.in_exists_subquery = true, .call_subquery_base = scope.call_subquery_base});
   }
 
   return true;
@@ -1017,7 +1033,10 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
 }
 
 bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
-  scopes_.emplace_back(Scope{.in_pattern_comprehension = true});
+  // Carry the subquery boundary in: a pattern inside the comprehension must not silently reach a variable of
+  // the enclosing query (see IsOutsideCallSubquery).
+  scopes_.emplace_back(
+      Scope{.in_pattern_comprehension = true, .call_subquery_base = scopes_.back().call_subquery_base});
 
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
@@ -1072,6 +1091,15 @@ void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
 
 bool SymbolGenerator::HasSymbol(const std::string &name) const {
   return std::ranges::any_of(scopes_, [&name](const auto &scope) { return scope.symbols.contains(name); });
+}
+
+bool SymbolGenerator::IsOutsideCallSubquery(const std::string &name) const {
+  const auto base = scopes_.back().call_subquery_base;
+  if (!base) {
+    return false;
+  }
+  auto const inside = std::ranges::subrange(scopes_.begin() + static_cast<std::ptrdiff_t>(*base), scopes_.end());
+  return std::ranges::none_of(inside, [&name](const auto &scope) { return scope.symbols.contains(name); });
 }
 
 bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {
