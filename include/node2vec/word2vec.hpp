@@ -256,23 +256,36 @@ class Word2Vec {
     return lo;
   }
 
-  // Standard word2vec Huffman tree construction producing per-token codes and
-  // inner-node point sequences.
+  // Builds the Huffman tree for hierarchical softmax and derives, for every
+  // token, its root->leaf path: hs_codes_ (the 0/1 branch bits) and hs_points_
+  // (the syn1_ inner-node rows visited). Frequent tokens get shorter paths.
+  // Standard word2vec construction.
   void BuildHuffman() {
-    int n = vocab_size_;
+    int n = vocab_size_;  // number of leaves (vocabulary words)
+    // A binary tree over n leaves has n-1 inner nodes; syn1_ holds one weight
+    // vector per inner node.
     syn1_.assign(static_cast<size_t>(n > 0 ? n - 1 : 0) * dim_, 0.0f);
     hs_codes_.assign(n, {});
     hs_points_.assign(n, {});
     if (n <= 1) return;
 
-    std::vector<int64_t> count(2 * n);
-    std::vector<int> binary(2 * n, 0);
-    std::vector<int> parent(2 * n, 0);
-    for (int i = 0; i < n; ++i) count[i] = counts_[i];
-    for (int i = n; i < 2 * n; ++i) count[i] = static_cast<int64_t>(1e18);
+    // Work arrays cover leaves at indices [0, n) and the inner nodes at
+    // [n, 2n) that are created while merging.
+    std::vector<int64_t> count(2 * n);                  // node weight (leaf frequency, or merged sum)
+    std::vector<int> binary(2 * n, 0);                  // which branch (0/1) this node is of its parent
+    std::vector<int> parent(2 * n, 0);                  // index of this node's parent
+    for (int i = 0; i < n; ++i) count[i] = counts_[i];  // leaf frequencies
+    for (int i = n; i < 2 * n; ++i) count[i] = static_cast<int64_t>(1e18);  // inner nodes: "not created yet"
 
+    // Repeatedly merge the two lowest-count nodes into a new inner node. Two
+    // cursors give O(n) selection because both candidate lists are already
+    // sorted by count: pos1 scans leaves right-to-left (the vocab is sorted by
+    // descending frequency, so this ascends in count), pos2 scans inner nodes
+    // left-to-right (they are created in ascending count order). The next
+    // smallest node is therefore always at one of the two cursors.
     int pos1 = n - 1, pos2 = n;
     for (int a = 0; a < n - 1; ++a) {
+      // Pick the two smallest available nodes: min1, then min2.
       int min1;
       if (pos1 >= 0) {
         if (count[pos1] < count[pos2]) {
@@ -281,7 +294,7 @@ class Word2Vec {
           min1 = pos2++;
         }
       } else {
-        min1 = pos2++;
+        min1 = pos2++;  // leaves exhausted: take an inner node
       }
       int min2;
       if (pos1 >= 0) {
@@ -293,22 +306,27 @@ class Word2Vec {
       } else {
         min2 = pos2++;
       }
+      // New inner node (n + a) becomes the parent of the two picked nodes.
       count[n + a] = count[min1] + count[min2];
       parent[min1] = n + a;
       parent[min2] = n + a;
-      binary[min2] = 1;
+      binary[min2] = 1;  // second child is the "1" branch; min1 keeps the default 0
     }
 
+    // For each leaf, walk up to the root collecting branch bits and inner-node
+    // indices, then store them root->leaf.
     for (int a = 0; a < n; ++a) {
-      std::vector<uint8_t> code;
-      std::vector<int> point;
+      std::vector<uint8_t> code;  // branch bits,        leaf -> root
+      std::vector<int> point;     // inner-node indices, leaf -> root
       int b = a;
       while (true) {
         code.push_back(static_cast<uint8_t>(binary[b]));
         point.push_back(b);
         b = parent[b];
-        if (b == 2 * n - 2) break;
+        if (b == 2 * n - 2) break;  // 2n-2 is the root (the last inner node created)
       }
+      // Reverse into root->leaf order. Inner-node indices are shifted by -n to
+      // address syn1_ rows; the path always starts at the root row (n-2).
       hs_points_[a].push_back(n - 2);
       for (int i = static_cast<int>(point.size()) - 1; i >= 0; --i) {
         hs_codes_[a].push_back(code[i]);
@@ -406,31 +424,44 @@ class Word2Vec {
     words_done.fetch_add(local_processed, std::memory_order_relaxed);
   }
 
-  // Skip-gram: each context word (input) predicts the center word (output).
+  // Skip-gram: for each context word around position i, use that context word's
+  // input vector to predict the center word, then apply the resulting gradient
+  // back to the context word's vector.
+  //   i     - position of the center word in the sentence
+  //   b     - random window shrink for this center word (word2vec's dynamic window)
+  //   neu1e - reusable per-call gradient accumulator (caller-owned scratch)
   void TrainSGWord(const std::vector<int> &sentence, int i, int b, float alpha, std::vector<float> &neu1e,
                    std::mt19937_64 &rng) {  // NOSONAR
     const int len = static_cast<int>(sentence.size());
-    const int center = sentence[i];
+    const int center = sentence[i];  // the word being predicted (output/target)
+    // `a` scans the window [-window+b, +window-b] around i; a == window is the
+    // center itself (skipped), and out-of-sentence positions are skipped too.
     for (int a = b; a < 2 * p_.window + 1 - b; ++a) {
-      int c = i - p_.window + a;
+      int c = i - p_.window + a;  // sentence position of the context word
       if (a == p_.window || c < 0 || c >= len) continue;
-      int context = sentence[c];  // input word
-      float *l1 = &syn0_[static_cast<size_t>(context) * dim_];
-      std::fill(neu1e.begin(), neu1e.end(), 0.0f);
+      int context = sentence[c];
+      float *l1 = &syn0_[static_cast<size_t>(context) * dim_];  // context word's vector = the hidden layer
+      std::fill(neu1e.begin(), neu1e.end(), 0.0f);              // reset gradient accumulator for l1
       TrainPair(center, l1, alpha, neu1e.data(), rng);
-      for (int d = 0; d < dim_; ++d) l1[d] += neu1e[d];
+      for (int d = 0; d < dim_; ++d) l1[d] += neu1e[d];  // apply the accumulated gradient to the context vector
     }
   }
 
-  // CBOW: averaged context words predict the center word.
+  // CBOW: average the input vectors of all context words around position i into
+  // a single hidden vector, use it to predict the center word, then apply the
+  // resulting gradient back to every context word's vector.
+  //   neu1  - reusable scratch for the averaged context (the hidden layer)
+  //   neu1e - reusable scratch for the gradient shared by all context words
   void TrainCBOWWord(const std::vector<int> &sentence, int i, int b, float alpha, std::vector<float> &neu1,
                      std::vector<float> &neu1e, std::mt19937_64 &rng) {  // NOSONAR
     const int len = static_cast<int>(sentence.size());
-    const int center = sentence[i];
+    const int center = sentence[i];  // the word being predicted (output/target)
     std::fill(neu1.begin(), neu1.end(), 0.0f);
     std::fill(neu1e.begin(), neu1e.end(), 0.0f);
 
-    int cw = 0;
+    // Sum the input vectors of the context words in the (dynamically shrunk)
+    // window; a == window is the center (skipped), as are out-of-range positions.
+    int cw = 0;  // number of context words summed
     for (int a = b; a < 2 * p_.window + 1 - b; ++a) {
       int c = i - p_.window + a;
       if (a == p_.window || c < 0 || c >= len) continue;
@@ -438,11 +469,12 @@ class Word2Vec {
       for (int d = 0; d < dim_; ++d) neu1[d] += row[d];
       ++cw;
     }
-    if (cw == 0) return;
-    for (int d = 0; d < dim_; ++d) neu1[d] /= cw;  // cbow_mean = 1
+    if (cw == 0) return;                           // no context words -> nothing to train
+    for (int d = 0; d < dim_; ++d) neu1[d] /= cw;  // mean of the context vectors (cbow_mean = 1)
 
     TrainPair(center, neu1.data(), alpha, neu1e.data(), rng);
 
+    // Back-propagate the same gradient to every context word's input vector.
     for (int a = b; a < 2 * p_.window + 1 - b; ++a) {
       int c = i - p_.window + a;
       if (a == p_.window || c < 0 || c >= len) continue;
