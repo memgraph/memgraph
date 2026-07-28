@@ -2949,3 +2949,90 @@ TEST(StorageSetStorageModeTest, ConcurrentUniqueHoldersAreNeverBothAdmitted) {
   EXPECT_GT(acquisitions.load(), 0) << "no prober ever acquired UNIQUE; the test proved nothing";
   EXPECT_EQ(violations.load(), 0) << "two threads held the UNIQUE lock at the same time";
 }
+
+// Accessor::type() reports the mode currently held, and that changes during an accessor's life:
+// a READ_ONLY hold downgrades to READ, and handing the UNIQUE hold away leaves nothing held. The
+// mode is therefore runtime state, not a property of the accessor's type, and type() must be
+// derived from the hold itself rather than from what was originally requested.
+class StorageAccessorLockModeTest : public ::testing::Test {
+ protected:
+  using InMemoryAccessor = memgraph::storage::InMemoryStorage::InMemoryAccessor;
+
+  static InMemoryAccessor &AsInMemory(std::unique_ptr<memgraph::storage::Storage::Accessor> &acc) {
+    return static_cast<InMemoryAccessor &>(*acc);
+  }
+
+  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
+      .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
+};
+
+TEST_F(StorageAccessorLockModeTest, ReportsTheModeItHolds) {
+  using namespace memgraph::storage;
+
+  auto read = store.Access(READ);
+  EXPECT_EQ(read->type(), READ);
+  read.reset();
+
+  auto write = store.Access(WRITE);
+  EXPECT_EQ(write->type(), WRITE);
+  write.reset();
+
+  auto read_only = store.ReadOnlyAccess();
+  EXPECT_EQ(read_only->type(), READ_ONLY);
+  read_only.reset();
+
+  auto unique = store.UniqueAccess();
+  EXPECT_EQ(unique->type(), UNIQUE);
+}
+
+// The downgrade is what lets an index build stop excluding writers partway through, so type() has
+// to follow the hold rather than the original request.
+TEST_F(StorageAccessorLockModeTest, ReadOnlyDowngradesToRead) {
+  using namespace memgraph::storage;
+
+  auto acc = store.ReadOnlyAccess();
+  ASSERT_EQ(acc->type(), READ_ONLY);
+  // READ_ONLY excludes WRITE; READ does not. The downgrade is observable through that.
+  EXPECT_FALSE(store.main_lock_.try_lock_shared<memgraph::utils::ResourceLock::LockReq::WRITE>());
+
+  AsInMemory(acc).DowngradeToReadIfValid();
+
+  EXPECT_EQ(acc->type(), READ);
+  EXPECT_EQ(acc->original_access_type(), READ_ONLY) << "the original request must survive the downgrade";
+  ASSERT_TRUE(store.main_lock_.try_lock_shared<memgraph::utils::ResourceLock::LockReq::WRITE>());
+  store.main_lock_.unlock_shared<memgraph::utils::ResourceLock::LockReq::WRITE>();
+}
+
+// SetStorageMode's hand-off: after releasing the hold the accessor owns nothing, so it must not
+// release anything at destruction. The returned lock is the sole owner until it goes away.
+TEST_F(StorageAccessorLockModeTest, ReleasingTheUniqueGuardLeavesNothingHeld) {
+  using namespace memgraph::storage;
+
+  auto acc = store.UniqueAccess();
+  ASSERT_EQ(acc->type(), UNIQUE);
+
+  {
+    auto released = acc->ReleaseUniqueGuard();
+    EXPECT_EQ(acc->type(), NO_ACCESS);
+    EXPECT_TRUE(released.owns_lock());
+    EXPECT_FALSE(store.main_lock_.try_lock()) << "the released lock is still the sole owner";
+  }
+
+  // The lock went away with the released owner, and destroying the accessor must not release it a
+  // second time.
+  ASSERT_TRUE(store.main_lock_.try_lock());
+  store.main_lock_.unlock();
+}
+
+TEST_F(StorageAccessorLockModeTest, MovePreservesTheHold) {
+  using namespace memgraph::storage;
+
+  auto acc = store.Access(WRITE);
+  ASSERT_EQ(acc->type(), WRITE);
+
+  auto moved = InMemoryAccessor{std::move(AsInMemory(acc))};
+
+  EXPECT_EQ(moved.type(), WRITE);
+  EXPECT_EQ(acc->type(), NO_ACCESS) << "the moved-from accessor must no longer own the hold";
+  EXPECT_FALSE(store.main_lock_.try_lock()) << "the hold must survive the move, not be dropped";
+}
