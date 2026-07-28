@@ -24,11 +24,11 @@ DEFINE_uint64(
 
 int64_t memgraph::flags::GetMemoryLimit() {
   if (FLAGS_memory_limit == 0) {
-    const auto maybe_totals = memgraph::utils::sysinfo::TotalMemory();
-    MG_ASSERT(maybe_totals, "Failed to fetch the total physical and swap memory");
+    const auto maybe_capacity = memgraph::utils::sysinfo::InstalledMemory();
+    MG_ASSERT(maybe_capacity, "Failed to fetch the total physical and swap memory capacity");
 
-    auto memory_kib = maybe_totals->ram_kib;
-    if (maybe_totals->swap_kib == 0) {
+    auto memory_kib = maybe_capacity->ram_kib;
+    if (maybe_capacity->swap_kib == 0) {
       // take only 90% of the total memory
       memory_kib *= 9;
       memory_kib /= 10;

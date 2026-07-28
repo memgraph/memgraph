@@ -27,7 +27,7 @@ namespace memgraph::utils::sysinfo {
  */
 std::optional<uint64_t> AvailableMemory();
 
-struct MemoryTotals {
+struct MemoryCapacity {
   uint64_t ram_kib = 0;
   uint64_t swap_kib = 0;
 };
@@ -37,6 +37,6 @@ struct MemoryTotals {
  * sysinfo(2) call. If the information is unavailable an empty value is
  * returned.
  */
-std::optional<MemoryTotals> TotalMemory();
+std::optional<MemoryCapacity> InstalledMemory();
 
 }  // namespace memgraph::utils::sysinfo
