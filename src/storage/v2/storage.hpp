@@ -454,13 +454,18 @@ class Storage {
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
 
-  // Written under a UNIQUE hold on main_lock_ by SetIsolationLevel/SetStorageMode, but read
-  // without one: the accessor factories evaluate them as constructor arguments, so the read
-  // happens before the constructor acquires anything, and replication reads storage_mode_ with no
-  // hold at all. Atomic so those reads are not a data race.
+  // Written under a UNIQUE hold on main_lock_ by SetIsolationLevel and SetStorageMode.
   //
-  // This orders the reads; it does not make them fresh. A reader can still observe a mode, then
-  // block on main_lock_, and construct its transaction after the mode has changed underneath it.
+  // An accessor reads them in its constructor, after taking its hold, so the mode it builds its
+  // transaction with is the mode in force for the whole life of that hold. Reading before
+  // acquiring would let the value change while the reader waits, leaving an analytical transaction
+  // running against transactional storage: it writes no deltas and no WAL, so its work is neither
+  // durable, replicated, nor abortable.
+  //
+  // Atomic because plenty of readers take no hold at all, and are not going to: the noexcept
+  // getters below, GetInfo(), and replication's mode checks. Those reads are stale the moment they
+  // return whatever we do here; atomic only keeps them from being a data race. Anything that acts
+  // on the value, rather than reporting it, should read it under a hold instead.
   std::atomic<IsolationLevel> isolation_level_;
   std::atomic<StorageMode> storage_mode_;
   memory::ArenaPool *db_arena_pool_{nullptr};
@@ -541,12 +546,16 @@ class Accessor {
   static constexpr struct ReadOnlyAccess {
   } read_only_access;
 
-  Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+  /// The isolation level and storage mode are read from `storage` once the hold is taken, not
+  /// passed in: a caller reading them itself would read them before this constructor acquires
+  /// anything, and SetIsolationLevel/SetStorageMode write them under UNIQUE. Reading them early
+  /// means blocking here and then building the transaction against a mode that has since changed.
+  Accessor(SharedAccess /* tag */, Storage *storage, std::optional<IsolationLevel> override_isolation_level,
            StorageAccessType rw_type = StorageAccessType::WRITE,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-  Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+  Accessor(UniqueAccess /* tag */, Storage *storage, std::optional<IsolationLevel> override_isolation_level,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-  Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+  Accessor(ReadOnlyAccess /* tag */, Storage *storage, std::optional<IsolationLevel> override_isolation_level,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;
@@ -1267,6 +1276,9 @@ class Accessor {
   /// One guard for all four ways to hold main_lock_. The mode is mutable state, not a property of
   /// this type: a READ_ONLY hold downgrades to READ, and ReleaseUniqueGuard() leaves nothing held.
   utils::ResourceLockGuard guard_;
+  /// Read from the storage under `guard_`, so it must be declared (and so initialised) after it and
+  /// before transaction_, which is created with the mode it names.
+  StorageMode creation_storage_mode_;
   /// IMPORTANT: transaction_ has to be constructed after the guard (so that destruction is in correct order)
   Transaction transaction_;
   std::optional<uint64_t> commit_timestamp_;
@@ -1289,7 +1301,6 @@ class Accessor {
   void MarkEdgeAsDeleted(Edge *edge);
 
  private:
-  StorageMode creation_storage_mode_;
 };
 
 }  // namespace memgraph::storage

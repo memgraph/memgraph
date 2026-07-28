@@ -189,11 +189,11 @@ class InMemoryStorage final : public Storage {
    private:
     friend class InMemoryStorage;
 
-    explicit InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode, StorageAccessType rw_type,
+    explicit InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage,
+                              std::optional<IsolationLevel> override_isolation_level, StorageAccessType rw_type,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-    explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode,
+    explicit InMemoryAccessor(auto tag, InMemoryStorage *storage,
+                              std::optional<IsolationLevel> override_isolation_level,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;

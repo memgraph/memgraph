@@ -288,18 +288,18 @@ DiskStorage::~DiskStorage() {
 }
 
 DiskStorage::DiskAccessor::DiskAccessor(Accessor::SharedAccess tag, DiskStorage *storage,
-                                        IsolationLevel isolation_level, StorageMode storage_mode,
+                                        std::optional<IsolationLevel> override_isolation_level,
                                         StorageAccessType rw_type)
-    : Accessor(tag, storage, isolation_level, storage_mode, rw_type, /*no timeout*/ std::nullopt) {
+    : Accessor(tag, storage, override_isolation_level, rw_type, /*no timeout*/ std::nullopt) {
   rocksdb::WriteOptions write_options;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
   transaction_.disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
   transaction_.disk_transaction_->SetReadTimestampForValidation(transaction_.start_timestamp);
 }
 
-DiskStorage::DiskAccessor::DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level,
-                                        StorageMode storage_mode)
-    : Accessor(tag, storage, isolation_level, storage_mode, /*no timeout*/ std::nullopt) {
+DiskStorage::DiskAccessor::DiskAccessor(auto tag, DiskStorage *storage,
+                                        std::optional<IsolationLevel> override_isolation_level)
+    : Accessor(tag, storage, override_isolation_level, /*no timeout*/ std::nullopt) {
   rocksdb::WriteOptions write_options;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
   transaction_.disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
@@ -2517,7 +2517,7 @@ std::unique_ptr<Storage::Accessor> DiskStorage::Access(StorageAccessType rw_type
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
   return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_, rw_type});
+      new DiskAccessor{Storage::Accessor::shared_access, this, override_isolation_level, rw_type});
 }
 
 std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
@@ -2527,7 +2527,7 @@ std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<Isola
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
   return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::unique_access, this, isolation_level, storage_mode_});
+      new DiskAccessor{Storage::Accessor::unique_access, this, override_isolation_level});
 }
 
 std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
@@ -2537,7 +2537,7 @@ std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<Iso
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
   return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::read_only_access, this, isolation_level, storage_mode_});
+      new DiskAccessor{Storage::Accessor::read_only_access, this, override_isolation_level});
 }
 
 bool DiskStorage::DiskAccessor::LabelPropertyIndexExists(LabelId label,

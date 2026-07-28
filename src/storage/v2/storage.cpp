@@ -119,55 +119,60 @@ std::unique_ptr<Accessor> Storage::ReadOnlyAccess(std::optional<IsolationLevel> 
 
 std::unique_ptr<Accessor> Storage::ReadOnlyAccess() { return ReadOnlyAccess({}, std::nullopt); }
 
-Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, StorageAccessType rw_type,
+Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage,
+                            std::optional<IsolationLevel> override_isolation_level, StorageAccessType rw_type,
                             const std::optional<std::chrono::milliseconds> timeout)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       guard_(CreateGuard(storage, rw_type, timeout)),
-      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      creation_storage_mode_(storage->storage_mode_),
+      transaction_(storage->CreateTransaction(override_isolation_level.value_or(storage->isolation_level_),
+                                              creation_storage_mode_)),
       is_transaction_active_(true),
-      original_access_type_(rw_type),
-      creation_storage_mode_(storage_mode) {
+      original_access_type_(rw_type) {
   // UNIQUE has its own tag and its own public entry point. Reaching exclusive access through the
   // shared one means a caller computed rw_type and got it wrong; CreateGuard would grant it.
   DMG_ASSERT(rw_type != StorageAccessType::UNIQUE, "UNIQUE access must go through UniqueAccess()");
 }
 
-Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
+Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage,
+                            std::optional<IsolationLevel> override_isolation_level,
+                            const std::optional<std::chrono::milliseconds> timeout)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       guard_(CreateGuard(storage, StorageAccessType::UNIQUE, timeout)),
-      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      creation_storage_mode_(storage->storage_mode_),
+      transaction_(storage->CreateTransaction(override_isolation_level.value_or(storage->isolation_level_),
+                                              creation_storage_mode_)),
       is_transaction_active_(true),
-      original_access_type_(StorageAccessType::UNIQUE),
-      creation_storage_mode_(storage_mode) {}
+      original_access_type_(StorageAccessType::UNIQUE) {}
 
-Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
+Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage,
+                            std::optional<IsolationLevel> override_isolation_level,
+                            const std::optional<std::chrono::milliseconds> timeout)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       guard_(CreateGuard(storage, READ_ONLY, timeout)),
-      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      creation_storage_mode_(storage->storage_mode_),
+      transaction_(storage->CreateTransaction(override_isolation_level.value_or(storage->isolation_level_),
+                                              creation_storage_mode_)),
       is_transaction_active_(true),
-      original_access_type_(StorageAccessType::READ_ONLY),
-      creation_storage_mode_(storage_mode) {}
+      original_access_type_(StorageAccessType::READ_ONLY) {}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       guard_(std::move(other.guard_)),
+      creation_storage_mode_(other.creation_storage_mode_),
       transaction_(std::move(other.transaction_)),
       commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
-      original_access_type_(other.original_access_type_),
-      creation_storage_mode_(other.creation_storage_mode_) {
+      original_access_type_(other.original_access_type_) {
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();

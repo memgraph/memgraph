@@ -56,9 +56,9 @@ class DiskStorage final : public Storage {
    private:
     friend class DiskStorage;
 
-    explicit DiskAccessor(SharedAccess tag, DiskStorage *storage, IsolationLevel isolation_level,
-                          StorageMode storage_mode, StorageAccessType rw_type);
-    explicit DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    explicit DiskAccessor(SharedAccess tag, DiskStorage *storage,
+                          std::optional<IsolationLevel> override_isolation_level, StorageAccessType rw_type);
+    explicit DiskAccessor(auto tag, DiskStorage *storage, std::optional<IsolationLevel> override_isolation_level);
 
    public:
     DiskAccessor(const DiskAccessor &) = delete;
