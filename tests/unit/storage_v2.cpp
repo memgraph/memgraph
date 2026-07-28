@@ -3099,3 +3099,102 @@ TEST(StorageAccessRaceTest, ReadsModeAndIsolationWithoutRacingTheWriter) {
 
   EXPECT_GT(accessors.load(), 0) << "no accessor was ever created; the test raced nothing";
 }
+
+// InMemoryStorage::TryAccess: acquire an accessor if main_lock_ admits it right now, or return
+// nullptr. Outside the TYPED_TEST_SUITE because it is InMemoryStorage's alone; DiskStorage has no
+// probe rather than a probe that always fails.
+class StorageTryAccessTest : public ::testing::Test {
+ protected:
+  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
+      .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
+};
+
+TEST_F(StorageTryAccessTest, SucceedsAndReturnsUsableAccessorWhenFree) {
+  using namespace memgraph::storage;
+
+  auto acc = store.TryAccess(READ);
+  ASSERT_NE(acc, nullptr);
+  EXPECT_EQ(acc->type(), READ);
+  EXPECT_NO_THROW(acc->CreateVertex());
+  EXPECT_NO_THROW(acc->Abort());
+  acc.reset();  // destroy the accessor to release its main_lock_ share (Abort() alone does not)
+
+  auto write_acc = store.TryAccess(WRITE);
+  ASSERT_NE(write_acc, nullptr);
+  EXPECT_EQ(write_acc->type(), WRITE);
+  EXPECT_NO_THROW(write_acc->Abort());
+  write_acc.reset();
+
+  auto unique_acc = store.TryAccess(UNIQUE);
+  ASSERT_NE(unique_acc, nullptr);
+  EXPECT_EQ(unique_acc->type(), UNIQUE);
+  EXPECT_NO_THROW(unique_acc->Abort());
+  unique_acc.reset();
+
+  auto ro_acc = store.TryAccess(READ_ONLY);
+  ASSERT_NE(ro_acc, nullptr);
+  EXPECT_EQ(ro_acc->type(), READ_ONLY);
+  EXPECT_NO_THROW(ro_acc->Abort());
+}
+
+// UNIQUE held -> every probe returns nullopt without throwing or creating a transaction. The
+// "no transaction created" part is proven via the strictly-monotonic transaction_id: it only
+// advances on CreateTransaction(), so a spurious probe would make the next id jump by >1.
+TEST_F(StorageTryAccessTest, UniqueHeldBlocksNewSharedWithoutCreatingATransaction) {
+  using namespace memgraph::storage;
+
+  auto unique_acc = store.UniqueAccess();  // blocking call; trivially succeeds, nothing else held
+  ASSERT_NE(unique_acc, nullptr);
+  const uint64_t unique_id = unique_acc->GetTransaction()->transaction_id;
+
+  EXPECT_EQ(store.TryAccess(READ), nullptr);
+  EXPECT_EQ(store.TryAccess(WRITE), nullptr);
+  EXPECT_EQ(store.TryAccess(READ_ONLY), nullptr);
+  EXPECT_EQ(store.TryAccess(UNIQUE), nullptr);
+
+  unique_acc->Abort();
+  unique_acc.reset();  // releases the UNIQUE hold on main_lock_
+
+  auto after = store.TryAccess(READ);
+  ASSERT_NE(after, nullptr);
+  EXPECT_EQ(after->GetTransaction()->transaction_id, unique_id + 1)
+      << "a TryAccess nullopt path created a transaction it "
+         "should not have";
+  after->Abort();
+}
+
+// Mirror of the above but the OTHER conflict direction: a held shared (READ) lock must block a
+// new TryAccess(UNIQUE), while still allowing further compatible shared acquisitions through.
+TEST_F(StorageTryAccessTest, SharedHeldBlocksNewUniqueButNotNewCompatibleShared) {
+  using namespace memgraph::storage;
+
+  auto read_acc = store.Access(READ);  // blocking call; trivially succeeds
+  ASSERT_NE(read_acc, nullptr);
+
+  EXPECT_EQ(store.TryAccess(UNIQUE), nullptr);
+
+  // READ is not exclusive with itself/WRITE -- a second READ probe should still succeed.
+  auto another_read = store.TryAccess(READ);
+  ASSERT_NE(another_read, nullptr);
+  EXPECT_NO_THROW(another_read->Abort());
+
+  read_acc->Abort();
+}
+
+// READ_ONLY held -> conflicts with WRITE (both directly and via TryAccess(WRITE)), matching the
+// existing WRITE vs READ_ONLY mutual exclusion enforced by ResourceLock.
+TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
+  using namespace memgraph::storage;
+
+  auto ro_acc = store.ReadOnlyAccess();  // blocking call; trivially succeeds
+  ASSERT_NE(ro_acc, nullptr);
+
+  EXPECT_EQ(store.TryAccess(WRITE), nullptr);
+
+  ro_acc->Abort();
+  ro_acc.reset();  // destroy the accessor to release its READ_ONLY main_lock_ share (Abort() alone does not)
+
+  auto write_acc = store.TryAccess(WRITE);
+  ASSERT_NE(write_acc, nullptr);
+  EXPECT_NO_THROW(write_acc->Abort());
+}

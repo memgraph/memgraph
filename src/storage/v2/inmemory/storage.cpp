@@ -4670,6 +4670,13 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
       this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, timeout)});
 }
 
+std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType rw_type,
+                                                              std::optional<IsolationLevel> override_isolation_level) {
+  utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::try_to_lock};
+  if (!guard.owns_lock()) return nullptr;
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
+}
+
 void InMemoryStorage::CreateSnapshotHandler(
     std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>(std::string_view)> cb) {
   create_snapshot_handler = [cb = std::move(cb)](std::string_view trigger) {
