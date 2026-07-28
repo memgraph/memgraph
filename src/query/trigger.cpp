@@ -198,6 +198,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
     ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
     ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
     ast_storage.user_functions_ = parsed_statements_.ast_storage.user_functions_;
+    ast_storage.call_procedures_ = parsed_statements_.ast_storage.call_procedures_;
 
     std::vector<Identifier *> predefined_identifiers;
     predefined_identifiers.reserve(identifiers.size());

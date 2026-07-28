@@ -1545,6 +1545,27 @@ TYPED_TEST(InterpreterTest, ProcedurePlanReuseAndGenerationInvalidation) {
   EXPECT_NE(cached_plan(), first);
 }
 
+// A query that names no procedure and no user-defined function bakes in nothing a module reload
+// can invalidate, so a reload must leave its cached plan and AST alone.
+TYPED_TEST(InterpreterTest, ModuleFreePlanSurvivesModuleReload) {
+  const std::string query = "MATCH (n) RETURN n";
+  const auto key = memgraph::query::frontend::StrippedQuery{query}.stripped_query();
+  auto cached_plan = [&] {
+    return this->db->plan_cache()->WithLock([&](auto &cache) {
+      auto entry = cache.get(key);
+      return entry ? *entry : nullptr;
+    });
+  };
+
+  this->Interpret(query);
+  auto first = cached_plan();
+  ASSERT_NE(first, nullptr);
+
+  this->Interpret("CALL mg.load_all()");
+  this->Interpret(query);
+  EXPECT_EQ(cached_plan(), first);
+}
+
 TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
   const auto check_load_csv_queries = [&](const bool allow_load_csv) {
     TmpDirManager directory_manager{"allow_load_csv"};

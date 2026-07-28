@@ -46,6 +46,17 @@ DEFINE_VALIDATED_int32(query_ast_cache_max_size, 1000,
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
 namespace memgraph::query {
+namespace {
+
+/// A cached artifact is generation-checked only when building its AST read the query-module
+/// registry. A query naming no procedure and no user-defined function bakes in nothing that a
+/// module reload can invalidate, so it survives one untouched.
+bool IsFresh(AstStorage const &ast_storage, uint64_t stamped_generation, uint64_t current_generation) {
+  return !ast_storage.DependsOnModules() || stamped_generation == current_generation;
+}
+
+}  // namespace
+
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan, uint64_t module_generation)
     : plan_(std::move(plan)), module_generation_(module_generation) {}
 
@@ -101,7 +112,14 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
   std::shared_ptr<const CachedQuery> cached;
   cache->WithLock([&](auto &lru) {
     module_generation = procedure::gModuleRegistry.ModuleGeneration();
-    if (auto entry = lru.get(cache_key); entry && (*entry)->module_generation == module_generation) cached = *entry;
+    auto entry = lru.get(cache_key);
+    if (!entry) return;
+    if (IsFresh((*entry)->ast_storage, (*entry)->module_generation, module_generation)) {
+      cached = *entry;
+    } else {
+      // known dead: drop it now rather than leave it holding an AstStorage until the insert path replaces it
+      lru.invalidate(cache_key);
+    }
   });
   std::unique_ptr<frontend::opencypher::Parser> parser;
 
@@ -114,6 +132,7 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
     result.ast_storage.labels_ = cached_query.ast_storage.labels_;
     result.ast_storage.edge_types_ = cached_query.ast_storage.edge_types_;
     result.ast_storage.user_functions_ = cached_query.ast_storage.user_functions_;
+    result.ast_storage.call_procedures_ = cached_query.ast_storage.call_procedures_;
 
     result.query = cached_query.query->Clone(&result.ast_storage);
     result.required_privileges = cached_query.required_privileges;
@@ -162,7 +181,8 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
                       .using_schema_assert = visitor.GetQueryInfo().has_schema_assert,
                       .module_generation = module_generation});
       cache->WithLock([&](auto &lru) {
-        if (auto winner = lru.get(cache_key); winner && (*winner)->module_generation == module_generation) {
+        auto winner = lru.get(cache_key);
+        if (winner && IsFresh((*winner)->ast_storage, (*winner)->module_generation, module_generation)) {
           cached_query = *winner;
         } else {
           // put won't overwrite an existing key, so drop a stale-generation entry before inserting the fresh one
@@ -272,7 +292,7 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
       const_cast<plan::LogicalOperator &>(plan).Accept(checker);
 
       auto const all_satisfied = db_accessor->CheckIndicesAreReady(checker.required_indices_);
-      if (all_satisfied && ptr->module_generation() == module_generation) {
+      if (all_satisfied && IsFresh(ptr->ast_storage(), ptr->module_generation(), module_generation)) {
         return ptr;
       } else {
         plan_cache->WithLock([&](PlanCache_t &cache) { cache.invalidate(stripped_query.stripped_query()); });

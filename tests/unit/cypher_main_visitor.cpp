@@ -1128,6 +1128,33 @@ TEST_P(CypherMainVisitorTest, CallProcedureCacheable) {
   ::frontend::opencypher::Parser parser("CALL mock_module.proc() YIELD res RETURN res");
   visitor.visit(parser.tree());
   EXPECT_TRUE(visitor.GetQueryInfo().is_cacheable);
+  ASSERT_EQ(storage.call_procedures_.size(), 1U);
+  EXPECT_EQ(storage.call_procedures_[0], "mock_module.proc");
+  EXPECT_TRUE(storage.DependsOnModules());
+}
+
+TEST_P(CypherMainVisitorTest, ModuleFreeQueryDependsOnNoModules) {
+  ParsingContext context;
+  AstStorage storage;
+  Parameters parameters;
+  CypherMainVisitor visitor(context, &storage, &parameters);
+  ::frontend::opencypher::Parser parser("MATCH (n) RETURN n");
+  visitor.visit(parser.tree());
+  EXPECT_TRUE(storage.user_functions_.empty());
+  EXPECT_TRUE(storage.call_procedures_.empty());
+  EXPECT_FALSE(storage.DependsOnModules());
+}
+
+TEST_P(CypherMainVisitorTest, MagicFunctionDependsOnModules) {
+  AddFunc(*mock_module, "get", {});
+  ParsingContext context;
+  AstStorage storage;
+  Parameters parameters;
+  CypherMainVisitor visitor(context, &storage, &parameters);
+  ::frontend::opencypher::Parser parser("RETURN mock_module.get()");
+  visitor.visit(parser.tree());
+  EXPECT_TRUE(storage.call_procedures_.empty());
+  EXPECT_TRUE(storage.DependsOnModules());
 }
 
 TEST_P(CypherMainVisitorTest, StringLiteralDoubleQuotes) {

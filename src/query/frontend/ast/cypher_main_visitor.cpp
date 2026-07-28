@@ -2159,6 +2159,10 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
   }
 
+  // Record the dependency before reading the signature below: is_write, void-ness and the
+  // YIELD * expansion all come from it and are baked into the AST from here on.
+  storage_->FindOrAddCallProcedure(call_proc->procedure_name_);
+
   call_proc->is_write_ = maybe_found->second->info.is_write;
   if (maybe_found->second->results.empty()) {
     call_proc->void_procedure_ = true;
