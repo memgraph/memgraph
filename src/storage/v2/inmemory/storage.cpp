@@ -569,7 +569,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   if (free_mem_fn_override) {
     free_memory_func_ = *std::move(free_mem_fn_override);
   } else {
-    free_memory_func_ = [this](std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
+    free_memory_func_ = [this](std::optional<utils::ResourceLockGuard> main_guard, bool periodic) {
       CollectGarbage(std::move(main_guard), periodic);
 
       // Indices
@@ -610,7 +610,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     gc_runner_.SetInterval(config_.gc.interval);
     gc_runner_.Run("Storage GC", [this] {
       const memory::DbArenaScope db_arena_scope{db_arena_};
-      this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true);
+      this->FreeMemory(std::nullopt, true);
     });
   }
 
@@ -2027,8 +2027,8 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
 }
 
 void InMemoryStorage::InMemoryAccessor::DowngradeToReadIfValid() {
-  if (storage_guard_.owns_lock() && storage_guard_.type() == utils::SharedResourceLockGuard::Type::READ_ONLY) {
-    storage_guard_.downgrade_to_read();
+  if (guard_.owns_lock() && guard_.type() == utils::ResourceLockGuard::READ_ONLY) {
+    guard_.downgrade_to_read();
   }
 }
 
@@ -2930,16 +2930,16 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   }
 }
 
-void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
+void InMemoryStorage::CollectGarbage(std::optional<utils::ResourceLockGuard> main_guard, bool periodic) {
   // NOTE: A single call need not handle objects deleted under a different storage mode: SetStorageMode
   // runs GC before any transaction in the new mode can start.
 
   using Guard = utils::ResourceLockGuard;
   auto const main_lock_guard = [&] -> Guard {
     // Adopt SetStorageMode's UNIQUE hold if it passed one; reacquiring would deadlock.
-    if (main_guard.owns_lock()) {
-      DMG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
-      return Guard{std::move(main_guard)};
+    if (main_guard) {
+      DMG_ASSERT(main_guard->mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
+      return *std::move(main_guard);
     }
 
     // Aggressive GC escalates to UNIQUE (blocks new txns); otherwise a shared hold, so slow GC does
@@ -4614,7 +4614,7 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   return res;
 }
 
-void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
+void InMemoryStorage::FreeMemory(std::optional<utils::ResourceLockGuard> main_guard, bool periodic) {
   std::invoke(free_memory_func_, std::move(main_guard), periodic);
 }
 

@@ -592,6 +592,10 @@ struct ResourceLockGuard {
 
   Type type() const { return type_; }
 
+  /// The lock this guard is bound to, held or not. Mirrors std::unique_lock::mutex(), and lets a
+  /// callee assert that a guard handed to it belongs to the lock it expects.
+  ResourceLock *mutex() const { return ptr_; }
+
  private:
   ResourceLock *ptr_;
   Type type_;

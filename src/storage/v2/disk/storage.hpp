@@ -597,7 +597,7 @@ class DiskStorage final : public Storage {
     // Disk storage doesn't track and cache live label counts, so this is a no-op
   }
 
-  void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/, bool /*periodic*/) override {}
+  void FreeMemory(std::optional<utils::ResourceLockGuard> /*lock*/, bool /*periodic*/) override {}
 
   void PrepareForNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 

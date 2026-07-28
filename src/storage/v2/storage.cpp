@@ -40,50 +40,33 @@ namespace memgraph::storage {
 class InMemoryStorage;
 
 namespace {
-void TryLock(auto &guard, auto timeout) {
-  if (timeout) {  // With timeout
-    if (!guard.try_lock_for(*timeout)) {
-      if constexpr (std::is_same_v<decltype(guard), utils::SharedResourceLockGuard &>) {
-        if (guard.type() == utils::SharedResourceLockGuard::Type::READ_ONLY) throw ReadOnlyAccessTimeout{};
-        throw SharedAccessTimeout{};
-      }
-      throw UniqueAccessTimeout{};
-    }
-  } else {  // Default
-    guard.lock();
-  }
-}
-
-auto CreateSharedGuard(Storage *storage, StorageAccessType rw_type,
-                       const std::optional<std::chrono::milliseconds> timeout) {
-  utils::SharedResourceLockGuard::Type shared_type{};
+[[noreturn]] void ThrowAccessTimeout(StorageAccessType rw_type) {
   switch (rw_type) {
     using enum StorageAccessType;
-    case NO_ACCESS:
-      [[fallthrough]];
     case UNIQUE:
-      LOG_FATAL("Invalid storage accessor type!");
-      break;
-
-    case WRITE:
-      shared_type = utils::SharedResourceLockGuard::Type::WRITE;
-      break;
-    case READ:
-      shared_type = utils::SharedResourceLockGuard::Type::READ;
-      break;
+      throw UniqueAccessTimeout{};
     case READ_ONLY:
-      shared_type = utils::SharedResourceLockGuard::Type::READ_ONLY;
-      break;
+      throw ReadOnlyAccessTimeout{};
+    case WRITE:
+    case READ:
+      throw SharedAccessTimeout{};
+    case NO_ACCESS:
+      // Unreachable: the caller maps rw_type through ToGuardType first, which rejects NO_ACCESS.
+      // Present so the switch stays exhaustive and every path out of this [[noreturn]] diverges.
+      LOG_FATAL("NO_ACCESS names the absence of a hold; there is nothing to time out acquiring");
   }
-  utils::SharedResourceLockGuard lock(storage->main_lock_, shared_type, std::defer_lock);
-  TryLock(lock, timeout);
-  return lock;
 }
 
-auto CreateUniqueGuard(Storage *storage, const std::optional<std::chrono::milliseconds> timeout) {
-  std::unique_lock<utils::ResourceLock> unique_lock(storage->main_lock_, std::defer_lock);
-  TryLock(unique_lock, timeout);
-  return unique_lock;
+/// Acquires `main_lock_` in the mode `rw_type` names, blocking indefinitely without a timeout and
+/// throwing the timeout exception for that mode with one.
+auto CreateGuard(Storage *storage, StorageAccessType rw_type, const std::optional<std::chrono::milliseconds> timeout) {
+  utils::ResourceLockGuard guard(storage->main_lock_, ToGuardType(rw_type), std::defer_lock);
+  if (!timeout) {
+    guard.lock();
+  } else if (!guard.try_lock_for(*timeout)) {
+    ThrowAccessTimeout(rw_type);
+  }
+  return guard;
 }
 }  // namespace
 
@@ -143,12 +126,15 @@ Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationL
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
-      storage_guard_(CreateSharedGuard(storage, rw_type, timeout)),
-      unique_guard_(storage_->main_lock_, std::defer_lock),
+      guard_(CreateGuard(storage, rw_type, timeout)),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
       original_access_type_(rw_type),
-      creation_storage_mode_(storage_mode) {}
+      creation_storage_mode_(storage_mode) {
+  // UNIQUE has its own tag and its own public entry point. Reaching exclusive access through the
+  // shared one means a caller computed rw_type and got it wrong; CreateGuard would grant it.
+  DMG_ASSERT(rw_type != StorageAccessType::UNIQUE, "UNIQUE access must go through UniqueAccess()");
+}
 
 Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
@@ -156,8 +142,7 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
-      storage_guard_(storage_->main_lock_, {/* unused */}, std::defer_lock),
-      unique_guard_(CreateUniqueGuard(storage, timeout)),
+      guard_(CreateGuard(storage, StorageAccessType::UNIQUE, timeout)),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
       original_access_type_(StorageAccessType::UNIQUE),
@@ -169,8 +154,7 @@ Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, Isolatio
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
-      storage_guard_(CreateSharedGuard(storage, READ_ONLY, timeout)),
-      unique_guard_(storage_->main_lock_, std::defer_lock),
+      guard_(CreateGuard(storage, READ_ONLY, timeout)),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
       original_access_type_(StorageAccessType::READ_ONLY),
@@ -178,8 +162,7 @@ Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, Isolatio
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
-      storage_guard_(std::move(other.storage_guard_)),
-      unique_guard_(std::move(other.unique_guard_)),
+      guard_(std::move(other.guard_)),
       transaction_(std::move(other.transaction_)),
       commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),

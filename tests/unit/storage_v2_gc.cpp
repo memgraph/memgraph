@@ -29,6 +29,11 @@ using testing::UnorderedElementsAre;
 
 namespace ms = memgraph::storage;
 
+// Forces a synchronous GC pass by handing FreeMemory a hold it must adopt rather than acquire.
+inline auto UniqueGuard(memgraph::utils::ResourceLock &lock) {
+  return memgraph::utils::ResourceLockGuard{lock, memgraph::utils::ResourceLockGuard::UNIQUE};
+}
+
 class StorageV2GcMetricsTest : public testing::Test {
  protected:
   void SetUp() override {
@@ -358,7 +363,7 @@ TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithCommittedContributorsAreGa
   }
 
   {
-    auto main_guard = std::unique_lock{storage->main_lock_};
+    auto main_guard = UniqueGuard(storage->main_lock_);
     storage->FreeMemory(std::move(main_guard), false);
   }
 
@@ -407,14 +412,14 @@ TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithAbortedContributorsAreGarb
   // First GC: moves `waiting_gc_deltas_` to `aborted_transactions_` or
   // `committed_transactions_`
   {
-    auto main_guard = std::unique_lock{storage->main_lock_};
+    auto main_guard = UniqueGuard(storage->main_lock_);
     storage->FreeMemory(std::move(main_guard), false);
   }
 
   // Second GC: committed deltas are unlinked, and all deltas (be they committed
   // or aborted) move to `garbage_undo_buffers_` for reclamation.
   {
-    auto main_guard = std::unique_lock{storage->main_lock_};
+    auto main_guard = UniqueGuard(storage->main_lock_);
     storage->FreeMemory(std::move(main_guard), false);
   }
 
@@ -464,19 +469,19 @@ TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithMultipleAbortsAreGarbageCo
 
   // First GC: moves from waiting_gc_deltas_ to aborted_transactions_
   {
-    auto main_guard = std::unique_lock{storage->main_lock_};
+    auto main_guard = UniqueGuard(storage->main_lock_);
     storage->FreeMemory(std::move(main_guard), false);
   }
 
   // Second GC: moves to garbage_undo_buffers_
   {
-    auto main_guard = std::unique_lock{storage->main_lock_};
+    auto main_guard = UniqueGuard(storage->main_lock_);
     storage->FreeMemory(std::move(main_guard), false);
   }
 
   // Third GC: frees the deltas
   {
-    auto main_guard = std::unique_lock{storage->main_lock_};
+    auto main_guard = UniqueGuard(storage->main_lock_);
     storage->FreeMemory(std::move(main_guard), false);
   }
 
@@ -533,7 +538,7 @@ TEST_F(StorageV2GcMetricsTest, DownstreamDeltaChainsAreGarbageCollected) {
 
   // Multiple GC cycles to process the downstream chain
   for (int i = 0; i < 4; ++i) {
-    auto main_guard = std::unique_lock{storage->main_lock_};
+    auto main_guard = UniqueGuard(storage->main_lock_);
     storage->FreeMemory(std::move(main_guard), false);
   }
 
@@ -589,7 +594,7 @@ TEST_F(StorageV2GcMetricsTest, MixedCommitAbortCommitNonSequentialDeltasAreGarba
 
   // Multiple GC cycles to handle mixed commit/abort
   for (int i = 0; i < 4; ++i) {
-    auto main_guard = std::unique_lock{storage->main_lock_};
+    auto main_guard = UniqueGuard(storage->main_lock_);
     storage->FreeMemory(std::move(main_guard), false);
   }
 
@@ -644,7 +649,7 @@ TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithTwoContributorsAreGarbaged
   }
 
   {
-    auto main_guard = std::unique_lock{storage->main_lock_};
+    auto main_guard = UniqueGuard(storage->main_lock_);
     storage->FreeMemory(std::move(main_guard), false);
   }
 
@@ -1523,7 +1528,7 @@ TEST(StorageV2Gc, ClearDrainsWaitingGcDeltas) {
   // Clear should discard entire storage state, including pending
   // non-sequential deltas in the waiting_gc_deltas_ list.
   {
-    auto main_guard = std::unique_lock{storage->main_lock_};
+    auto main_guard = UniqueGuard(storage->main_lock_);
     storage->Clear();
   }
 
@@ -1743,7 +1748,7 @@ TEST(StorageV2GcLightEdge, AnalyticalModeDeleteGoesToGraveyard) {
 
   // Run GC explicitly a second time to drain the graveyard.
   {
-    auto main_guard = std::unique_lock{mem_storage->main_lock_};
+    auto main_guard = UniqueGuard(mem_storage->main_lock_);
     mem_storage->FreeMemory(std::move(main_guard), false);
   }
 
