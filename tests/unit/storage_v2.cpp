@@ -3005,14 +3005,14 @@ TEST_F(StorageAccessorLockModeTest, ReadOnlyDowngradesToRead) {
 
 // SetStorageMode's hand-off: after releasing the hold the accessor owns nothing, so it must not
 // release anything at destruction. The returned lock is the sole owner until it goes away.
-TEST_F(StorageAccessorLockModeTest, ReleasingTheUniqueGuardLeavesNothingHeld) {
+TEST_F(StorageAccessorLockModeTest, ReleasingTheGuardLeavesNothingHeld) {
   using namespace memgraph::storage;
 
   auto acc = store.UniqueAccess();
   ASSERT_EQ(acc->type(), UNIQUE);
 
   {
-    auto released = acc->ReleaseUniqueGuard();
+    auto released = acc->ReleaseGuard();
     EXPECT_EQ(acc->type(), NO_ACCESS);
     EXPECT_TRUE(released.owns_lock());
     EXPECT_FALSE(store.main_lock_.try_lock()) << "the released lock is still the sole owner";

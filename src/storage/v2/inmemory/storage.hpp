@@ -189,12 +189,9 @@ class InMemoryStorage final : public Storage {
    private:
     friend class InMemoryStorage;
 
-    explicit InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage,
-                              std::optional<IsolationLevel> override_isolation_level, StorageAccessType rw_type,
-                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-    explicit InMemoryAccessor(auto tag, InMemoryStorage *storage,
-                              std::optional<IsolationLevel> override_isolation_level,
-                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+    /// Takes ownership of a hold the caller acquired; see Accessor's constructor.
+    explicit InMemoryAccessor(InMemoryStorage *storage, std::optional<IsolationLevel> override_isolation_level,
+                              utils::ResourceLockGuard guard);
 
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
 

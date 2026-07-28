@@ -535,28 +535,27 @@ inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
   return os;
 }
 
+/// Acquires `main_lock_` in the mode `rw_type` names. Blocks indefinitely without a timeout; with
+/// one, throws the timeout exception belonging to that mode.
+utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType rw_type,
+                                             std::optional<std::chrono::milliseconds> timeout);
+
 class Accessor {
  public:
-  static constexpr struct SharedAccess {
-  } shared_access;
+  /// Takes ownership of a hold on `storage`'s main_lock_. The caller acquires it: blocking with a
+  /// timeout via AcquireGuardOrThrow, or non-blocking via a try_to_lock guard. Construction itself
+  /// never blocks and never fails, so a probe can decide whether to build an accessor at all.
+  ///
+  /// The access type comes from the guard, not alongside it. It is recorded as
+  /// original_access_type_, which the WAL carries to replicas to pick the mode they replay under,
+  /// so a guard and a type that disagreed would have a replica take a different hold than we did.
+  /// Nothing is lost by deriving it: no downgrade can have happened yet.
+  ///
+  /// The isolation level and storage mode are read from `storage` under the guard rather than
+  /// passed in: SetIsolationLevel and SetStorageMode write them under UNIQUE, so a caller reading
+  /// them before acquiring could build a transaction against a mode that has since changed.
+  Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard);
 
-  static constexpr struct UniqueAccess {
-  } unique_access;
-
-  static constexpr struct ReadOnlyAccess {
-  } read_only_access;
-
-  /// The isolation level and storage mode are read from `storage` once the hold is taken, not
-  /// passed in: a caller reading them itself would read them before this constructor acquires
-  /// anything, and SetIsolationLevel/SetStorageMode write them under UNIQUE. Reading them early
-  /// means blocking here and then building the transaction against a mode that has since changed.
-  Accessor(SharedAccess /* tag */, Storage *storage, std::optional<IsolationLevel> override_isolation_level,
-           StorageAccessType rw_type = StorageAccessType::WRITE,
-           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-  Accessor(UniqueAccess /* tag */, Storage *storage, std::optional<IsolationLevel> override_isolation_level,
-           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-  Accessor(ReadOnlyAccess /* tag */, Storage *storage, std::optional<IsolationLevel> override_isolation_level,
-           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;
   Accessor &operator=(Accessor &&other) = delete;
@@ -575,16 +574,14 @@ class Accessor {
     return ToAccessType(guard_.type());
   }
 
-  /// Moves out this accessor's UNIQUE hold on `main_lock_`, making the returned guard its sole
-  /// owner (this accessor then reports NO_ACCESS and releases nothing at destruction).
+  /// Moves out this accessor's hold on `main_lock_`, making the returned guard its sole owner
+  /// (this accessor then reports NO_ACCESS and releases nothing at destruction).
   ///
-  /// A caller passing its held hold onward (e.g. to FreeMemory) must move this same object.
-  /// Adopting `main_lock_` into a second guard instead gives the one hold two owners, so it is
-  /// released twice: once by the callee, again when this accessor is destroyed.
-  auto ReleaseUniqueGuard() -> utils::ResourceLockGuard {
-    MG_ASSERT(type() == UNIQUE, "ReleaseUniqueGuard requires the accessor to hold UNIQUE");
-    return std::move(guard_);
-  }
+  /// A caller passing its hold onward (e.g. to FreeMemory) must move this same object. Adopting
+  /// `main_lock_` into a second guard instead gives the one hold two owners, so it is released
+  /// twice: once by the callee, again when this accessor is destroyed. What the callee requires of
+  /// the hold is the callee's to check.
+  auto ReleaseGuard() -> utils::ResourceLockGuard { return std::move(guard_); }
 
   virtual VertexAccessor CreateVertex() = 0;
 
