@@ -26,11 +26,11 @@
 
 namespace {
 
-constexpr char kResultMessage[] = "message";
-constexpr char kResultNode[] = "node";
-constexpr char kResultEmbedding[] = "embedding";
-constexpr char kResultName[] = "name";
-constexpr char kResultValue[] = "value";
+constexpr const char *kResultMessage = "message";
+constexpr const char *kResultNode = "node";
+constexpr const char *kResultEmbedding = "embedding";
+constexpr const char *kResultName = "name";
+constexpr const char *kResultValue = "value";
 
 // Persistent module-global state, shared across procedure invocations.
 struct OnlineContext {
@@ -72,7 +72,7 @@ void InsertMessage(mgp::RecordFactory &factory, const char *msg) {
 }
 
 void SetStreamwalkUpdater(mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+  const mgp::MemoryDispatcherGuard guard(memory);
   try {
     auto arguments = CollectArgs(args);
     mgp::RecordFactory factory(result);
@@ -101,7 +101,7 @@ void SetStreamwalkUpdater(mgp_list *args, mgp_graph * /*graph*/, mgp_result *res
 }
 
 void SetWord2vecLearner(mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+  const mgp::MemoryDispatcherGuard guard(memory);
   try {
     CheckEnterprise();
     auto arguments = CollectArgs(args);
@@ -150,7 +150,7 @@ void SetWord2vecLearner(mgp_list *args, mgp_graph * /*graph*/, mgp_result *resul
 }
 
 void Reset(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+  const mgp::MemoryDispatcherGuard guard(memory);
   try {
     CheckEnterprise();
     std::lock_guard<std::mutex> lock(g_mtx);
@@ -163,7 +163,7 @@ void Reset(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result, mgp_m
 }
 
 void Get(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+  const mgp::MemoryDispatcherGuard guard(memory);
   try {
     CheckEnterprise();
     mgp::Graph graph(memgraph_graph);
@@ -179,7 +179,7 @@ void Get(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result, mgp
     auto embeddings = g_ctx.learner->GetEmbeddings();
     for (const auto &kv : embeddings) {
       mgp::List emb(kv.second.size());
-      for (float x : kv.second) emb.AppendExtend(mgp::Value(static_cast<double>(x)));
+      for (const float x : kv.second) emb.AppendExtend(mgp::Value(static_cast<double>(x)));
       auto record = factory.NewRecord();
       record.Insert(kResultNode, graph.GetNodeById(mgp::Id::FromInt(kv.first)));
       record.Insert(kResultEmbedding, emb);
@@ -190,11 +190,11 @@ void Get(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result, mgp
 }
 
 void Update(mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+  const mgp::MemoryDispatcherGuard guard(memory);
   try {
     CheckEnterprise();
     auto arguments = CollectArgs(args);
-    int64_t current_time = static_cast<int64_t>(std::time(nullptr));
+    const int64_t current_time = static_cast<int64_t>(std::time(nullptr));
 
     std::lock_guard<std::mutex> lock(g_mtx);
     if (g_ctx.has_start_time == false) {
@@ -210,8 +210,8 @@ void Update(mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memor
     auto edges = arguments[0].ValueList();
     for (size_t i = 0; i < edges.Size(); ++i) {
       auto rel = edges[i].ValueRelationship();
-      int64_t source = rel.From().Id().AsInt();
-      int64_t target = rel.To().Id().AsInt();
+      const int64_t source = rel.From().Id().AsInt();
+      const int64_t target = rel.To().Id().AsInt();
       auto pairs = g_ctx.updater->ProcessNewEdge(source, target, current_time);
       g_ctx.learner->PartialFit(pairs);
     }
@@ -221,7 +221,7 @@ void Update(mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memor
 }
 
 void Help(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+  const mgp::MemoryDispatcherGuard guard(memory);
   try {
     CheckEnterprise();
     mgp::RecordFactory factory(result);
@@ -233,6 +233,7 @@ void Help(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result, mgp_me
       for (const char *line : body) {
         auto record = factory.NewRecord();
         record.Insert(kResultName, first ? title : "");
+        // NOLINTNEXTLINE(readability-suspicious-call-argument): field name then value, not swapped.
         record.Insert(kResultValue, line);
         first = false;
       }
@@ -314,7 +315,7 @@ void AddOpt(mgp_proc *proc, const char *name, mgp_type *type, mgp_value *def) {
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard(memory);
+    const mgp::MemoryDispatcherGuard guard(memory);
 
     {
       auto *proc = mgp::module_add_read_procedure(module, "set_streamwalk_updater", SetStreamwalkUpdater);
