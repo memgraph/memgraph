@@ -21,6 +21,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/parameters.hpp"
+#include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/lru_cache.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -90,9 +91,14 @@ class PlanWrapper {
 
   uint64_t module_generation() const { return module_generation_; }
 
+  /// A pure function of the plan, so it is derived once at construction and reused for the
+  /// readiness check every time this plan is served.
+  auto required_indices() const -> storage::IndicesCollection const & { return required_indices_; }
+
  private:
   std::unique_ptr<LogicalPlan> plan_;
   uint64_t module_generation_;
+  storage::IndicesCollection required_indices_;
 };
 
 struct CachedQuery {

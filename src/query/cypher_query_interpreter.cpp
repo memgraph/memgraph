@@ -58,7 +58,13 @@ bool IsFresh(AstStorage const &ast_storage, uint64_t stamped_generation, uint64_
 }  // namespace
 
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan, uint64_t module_generation)
-    : plan_(std::move(plan)), module_generation_(module_generation) {}
+    : plan_(std::move(plan)), module_generation_(module_generation) {
+  auto checker = plan::UsedIndexChecker{};
+  // G_Lloyd: I am so SORRY, const_cast is BAD, but I'm not fixing Visitable and HierarchicalLogicalOperatorVisitor
+  //          ATM to work with a const visitor. This maybe addressed when the planner is redone.
+  const_cast<plan::LogicalOperator &>(plan_->GetRoot()).Accept(checker);
+  required_indices_ = std::move(checker.required_indices_);
+}
 
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
                             parameters::Parameters const *server_parameters, std::string_view database_uuid)
@@ -284,14 +290,8 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
     if (existing_plan) {
       // validate the index usage
       auto &ptr = existing_plan.value();
-      auto &plan = ptr->plan();
 
-      auto checker = plan::UsedIndexChecker{};
-      // G_Lloyd: I am so SORRY, const_cast is BAD, but I'm not fixing Visitable and HierarchicalLogicalOperatorVisitor
-      //          ATM to work with a const visitor. This maybe addressed when the planner is redone.
-      const_cast<plan::LogicalOperator &>(plan).Accept(checker);
-
-      auto const all_satisfied = db_accessor->CheckIndicesAreReady(checker.required_indices_);
+      auto const all_satisfied = db_accessor->CheckIndicesAreReady(ptr->required_indices());
       if (all_satisfied && IsFresh(ptr->ast_storage(), ptr->module_generation(), module_generation)) {
         return ptr;
       } else {
