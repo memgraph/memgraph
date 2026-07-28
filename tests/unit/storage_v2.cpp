@@ -26,6 +26,7 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/on_scope_exit.hpp"
 
 using testing::Types;
 using testing::UnorderedElementsAre;
@@ -2882,4 +2883,69 @@ TEST(StorageAnalyticalGcTest, GcDoesNotBlockOutUniqueAcquirers) {
   EXPECT_GT(unique_acquisitions.load(), 0) << "no UNIQUE acquirer ever got in; the test proved nothing";
   EXPECT_EQ(unique_timeouts.load(), 0) << "a UNIQUE acquirer was blocked out for " << kUniqueTimeout.count()
                                        << "ms by a concurrent analytical GC pass";
+}
+
+// UNIQUE stays exclusive while SetStorageMode runs. It holds UNIQUE across the mode switch and
+// hands that same hold on to FreeMemory(), so the hold must have exactly one owner throughout: a
+// hold released twice is admitted to a second thread while the first still believes it holds it.
+//
+// Detected by symptom rather than mechanism: probers take UNIQUE and check no other prober holds
+// it at the same time. Two simultaneous holders are only reachable if a hold was released twice.
+// A short timeout keeps a prober from parking behind the mode-switcher for the whole run, so the
+// probers stay dense enough to catch the overlap; a timeout is not itself a failure here.
+TEST(StorageSetStorageModeTest, ConcurrentUniqueHoldersAreNeverBothAdmitted) {
+  using namespace std::chrono_literals;
+  constexpr auto kDuration = 3s;
+  constexpr auto kProbeTimeout = 50ms;
+  constexpr int kProbers = 4;
+
+  // Switching to analytical writes a snapshot, so give it a scratch directory rather than the
+  // default relative "storage" path in the working directory.
+  const auto data_directory = std::filesystem::temp_directory_path() / "MG_test_unit_storage_v2_set_storage_mode";
+  std::filesystem::remove_all(data_directory);
+  const memgraph::utils::OnScopeExit cleanup{[&] { std::filesystem::remove_all(data_directory); }};
+
+  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
+      .durability{.storage_directory = data_directory},
+      .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
+
+  std::atomic<bool> stop{false};
+  std::atomic<int> concurrent_holders{0};
+  std::atomic<int> violations{0};
+  std::atomic<int> acquisitions{0};
+
+  std::vector<std::jthread> threads;
+  threads.reserve(kProbers + 1);
+
+  for (int i = 0; i < kProbers; ++i) {
+    threads.emplace_back([&] {
+      while (!stop.load(std::memory_order_relaxed)) {
+        try {
+          auto acc = store.UniqueAccess(std::nullopt, kProbeTimeout);
+          if (concurrent_holders.fetch_add(1, std::memory_order_acq_rel) != 0) {
+            violations.fetch_add(1, std::memory_order_relaxed);
+          }
+          acquisitions.fetch_add(1, std::memory_order_relaxed);
+          concurrent_holders.fetch_sub(1, std::memory_order_acq_rel);
+          acc->Abort();
+        } catch (memgraph::storage::UniqueAccessTimeout const &) {
+          // Expected under contention; only simultaneous holders are a failure.
+        }
+      }
+    });
+  }
+
+  threads.emplace_back([&] {
+    while (!stop.load(std::memory_order_relaxed)) {
+      store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+      store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+    }
+  });
+
+  std::this_thread::sleep_for(kDuration);
+  stop.store(true, std::memory_order_relaxed);
+  threads.clear();
+
+  EXPECT_GT(acquisitions.load(), 0) << "no prober ever acquired UNIQUE; the test proved nothing";
+  EXPECT_EQ(violations.load(), 0) << "two threads held the UNIQUE lock at the same time";
 }

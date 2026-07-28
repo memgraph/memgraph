@@ -533,6 +533,17 @@ class Accessor {
     return NO_ACCESS;
   }
 
+  /// Moves out this accessor's UNIQUE hold on `main_lock_`, making the returned lock its sole
+  /// owner (this accessor then reports NO_ACCESS and releases nothing at destruction).
+  ///
+  /// A caller passing its held hold onward (e.g. to FreeMemory) must move this same object.
+  /// Adopting `main_lock_` into a second lock instead gives the one hold two owners, so it is
+  /// released twice: once by the callee, again when this accessor is destroyed.
+  auto ReleaseUniqueGuard() -> std::unique_lock<utils::ResourceLock> {
+    MG_ASSERT(unique_guard_.owns_lock(), "ReleaseUniqueGuard requires the accessor to hold UNIQUE");
+    return std::move(unique_guard_);
+  }
+
   virtual VertexAccessor CreateVertex() = 0;
 
   virtual std::optional<VertexAccessor> FindVertex(Gid gid, View view) = 0;

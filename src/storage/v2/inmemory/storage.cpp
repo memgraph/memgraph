@@ -2924,7 +2924,9 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
-    FreeMemory(std::unique_lock{main_lock_, std::adopt_lock}, false);
+    // Hand off the same lock unique_accessor already holds; adopting main_lock_ into a second
+    // lock would give the one hold two owners and release it twice.
+    FreeMemory(unique_accessor->ReleaseUniqueGuard(), false);
   }
 }
 
