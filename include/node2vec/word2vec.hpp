@@ -451,41 +451,49 @@ class Word2Vec {
     }
   }
 
-  // Updates output weights for predicting `target` given hidden vector `l1`,
-  // accumulating the input-side gradient into `neu1e`. Applies hierarchical
-  // softmax and/or negative sampling depending on parameters.
+  // One binary logistic-regression update between the hidden vector `l1` and a
+  // single output row `l2`, toward the given `label` (the probability the model
+  // should assign to the "1" branch: 1 for a positive, 0 for a negative). The
+  // input-side gradient is accumulated into `neu1e`; `l2` is updated in place.
+  // Skips saturated scores (|f| >= kMaxExp), matching gensim's inner loops.
+  inline void UpdateOutput(float *l2, float label, const float *l1, float alpha, float *neu1e) {
+    float f = 0.0f;
+    for (int d = 0; d < dim_; ++d) f += l1[d] * l2[d];
+    if (f >= kMaxExp || f <= -kMaxExp) return;
+    float g = (label - Sigmoid(f)) * alpha;
+    for (int d = 0; d < dim_; ++d) neu1e[d] += g * l2[d];
+    for (int d = 0; d < dim_; ++d) l2[d] += g * l1[d];
+  }
+
+  // Trains the output layer to predict `target` from the hidden vector `l1`,
+  // accumulating the input-side gradient into `neu1e`. Uses hierarchical softmax
+  // and/or negative sampling depending on parameters (mirrors gensim's
+  // w2v_fast_sentence_*_hs / _neg).
   void TrainPair(int target, const float *l1, float alpha, float *neu1e, std::mt19937_64 &rng) {  // NOSONAR
+    // Hierarchical softmax: one binary decision per internal node on `target`'s
+    // Huffman path. code[j] is the bit toward `target`, so the target label for
+    // the "1" branch is (1 - code[j]).
     if (p_.hs && !hs_codes_.empty()) {
       const std::vector<uint8_t> &code = hs_codes_[target];
       const std::vector<int> &point = hs_points_[target];
       for (size_t j = 0; j < code.size(); ++j) {
         float *l2 = &syn1_[static_cast<size_t>(point[j]) * dim_];
-        float f = 0.0f;
-        for (int d = 0; d < dim_; ++d) f += l1[d] * l2[d];
-        if (f >= kMaxExp || f <= -kMaxExp) continue;
-        float g = (1.0f - static_cast<float>(code[j]) - Sigmoid(f)) * alpha;
-        for (int d = 0; d < dim_; ++d) neu1e[d] += g * l2[d];
-        for (int d = 0; d < dim_; ++d) l2[d] += g * l1[d];
+        UpdateOutput(l2, 1.0f - static_cast<float>(code[j]), l1, alpha, neu1e);
       }
     }
+
+    // Negative sampling: pull the true target up (label 1) and push `negative`
+    // random noise words down (label 0).
     if (p_.negative > 0) {
       for (int n = 0; n < p_.negative + 1; ++n) {
-        int sample;
-        float label;
-        if (n == 0) {
-          sample = target;
-          label = 1.0f;
-        } else {
+        int sample = target;
+        float label = 1.0f;  // n == 0: the positive
+        if (n != 0) {
           sample = SampleNegative(rng);
-          if (sample == target) continue;
+          if (sample == target) continue;  // never train the target as its own negative
           label = 0.0f;
         }
-        float *l2 = &syn1neg_[static_cast<size_t>(sample) * dim_];
-        float f = 0.0f;
-        for (int d = 0; d < dim_; ++d) f += l1[d] * l2[d];
-        float g = (label - Sigmoid(f)) * alpha;
-        for (int d = 0; d < dim_; ++d) neu1e[d] += g * l2[d];
-        for (int d = 0; d < dim_; ++d) l2[d] += g * l1[d];
+        UpdateOutput(&syn1neg_[static_cast<size_t>(sample) * dim_], label, l1, alpha, neu1e);
       }
     }
   }
