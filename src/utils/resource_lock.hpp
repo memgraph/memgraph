@@ -28,15 +28,15 @@ namespace memgraph::utils {
  * and unlocked in another.
  */
 
-// RAII helpers (defined below) that keep a pending registration alive across a campaign of
-// non-blocking probes; need friend access to the lock internals. See their definitions.
-class UniquePendingScope;
-class ReadOnlyPendingScope;
+// RAII helper (defined below) that keeps a pending registration alive across a campaign of
+// non-blocking probes; needs friend access to the lock internals. See its definition.
+template <typename Lock, auto Req>
+class PendingScope;
 
 /// Priority is given to read-only locks over read and write locks
 struct ResourceLock {
-  friend class UniquePendingScope;
-  friend class ReadOnlyPendingScope;
+  template <typename Lock, auto Req>
+  friend class PendingScope;
 
   // The four ways to hold the lock. UNIQUE is exclusive of all of them, including itself; the other
   // three are the shared modes, mutually compatible except that WRITE and READ_ONLY exclude each
@@ -602,85 +602,70 @@ struct ResourceLockGuard {
   bool locked_{false};
 };
 
-/// RAII helper that keeps a caller registered as a pending UNIQUE waiter across a non-blocking
-/// probe campaign, for callers that cannot block on lock()'s cv (e.g. a coroutine that must yield
-/// to a scheduler) but still want writer-preference while they poll try_acquire().
+/// Maps a lock request to the guard mode that holds it, so PendingScope can hand back the same
+/// vocabulary every other acquisition path speaks.
+constexpr ResourceLockGuard::Type ToGuardType(ResourceLock::LockReq req) {
+  switch (req) {
+    case ResourceLock::LockReq::UNIQUE:
+      return ResourceLockGuard::UNIQUE;
+    case ResourceLock::LockReq::WRITE:
+      return ResourceLockGuard::WRITE;
+    case ResourceLock::LockReq::READ:
+      return ResourceLockGuard::READ;
+    case ResourceLock::LockReq::READ_ONLY:
+      return ResourceLockGuard::READ_ONLY;
+  }
+}
+
+/// Keeps a caller registered as a pending waiter in mode `Req` across a campaign of non-blocking
+/// probes, for callers that cannot block on the condition variable (a coroutine that must yield to
+/// a scheduler, say) but still want the priority a blocking acquirer would get.
 ///
 /// A bare try_lock() loop never registers as pending, so it is just another unprivileged contender
-/// each iteration and can starve behind back-to-back shared holders. This scope registers once up
-/// front, gating new shared acquirers (see can_acquire) so the shared pool drains and the probe
-/// eventually finds state == UNLOCKED.
+/// each iteration and can starve behind back-to-back holders. This scope registers once up front,
+/// gating whoever `Req` gates (see can_acquire) so the holders drain and a probe eventually finds
+/// the lock admitting it.
 ///
-/// Ownership: try_acquire() returns nullopt (still pending, gate stays up) or a
-/// std::unique_lock<ResourceLock> owning the acquired lock. On success the scope stops counting as
-/// pending and becomes inert (destructor is a no-op); the returned lock owns the unlock(). If
-/// destroyed without acquiring, the destructor deregisters and wakes gated shared acquirers (as
-/// acquire()'s failure path does).
+/// Ownership: try_acquire() returns nullopt (still pending, gate stays up) or a ResourceLockGuard
+/// owning the acquired hold. On success the scope stops counting as pending and becomes inert
+/// (destructor is a no-op); the guard owns the release. If destroyed without acquiring, the
+/// destructor deregisters and wakes whoever it was gating (as acquire()'s failure path does).
+///
+/// READ and WRITE gate nobody, so registering them is a no-op and the scope degenerates to a plain
+/// probe loop. That is deliberate: it lets a caller that picks a mode at runtime use one type for
+/// all four rather than special-casing the two that have nothing to register.
 ///
 /// Not copyable or movable: the registration is tied 1:1 to this scope's lifetime.
-class UniquePendingScope {
+template <typename Lock, auto Req>
+class PendingScope {
  public:
-  explicit UniquePendingScope(ResourceLock &lock) : lock_{&lock} {
-    lock_->register_pending<ResourceLock::LockReq::UNIQUE>();
-  }
+  explicit PendingScope(Lock &lock) : lock_{&lock} { lock_->template register_pending<Req>(); }
 
-  ~UniquePendingScope() {
+  ~PendingScope() {
     if (lock_ == nullptr) return;  // ownership transferred out by a successful try_acquire()
-    lock_->unregister_pending<ResourceLock::LockReq::UNIQUE>();
+    lock_->template unregister_pending<Req>();
   }
 
-  UniquePendingScope(const UniquePendingScope &) = delete;
-  UniquePendingScope &operator=(const UniquePendingScope &) = delete;
-  UniquePendingScope(UniquePendingScope &&) = delete;
-  UniquePendingScope &operator=(UniquePendingScope &&) = delete;
+  PendingScope(const PendingScope &) = delete;
+  PendingScope &operator=(const PendingScope &) = delete;
+  PendingScope(PendingScope &&) = delete;
+  PendingScope &operator=(PendingScope &&) = delete;
 
-  /// Non-blocking attempt to take UNIQUE; succeeds only when the lock is UNLOCKED (existing holders
-  /// are never preempted). Safe to call repeatedly; a failed call leaves the pending registration
-  /// intact for the next attempt.
-  std::optional<std::unique_lock<ResourceLock>> try_acquire() {
+  /// Non-blocking attempt, admitted by the same rule a blocking acquirer in `Req` waits on (see
+  /// can_acquire). Existing holders are never preempted. Safe to call repeatedly; a failed call
+  /// leaves the pending registration intact for the next attempt.
+  std::optional<ResourceLockGuard> try_acquire() {
     if (lock_ == nullptr) return std::nullopt;  // already consumed by a prior successful call
-    if (!lock_->try_acquire_pending<ResourceLock::LockReq::UNIQUE>()) return std::nullopt;
-    ResourceLock *acquired_lock = std::exchange(lock_, nullptr);
-    return std::unique_lock<ResourceLock>{*acquired_lock, std::adopt_lock};
+    if (!lock_->template try_acquire_pending<Req>()) return std::nullopt;
+    Lock *acquired_lock = std::exchange(lock_, nullptr);
+    return ResourceLockGuard{*acquired_lock, ToGuardType(Req), std::adopt_lock};
   }
 
  private:
-  ResourceLock *lock_;
+  Lock *lock_;
 };
 
-/// Like UniquePendingScope, but for READ_ONLY: registers a pending READ_ONLY waiter (bumping
-/// ro_pending_count, the existing READ_ONLY-over-WRITE priority mechanism) across a non-blocking
-/// probe campaign, so a retrying try_acquire() gets the same gating a blocking
-/// lock_shared<READ_ONLY>() gets. Ownership/lifetime mirror UniquePendingScope: try_acquire()
-/// returns a SharedResourceLockGuard that adopted the lock; if destroyed without acquiring, the
-/// destructor decrements ro_pending_count and wakes gated acquirers.
-class ReadOnlyPendingScope {
- public:
-  explicit ReadOnlyPendingScope(ResourceLock &lock) : lock_{&lock} {
-    lock_->register_pending<ResourceLock::LockReq::READ_ONLY>();
-  }
-
-  ~ReadOnlyPendingScope() {
-    if (lock_ == nullptr) return;  // ownership transferred out by a successful try_acquire()
-    lock_->unregister_pending<ResourceLock::LockReq::READ_ONLY>();
-  }
-
-  ReadOnlyPendingScope(const ReadOnlyPendingScope &) = delete;
-  ReadOnlyPendingScope &operator=(const ReadOnlyPendingScope &) = delete;
-  ReadOnlyPendingScope(ReadOnlyPendingScope &&) = delete;
-  ReadOnlyPendingScope &operator=(ReadOnlyPendingScope &&) = delete;
-
-  /// Non-blocking attempt to take READ_ONLY, admitted by the same rule a blocking
-  /// lock_shared<READ_ONLY>() waits on (see can_acquire<READ_ONLY>). Safe to call repeatedly.
-  std::optional<SharedResourceLockGuard> try_acquire() {
-    if (lock_ == nullptr) return std::nullopt;  // already consumed by a prior successful call
-    if (!lock_->try_acquire_pending<ResourceLock::LockReq::READ_ONLY>()) return std::nullopt;
-    ResourceLock *acquired_lock = std::exchange(lock_, nullptr);
-    return SharedResourceLockGuard{*acquired_lock, SharedResourceLockGuard::Type::READ_ONLY, std::adopt_lock};
-  }
-
- private:
-  ResourceLock *lock_;
-};
+using UniquePendingScope = PendingScope<ResourceLock, ResourceLock::LockReq::UNIQUE>;
+using ReadOnlyPendingScope = PendingScope<ResourceLock, ResourceLock::LockReq::READ_ONLY>;
 
 }  // namespace memgraph::utils

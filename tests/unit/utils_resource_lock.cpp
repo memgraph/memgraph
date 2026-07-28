@@ -817,7 +817,7 @@ TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresUnderContinuousWriteH
     auto scoped_future = std::async(std::launch::async, [&] {
       auto start = std::chrono::steady_clock::now();
       UniquePendingScope scope(lock);
-      std::optional<std::unique_lock<ResourceLock>> acquired;
+      std::optional<ResourceLockGuard> acquired;
       while (!acquired) {
         acquired = scope.try_acquire();
         if (!acquired) std::this_thread::sleep_for(20us);
@@ -883,7 +883,7 @@ TEST_F(ResourceLockTest, ReadOnlyPendingScopeCampaignAcquiresUnderContinuousWrit
   auto scoped_future = std::async(std::launch::async, [&] {
     auto start = std::chrono::steady_clock::now();
     ReadOnlyPendingScope scope(lock);
-    std::optional<SharedResourceLockGuard> acquired;
+    std::optional<ResourceLockGuard> acquired;
     while (!acquired) {
       acquired = scope.try_acquire();
       if (!acquired) std::this_thread::sleep_for(20us);
@@ -899,7 +899,7 @@ TEST_F(ResourceLockTest, ReadOnlyPendingScopeCampaignAcquiresUnderContinuousWrit
 
   if (acquired_in_time) {
     const auto [latency, acquired_type] = scoped_future.get();
-    EXPECT_EQ(acquired_type, SharedResourceLockGuard::READ_ONLY);
+    EXPECT_EQ(acquired_type, ResourceLockGuard::READ_ONLY);
     RecordProperty("ro_pending_scope_latency_ms", std::to_string(latency.count()));
   } else {
     ADD_FAILURE() << "ReadOnlyPendingScope::try_acquire() campaign did not acquire within " << kBound.count()
