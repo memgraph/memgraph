@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <optional>
 #include <set>
 #include <string>
@@ -453,8 +454,15 @@ class Storage {
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
 
-  IsolationLevel isolation_level_;
-  StorageMode storage_mode_;
+  // Written under a UNIQUE hold on main_lock_ by SetIsolationLevel/SetStorageMode, but read
+  // without one: the accessor factories evaluate them as constructor arguments, so the read
+  // happens before the constructor acquires anything, and replication reads storage_mode_ with no
+  // hold at all. Atomic so those reads are not a data race.
+  //
+  // This orders the reads; it does not make them fresh. A reader can still observe a mode, then
+  // block on main_lock_, and construct its transaction after the mode has changed underneath it.
+  std::atomic<IsolationLevel> isolation_level_;
+  std::atomic<StorageMode> storage_mode_;
   memory::ArenaPool *db_arena_pool_{nullptr};
 
   metrics::DatabaseMetricHandles metric_handles_{};

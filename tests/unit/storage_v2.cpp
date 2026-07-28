@@ -3036,3 +3036,66 @@ TEST_F(StorageAccessorLockModeTest, MovePreservesTheHold) {
   EXPECT_EQ(acc->type(), NO_ACCESS) << "the moved-from accessor must no longer own the hold";
   EXPECT_FALSE(store.main_lock_.try_lock()) << "the hold must survive the move, not be dropped";
 }
+
+// storage_mode_ and isolation_level_ are written by SetStorageMode/SetIsolationLevel under a
+// UNIQUE hold on main_lock_. The blocking accessor factories read them to build the accessor, so
+// those reads must happen under a hold too. They are evaluated as constructor arguments, i.e.
+// before the constructor acquires anything, so an unsynchronised read races the locked write.
+//
+// This is a race detector's test: without -fsanitize=thread it passes whether or not the reads are
+// synchronised, because a torn or stale enum read is not observable here. Under TSan it reports
+// the write/read pair directly.
+TEST(StorageAccessRaceTest, ReadsModeAndIsolationWithoutRacingTheWriter) {
+  using namespace std::chrono_literals;
+  constexpr auto kDuration = 2s;
+  constexpr int kReaders = 4;
+
+  // Switching to analytical writes a snapshot, so keep it out of the working directory.
+  const auto data_directory = std::filesystem::temp_directory_path() / "MG_test_unit_storage_v2_access_race";
+  std::filesystem::remove_all(data_directory);
+  const memgraph::utils::OnScopeExit cleanup{[&] { std::filesystem::remove_all(data_directory); }};
+
+  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
+      .durability{.storage_directory = data_directory},
+      .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
+
+  std::atomic<bool> stop{false};
+  std::atomic<int> accessors{0};
+
+  std::vector<std::jthread> threads;
+  threads.reserve(kReaders + 2);
+
+  for (int i = 0; i < kReaders; ++i) {
+    threads.emplace_back([&] {
+      while (!stop.load(std::memory_order_relaxed)) {
+        try {
+          auto acc = store.Access(memgraph::storage::READ, std::nullopt, 50ms);
+          accessors.fetch_add(1, std::memory_order_relaxed);
+          acc->Abort();
+        } catch (memgraph::storage::SharedAccessTimeout const &) {
+          // Expected while the mode switch holds UNIQUE.
+        }
+      }
+    });
+  }
+
+  threads.emplace_back([&] {
+    while (!stop.load(std::memory_order_relaxed)) {
+      store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+      store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+    }
+  });
+
+  threads.emplace_back([&] {
+    while (!stop.load(std::memory_order_relaxed)) {
+      [[maybe_unused]] auto ignored = store.SetIsolationLevel(memgraph::storage::IsolationLevel::READ_COMMITTED);
+      ignored = store.SetIsolationLevel(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    }
+  });
+
+  std::this_thread::sleep_for(kDuration);
+  stop.store(true, std::memory_order_relaxed);
+  threads.clear();
+
+  EXPECT_GT(accessors.load(), 0) << "no accessor was ever created; the test raced nothing";
+}
