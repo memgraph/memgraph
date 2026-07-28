@@ -161,6 +161,13 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx,
   memgraph::query::AllowEverythingAuthChecker tmp_auth_checker;
   auto tmp_user = tmp_auth_checker.GenEmptyUser();
   interpreter.SetUser(tmp_user);
+#ifdef MG_ENTERPRISE
+  // A locally-authored init file is trusted the same way the empty user above trusts it, so grant the coordinator
+  // privileges the HA cluster-init queries (ADD COORDINATOR / REGISTER INSTANCE / SET INSTANCE TO MAIN) require. This
+  // interpreter never authenticates, and the privilege mask grants nothing by default.
+  interpreter.SetCoordinatorPrivileges(static_cast<uint64_t>(memgraph::auth::Permission::COORDINATOR_READ) |
+                                       static_cast<uint64_t>(memgraph::auth::Permission::COORDINATOR_WRITE));
+#endif
 
   std::ifstream file(cypherl_file_path);
   if (!file.is_open()) {

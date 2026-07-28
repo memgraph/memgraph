@@ -331,8 +331,9 @@ class Interpreter final {
 #ifdef MG_ENTERPRISE
   // Coordinator privilege mask captured at login (auth::Permission bits). Consulted directly only for role-less
   // (basic-auth passthrough) sessions, which carry full WRITE; sessions with coordinator roles recompute their mask
-  // per check via EffectiveCoordinatorPermissions. Zero denies everything.
-  uint64_t coordinator_permissions_;
+  // per check via EffectiveCoordinatorPermissions. Zero denies everything, so an interpreter that never authenticated
+  // grants nothing: every privileged path must call SetCoordinatorPrivileges explicitly.
+  uint64_t coordinator_permissions_{0};
   // Role names the session authenticated with on a coordinator (empty for a basic-auth passthrough session). Reported
   // by SHOW CURRENT ROLE; coordinator roles live in Raft, not the auth kvstore, so they can't be looked up on demand.
   std::vector<std::string> coordinator_roles_;

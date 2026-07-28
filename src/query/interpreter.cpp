@@ -3683,23 +3683,12 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
 }  // namespace
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context)
-    :
-#ifdef MG_ENTERPRISE
-      coordinator_permissions_(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
-                               static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE)),
-#endif
-      cached_fga_(std::make_unique<CachedFineGrainedAuth>()),
-      interpreter_context_(interpreter_context) {
+    : cached_fga_(std::make_unique<CachedFineGrainedAuth>()), interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
-    :
-#ifdef MG_ENTERPRISE
-      coordinator_permissions_(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
-                               static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE)),
-#endif
-      cached_fga_(std::make_unique<CachedFineGrainedAuth>()),
+    : cached_fga_(std::make_unique<CachedFineGrainedAuth>()),
       current_db_{std::move(db)},
       interpreter_context_(interpreter_context) {
   MG_ASSERT(current_db_.db_acc_, "Database accessor needs to be valid");
