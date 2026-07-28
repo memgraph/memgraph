@@ -1831,6 +1831,18 @@ class FunctionTest : public ExpressionEvaluatorTest<StorageType> {
 
 TYPED_TEST_SUITE(FunctionTest, StorageTypes);
 
+// A slot outside the resolved table means the plan's AstStorage is not the one its Function
+// nodes were indexed into. That is a broken invariant, and it is contained to the query.
+TYPED_TEST(FunctionTest, OutOfRangeUserFunctionSlotThrows) {
+  auto *op = this->storage.template Create<Function>("SIZE", std::vector<Expression *>{});
+  op->is_user_defined_ = true;
+  op->user_function_id_ = 0;
+  // Non-null but empty, so slot 0 is out of range rather than falling back to resolution by name.
+  this->ctx.resolved_user_functions = std::make_shared<memgraph::query::ResolvedUserFunctions>();
+
+  EXPECT_THROW(this->Eval(op), QueryRuntimeException);
+}
+
 template <class... TArgs>
 static TypedValue MakeTypedValueList(TArgs &&...args) {
   return TypedValue(std::vector<TypedValue>{TypedValue(args)...});
