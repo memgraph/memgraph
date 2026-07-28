@@ -192,6 +192,14 @@ TEST(Word2VecTest, IncrementalExtendsVocabAndPreservesUntouched) {
   for (size_t i = 0; i < token0_before.size(); ++i) EXPECT_FLOAT_EQ(token0_before[i], token0_after[i]);
 }
 
+TEST(Word2VecTest, VocabularyIsFrequencySorted) {
+  // Token i occurs (i + 1) times, so descending-frequency order is 4,3,2,1,0.
+  std::vector<std::vector<int64_t>> corpus = {{0}, {1, 1}, {2, 2, 2}, {3, 3, 3, 3}, {4, 4, 4, 4, 4}};
+  Word2Vec model(BaseParams(/*sg=*/true));
+  model.Train(corpus);
+  EXPECT_EQ(model.Vocabulary(), (std::vector<int64_t>{4, 3, 2, 1, 0}));
+}
+
 // Builds an undirected graph: triangle 0-1-2, plus 1-3 and 3-4.
 N2vGraph MakeTestGraph() {
   N2vGraph g(/*is_directed=*/false);

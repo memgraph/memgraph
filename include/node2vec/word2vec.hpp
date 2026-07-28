@@ -25,12 +25,14 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <random>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace node2vec_alg {
@@ -96,6 +98,10 @@ class Word2Vec {
   bool Empty() const { return vocab_size_ == 0; }
 
   int Dim() const { return dim_; }
+
+  // Vocabulary tokens in index order. After a fresh Train this is sorted by
+  // descending frequency (ties broken by ascending token id).
+  const std::vector<Token> &Vocabulary() const { return index2token_; }
 
  private:
   static constexpr int kExpTableSize = 1000;
@@ -171,8 +177,19 @@ class Word2Vec {
       vocab_size_ = 0;
     }
 
+    // Assign vocabulary indices in a deterministic order: descending count, then
+    // ascending token id. On a fresh build this makes the vocabulary
+    // frequency-sorted, so BuildHuffman produces an optimal tree (matching
+    // gensim). On an update, existing tokens keep their index (matched below);
+    // only newly-seen tokens are appended, in this order.
+    std::vector<std::pair<Token, int64_t>> ordered(freq.begin(), freq.end());
+    std::sort(ordered.begin(), ordered.end(), [](const auto &a, const auto &b) {
+      if (a.second != b.second) return a.second > b.second;
+      return a.first < b.first;
+    });
+
     int old_size = vocab_size_;
-    for (const auto &kv : freq) {
+    for (const auto &kv : ordered) {
       Token t = kv.first;
       int64_t c = kv.second;
       auto it = token2index_.find(t);
