@@ -226,7 +226,7 @@ void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
       auto rel = edges[i].ValueRelationship();
       recs.push_back({rel.Id().AsInt(), rel.From().Id().AsInt(), rel.To().Id().AsInt()});
     }
-    std::sort(recs.begin(), recs.end(), [](const EdgeRec &a, const EdgeRec &b) { return a.id < b.id; });
+    std::ranges::sort(recs, [](const EdgeRec &a, const EdgeRec &b) { return a.id < b.id; });
 
     for (const auto &e : recs) {
       graph.CheckMustAbort();                      // stay responsive to query termination / timeout

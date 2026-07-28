@@ -148,7 +148,7 @@ std::vector<int64_t> SortedNodeIds(const std::unordered_map<int64_t, std::vector
   std::vector<int64_t> ids;
   ids.reserve(embeddings.size());
   for (const auto &kv : embeddings) ids.push_back(kv.first);
-  std::sort(ids.begin(), ids.end());
+  std::ranges::sort(ids);
   return ids;
 }
 
