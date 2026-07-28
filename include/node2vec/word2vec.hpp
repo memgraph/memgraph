@@ -153,11 +153,16 @@ class Word2Vec {
     return exp_table_[idx];
   }
 
-  // Deterministic per-token initialization of an embedding row, independent of
-  // insertion order (so incremental updates are reproducible). Mirrors gensim's
-  // uniform(-0.5/dim, 0.5/dim) initialization seeded per word.
-  void InitRow(int index, Token token) {
-    uint64_t s = seed_ ^ (static_cast<uint64_t>(token) * 0x9E3779B97F4A7C15ULL + 0x632BE59BD9B4E019ULL);
+  // Deterministic initialization of an embedding row, seeded from the token's
+  // vocabulary index (its structural position) rather than the raw token value.
+  // Seeding by index keeps embeddings reproducible across runs even when the
+  // caller assigns different absolute token ids to the same logical graph (e.g.
+  // Memgraph hands out fresh internal node ids every time a graph is recreated).
+  // Existing tokens keep their index on incremental updates (BuildVocab only
+  // appends new ones), so their initialization stays stable as the vocabulary
+  // grows. Mirrors gensim's uniform(-0.5/dim, 0.5/dim) per-word initialization.
+  void InitRow(int index) {
+    uint64_t s = seed_ ^ (static_cast<uint64_t>(index) * 0x9E3779B97F4A7C15ULL + 0x632BE59BD9B4E019ULL);
     std::mt19937_64 rng(s);  // NOSONAR
     std::uniform_real_distribution<float> dist(-0.5f / dim_, 0.5f / dim_);
     float *row = &syn0_[static_cast<size_t>(index) * dim_];
@@ -208,7 +213,7 @@ class Word2Vec {
     // Grow weight matrices, initializing only the newly added rows.
     syn0_.resize(static_cast<size_t>(vocab_size_) * dim_);
     syn1neg_.resize(static_cast<size_t>(vocab_size_) * dim_, 0.0f);
-    for (int i = old_size; i < vocab_size_; ++i) InitRow(i, index2token_[i]);
+    for (int i = old_size; i < vocab_size_; ++i) InitRow(i);
 
     if (p_.negative > 0) BuildNegTable();
     if (p_.hs) BuildHuffman();

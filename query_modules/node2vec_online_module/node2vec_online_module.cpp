@@ -12,7 +12,7 @@
 
 #include <mgp.hpp>
 
-#include <ctime>
+#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -36,16 +36,18 @@ constexpr const char *kResultValue = "value";
 struct OnlineContext {
   std::unique_ptr<node2vec_alg::StreamWalkUpdater> updater;
   std::unique_ptr<node2vec_alg::Word2Vec> learner;
-  bool has_start_time = false;
-  int64_t start_time = 0;
+  // Logical clock: a monotonically increasing counter used as the arrival time
+  // of each processed edge, in place of wall-clock time. This keeps the learned
+  // embeddings deterministic and reproducible, independent of how fast edges
+  // are ingested (wall-clock time made results vary from run to run).
+  int64_t clock = 0;
 
   bool IsInitialized() const { return updater != nullptr && learner != nullptr; }
 
   void Reset() {
     updater.reset();
     learner.reset();
-    has_start_time = false;
-    start_time = 0;
+    clock = 0;
   }
 };
 
@@ -194,25 +196,37 @@ void Update(mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memor
   try {
     CheckEnterprise();
     auto arguments = CollectArgs(args);
-    const int64_t current_time = static_cast<int64_t>(std::time(nullptr));
 
     std::lock_guard<std::mutex> lock(g_mtx);
-    if (g_ctx.has_start_time == false) {
-      g_ctx.start_time = current_time;
-      g_ctx.has_start_time = true;
-    }
     if (!g_ctx.IsInitialized()) {
       throw std::runtime_error(
           "Learner or updater are not initialized. Initialize them by calling:`CALL "
           "node2vec_online.set_word2vec_learner() YIELD *;``CALL node2vec_online.set_streamwalk_updater() YIELD *;` ");
     }
 
+    // Process edges in a deterministic order. The order in which Memgraph hands
+    // us `createdEdges` is not guaranteed to be stable across runs, and edge
+    // order affects the sampled temporal walks, so we sort by relationship id
+    // (creation order) to make the resulting embeddings reproducible.
     auto edges = arguments[0].ValueList();
+
+    struct EdgeRec {
+      int64_t id;
+      int64_t source;
+      int64_t target;
+    };
+
+    std::vector<EdgeRec> recs;
+    recs.reserve(edges.Size());
     for (size_t i = 0; i < edges.Size(); ++i) {
       auto rel = edges[i].ValueRelationship();
-      const int64_t source = rel.From().Id().AsInt();
-      const int64_t target = rel.To().Id().AsInt();
-      auto pairs = g_ctx.updater->ProcessNewEdge(source, target, current_time);
+      recs.push_back({rel.Id().AsInt(), rel.From().Id().AsInt(), rel.To().Id().AsInt()});
+    }
+    std::sort(recs.begin(), recs.end(), [](const EdgeRec &a, const EdgeRec &b) { return a.id < b.id; });
+
+    for (const auto &e : recs) {
+      const int64_t arrival_time = g_ctx.clock++;  // logical, monotonically increasing arrival time
+      auto pairs = g_ctx.updater->ProcessNewEdge(e.source, e.target, arrival_time);
       g_ctx.learner->PartialFit(pairs);
     }
   } catch (const std::exception &e) {
