@@ -188,7 +188,10 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
     const bool sso_configured = !FLAGS_auth_module_mappings.empty();
     if (schema == "basic" || schema == "none") {
       if (sso_configured) {
-        bool deny_basic = license::global_license_checker.IsEnterpriseValidFast();
+        // The full (non-cached) check, matching the gate the SSO path uses: the cached flag is only refreshed every
+        // few minutes, so a license that expired by date would keep basic denied while SSO already rejects every
+        // login, locking every Bolt scheme out of the coordinator until the next refresh.
+        bool deny_basic = license::global_license_checker.IsEnterpriseValid().has_value();
         if (deny_basic) {
           // nullopt (leader unreachable / no coordinator state) => keep basic denied (fail-closed).
           deny_basic = session.CoordinatorHasWritableRole().value_or(true);
