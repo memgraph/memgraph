@@ -450,9 +450,19 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
     }
   }
 
+  // deleted() reads the same word as delta(), which CreateAndLinkDelta writes under the object
+  // lock, so it has to be read under that lock too. One endpoint at a time: holding both would
+  // need gid ordering to avoid a cycle (see FindEdges) and a self-loop case, and buys nothing.
+  // The pair is not a snapshot either way, since the authoritative check is PrepareForWrite under
+  // the same lock further down; this only skips work that is already pointless.
+  auto const is_deleted = [](Vertex *vertex) {
+    auto guard = std::shared_lock{vertex->lock};
+    return vertex->deleted();
+  };
+
   // also add edges which we want to delete from the query
   for (const auto &edge_accessor : edges) {
-    if (edge_accessor->from_vertex_->deleted() || edge_accessor->to_vertex_->deleted()) {
+    if (is_deleted(edge_accessor->from_vertex_) || is_deleted(edge_accessor->to_vertex_)) {
       continue;
     }
     partial_src_vertices.insert(edge_accessor->from_vertex_);
