@@ -1350,3 +1350,62 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzzWithPendingScope
 
   ASSERT_FALSE(invariant_violated.load()) << violation_message;
 }
+
+// A pending UNIQUE waiter must not miss its wake-up to a waiter that cannot use it.
+//
+// Every waiter parks on the same condition variable but each has its own predicate, so a
+// notify_one can be delivered to a waiter whose predicate is still false: a shared acquirer gated
+// on unique_pending_, say. It re-checks, sleeps again, and consumes the only notification, leaving
+// the waiter that could have made progress asleep until its timeout.
+//
+// Both crowds are load-bearing: several shared acquirers parked to absorb the notification, and
+// several UNIQUE waiters so the one woken is not reliably the one waiting longest. With a single
+// UNIQUE waiter of either kind the interleaving cannot arise and the test asserts nothing.
+TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
+  using namespace std::chrono_literals;
+  constexpr auto kUniqueTimeout = 500ms;
+  constexpr auto kDuration = 2s;
+  constexpr int kSharedCyclers = 4;
+  constexpr int kUniqueWaiters = 4;
+
+  std::atomic<bool> stop{false};
+  std::atomic<int> unique_timeouts{0};
+  std::atomic<int> unique_acquisitions{0};
+
+  std::vector<std::jthread> threads;
+  threads.reserve(kSharedCyclers + kUniqueWaiters);
+
+  // Each cycler drives the lock down to fully-unlocked (firing the notify) and, whenever a UNIQUE
+  // is pending, parks on the acquisition gated by unique_pending_ (becoming a potential absorber).
+  for (int i = 0; i < kSharedCyclers; ++i) {
+    threads.emplace_back([&] {
+      while (!stop.load(std::memory_order_relaxed)) {
+        lock.lock_shared<ResourceLock::LockReq::READ>();
+        lock.unlock_shared<ResourceLock::LockReq::READ>();
+        lock.lock_shared<ResourceLock::LockReq::WRITE>();
+        lock.unlock_shared<ResourceLock::LockReq::WRITE>();
+      }
+    });
+  }
+
+  for (int i = 0; i < kUniqueWaiters; ++i) {
+    threads.emplace_back([&] {
+      while (!stop.load(std::memory_order_relaxed)) {
+        if (lock.try_lock_for(kUniqueTimeout)) {
+          unique_acquisitions.fetch_add(1, std::memory_order_relaxed);
+          lock.unlock();
+        } else {
+          unique_timeouts.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
+    });
+  }
+
+  std::this_thread::sleep_for(kDuration);
+  stop.store(true, std::memory_order_relaxed);
+  threads.clear();
+
+  EXPECT_GT(unique_acquisitions.load(), 0) << "the UNIQUE waiter never acquired; the test proved nothing";
+  EXPECT_EQ(unique_timeouts.load(), 0) << "a pending UNIQUE waiter was not woken within " << kUniqueTimeout.count()
+                                       << "ms while " << kSharedCyclers << " shared acquirers were parked";
+}
