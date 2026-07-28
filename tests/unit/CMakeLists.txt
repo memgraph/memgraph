@@ -269,6 +269,11 @@ add_unit_test(transaction_queue_multiple
     LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
 )
 
+add_unit_test(query_plan_printer_race
+    SOURCES query_plan_printer_race.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+)
+
 
 # Test query functions
 add_unit_test(query_function_mgp_module
