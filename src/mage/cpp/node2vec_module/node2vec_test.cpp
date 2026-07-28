@@ -196,6 +196,37 @@ TEST(Word2VecTest, IncrementalExtendsVocabAndPreservesUntouched) {
   for (size_t i = 0; i < token0_before.size(); ++i) EXPECT_FLOAT_EQ(token0_before[i], token0_after[i]);
 }
 
+TEST(Word2VecTest, IncrementalHierarchicalSoftmaxStaysValid) {
+  // Exercises the PartialFit + hierarchical-softmax path. The second PartialFit
+  // mutates existing tokens' counts in place, so the vocabulary is no longer
+  // index-sorted by count and BuildHuffman must sort internally. A broken
+  // sorted-position -> token-index mapping would corrupt the codes/points, so
+  // recovering the topic structure (and staying deterministic) confirms the
+  // re-sorted tree is well-formed and trainable.
+  auto first = StructuredCorpus(1500, 8, /*seed=*/7);
+  auto second = StructuredCorpus(1500, 8, /*seed=*/13);
+  auto p = BaseParams(/*sg=*/true);
+  p.negative = 0;
+  p.hs = true;
+
+  auto run = [&]() {
+    Word2Vec m(p);
+    m.PartialFit(first);
+    m.PartialFit(second);  // in-place count changes -> vocab no longer count-sorted
+    return m.GetEmbeddings();
+  };
+
+  auto emb = run();
+  EXPECT_EQ(emb.size(), static_cast<size_t>(kTopics * kWordsPerTopic));
+  EXPECT_GT(NearestNeighbourTopicPurity(emb), 0.9);
+
+  auto emb2 = run();
+  for (const auto &kv : emb) {
+    const auto &other = emb2.at(kv.first);
+    for (size_t i = 0; i < kv.second.size(); ++i) EXPECT_FLOAT_EQ(kv.second[i], other[i]);
+  }
+}
+
 TEST(Word2VecTest, VocabularyIsFrequencySorted) {
   // Token i occurs (i + 1) times, so descending-frequency order is 4,3,2,1,0.
   const std::vector<std::vector<int64_t>> corpus = {{0}, {1, 1}, {2, 2, 2}, {3, 3, 3, 3}, {4, 4, 4, 4, 4}};

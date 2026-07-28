@@ -76,6 +76,7 @@ void InsertMessage(mgp::RecordFactory &factory, const char *msg) {
 void SetStreamwalkUpdater(mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard(memory);
   try {
+    CheckEnterprise();
     auto arguments = CollectArgs(args);
     mgp::RecordFactory factory(result);
 

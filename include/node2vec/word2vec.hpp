@@ -60,6 +60,9 @@ class Word2Vec {
 
   explicit Word2Vec(const Word2VecParams &params) : p_(params), dim_(params.vector_size) {
     if (dim_ <= 0) dim_ = 1;
+    // A window < 1 is meaningless and would divide-by-zero in TrainRange
+    // (`rng() % p_.window`), crashing the worker with SIGFPE; clamp like dim_.
+    if (p_.window < 1) p_.window = 1;
     seed_ = static_cast<uint64_t>(p_.seed);
     InitExpTable();
   }
@@ -274,20 +277,35 @@ class Word2Vec {
     hs_points_.assign(n, {});
     if (n <= 1) return;
 
-    // Work arrays cover leaves at indices [0, n) and the inner nodes at
+    // Order the leaves by descending count (ties broken by ascending token
+    // index, for determinism). The two-cursor selection below requires the leaf
+    // work array to be count-sorted. A fresh Train already assigns indices in
+    // this order (so `order` is the identity and the tree is unchanged), but
+    // PartialFit mutates existing tokens' counts in place without re-sorting, so
+    // we sort a local view here instead of assuming it. `order[k]` is the token
+    // index sitting at sorted leaf position k; the tree is built over positions
+    // and mapped back to token indices when emitting codes/points, so syn0_ rows
+    // are never re-keyed.
+    std::vector<int> order(n);
+    for (int i = 0; i < n; ++i) order[i] = i;
+    std::sort(order.begin(), order.end(), [this](int x, int y) {
+      if (counts_[x] != counts_[y]) return counts_[x] > counts_[y];
+      return x < y;
+    });
+
+    // Work arrays cover the sorted leaf positions [0, n) and the inner nodes at
     // [n, 2n) that are created while merging.
-    std::vector<int64_t> count(2 * n);                  // node weight (leaf frequency, or merged sum)
-    std::vector<int> binary(2 * n, 0);                  // which branch (0/1) this node is of its parent
-    std::vector<int> parent(2 * n, 0);                  // index of this node's parent
-    for (int i = 0; i < n; ++i) count[i] = counts_[i];  // leaf frequencies
+    std::vector<int64_t> count(2 * n);                         // node weight (leaf count, or merged sum)
+    std::vector<int> binary(2 * n, 0);                         // which branch (0/1) this node is of its parent
+    std::vector<int> parent(2 * n, 0);                         // index of this node's parent
+    for (int k = 0; k < n; ++k) count[k] = counts_[order[k]];  // leaf counts, descending
     for (int i = n; i < 2 * n; ++i) count[i] = static_cast<int64_t>(1e18);  // inner nodes: "not created yet"
 
     // Repeatedly merge the two lowest-count nodes into a new inner node. Two
-    // cursors give O(n) selection because both candidate lists are already
-    // sorted by count: pos1 scans leaves right-to-left (the vocab is sorted by
-    // descending frequency, so this ascends in count), pos2 scans inner nodes
-    // left-to-right (they are created in ascending count order). The next
-    // smallest node is therefore always at one of the two cursors.
+    // cursors give O(n) selection because both candidate lists are sorted by
+    // count: pos1 scans leaf positions right-to-left (ascending count), pos2
+    // scans inner nodes left-to-right (created in ascending count order). The
+    // next smallest node is therefore always at one of the two cursors.
     int pos1 = n - 1, pos2 = n;
     for (int a = 0; a < n - 1; ++a) {
       // Pick the two smallest available nodes: min1, then min2.
@@ -318,11 +336,13 @@ class Word2Vec {
       binary[min2] = 1;  // second child is the "1" branch; min1 keeps the default 0
     }
 
-    // For each leaf, walk up to the root collecting branch bits and inner-node
-    // indices, then store them root->leaf.
+    // For each leaf position, walk up to the root collecting branch bits and
+    // inner-node indices, then store them root->leaf under the leaf's *token*
+    // index (order[a]) — positions are count-sorted, not token-aligned.
     for (int a = 0; a < n; ++a) {
-      std::vector<uint8_t> code;  // branch bits,        leaf -> root
-      std::vector<int> point;     // inner-node indices, leaf -> root
+      const int token = order[a];  // token index of the leaf at sorted position a
+      std::vector<uint8_t> code;   // branch bits,        leaf -> root
+      std::vector<int> point;      // inner-node indices, leaf -> root
       int b = a;
       while (true) {
         code.push_back(static_cast<uint8_t>(binary[b]));
@@ -332,10 +352,10 @@ class Word2Vec {
       }
       // Reverse into root->leaf order. Inner-node indices are shifted by -n to
       // address syn1_ rows; the path always starts at the root row (n-2).
-      hs_points_[a].push_back(n - 2);
+      hs_points_[token].push_back(n - 2);
       for (int i = static_cast<int>(point.size()) - 1; i >= 0; --i) {
-        hs_codes_[a].push_back(code[i]);
-        if (i > 0) hs_points_[a].push_back(point[i] - n);
+        hs_codes_[token].push_back(code[i]);
+        if (i > 0) hs_points_[token].push_back(point[i] - n);
       }
     }
   }
