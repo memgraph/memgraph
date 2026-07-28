@@ -658,11 +658,13 @@ using GetRolePrivilegesRes = SingleArgMsg<utils::TypeId::COORD_GET_ROLE_PRIVILEG
 using GetRolePrivilegesRpc = rpc::RequestResponse<GetRolePrivilegesReq, GetRolePrivilegesRes>;
 
 // SetCoordinatorSetting carries (setting name, setting value). Follower coordinators forward the write to the leader so
-// the query works from any coordinator; the response mirrors the write-status bool convention above.
+// the query works from any coordinator; the response mirrors the write-status convention above, carrying the leader's
+// exact status so the follower reports the same reason (e.g. UNKNOWN_SETTING, INVALID_ARGUMENT).
 using SetCoordinatorSettingReq = SingleArgMsg<utils::TypeId::COORD_SET_COORDINATOR_SETTING_REQ,
                                               "SetCoordinatorSettingReq", 1, std::pair<std::string, std::string>>;
 using SetCoordinatorSettingRes =
-    SingleArgMsg<utils::TypeId::COORD_SET_COORDINATOR_SETTING_RES, "SetCoordinatorSettingRes", 1, bool>;
+    SingleArgMsg<utils::TypeId::COORD_SET_COORDINATOR_SETTING_RES, "SetCoordinatorSettingRes", 1,
+                 std::optional<SetCoordinatorSettingStatus>>;
 using SetCoordinatorSettingRpc = rpc::RequestResponse<SetCoordinatorSettingReq, SetCoordinatorSettingRes>;
 
 }  // namespace memgraph::coordination

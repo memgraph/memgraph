@@ -1084,8 +1084,8 @@ auto CoordinatorInstance::AddSelfCoordinator(
 auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_name,
                                                 std::string_view const setting_value) const
     -> SetCoordinatorSettingStatus {
-  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
-  if (auto const res = ForwardToLeader<SetCoordinatorSettingRpc, SetCoordinatorSettingStatus>(
+  // Run on a follower, the write is forwarded to the leader; the response carries the leader's exact status.
+  if (auto const res = ForwardStatusToLeader<SetCoordinatorSettingRpc, SetCoordinatorSettingStatus>(
           std::pair{std::string{setting_name}, std::string{setting_value}});
       res.has_value()) {
     return *res;

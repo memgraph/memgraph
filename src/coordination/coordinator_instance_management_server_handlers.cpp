@@ -238,8 +238,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
           uint64_t const request_version,
           slk::Reader *req_reader,
           slk::Builder *res_builder) -> void {
-        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<SetCoordinatorSettingRpc,
-                                                                       SetCoordinatorSettingStatus>(
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<SetCoordinatorSettingRpc>(
             [&coordinator_instance](std::pair<std::string, std::string> const &arg) -> SetCoordinatorSettingStatus {
               return coordinator_instance.SetCoordinatorSetting(arg.first, arg.second);
             },

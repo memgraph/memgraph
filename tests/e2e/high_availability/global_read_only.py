@@ -284,6 +284,19 @@ def test_set_coordinator_setting_forwarded_from_follower():
     assert settings["global_read_only"] == "false"
     mg_sleep_and_assert(True, partial(write_accepted, instance3_cursor))
 
+    # A rejected write must surface the leader's exact reason on the follower, not a generic forwarding error.
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(coordinator1_cursor, "SET COORDINATOR SETTING 'no_such_setting' TO 'true'")
+    assert "Setting no_such_setting doesn't exist on coordinators." in str(e.value)
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(coordinator2_cursor, "SET COORDINATOR SETTING 'global_read_only' TO 'maybe'")
+    assert "Invalid argument detected while trying to update setting global_read_only" in str(e.value)
+
+    # The failed writes must not have changed the committed value.
+    settings = dict(execute_and_fetch_all(coordinator3_cursor, "SHOW COORDINATOR SETTINGS"))
+    assert settings["global_read_only"] == "false"
+
 
 def test_global_read_only_honored_across_failover():
     # A cluster that is in read-only mode when its main dies must promote a new main that is also read-only, instead of
