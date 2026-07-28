@@ -137,8 +137,7 @@ class SecondOrderRandomWalk {
       : p_(p), q_(q), num_walks_(num_walks), walk_length_(walk_length), seed_(seed) {}
 
   std::vector<std::vector<NodeId>> SampleNodeWalks(N2vGraph &graph) {
-    SetFirstPassTransitionProbs(graph);
-    SetGraphTransitionProbs(graph);
+    Precompute(graph);
 
     std::mt19937_64 rng(seed_);  // NOSONAR
     std::vector<std::vector<NodeId>> walks;
@@ -149,6 +148,22 @@ class SecondOrderRandomWalk {
     }
     return walks;
   }
+
+  // Computes the first-pass and second-order transition probabilities for the
+  // graph without sampling any walks. Called by SampleNodeWalks; exposed
+  // (together with the accessors below) so the biasing can be inspected/tested.
+  void Precompute(N2vGraph &graph) {
+    SetFirstPassTransitionProbs(graph);
+    SetGraphTransitionProbs(graph);
+  }
+
+  // First-pass transition probabilities for `node`, aligned with its sorted
+  // neighbours. Only valid after Precompute/SampleNodeWalks.
+  const std::vector<double> &FirstPassTransitionProbs(NodeId node) const { return first_pass_.at(node); }
+
+  // Second-order transition probabilities for the (prev -> cur) step, aligned
+  // with cur's sorted neighbours. Only valid after Precompute/SampleNodeWalks.
+  const std::vector<double> &EdgeTransitionProbs(NodeId prev, NodeId cur) const { return edge_probs_.at({prev, cur}); }
 
  private:
   double p_, q_;

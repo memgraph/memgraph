@@ -15,8 +15,11 @@
 // thread-dependent, like gensim's).
 
 #include <cmath>
+#include <map>
 #include <random>
 #include <set>
+#include <stdexcept>
+#include <tuple>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -28,6 +31,7 @@
 namespace {
 
 using node2vec_alg::N2vGraph;
+using node2vec_alg::NodeId;
 using node2vec_alg::SecondOrderRandomWalk;
 using node2vec_alg::Word2Vec;
 using node2vec_alg::Word2VecParams;
@@ -231,6 +235,190 @@ TEST(SecondOrderRandomWalkTest, DeterministicWithSeed) {
   auto b = w2.SampleNodeWalks(g2);
   ASSERT_EQ(a.size(), b.size());
   for (size_t i = 0; i < a.size(); ++i) EXPECT_EQ(a[i], b[i]);
+}
+
+// --- Transition-probability value tests (ported from test_second_order_random_walk.py)
+// These verify the p/q biasing math, not just that walks are structurally valid.
+
+constexpr double kP = 2.0;
+constexpr double kQ = 0.5;
+
+// Weighted edge set from test_second_order_random_walk.py.
+const std::vector<std::tuple<NodeId, NodeId, double>> kProbEdges = {{0, 1, 1.5},
+                                                                    {0, 2, 3.0},
+                                                                    {0, 4, 4.1},
+                                                                    {1, 5, 1.7},
+                                                                    {1, 6, 2.6},
+                                                                    {2, 5, 1.8},
+                                                                    {3, 0, 1.9},
+                                                                    {4, 6, 10.0},
+                                                                    {7, 1, 21.0},
+                                                                    {7, 5, 21.0},
+                                                                    {7, 6, 13.0},
+                                                                    {0, 5, 14.0},
+                                                                    {6, 0, 17.0}};
+
+double W(NodeId a, NodeId b) {
+  for (const auto &[from, to, weight] : kProbEdges)
+    if (from == a && to == b) return weight;
+  return 0.0;
+}
+
+N2vGraph BuildProbGraph(bool is_directed) {
+  N2vGraph g(is_directed);
+  for (const auto &[from, to, weight] : kProbEdges) g.AddEdge(from, to, weight);
+  g.Build();
+  return g;
+}
+
+std::vector<double> Normalize(std::vector<double> v) {
+  double sum = 0.0;
+  for (double x : v) sum += x;
+  for (double &x : v) x /= sum;
+  return v;
+}
+
+bool AllClose(const std::vector<double> &a, const std::vector<double> &b, double tol = 1e-9) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i)
+    if (std::fabs(a[i] - b[i]) > tol) return false;
+  return true;
+}
+
+TEST(SecondOrderRandomWalkTest, EdgeTransitionProbsUndirected) {
+  auto g = BuildProbGraph(/*is_directed=*/false);
+  SecondOrderRandomWalk walk(kP, kQ, /*num_walks=*/3, /*walk_length=*/2, /*seed=*/1);
+  walk.Precompute(g);
+  // neighbours of 1 (sorted): 0(=src)/p, 5, 6, 7(not adjacent to src)/q
+  EXPECT_TRUE(AllClose(walk.EdgeTransitionProbs(0, 1), Normalize({W(0, 1) / kP, W(1, 5), W(1, 6), W(7, 1) / kQ})));
+  // neighbours of 0 (sorted): 1,2,3(=src)/p,4,5,6 — none except src adjacent to src → /q
+  EXPECT_TRUE(
+      AllClose(walk.EdgeTransitionProbs(3, 0),
+               Normalize({W(0, 1) / kQ, W(0, 2) / kQ, W(3, 0) / kP, W(0, 4) / kQ, W(0, 5) / kQ, W(6, 0) / kQ})));
+}
+
+TEST(SecondOrderRandomWalkTest, EdgeTransitionProbsDirected) {
+  auto g = BuildProbGraph(/*is_directed=*/true);
+  SecondOrderRandomWalk walk(kP, kQ, /*num_walks=*/3, /*walk_length=*/2, /*seed=*/1);
+  walk.Precompute(g);
+  // successors of 1: 5(not adjacent to src)/q, 6(6->0 edge exists)*1
+  EXPECT_TRUE(AllClose(walk.EdgeTransitionProbs(0, 1), Normalize({W(1, 5) / kQ, W(1, 6)})));
+  // successors of 0: 1,2,4,5 — none adjacent to src=3 → /q
+  EXPECT_TRUE(
+      AllClose(walk.EdgeTransitionProbs(3, 0), Normalize({W(0, 1) / kQ, W(0, 2) / kQ, W(0, 4) / kQ, W(0, 5) / kQ})));
+}
+
+TEST(SecondOrderRandomWalkTest, FirstPassProbsUndirected) {
+  auto g = BuildProbGraph(/*is_directed=*/false);
+  SecondOrderRandomWalk walk(kP, kQ, /*num_walks=*/3, /*walk_length=*/2, /*seed=*/1);
+  walk.Precompute(g);
+  EXPECT_TRUE(AllClose(walk.FirstPassTransitionProbs(1), Normalize({W(0, 1), W(1, 5), W(1, 6), W(7, 1)})));
+  EXPECT_TRUE(
+      AllClose(walk.FirstPassTransitionProbs(0), Normalize({W(0, 1), W(0, 2), W(3, 0), W(0, 4), W(0, 5), W(6, 0)})));
+}
+
+TEST(SecondOrderRandomWalkTest, FirstPassProbsDirected) {
+  auto g = BuildProbGraph(/*is_directed=*/true);
+  SecondOrderRandomWalk walk(kP, kQ, /*num_walks=*/3, /*walk_length=*/2, /*seed=*/1);
+  walk.Precompute(g);
+  EXPECT_TRUE(AllClose(walk.FirstPassTransitionProbs(1), Normalize({W(1, 5), W(1, 6)})));
+  EXPECT_TRUE(AllClose(walk.FirstPassTransitionProbs(0), Normalize({W(0, 1), W(0, 2), W(0, 4), W(0, 5)})));
+}
+
+// --- N2vGraph tests (ported from the old test_basic_graph.py) ---------------
+
+// Edge set from test_basic_graph.py (edge 0->1 has a non-default weight of 0.5).
+const std::vector<std::tuple<NodeId, NodeId, double>> kBasicEdges = {
+    {0, 1, 0.5},
+    {0, 2, 1.0},
+    {0, 4, 1.0},
+    {1, 5, 1.0},
+    {1, 6, 1.0},
+    {2, 5, 1.0},
+    {3, 0, 1.0},
+    {4, 6, 1.0},
+    {7, 1, 1.0},
+    {7, 5, 1.0},
+    {7, 6, 1.0},
+};
+
+N2vGraph BuildBasicGraph(bool is_directed) {
+  N2vGraph g(is_directed);
+  for (const auto &[from, to, weight] : kBasicEdges) g.AddEdge(from, to, weight);
+  g.Build();
+  return g;
+}
+
+std::set<NodeId> NodeSet(const N2vGraph &g) { return {g.Nodes().begin(), g.Nodes().end()}; }
+
+TEST(N2vGraphTest, EdgeCount) {
+  // Directed keeps each edge once; undirected also stores the reverse.
+  EXPECT_EQ(BuildBasicGraph(true).Edges().size(), kBasicEdges.size());
+  EXPECT_EQ(BuildBasicGraph(false).Edges().size(), kBasicEdges.size() * 2);
+}
+
+TEST(N2vGraphTest, HasEdgeDirected) {
+  auto g = BuildBasicGraph(true);
+  for (const auto &[from, to, weight] : kBasicEdges) {
+    EXPECT_TRUE(g.HasEdge(from, to));
+    EXPECT_FALSE(g.HasEdge(to, from));  // no reciprocal edges in this set
+  }
+}
+
+TEST(N2vGraphTest, HasEdgeUndirected) {
+  auto g = BuildBasicGraph(false);
+  for (const auto &[from, to, weight] : kBasicEdges) {
+    EXPECT_TRUE(g.HasEdge(from, to));
+    EXPECT_TRUE(g.HasEdge(to, from));
+  }
+}
+
+TEST(N2vGraphTest, NeighborsDirected) {
+  auto g = BuildBasicGraph(true);
+  // Only nodes that are an edge source appear (5 and 6 are targets only).
+  const std::map<NodeId, std::vector<NodeId>> expected = {
+      {0, {1, 2, 4}}, {1, {5, 6}}, {2, {5}}, {3, {0}}, {4, {6}}, {7, {1, 5, 6}}};
+  std::set<NodeId> expected_nodes;
+  for (const auto &[node, nbrs] : expected) expected_nodes.insert(node);
+  EXPECT_EQ(NodeSet(g), expected_nodes);
+  for (const auto &[node, nbrs] : expected) EXPECT_EQ(g.Neighbors(node), nbrs);
+}
+
+TEST(N2vGraphTest, NeighborsUndirected) {
+  auto g = BuildBasicGraph(false);
+  const std::map<NodeId, std::vector<NodeId>> expected = {{0, {1, 2, 3, 4}},
+                                                          {1, {0, 5, 6, 7}},
+                                                          {2, {0, 5}},
+                                                          {3, {0}},
+                                                          {4, {0, 6}},
+                                                          {5, {1, 2, 7}},
+                                                          {6, {1, 4, 7}},
+                                                          {7, {1, 5, 6}}};
+  std::set<NodeId> expected_nodes;
+  for (const auto &[node, nbrs] : expected) expected_nodes.insert(node);
+  EXPECT_EQ(NodeSet(g), expected_nodes);
+  for (const auto &[node, nbrs] : expected) EXPECT_EQ(g.Neighbors(node), nbrs);
+}
+
+TEST(N2vGraphTest, EdgeWeightUndirectedIsSymmetric) {
+  auto g = BuildBasicGraph(false);
+  EXPECT_DOUBLE_EQ(g.EdgeWeight(0, 1), 0.5);
+  EXPECT_DOUBLE_EQ(g.EdgeWeight(1, 0), 0.5);
+}
+
+TEST(N2vGraphTest, EdgeWeightDirectedThrowsOnReverse) {
+  auto g = BuildBasicGraph(true);
+  EXPECT_DOUBLE_EQ(g.EdgeWeight(0, 1), 0.5);
+  EXPECT_THROW(g.EdgeWeight(1, 0), std::logic_error);  // reverse is not an edge in a directed graph
+}
+
+TEST(N2vGraphTest, AddEdgeAccumulatesParallelWeights) {
+  N2vGraph g(/*is_directed=*/true);
+  g.AddEdge(0, 1, 1.5);
+  g.AddEdge(0, 1, 2.0);  // same (from, to): weights accumulate
+  g.Build();
+  EXPECT_DOUBLE_EQ(g.EdgeWeight(0, 1), 3.5);
+  EXPECT_EQ(g.Neighbors(0).size(), 1u);  // still a single neighbour entry
 }
 
 }  // namespace
