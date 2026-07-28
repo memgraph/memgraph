@@ -17,6 +17,7 @@
 
 #include <mgp.hpp>
 
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -86,6 +87,7 @@ Params ParseParams(const std::vector<mgp::Value> &args) {
 node2vec_alg::N2vGraph BuildGraph(const mgp::Graph &graph, const Params &prm) {
   node2vec_alg::N2vGraph n2v(prm.is_directed);
   for (const auto node : graph.Nodes()) {
+    graph.CheckMustAbort();
     const int64_t from = node.Id().AsInt();
     for (const auto rel : node.OutRelationships()) {
       const int64_t to = rel.To().Id().AsInt();
@@ -139,6 +141,17 @@ std::vector<mgp::Value> CollectArgs(mgp_list *args) {
   return arguments;
 }
 
+// Returns the embedding map's node ids in ascending order. The embeddings map
+// is an unordered_map, so this gives the two parallel output lists (nodes,
+// embeddings) a deterministic, stable row order instead of arbitrary hash order.
+std::vector<int64_t> SortedNodeIds(const std::unordered_map<int64_t, std::vector<float>> &embeddings) {
+  std::vector<int64_t> ids;
+  ids.reserve(embeddings.size());
+  for (const auto &kv : embeddings) ids.push_back(kv.first);
+  std::sort(ids.begin(), ids.end());
+  return ids;
+}
+
 void GetEmbeddings(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard(memory);
   try {
@@ -151,9 +164,9 @@ void GetEmbeddings(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result
 
     mgp::List nodes_list(embeddings.size());
     mgp::List emb_list(embeddings.size());
-    for (const auto &kv : embeddings) {
-      nodes_list.AppendExtend(mgp::Value(graph.GetNodeById(mgp::Id::FromInt(kv.first))));
-      emb_list.AppendExtend(mgp::Value(EmbeddingToList(kv.second)));
+    for (const int64_t id : SortedNodeIds(embeddings)) {
+      nodes_list.AppendExtend(mgp::Value(graph.GetNodeById(mgp::Id::FromInt(id))));
+      emb_list.AppendExtend(mgp::Value(EmbeddingToList(embeddings.at(id))));
     }
 
     auto record = mgp::RecordFactory(result).NewRecord();
@@ -176,9 +189,9 @@ void SetEmbeddings(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result
 
     mgp::List nodes_list(embeddings.size());
     mgp::List emb_list(embeddings.size());
-    for (const auto &kv : embeddings) {
-      auto node = graph.GetNodeById(mgp::Id::FromInt(kv.first));
-      auto emb = EmbeddingToList(kv.second);
+    for (const int64_t id : SortedNodeIds(embeddings)) {
+      auto node = graph.GetNodeById(mgp::Id::FromInt(id));
+      auto emb = EmbeddingToList(embeddings.at(id));
       node.SetProperty(kEmbeddingProperty, mgp::Value(emb));
       nodes_list.AppendExtend(mgp::Value(node));
       emb_list.AppendExtend(mgp::Value(std::move(emb)));

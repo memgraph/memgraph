@@ -220,11 +220,11 @@ class SecondOrderRandomWalk {
   }
 
   void SetGraphTransitionProbs(N2vGraph &graph) {
+    // Edges() already yields both (u,v) and (v,u) for undirected graphs, so each
+    // direction is computed exactly once here (no separate reverse pass, which
+    // would recompute and overwrite every vector).
     for (const auto &e : graph.Edges()) {
-      NodeId from = e.first, to = e.second;
-      edge_probs_[{from, to}] = CalculateEdgeTransitionProbs(graph, from, to);
-      if (graph.IsDirected()) continue;
-      edge_probs_[{to, from}] = CalculateEdgeTransitionProbs(graph, to, from);
+      edge_probs_[{e.first, e.second}] = CalculateEdgeTransitionProbs(graph, e.first, e.second);
     }
   }
 

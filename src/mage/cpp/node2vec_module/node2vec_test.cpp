@@ -20,6 +20,7 @@
 #include <set>
 #include <stdexcept>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 #include <gtest/gtest.h>

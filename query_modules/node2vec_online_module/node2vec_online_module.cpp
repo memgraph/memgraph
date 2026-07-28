@@ -82,7 +82,7 @@ void SetStreamwalkUpdater(mgp_list *args, mgp_graph * /*graph*/, mgp_result *res
     std::lock_guard<std::mutex> lock(g_mtx);
     if (g_ctx.IsInitialized()) {
       InsertMessage(factory,
-                    "StreamWalk updater is already initialized.Call: `CALL node2vec_online.reset() YIELD *:` in "
+                    "StreamWalk updater is already initialized. Call: `CALL node2vec_online.reset() YIELD *;` in "
                     "order to set parameters again. Warning: all embeddings will be lost.");
       return;
     }
@@ -112,7 +112,7 @@ void SetWord2vecLearner(mgp_list *args, mgp_graph * /*graph*/, mgp_result *resul
     std::lock_guard<std::mutex> lock(g_mtx);
     if (g_ctx.IsInitialized()) {
       InsertMessage(factory,
-                    "Word2Vec learner is already initialized. Call: `CALL node2vec_online.reset() YIELD *;`in order "
+                    "Word2Vec learner is already initialized. Call: `CALL node2vec_online.reset() YIELD *;` in order "
                     "to set parameters again. Warning: all embeddings will be lost.");
       return;
     }
@@ -174,8 +174,9 @@ void Get(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result, mgp
     std::lock_guard<std::mutex> lock(g_mtx);
     if (!g_ctx.IsInitialized()) {
       throw std::runtime_error(
-          "Learner or updater are not initialized. Initialize them by calling:`CALL "
-          "node2vec_online.set_word2vec_learner() YIELD *;``CALL node2vec_online.set_streamwalk_updater() YIELD *;`");
+          "Learner or updater are not initialized. Initialize them by calling: `CALL "
+          "node2vec_online.set_word2vec_learner() YIELD *;` and `CALL node2vec_online.set_streamwalk_updater() YIELD "
+          "*;`");
     }
 
     auto embeddings = g_ctx.learner->GetEmbeddings();
@@ -191,17 +192,19 @@ void Get(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result, mgp
   }
 }
 
-void Update(mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
+void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard(memory);
   try {
     CheckEnterprise();
     auto arguments = CollectArgs(args);
+    const mgp::Graph graph(memgraph_graph);
 
     std::lock_guard<std::mutex> lock(g_mtx);
     if (!g_ctx.IsInitialized()) {
       throw std::runtime_error(
-          "Learner or updater are not initialized. Initialize them by calling:`CALL "
-          "node2vec_online.set_word2vec_learner() YIELD *;``CALL node2vec_online.set_streamwalk_updater() YIELD *;` ");
+          "Learner or updater are not initialized. Initialize them by calling: `CALL "
+          "node2vec_online.set_word2vec_learner() YIELD *;` and `CALL node2vec_online.set_streamwalk_updater() YIELD "
+          "*;`");
     }
 
     // Process edges in a deterministic order. The order in which Memgraph hands
@@ -225,6 +228,7 @@ void Update(mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memor
     std::sort(recs.begin(), recs.end(), [](const EdgeRec &a, const EdgeRec &b) { return a.id < b.id; });
 
     for (const auto &e : recs) {
+      graph.CheckMustAbort();                      // stay responsive to query termination / timeout
       const int64_t arrival_time = g_ctx.clock++;  // logical, monotonically increasing arrival time
       auto pairs = g_ctx.updater->ProcessNewEdge(e.source, e.target, arrival_time);
       g_ctx.learner->PartialFit(pairs);
