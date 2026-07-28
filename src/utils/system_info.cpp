@@ -44,9 +44,8 @@ std::string GetMachineId() {
 
 MemoryInfo GetMemoryInfo() {
   // sysinfo reports KiB; MemoryInfo is in bytes.
-  const uint64_t memory = sysinfo::TotalMemory().value_or(0) * 1024;
-  const uint64_t swap = sysinfo::SwapTotalMemory().value_or(0) * 1024;
-  return {memory, swap};
+  const auto totals = sysinfo::TotalMemory().value_or(sysinfo::MemoryTotals{});
+  return {totals.ram_kib * 1024, totals.swap_kib * 1024};
 }
 
 std::unordered_set<std::string> ExtractCPUFlags(const std::vector<std::string> &cpu_data) {
