@@ -1119,6 +1119,98 @@ TEST_P(CypherMainVisitorTest, MagicFunctionCacheable) {
   EXPECT_EQ(storage.user_functions_[0], "mock_module.get");
 }
 
+TEST_P(CypherMainVisitorTest, CallProcedureCacheable) {
+  AddProc(*mock_module, "proc", {}, {"res"}, ProcedureType::READ);
+  ParsingContext context;
+  AstStorage storage;
+  Parameters parameters;
+  CypherMainVisitor visitor(context, &storage, &parameters);
+  ::frontend::opencypher::Parser parser("CALL mock_module.proc() YIELD res RETURN res");
+  visitor.visit(parser.tree());
+  EXPECT_TRUE(visitor.GetQueryInfo().is_cacheable);
+  ASSERT_EQ(storage.call_procedures_.size(), 1U);
+  EXPECT_EQ(storage.call_procedures_[0], "mock_module.proc");
+  EXPECT_TRUE(storage.DependsOnModules());
+}
+
+// Two occurrences of one module function are one dependency and one resolved callable, so both
+// call sites share a slot in the table resolved for an execution.
+TEST_P(CypherMainVisitorTest, RepeatedMagicFunctionSharesOneSlot) {
+  AddFunc(*mock_module, "get", {});
+  ParsingContext context;
+  AstStorage storage;
+  Parameters parameters;
+  CypherMainVisitor visitor(context, &storage, &parameters);
+  ::frontend::opencypher::Parser parser("RETURN mock_module.get() AS a, mock_module.get() AS b");
+  visitor.visit(parser.tree());
+
+  ASSERT_EQ(storage.user_functions_.size(), 1U);
+  EXPECT_EQ(storage.user_functions_[0], "mock_module.get");
+
+  auto *query = dynamic_cast<CypherQuery *>(visitor.query());
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  ASSERT_EQ(return_clause->body_.named_expressions.size(), 2);
+  auto *first = dynamic_cast<Function *>(return_clause->body_.named_expressions[0]->expression_);
+  auto *second = dynamic_cast<Function *>(return_clause->body_.named_expressions[1]->expression_);
+  ASSERT_TRUE(first);
+  ASSERT_TRUE(second);
+  EXPECT_EQ(first->user_function_id_, second->user_function_id_);
+}
+
+// Distinct module functions get distinct slots, so one resolution cannot stand in for the other.
+TEST_P(CypherMainVisitorTest, DistinctMagicFunctionsGetDistinctSlots) {
+  AddFunc(*mock_module, "get", {});
+  AddFunc(*mock_module, "put", {});
+  ParsingContext context;
+  AstStorage storage;
+  Parameters parameters;
+  CypherMainVisitor visitor(context, &storage, &parameters);
+  ::frontend::opencypher::Parser parser("RETURN mock_module.get() AS a, mock_module.put() AS b");
+  visitor.visit(parser.tree());
+
+  EXPECT_EQ(storage.user_functions_.size(), 2U);
+}
+
+// The same procedure called twice is recorded once; the list names dependencies, not call sites.
+TEST_P(CypherMainVisitorTest, RepeatedCallProcedureRecordedOnce) {
+  AddProc(*mock_module, "proc", {}, {"res"}, ProcedureType::READ);
+  ParsingContext context;
+  AstStorage storage;
+  Parameters parameters;
+  CypherMainVisitor visitor(context, &storage, &parameters);
+  ::frontend::opencypher::Parser parser(
+      "CALL mock_module.proc() YIELD res AS a CALL mock_module.proc() YIELD res AS b RETURN a, b");
+  visitor.visit(parser.tree());
+
+  ASSERT_EQ(storage.call_procedures_.size(), 1U);
+  EXPECT_EQ(storage.call_procedures_[0], "mock_module.proc");
+}
+
+TEST_P(CypherMainVisitorTest, ModuleFreeQueryDependsOnNoModules) {
+  ParsingContext context;
+  AstStorage storage;
+  Parameters parameters;
+  CypherMainVisitor visitor(context, &storage, &parameters);
+  ::frontend::opencypher::Parser parser("MATCH (n) RETURN n");
+  visitor.visit(parser.tree());
+  EXPECT_TRUE(storage.user_functions_.empty());
+  EXPECT_TRUE(storage.call_procedures_.empty());
+  EXPECT_FALSE(storage.DependsOnModules());
+}
+
+TEST_P(CypherMainVisitorTest, MagicFunctionDependsOnModules) {
+  AddFunc(*mock_module, "get", {});
+  ParsingContext context;
+  AstStorage storage;
+  Parameters parameters;
+  CypherMainVisitor visitor(context, &storage, &parameters);
+  ::frontend::opencypher::Parser parser("RETURN mock_module.get()");
+  visitor.visit(parser.tree());
+  EXPECT_TRUE(storage.call_procedures_.empty());
+  EXPECT_TRUE(storage.DependsOnModules());
+}
+
 TEST_P(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN \"mi'rko\""));

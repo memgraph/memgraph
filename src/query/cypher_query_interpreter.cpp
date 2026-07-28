@@ -26,6 +26,7 @@
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/used_index_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "query/procedure/module.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/string.hpp"
@@ -45,7 +46,25 @@ DEFINE_VALIDATED_int32(query_ast_cache_max_size, 1000,
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
 namespace memgraph::query {
-PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
+namespace {
+
+/// A cached artifact is generation-checked only when building its AST read the query-module
+/// registry. A query naming no procedure and no user-defined function bakes in nothing that a
+/// module reload can invalidate, so it survives one untouched.
+bool IsFresh(AstStorage const &ast_storage, uint64_t stamped_generation, uint64_t current_generation) {
+  return !ast_storage.DependsOnModules() || stamped_generation == current_generation;
+}
+
+}  // namespace
+
+PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan, uint64_t module_generation)
+    : plan_(std::move(plan)), module_generation_(module_generation) {
+  auto checker = plan::UsedIndexChecker{};
+  // G_Lloyd: I am so SORRY, const_cast is BAD, but I'm not fixing Visitable and HierarchicalLogicalOperatorVisitor
+  //          ATM to work with a const visitor. This maybe addressed when the planner is redone.
+  const_cast<plan::LogicalOperator &>(plan_->GetRoot()).Accept(checker);
+  required_indices_ = std::move(checker.required_indices_);
+}
 
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
                             parameters::Parameters const *server_parameters, std::string_view database_uuid)
@@ -94,9 +113,19 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
 
   // Cache the query's AST if it isn't already.
   auto const &cache_key = stripped_query.stripped_query();
+  // sample the module generation under the cache lock so a reload while waiting for the lock isn't missed
+  uint64_t module_generation = 0;
   std::shared_ptr<const CachedQuery> cached;
   cache->WithLock([&](auto &lru) {
-    if (auto entry = lru.get(cache_key)) cached = *entry;
+    module_generation = procedure::gModuleRegistry.ModuleGeneration();
+    auto entry = lru.get(cache_key);
+    if (!entry) return;
+    if (IsFresh((*entry)->ast_storage, (*entry)->module_generation, module_generation)) {
+      cached = *entry;
+    } else {
+      // known dead: drop it now rather than leave it holding an AstStorage until the insert path replaces it
+      lru.invalidate(cache_key);
+    }
   });
   std::unique_ptr<frontend::opencypher::Parser> parser;
 
@@ -109,6 +138,7 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
     result.ast_storage.labels_ = cached_query.ast_storage.labels_;
     result.ast_storage.edge_types_ = cached_query.ast_storage.edge_types_;
     result.ast_storage.user_functions_ = cached_query.ast_storage.user_functions_;
+    result.ast_storage.call_procedures_ = cached_query.ast_storage.call_procedures_;
 
     result.query = cached_query.query->Clone(&result.ast_storage);
     result.required_privileges = cached_query.required_privileges;
@@ -154,11 +184,15 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
                       .query = visitor.query(),
                       .required_privileges = query::GetRequiredPrivileges(visitor.query()),
                       .is_cypher_read = read_check(),
-                      .using_schema_assert = visitor.GetQueryInfo().has_schema_assert});
+                      .using_schema_assert = visitor.GetQueryInfo().has_schema_assert,
+                      .module_generation = module_generation});
       cache->WithLock([&](auto &lru) {
-        if (auto winner = lru.get(cache_key)) {
+        auto winner = lru.get(cache_key);
+        if (winner && IsFresh((*winner)->ast_storage, (*winner)->module_generation, module_generation)) {
           cached_query = *winner;
         } else {
+          // put won't overwrite an existing key, so drop a stale-generation entry before inserting the fresh one
+          lru.invalidate(cache_key);
           lru.put(cache_key, cached_query);
         }
       });
@@ -187,6 +221,7 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
       .is_cypher_read = result.is_cypher_read,
       .using_schema_assert = result.using_schema_assert,
       .is_cacheable = is_cacheable,
+      .module_generation = module_generation,
       .user_parameters = user_parameters,
       .parameters = std::move(query_parameters),
   };
@@ -238,6 +273,7 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
                                                CypherQuery *query, const Parameters &parameters,
                                                PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
                                                plan::v2::QueryPlannerContext &planner_context,
+                                               uint64_t module_generation,
                                                const std::vector<Identifier *> &predefined_identifiers) {
   // Enforce the global memory limit during query preparation. Without this,
   // MemoryTrackerCanThrow() is false here (the per-cursor
@@ -254,15 +290,9 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
     if (existing_plan) {
       // validate the index usage
       auto &ptr = existing_plan.value();
-      auto &plan = ptr->plan();
 
-      auto checker = plan::UsedIndexChecker{};
-      // G_Lloyd: I am so SORRY, const_cast is BAD, but I'm not fixing Visitable and HierarchicalLogicalOperatorVisitor
-      //          ATM to work with a const visitor. This maybe addressed when the planner is redone.
-      const_cast<plan::LogicalOperator &>(plan).Accept(checker);
-
-      auto const all_satisfied = db_accessor->CheckIndicesAreReady(checker.required_indices_);
-      if (all_satisfied) {
+      auto const all_satisfied = db_accessor->CheckIndicesAreReady(ptr->required_indices());
+      if (all_satisfied && IsFresh(ptr->ast_storage(), ptr->module_generation(), module_generation)) {
         return ptr;
       } else {
         plan_cache->WithLock([&](PlanCache_t &cache) { cache.invalidate(stripped_query.stripped_query()); });
@@ -272,7 +302,7 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
 
   auto logical_plan =
       MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers, planner_context);
-  auto plan = std::make_shared<PlanWrapper>(std::move(logical_plan));
+  auto plan = std::make_shared<PlanWrapper>(std::move(logical_plan), module_generation);
 
   if (use_plan_cache) {
     plan_cache->WithLock([&](auto &cache) { cache.put(stripped_query.stripped_query(), plan); });

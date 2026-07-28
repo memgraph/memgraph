@@ -2135,14 +2135,6 @@ antlrcpp::Any CypherMainVisitor::visitCreate(MemgraphCypher::CreateContext *ctx)
 }
 
 antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedureContext *ctx) {
-  // Don't cache queries which call procedures because the
-  // procedure definition can affect the behaviour of the visitor and
-  // the execution of the query.
-  // If a user recompiles and reloads the procedure with different result
-  // names, because of the cache, old result names will be expected while the
-  // procedure will return results mapped to new names.
-  query_info_.is_cacheable = false;
-
   auto *call_proc = storage_->Create<CallProcedure>();
   MG_ASSERT(!ctx->procedureName()->symbolicName().empty());
   call_proc->procedure_name_ = JoinSymbolicNames(this, ctx->procedureName()->symbolicName());
@@ -2166,6 +2158,10 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   if (!maybe_found) {
     throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
   }
+
+  // Record the dependency before reading the signature below: is_write, void-ness and the
+  // YIELD * expansion all come from it and are baked into the AST from here on.
+  storage_->FindOrAddCallProcedure(call_proc->procedure_name_);
 
   call_proc->is_write_ = maybe_found->second->info.is_write;
   if (maybe_found->second->results.empty()) {

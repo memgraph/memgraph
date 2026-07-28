@@ -63,10 +63,14 @@ inline SelectedFunction SelectFunctionImpl(const Function &function, const Evalu
   const auto &resolved = ctx.resolved_user_functions;
   if (resolved && function.user_function_id_ >= 0) {
     const auto slot = static_cast<size_t>(function.user_function_id_);
-    MG_ASSERT(slot < resolved->functions.size(),
-              "user_function_id_ {} out of range for resolved table of size {}",
-              function.user_function_id_,
-              resolved->functions.size());
+    if (slot >= resolved->functions.size()) [[unlikely]] {
+      // The plan's AstStorage is not the one these Function nodes were indexed into, so some
+      // clone path failed to carry user_functions_ across. Fail the query, not the process.
+      throw QueryRuntimeException("Function '{}' resolved to slot {}, outside a table of {} resolved functions.",
+                                  function.function_name_,
+                                  function.user_function_id_,
+                                  resolved->functions.size());
+    }
     return {&resolved->functions[slot].first};
   }
   return {ResolveUserFunction(function.function_name_)};
