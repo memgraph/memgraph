@@ -10,14 +10,12 @@
 // licenses/APL.txt.
 //
 // Word2Vec implementation used by the node2vec and node2vec_online query
-// modules. This is a from-scratch, dependency-free replacement for the
-// `gensim.models.Word2Vec` model that those modules previously relied on.
+// modules.
 //
 // It implements skip-gram and CBOW training with negative sampling and
 // hierarchical softmax, in both a batch mode (`Train`) and an incremental
 // mode (`PartialFit`) that extends the vocabulary while preserving previously
-// learned vectors. The goal is functional equivalence with gensim (same
-// parameters and qualitative behaviour), not bit-for-bit identical vectors.
+// learned vectors.
 //
 // Shared by the batch node2vec module (src/mage/cpp/node2vec_module) and the
 // online node2vec_online module (query_modules/node2vec_online_module); it lives
@@ -37,8 +35,6 @@
 
 namespace node2vec_alg {
 
-// Parameters mirror the subset of gensim.models.Word2Vec arguments that the
-// node2vec modules pass through.
 struct Word2VecParams {
   int vector_size = 100;
   int window = 5;
@@ -51,7 +47,7 @@ struct Word2VecParams {
   bool sg = true;        // true: skip-gram, false: CBOW
   bool hs = false;       // hierarchical softmax
   int negative = 5;      // number of negative samples (0 disables negative sampling)
-  double sample = 1e-3;  // frequent-word subsampling threshold (gensim default; 0 disables)
+  double sample = 1e-3;  // frequent-word subsampling threshold
 };
 
 class Word2Vec {
@@ -60,8 +56,6 @@ class Word2Vec {
 
   explicit Word2Vec(const Word2VecParams &params) : p_(params), dim_(params.vector_size) {
     if (dim_ <= 0) dim_ = 1;
-    // A window < 1 is meaningless and would divide-by-zero in TrainRange
-    // (`rng() % p_.window`), crashing the worker with SIGFPE; clamp like dim_.
     if (p_.window < 1) p_.window = 1;
     seed_ = static_cast<uint64_t>(p_.seed);
     InitExpTable();
@@ -86,8 +80,7 @@ class Word2Vec {
     TrainEpochs(sentences, p_.epochs);
   }
 
-  // Returns a mapping from token (node id) to its embedding vector, mirroring
-  // gensim's `{wv.index_to_key[i]: wv.vectors[i]}`.
+  // Returns a mapping from token (node id) to its embedding vector.
   std::unordered_map<Token, std::vector<float>> GetEmbeddings() const {
     std::unordered_map<Token, std::vector<float>> out;
     out.reserve(vocab_size_);
@@ -159,11 +152,7 @@ class Word2Vec {
   // Deterministic initialization of an embedding row, seeded from the token's
   // vocabulary index (its structural position) rather than the raw token value.
   // Seeding by index keeps embeddings reproducible across runs even when the
-  // caller assigns different absolute token ids to the same logical graph (e.g.
-  // Memgraph hands out fresh internal node ids every time a graph is recreated).
-  // Existing tokens keep their index on incremental updates (BuildVocab only
-  // appends new ones), so their initialization stays stable as the vocabulary
-  // grows. Mirrors gensim's uniform(-0.5/dim, 0.5/dim) per-word initialization.
+  // caller assigns different absolute token ids to the same logical graph.
   void InitRow(int index) {
     uint64_t s = seed_ ^ (static_cast<uint64_t>(index) * 0x9E3779B97F4A7C15ULL + 0x632BE59BD9B4E019ULL);
     std::mt19937_64 rng(s);  // NOSONAR
@@ -223,8 +212,7 @@ class Word2Vec {
     BuildSubsamplingTable();
   }
 
-  // Computes per-token keep probabilities for frequent-word subsampling,
-  // matching gensim/word2vec.c (sample * total_words threshold).
+  // Computes per-token keep probabilities for frequent-word subsampling.
   void BuildSubsamplingTable() {
     total_words_ = 0;
     for (int i = 0; i < vocab_size_; ++i) total_words_ += counts_[i];
@@ -267,7 +255,6 @@ class Word2Vec {
   // Builds the Huffman tree for hierarchical softmax and derives, for every
   // token, its root->leaf path: hs_codes_ (the 0/1 branch bits) and hs_points_
   // (the syn1_ inner-node rows visited). Frequent tokens get shorter paths.
-  // Standard word2vec construction.
   void BuildHuffman() {
     int n = vocab_size_;  // number of leaves (vocabulary words)
     // A binary tree over n leaves has n-1 inner nodes; syn1_ holds one weight
@@ -278,14 +265,7 @@ class Word2Vec {
     if (n <= 1) return;
 
     // Order the leaves by descending count (ties broken by ascending token
-    // index, for determinism). The two-cursor selection below requires the leaf
-    // work array to be count-sorted. A fresh Train already assigns indices in
-    // this order (so `order` is the identity and the tree is unchanged), but
-    // PartialFit mutates existing tokens' counts in place without re-sorting, so
-    // we sort a local view here instead of assuming it. `order[k]` is the token
-    // index sitting at sorted leaf position k; the tree is built over positions
-    // and mapped back to token indices when emitting codes/points, so syn0_ rows
-    // are never re-keyed.
+    // index, for determinism).
     std::vector<int> order(n);
     for (int i = 0; i < n; ++i) order[i] = i;
     std::sort(order.begin(), order.end(), [this](int x, int y) {
@@ -403,8 +383,7 @@ class Word2Vec {
     }
   }
 
-  // Trains over coded[begin, end). Weight updates are intentionally lock-free
-  // (Hogwild-style), matching gensim's multithreaded training.
+  // Trains over coded[begin, end).
   void TrainRange(const std::vector<std::vector<int>> &coded, size_t begin, size_t end,
                   std::atomic<int64_t> &words_done, int64_t total_train_words, uint64_t rng_seed) {
     std::mt19937_64 rng(rng_seed);         // NOSONAR
@@ -420,8 +399,7 @@ class Word2Vec {
 
     for (size_t si = begin; si < end; ++si) {
       const std::vector<int> &raw = coded[si];
-      // Apply frequent-word subsampling while reading the sentence (gensim
-      // drops sampled-out words entirely for this pass).
+      // Apply frequent-word subsampling while reading the sentence.
       sentence.clear();
       sentence.reserve(raw.size());
       for (int idx : raw) {
@@ -512,7 +490,6 @@ class Word2Vec {
   // single output row `l2`, toward the given `label` (the probability the model
   // should assign to the "1" branch: 1 for a positive, 0 for a negative). The
   // input-side gradient is accumulated into `neu1e`; `l2` is updated in place.
-  // Skips saturated scores (|f| >= kMaxExp), matching gensim's inner loops.
   inline void UpdateOutput(float *l2, float label, const float *l1, float alpha, float *neu1e) {
     float f = 0.0f;
     for (int d = 0; d < dim_; ++d) f += l1[d] * l2[d];
@@ -524,8 +501,7 @@ class Word2Vec {
 
   // Trains the output layer to predict `target` from the hidden vector `l1`,
   // accumulating the input-side gradient into `neu1e`. Uses hierarchical softmax
-  // and/or negative sampling depending on parameters (mirrors gensim's
-  // w2v_fast_sentence_*_hs / _neg).
+  // and/or negative sampling depending on parameters.
   void TrainPair(int target, const float *l1, float alpha, float *neu1e, std::mt19937_64 &rng) {  // NOSONAR
     // Hierarchical softmax: one binary decision per internal node on `target`'s
     // Huffman path. code[j] is the bit toward `target`, so the target label for

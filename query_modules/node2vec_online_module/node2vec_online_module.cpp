@@ -5,10 +5,7 @@
 // this file except in compliance with the License. You may obtain a copy of the License at https://memgraph.com/legal.
 //
 // Online node2vec query module. Maintains node embeddings incrementally as new
-// edges arrive (typically via a BEFORE COMMIT trigger calling `update`). This is
-// a C++ reimplementation of the previous Python module
-// (query_modules/node2vec_online_module/), removing the dependency on `gensim`.
-// Procedure names, parameters and result signatures are unchanged.
+// edges arrive (typically via a BEFORE COMMIT trigger calling `update`).
 
 #include <mgp.hpp>
 

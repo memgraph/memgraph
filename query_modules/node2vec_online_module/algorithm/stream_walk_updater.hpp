@@ -5,8 +5,6 @@
 // this file except in compliance with the License. You may obtain a copy of the License at https://memgraph.com/legal.
 //
 // StreamWalk temporal random-walk sampler used by the node2vec_online module.
-// Direct port of the previous Python implementation
-// (query_modules/node2vec_online_module/node2vec_online_utils/walk_sampling.py).
 //
 // The probability of a walk z observed at time t is
 //   p(z, t) = (beta ^ |z|) * exp(-c * (t - t1)),

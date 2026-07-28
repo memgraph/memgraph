@@ -10,10 +10,7 @@
 // licenses/APL.txt.
 //
 // Batch node2vec query module. Computes node embeddings by sampling biased
-// second-order random walks and training a Word2Vec model over them. This is a
-// C++ reimplementation of the previous Python module (mage/python/node2vec.py),
-// removing the dependency on `gensim`. Procedure names, parameters and result
-// signatures are unchanged.
+// second-order random walks and training a Word2Vec model over them.
 
 #include <mgp.hpp>
 
@@ -39,8 +36,6 @@ constexpr const char *kResultValue = "value";
 
 constexpr const char *kEmbeddingProperty = "embedding";
 
-// Parsed node2vec parameters (in registration order). Defaults mirror the
-// previous Python signature.
 struct Params {
   bool is_directed = false;
   double p = 2.0;
@@ -210,9 +205,6 @@ void Help(mgp_list * /*args*/, mgp_graph * /*memgraph_graph*/, mgp_result *resul
   try {
     mgp::RecordFactory factory(result);
 
-    // Emits a manual-page section: `title` appears in the name column of the
-    // first line, subsequent lines have an empty name column (matching the
-    // previous Python help() output).
     auto emit_section = [&](const char *title, std::initializer_list<const char *> body) {
       bool first = true;
       for (const char *line : body) {

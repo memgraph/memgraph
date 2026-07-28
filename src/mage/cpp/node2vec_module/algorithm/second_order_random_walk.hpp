@@ -9,13 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 //
-// Second-order (biased) random walk used by the batch node2vec module. This is
-// a direct port of the previous Python implementation
-// (mage/python/mage/node2vec/{graph,second_order_random_walk}.py), preserving
-// its transition-probability semantics (the node2vec `p`/`q` parameters).
-//
-// Unlike the Python version (which used an unseeded numpy RNG), the walk RNG
-// here is seeded from the `seed` parameter, so walks are reproducible.
+// Second-order (biased) random walk used by the batch node2vec module.
 
 #pragma once
 
@@ -36,8 +30,6 @@ class N2vGraph {
  public:
   N2vGraph(bool is_directed) : is_directed_(is_directed) {}
 
-  // Adds (or accumulates) an edge weight, mirroring the Python dict keyed by
-  // (from, to) that summed duplicate edges.
   void AddEdge(NodeId from, NodeId to, double weight) {
     auto &inner = edges_[from];
     auto it = inner.find(to);
@@ -95,8 +87,7 @@ class N2vGraph {
   }
 
   // (prev, cur) directed pairs over which edge transition probabilities are
-  // defined, matching Python's Graph.get_edges() (reversed pairs added for
-  // undirected graphs).
+  // defined.
   std::vector<std::pair<NodeId, NodeId>> Edges() const {
     std::vector<std::pair<NodeId, NodeId>> out = edge_order_;
     if (!is_directed_) {

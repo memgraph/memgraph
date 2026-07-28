@@ -11,8 +11,7 @@
 //
 // Unit tests for the node2vec Word2Vec core and the second-order random walk.
 // These exercise the algorithms directly (no Memgraph graph context needed) and
-// assert functional properties rather than exact vectors (which are seed- and
-// thread-dependent, like gensim's).
+// assert functional properties rather than exact vectors.
 
 #include <cmath>
 #include <map>
@@ -281,13 +280,9 @@ TEST(SecondOrderRandomWalkTest, DeterministicWithSeed) {
   for (size_t i = 0; i < a.size(); ++i) EXPECT_EQ(a[i], b[i]);
 }
 
-// --- Transition-probability value tests (ported from test_second_order_random_walk.py)
-// These verify the p/q biasing math, not just that walks are structurally valid.
-
 constexpr double kP = 2.0;
 constexpr double kQ = 0.5;
 
-// Weighted edge set from test_second_order_random_walk.py.
 const std::vector<std::tuple<NodeId, NodeId, double>> kProbEdges = {{0, 1, 1.5},
                                                                     {0, 2, 3.0},
                                                                     {0, 4, 4.1},
@@ -368,8 +363,6 @@ TEST(SecondOrderRandomWalkTest, FirstPassProbsDirected) {
   EXPECT_TRUE(AllClose(walk.FirstPassTransitionProbs(1), Normalize({W(1, 5), W(1, 6)})));
   EXPECT_TRUE(AllClose(walk.FirstPassTransitionProbs(0), Normalize({W(0, 1), W(0, 2), W(0, 4), W(0, 5)})));
 }
-
-// --- N2vGraph tests (ported from the old test_basic_graph.py) ---------------
 
 // Edge set from test_basic_graph.py (edge 0->1 has a non-default weight of 0.5).
 const std::vector<std::tuple<NodeId, NodeId, double>> kBasicEdges = {
