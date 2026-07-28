@@ -27,16 +27,16 @@
 
 namespace {
 
-constexpr char kProcGetEmbeddings[] = "get_embeddings";
-constexpr char kProcSetEmbeddings[] = "set_embeddings";
-constexpr char kProcHelp[] = "help";
+constexpr const char *kProcGetEmbeddings = "get_embeddings";
+constexpr const char *kProcSetEmbeddings = "set_embeddings";
+constexpr const char *kProcHelp = "help";
 
-constexpr char kResultNodes[] = "nodes";
-constexpr char kResultEmbeddings[] = "embeddings";
-constexpr char kResultName[] = "name";
-constexpr char kResultValue[] = "value";
+constexpr const char *kResultNodes = "nodes";
+constexpr const char *kResultEmbeddings = "embeddings";
+constexpr const char *kResultName = "name";
+constexpr const char *kResultValue = "value";
 
-constexpr char kEmbeddingProperty[] = "embedding";
+constexpr const char *kEmbeddingProperty = "embedding";
 
 // Parsed node2vec parameters (in registration order). Defaults mirror the
 // previous Python signature.
@@ -86,9 +86,9 @@ Params ParseParams(const std::vector<mgp::Value> &args) {
 node2vec_alg::N2vGraph BuildGraph(const mgp::Graph &graph, const Params &prm) {
   node2vec_alg::N2vGraph n2v(prm.is_directed);
   for (const auto node : graph.Nodes()) {
-    int64_t from = node.Id().AsInt();
+    const int64_t from = node.Id().AsInt();
     for (const auto rel : node.OutRelationships()) {
-      int64_t to = rel.To().Id().AsInt();
+      const int64_t to = rel.To().Id().AsInt();
       double weight = 1.0;
       auto wval = rel.GetProperty(prm.edge_weight_property);
       if (wval.IsNumeric()) weight = wval.ValueNumeric();
@@ -127,7 +127,7 @@ std::unordered_map<int64_t, std::vector<float>> ComputeEmbeddings(node2vec_alg::
 
 mgp::List EmbeddingToList(const std::vector<float> &vec) {
   mgp::List inner(vec.size());
-  for (float x : vec) inner.AppendExtend(mgp::Value(static_cast<double>(x)));
+  for (const float x : vec) inner.AppendExtend(mgp::Value(static_cast<double>(x)));
   return inner;
 }
 
@@ -140,11 +140,11 @@ std::vector<mgp::Value> CollectArgs(mgp_list *args) {
 }
 
 void GetEmbeddings(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+  const mgp::MemoryDispatcherGuard guard(memory);
   try {
     auto arguments = CollectArgs(args);
-    Params prm = ParseParams(arguments);
-    mgp::Graph graph(memgraph_graph);
+    const Params prm = ParseParams(arguments);
+    const mgp::Graph graph(memgraph_graph);
 
     auto n2v = BuildGraph(graph, prm);
     auto embeddings = ComputeEmbeddings(n2v, prm);
@@ -165,11 +165,11 @@ void GetEmbeddings(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result
 }
 
 void SetEmbeddings(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+  const mgp::MemoryDispatcherGuard guard(memory);
   try {
     auto arguments = CollectArgs(args);
-    Params prm = ParseParams(arguments);
-    mgp::Graph graph(memgraph_graph);
+    const Params prm = ParseParams(arguments);
+    const mgp::Graph graph(memgraph_graph);
 
     auto n2v = BuildGraph(graph, prm);
     auto embeddings = ComputeEmbeddings(n2v, prm);
@@ -193,7 +193,7 @@ void SetEmbeddings(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result
 }
 
 void Help(mgp_list * /*args*/, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+  const mgp::MemoryDispatcherGuard guard(memory);
   try {
     mgp::RecordFactory factory(result);
 
@@ -205,6 +205,7 @@ void Help(mgp_list * /*args*/, mgp_graph * /*memgraph_graph*/, mgp_result *resul
       for (const char *line : body) {
         auto record = factory.NewRecord();
         record.Insert(kResultName, first ? title : "");
+        // NOLINTNEXTLINE(readability-suspicious-call-argument): field name then value, not swapped.
         record.Insert(kResultValue, line);
         first = false;
       }
@@ -294,7 +295,7 @@ void AddNode2vecArgs(mgp_proc *proc, mgp_memory *memory) {
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard(memory);
+    const mgp::MemoryDispatcherGuard guard(memory);
 
     auto *get_proc = mgp::module_add_read_procedure(module, kProcGetEmbeddings, GetEmbeddings);
     AddNode2vecArgs(get_proc, memory);

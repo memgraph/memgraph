@@ -50,17 +50,19 @@ std::vector<std::vector<int64_t>> StructuredCorpus(int n_sentences, int sentence
   std::vector<std::vector<int64_t>> sents;
   sents.reserve(n_sentences);
   for (int i = 0; i < n_sentences; ++i) {
-    int topic = topic_dist(rng);
+    const int topic = topic_dist(rng);
     std::vector<int64_t> s;
     s.reserve(sentence_len);
-    for (int j = 0; j < sentence_len; ++j) s.push_back(topic * kWordsPerTopic + word_dist(rng));
+    for (int j = 0; j < sentence_len; ++j) s.push_back((topic * kWordsPerTopic) + word_dist(rng));
     sents.push_back(std::move(s));
   }
   return sents;
 }
 
 double Cosine(const std::vector<float> &a, const std::vector<float> &b) {
-  double dot = 0, na = 0, nb = 0;
+  double dot = 0;
+  double na = 0;
+  double nb = 0;
   for (size_t i = 0; i < a.size(); ++i) {
     dot += static_cast<double>(a[i]) * b[i];
     na += static_cast<double>(a[i]) * a[i];
@@ -72,13 +74,14 @@ double Cosine(const std::vector<float> &a, const std::vector<float> &b) {
 
 // Fraction of words whose nearest neighbour (by cosine) is in the same topic.
 double NearestNeighbourTopicPurity(const std::unordered_map<int64_t, std::vector<float>> &emb) {
-  int correct = 0, total = 0;
+  int correct = 0;
+  int total = 0;
   for (const auto &qkv : emb) {
     double best = -2;
     int64_t best_word = qkv.first;
     for (const auto &okv : emb) {
       if (okv.first == qkv.first) continue;
-      double c = Cosine(qkv.second, okv.second);
+      const double c = Cosine(qkv.second, okv.second);
       if (c > best) {
         best = c;
         best_word = okv.first;
@@ -148,7 +151,7 @@ TEST(Word2VecTest, EmbeddingShape) {
   model.Train(corpus);
   auto emb = model.GetEmbeddings();
   ASSERT_FALSE(emb.empty());
-  for (const auto &kv : emb) EXPECT_EQ(kv.second.size(), 16u);
+  for (const auto &kv : emb) EXPECT_EQ(kv.second.size(), 16U);
 }
 
 TEST(Word2VecTest, DeterministicSingleThreaded) {
@@ -174,7 +177,7 @@ TEST(Word2VecTest, IncrementalExtendsVocabAndPreservesUntouched) {
   // First batch only contains tokens {0, 1, 2}.
   model.PartialFit({{0, 1, 2}, {2, 1, 0}, {1, 0, 2}});
   auto after_first = model.GetEmbeddings();
-  ASSERT_EQ(after_first.count(0), 1u);
+  ASSERT_EQ(after_first.count(0), 1U);
   auto token0_before = after_first.at(0);
 
   // Second batch introduces {3, 4} and never mentions token 0.
@@ -182,9 +185,9 @@ TEST(Word2VecTest, IncrementalExtendsVocabAndPreservesUntouched) {
   auto after_second = model.GetEmbeddings();
 
   // New tokens were added, old ones retained.
-  EXPECT_EQ(after_second.count(3), 1u);
-  EXPECT_EQ(after_second.count(4), 1u);
-  EXPECT_EQ(after_second.count(0), 1u);
+  EXPECT_EQ(after_second.count(3), 1U);
+  EXPECT_EQ(after_second.count(4), 1U);
+  EXPECT_EQ(after_second.count(0), 1U);
 
   // Token 0 was absent from the second batch, so its vector is unchanged.
   const auto &token0_after = after_second.at(0);
@@ -194,7 +197,7 @@ TEST(Word2VecTest, IncrementalExtendsVocabAndPreservesUntouched) {
 
 TEST(Word2VecTest, VocabularyIsFrequencySorted) {
   // Token i occurs (i + 1) times, so descending-frequency order is 4,3,2,1,0.
-  std::vector<std::vector<int64_t>> corpus = {{0}, {1, 1}, {2, 2, 2}, {3, 3, 3, 3}, {4, 4, 4, 4, 4}};
+  const std::vector<std::vector<int64_t>> corpus = {{0}, {1, 1}, {2, 2, 2}, {3, 3, 3, 3}, {4, 4, 4, 4, 4}};
   Word2Vec model(BaseParams(/*sg=*/true));
   model.Train(corpus);
   EXPECT_EQ(model.Vocabulary(), (std::vector<int64_t>{4, 3, 2, 1, 0}));
@@ -214,7 +217,8 @@ N2vGraph MakeTestGraph() {
 
 TEST(SecondOrderRandomWalkTest, WalkStructure) {
   auto g = MakeTestGraph();
-  const int num_walks = 3, walk_length = 5;
+  const int num_walks = 3;
+  const int walk_length = 5;
   SecondOrderRandomWalk walk(/*p=*/1.0, /*q=*/1.0, num_walks, walk_length, /*seed=*/42);
   auto walks = walk.SampleNodeWalks(g);
 
@@ -231,7 +235,7 @@ TEST(SecondOrderRandomWalkTest, WalkStructure) {
   // Walks are grouped per start node, in node order.
   const auto &nodes = g.Nodes();
   for (size_t n = 0; n < nodes.size(); ++n)
-    for (int k = 0; k < num_walks; ++k) EXPECT_EQ(walks[n * num_walks + k][0], nodes[n]);
+    for (int k = 0; k < num_walks; ++k) EXPECT_EQ(walks[(n * num_walks) + k][0], nodes[n]);
 }
 
 TEST(SecondOrderRandomWalkTest, DeterministicWithSeed) {
@@ -281,7 +285,7 @@ N2vGraph BuildProbGraph(bool is_directed) {
 
 std::vector<double> Normalize(std::vector<double> v) {
   double sum = 0.0;
-  for (double x : v) sum += x;
+  for (const double x : v) sum += x;
   for (double &x : v) x /= sum;
   return v;
 }
@@ -426,7 +430,7 @@ TEST(N2vGraphTest, AddEdgeAccumulatesParallelWeights) {
   g.AddEdge(0, 1, 2.0);  // same (from, to): weights accumulate
   g.Build();
   EXPECT_DOUBLE_EQ(g.EdgeWeight(0, 1), 3.5);
-  EXPECT_EQ(g.Neighbors(0).size(), 1u);  // still a single neighbour entry
+  EXPECT_EQ(g.Neighbors(0).size(), 1U);  // still a single neighbour entry
 }
 
 }  // namespace
