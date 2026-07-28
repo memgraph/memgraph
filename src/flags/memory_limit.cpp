@@ -33,9 +33,9 @@ int64_t memgraph::flags::GetMemoryLimit() {
       memory_kib *= 9;
       memory_kib /= 10;
     }
-    return memory_kib * 1024;
+    return static_cast<int64_t>(memory_kib * 1024);
   }
 
   // We parse the memory as MiB every time
-  return FLAGS_memory_limit * 1024 * 1024;
+  return static_cast<int64_t>(FLAGS_memory_limit * 1024 * 1024);
 }
