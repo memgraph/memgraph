@@ -44,7 +44,7 @@ int TopicOf(int64_t word) { return static_cast<int>(word) / kWordsPerTopic; }
 // Builds a corpus where each sentence is drawn from a single topic, so a correct
 // embedding clusters same-topic words together.
 std::vector<std::vector<int64_t>> StructuredCorpus(int n_sentences, int sentence_len, uint64_t seed) {
-  std::mt19937_64 rng(seed);
+  std::mt19937_64 rng(seed);  // NOSONAR
   std::uniform_int_distribution<int> topic_dist(0, kTopics - 1);
   std::uniform_int_distribution<int> word_dist(0, kWordsPerTopic - 1);
   std::vector<std::vector<int64_t>> sents;

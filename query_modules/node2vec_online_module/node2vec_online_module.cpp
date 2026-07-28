@@ -49,8 +49,8 @@ struct OnlineContext {
   }
 };
 
-OnlineContext g_ctx;
-std::mutex g_mtx;
+OnlineContext g_ctx;  // NOSONAR: intentional mutable module state, persisted across procedure calls
+std::mutex g_mtx;     // NOSONAR: guards g_ctx; a mutex cannot be const
 
 void CheckEnterprise() {
   if (!mgp_is_enterprise_valid()) {
