@@ -9478,7 +9478,7 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem,
 std::string ScanAllByPointDistance::ToString(const DbAccessor *dba) const {
   auto const &name = output_symbol_.name();
   auto const &label = dba->LabelToName(label_);
-  auto const property = dba->PropertyToName(property_);
+  auto const &property = dba->PropertyToName(property_);
   return fmt::format("ScanAllByPointDistance ({0} :{1} {{{2}}})", name, label, property);
 }
 
@@ -9545,7 +9545,7 @@ UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem,
 std::string ScanAllByPointWithinbbox::ToString(const DbAccessor *dba) const {
   auto const &name = output_symbol_.name();
   auto const &label = dba->LabelToName(label_);
-  auto const property = dba->PropertyToName(property_);
+  auto const &property = dba->PropertyToName(property_);
   return fmt::format("ScanAllByPointWithinbbox ({0} :{1} {{{2}}})", name, label, property);
 }
 
