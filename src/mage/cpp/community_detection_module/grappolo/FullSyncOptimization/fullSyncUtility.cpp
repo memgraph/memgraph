@@ -34,7 +34,6 @@ double buildAndLockLocalMapCounter(long v, mapElement* clusterLocalMap, long* vt
 
 	// Aggregate the neighbors and lock their Community
 	long sPosition = vtxPtr[v]+v; //Starting position of local map for v
-	long storedAlready = 0;
 
 	for(long j=adj1; j<adj2; j++) {
 		if(vtxInd[j].tail == v) {	// SelfLoop need to be recorded

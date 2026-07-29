@@ -41,6 +41,7 @@
 
 #include "defs.h"
 #include "RngStream.h"
+#include <vector>
 
 using namespace std;
 
@@ -55,14 +56,13 @@ void generateRandomNumbers(double *RandVec, long size) {
     //Initialize parallel pseudo-random number generator
     unsigned long seed[6] = {1, 2, 3, 4, 5, 6};
     RngStream::SetPackageSeed(seed);
-    RngStream RngArray[nT]; //array of RngStream Objects
-    
+    std::vector<RngStream> RngArray(nT); //array of RngStream Objects
+
     long block = size / nT;
 #ifdef PRINT_DETAILED_STATS_
     cout<<"Each thread will add "<<block<<" edges\n";
 #endif
     //Each thread will generate m/nT edges each
-    double start = omp_get_wtime();
 #pragma omp parallel
     {
         int myRank = omp_get_thread_num();
@@ -75,9 +75,7 @@ void generateRandomNumbers(double *RandVec, long size) {
 
 void displayGraph(graph *G) {
     long    NV        = G->numVertices;
-    long    NE        = G->numEdges;
     long    *vtxPtr   = G->edgeListPtrs;
-    edge    *vtxInd   = G->edgeList;
     for (long i = 0; i < NV; i++) {
         long adj1 = vtxPtr[i];
         long adj2 = vtxPtr[i+1];
@@ -94,7 +92,6 @@ void duplicateGivenGraph(graph *Gin, graph *Gout) {
     edge    *vtxInd   = Gin->edgeList;
 #ifdef PRINT_DETAILED_STATS_
 #endif
-    double time1 = omp_get_wtime();
     long *edgeListPtr = (long *)  malloc((NV+1) * sizeof(long));
     assert(edgeListPtr != NULL);
 #pragma omp parallel for
@@ -115,7 +112,6 @@ void duplicateGivenGraph(graph *Gin, graph *Gout) {
     }
     
     //The last element of Cumulative will hold the total number of characters
-    double time2 = omp_get_wtime();
 #ifdef PRINT_DETAILED_STATS_
 #endif
     Gout->sVertices    = NS;
@@ -127,9 +123,7 @@ void duplicateGivenGraph(graph *Gin, graph *Gout) {
 
 void displayGraphEdgeList(graph *G) {
     long    NV        = G->numVertices;
-    long    NE        = G->numEdges;
     long    *vtxPtr   = G->edgeListPtrs;
-    edge    *vtxInd   = G->edgeList;
     for (long i = 0; i < NV; i++) {
         long adj1 = vtxPtr[i];
         long adj2 = vtxPtr[i+1];
@@ -140,7 +134,6 @@ void displayGraphEdgeList(graph *G) {
 
 void displayGraphEdgeList(graph *G, FILE* out) {
     long    NV        = G->numVertices;
-    long    NE        = G->numEdges;
     long    *vtxPtr   = G->edgeListPtrs;
     edge    *vtxInd   = G->edgeList;
     for (long i = 0; i < NV; i++) {
@@ -157,7 +150,6 @@ void displayGraphEdgeList(graph *G, FILE* out) {
 void writeEdgeListToFile(graph *G, FILE* out) {
     long    NV        = G->numVertices;
     long    *vtxPtr   = G->edgeListPtrs;
-    edge    *vtxInd   = G->edgeList;
     for (long i = 0; i < NV; i++) {
         long adj1 = vtxPtr[i];
         long adj2 = vtxPtr[i+1];
@@ -170,14 +162,12 @@ void writeEdgeListToFile(graph *G, FILE* out) {
 
 void displayGraphCharacteristics(graph *G) {
     long    sum = 0, sum_sq = 0;
-    double  average, avg_sq, variance, std_dev;
+    double  average, avg_sq, variance;
+    [[maybe_unused]] double std_dev;
     long    maxDegree = 0;
-    long    isolated  = 0;
-    long    degreeOne = 0;
     long    NS        = G->sVertices;
     long    NV        = G->numVertices;
     long    NT        = NV - NS;
-    long    NE        = G->numEdges;
     long    *vtxPtr   = G->edgeListPtrs;
     long    tNV       = NV; //Number of vertices
     
@@ -188,10 +178,6 @@ void displayGraphCharacteristics(graph *G) {
             sum    += degree;
             if (degree > maxDegree)
                 maxDegree = degree;
-            if ( degree == 0 )
-                isolated++;
-            if ( degree == 1 )
-                degreeOne++;
         }
         average  = (double) sum / tNV;
         avg_sq   = (double) sum_sq / tNV;
@@ -209,10 +195,6 @@ void displayGraphCharacteristics(graph *G) {
             sum    += degree;
             if (degree > maxDegree)
                 maxDegree = degree;
-            if ( degree == 0 )
-                isolated++;
-            if ( degree == 1 )
-                degreeOne++;
         }
         average  = (double) sum / NS;
         avg_sq   = (double) sum_sq / NS;
@@ -223,7 +205,6 @@ void displayGraphCharacteristics(graph *G) {
         sum = 0;
         sum_sq = 0;
         maxDegree = 0;
-        isolated  = 0;
         //Compute characteristics from T side:
         for (long i = NS; i < NV; i++) {
             long degree = vtxPtr[i+1] - vtxPtr[i];
@@ -231,12 +212,8 @@ void displayGraphCharacteristics(graph *G) {
             sum    += degree;
             if (degree > maxDegree)
                 maxDegree = degree;
-            if ( degree == 0 )
-                isolated++;
-            if ( degree == 1 )
-                degreeOne++;
         }
-        
+
         average  = (double) sum / NT;
         avg_sq   = (double) sum_sq / NT;
         variance = avg_sq - (average*average);
@@ -255,10 +232,8 @@ graph * convertDirected2Undirected(graph *G) {
         nthreads = omp_get_num_threads();
     }
     
-    double time1=0, time2=0, totalTime=0;
     //Get the iterators for the graph:
     long NVer     = G->numVertices;
-    long NEdge    = G->numEdges;       //Returns the correct number of edges (not twice)
     long *verPtr  = G->edgeListPtrs;   //Vertex Pointer: pointers to endV
     edge *verInd  = G->edgeList;       //Vertex Index: destination id of an edge (src -> dest)
     
@@ -365,7 +340,6 @@ long removeEdges(long NV, long NE, edge *edgeList) {
             if (edgeId == -1) {         /* at the end of the list */
                 edgeId = *ptr;             /* lock ptr               */
                 if (edgeId == -1) {       /* if still end of list   */
-                    long newId = NGE;
                     NGE++;     /* increment number of good edges */
                     //edgeList[i].id = newId;                 /* set id of edge                 */
                     next[i] = -1;                           /* insert edge in linked list     */

@@ -148,7 +148,7 @@ struct Gatekeeper {
   explicit Gatekeeper(Args &&...args) {
     // Opt-in lifetime guard around object construction.
     // Types without a nested GatekeeperGuard get a zero-size no-op.
-    typename GatekeeperGuardFor<T>::type guard;
+    [[maybe_unused]] typename GatekeeperGuardFor<T>::type guard;
     pimpl_ = std::make_unique<GKInternals<T>>(std::forward<Args>(args)...);
   }
 
@@ -381,7 +381,7 @@ struct Gatekeeper {
     DMG_ASSERT(pimpl_->state_ == GatekeeperState::SUSPENDING, "finish_suspend() called outside SUSPENDING state");
     {
       // Opt-in lifetime guard around object destruction (mirrors the dtor).
-      typename GatekeeperGuardFor<T>::type arena_guard;
+      [[maybe_unused]] typename GatekeeperGuardFor<T>::type arena_guard;
       // INTENTIONAL: pimpl_->mutex_ is held across value_.reset() (Database destruction +
       // WAL finalization).  This is the load-bearing suspend->resume directory handoff:
       // begin_resume() (which transitions COLD->RESUMING) also runs under pimpl_->mutex_,
@@ -465,7 +465,7 @@ struct Gatekeeper {
       }
     }
     // Opt-in lifetime guard around object destruction.
-    typename GatekeeperGuardFor<T>::type guard;
+    [[maybe_unused]] typename GatekeeperGuardFor<T>::type guard;
     pimpl_.reset();  // destroys GKInternals<T> (and thus T) while guard is active
   }
 

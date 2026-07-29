@@ -815,7 +815,7 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedNoVertices) {
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
 
   TypeConstraints type_constraints;
-  type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER);
+  ASSERT_TRUE(type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER));
   type_constraints.PublishConstraint(label, prop, TypeConstraintKind::INTEGER, 1);
   ASSERT_TRUE(type_constraints.ValidateAllVertices(vertices.access(), snapshot_info).has_value());
 }
@@ -846,7 +846,7 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
 
   TypeConstraints type_constraints;
-  type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER);
+  ASSERT_TRUE(type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER));
   type_constraints.PublishConstraint(label, prop, TypeConstraintKind::INTEGER, 1);
   ASSERT_TRUE(type_constraints.ValidateAllVertices(vertices.access(), snapshot_info).has_value());
 }

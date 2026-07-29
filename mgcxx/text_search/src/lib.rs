@@ -20,7 +20,7 @@ use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::AggregationCollector;
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
-use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, Query, QueryParser, RegexQuery};
+use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, Query, QueryParser};
 use tantivy::schema::Value as _;
 use tantivy::schema::*;
 use tantivy::tokenizer::{TextAnalyzer, TokenStream};
@@ -193,6 +193,7 @@ fn apply_fuzzy_config(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn owned_value_to_json(val: OwnedValue) -> serde_json::Value {
     match val {
         OwnedValue::Null => serde_json::Value::Null,
@@ -229,6 +230,7 @@ fn owned_value_to_json(val: OwnedValue) -> serde_json::Value {
 mod tests {
     use super::*;
     use serde_json::json;
+    use tantivy::query::RegexQuery;
 
     #[test]
     fn test_owned_value_to_json_nested() {

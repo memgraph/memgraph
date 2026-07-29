@@ -80,7 +80,6 @@ int algoColoringMultiHashMaxMin(graph *G, int *vtxColor, int nThreads, double *t
     double time1=0, time2=0, totalTime=0;
     //Get the iterators for the graph:
     long NVer    = G->numVertices;
-    long NEdge   = G->numEdges;
     long *verPtr = G->edgeListPtrs;   //Vertex Pointer: pointers to endV
     edge *verInd = G->edgeList;       //Vertex Index: destination id of an edge (src -> dest)
 

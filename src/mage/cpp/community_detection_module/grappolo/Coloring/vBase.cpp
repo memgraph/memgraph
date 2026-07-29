@@ -8,12 +8,9 @@ int vBaseRedistribution(graph* G, int* vtxColor, int ncolors, int type)
 #ifdef PRINT_DETAILED_STATS_
 #endif
 
-  double time1=0, time2=0, totalTime=0;
   //Get the iterators for the graph:
   long NVer    = G->numVertices;
-  long NEdge   = G->numEdges;
   long *verPtr = G->edgeListPtrs;   //Vertex Pointer: pointers to endV
-  edge *verInd = G->edgeList;       //Vertex Index: destination id of an edge (src -> dest)
 
 #ifdef PRINT_DETAILED_STATS_
 #endif
@@ -64,8 +61,6 @@ int vBaseRedistribution(graph* G, int* vtxColor, int ncolors, int type)
 	/////////////////////////////////////////////////////////////////////////////////////////
   //////////////////////////// START THE WHILE LOOP ///////////////////////////////////////
   /////////////////////////////////////////////////////////////////////////////////////////
-  long nConflicts = 0; //Number of conflicts
-  int nLoops = 0;     //Number of rounds of conflict resolution
 
 	// Holder for frequency, could use realMaxDegree here
 	ColorVector freq(ncolors,0);
@@ -87,11 +82,9 @@ int vBaseRedistribution(graph* G, int* vtxColor, int ncolors, int type)
 
 	// Coloring Main Loop
 	do{
-		time1 = omp_get_wtime();
 		#pragma omp parallel for
     for (long Qi=0; Qi<QTail; Qi++) {
       long v = Q[Qi]; //Q.pop_front();
-			int maxColor = 0;
 
 			if( overSize[baseColors[v]] == false)
 				continue;
@@ -99,10 +92,9 @@ int vBaseRedistribution(graph* G, int* vtxColor, int ncolors, int type)
 				continue;
 
 			BitVector mark(MaxDegree, false);
-			maxColor = distanceOneMarkArray(mark,G,v,vtxColor);
+			distanceOneMarkArray(mark,G,v,vtxColor);
 
 			int myColor = -1;
-			int permissable = 0;
 
 			if(type == 0){	// First Fit
 				for (myColor=0; myColor<=ncolors; myColor++) {
@@ -134,18 +126,11 @@ int vBaseRedistribution(graph* G, int* vtxColor, int ncolors, int type)
 			}
 		}	// End of vertex wise redistribution
 
-		time2 = omp_get_wtime();
-
 		#pragma omp parallel for
 		for (long Qi=0; Qi<QTail; Qi++) {
 			long v = Q[Qi]; //Q.pop_front();
 			distanceOneConfResolution(G, v, vtxColor, randValues, &QtmpTail, Qtmp, freq, 1);
 		} //End of outer for loop: for each vertex
-
-		time2  = omp_get_wtime() - time2;
-		totalTime += time2;
-		nConflicts += QtmpTail;
-		nLoops++;
 
 #ifdef PRINT_DETAILED_STATS_
 #endif

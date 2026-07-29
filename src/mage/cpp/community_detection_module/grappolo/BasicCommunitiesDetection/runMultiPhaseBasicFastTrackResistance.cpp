@@ -53,7 +53,7 @@ using namespace std;
 void runMultiPhaseBasicFastTrackResistance(graph *G, mgp_graph *mg_graph, long *C_orig, int basicOpt, long minGraphSize,
                         double threshold, double C_threshold, int numThreads, int threadsOpt)
 {
-    double totTimeClustering=0, totTimeBuildingPhase=0, totTimeColoring=0, tmpTime=0;
+    double tmpTime=0;
     int tmpItr=0, totItr = 0;
     long NV = G->numVertices;
     double rmin = 0.0;
@@ -84,7 +84,6 @@ void runMultiPhaseBasicFastTrackResistance(graph *G, mgp_graph *mg_graph, long *
             currModAFG = parallelLouvianMethodScaleFastTrackResistance(G, mg_graph, C, numThreads, currModAFG, threshold, &tmpTime, &tmpItr, phase, &rmin, &finMod);
         }
 
-        totTimeClustering += tmpTime;
         totItr += tmpItr;
 
         //Renumber the clusters contiguously
@@ -115,7 +114,6 @@ void runMultiPhaseBasicFastTrackResistance(graph *G, mgp_graph *mg_graph, long *
         if(currModAFG != 0) {
             Gnew = (graph *) malloc (sizeof(graph)); assert(Gnew != 0);
             tmpTime =  buildNextLevelGraphOpt(G, mg_graph, Gnew, C, numClusters, numThreads);
-            totTimeBuildingPhase += tmpTime;
             //Free up the previous graph
             free(G->edgeListPtrs);
             free(G->edgeList);

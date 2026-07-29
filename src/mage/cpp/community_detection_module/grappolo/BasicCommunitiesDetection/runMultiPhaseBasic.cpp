@@ -53,11 +53,9 @@ using namespace std;
 void runMultiPhaseBasic(graph *G, mgp_graph *mg_graph, long *C_orig, int basicOpt, long minGraphSize,
                         double threshold, double C_threshold, int numThreads, int threadsOpt)
 {
-    double totTimeClustering=0, totTimeBuildingPhase=0, totTimeColoring=0, tmpTime=0;
+    double tmpTime=0;
     int tmpItr=0, totItr = 0;
     long NV = G->numVertices;
-    double* vDegree = nullptr;
-    Comm* cInfo = nullptr;
 
     /* Step 1: Find communities */
     double prevMod = -1;
@@ -86,7 +84,6 @@ void runMultiPhaseBasic(graph *G, mgp_graph *mg_graph, long *C_orig, int basicOp
             currMod = parallelLouvianMethodScale(G, mg_graph, C, numThreads, currMod, threshold, &tmpTime, &tmpItr);
         }
 
-        totTimeClustering += tmpTime;
         totItr += tmpItr;
 
         //Renumber the clusters contiguously
@@ -116,7 +113,6 @@ void runMultiPhaseBasic(graph *G, mgp_graph *mg_graph, long *C_orig, int basicOp
         if( (currMod - prevMod) > threshold ) {
             Gnew = (graph *) malloc (sizeof(graph)); assert(Gnew != 0);
             tmpTime =  buildNextLevelGraphOpt(G, mg_graph, Gnew, C, numClusters, numThreads);
-            totTimeBuildingPhase += tmpTime;
             //Free up the previous graph
             free(G->edgeListPtrs);
             free(G->edgeList);
@@ -153,8 +149,8 @@ void runMultiPhaseBasic(graph *G, mgp_graph *mg_graph, long *C_orig, int basicOp
 void runMultiPhaseBasicOnce(graph *G, mgp_graph *mg_graph, long *C_orig, int basicOpt, long minGraphSize,
                         double threshold, double C_threshold, int numThreads, int threadsOpt)
 {
-    double totTimeClustering=0, totTimeBuildingPhase=0, totTimeColoring=0, tmpTime=0;
-    int tmpItr=0, totItr = 0;
+    double tmpTime=0;
+    int tmpItr=0;
     long NV = G->numVertices;
 
     /* Step 1: Find communities */
@@ -183,9 +179,6 @@ void runMultiPhaseBasicOnce(graph *G, mgp_graph *mg_graph, long *C_orig, int bas
             currMod = parallelLouvianMethodScale(G, mg_graph, C, numThreads, currMod, threshold, &tmpTime, &tmpItr);
         }
 
-        totTimeClustering += tmpTime;
-        totItr += tmpItr;
-
         //Renumber the clusters contiguously
         numClusters = renumberClustersContiguously(C, G->numVertices);
 
@@ -200,7 +193,6 @@ void runMultiPhaseBasicOnce(graph *G, mgp_graph *mg_graph, long *C_orig, int bas
         if( (currMod - prevMod) > threshold ) {
             Gnew = (graph *) malloc (sizeof(graph)); assert(Gnew != 0);
             tmpTime =  buildNextLevelGraphOpt(G, mg_graph, Gnew, C, numClusters, numThreads);
-            totTimeBuildingPhase += tmpTime;
             //Free up the previous graph
             free(G->edgeListPtrs);
             free(G->edgeList);

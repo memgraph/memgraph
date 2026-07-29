@@ -66,13 +66,10 @@ double parallelLouvianMethodApprox(graph *G, mgp_graph *mg_graph, long *C, int n
   double total = 0, totItr = 0;
   //long percentage = clustering_parameters.percentage;
   long    NV        = G->numVertices;
-  long    NS        = G->sVertices;
-  long    NE        = G->numEdges;
   long    *vtxPtr   = G->edgeListPtrs;
   edge    *vtxInd   = G->edgeList;
 
   /* Variables for computing modularity */
-  long totalEdgeWeightTwice;
   double constantForSecondTerm;
   double prevMod=-1;
   double currMod=-1;
@@ -170,10 +167,6 @@ int x = NV*percentage/100;
     [[maybe_unused]] const enum mgp_error tracking_error = mgp_track_current_thread_allocations(mg_graph);
 #pragma omp for
     for (long i=0; i<NV; i++) {
-        bool flag = false;
-        if(currCommAss[i]==pastCommAss[i]&&numItrs>2){
-            flag=true;
-        }
         if(array[i]){//&&!flag
         //if(i<NV*percentage/100){
             long adj1 = vtxPtr[i];

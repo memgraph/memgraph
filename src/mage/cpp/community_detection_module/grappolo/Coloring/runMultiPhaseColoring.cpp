@@ -53,7 +53,7 @@ void runMultiPhaseColoring(graph *G, mgp_graph *mg_graph, long *C_orig, int colo
                            double threshold, double C_threshold, int numThreads, int threadsOpt)
 {
     assert((coloring>0) && (coloring<4)); //Check for the correct coloring specification
-    double totTimeClustering=0, totTimeBuildingPhase=0, totTimeColoring=0, tmpTime;
+    double tmpTime;
     int tmpItr=0, totItr = 0;
     long NV = G->numVertices;
     //long minGraphSize = 100000; //Need at least 100,000 vertices to turn coloring on
@@ -67,7 +67,6 @@ void runMultiPhaseColoring(graph *G, mgp_graph *mg_graph, long *C_orig, int colo
     // Coloring Steps
     if((coloring == 1)||(coloring == 2)) {
         nColors = algoDistanceOneVertexColoringOpt(G, colors, numThreads, &tmpTime)+1;
-        totTimeColoring += tmpTime;
         //Check if balanced coloring is enabled:
         if(coloring == 2)
             vBaseRedistribution(G, colors, nColors, 0);
@@ -81,7 +80,6 @@ void runMultiPhaseColoring(graph *G, mgp_graph *mg_graph, long *C_orig, int colo
             nItrs = 1;
         //int nItrs = numColors / 4;
         nColors = algoColoringMultiHashMaxMin(G, colors, numThreads, &tmpTime, nHash, nItrs)+1;
-        totTimeColoring += tmpTime;
     }
 
     /* Step 3: Find communities */
@@ -108,14 +106,12 @@ void runMultiPhaseColoring(graph *G, mgp_graph *mg_graph, long *C_orig, int colo
         		currMod = algoLouvainWithDistOneColoringNoMap(G, C, numThreads, colors, nColors, currMod, C_threshold, &tmpTime, &tmpItr);
         	else
         	    currMod = algoLouvainWithDistOneColoring(G, mg_graph, C, numThreads, colors, nColors, currMod, C_threshold, &tmpTime, &tmpItr);
-            totTimeClustering += tmpTime;
             totItr += tmpItr;
         } else {
 			if (replaceMap == 1)
 		    	currMod = parallelLouvianMethodNoMap(G, C, numThreads, currMod, threshold, &tmpTime, &tmpItr);
         	else
             	currMod = parallelLouvianMethod(G, mg_graph, C, numThreads, currMod, threshold, &tmpTime, &tmpItr);
-            totTimeClustering += tmpTime;
             totItr += tmpItr;
             nonColor = true;
         }
@@ -146,7 +142,6 @@ void runMultiPhaseColoring(graph *G, mgp_graph *mg_graph, long *C_orig, int colo
         if( (currMod - prevMod) > threshold ) {
             Gnew = (graph *) malloc (sizeof(graph)); assert(Gnew != 0);
             tmpTime =  buildNextLevelGraphOpt(G, mg_graph, Gnew, C, numClusters, numThreads);
-            totTimeBuildingPhase += tmpTime;
             //Free up the previous graph
             free(G->edgeListPtrs);
             free(G->edgeList);
@@ -172,7 +167,6 @@ void runMultiPhaseColoring(graph *G, mgp_graph *mg_graph, long *C_orig, int colo
                 // Coloring Steps
                 if((coloring == 1)||(coloring == 2)) {
                     nColors = algoDistanceOneVertexColoringOpt(G, colors, numThreads, &tmpTime)+1;
-                    totTimeColoring += tmpTime;
                     //Check if balanced coloring is enabled:
                     if(coloring == 2)
                         vBaseRedistribution(G, colors, nColors, 0);
@@ -186,7 +180,6 @@ void runMultiPhaseColoring(graph *G, mgp_graph *mg_graph, long *C_orig, int colo
                         nItrs = 1;
                     //int nItrs = numColors / 4;
                     nColors = algoColoringMultiHashMaxMin(G, colors, numThreads, &tmpTime, nHash, nItrs)+1;
-                    totTimeColoring += tmpTime;
                 }
             }
         } else { //To force another phase with coloring again

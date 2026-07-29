@@ -42,6 +42,7 @@
 #include "defs.h"
 #include "utilityClusteringFunctions.h"
 #include <algorithm>
+#include <vector>
 
 using namespace std;
 
@@ -186,7 +187,7 @@ void computeCommunityComparisons(vector<long>& C1, long N1, vector<long>& C2, lo
     free(commAdded2);
     
     //////////STEP 3:  Compute statistics:
-    long tSameSame[nT], tSameDiff[nT], tDiffSame[nT], nAgree[nT];
+    std::vector<long> tSameSame(nT), tSameDiff(nT), tDiffSame(nT), nAgree(nT);
 #pragma omp parallel for
     for (int i=0; i < nT; i++) {
         tSameSame[i] = 0;
@@ -254,12 +255,12 @@ reduction(+:DiffSame) reduction(+:Agree)
     
     //F-score (F1 score) is the harmonic mean of precision and recall --
     //multiplying the constant of 2 scales the score to 1 when both recall and precision are 1
-    double fScore = 2*((precision * recall) / (precision + recall));
+    [[maybe_unused]] double fScore = 2*((precision * recall) / (precision + recall));
     //Compute Gini coefficient for each cluster:
-    double Gini1 = computeGiniCoefficient(clusterDist1, nC1);
-    double Gini2 = computeGiniCoefficient(clusterDist2, nC2);
-    
-    
+    [[maybe_unused]] double Gini1 = computeGiniCoefficient(clusterDist1, nC1);
+    [[maybe_unused]] double Gini2 = computeGiniCoefficient(clusterDist2, nC2);
+
+
     //Cleanup:
     free(commPtr1); free(commIndex1);
     free(commPtr2); free(commIndex2);
@@ -273,9 +274,7 @@ reduction(+:DiffSame) reduction(+:Agree)
 double computeGiniCoefficient(long *colorSize, int numColors) {
     
     //Step 1: Sort the color size vector -- use STL sort function
-    double time1 = omp_get_wtime();
     sort(colorSize, colorSize+numColors);
-    double time2 = omp_get_wtime();
     //Step 2: Compute Gini coefficient
     double numFunc=0.0, denFunc=0.0;
     for (long i=0; i < numColors; i++) {

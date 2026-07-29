@@ -95,7 +95,6 @@ void equitableDistanceOneColorBased(graph *G, mgp_graph *mg_graph, int *vtxColor
   double time1=0, time2=0, totalTime=0;
   //Get the iterators for the graph:
   long NVer    = G->numVertices;
-  long NEdge   = G->numEdges;
   long *verPtr = G->edgeListPtrs;   //Vertex Pointer: pointers to endV
   edge *verInd = G->edgeList;       //Vertex Index: destination id of an edge (src -> dest)
 #ifdef PRINT_DETAILED_STATS_
@@ -165,7 +164,6 @@ void equitableDistanceOneColorBased(graph *G, mgp_graph *mg_graph, int *vtxColor
 
       long adj1 = verPtr[v];
       long adj2 = verPtr[v+1];
-      long myDegree = verPtr[v+1] - verPtr[v];
       bool *Mark = (bool *) malloc ( numColors * sizeof(bool) );
       assert(Mark != 0);
       for (int i=0; i<numColors; i++) {
