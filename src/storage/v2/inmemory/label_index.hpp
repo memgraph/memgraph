@@ -70,6 +70,11 @@ class InMemoryLabelIndex : public LabelIndex {
                           ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
+  /// Builds a single-pass population inserter factory for an already-registered index.
+  /// Used by recovery to populate many indices in one pass over the vertices.
+  auto GetPopulateInserter(LabelId label, std::optional<SnapshotObserverInfo> const &snapshot_info)
+      -> IndexInserterFactory;
+
   /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
   /// Caller can re-install via RestoreIndex on abort. The returned shared_ptr keeps
   /// the entry alive in all_indices_, so RestoreIndex must not re-append there.

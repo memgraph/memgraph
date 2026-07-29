@@ -266,6 +266,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                           IndexOrder order = IndexOrder::ASC);
 
+  /// Builds a single-pass population inserter factory for an already-registered index.
+  /// Used by recovery to populate many indices in one pass over the vertices.
+  auto GetPopulateInserter(LabelId label, PropertiesPaths const &properties, IndexOrder order,
+                           std::optional<SnapshotObserverInfo> const &snapshot_info) -> IndexInserterFactory;
+
   bool RegisterIndex(LabelId label, PropertiesPaths const &properties, ActiveIndicesUpdater const &updater,
                      IndexOrder order = IndexOrder::ASC);
 

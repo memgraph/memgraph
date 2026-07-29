@@ -114,9 +114,7 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
   }
 }
 
-void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
-                             NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
-                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
+bool TextIndex::PrepareForRecovery(const TextIndexSpec &index_info) {
   const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
   auto needs_rebuild = !std::filesystem::exists(index_path);
   try {
@@ -133,27 +131,37 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<
     needs_rebuild = true;
     CreateTantivyIndex(index_path, index_info);
   }
+  return needs_rebuild;
+}
 
-  if (needs_rebuild) {
-    auto &context = index_->at(index_info.index_name)->context;
-    for (const auto &vertex : vertices) {
-      if (!std::ranges::contains(vertex.labels, index_info.label)) continue;
+void TextIndex::PopulateRecoveredIndex(const TextIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
+                                       NameIdMapper *name_id_mapper) {
+  auto &context = index_->at(index_info.index_name)->context;
+  for (const auto &vertex : vertices) {
+    if (!std::ranges::contains(vertex.labels, index_info.label)) continue;
 
-      auto properties_to_index = FilterPropertiesToIndex(index_info.properties, vertex.properties.ExtractPropertyIds());
-      if (properties_to_index.empty()) continue;
+    auto properties_to_index = FilterPropertiesToIndex(index_info.properties, vertex.properties.ExtractPropertyIds());
+    if (properties_to_index.empty()) continue;
 
-      auto properties_to_index_map = ExtractProperties(vertex.properties, properties_to_index);
-      TextIndex::AddNodeToTextIndex(vertex.gid.AsInt(),
-                                    SerializeProperties(properties_to_index_map, name_id_mapper),
-                                    StringifyProperties(properties_to_index_map),
-                                    context);
-    }
+    auto properties_to_index_map = ExtractProperties(vertex.properties, properties_to_index);
+    TextIndex::AddNodeToTextIndex(vertex.gid.AsInt(),
+                                  SerializeProperties(properties_to_index_map, name_id_mapper),
+                                  StringifyProperties(properties_to_index_map),
+                                  context);
+  }
 
-    try {
-      mgcxx::text_search::commit(context);
-    } catch (const std::exception &e) {
-      throw query::TextSearchException("Text index commit error: {}", e.what());
-    }
+  try {
+    mgcxx::text_search::commit(context);
+  } catch (const std::exception &e) {
+    throw query::TextSearchException("Text index commit error: {}", e.what());
+  }
+}
+
+void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
+                             NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
+                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  if (PrepareForRecovery(index_info)) {
+    PopulateRecoveredIndex(index_info, std::move(vertices), name_id_mapper);
   }
 
   if (snapshot_info) {

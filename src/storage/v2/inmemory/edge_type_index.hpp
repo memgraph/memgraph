@@ -19,6 +19,7 @@
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
@@ -224,11 +225,18 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::Accessor vertices,
+                          const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                           ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
+  /// Builds a single-pass population inserter factory for an already-registered index.
+  /// Used by recovery to populate many indices in one pass over the vertices.
+  auto GetPopulateInserter(EdgeTypeId edge_type, std::optional<SnapshotObserverInfo> const &snapshot_info)
+      -> IndexInserterFactory;
+
   bool RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater);
   auto PopulateIndex(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::Accessor vertices,
+                     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)

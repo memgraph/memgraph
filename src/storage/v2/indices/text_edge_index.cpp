@@ -122,9 +122,7 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
   }
 }
 
-void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
-                                 NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
-                                 std::optional<SnapshotObserverInfo> const &snapshot_info) {
+bool TextEdgeIndex::PrepareForRecovery(const TextEdgeIndexSpec &index_info) {
   const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
   auto needs_rebuild = !std::filesystem::exists(index_path);
   try {
@@ -142,33 +140,42 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
     needs_rebuild = true;
     CreateTantivyIndex(index_path, index_info);
   }
+  return needs_rebuild;
+}
 
-  if (needs_rebuild) {
-    auto &context = index_->at(index_info.index_name)->context;
-    for (const auto &vertex : vertices) {
-      for (const auto &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
-        if (edge_type != index_info.edge_type) continue;
+void TextEdgeIndex::PopulateRecoveredIndex(const TextEdgeIndexSpec &index_info,
+                                           utils::SkipListDb<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper) {
+  auto &context = index_->at(index_info.index_name)->context;
+  for (const auto &vertex : vertices) {
+    for (const auto &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
+      if (edge_type != index_info.edge_type) continue;
 
-        auto *edge = edge_ref.ptr;
-        auto properties_to_index =
-            FilterPropertiesToIndex(index_info.properties, edge->properties.ExtractPropertyIds());
-        if (properties_to_index.empty()) continue;
+      auto *edge = edge_ref.ptr;
+      auto properties_to_index = FilterPropertiesToIndex(index_info.properties, edge->properties.ExtractPropertyIds());
+      if (properties_to_index.empty()) continue;
 
-        auto properties_to_index_map = ExtractProperties(edge->properties, properties_to_index);
-        TextEdgeIndex::AddEdgeToTextIndex(edge->gid.AsInt(),
-                                          vertex.gid.AsInt(),
-                                          to_vertex->gid.AsInt(),
-                                          SerializeProperties(properties_to_index_map, name_id_mapper),
-                                          StringifyProperties(properties_to_index_map),
-                                          context);
-      }
+      auto properties_to_index_map = ExtractProperties(edge->properties, properties_to_index);
+      TextEdgeIndex::AddEdgeToTextIndex(edge->gid.AsInt(),
+                                        vertex.gid.AsInt(),
+                                        to_vertex->gid.AsInt(),
+                                        SerializeProperties(properties_to_index_map, name_id_mapper),
+                                        StringifyProperties(properties_to_index_map),
+                                        context);
     }
+  }
 
-    try {
-      mgcxx::text_search::commit(context);
-    } catch (const std::exception &e) {
-      throw query::TextSearchException("Text index commit error: {}", e.what());
-    }
+  try {
+    mgcxx::text_search::commit(context);
+  } catch (const std::exception &e) {
+    throw query::TextSearchException("Text index commit error: {}", e.what());
+  }
+}
+
+void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
+                                 NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
+                                 std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  if (PrepareForRecovery(index_info)) {
+    PopulateRecoveredIndex(index_info, std::move(vertices), name_id_mapper);
   }
 
   if (snapshot_info) {

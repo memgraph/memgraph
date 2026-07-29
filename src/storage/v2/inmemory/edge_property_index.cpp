@@ -184,16 +184,32 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, EdgeRef &current_edge, E
 }
 }  // namespace
 
-bool InMemoryEdgePropertyIndex::CreateIndexOnePass(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                                                   ActiveIndicesUpdater const &updater,
-                                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
+bool InMemoryEdgePropertyIndex::CreateIndexOnePass(
+    PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto res = RegisterIndex(property, updater);
   if (!res) return false;
-  auto res2 = PopulateIndex(property, std::move(vertices), updater, snapshot_info);
+  auto res2 = PopulateIndex(property, std::move(vertices), parallel_exec_info, updater, snapshot_info);
   if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
   return PublishIndex(property, 0);
+}
+
+auto InMemoryEdgePropertyIndex::GetPopulateInserter(PropertyId property,
+                                                    std::optional<SnapshotObserverInfo> const &snapshot_info)
+    -> IndexInserterFactory {
+  auto index = GetIndividualIndex(property);
+  MG_ASSERT(index, "Index must be registered before collecting its population inserter.");
+  // snapshot_info is captured by reference: it outlives the single-pass population that invokes
+  // these factories/inserters (it is owned by the recovery call frame). SnapshotObserverInfo is
+  // non-copyable, so capturing by value would make the factory non-copyable.
+  return [index, property, &snapshot_info]() -> IndexVertexInserter {
+    return [acc = index->skip_list_.access(), property, &snapshot_info](Vertex &from_vertex) mutable {
+      TryInsertEdgePropertyIndex(from_vertex, property, acc, snapshot_info);
+    };
+  };
 }
 
 bool InMemoryEdgePropertyIndex::InstallIndividualIndex_(PropertyId property, std::shared_ptr<IndividualIndex> entry,
@@ -227,11 +243,11 @@ bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property, ActiveIndices
                                  /*register_in_all_indices=*/true);
 }
 
-auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                                              ActiveIndicesUpdater const &updater,
-                                              std::optional<SnapshotObserverInfo> const &snapshot_info,
-                                              Transaction const *tx, CheckCancelFunction cancel_check)
-    -> std::expected<void, IndexPopulateError> {
+auto InMemoryEdgePropertyIndex::PopulateIndex(
+    PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info,
+    Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
   auto index = GetIndividualIndex(property);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -244,15 +260,13 @@ auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipLi
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
         TryInsertEdgePropertyIndex(from_vertex, property, index_accessor, snapshot_info, *tx);
       };
-      PopulateIndexDispatch(
-          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
+      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
         TryInsertEdgePropertyIndex(from_vertex, property, index_accessor, snapshot_info);
       };
-      PopulateIndexDispatch(
-          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
+      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     }
   } catch (const PopulateCancel &) {
     (void)DropIndex(property, updater);
