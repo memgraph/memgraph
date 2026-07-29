@@ -310,27 +310,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         // need to use View::NEW to see the newly created/modified data.
         bool write_occurred = false;
 
-        // Helper to check if a comprehension's dependencies are satisfied.
-        // A comprehension is ready to be planned when ALL its external dependencies are bound:
-        // 1. Explicit external_symbols (from filter/result expressions)
-        // 2. Expansion symbols that reference already-declared variables (e.g., `a` in `[(a)-->(x)|...]`
-        //    when `a` comes from CREATE)
         auto deps_satisfied = [&](const PatternComprehensionMatching &pc) {
-          // Check explicit external symbols
-          bool external_ok = std::all_of(pc.external_symbols.begin(), pc.external_symbols.end(), [&](const Symbol &s) {
-            if (!symbols_bound_by_query_part.contains(s)) return true;
-            return context.bound_symbols.contains(s);
-          });
-          if (!external_ok) return false;
-
-          // Check expansion symbols that should be externally bound (i.e., they're in symbols_bound_by_query_part,
-          // meaning they're declared elsewhere in this query part and we should wait for them to be bound)
-          for (const auto &sym : pc.expansion_symbols) {
-            if (symbols_bound_by_query_part.contains(sym) && !context.bound_symbols.contains(sym)) {
-              return false;  // This symbol will be bound later, wait for it
-            }
-          }
-          return true;
+          return DepsSatisfied(pc, symbols_bound_by_query_part, context.bound_symbols);
         };
 
         // Helper to check if a pattern comprehension has variable-length paths.
@@ -489,7 +470,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                            context.bound_symbols,
                                            single_query_part,
                                            merge_id,
-                                           pending_comprehensions);
+                                           pending_comprehensions,
+                                           symbols_bound_by_query_part);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
             auto scoped_variables = std::invoke([&]() -> std::optional<std::unordered_set<Symbol>> {
               if (!call_sub->has_variable_scope_) {
@@ -1348,10 +1330,34 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     return last_op;
   }
 
+  /// True when a comprehension is ready to be planned, i.e. every symbol it references that this query part binds
+  /// elsewhere is already bound. A symbol absent from @p symbols_bound_by_query_part comes from an earlier query part
+  /// and is not waited for.
+  ///
+  /// Every site that drains `pending_comprehensions` must use this - the main clause loop and FOREACH both do. They
+  /// used to carry separate copies, and FOREACH's checked only `external_symbols`, which is empty for a comprehension
+  /// whose sole reference is its pattern's start node, so it drained and planned such a comprehension uncorrelated.
+  static bool DepsSatisfied(const PatternComprehensionMatching &pc,
+                            const std::unordered_set<Symbol> &symbols_bound_by_query_part,
+                            const std::unordered_set<Symbol> &bound_symbols) {
+    // Symbols referenced from the filter or result expression.
+    const bool external_ok = std::ranges::all_of(pc.external_symbols, [&](const Symbol &s) {
+      return !symbols_bound_by_query_part.contains(s) || bound_symbols.contains(s);
+    });
+    if (!external_ok) return false;
+
+    // Symbols the pattern itself references but that are declared elsewhere in this query part, e.g. `a` in
+    // `[(a)-->(x)|...]` when `a` comes from a CREATE or a later WITH. Those must be bound first.
+    return std::ranges::all_of(pc.expansion_symbols, [&](const Symbol &sym) {
+      return !symbols_bound_by_query_part.contains(sym) || bound_symbols.contains(sym);
+    });
+  }
+
   std::unique_ptr<LogicalOperator> HandleForeachClause(
       query::Foreach *foreach, std::unique_ptr<LogicalOperator> input_op, const SymbolTable &symbol_table,
       std::unordered_set<Symbol> &bound_symbols, const SingleQueryPart &query_part, uint64_t &merge_id,
-      std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions) {
+      std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions,
+      const std::unordered_set<Symbol> &symbols_bound_by_query_part) {
     const auto &symbol = symbol_table.at(*foreach->named_expression_);
     bound_symbols.insert(symbol);
     std::unique_ptr<LogicalOperator> op = std::make_unique<plan::Once>();
@@ -1360,11 +1366,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     auto plan_satisfied_comprehensions = [&]() {
       for (auto it = pending_comprehensions.begin(); it != pending_comprehensions.end();) {
         const auto &[sym, pc] = *it;
-        // Check if all external symbols are now bound
-        bool deps_satisfied = std::all_of(pc.external_symbols.begin(), pc.external_symbols.end(), [&](const Symbol &s) {
-          return bound_symbols.contains(s);
-        });
-        if (deps_satisfied) {
+        if (DepsSatisfied(pc, symbols_bound_by_query_part, bound_symbols)) {
           auto pc_op = Plan(pc, storage::View::OLD, kNoExtraBoundSymbols);
           auto symbols = pc_op->ModifiedSymbols(symbol_table);
           op = std::make_unique<RollUpApply>(std::move(op), std::move(pc_op), symbols, sym);
@@ -1380,8 +1382,14 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
     for (auto *clause : foreach->clauses_) {
       if (auto *nested_for_each = utils::Downcast<query::Foreach>(clause)) {
-        op = HandleForeachClause(
-            nested_for_each, std::move(op), symbol_table, bound_symbols, query_part, merge_id, pending_comprehensions);
+        op = HandleForeachClause(nested_for_each,
+                                 std::move(op),
+                                 symbol_table,
+                                 bound_symbols,
+                                 query_part,
+                                 merge_id,
+                                 pending_comprehensions,
+                                 symbols_bound_by_query_part);
       } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
         op = GenMerge(*merge, std::move(op), query_part.merge_matching[merge_id++]);
       } else {
