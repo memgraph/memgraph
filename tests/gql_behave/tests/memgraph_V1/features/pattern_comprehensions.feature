@@ -650,6 +650,27 @@ Feature: Pattern comprehensions
             | 'Zoe'    |
             | 'Regina' |
 
+    Scenario: Pattern comprehension in the WHERE of a WITH preceded by a FOREACH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] | SET p.seen = 1)
+            WITH p
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be:
+            | name     |
+            | 'Zoe'    |
+            | 'Regina' |
+
     Scenario: Pattern comprehension in the WHERE of a WITH preceded by a CREATE
         Given an empty graph
         And having executed:
