@@ -25,7 +25,7 @@ RUN apt-get update && \
         gnupg \
         tar gzip bzip2 xz-utils unzip \
         zlib1g-dev \
-        libexpat1-dev libipt-dev libbabeltrace-dev liblzma-dev python3-dev texinfo \
+        libexpat1-dev libbabeltrace-dev liblzma-dev python3-dev texinfo \
         libcurl4-openssl-dev \
         libreadline-dev \
         libffi-dev libxml2-dev \

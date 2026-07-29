@@ -57,7 +57,11 @@ tar -C "$REPO_ROOT" \
     | docker exec -i "$CONTAINER" tar -C /workspace/memgraph -xf -
 
 echo "==> Running build.sh inside container"
-docker exec -w /workspace/memgraph "$CONTAINER" ./environment/toolchain/v8/build.sh
+if [[ "$(arch)" == "aarch64" ]]; then
+  docker exec -w /workspace/memgraph "$CONTAINER" ./environment/toolchain/v8/build.sh --for-arm
+else
+  docker exec -w /workspace/memgraph "$CONTAINER" ./environment/toolchain/v8/build.sh
+fi
 
 echo "==> Copying output back to $OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
