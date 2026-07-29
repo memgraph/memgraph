@@ -9743,6 +9743,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     }
 
     using enum storage::StorageAccessType;
+    mode_dependent_ = true;
     if (storage_mode_ == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
@@ -9759,6 +9760,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     }
 
     using enum storage::StorageAccessType;
+    mode_dependent_ = true;
     if (storage_mode_ == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
@@ -9775,6 +9777,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     }
 
     using enum storage::StorageAccessType;
+    mode_dependent_ = true;
     accessor_type_ = storage_mode_ == storage::StorageMode::ON_DISK_TRANSACTIONAL ? UNIQUE : READ_ONLY;
   }
 
@@ -9795,6 +9798,9 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   std::optional<storage::StorageMode> storage_mode_;
 
   bool could_commit_ = false;
+  // Whether storage_mode_ fed accessor_type_ or isolation_level_override_. Only then does the
+  // caller re-check it; elsewhere a mode change is irrelevant and must not cost a retry.
+  bool mode_dependent_ = false;
   std::optional<storage::IsolationLevel> isolation_level_override_;
   std::optional<storage::StorageAccessType> accessor_type_;
 };
@@ -9989,6 +9995,16 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
         }
         SetupDatabaseTransaction(transaction_requirements.could_commit_, *transaction_requirements.accessor_type_);
+
+        // SET STORAGE MODE can land between the unlocked read of `storage_mode` and the accessor
+        // taking its hold, leaving the access type chosen for a mode no longer in force: an index
+        // create planned as transactional holds READ_ONLY where analytical wants UNIQUE. Retrying
+        // replans against the pinned mode. The throw unwinds into the catch below, releasing the
+        // hold.
+        if (transaction_requirements.mode_dependent_ &&
+            current_db_.db_transactional_accessor_->GetCreationStorageMode() != storage_mode) {
+          throw StorageModeChangedDuringSetupException();
+        }
       }
     }
 
