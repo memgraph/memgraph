@@ -3150,6 +3150,38 @@ TYPED_TEST(TestPlanner, OrderByRemembersSymbolsUsedByWhere) {
       << "OrderBy must remember `n`, which the WHERE above it reads";
 }
 
+TYPED_TEST(TestPlanner, OrderByRemembersSymbolsReadOnlyInsideComprehension) {
+  // MATCH (n), (q) WITH n.prop AS x ORDER BY x WHERE size([(n)-->(m) WHERE q.prop2 = 1 | m]) > 0 RETURN x
+  // `q` is read only from the comprehension's own filter, which the WHERE-bucket RollUpApply evaluates above
+  // OrderBy. It must therefore be remembered too, or `q` is frozen at the last row of the collection sweep.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto prop2 = dba.Property("prop2");
+  auto *comprehension = PATTERN_COMPREHENSION(nullptr,
+                                              PATTERN(NODE("n"), EDGE("anon1"), NODE("m")),
+                                              WHERE(EQ(PROPERTY_LOOKUP(dba, "q", prop2), LITERAL(1))),
+                                              IDENT("m"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n")), PATTERN(NODE("q"))),
+                                   WITH(PROPERTY_LOOKUP(dba, "n", prop), AS("x"), ORDER_BY(IDENT("x"))),
+                                   WHERE(GREATER(FN("size", comprehension), LITERAL(0))),
+                                   RETURN("x")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "Filter should be directly under Produce";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "The WHERE's comprehension branch should sit directly below the Filter";
+  auto *order_by = dynamic_cast<OrderBy *>(rollup->input_.get());
+  ASSERT_NE(order_by, nullptr) << "OrderBy should be below the comprehension branch";
+  EXPECT_TRUE(std::ranges::any_of(order_by->output_symbols_, [](const auto &sym) { return sym.name() == "q"; }))
+      << "OrderBy must remember `q`, which the comprehension's filter reads above it";
+}
+
 TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {
   // Test WITH 1 AS a WHERE [()--() | 1] = [()--() | 1] RETURN *
   // This tests that multiple pattern comprehensions in WHERE clauses are handled correctly

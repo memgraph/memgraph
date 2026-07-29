@@ -1330,13 +1330,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     return last_op;
   }
 
-  /// True when a comprehension is ready to be planned, i.e. every symbol it references that this query part binds
-  /// elsewhere is already bound. A symbol absent from @p symbols_bound_by_query_part comes from an earlier query part
-  /// and is not waited for.
-  ///
-  /// Every site that drains `pending_comprehensions` must use this - the main clause loop and FOREACH both do. They
-  /// used to carry separate copies, and FOREACH's checked only `external_symbols`, which is empty for a comprehension
-  /// whose sole reference is its pattern's start node, so it drained and planned such a comprehension uncorrelated.
+  /// True once every symbol the comprehension references that this query part binds elsewhere is bound. Symbols from
+  /// an earlier query part are not waited for. Every site draining `pending_comprehensions` must use this.
   static bool DepsSatisfied(const PatternComprehensionMatching &pc,
                             const std::unordered_set<Symbol> &symbols_bound_by_query_part,
                             const std::unordered_set<Symbol> &bound_symbols) {

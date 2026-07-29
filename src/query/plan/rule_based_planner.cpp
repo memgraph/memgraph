@@ -35,6 +35,25 @@ bool IsConstantLiteral(const Expression *expression) {
   return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
 }
 
+/// Like UsedSymbolsCollector, but also descends into a comprehension's filter and result expression - everything the
+/// WHERE evaluates must survive an OrderBy below it. The base class stops at the pattern, as its other callers need.
+class WhereReadSymbolsCollector : public UsedSymbolsCollector {
+ public:
+  using UsedSymbolsCollector::UsedSymbolsCollector;
+
+  bool PreVisit(PatternComprehension &pc) override {
+    // Visits pc.pattern_ and sets the in-comprehension flag, which keeps anonymous symbols out.
+    UsedSymbolsCollector::PreVisit(pc);
+    if (pc.filter_) {
+      pc.filter_->Accept(*this);
+    }
+    if (pc.resultExpr_) {
+      pc.resultExpr_->Accept(*this);
+    }
+    return false;
+  }
+};
+
 /// Visitor to collect pattern comprehension symbols from expressions.
 /// Used to track which pattern comprehensions appear inside aggregate expressions.
 class PCSymbolCollector : public HierarchicalTreeVisitor {
@@ -845,7 +864,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     // Filter(where) - and any comprehension branch feeding it - sits above OrderBy, so add what the WHERE reads.
     auto remember = body.output_symbols();
     if (body.where()) {
-      UsedSymbolsCollector collector(body.symbol_table());
+      WhereReadSymbolsCollector collector(body.symbol_table());
       body.where()->expression_->Accept(collector);
       for (const auto &symbol : collector.symbols_) {
         // Only symbols bound before this clause; the rest are written above OrderBy anyway.
