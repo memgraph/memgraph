@@ -193,7 +193,7 @@ fn apply_fuzzy_config(
     Ok(())
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn owned_value_to_json(val: OwnedValue) -> serde_json::Value {
     match val {
         OwnedValue::Null => serde_json::Value::Null,
