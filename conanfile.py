@@ -152,7 +152,7 @@ class Memgraph(ConanFile):
         self.requires("snappy/1.2.1", override=True)
 
     def build_requirements(self):
-        self.tool_requires("cmake/[>=4 <5]")
+        self.tool_requires("cmake/4.3.3")
         self.tool_requires("ninja/[>=1.13 <2]")
         self.tool_requires("ccache/4.12.3-memgraph")
 
