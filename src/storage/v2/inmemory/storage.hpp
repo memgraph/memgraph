@@ -125,7 +125,7 @@ class InMemoryStorage final : public Storage {
   friend class InMemoryUniqueConstraints;
 
  public:
-  using free_mem_fn = std::function<void(std::optional<utils::ResourceLockGuard>, bool)>;
+  using free_mem_fn = std::function<void(utils::ResourceLockGuard, bool)>;
 
   /// Light-weight wrapper around DbAwareAllocator<Edge> for light-edge
   /// allocation and destruction. DbAwareAllocator is stateless (reads the
@@ -763,7 +763,7 @@ class InMemoryStorage final : public Storage {
   std::unique_ptr<Accessor> TryAccess(StorageAccessType rw_type,
                                       std::optional<IsolationLevel> override_isolation_level = {});
 
-  void FreeMemory(std::optional<utils::ResourceLockGuard> main_guard, bool periodic) override;
+  void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) override;
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
@@ -832,7 +832,7 @@ class InMemoryStorage final : public Storage {
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  void CollectGarbage(std::optional<utils::ResourceLockGuard> main_guard, bool periodic);
+  void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
 
   bool InitializeWalFile(std::string_view epoch_id);
   void FinalizeWalFile();

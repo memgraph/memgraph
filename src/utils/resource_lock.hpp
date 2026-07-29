@@ -442,6 +442,11 @@ struct ResourceLockGuard {
  public:
   enum Type : std::uint8_t { UNIQUE, WRITE, READ, READ_ONLY };
 
+  /// A guard bound to no lock, holding nothing. The state a moved-from guard is already left in, so
+  /// every operation below already tolerates it. Lets "no hold" be passed around as a guard rather
+  /// than wrapped in an optional.
+  ResourceLockGuard() = default;
+
   ResourceLockGuard(ResourceLock &l, Type type) : ptr_{&l}, type_{type} { lock(); }
 
   ResourceLockGuard(ResourceLock &l, Type type, std::defer_lock_t /*tag*/) : ptr_{&l}, type_{type} {}
@@ -597,8 +602,8 @@ struct ResourceLockGuard {
   ResourceLock *mutex() const { return ptr_; }
 
  private:
-  ResourceLock *ptr_;
-  Type type_;
+  ResourceLock *ptr_{nullptr};
+  Type type_{UNIQUE};
   bool locked_{false};
 };
 

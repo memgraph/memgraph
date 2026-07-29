@@ -349,9 +349,9 @@ class Storage {
     return config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
   }
 
-  virtual void FreeMemory(std::optional<utils::ResourceLockGuard> main_guard, bool periodic) = 0;
+  virtual void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) = 0;
 
-  void FreeMemory() { FreeMemory(std::nullopt, false); }
+  void FreeMemory() { FreeMemory({}, false); }
 
   virtual std::unique_ptr<Accessor> Access(StorageAccessType rw_type,
                                            std::optional<IsolationLevel> override_isolation_level,
