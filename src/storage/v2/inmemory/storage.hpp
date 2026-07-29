@@ -659,7 +659,7 @@ class InMemoryStorage final : public Storage {
         if (repl_args.is_main) {
           // Only if MAIN, do we proactivly make indexes
           // REPLICA will recieve deltas from MAIN that will create the indexes
-          if (GetCreationStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+          if (GetPinnedStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
             // Use non-blocking async indexer
             auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
             // Async index creation -> happens in separate transaction

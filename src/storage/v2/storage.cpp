@@ -125,9 +125,9 @@ Storage::Accessor::Accessor(Storage *storage, std::optional<IsolationLevel> over
       // The hold is taken before the transaction is created, so a freshly created transaction can
       // never dangle in an active state during an exclusive operation.
       guard_(std::move(guard)),
-      creation_storage_mode_(storage->storage_mode_),
+      // Both reads are under guard_, already constructed above, so the hold pins them.
       transaction_(storage->CreateTransaction(override_isolation_level.value_or(storage->isolation_level_),
-                                              creation_storage_mode_)),
+                                              storage->storage_mode_)),
       is_transaction_active_(true),
       original_access_type_(ToAccessType(guard_.type())) {
   DMG_ASSERT(guard_.owns_lock() && guard_.mutex() == std::addressof(storage_->main_lock_),
@@ -137,7 +137,6 @@ Storage::Accessor::Accessor(Storage *storage, std::optional<IsolationLevel> over
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       guard_(std::move(other.guard_)),
-      creation_storage_mode_(other.creation_storage_mode_),
       transaction_(std::move(other.transaction_)),
       commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
@@ -152,7 +151,7 @@ StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
 std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
-  std::unique_lock main_guard{main_lock_};
+  auto const main_guard = std::unique_lock{main_lock_};
   isolation_level_ = isolation_level;
   return {};
 }
@@ -161,7 +160,7 @@ std::vector<EdgeTypeId> Storage::ListAllPossiblyPresentEdgeTypes() const { retur
 
 std::vector<LabelId> Storage::ListAllPossiblyPresentVertexLabels() const { return stored_node_labels_.vectorize(); }
 
-StorageMode Storage::Accessor::GetCreationStorageMode() const noexcept { return creation_storage_mode_; }
+StorageMode Storage::Accessor::GetPinnedStorageMode() const noexcept { return transaction_.storage_mode; }
 
 std::optional<uint64_t> Storage::Accessor::GetStartTimestamp() const {
   if (is_transaction_active_) {
@@ -183,7 +182,7 @@ void Storage::Accessor::AdvanceCommand() {
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
   /// NOTE: Checking whether the vertex can be deleted must be done by loading edges from disk.
   /// Loading edges is done through VertexAccessor so we do it here.
-  if (creation_storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (transaction_.storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
     auto out_edges_res = vertex->OutEdges(View::OLD);
     auto in_edges_res = vertex->InEdges(View::OLD);
     if (!out_edges_res && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
@@ -225,7 +224,7 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Storage::Accessor::DetachDeleteVertex(
     VertexAccessor *vertex) {
   using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
-  if (creation_storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (transaction_.storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
     auto out_edges_res = vertex->OutEdges(View::OLD);
     auto in_edges_res = vertex->InEdges(View::OLD);
     if (!out_edges_res && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
@@ -281,7 +280,7 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
-  if (creation_storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (transaction_.storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
     for (const auto *vertex : nodes) {
       /// TODO: (andi) Extract into a separate function.
       auto out_edges_res = vertex->OutEdges(View::OLD);

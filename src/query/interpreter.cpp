@@ -10002,7 +10002,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         // replans against the pinned mode. The throw unwinds into the catch below, releasing the
         // hold.
         if (transaction_requirements.mode_dependent_ &&
-            current_db_.db_transactional_accessor_->GetCreationStorageMode() != storage_mode) {
+            current_db_.db_transactional_accessor_->GetPinnedStorageMode() != storage_mode) {
           throw StorageModeChangedDuringSetupException();
         }
       }
@@ -10772,8 +10772,8 @@ void Interpreter::Commit() {
   });
 
   auto current_storage_mode = db->GetStorageMode();
-  auto creation_mode = current_db_.db_transactional_accessor_->GetCreationStorageMode();
-  if (creation_mode != storage::StorageMode::ON_DISK_TRANSACTIONAL &&
+  auto pinned_mode = current_db_.db_transactional_accessor_->GetPinnedStorageMode();
+  if (pinned_mode != storage::StorageMode::ON_DISK_TRANSACTIONAL &&
       current_storage_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw QueryException(
         "Cannot commit transaction because the storage mode has changed from in-memory storage to on-disk storage.");

@@ -456,8 +456,8 @@ class Storage {
 
   // Written under a UNIQUE hold on main_lock_. UNIQUE excludes all three shared modes, so any hold
   // pins both values for its life, and releasing one un-pins them: a reader that reacquires must
-  // re-read. Within a transaction read what the accessor pinned instead, creation_storage_mode_ or
-  // transaction_.isolation_level.
+  // re-read. Within a transaction read what the accessor pinned instead, transaction_.storage_mode
+  // or transaction_.isolation_level.
   //
   // Atomic for the readers that hold nothing. Some only report (the getters below, GetInfo, SHOW
   // REPLICAS) and are stale on return regardless. The rest cannot take a hold first because the
@@ -806,7 +806,9 @@ class Accessor {
 
   EdgeTypeId NameToEdgeType(std::string_view name) { return storage_->NameToEdgeType(name); }
 
-  StorageMode GetCreationStorageMode() const noexcept;
+  /// The storage mode this accessor's hold pins, in force for the life of that hold. Prefer it over
+  /// Storage::GetStorageMode(), which holds nothing and is stale on return.
+  StorageMode GetPinnedStorageMode() const noexcept;
 
   std::string id() const { return storage_->name(); }
 
@@ -1270,10 +1272,8 @@ class Accessor {
   /// One guard for all four ways to hold main_lock_. The mode is mutable state, not a property of
   /// this type: a READ_ONLY hold downgrades to READ, and ReleaseUniqueGuard() leaves nothing held.
   utils::ResourceLockGuard guard_;
-  /// Read from the storage under `guard_`, so it must be declared (and so initialised) after it and
-  /// before transaction_, which is created with the mode it names.
-  StorageMode creation_storage_mode_;
-  /// IMPORTANT: transaction_ has to be constructed after the guard (so that destruction is in correct order)
+  /// IMPORTANT: constructed after the guard, both for destruction order and so that the mode and
+  /// isolation level it captures are read under that guard.
   Transaction transaction_;
   std::optional<uint64_t> commit_timestamp_;
   bool is_transaction_active_;
