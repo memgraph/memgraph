@@ -1,0 +1,5 @@
+customWorkloads:
+  tests:
+    - name: database-memory-profiles
+      script: "ha/workloads/database_memory_profiles/workload.py"
+      timeout_min: 30
