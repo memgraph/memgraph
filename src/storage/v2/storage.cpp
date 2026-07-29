@@ -183,7 +183,7 @@ void Storage::Accessor::AdvanceCommand() {
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
   /// NOTE: Checking whether the vertex can be deleted must be done by loading edges from disk.
   /// Loading edges is done through VertexAccessor so we do it here.
-  if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (creation_storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
     auto out_edges_res = vertex->OutEdges(View::OLD);
     auto in_edges_res = vertex->InEdges(View::OLD);
     if (!out_edges_res && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
@@ -225,7 +225,7 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Storage::Accessor::DetachDeleteVertex(
     VertexAccessor *vertex) {
   using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
-  if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (creation_storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
     auto out_edges_res = vertex->OutEdges(View::OLD);
     auto in_edges_res = vertex->InEdges(View::OLD);
     if (!out_edges_res && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
@@ -281,7 +281,7 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
-  if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (creation_storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
     for (const auto *vertex : nodes) {
       /// TODO: (andi) Extract into a separate function.
       auto out_edges_res = vertex->OutEdges(View::OLD);

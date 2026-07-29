@@ -1351,7 +1351,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
 
   // Dispatch to another async work to create requested auto-indexes in their own transaction
-  if (mem_storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+  if (transaction_.storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     transaction_.async_index_helper_.DispatchRequests(mem_storage->async_indexer_);
   }
 
