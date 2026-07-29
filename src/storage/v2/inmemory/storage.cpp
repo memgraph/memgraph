@@ -569,7 +569,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   if (free_mem_fn_override) {
     free_memory_func_ = *std::move(free_mem_fn_override);
   } else {
-    free_memory_func_ = [this](std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
+    free_memory_func_ = [this](utils::ResourceLockGuard main_guard, bool periodic) {
       CollectGarbage(std::move(main_guard), periodic);
 
       // Indices
@@ -610,7 +610,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     gc_runner_.SetInterval(config_.gc.interval);
     gc_runner_.Run("Storage GC", [this] {
       const memory::DbArenaScope db_arena_scope{db_arena_};
-      this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true);
+      this->FreeMemory({}, true);
     });
   }
 
@@ -684,17 +684,10 @@ void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change
   }
 }
 
-InMemoryStorage::InMemoryAccessor::InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage,
-                                                    IsolationLevel isolation_level, StorageMode storage_mode,
-                                                    StorageAccessType rw_type,
-                                                    std::optional<std::chrono::milliseconds> timeout)
-    : Accessor(tag, storage, isolation_level, storage_mode, rw_type, timeout),
-      config_(storage->config_.salient.items) {}
-
-InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                                                    StorageMode storage_mode,
-                                                    std::optional<std::chrono::milliseconds> timeout)
-    : Accessor(tag, storage, isolation_level, storage_mode, timeout), config_(storage->config_.salient.items) {}
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage,
+                                                    std::optional<IsolationLevel> override_isolation_level,
+                                                    utils::ResourceLockGuard guard)
+    : Accessor(storage, override_isolation_level, std::move(guard)), config_(storage->config_.salient.items) {}
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
@@ -1358,7 +1351,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
 
   // Dispatch to another async work to create requested auto-indexes in their own transaction
-  if (mem_storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+  if (transaction_.storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     transaction_.async_index_helper_.DispatchRequests(mem_storage->async_indexer_);
   }
 
@@ -2027,8 +2020,8 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
 }
 
 void InMemoryStorage::InMemoryAccessor::DowngradeToReadIfValid() {
-  if (storage_guard_.owns_lock() && storage_guard_.type() == utils::SharedResourceLockGuard::Type::READ_ONLY) {
-    storage_guard_.downgrade_to_read();
+  if (guard_.owns_lock() && guard_.type() == utils::ResourceLockGuard::READ_ONLY) {
+    guard_.downgrade_to_read();
   }
 }
 
@@ -2924,11 +2917,13 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
-    FreeMemory(std::unique_lock{main_lock_, std::adopt_lock}, false);
+    // Hand off the same lock unique_accessor already holds; adopting main_lock_ into a second
+    // lock would give the one hold two owners and release it twice.
+    FreeMemory(unique_accessor->ReleaseGuard(), false);
   }
 }
 
-void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
+void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic) {
   // NOTE: A single call need not handle objects deleted under a different storage mode: SetStorageMode
   // runs GC before any transaction in the new mode can start.
 
@@ -2936,8 +2931,11 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   auto const main_lock_guard = [&] -> Guard {
     // Adopt SetStorageMode's UNIQUE hold if it passed one; reacquiring would deadlock.
     if (main_guard.owns_lock()) {
-      DMG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
-      return Guard{std::move(main_guard)};
+      // Adopted in place of choosing a mode below, so it has to be exclusive: analytical GC is not
+      // proven safe under a shared hold (see the WRITE choice further down).
+      DMG_ASSERT(main_guard.mutex() == std::addressof(main_lock_) && main_guard.is_exclusive(),
+                 "an adopted main_guard must be an exclusive hold on this storage's main_lock_");
+      return std::move(main_guard);
     }
 
     // Aggressive GC escalates to UNIQUE (blocks new txns); otherwise a shared hold, so slow GC does
@@ -4612,7 +4610,7 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   return res;
 }
 
-void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
+void InMemoryStorage::FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) {
   std::invoke(free_memory_func_, std::move(main_guard), periodic);
 }
 
@@ -4655,30 +4653,28 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(StorageAccessType rw_type,
                                                            std::optional<IsolationLevel> override_isolation_level,
                                                            std::optional<std::chrono::milliseconds> timeout) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access,
-                                                                this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_,
-                                                                rw_type,
-                                                                timeout});
+  DMG_ASSERT(rw_type != StorageAccessType::UNIQUE, "UNIQUE access must go through UniqueAccess()");
+  return std::unique_ptr<InMemoryAccessor>(
+      new InMemoryAccessor{this, override_isolation_level, AcquireGuardOrThrow(this, rw_type, timeout)});
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                                  std::optional<std::chrono::milliseconds> timeout) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access,
-                                                                this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_,
-                                                                timeout});
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::UNIQUE, timeout)});
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
     std::optional<IsolationLevel> override_isolation_level, std::optional<std::chrono::milliseconds> timeout) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::read_only_access,
-                                                                this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_,
-                                                                timeout});
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, timeout)});
+}
+
+std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType rw_type,
+                                                              std::optional<IsolationLevel> override_isolation_level) {
+  utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::try_to_lock};
+  if (!guard.owns_lock()) return nullptr;
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
 }
 
 void InMemoryStorage::CreateSnapshotHandler(

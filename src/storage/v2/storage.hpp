@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <optional>
 #include <set>
 #include <string>
@@ -53,6 +54,40 @@ class MemoryTracker;
 }
 
 namespace memgraph::storage {
+
+/// StorageAccessType and ResourceLockGuard::Type name the same four ways to hold main_lock_, one
+/// in storage's vocabulary and one in the lock's. Convert only here, so the two enums stay
+/// independent (utils/ must not learn storage's vocabulary) without the mapping being restated at
+/// each acquisition site. NO_ACCESS has no counterpart: it means no hold, which a guard expresses
+/// by not owning one.
+constexpr utils::ResourceLockGuard::Type ToGuardType(StorageAccessType rw_type) {
+  switch (rw_type) {
+    case StorageAccessType::UNIQUE:
+      return utils::ResourceLockGuard::UNIQUE;
+    case StorageAccessType::WRITE:
+      return utils::ResourceLockGuard::WRITE;
+    case StorageAccessType::READ:
+      return utils::ResourceLockGuard::READ;
+    case StorageAccessType::READ_ONLY:
+      return utils::ResourceLockGuard::READ_ONLY;
+    case StorageAccessType::NO_ACCESS:
+      LOG_FATAL("NO_ACCESS names the absence of a hold; it has no lock mode");
+  }
+}
+
+constexpr StorageAccessType ToAccessType(utils::ResourceLockGuard::Type type) {
+  switch (type) {
+    case utils::ResourceLockGuard::UNIQUE:
+      return StorageAccessType::UNIQUE;
+    case utils::ResourceLockGuard::WRITE:
+      return StorageAccessType::WRITE;
+    case utils::ResourceLockGuard::READ:
+      return StorageAccessType::READ;
+    case utils::ResourceLockGuard::READ_ONLY:
+      return StorageAccessType::READ_ONLY;
+  }
+}
+
 class SharedAccessTimeout : public utils::BasicException {
  public:
   SharedAccessTimeout()
@@ -314,9 +349,9 @@ class Storage {
     return config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
   }
 
-  virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) = 0;
+  virtual void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) = 0;
 
-  void FreeMemory() { FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, false); }
+  void FreeMemory() { FreeMemory({}, false); }
 
   virtual std::unique_ptr<Accessor> Access(StorageAccessType rw_type,
                                            std::optional<IsolationLevel> override_isolation_level,
@@ -419,8 +454,17 @@ class Storage {
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
 
-  IsolationLevel isolation_level_;
-  StorageMode storage_mode_;
+  // Written under a UNIQUE hold on main_lock_. UNIQUE excludes all three shared modes, so any hold
+  // pins both values for its life, and releasing one un-pins them: a reader that reacquires must
+  // re-read. Within a transaction read what the accessor pinned instead, transaction_.storage_mode
+  // or transaction_.isolation_level.
+  //
+  // Atomic for the readers that hold nothing. Some only report (the getters below, GetInfo, SHOW
+  // REPLICAS) and are stale on return regardless. The rest cannot take a hold first because the
+  // hold is what the value decides, or because taking it would deadlock. For those the rule is: an
+  // unlocked read may choose, but only a read under a hold may commit to the choice.
+  std::atomic<IsolationLevel> isolation_level_;
+  std::atomic<StorageMode> storage_mode_;
   memory::ArenaPool *db_arena_pool_{nullptr};
 
   metrics::DatabaseMetricHandles metric_handles_{};
@@ -488,24 +532,27 @@ inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
   return os;
 }
 
+/// Acquires `main_lock_` in the mode `rw_type` names. Blocks indefinitely without a timeout; with
+/// one, throws the timeout exception belonging to that mode.
+utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType rw_type,
+                                             std::optional<std::chrono::milliseconds> timeout);
+
 class Accessor {
  public:
-  static constexpr struct SharedAccess {
-  } shared_access;
+  /// Takes ownership of a hold on `storage`'s main_lock_. The caller acquires it: blocking with a
+  /// timeout via AcquireGuardOrThrow, or non-blocking via a try_to_lock guard. Construction itself
+  /// never blocks and never fails, so a probe can decide whether to build an accessor at all.
+  ///
+  /// The access type comes from the guard, not alongside it. It is recorded as
+  /// original_access_type_, which the WAL carries to replicas to pick the mode they replay under,
+  /// so a guard and a type that disagreed would have a replica take a different hold than we did.
+  /// Nothing is lost by deriving it: no downgrade can have happened yet.
+  ///
+  /// The isolation level and storage mode are read from `storage` under the guard rather than
+  /// passed in: SetIsolationLevel and SetStorageMode write them under UNIQUE, so a caller reading
+  /// them before acquiring could build a transaction against a mode that has since changed.
+  Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard);
 
-  static constexpr struct UniqueAccess {
-  } unique_access;
-
-  static constexpr struct ReadOnlyAccess {
-  } read_only_access;
-
-  Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-           StorageAccessType rw_type = StorageAccessType::WRITE,
-           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-  Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-  Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;
   Accessor &operator=(Accessor &&other) = delete;
@@ -516,22 +563,22 @@ class Accessor {
 
   StorageAccessType original_access_type() const { return original_access_type_; }
 
+  /// The mode currently held, which is not always the one requested: a READ_ONLY hold downgrades
+  /// to READ, and a released hold leaves NO_ACCESS. For what was asked for, see
+  /// original_access_type().
   StorageAccessType type() const {
-    if (unique_guard_.owns_lock()) {
-      return UNIQUE;
-    }
-    if (storage_guard_.owns_lock()) {
-      switch (storage_guard_.type()) {
-        case utils::SharedResourceLockGuard::Type::WRITE:
-          return WRITE;
-        case utils::SharedResourceLockGuard::Type::READ:
-          return READ;
-        case utils::SharedResourceLockGuard::Type::READ_ONLY:
-          return READ_ONLY;
-      }
-    }
-    return NO_ACCESS;
+    if (!guard_.owns_lock()) return NO_ACCESS;
+    return ToAccessType(guard_.type());
   }
+
+  /// Moves out this accessor's hold on `main_lock_`, making the returned guard its sole owner
+  /// (this accessor then reports NO_ACCESS and releases nothing at destruction).
+  ///
+  /// A caller passing its hold onward (e.g. to FreeMemory) must move this same object. Adopting
+  /// `main_lock_` into a second guard instead gives the one hold two owners, so it is released
+  /// twice: once by the callee, again when this accessor is destroyed. What the callee requires of
+  /// the hold is the callee's to check.
+  auto ReleaseGuard() -> utils::ResourceLockGuard { return std::move(guard_); }
 
   virtual VertexAccessor CreateVertex() = 0;
 
@@ -759,7 +806,9 @@ class Accessor {
 
   EdgeTypeId NameToEdgeType(std::string_view name) { return storage_->NameToEdgeType(name); }
 
-  StorageMode GetCreationStorageMode() const noexcept;
+  /// The storage mode this accessor's hold pins, in force for the life of that hold. Prefer it over
+  /// Storage::GetStorageMode(), which holds nothing and is stale on return.
+  StorageMode GetPinnedStorageMode() const noexcept;
 
   std::string id() const { return storage_->name(); }
 
@@ -864,7 +913,7 @@ class Accessor {
   auto GetTransaction() -> Transaction * { return std::addressof(transaction_); }
 
   auto GetEnumStoreUnique() -> EnumStore & {
-    DMG_ASSERT(unique_guard_.owns_lock());
+    DMG_ASSERT(type() == UNIQUE);
     return storage_->enum_store_;
   }
 
@@ -1220,9 +1269,11 @@ class Accessor {
 #endif
  protected:
   Storage *storage_;
-  utils::SharedResourceLockGuard storage_guard_;
-  std::unique_lock<utils::ResourceLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
-  /// IMPORTANT: transaction_ has to be constructed after the guards (so that destruction is in correct order)
+  /// One guard for all four ways to hold main_lock_. The mode is mutable state, not a property of
+  /// this type: a READ_ONLY hold downgrades to READ, and ReleaseUniqueGuard() leaves nothing held.
+  utils::ResourceLockGuard guard_;
+  /// IMPORTANT: constructed after the guard, both for destruction order and so that the mode and
+  /// isolation level it captures are read under that guard.
   Transaction transaction_;
   std::optional<uint64_t> commit_timestamp_;
   bool is_transaction_active_;
@@ -1244,7 +1295,6 @@ class Accessor {
   void MarkEdgeAsDeleted(Edge *edge);
 
  private:
-  StorageMode creation_storage_mode_;
 };
 
 }  // namespace memgraph::storage

@@ -792,9 +792,18 @@ std::vector<std::jthread> SpawnHammers(ResourceLock &target_lock, std::atomic<bo
 }
 }  // namespace
 
-// A UniquePendingScope retry loop acquires within a bound under continuous WRITE churn,
-// whereas a bare try_lock() loop is expected to starve (soft/environment-dependent control).
-TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresWhileBareTryLockStarves) {
+// A UniquePendingScope held across a try_acquire() retry loop should acquire within a
+// bounded time under a continuous stream of new WRITE shared acquirers. A bare `lock.try_lock()`
+// retry loop against the same hammer stream is expected to starve, since its probes never register
+// as pending and so never gate the hammers out.
+//
+// Only the campaign's acquisition is asserted; the control is recorded, not asserted. The hammers
+// overlap statistically rather than by construction, so "the bare loop did not get in" asserts that
+// a rare event did not occur across many probes, which no choice of bound makes reliable: a longer
+// bound makes it likelier to fire, a shorter one weakens it to nothing. The gate's mechanism has
+// its own deterministic test, holding a shared lock and checking that new shared acquisitions fail
+// while a pending scope lives and succeed once it dies.
+TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresUnderContinuousWriteHammer) {
   using namespace std::chrono_literals;
   constexpr int kNumHammers = 8;
   constexpr auto kPendingScopeBound = 5s;
@@ -808,7 +817,7 @@ TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresWhileBareTryLockStarv
     auto scoped_future = std::async(std::launch::async, [&] {
       auto start = std::chrono::steady_clock::now();
       UniquePendingScope scope(lock);
-      std::optional<std::unique_lock<ResourceLock>> acquired;
+      std::optional<ResourceLockGuard> acquired;
       while (!acquired) {
         acquired = scope.try_acquire();
         if (!acquired) std::this_thread::sleep_for(20us);
@@ -854,11 +863,10 @@ TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresWhileBareTryLockStarv
     hammers.clear();
 
     if (control_result) {
-      lock.unlock();  // release so later tests start from UNLOCKED
-      // The ungated control is expected to starve, but its success is probabilistic and
-      // environment-dependent, so record it (non-fatal) rather than abort: a chance acquire must not
-      // fail CI. The deterministic PendingScope campaign above is the real writer-preference signal.
+      lock.unlock();  // it did acquire; release so later tests in the suite start from UNLOCKED
       RecordProperty("bare_try_lock_acquired_ms", std::to_string(control_result->count()));
+    } else {
+      RecordProperty("bare_try_lock_acquired_ms", "starved");
     }
   }
 }
@@ -875,7 +883,7 @@ TEST_F(ResourceLockTest, ReadOnlyPendingScopeCampaignAcquiresUnderContinuousWrit
   auto scoped_future = std::async(std::launch::async, [&] {
     auto start = std::chrono::steady_clock::now();
     ReadOnlyPendingScope scope(lock);
-    std::optional<SharedResourceLockGuard> acquired;
+    std::optional<ResourceLockGuard> acquired;
     while (!acquired) {
       acquired = scope.try_acquire();
       if (!acquired) std::this_thread::sleep_for(20us);
@@ -891,7 +899,7 @@ TEST_F(ResourceLockTest, ReadOnlyPendingScopeCampaignAcquiresUnderContinuousWrit
 
   if (acquired_in_time) {
     const auto [latency, acquired_type] = scoped_future.get();
-    EXPECT_EQ(acquired_type, SharedResourceLockGuard::READ_ONLY);
+    EXPECT_EQ(acquired_type, ResourceLockGuard::READ_ONLY);
     RecordProperty("ro_pending_scope_latency_ms", std::to_string(latency.count()));
   } else {
     ADD_FAILURE() << "ReadOnlyPendingScope::try_acquire() campaign did not acquire within " << kBound.count()
@@ -1349,4 +1357,63 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzzWithPendingScope
   threads.clear();
 
   ASSERT_FALSE(invariant_violated.load()) << violation_message;
+}
+
+// A pending UNIQUE waiter must not miss its wake-up to a waiter that cannot use it.
+//
+// Every waiter parks on the same condition variable but each has its own predicate, so a
+// notify_one can be delivered to a waiter whose predicate is still false: a shared acquirer gated
+// on unique_pending_, say. It re-checks, sleeps again, and consumes the only notification, leaving
+// the waiter that could have made progress asleep until its timeout.
+//
+// Both crowds are load-bearing: several shared acquirers parked to absorb the notification, and
+// several UNIQUE waiters so the one woken is not reliably the one waiting longest. With a single
+// UNIQUE waiter of either kind the interleaving cannot arise and the test asserts nothing.
+TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
+  using namespace std::chrono_literals;
+  constexpr auto kUniqueTimeout = 500ms;
+  constexpr auto kDuration = 2s;
+  constexpr int kSharedCyclers = 4;
+  constexpr int kUniqueWaiters = 4;
+
+  std::atomic<bool> stop{false};
+  std::atomic<int> unique_timeouts{0};
+  std::atomic<int> unique_acquisitions{0};
+
+  std::vector<std::jthread> threads;
+  threads.reserve(kSharedCyclers + kUniqueWaiters);
+
+  // Each cycler drives the lock down to fully-unlocked (firing the notify) and, whenever a UNIQUE
+  // is pending, parks on the acquisition gated by unique_pending_ (becoming a potential absorber).
+  for (int i = 0; i < kSharedCyclers; ++i) {
+    threads.emplace_back([&] {
+      while (!stop.load(std::memory_order_relaxed)) {
+        lock.lock_shared<ResourceLock::LockReq::READ>();
+        lock.unlock_shared<ResourceLock::LockReq::READ>();
+        lock.lock_shared<ResourceLock::LockReq::WRITE>();
+        lock.unlock_shared<ResourceLock::LockReq::WRITE>();
+      }
+    });
+  }
+
+  for (int i = 0; i < kUniqueWaiters; ++i) {
+    threads.emplace_back([&] {
+      while (!stop.load(std::memory_order_relaxed)) {
+        if (lock.try_lock_for(kUniqueTimeout)) {
+          unique_acquisitions.fetch_add(1, std::memory_order_relaxed);
+          lock.unlock();
+        } else {
+          unique_timeouts.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
+    });
+  }
+
+  std::this_thread::sleep_for(kDuration);
+  stop.store(true, std::memory_order_relaxed);
+  threads.clear();
+
+  EXPECT_GT(unique_acquisitions.load(), 0) << "the UNIQUE waiter never acquired; the test proved nothing";
+  EXPECT_EQ(unique_timeouts.load(), 0) << "a pending UNIQUE waiter was not woken within " << kUniqueTimeout.count()
+                                       << "ms while " << kSharedCyclers << " shared acquirers were parked";
 }

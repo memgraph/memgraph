@@ -308,6 +308,17 @@ class TransactionSerializationException : public RetryBasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionSerializationException)
 };
 
+// The storage mode selects which storage access a DDL query needs, so it is read before that
+// access is taken and a concurrent SET STORAGE MODE can land in between. Retrying picks the
+// access matching the new mode.
+class StorageModeChangedDuringSetupException : public RetryBasicException {
+ public:
+  StorageModeChangedDuringSetupException()
+      : RetryBasicException(
+            "The storage mode changed while this query was acquiring storage access. Retry this query.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(StorageModeChangedDuringSetupException)
+};
+
 class ReconstructionException : public QueryException {
  public:
   ReconstructionException()

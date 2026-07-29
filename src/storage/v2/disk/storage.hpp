@@ -56,9 +56,8 @@ class DiskStorage final : public Storage {
    private:
     friend class DiskStorage;
 
-    explicit DiskAccessor(SharedAccess tag, DiskStorage *storage, IsolationLevel isolation_level,
-                          StorageMode storage_mode, StorageAccessType rw_type);
-    explicit DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    explicit DiskAccessor(DiskStorage *storage, std::optional<IsolationLevel> override_isolation_level,
+                          utils::ResourceLockGuard guard);
 
    public:
     DiskAccessor(const DiskAccessor &) = delete;
@@ -597,7 +596,7 @@ class DiskStorage final : public Storage {
     // Disk storage doesn't track and cache live label counts, so this is a no-op
   }
 
-  void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/, bool /*periodic*/) override {}
+  void FreeMemory(utils::ResourceLockGuard /*lock*/, bool /*periodic*/) override {}
 
   void PrepareForNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 

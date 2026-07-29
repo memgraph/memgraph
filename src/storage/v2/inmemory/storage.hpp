@@ -125,7 +125,7 @@ class InMemoryStorage final : public Storage {
   friend class InMemoryUniqueConstraints;
 
  public:
-  using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
+  using free_mem_fn = std::function<void(utils::ResourceLockGuard, bool)>;
 
   /// Light-weight wrapper around DbAwareAllocator<Edge> for light-edge
   /// allocation and destruction. DbAwareAllocator is stateless (reads the
@@ -189,12 +189,9 @@ class InMemoryStorage final : public Storage {
    private:
     friend class InMemoryStorage;
 
-    explicit InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode, StorageAccessType rw_type,
-                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-    explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode,
-                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+    /// Takes ownership of a hold the caller acquired; see Accessor's constructor.
+    explicit InMemoryAccessor(InMemoryStorage *storage, std::optional<IsolationLevel> override_isolation_level,
+                              utils::ResourceLockGuard guard);
 
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
 
@@ -662,7 +659,7 @@ class InMemoryStorage final : public Storage {
         if (repl_args.is_main) {
           // Only if MAIN, do we proactivly make indexes
           // REPLICA will recieve deltas from MAIN that will create the indexes
-          if (GetCreationStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+          if (GetPinnedStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
             // Use non-blocking async indexer
             auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
             // Async index creation -> happens in separate transaction
@@ -749,7 +746,24 @@ class InMemoryStorage final : public Storage {
   std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
                                            std::optional<std::chrono::milliseconds> timeout) override;
 
-  void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) override;
+  /// Acquires an accessor in mode `rw_type` if `main_lock_` admits it right now, returning nullptr
+  /// if it does not. Never blocks, never throws, and creates no transaction when it fails.
+  ///
+  /// Admission, not just "is it free": a waiting UNIQUE gates the shared modes, so this reports
+  /// failure while one is pending even though nobody holds the lock. That yields to the waiter
+  /// rather than jumping ahead of it.
+  ///
+  /// One probe, so it grants no priority of its own: a caller looping on this is an ordinary
+  /// contender each time and can be starved by a stream of compatible holders. A caller that needs
+  /// to be preferred while it retries holds a UniquePendingScope or ReadOnlyPendingScope across the
+  /// whole loop.
+  ///
+  /// InMemoryStorage's alone: DiskStorage has no probe rather than one that always fails, so a
+  /// caller polling it would spin instead of learning that it should just block.
+  std::unique_ptr<Accessor> TryAccess(StorageAccessType rw_type,
+                                      std::optional<IsolationLevel> override_isolation_level = {});
+
+  void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) override;
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
@@ -818,7 +832,7 @@ class InMemoryStorage final : public Storage {
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic);
+  void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
 
   bool InitializeWalFile(std::string_view epoch_id);
   void FinalizeWalFile();

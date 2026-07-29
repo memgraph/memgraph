@@ -26,6 +26,7 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/on_scope_exit.hpp"
 
 using testing::Types;
 using testing::UnorderedElementsAre;
@@ -2882,4 +2883,318 @@ TEST(StorageAnalyticalGcTest, GcDoesNotBlockOutUniqueAcquirers) {
   EXPECT_GT(unique_acquisitions.load(), 0) << "no UNIQUE acquirer ever got in; the test proved nothing";
   EXPECT_EQ(unique_timeouts.load(), 0) << "a UNIQUE acquirer was blocked out for " << kUniqueTimeout.count()
                                        << "ms by a concurrent analytical GC pass";
+}
+
+// UNIQUE stays exclusive while SetStorageMode runs. It holds UNIQUE across the mode switch and
+// hands that same hold on to FreeMemory(), so the hold must have exactly one owner throughout: a
+// hold released twice is admitted to a second thread while the first still believes it holds it.
+//
+// Detected by symptom rather than mechanism: probers take UNIQUE and check no other prober holds
+// it at the same time. Two simultaneous holders are only reachable if a hold was released twice.
+// A short timeout keeps a prober from parking behind the mode-switcher for the whole run, so the
+// probers stay dense enough to catch the overlap; a timeout is not itself a failure here.
+TEST(StorageSetStorageModeTest, ConcurrentUniqueHoldersAreNeverBothAdmitted) {
+  using namespace std::chrono_literals;
+  constexpr auto kDuration = 3s;
+  constexpr auto kProbeTimeout = 50ms;
+  constexpr int kProbers = 4;
+
+  // Switching to analytical writes a snapshot, so give it a scratch directory rather than the
+  // default relative "storage" path in the working directory.
+  const auto data_directory = std::filesystem::temp_directory_path() / "MG_test_unit_storage_v2_set_storage_mode";
+  std::filesystem::remove_all(data_directory);
+  const memgraph::utils::OnScopeExit cleanup{[&] { std::filesystem::remove_all(data_directory); }};
+
+  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
+      .durability{.storage_directory = data_directory},
+      .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
+
+  std::atomic<bool> stop{false};
+  std::atomic<int> concurrent_holders{0};
+  std::atomic<int> violations{0};
+  std::atomic<int> acquisitions{0};
+
+  std::vector<std::jthread> threads;
+  threads.reserve(kProbers + 1);
+
+  for (int i = 0; i < kProbers; ++i) {
+    threads.emplace_back([&] {
+      while (!stop.load(std::memory_order_relaxed)) {
+        try {
+          auto acc = store.UniqueAccess(std::nullopt, kProbeTimeout);
+          if (concurrent_holders.fetch_add(1, std::memory_order_acq_rel) != 0) {
+            violations.fetch_add(1, std::memory_order_relaxed);
+          }
+          acquisitions.fetch_add(1, std::memory_order_relaxed);
+          concurrent_holders.fetch_sub(1, std::memory_order_acq_rel);
+          acc->Abort();
+        } catch (memgraph::storage::UniqueAccessTimeout const &) {
+          // Expected under contention; only simultaneous holders are a failure.
+        }
+      }
+    });
+  }
+
+  threads.emplace_back([&] {
+    while (!stop.load(std::memory_order_relaxed)) {
+      store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+      store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+    }
+  });
+
+  std::this_thread::sleep_for(kDuration);
+  stop.store(true, std::memory_order_relaxed);
+  threads.clear();
+
+  EXPECT_GT(acquisitions.load(), 0) << "no prober ever acquired UNIQUE; the test proved nothing";
+  EXPECT_EQ(violations.load(), 0) << "two threads held the UNIQUE lock at the same time";
+}
+
+// Accessor::type() reports the mode currently held, and that changes during an accessor's life:
+// a READ_ONLY hold downgrades to READ, and handing the UNIQUE hold away leaves nothing held. The
+// mode is therefore runtime state, not a property of the accessor's type, and type() must be
+// derived from the hold itself rather than from what was originally requested.
+class StorageAccessorLockModeTest : public ::testing::Test {
+ protected:
+  using InMemoryAccessor = memgraph::storage::InMemoryStorage::InMemoryAccessor;
+
+  static InMemoryAccessor &AsInMemory(std::unique_ptr<memgraph::storage::Storage::Accessor> &acc) {
+    return static_cast<InMemoryAccessor &>(*acc);
+  }
+
+  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
+      .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
+};
+
+TEST_F(StorageAccessorLockModeTest, ReportsTheModeItHolds) {
+  using namespace memgraph::storage;
+
+  auto read = store.Access(READ);
+  EXPECT_EQ(read->type(), READ);
+  read.reset();
+
+  auto write = store.Access(WRITE);
+  EXPECT_EQ(write->type(), WRITE);
+  write.reset();
+
+  auto read_only = store.ReadOnlyAccess();
+  EXPECT_EQ(read_only->type(), READ_ONLY);
+  read_only.reset();
+
+  auto unique = store.UniqueAccess();
+  EXPECT_EQ(unique->type(), UNIQUE);
+}
+
+// The downgrade is what lets an index build stop excluding writers partway through, so type() has
+// to follow the hold rather than the original request.
+TEST_F(StorageAccessorLockModeTest, ReadOnlyDowngradesToRead) {
+  using namespace memgraph::storage;
+
+  auto acc = store.ReadOnlyAccess();
+  ASSERT_EQ(acc->type(), READ_ONLY);
+  // READ_ONLY excludes WRITE; READ does not. The downgrade is observable through that.
+  EXPECT_FALSE(store.main_lock_.try_lock_shared<memgraph::utils::ResourceLock::LockReq::WRITE>());
+
+  AsInMemory(acc).DowngradeToReadIfValid();
+
+  EXPECT_EQ(acc->type(), READ);
+  EXPECT_EQ(acc->original_access_type(), READ_ONLY) << "the original request must survive the downgrade";
+  ASSERT_TRUE(store.main_lock_.try_lock_shared<memgraph::utils::ResourceLock::LockReq::WRITE>());
+  store.main_lock_.unlock_shared<memgraph::utils::ResourceLock::LockReq::WRITE>();
+}
+
+// SetStorageMode's hand-off: after releasing the hold the accessor owns nothing, so it must not
+// release anything at destruction. The returned lock is the sole owner until it goes away.
+TEST_F(StorageAccessorLockModeTest, ReleasingTheGuardLeavesNothingHeld) {
+  using namespace memgraph::storage;
+
+  auto acc = store.UniqueAccess();
+  ASSERT_EQ(acc->type(), UNIQUE);
+
+  {
+    auto released = acc->ReleaseGuard();
+    EXPECT_EQ(acc->type(), NO_ACCESS);
+    EXPECT_TRUE(released.owns_lock());
+    EXPECT_FALSE(store.main_lock_.try_lock()) << "the released lock is still the sole owner";
+  }
+
+  // The lock went away with the released owner, and destroying the accessor must not release it a
+  // second time.
+  ASSERT_TRUE(store.main_lock_.try_lock());
+  store.main_lock_.unlock();
+}
+
+TEST_F(StorageAccessorLockModeTest, MovePreservesTheHold) {
+  using namespace memgraph::storage;
+
+  auto acc = store.Access(WRITE);
+  ASSERT_EQ(acc->type(), WRITE);
+
+  auto moved = InMemoryAccessor{std::move(AsInMemory(acc))};
+
+  EXPECT_EQ(moved.type(), WRITE);
+  EXPECT_EQ(acc->type(), NO_ACCESS) << "the moved-from accessor must no longer own the hold";
+  EXPECT_FALSE(store.main_lock_.try_lock()) << "the hold must survive the move, not be dropped";
+}
+
+// storage_mode_ and isolation_level_ are written by SetStorageMode/SetIsolationLevel under a
+// UNIQUE hold on main_lock_. The blocking accessor factories read them to build the accessor, so
+// those reads must happen under a hold too. They are evaluated as constructor arguments, i.e.
+// before the constructor acquires anything, so an unsynchronised read races the locked write.
+//
+// This is a race detector's test: without -fsanitize=thread it passes whether or not the reads are
+// synchronised, because a torn or stale enum read is not observable here. Under TSan it reports
+// the write/read pair directly.
+TEST(StorageAccessRaceTest, ReadsModeAndIsolationWithoutRacingTheWriter) {
+  using namespace std::chrono_literals;
+  constexpr auto kDuration = 2s;
+  constexpr int kReaders = 4;
+
+  // Switching to analytical writes a snapshot, so keep it out of the working directory.
+  const auto data_directory = std::filesystem::temp_directory_path() / "MG_test_unit_storage_v2_access_race";
+  std::filesystem::remove_all(data_directory);
+  const memgraph::utils::OnScopeExit cleanup{[&] { std::filesystem::remove_all(data_directory); }};
+
+  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
+      .durability{.storage_directory = data_directory},
+      .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
+
+  std::atomic<bool> stop{false};
+  std::atomic<int> accessors{0};
+
+  std::vector<std::jthread> threads;
+  threads.reserve(kReaders + 2);
+
+  for (int i = 0; i < kReaders; ++i) {
+    threads.emplace_back([&] {
+      while (!stop.load(std::memory_order_relaxed)) {
+        try {
+          auto acc = store.Access(memgraph::storage::READ, std::nullopt, 50ms);
+          accessors.fetch_add(1, std::memory_order_relaxed);
+          acc->Abort();
+        } catch (memgraph::storage::SharedAccessTimeout const &) {
+          // Expected while the mode switch holds UNIQUE.
+        }
+      }
+    });
+  }
+
+  threads.emplace_back([&] {
+    while (!stop.load(std::memory_order_relaxed)) {
+      store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+      store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+    }
+  });
+
+  threads.emplace_back([&] {
+    while (!stop.load(std::memory_order_relaxed)) {
+      [[maybe_unused]] auto ignored = store.SetIsolationLevel(memgraph::storage::IsolationLevel::READ_COMMITTED);
+      ignored = store.SetIsolationLevel(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    }
+  });
+
+  std::this_thread::sleep_for(kDuration);
+  stop.store(true, std::memory_order_relaxed);
+  threads.clear();
+
+  EXPECT_GT(accessors.load(), 0) << "no accessor was ever created; the test raced nothing";
+}
+
+// InMemoryStorage::TryAccess: acquire an accessor if main_lock_ admits it right now, or return
+// nullptr. Outside the TYPED_TEST_SUITE because it is InMemoryStorage's alone; DiskStorage has no
+// probe rather than a probe that always fails.
+class StorageTryAccessTest : public ::testing::Test {
+ protected:
+  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
+      .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
+};
+
+TEST_F(StorageTryAccessTest, SucceedsAndReturnsUsableAccessorWhenFree) {
+  using namespace memgraph::storage;
+
+  auto acc = store.TryAccess(READ);
+  ASSERT_NE(acc, nullptr);
+  EXPECT_EQ(acc->type(), READ);
+  EXPECT_NO_THROW(acc->CreateVertex());
+  EXPECT_NO_THROW(acc->Abort());
+  acc.reset();  // destroy the accessor to release its main_lock_ share (Abort() alone does not)
+
+  auto write_acc = store.TryAccess(WRITE);
+  ASSERT_NE(write_acc, nullptr);
+  EXPECT_EQ(write_acc->type(), WRITE);
+  EXPECT_NO_THROW(write_acc->Abort());
+  write_acc.reset();
+
+  auto unique_acc = store.TryAccess(UNIQUE);
+  ASSERT_NE(unique_acc, nullptr);
+  EXPECT_EQ(unique_acc->type(), UNIQUE);
+  EXPECT_NO_THROW(unique_acc->Abort());
+  unique_acc.reset();
+
+  auto ro_acc = store.TryAccess(READ_ONLY);
+  ASSERT_NE(ro_acc, nullptr);
+  EXPECT_EQ(ro_acc->type(), READ_ONLY);
+  EXPECT_NO_THROW(ro_acc->Abort());
+}
+
+// UNIQUE held -> every probe returns nullopt without throwing or creating a transaction. The
+// "no transaction created" part is proven via the strictly-monotonic transaction_id: it only
+// advances on CreateTransaction(), so a spurious probe would make the next id jump by >1.
+TEST_F(StorageTryAccessTest, UniqueHeldBlocksNewSharedWithoutCreatingATransaction) {
+  using namespace memgraph::storage;
+
+  auto unique_acc = store.UniqueAccess();  // blocking call; trivially succeeds, nothing else held
+  ASSERT_NE(unique_acc, nullptr);
+  const uint64_t unique_id = unique_acc->GetTransaction()->transaction_id;
+
+  EXPECT_EQ(store.TryAccess(READ), nullptr);
+  EXPECT_EQ(store.TryAccess(WRITE), nullptr);
+  EXPECT_EQ(store.TryAccess(READ_ONLY), nullptr);
+  EXPECT_EQ(store.TryAccess(UNIQUE), nullptr);
+
+  unique_acc->Abort();
+  unique_acc.reset();  // releases the UNIQUE hold on main_lock_
+
+  auto after = store.TryAccess(READ);
+  ASSERT_NE(after, nullptr);
+  EXPECT_EQ(after->GetTransaction()->transaction_id, unique_id + 1)
+      << "a TryAccess nullopt path created a transaction it "
+         "should not have";
+  after->Abort();
+}
+
+// Mirror of the above but the OTHER conflict direction: a held shared (READ) lock must block a
+// new TryAccess(UNIQUE), while still allowing further compatible shared acquisitions through.
+TEST_F(StorageTryAccessTest, SharedHeldBlocksNewUniqueButNotNewCompatibleShared) {
+  using namespace memgraph::storage;
+
+  auto read_acc = store.Access(READ);  // blocking call; trivially succeeds
+  ASSERT_NE(read_acc, nullptr);
+
+  EXPECT_EQ(store.TryAccess(UNIQUE), nullptr);
+
+  // READ is not exclusive with itself/WRITE -- a second READ probe should still succeed.
+  auto another_read = store.TryAccess(READ);
+  ASSERT_NE(another_read, nullptr);
+  EXPECT_NO_THROW(another_read->Abort());
+
+  read_acc->Abort();
+}
+
+// READ_ONLY held -> conflicts with WRITE (both directly and via TryAccess(WRITE)), matching the
+// existing WRITE vs READ_ONLY mutual exclusion enforced by ResourceLock.
+TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
+  using namespace memgraph::storage;
+
+  auto ro_acc = store.ReadOnlyAccess();  // blocking call; trivially succeeds
+  ASSERT_NE(ro_acc, nullptr);
+
+  EXPECT_EQ(store.TryAccess(WRITE), nullptr);
+
+  ro_acc->Abort();
+  ro_acc.reset();  // destroy the accessor to release its READ_ONLY main_lock_ share (Abort() alone does not)
+
+  auto write_acc = store.TryAccess(WRITE);
+  ASSERT_NE(write_acc, nullptr);
+  EXPECT_NO_THROW(write_acc->Abort());
 }

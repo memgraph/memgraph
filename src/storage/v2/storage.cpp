@@ -40,52 +40,35 @@ namespace memgraph::storage {
 class InMemoryStorage;
 
 namespace {
-void TryLock(auto &guard, auto timeout) {
-  if (timeout) {  // With timeout
-    if (!guard.try_lock_for(*timeout)) {
-      if constexpr (std::is_same_v<decltype(guard), utils::SharedResourceLockGuard &>) {
-        if (guard.type() == utils::SharedResourceLockGuard::Type::READ_ONLY) throw ReadOnlyAccessTimeout{};
-        throw SharedAccessTimeout{};
-      }
-      throw UniqueAccessTimeout{};
-    }
-  } else {  // Default
-    guard.lock();
-  }
-}
-
-auto CreateSharedGuard(Storage *storage, StorageAccessType rw_type,
-                       const std::optional<std::chrono::milliseconds> timeout) {
-  utils::SharedResourceLockGuard::Type shared_type{};
+[[noreturn]] void ThrowAccessTimeout(StorageAccessType rw_type) {
   switch (rw_type) {
     using enum StorageAccessType;
-    case NO_ACCESS:
-      [[fallthrough]];
     case UNIQUE:
-      LOG_FATAL("Invalid storage accessor type!");
-      break;
-
-    case WRITE:
-      shared_type = utils::SharedResourceLockGuard::Type::WRITE;
-      break;
-    case READ:
-      shared_type = utils::SharedResourceLockGuard::Type::READ;
-      break;
+      throw UniqueAccessTimeout{};
     case READ_ONLY:
-      shared_type = utils::SharedResourceLockGuard::Type::READ_ONLY;
-      break;
+      throw ReadOnlyAccessTimeout{};
+    case WRITE:
+    case READ:
+      throw SharedAccessTimeout{};
+    case NO_ACCESS:
+      // Unreachable: the caller maps rw_type through ToGuardType first, which rejects NO_ACCESS.
+      // Present so the switch stays exhaustive and every path out of this [[noreturn]] diverges.
+      LOG_FATAL("NO_ACCESS names the absence of a hold; there is nothing to time out acquiring");
   }
-  utils::SharedResourceLockGuard lock(storage->main_lock_, shared_type, std::defer_lock);
-  TryLock(lock, timeout);
-  return lock;
 }
 
-auto CreateUniqueGuard(Storage *storage, const std::optional<std::chrono::milliseconds> timeout) {
-  std::unique_lock<utils::ResourceLock> unique_lock(storage->main_lock_, std::defer_lock);
-  TryLock(unique_lock, timeout);
-  return unique_lock;
-}
 }  // namespace
+
+utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType rw_type,
+                                             std::optional<std::chrono::milliseconds> timeout) {
+  utils::ResourceLockGuard guard(storage->main_lock_, ToGuardType(rw_type), std::defer_lock);
+  if (!timeout) {
+    guard.lock();
+  } else if (!guard.try_lock_for(*timeout)) {
+    ThrowAccessTimeout(rw_type);
+  }
+  return guard;
+}
 
 Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
                  metrics::DatabaseMetricHandles metric_handles, memory::ArenaPool *db_arena_pool,
@@ -136,55 +119,28 @@ std::unique_ptr<Accessor> Storage::ReadOnlyAccess(std::optional<IsolationLevel> 
 
 std::unique_ptr<Accessor> Storage::ReadOnlyAccess() { return ReadOnlyAccess({}, std::nullopt); }
 
-Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, StorageAccessType rw_type,
-                            const std::optional<std::chrono::milliseconds> timeout)
+Storage::Accessor::Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level,
+                            utils::ResourceLockGuard guard)
     : storage_(storage),
-      // The lock must be acquired before creating the transaction object to
-      // prevent freshly created transactions from dangling in an active state
-      // during exclusive operations.
-      storage_guard_(CreateSharedGuard(storage, rw_type, timeout)),
-      unique_guard_(storage_->main_lock_, std::defer_lock),
-      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      // The hold is taken before the transaction is created, so a freshly created transaction can
+      // never dangle in an active state during an exclusive operation.
+      guard_(std::move(guard)),
+      // Both reads are under guard_, already constructed above, so the hold pins them.
+      transaction_(storage->CreateTransaction(override_isolation_level.value_or(storage->isolation_level_),
+                                              storage->storage_mode_)),
       is_transaction_active_(true),
-      original_access_type_(rw_type),
-      creation_storage_mode_(storage_mode) {}
-
-Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
-    : storage_(storage),
-      // The lock must be acquired before creating the transaction object to
-      // prevent freshly created transactions from dangling in an active state
-      // during exclusive operations.
-      storage_guard_(storage_->main_lock_, {/* unused */}, std::defer_lock),
-      unique_guard_(CreateUniqueGuard(storage, timeout)),
-      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
-      is_transaction_active_(true),
-      original_access_type_(StorageAccessType::UNIQUE),
-      creation_storage_mode_(storage_mode) {}
-
-Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
-    : storage_(storage),
-      // The lock must be acquired before creating the transaction object to
-      // prevent freshly created transactions from dangling in an active state
-      // during exclusive operations.
-      storage_guard_(CreateSharedGuard(storage, READ_ONLY, timeout)),
-      unique_guard_(storage_->main_lock_, std::defer_lock),
-      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
-      is_transaction_active_(true),
-      original_access_type_(StorageAccessType::READ_ONLY),
-      creation_storage_mode_(storage_mode) {}
+      original_access_type_(ToAccessType(guard_.type())) {
+  DMG_ASSERT(guard_.owns_lock() && guard_.mutex() == std::addressof(storage_->main_lock_),
+             "an accessor's guard must be a held guard on its own storage's main_lock_");
+}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
-      storage_guard_(std::move(other.storage_guard_)),
-      unique_guard_(std::move(other.unique_guard_)),
+      guard_(std::move(other.guard_)),
       transaction_(std::move(other.transaction_)),
       commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
-      original_access_type_(other.original_access_type_),
-      creation_storage_mode_(other.creation_storage_mode_) {
+      original_access_type_(other.original_access_type_) {
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();
@@ -195,7 +151,7 @@ StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
 std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
-  std::unique_lock main_guard{main_lock_};
+  auto const main_guard = std::unique_lock{main_lock_};
   isolation_level_ = isolation_level;
   return {};
 }
@@ -204,7 +160,7 @@ std::vector<EdgeTypeId> Storage::ListAllPossiblyPresentEdgeTypes() const { retur
 
 std::vector<LabelId> Storage::ListAllPossiblyPresentVertexLabels() const { return stored_node_labels_.vectorize(); }
 
-StorageMode Storage::Accessor::GetCreationStorageMode() const noexcept { return creation_storage_mode_; }
+StorageMode Storage::Accessor::GetPinnedStorageMode() const noexcept { return transaction_.storage_mode; }
 
 std::optional<uint64_t> Storage::Accessor::GetStartTimestamp() const {
   if (is_transaction_active_) {
@@ -226,7 +182,7 @@ void Storage::Accessor::AdvanceCommand() {
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
   /// NOTE: Checking whether the vertex can be deleted must be done by loading edges from disk.
   /// Loading edges is done through VertexAccessor so we do it here.
-  if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (transaction_.storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
     auto out_edges_res = vertex->OutEdges(View::OLD);
     auto in_edges_res = vertex->InEdges(View::OLD);
     if (!out_edges_res && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
@@ -268,7 +224,7 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Storage::Accessor::DetachDeleteVertex(
     VertexAccessor *vertex) {
   using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
-  if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (transaction_.storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
     auto out_edges_res = vertex->OutEdges(View::OLD);
     auto in_edges_res = vertex->InEdges(View::OLD);
     if (!out_edges_res && out_edges_res.error() != Error::NONEXISTENT_OBJECT) {
@@ -324,7 +280,7 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
-  if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+  if (transaction_.storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
     for (const auto *vertex : nodes) {
       /// TODO: (andi) Extract into a separate function.
       auto out_edges_res = vertex->OutEdges(View::OLD);
@@ -462,9 +418,19 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
     }
   }
 
+  // deleted() reads the same word as delta(), which CreateAndLinkDelta writes under the object
+  // lock, so it has to be read under that lock too. One endpoint at a time: holding both would
+  // need gid ordering to avoid a cycle (see FindEdges) and a self-loop case, and buys nothing.
+  // The pair is not a snapshot either way, since the authoritative check is PrepareForWrite under
+  // the same lock further down; this only skips work that is already pointless.
+  auto const is_deleted = [](Vertex *vertex) {
+    auto guard = std::shared_lock{vertex->lock};
+    return vertex->deleted();
+  };
+
   // also add edges which we want to delete from the query
   for (const auto &edge_accessor : edges) {
-    if (edge_accessor->from_vertex_->deleted() || edge_accessor->to_vertex_->deleted()) {
+    if (is_deleted(edge_accessor->from_vertex_) || is_deleted(edge_accessor->to_vertex_)) {
       continue;
     }
     partial_src_vertices.insert(edge_accessor->from_vertex_);
