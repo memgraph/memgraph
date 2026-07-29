@@ -186,8 +186,8 @@ rightArrowHead : '>' | RightArrowHeadPart ;
 dash : '-' | DashPart ;
 
 relationshipDetail : '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )?  properties ']'
-                   | '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )? relationshipLambda ( total_weight=variable )? (relationshipLambda )? ']'
-                   | '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )? (properties )* ( relationshipLambda total_weight=variable )? (relationshipLambda )? ']';
+                   | '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )? relationshipLambda ( total_weight=variable )? (relationshipLambda )? ( HEURISTIC heuristic_lambda=relationshipLambda )? ']'
+                   | '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )? (properties )* ( relationshipLambda total_weight=variable )? (relationshipLambda )? ( HEURISTIC heuristic_lambda=relationshipLambda )? ']';
 
 relationshipLambda: '(' traversed_edge=variable ',' traversed_node=variable ( ',' accumulated_path=variable )? ( ',' accumulated_weight=variable )? '|' expression ')';
 
@@ -412,6 +412,7 @@ cypherKeyword : ALL
               | EXTRACT
               | FALSE
               | FILTER
+              | HEURISTIC
               | IN
               | INDEX
               | INFO
