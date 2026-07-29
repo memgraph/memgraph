@@ -41,24 +41,25 @@ fi
 TOOLCHAIN_VERSION=8
 # package versions used
 GCC_VERSION=16.1.0
-BINUTILS_VERSION=2.46.0
-GDB_VERSION=17.1
-CMAKE_VERSION=4.3.2
-CPPCHECK_VERSION=2.20.0
-LLVM_VERSION=22.1.5
+BINUTILS_VERSION=2.47.0
+GDB_VERSION=17.2
+CMAKE_VERSION=4.4.1
+CPPCHECK_VERSION=2.21.0
+LLVM_VERSION=22.1.8
 SWIG_VERSION=4.4.1 # used only for LLVM compilation
-PCRE2_VERSION=10.45 # build-time dep of SWIG 4.4+ (hard requirement)
+PCRE2_VERSION=10.47 # build-time dep of SWIG 4.4+ (hard requirement)
 # Sysroot: pin glibc/kernel-headers so the toolchain produces binaries that run
 # on any Linux with glibc >= GLIBC_VERSION and kernel >= 5.4.
+# Versions of Linux headers and GLIBC are for the sysroot - these define the base compatibility for Memgraph's toolchain.
 LINUX_HEADERS_VERSION=5.4.302
 GLIBC_VERSION=2.31
 # Sysroot support libraries: needed by GDB / cmake / mgconsole. Installed into
 # $SYSROOT/usr so the toolchain GCC finds them via --with-sysroot.
 ZLIB_VERSION=1.3.2
 NCURSES_VERSION=6.6
-OPENSSL_VERSION=3.6.2
-CURL_VERSION=8.20.0
-LIBFFI_VERSION=3.5.2
+OPENSSL_VERSION=3.6.3
+CURL_VERSION=8.21.0
+LIBFFI_VERSION=3.7.1
 # Python lives in the sysroot solely so GDB can be built with scripting
 # support and ship libpython3.so alongside the toolchain. memgraph's CMake
 # ignores this Python via CMAKE_IGNORE_PATH in toolchain.cmake; consumers
@@ -150,11 +151,13 @@ if [ ! -f gdb-$GDB_VERSION.tar.gz ]; then
 fi
 if [ ! -f cmake-$CMAKE_VERSION.tar.gz ]; then
     wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION.tar.gz
-    CMAKE_SHA256="b0231eb39b3c3cabdc568c619df78208a7bd95ea10c9b2236d61218bac1b367d"
+    CMAKE_SHA256="95d4721f3625fb0d9d6ca480dd59a46c84b4c157f7fadd2e9b179ef9c871174d"
     echo "$CMAKE_SHA256  cmake-$CMAKE_VERSION.tar.gz" | sha256sum -c -
 fi
 if [ ! -f cppcheck-$CPPCHECK_VERSION.tar.gz ]; then
-    wget https://github.com/danmar/cppcheck/archive/refs/tags/$CPPCHECK_VERSION.tar.gz -O cppcheck-$CPPCHECK_VERSION.tar.gz
+    wget https://github.com/cppcheck-opensource/cppcheck/archive/refs/tags/$CPPCHECK_VERSION.tar.gz -O cppcheck-$CPPCHECK_VERSION.tar.gz
+    CPPCHECK_SHA256="ba750bd872ad7c01f951ff2d9dc8c68ea5852654545ec7a62a4c318d690c8e22"
+    echo "$CPPCHECK_SHA256  cppcheck-$CPPCHECK_VERSION.tar.gz" | sha256sum -c -
 fi
 if [ ! -d llvmorg-$LLVM_VERSION ]; then
     git clone --depth 1 --branch llvmorg-$LLVM_VERSION https://github.com/llvm/llvm-project.git llvmorg-$LLVM_VERSION
@@ -167,7 +170,7 @@ if [ ! -f swig-$SWIG_VERSION.tar.gz ]; then
 fi
 if [ ! -f pcre2-$PCRE2_VERSION.tar.gz ]; then
     wget https://github.com/PCRE2Project/pcre2/releases/download/pcre2-$PCRE2_VERSION/pcre2-$PCRE2_VERSION.tar.gz
-    PCRE2_SHA256="0e138387df7835d7403b8351e2226c1377da804e0737db0e071b48f07c9d12ee"
+    PCRE2_SHA256="c08ae2388ef333e8403e670ad70c0a11f1eed021fd88308d7e02f596fcd9dc16"
     echo "$PCRE2_SHA256  pcre2-$PCRE2_VERSION.tar.gz" | sha256sum -c -
 fi
 if [ ! -f linux-$LINUX_HEADERS_VERSION.tar.xz ]; then
@@ -192,17 +195,17 @@ if [ ! -f ncurses-$NCURSES_VERSION.tar.gz ]; then
 fi
 if [ ! -f curl-$CURL_VERSION.tar.gz ]; then
     wget https://curl.se/download/curl-$CURL_VERSION.tar.gz
-    CURL_SHA256="fc5819cad3f9f5482669adcdc49a782c15f36d2a0715b395b06d9173593d2dc0"
+    CURL_SHA256="d9b327997999045a24cda50f3983e69e51c516bd8be6ef9842fc7f99135e33bb"
     echo "$CURL_SHA256  curl-$CURL_VERSION.tar.gz" | sha256sum -c -
 fi
 if [ ! -f openssl-$OPENSSL_VERSION.tar.gz ]; then
     wget https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz
-    OPENSSL_SHA256="aaf51a1fe064384f811daeaeb4ec4dce7340ec8bd893027eee676af31e83a04f"
+    OPENSSL_SHA256="243a86649cf6f23eeb6a2ff2456e09e5d77dd9018a54d3d96b0c6bdd6ba6c7f1"
     echo "$OPENSSL_SHA256  openssl-$OPENSSL_VERSION.tar.gz" | sha256sum -c -
 fi
 if [ ! -f libffi-$LIBFFI_VERSION.tar.gz ]; then
     wget https://github.com/libffi/libffi/releases/download/v$LIBFFI_VERSION/libffi-$LIBFFI_VERSION.tar.gz
-    LIBFFI_SHA256="f3a3082a23b37c293a4fcd1053147b371f2ff91fa7ea1b2a52e335676bac82dc"
+    LIBFFI_SHA256="d5e9a6638ddbd2513ddb54518eb67e4bbe6fa707bcc01c10f6212f0a088d819d"
     echo "$LIBFFI_SHA256  libffi-$LIBFFI_VERSION.tar.gz" | sha256sum -c -
 fi
 if [ ! -f Python-$PYTHON_VERSION.tgz ]; then
@@ -1377,7 +1380,7 @@ COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
 # section above binutils), so mgconsole picks them up via the toolchain GCC's
 # --with-sysroot automatically — no distro-specific build needed here.
 
-MGCONSOLE_TAG="v1.5.2"
+MGCONSOLE_TAG="v1.7.0"
 log_tool_name "mgconsole $MGCONSOLE_TAG"
 if [[ ! -f "$PREFIX/bin/mgconsole" ]]; then
     if [[ -d mgconsole ]]; then
