@@ -454,18 +454,15 @@ class Storage {
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
 
-  // Written under a UNIQUE hold on main_lock_ by SetIsolationLevel and SetStorageMode.
+  // Written under a UNIQUE hold on main_lock_. UNIQUE excludes all three shared modes, so any hold
+  // pins both values for its life, and releasing one un-pins them: a reader that reacquires must
+  // re-read. Within a transaction read what the accessor pinned instead, creation_storage_mode_ or
+  // transaction_.isolation_level.
   //
-  // An accessor reads them in its constructor, after taking its hold, so the mode it builds its
-  // transaction with is the mode in force for the whole life of that hold. Reading before
-  // acquiring would let the value change while the reader waits, leaving an analytical transaction
-  // running against transactional storage: it writes no deltas and no WAL, so its work is neither
-  // durable, replicated, nor abortable.
-  //
-  // Atomic because plenty of readers take no hold at all, and are not going to: the noexcept
-  // getters below, GetInfo(), and replication's mode checks. Those reads are stale the moment they
-  // return whatever we do here; atomic only keeps them from being a data race. Anything that acts
-  // on the value, rather than reporting it, should read it under a hold instead.
+  // Atomic for the readers that hold nothing. Some only report (the getters below, GetInfo, SHOW
+  // REPLICAS) and are stale on return regardless. The rest cannot take a hold first because the
+  // hold is what the value decides, or because taking it would deadlock. For those the rule is: an
+  // unlocked read may choose, but only a read under a hold may commit to the choice.
   std::atomic<IsolationLevel> isolation_level_;
   std::atomic<StorageMode> storage_mode_;
   memory::ArenaPool *db_arena_pool_{nullptr};

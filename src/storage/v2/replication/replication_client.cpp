@@ -668,6 +668,9 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                                               bool const reset_needed) const {
   auto const &main_db_name = main_storage->name();
 
+  // A guardrail, not a decision point: read without a hold, so the mode could flip right after.
+  // Data instances are barred from analytical at query time, and taking main_lock_ on this
+  // background task would risk deadlocking against the commits it is recovering.
   if (main_storage->storage_mode_ != StorageMode::IN_MEMORY_TRANSACTIONAL) {
     throw utils::BasicException("Only InMemoryTransactional mode supports replication!");
   }
