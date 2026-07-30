@@ -37,6 +37,10 @@ RUN apt-get update && \
         libedit-dev libpcre2-dev libpcre3-dev automake bison \
         libtool pkg-config \
         libsasl2-dev \
+        libdw-dev \
+        libboost-filesystem-dev libboost-program-options-dev \
+        libboost-iostreams-dev libboost-system-dev \
+        libbz2-dev libzstd-dev \
         python3 python3-pip \
         gawk \
         rsync && \

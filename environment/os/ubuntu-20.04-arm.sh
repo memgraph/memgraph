@@ -39,6 +39,8 @@ TOOLCHAIN_BUILD_DEPS=(
     libssl-dev pkg-config # for pulsar
     libsasl2-dev # for librdkafka
     python3-pip # for conan
+    libdw-dev libbz2-dev libzstd-dev # for heaptrack
+    libboost-filesystem-dev libboost-program-options-dev libboost-iostreams-dev libboost-system-dev # for heaptrack
 )
 
 TOOLCHAIN_RUN_DEPS=(
