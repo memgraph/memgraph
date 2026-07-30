@@ -196,6 +196,10 @@ auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<Lead
 }
 
 auto CoordinatorInstance::YieldLeadership() const -> YieldLeadershipStatus {
+  if (auto const res = ForwardToLeader<YieldLeadershipRpc, YieldLeadershipStatus>(); res.has_value()) {
+    return *res;
+  }
+
   if (!raft_state_->IsLeader()) {
     return YieldLeadershipStatus::NOT_LEADER;
   }
@@ -239,11 +243,8 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
     return coordinator_id == curr_leader ? "leader" : "follower";
   };
 
+  // Only the ready leader reports instances, so peer info from Raft is meaningful here.
   auto const stringify_coord_health = [this](auto const coordinator_id) -> std::string {
-    if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
-      return "unknown";
-    }
-
     return raft_state_->CoordLastSuccRespMs(coordinator_id) <
                    std::chrono::seconds{raft_state_->GetInstanceDownTimeoutSec()}
                ? kUp.data()
@@ -271,37 +272,11 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
   return results;
 }
 
-auto CoordinatorInstance::ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus> {
-  spdlog::trace("Processing show instances request as follower.");
-  auto instances_status = GetCoordinatorsInstanceStatus();
-  auto const stringify_inst_status = [raft_state_ptr = raft_state_.get()](auto &&instance) -> std::string {
-    if (raft_state_ptr->IsCurrentMain(instance.config.instance_name)) {
-      return "main";
-    }
-    if (raft_state_ptr->HasMainState(instance.config.instance_name)) {
-      return "unknown";
-    }
-    return "replica";
-  };
-
-  auto process_repl_instance_as_follower = [&stringify_inst_status](auto const &instance) -> InstanceStatus {
-    return {.instance_name = instance.config.instance_name,
-            .management_server = instance.config.ManagementSocketAddress(),  // show non-resolved IP
-            .bolt_server = instance.config.BoltSocketAddress(),              // show non-resolved IP
-            .cluster_role = stringify_inst_status(instance),
-            .health = "unknown"};
-  };
-
-  std::ranges::transform(
-      raft_state_->GetDataInstancesContext(), std::back_inserter(instances_status), process_repl_instance_as_follower);
-  spdlog::trace("Returning set of instances as follower.");
-  return instances_status;
-}
-
 auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>> {
   auto const stringify_repl_role = [this](auto const &connector) -> std::string {
-    if (!connector.IsAlive()) return "unknown";
     if (raft_state_->IsCurrentMain(connector.InstanceName())) return "main";
+    // A down instance keeps the role recorded in the Raft log.
+    if (!connector.IsAlive() && raft_state_->HasMainState(connector.InstanceName())) return "main";
     return "replica";
   };
 
@@ -357,41 +332,41 @@ auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
                         .cluster_role = role};
 }
 
-auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
+auto CoordinatorInstance::ShowInstances() const -> std::optional<std::vector<InstanceStatus>> {
   metrics::Metrics().global.show_instances->Increment();
-  if (auto const leader_results = ShowInstancesAsLeader(); leader_results.has_value()) {
-    return *leader_results;
+  if (auto leader_results = ShowInstancesAsLeader(); leader_results.has_value()) {
+    return leader_results;
   }
 
   auto const leader_id = raft_state_->GetLeaderId();
   if (leader_id == raft_state_->GetMyCoordinatorId()) {
-    spdlog::trace("Coordinator itself not yet leader, returning report as follower.");
-    return ShowInstancesStatusAsFollower();  // We don't want to ask ourselves for instances, as coordinator is
-    // not ready still as leader
+    // We don't want to ask ourselves for instances, as the coordinator isn't ready as leader still.
+    spdlog::trace("Coordinator itself not yet leader, no instances to report.");
+    return std::nullopt;
   }
 
   if (leader_id == -1) {
-    spdlog::trace("No leader found, returning report as follower");
-    return ShowInstancesStatusAsFollower();
+    spdlog::trace("No leader found, no instances to report.");
+    return std::nullopt;
   }
 
   auto const leader = FindClientConnector(leader_id);
 
   if (leader == nullptr) {
-    spdlog::trace("Connection to leader not found, returning SHOW INSTANCES output as follower.");
-    return ShowInstancesStatusAsFollower();
+    spdlog::trace("Connection to leader not found, no instances to report.");
+    return std::nullopt;
   }
 
   spdlog::trace("Sending show instances RPC to leader with id {}", leader_id);
   auto maybe_res = leader->SendRpc<ShowInstancesRpc>();
 
   if (!maybe_res) {
-    spdlog::trace("Couldn't get instances from leader {}. Returning result as a follower.", leader_id);
-    return ShowInstancesStatusAsFollower();
+    spdlog::trace("Couldn't get instances from leader {}. No instances to report.", leader_id);
+    return std::nullopt;
   }
 
   spdlog::trace("Got instances from leader {}.", leader_id);
-  return std::move(maybe_res.value());
+  return maybe_res;
 }
 
 auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus {
@@ -1800,7 +1775,16 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
   return ChooseMostUpToDateInstance(instances_info);
 }
 
-auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>> {
+auto CoordinatorInstance::ShowCoordinatorSettings() const
+    -> std::optional<std::vector<std::pair<std::string, std::string>>> {
+  if (auto res = ForwardReadToLeader<ShowCoordSettingsRpc>(); res.has_value()) {
+    return std::move(*res);
+  }
+
+  return ShowCoordinatorSettingsAsLeader();
+}
+
+auto CoordinatorInstance::ShowCoordinatorSettingsAsLeader() const -> std::vector<std::pair<std::string, std::string>> {
   std::vector<std::pair<std::string, std::string>> settings{
       std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"},
       std::pair{std::string(kSyncFailoverOnly), raft_state_->GetSyncFailoverOnly() ? "true" : "false"},
@@ -1812,14 +1796,6 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
                 std::to_string(raft_state_->GetInstanceHealthCheckFrequencySec().count())},
       std::pair{std::string{kGlobalReadOnly}, raft_state_->GetGlobalReadOnly() ? "true" : "false"}};
   return settings;
-}
-
-auto CoordinatorInstance::ShowReplicationLagAsFollower(int32_t const leader_id) const
-    -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
-  if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
-    return leader->SendRpc<CoordReplicationLagRpc>();
-  }
-  return {};
 }
 
 auto CoordinatorInstance::ShowReplicationLagAsLeader() const
@@ -1852,13 +1828,18 @@ auto CoordinatorInstance::ShowReplicationLagAsLeader() const
   return {};
 }
 
-auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
-  auto const leader_id = raft_state_->GetLeaderId();
-  if (leader_id == raft_state_->GetMyCoordinatorId() &&
-      status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
-    return ShowReplicationLagAsLeader();
+auto CoordinatorInstance::ShowReplicationLag() const
+    -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>> {
+  if (auto res = ForwardReadToLeader<CoordReplicationLagRpc>(); res.has_value()) {
+    // The response carries a plain map, so a failed RPC is indistinguishable from an empty result. Both mean we have
+    // nothing to report.
+    if (res->empty()) {
+      return std::nullopt;
+    }
+    return std::move(*res);
   }
-  return ShowReplicationLagAsFollower(leader_id);
+
+  return ShowReplicationLagAsLeader();
 }
 
 auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {

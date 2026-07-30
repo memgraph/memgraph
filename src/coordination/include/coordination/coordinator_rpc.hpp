@@ -531,6 +531,16 @@ using ForceResetReq = EmptyReq<utils::TypeId::COORD_FORCE_RESET_REQ, "ForceReset
 using ForceResetRes = SingleArgMsg<utils::TypeId::COORD_FORCE_RESET_RES, "ForceResetRes", 1, bool>;
 using ForceResetRpc = rpc::RequestResponse<ForceResetReq, ForceResetRes>;
 
+using YieldLeadershipReq = EmptyReq<utils::TypeId::COORD_YIELD_LEADERSHIP_REQ, "YieldLeadershipReq", 1>;
+using YieldLeadershipRes = SingleArgMsg<utils::TypeId::COORD_YIELD_LEADERSHIP_RES, "YieldLeadershipRes", 1, bool>;
+using YieldLeadershipRpc = rpc::RequestResponse<YieldLeadershipReq, YieldLeadershipRes>;
+
+using ShowCoordSettingsReq = EmptyReq<utils::TypeId::COORD_SHOW_COORD_SETTINGS_REQ, "ShowCoordSettingsReq", 1>;
+// nullopt when the leader couldn't serve the request.
+using ShowCoordSettingsRes = SingleArgMsg<utils::TypeId::COORD_SHOW_COORD_SETTINGS_RES, "ShowCoordSettingsRes", 1,
+                                          std::optional<std::vector<std::pair<std::string, std::string>>>>;
+using ShowCoordSettingsRpc = rpc::RequestResponse<ShowCoordSettingsReq, ShowCoordSettingsRes>;
+
 using UpdateConfigReq =
     SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_REQ, "UpdateConfigReq", 1, UpdateInstanceConfig>;
 using UpdateConfigRes = SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_RES, "UpdateConfigRes", 1, bool>;
@@ -733,6 +743,8 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::UnregisterInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::SetInstanceToMainRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::DemoteInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::ForceResetRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::YieldLeadershipRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::ShowCoordSettingsRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::UpdateConfigRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::CoordReplicationLagRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::CreateRoleRpc)

@@ -77,7 +77,8 @@ class CoordinatorInstance {
 
   auto ShowInstance() const -> InstanceStatus;
 
-  auto ShowInstances() const -> std::vector<InstanceStatus>;
+  // nullopt if the leader couldn't be reached.
+  auto ShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
 
   auto ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>>;
 
@@ -138,16 +139,16 @@ class CoordinatorInstance {
 
   void UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
 
-  auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
-  auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
+  // Both return nullopt if the leader couldn't be reached.
+  auto ShowCoordinatorSettings() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
+  auto ShowReplicationLag() const -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
+
+  auto ShowCoordinatorSettingsAsLeader() const -> std::vector<std::pair<std::string, std::string>>;
+  auto ShowReplicationLagAsLeader() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
 
   auto GetTelemetryJson() const -> nlohmann::json;
 
  private:
-  auto ShowReplicationLagAsFollower(int32 leader_id) const
-      -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
-  auto ShowReplicationLagAsLeader() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
-
   auto AddNewCoordinator(CoordinatorInstanceConfig const &config,
                          std::vector<CoordinatorInstanceContext> const &coordinator_instances_context) const
       -> AddCoordinatorInstanceStatus;
@@ -156,7 +157,6 @@ class CoordinatorInstance {
       -> AddCoordinatorInstanceStatus;
 
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
-  auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
   // When a coordinator is becoming a leader, we could be in several situations:
   // 1. Whole cluster was ok, lock was closed, we will find current main. Only last leader probably died.
@@ -211,6 +211,26 @@ class CoordinatorInstance {
       return StatusEnum::LEADER_FAILED;
     }
     return StatusEnum::LEADER_NOT_FOUND;
+  }
+
+  // Same as ForwardToLeader but for queries reading the cluster state, where the leader's answer is the payload rather
+  // than a status. nullopt if I am the leader, otherwise the leader's response. An unreachable leader yields a
+  // default-constructed response, which every caller reports as "nothing to show".
+  template <rpc::IsRpc Rpc, typename... Args>
+  auto ForwardReadToLeader(Args &&...args) const
+      -> std::optional<decltype(std::declval<typename Rpc::Response>().arg_)> {
+    using Payload = decltype(std::declval<typename Rpc::Response>().arg_);
+    auto const leader_id = raft_state_->GetLeaderId();
+    if (leader_id == raft_state_->GetMyCoordinatorId() &&
+        status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
+      return std::nullopt;
+    }
+    auto const leader = FindClientConnector(leader_id);
+    if (leader == nullptr) {
+      spdlog::trace("Connection to leader {} not found, {} not forwarded.", leader_id, Rpc::Request::kType.name);
+      return std::optional<Payload>{Payload{}};
+    }
+    return leader->SendRpc<Rpc>(std::forward<Args>(args)...);
   }
 
   std::optional<utils::TlsConfig> tls_config_;

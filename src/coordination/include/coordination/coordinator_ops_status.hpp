@@ -17,7 +17,7 @@
 
 namespace memgraph::coordination {
 
-enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
+enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER, LEADER_NOT_FOUND, LEADER_FAILED };
 // Forwarded to the leader (see CoordinatorInstance), like the role/privilege ops. SUCCESS/LEADER_FAILED/
 // LEADER_NOT_FOUND make the enum satisfy the ForwardableStatus concept; a follower maps a forwarding failure to
 // LEADER_FAILED (or LEADER_NOT_FOUND during an election) rather than crashing.

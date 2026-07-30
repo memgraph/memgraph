@@ -51,6 +51,8 @@ class Client {
  public:
   inline static std::unordered_map<std::string_view, int> const default_rpc_timeouts_ms{
       {"ShowInstancesReq"sv, 10'000},          // coordinator sending to coordinator
+      {"YieldLeadershipReq"sv, 10'000},        // coordinator sending to coordinator
+      {"ShowCoordSettingsReq"sv, 10'000},      // coordinator sending to coordinator
       {"DemoteMainToReplicaReq"sv, 10'000},    // coordinator sending to main
       {"PromoteToMainReq"sv, 10'000},          // coordinator sending to replica
       {"RegisterReplicaOnMainReq"sv, 10'000},  // coordinator sending to main

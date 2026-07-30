@@ -124,7 +124,7 @@ auto CoordinatorState::ShowInstance() const -> InstanceStatus {
   return std::get<CoordinatorInstance>(data_).ShowInstance();
 }
 
-auto CoordinatorState::ShowInstances() const -> std::vector<InstanceStatus> {
+auto CoordinatorState::ShowInstances() const -> std::optional<std::vector<InstanceStatus>> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Can't call show instances on data_, as variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).ShowInstances();
@@ -203,13 +203,15 @@ auto CoordinatorState::GetRolePrivileges(std::string_view const role_name) const
   return std::get<CoordinatorInstance>(data_).GetRolePrivileges(role_name);
 }
 
-auto CoordinatorState::ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>> {
+auto CoordinatorState::ShowCoordinatorSettings() const
+    -> std::optional<std::vector<std::pair<std::string, std::string>>> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator settings cannot be retrieved since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).ShowCoordinatorSettings();
 }
 
-auto CoordinatorState::ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
+auto CoordinatorState::ShowReplicationLag() const
+    -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>> {
   return std::get<CoordinatorInstance>(data_).ShowReplicationLag();
 }
 
