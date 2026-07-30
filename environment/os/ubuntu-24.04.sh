@@ -81,6 +81,7 @@ MEMGRAPH_BUILD_DEPS=(
     # Pulsar dependencies
     # libnghttp2-dev libpsl-dev librtmp-dev libldap2-dev libidn2-dev libbrotli-dev libidn2-dev libssh-dev
     fakeroot debhelper # for building deb packages
+    gperf
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
