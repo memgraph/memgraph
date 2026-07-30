@@ -2022,6 +2022,13 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
 void InMemoryStorage::InMemoryAccessor::DowngradeToReadIfValid() {
   if (guard_.owns_lock() && guard_.type() == utils::ResourceLockGuard::READ_ONLY) {
     guard_.downgrade_to_read();
+    // F5's rule applies to a downgrade, not just a release: dropping ro_count to 0 is exactly what
+    // admits a pending WRITE. downgrade_to_read() notifies main_lock_'s own cv, so a BLOCKING writer
+    // wakes -- but a PARKED one waits on main_lock_resume_event_, which nothing else pokes here. That
+    // left a WRITE parked behind CREATE INDEX asleep until the deadline sweep (~storage-access-timeout)
+    // instead of proceeding the moment index population downgraded, defeating the park in the very
+    // case it exists for. Notify AFTER the downgrade (C3): the hold is already demoted above.
+    storage_->NotifyMainLockReleased();
   }
 }
 
