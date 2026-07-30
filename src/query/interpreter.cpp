@@ -679,6 +679,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(GetLeaderFailedForwardedQueryMessage());
       case coordination::CreateRoleStatus::RAFT_LOG_ERROR:
         throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+      case coordination::CreateRoleStatus::INVALID_ROLE_NAME:
+        throw QueryRuntimeException("Invalid role name '{}'. It must match the --auth-user-or-role-name-regex pattern.",
+                                    role_name);
     }
   }
 

@@ -37,7 +37,10 @@ enum class CreateRoleStatus : uint8_t {
   NOT_LEADER,
   RAFT_LOG_ERROR,
   LEADER_NOT_FOUND,
-  LEADER_FAILED
+  LEADER_FAILED,
+  // Name doesn't match --auth-user-or-role-name-regex. New values go last: the status crosses the wire when a follower
+  // forwards the write, so an older peer must keep decoding the values it already knows.
+  INVALID_ROLE_NAME
 };
 enum class DropRoleStatus : uint8_t {
   SUCCESS = 0,

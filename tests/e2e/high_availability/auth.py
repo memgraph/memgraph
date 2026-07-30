@@ -1354,7 +1354,7 @@ def test_sso_privilege_enforcement(test_name):
     leader_port = sso_wait_for_ready_leader_port()
 
     # READ-only session: read/introspection queries succeed.
-    assert len(sso_run(leader_port, "oidc", "reader", "SHOW INSTANCES")) >= 0
+    sso_run(leader_port, "oidc", "reader", "SHOW INSTANCES")
     assert sorted(name for (name,) in sso_run(leader_port, "oidc", "reader", "SHOW ROLES")) == [
         "architect",
         "bare",

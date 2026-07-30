@@ -19,6 +19,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <regex>
 #include <shared_mutex>
 #include <stdexcept>
 #include <string>
@@ -39,6 +40,7 @@
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
+#include "flags/auth.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
 #include "utils/exponential_backoff.hpp"
@@ -75,6 +77,16 @@ namespace memgraph::coordination {
 namespace {
 constexpr std::string_view kUp{"up"};
 constexpr std::string_view kDown{"down"};
+
+// The same name-shape rule Auth::AddRole applies on data instances, so --auth-user-or-role-name-regex governs
+// coordinator roles too. Without it a backticked identifier can carry arbitrary bytes and arbitrary length into the
+// Raft log, which every role operation rewrites in full and every snapshot then copies.
+auto RoleNameIsWellFormed(std::string_view const role_name) -> bool {
+  // The flag is read once at startup and never changes; an unparseable pattern already fails startup where the auth
+  // config is built.
+  static std::regex const name_regex{FLAGS_auth_user_or_role_name_regex};
+  return std::regex_match(std::string{role_name}, name_regex);
+}
 }  // namespace
 
 using nuraft::ptr;
@@ -834,8 +846,6 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
     -> UnregisterInstanceCoordinatorStatus {
   metrics::Metrics().global.unregister_repl_instance->Increment();
-  auto lock = std::lock_guard{coord_instance_lock_};
-
   if (auto const res =
           ForwardToLeader<UnregisterInstanceRpc, UnregisterInstanceCoordinatorStatus>(std::string{instance_name});
       res.has_value()) {
@@ -845,6 +855,8 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
   }
+
+  auto lock = std::lock_guard{coord_instance_lock_};
 
   auto maybe_instance = FindReplicationInstance(instance_name, repl_instances_);
   if (!maybe_instance) {
@@ -1164,6 +1176,12 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
 }
 
 auto CoordinatorInstance::CreateRole(std::string_view const role_name) const -> CreateRoleStatus {
+  // Validated before forwarding, so a malformed name is rejected on whichever coordinator received the query without
+  // an RPC round trip, and again on the leader when the request does arrive over RPC.
+  if (!RoleNameIsWellFormed(role_name)) {
+    return CreateRoleStatus::INVALID_ROLE_NAME;
+  }
+
   // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
   if (auto const res = ForwardStatusToLeader<CreateRoleRpc, CreateRoleStatus>(std::string{role_name});
       res.has_value()) {
