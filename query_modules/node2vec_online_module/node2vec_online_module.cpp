@@ -10,6 +10,7 @@
 #include <mgp.hpp>
 
 #include <algorithm>
+#include <ctime>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -33,18 +34,12 @@ constexpr const char *kResultValue = "value";
 struct OnlineContext {
   std::unique_ptr<node2vec_alg::StreamWalkUpdater> updater;
   std::unique_ptr<node2vec_alg::Word2Vec> learner;
-  // Logical clock: a monotonically increasing counter used as the arrival time
-  // of each processed edge, in place of wall-clock time. This keeps the learned
-  // embeddings deterministic and reproducible, independent of how fast edges
-  // are ingested (wall-clock time made results vary from run to run).
-  int64_t clock = 0;
 
   bool IsInitialized() const { return updater != nullptr && learner != nullptr; }
 
   void Reset() {
     updater.reset();
     learner.reset();
-    clock = 0;
   }
 };
 
@@ -91,6 +86,9 @@ void SetStreamwalkUpdater(mgp_list *args, mgp_graph * /*graph*/, mgp_result *res
     int64_t cutoff = arguments[3].ValueInt();
     int64_t sampled_walks = arguments[4].ValueInt();
     bool full_walks = arguments[5].ValueBool();
+    if (half_life <= 0) {
+      throw std::runtime_error("half_life must be positive.");
+    }
 
     g_ctx.updater = std::make_unique<node2vec_alg::StreamWalkUpdater>(
         half_life, static_cast<int>(max_length), beta, cutoff, static_cast<int>(sampled_walks), full_walks);
@@ -138,7 +136,9 @@ void SetWord2vecLearner(mgp_list *args, mgp_graph * /*graph*/, mgp_result *resul
       wp.negative = 0;
       wp.hs = true;  // hierarchical softmax
     } else {
-      wp.negative = static_cast<int>(negative_rate);
+      // A positive but sub-1 negative_rate truncates to 0, which would disable
+      // both negative sampling and HS — a silent no-op learner. Clamp to >= 1.
+      wp.negative = std::max(1, static_cast<int>(negative_rate));
       wp.hs = false;
     }
 
@@ -178,11 +178,19 @@ void Get(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result, mgp
     }
 
     auto embeddings = g_ctx.learner->GetEmbeddings();
-    for (const auto &kv : embeddings) {
-      mgp::List emb(kv.second.size());
-      for (const float x : kv.second) emb.AppendExtend(mgp::Value(static_cast<double>(x)));
+    // Emit rows in ascending node-id order; the embeddings map is unordered, so
+    // otherwise the row order is arbitrary and shifts as the vocabulary rehashes
+    // (mirrors the batch module's SortedNodeIds).
+    std::vector<int64_t> ids;
+    ids.reserve(embeddings.size());
+    for (const auto &kv : embeddings) ids.push_back(kv.first);
+    std::ranges::sort(ids);
+    for (const int64_t id : ids) {
+      const auto &vec = embeddings.at(id);
+      mgp::List emb(vec.size());
+      for (const float x : vec) emb.AppendExtend(mgp::Value(static_cast<double>(x)));
       auto record = factory.NewRecord();
-      record.Insert(kResultNode, graph.GetNodeById(mgp::Id::FromInt(kv.first)));
+      record.Insert(kResultNode, graph.GetNodeById(mgp::Id::FromInt(id)));
       record.Insert(kResultEmbedding, emb);
     }
   } catch (const std::exception &e) {
@@ -205,30 +213,14 @@ void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
           "*;`");
     }
 
-    // Process edges in a deterministic order. The order in which Memgraph hands
-    // us `createdEdges` is not guaranteed to be stable across runs, and edge
-    // order affects the sampled temporal walks, so we sort by relationship id
-    // (creation order) to make the resulting embeddings reproducible.
+    const auto current_time = static_cast<int64_t>(std::time(nullptr));
     auto edges = arguments[0].ValueList();
-
-    struct EdgeRec {
-      int64_t id;
-      int64_t source;
-      int64_t target;
-    };
-
-    std::vector<EdgeRec> recs;
-    recs.reserve(edges.Size());
     for (size_t i = 0; i < edges.Size(); ++i) {
+      graph.CheckMustAbort();  // stay responsive to query termination / timeout
       auto rel = edges[i].ValueRelationship();
-      recs.push_back({rel.Id().AsInt(), rel.From().Id().AsInt(), rel.To().Id().AsInt()});
-    }
-    std::ranges::sort(recs, [](const EdgeRec &a, const EdgeRec &b) { return a.id < b.id; });
-
-    for (const auto &e : recs) {
-      graph.CheckMustAbort();                      // stay responsive to query termination / timeout
-      const int64_t arrival_time = g_ctx.clock++;  // logical, monotonically increasing arrival time
-      auto pairs = g_ctx.updater->ProcessNewEdge(e.source, e.target, arrival_time);
+      const int64_t source = rel.From().Id().AsInt();
+      const int64_t target = rel.To().Id().AsInt();
+      auto pairs = g_ctx.updater->ProcessNewEdge(source, target, current_time);
       g_ctx.learner->PartialFit(pairs);
     }
   } catch (const std::exception &e) {
@@ -349,7 +341,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
       AddOpt(proc, "learning_rate", mgp::type_number(), mgp::value_make_double(0.01, memory));
       AddOpt(proc, "skip_gram", mgp::type_bool(), mgp::value_make_bool(1, memory));
       AddOpt(proc, "negative_rate", mgp::type_number(), mgp::value_make_double(10.0, memory));
-      AddOpt(proc, "threads", mgp::type_int(), mgp::value_make_int(0, memory));
+      AddOpt(proc, "threads", mgp::type_int(), mgp::value_make_int(1, memory));
       mgp::proc_add_result(proc, kResultMessage, mgp::type_string());
     }
     {

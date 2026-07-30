@@ -99,6 +99,13 @@ class Word2Vec {
   // descending frequency (ties broken by ascending token id).
   const std::vector<Token> &Vocabulary() const { return index2token_; }
 
+  // Diagnostic (used by tests): L1 norm of the hierarchical-softmax inner-node weight matrix.
+  double HsInnerWeightL1() const {
+    double s = 0.0;
+    for (float v : syn1_) s += std::fabs(v);
+    return s;
+  }
+
  private:
   static constexpr int kExpTableSize = 1000;
   static constexpr double kMaxExp = 6.0;
@@ -259,7 +266,7 @@ class Word2Vec {
     int n = vocab_size_;  // number of leaves (vocabulary words)
     // A binary tree over n leaves has n-1 inner nodes; syn1_ holds one weight
     // vector per inner node.
-    syn1_.assign(static_cast<size_t>(n > 0 ? n - 1 : 0) * dim_, 0.0f);
+    syn1_.resize(static_cast<size_t>(n > 0 ? n - 1 : 0) * dim_, 0.0f);
     hs_codes_.assign(n, {});
     hs_points_.assign(n, {});
     if (n <= 1) return;

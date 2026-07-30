@@ -226,6 +226,26 @@ TEST(Word2VecTest, IncrementalHierarchicalSoftmaxStaysValid) {
   }
 }
 
+TEST(Word2VecTest, IncrementalHierarchicalSoftmaxAccumulates) {
+  // Regression guard: BuildHuffman must NOT zero syn1_ on every PartialFit, or
+  // hierarchical-softmax learning is wiped each update() and never accumulates.
+  auto corpus = StructuredCorpus(1000, 8, /*seed=*/7);
+  auto p = BaseParams(/*sg=*/true);
+  p.negative = 0;
+  p.hs = true;
+  Word2Vec model(p);
+
+  model.PartialFit(corpus);
+  const double trained = model.HsInnerWeightL1();
+  EXPECT_GT(trained, 0.0);  // HS inner-node weights were learned
+
+  // An empty update rebuilds the Huffman tree but trains nothing; the learned
+  // inner weights must survive it (the bug reset them to zero here).
+  model.PartialFit({});
+  EXPECT_GT(model.HsInnerWeightL1(), 0.0);
+  EXPECT_DOUBLE_EQ(model.HsInnerWeightL1(), trained);
+}
+
 TEST(Word2VecTest, VocabularyIsFrequencySorted) {
   // Token i occurs (i + 1) times, so descending-frequency order is 4,3,2,1,0.
   const std::vector<std::vector<int64_t>> corpus = {{0}, {1, 1}, {2, 2, 2}, {3, 3, 3, 3}, {4, 4, 4, 4, 4}};
