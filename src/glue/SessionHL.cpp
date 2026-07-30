@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <functional>
 #include <optional>
 #include <ranges>
 #include <utility>
@@ -359,11 +360,11 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
 }
 
 #ifdef MG_ENTERPRISE
-std::expected<void, communication::bolt::AuthFailure> SessionHL::CoordinatorSSOAuthenticate(
+std::expected<void, std::string_view> SessionHL::CoordinatorSSOAuthenticate(
     const std::string &scheme, const std::string &identity_provider_response) {
   auto *coordinator_state = interpreter_context_->coordinator_state_;
   if (coordinator_state == nullptr) {
-    return std::unexpected{communication::bolt::AuthFailure::kGeneric};
+    return std::unexpected{"SSO authentication failed: this instance is not a coordinator."};
   }
 
   // Snapshot the leader's committed role set once (read locally if this coordinator is the ready leader, otherwise
@@ -373,7 +374,9 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::CoordinatorSSOA
   auto const maybe_roles = coordinator_state->GetRoles();
   if (!maybe_roles.has_value()) {
     spdlog::warn("Rejecting SSO login on coordinator: the leader is unreachable so the role set cannot be validated.");
-    return std::unexpected{communication::bolt::AuthFailure::kGeneric};
+    return std::unexpected{
+        "SSO authentication failed: the coordinator leader is unreachable, so roles can't be validated. Retry once a "
+        "leader is elected."};
   }
   auto const &roles = *maybe_roles;
 
@@ -394,7 +397,28 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::CoordinatorSSOA
   CoordinatorSSOAuthenticator const authenticator{std::move(module_runner), std::move(role_mask_provider)};
   auto auth_result = authenticator.Authenticate(scheme, identity_provider_response);
   if (!auth_result) {
-    return std::unexpected{communication::bolt::AuthFailure::kGeneric};
+    // The role-related cases say enough for an operator to act without naming which role failed, so a rejected login
+    // can't be used to enumerate the coordinator's role set (the authenticator logs the specifics server-side).
+    return std::unexpected{std::invoke([reason = auth_result.error()]() -> std::string_view {
+      switch (reason) {
+        using enum SSORejection;
+        case kModuleFailed:
+          return "SSO authentication failed: the identity provider token was rejected, the auth module failed, or the "
+                 "enterprise license is missing.";
+        case kNoRolesReturned:
+          return "SSO authentication failed: the identity provider returned no roles for this identity. Map the "
+                 "identity's group to a coordinator role.";
+        case kUnknownRole:
+          return "SSO authentication failed: the identity provider returned a role that doesn't exist on this "
+                 "coordinator. Create it with CREATE ROLE, or fix the identity provider mapping.";
+        case kRoleWithoutPrivilege:
+          return "SSO authentication failed: this identity's role(s) exist but carry no coordinator privilege. Grant "
+                 "COORDINATOR_READ or COORDINATOR_WRITE to one of them.";
+      }
+      // No default case, so adding a rejection reason without a message is a -Wswitch error rather than a silent fall
+      // through to this generic text.
+      return "SSO authentication failed.";
+    })};
   }
 
   // The session carries the matched role names; the coordinator privilege checks (query gate and ROUTE handler)

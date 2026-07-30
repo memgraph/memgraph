@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include <cstdint>
+#include <expected>
 #include <functional>
 #include <optional>
 #include <string>
@@ -22,6 +23,21 @@
 #include "auth/auth.hpp"
 
 namespace memgraph::glue {
+
+// Why a coordinator SSO login was rejected. Kept distinct because the remedy differs per case and they are not
+// interchangeable during a rollout: a module/token failure is fixed on the identity-provider side, while the three
+// role-related cases are fixed on the coordinator (map the group to a role, create the role, grant it a privilege).
+enum class SSORejection : uint8_t {
+  // Module error, invalid/expired token, malformed module response, or a missing enterprise license.
+  kModuleFailed,
+  // The module authenticated the identity but reported no roles for it.
+  kNoRolesReturned,
+  // A role the module reported is not in the coordinator's committed role set.
+  kUnknownRole,
+  // The reported roles all exist but their union grants neither COORDINATOR_READ nor COORDINATOR_WRITE, so the session
+  // could not run a single coordinator query. Typically a group mapped to a role that was never granted anything.
+  kRoleWithoutPrivilege,
+};
 
 // Coordinator SSO authenticator: a deep module that authenticates an SSO connection to a coordinator against the
 // coordinator's committed role set and computes the session's effective coordinator privilege mask.
@@ -54,11 +70,10 @@ class CoordinatorSSOAuthenticator {
   CoordinatorSSOAuthenticator(ModuleRunner module_runner, RoleMaskProvider role_mask_provider);
 
   // Authenticates the SSO connection. On success returns the session's effective privilege mask (the union of the
-  // matched roles' masks) together with the matched role names, or nullopt on rejection. Rejection cases: the module
-  // fails / returns an invalid token, the module returns no roles, or any returned role does not exist in the committed
-  // role set or role exists but without any privilege
-  std::optional<AuthResult> Authenticate(std::string const &scheme,
-                                         std::string const &identity_provider_response) const;
+  // matched roles' masks) together with the matched role names and the principal; on rejection returns which of the
+  // SSORejection cases applied, so the caller can tell the operator what to fix.
+  std::expected<AuthResult, SSORejection> Authenticate(std::string const &scheme,
+                                                       std::string const &identity_provider_response) const;
 
  private:
   ModuleRunner module_runner_;

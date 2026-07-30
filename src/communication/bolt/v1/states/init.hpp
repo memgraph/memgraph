@@ -132,10 +132,9 @@ std::optional<State> CoordinatorSSOAuthentication(TSession &session, memgraph::c
   const auto &[scheme, identity_provider_response] = *credentials;
   const auto auth_res = session.CoordinatorSSOAuthenticate(scheme, identity_provider_response);
   if (!auth_res) {
-    // Rejected: invalid token, a role the module returned that doesn't exist on the coordinator, or a missing
-    // enterprise license. HandleAuthFailure sends the failure message and throws to close the connection.
-    HandleAuthFailure(session,
-                      "SSO authentication failed: invalid token, an unknown role, or a missing enterprise license.");
+    // The session decides which rejection cause applied and phrases it; an operator rolling SSO out needs to tell a bad
+    // token apart from a role that carries no privilege. HandleAuthFailure sends it and throws to close the connection.
+    HandleAuthFailure(session, std::string{auth_res.error()});
   }
   return std::nullopt;
 }

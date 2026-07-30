@@ -92,38 +92,50 @@ TEST(CoordinatorSSOAuthenticator, MultiRoleYieldsUnionOfMasks) {
   EXPECT_EQ(result->roles, (std::vector<std::string>{"reader", "writer"}));
 }
 
+// The four rejection causes are reported distinctly: an operator rolling SSO out has to tell a bad token apart from a
+// role that exists but was never granted a privilege, which is the same "invalid token" message otherwise.
 TEST(CoordinatorSSOAuthenticator, InvalidTokenRejected) {
-  // The module runner returns nullopt (bad token / module failure / malformed response).
+  // The module runner returns nullopt (bad token / module failure / malformed response / missing license).
   CoordinatorSSOAuthenticator authenticator{ModuleReturning(std::nullopt), RolesFrom({{"reader", kRead}})};
-  EXPECT_FALSE(authenticator.Authenticate("oidc", "bad").has_value());
+  auto const result = authenticator.Authenticate("oidc", "bad");
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error(), memgraph::glue::SSORejection::kModuleFailed);
 }
 
 TEST(CoordinatorSSOAuthenticator, EmptyRoleSetRejected) {
   CoordinatorSSOAuthenticator authenticator{ModuleReturning(std::vector<std::string>{}),
                                             RolesFrom({{"reader", kRead}})};
-  EXPECT_FALSE(authenticator.Authenticate("oidc", "token").has_value());
+  auto const result = authenticator.Authenticate("oidc", "token");
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error(), memgraph::glue::SSORejection::kNoRolesReturned);
 }
 
 TEST(CoordinatorSSOAuthenticator, MissingRoleRejectsWholeLogin) {
   // "ghost" is not in the committed role set -> the multi-role login is rejected even though "reader" exists.
   CoordinatorSSOAuthenticator authenticator{ModuleReturning(std::vector<std::string>{"reader", "ghost"}),
                                             RolesFrom({{"reader", kRead}})};
-  EXPECT_FALSE(authenticator.Authenticate("kerberos", "token").has_value());
+  auto const result = authenticator.Authenticate("kerberos", "token");
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error(), memgraph::glue::SSORejection::kUnknownRole);
 }
 
 TEST(CoordinatorSSOAuthenticator, BareRoleRejected) {
   // A role that exists but carries no grant would yield a zero (all-denying) mask; since such a session could not run
-  // any coordinator query, the login is rejected outright.
+  // any coordinator query, the login is rejected outright -- but as an ungranted role, not as a bad token.
   CoordinatorSSOAuthenticator authenticator{ModuleReturning(std::vector<std::string>{"bare"}),
                                             RolesFrom({{"bare", 0}})};
-  EXPECT_FALSE(authenticator.Authenticate("kerberos", "token").has_value());
+  auto const result = authenticator.Authenticate("kerberos", "token");
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error(), memgraph::glue::SSORejection::kRoleWithoutPrivilege);
 }
 
 TEST(CoordinatorSSOAuthenticator, MultiRoleAllBareRejected) {
   // Even across multiple roles, if the union grants neither COORDINATOR_READ nor COORDINATOR_WRITE the login fails.
   CoordinatorSSOAuthenticator authenticator{ModuleReturning(std::vector<std::string>{"bare1", "bare2"}),
                                             RolesFrom({{"bare1", 0}, {"bare2", 0}})};
-  EXPECT_FALSE(authenticator.Authenticate("oidc", "token").has_value());
+  auto const result = authenticator.Authenticate("oidc", "token");
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error(), memgraph::glue::SSORejection::kRoleWithoutPrivilege);
 }
 
 TEST(CoordinatorSSOAuthenticator, WriteRoleSatisfiesReadRequirement) {

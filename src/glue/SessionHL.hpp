@@ -113,8 +113,12 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   // Called during Init on a coordinator for an SSO scheme present in --auth-module-mappings. Runs the coordinator SSO
   // authenticator (which validates the module's roles against the coordinator's committed role set) and, on success,
   // sets the session's effective coordinator privilege mask. No user is stored on coordinators.
-  std::expected<void, communication::bolt::AuthFailure> CoordinatorSSOAuthenticate(
-      const std::string &scheme, const std::string &identity_provider_response);
+  //
+  // On rejection the error is the message to send the client, naming which of the rejection causes applied -- a login
+  // that fails because a mapped role carries no privilege must not read as "invalid token". The reason is spelled out
+  // here rather than as a bolt AuthFailure value because these causes are specific to the coordinator SSO path.
+  std::expected<void, std::string_view> CoordinatorSSOAuthenticate(const std::string &scheme,
+                                                                   const std::string &identity_provider_response);
 
   // Called during Init on a coordinator for basic/none auth when no SSO module is configured: credentials are ignored
   // and the session carries the full coordinator privilege mask. Set explicitly so a LOGOFF -> LOGON passthrough

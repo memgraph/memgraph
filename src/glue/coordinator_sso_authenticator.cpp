@@ -15,7 +15,10 @@
 
 #include <utility>
 
+#include <spdlog/spdlog.h>
+
 #include "auth/models.hpp"
+#include "utils/join_vector.hpp"
 
 namespace memgraph::glue {
 
@@ -23,12 +26,15 @@ CoordinatorSSOAuthenticator::CoordinatorSSOAuthenticator(ModuleRunner module_run
                                                          RoleMaskProvider role_mask_provider)
     : module_runner_(std::move(module_runner)), role_mask_provider_(std::move(role_mask_provider)) {}
 
-std::optional<CoordinatorSSOAuthenticator::AuthResult> CoordinatorSSOAuthenticator::Authenticate(
+std::expected<CoordinatorSSOAuthenticator::AuthResult, SSORejection> CoordinatorSSOAuthenticator::Authenticate(
     std::string const &scheme, std::string const &identity_provider_response) const {
   auto identity = module_runner_(scheme, identity_provider_response);
-  // Invalid token / module failure / malformed response / no roles returned -> reject.
-  if (!identity || identity->roles.empty()) {
-    return std::nullopt;
+  // Invalid token / module failure / malformed response / missing license -> reject.
+  if (!identity) {
+    return std::unexpected{SSORejection::kModuleFailed};
+  }
+  if (identity->roles.empty()) {
+    return std::unexpected{SSORejection::kNoRolesReturned};
   }
 
   std::vector<uint64_t> role_masks;
@@ -36,9 +42,15 @@ std::optional<CoordinatorSSOAuthenticator::AuthResult> CoordinatorSSOAuthenticat
   for (auto const &role_name : identity->roles) {
     auto const mask = role_mask_provider_(role_name);
     // Every role returned by the module must exist in the coordinator's committed role set; a single missing role
-    // rejects the whole authentication (a multi-role response succeeds only when all roles exist).
+    // rejects the whole authentication (a multi-role response succeeds only when all roles exist). The name goes to the
+    // log, not to the client, so a rejected login can't be used to enumerate the coordinator's role set.
     if (!mask) {
-      return std::nullopt;
+      spdlog::warn(
+          "Rejecting coordinator SSO login for scheme '{}': the module returned role '{}', which is not in the "
+          "coordinator's role set.",
+          scheme,
+          role_name);
+      return std::unexpected{SSORejection::kUnknownRole};
     }
     role_masks.push_back(*mask);
   }
@@ -48,7 +60,12 @@ std::optional<CoordinatorSSOAuthenticator::AuthResult> CoordinatorSSOAuthenticat
   // A session that would hold neither COORDINATOR_READ nor COORDINATOR_WRITE cannot run any coordinator query, so
   // reject the login rather than admitting a session that is denied everything.
   if (!auth::CoordinatorMaskSatisfies(effective_mask, auth::Permission::COORDINATOR_READ)) {
-    return std::nullopt;
+    spdlog::warn(
+        "Rejecting coordinator SSO login for scheme '{}': role(s) {} exist but grant no coordinator privilege. Grant "
+        "COORDINATOR_READ or COORDINATOR_WRITE to one of them.",
+        scheme,
+        utils::JoinVector(identity->roles, ", "));
+    return std::unexpected{SSORejection::kRoleWithoutPrivilege};
   }
   return AuthResult{
       .effective_mask = effective_mask, .roles = std::move(identity->roles), .username = std::move(identity->username)};
