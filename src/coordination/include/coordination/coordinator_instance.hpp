@@ -173,7 +173,11 @@ class CoordinatorInstance {
 
   auto GetCoordinatorsInstanceStatus() const -> std::vector<InstanceStatus>;
 
-  auto FindClientConnector(int32_t leader_id) const -> CoordinatorInstanceConnector *;
+  // Returns a shared owner, not a pointer into coordinator_connectors_: a raft config change can erase the entry (see
+  // UpdateClientConnectors) while a caller is still blocked in SendRpc on it, and erasing a list element destroys the
+  // element itself -- std::list only promises addresses survive insertion. Holding a copy keeps the connector alive for
+  // the duration of the call; nullptr means no connector for that id.
+  auto FindClientConnector(int32_t leader_id) const -> std::shared_ptr<CoordinatorInstanceConnector>;
 
   // nullopt if I am the leader, otherwise StatusMessage
   template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
@@ -183,7 +187,8 @@ class CoordinatorInstance {
         status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
       return std::nullopt;
     }
-    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+    // The shared owner is held for the whole (blocking) call, so a concurrent config change can't destroy it mid-RPC.
+    if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
       return leader->SendRpc<Rpc>(std::forward<Args>(args)...) ? StatusEnum::SUCCESS : StatusEnum::LEADER_FAILED;
     }
     return StatusEnum::LEADER_NOT_FOUND;
@@ -199,7 +204,7 @@ class CoordinatorInstance {
         status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
       return std::nullopt;
     }
-    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+    if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
       if (auto const res = leader->SendRpc<Rpc>(std::forward<Args>(args)...); res.has_value()) {
         return *res;
       }
@@ -230,7 +235,10 @@ class CoordinatorInstance {
   mutable utils::ResourceLock coord_instance_lock_{};
 
   // Connectors are used by raft state via observer.
-  mutable utils::Synchronized<std::list<std::pair<int32_t, CoordinatorInstanceConnector>>, utils::SpinLock>
+  // NOTE: Held by shared_ptr because a connector is used outside the spinlock: FindClientConnector hands one out and
+  // the caller blocks in SendRpc on it, while a raft config change can concurrently erase the entry.
+  mutable utils::Synchronized<std::list<std::pair<int32_t, std::shared_ptr<CoordinatorInstanceConnector>>>,
+                              utils::SpinLock>
       coordinator_connectors_;
 
   std::unique_ptr<RaftState> raft_state_;

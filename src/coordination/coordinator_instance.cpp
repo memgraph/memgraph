@@ -228,10 +228,9 @@ void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstance
                   coordinator.management_server);
     auto mgmt_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator.management_server);
     MG_ASSERT(mgmt_endpoint.has_value(), "Failed to create management server when creating new coordinator connector.");
-    connectors->emplace(connectors->end(),
-                        std::piecewise_construct,
-                        std::forward_as_tuple(coordinator.id),
-                        std::forward_as_tuple(ManagementServerConfig{std::move(*mgmt_endpoint)}, tls_config_));
+    connectors->emplace_back(
+        coordinator.id,
+        std::make_shared<CoordinatorInstanceConnector>(ManagementServerConfig{std::move(*mgmt_endpoint)}, tls_config_));
   }
 }
 
@@ -376,7 +375,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     return ShowInstancesStatusAsFollower();
   }
 
-  CoordinatorInstanceConnector *leader = FindClientConnector(leader_id);
+  auto const leader = FindClientConnector(leader_id);
 
   if (leader == nullptr) {
     spdlog::trace("Connection to leader not found, returning SHOW INSTANCES output as follower.");
@@ -539,7 +538,7 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
   // try to forward the request to the current leader.
   if (!status.compare_exchange_strong(
           expected, CoordinatorStatus::LEADER_NOT_READY, std::memory_order_acq_rel, std::memory_order_acquire)) {
-    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+    if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
       return leader->SendRpc<ForceResetRpc>() ? ReconcileClusterStateStatus::SUCCESS
                                               : ReconcileClusterStateStatus::LEADER_FAILED;
     }
@@ -1246,7 +1245,7 @@ auto CoordinatorInstance::GetRoles() const -> std::optional<std::vector<Coordina
   auto const leader_id = raft_state_->GetLeaderId();
   // Skip forwarding if we are the (not-yet-ready) leader or no leader is elected; otherwise ask the leader.
   if (leader_id != raft_state_->GetMyCoordinatorId() && leader_id != -1) {
-    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+    if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
       if (auto res = leader->SendRpc<GetRolesRpc>(); res.has_value()) {
         return res;
       }
@@ -1343,7 +1342,7 @@ auto CoordinatorInstance::GetRolePrivileges(std::string_view const role_name) co
   auto const leader_id = raft_state_->GetLeaderId();
   // Skip forwarding if we are the (not-yet-ready) leader or no leader is elected; otherwise ask the leader.
   if (leader_id != raft_state_->GetMyCoordinatorId() && leader_id != -1) {
-    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+    if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
       if (auto const res = leader->SendRpc<GetRolePrivilegesRpc>(std::string{role_name}); res.has_value()) {
         return res;
       }
@@ -1694,16 +1693,9 @@ auto CoordinatorInstance::GetRoutingTableAsLeader(std::string_view const db_name
 
 auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::string_view const db_name) const
     -> RoutingTable {
-  CoordinatorInstanceConnector *leader{nullptr};
-  {
-    auto connectors = coordinator_connectors_.Lock();
-
-    auto connector = std::ranges::find_if(
-        *connectors, [&leader_id](auto const &local_connector) { return local_connector.first == leader_id; });
-    if (connector != connectors->end()) {
-      leader = &connector->second;
-    }
-  }
+  // Spelled out rather than auto: leader_id is a deduced parameter, so an auto here would make the type dependent and
+  // force a `template` keyword on the SendRpc call below.
+  std::shared_ptr<CoordinatorInstanceConnector> const leader = FindClientConnector(leader_id);
 
   if (leader == nullptr) {
     spdlog::trace(
@@ -1824,7 +1816,7 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
 
 auto CoordinatorInstance::ShowReplicationLagAsFollower(int32_t const leader_id) const
     -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
-  if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+  if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
     return leader->SendRpc<CoordReplicationLagRpc>();
   }
   return {};
@@ -1960,17 +1952,16 @@ auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> Up
   return UpdateConfigStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::FindClientConnector(int32_t leader_id) const -> CoordinatorInstanceConnector * {
-  CoordinatorInstanceConnector *leader{nullptr};
-  {
-    auto connectors = coordinator_connectors_.Lock();
-    auto connector = std::ranges::find_if(
-        *connectors, [&leader_id](auto const &local_connector) { return local_connector.first == leader_id; });
-    if (connector != connectors->end()) {
-      leader = &connector->second;
-    }
+auto CoordinatorInstance::FindClientConnector(int32_t leader_id) const
+    -> std::shared_ptr<CoordinatorInstanceConnector> {
+  auto connectors = coordinator_connectors_.Lock();
+  auto const connector = std::ranges::find_if(
+      *connectors, [&leader_id](auto const &local_connector) { return local_connector.first == leader_id; });
+  if (connector == connectors->end()) {
+    return nullptr;
   }
-  return leader;
+  // Copy the owner out under the lock; the caller then uses it without holding the spinlock.
+  return connector->second;
 }
 
 }  // namespace memgraph::coordination
