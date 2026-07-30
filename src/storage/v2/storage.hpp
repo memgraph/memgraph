@@ -391,19 +391,13 @@ class Storage {
   virtual std::unique_ptr<Accessor> TryAccess(StorageAccessType rw_type,
                                               std::optional<IsolationLevel> override_isolation_level = {});
 
-  /// Whether this engine supports the coro-prepare park-acquire path (a caller-held pending scope
-  /// kept across a retry campaign plus a real TryAccess). False by default: DiskStorage never
-  /// overrides TryAccess, so parking against it would just spin to the deadline -- park is
-  /// InMemory-only for v1. Overridden `true` in InMemoryStorage.
-  virtual bool SupportsParkAcquire() const { return false; }
-
   /// Whether this storage engine supports the coro-prepare park-acquire path (IP-1 design doc,
   /// opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 4 §R4.6): a
   /// caller-held pending scope (see InMemoryStorage::PendingHandle/TryAccessWithPending) kept
-  /// across an entire retry campaign, plus a real (non-stub) TryAccess* implementation to probe
-  /// against. Base default is false (DiskStorage never overrides TryAccess*, so parking against
-  /// it would spin against the always-nullopt stub until the deadline sweep fires every single
-  /// time -- the park benefit is InMemory-only for v1). Overridden `true` in InMemoryStorage.
+  /// across an entire retry campaign, plus a real (non-stub) TryAccess implementation to probe
+  /// against. Base default is false (DiskStorage never overrides TryAccess, so parking against it
+  /// would spin against the always-nullptr stub until the deadline sweep fires every single time --
+  /// the park benefit is InMemory-only for v1). Overridden `true` in InMemoryStorage.
   virtual bool SupportsParkAcquire() const { return false; }
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };

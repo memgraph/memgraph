@@ -9846,6 +9846,12 @@ struct TransactionRequirements {
   std::optional<storage::StorageAccessType> accessor_type_;
   std::optional<storage::IsolationLevel> isolation_level_override_;
   bool could_commit_ = false;
+  // True when the chosen accessor_type_ was derived from the storage mode, so a SET STORAGE MODE
+  // landing before the accessor takes its hold invalidates the choice.
+  bool mode_dependent_ = false;
+  // The mode this resolution was computed against (unlocked read), carried so both call sites can
+  // compare it against the mode the accessor actually pinned.
+  std::optional<storage::StorageMode> storage_mode_;
 };
 
 // Phase 1 helper (IP-1 design doc opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md
@@ -9868,6 +9874,8 @@ TransactionRequirements ResolveTransactionRequirements(memgraph::query::CurrentD
       .accessor_type_ = visitor.accessor_type_,
       .isolation_level_override_ = visitor.isolation_level_override_,
       .could_commit_ = visitor.could_commit_,
+      .mode_dependent_ = visitor.mode_dependent_,
+      .storage_mode_ = storage_mode,
   };
 }
 
@@ -10090,7 +10098,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         // replans against the pinned mode. The throw unwinds into the catch below, releasing the
         // hold.
         if (transaction_requirements.mode_dependent_ &&
-            current_db_.db_transactional_accessor_->GetPinnedStorageMode() != storage_mode) {
+            current_db_.db_transactional_accessor_->GetPinnedStorageMode() != transaction_requirements.storage_mode_) {
           throw StorageModeChangedDuringSetupException();
         }
       }
@@ -10616,6 +10624,11 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
   std::optional<storage::StorageAccessType> accessor_type;
   bool could_commit = false;
   std::optional<storage::IsolationLevel> resolved_iso;
+  // Carried out of Phase 1 so Phase 2 can re-check the mode the accessor actually pinned against
+  // the one this resolution assumed -- same guard Prepare() applies at its SetupDatabaseTransaction
+  // call site.
+  bool mode_dependent = false;
+  std::optional<storage::StorageMode> resolved_storage_mode;
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
@@ -10649,6 +10662,8 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
 
       accessor_type = transaction_requirements.accessor_type_;
       could_commit = transaction_requirements.could_commit_;
+      mode_dependent = transaction_requirements.mode_dependent_;
+      resolved_storage_mode = transaction_requirements.storage_mode_;
       if (accessor_type) {
         if (transaction_requirements.isolation_level_override_) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
@@ -10677,6 +10692,15 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
                                               priority == utils::Priority::HIGH,
                                               on_park_resumed);
       current_db_.SetupDatabaseTransactionWith(std::move(acc), could_commit);
+
+      // Same window Prepare() guards: SET STORAGE MODE can land between Phase 1's unlocked mode read
+      // and the accessor taking its hold, leaving the access type chosen for a mode no longer in
+      // force. The park path widens that window (the acquire can suspend and retry for up to the
+      // access timeout), so this check matters MORE here, not less. Throw unwinds into the catch
+      // below, releasing the hold; the retry replans against the pinned mode.
+      if (mode_dependent && current_db_.db_transactional_accessor_->GetPinnedStorageMode() != resolved_storage_mode) {
+        throw StorageModeChangedDuringSetupException();
+      }
     }
 
     // ---- PHASE 3 (sync, once, post-acquire) ----

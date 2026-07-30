@@ -184,15 +184,11 @@ Accessor::~Accessor() {
   // churn documented on NotifyMainLockReleased() -- worst case it re-parks until the true
   // unblocking release, which is strictly better than riding to the ~1s deadline.
   //
-  // Exactly one of unique_guard_/storage_guard_ can be owning here, depending on how this Accessor
-  // was constructed. If NEITHER owns the lock, ownership was handed off elsewhere
-  // (Accessor::ReleaseUniqueGuard(), used by SetStorageMode) and that other owner is responsible
-  // for its own release + notify -- nothing to do here.
-  if (unique_guard_.owns_lock()) {
-    unique_guard_.unlock();
-    storage_->NotifyMainLockReleased();
-  } else if (storage_guard_.owns_lock()) {
-    storage_guard_.unlock();
+  // One unified guard_ holds whichever mode this Accessor was constructed with. If it owns nothing,
+  // ownership was handed off elsewhere (Accessor::ReleaseGuard(), used by SetStorageMode) and that
+  // other owner is responsible for its own release + notify -- nothing to do here.
+  if (guard_.owns_lock()) {
+    guard_.unlock();
     storage_->NotifyMainLockReleased();
   }
 }
@@ -202,7 +198,7 @@ StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
 std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
-  auto const main_guard = std::unique_lock{main_lock_};
+  auto main_guard = std::unique_lock{main_lock_};
   isolation_level_ = isolation_level;
   // Explicit unlock (rather than letting main_guard release at function-scope end) so the notify
   // below observes main_lock_ already released (C3), matching the Accessor destructor's approach.

@@ -229,7 +229,7 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
     const auto epoch = mem_storage.main_lock_resume_event().Epoch();
 
     if (auto acc = mem_storage.TryAccessWithPending(rw, resolved_iso, pending)) {
-      co_return std::move(*acc);
+      co_return std::move(acc);
     }
 
     if (std::chrono::steady_clock::now() >= deadline) {
