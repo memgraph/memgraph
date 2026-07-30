@@ -59,7 +59,6 @@ struct AcquireAwaitable {
   utils::PriorityThreadPool &pool;
   storage::StorageAccessType rw_type;
   std::optional<storage::IsolationLevel> resolved_iso;
-  storage::PendingHandle &pending;
   std::chrono::steady_clock::time_point deadline;
   size_t worker_id;
   uint64_t epoch;
@@ -112,25 +111,60 @@ struct AcquireAwaitable {
     }
 
     auto &registry = pool.park_registry();
-    registry.Register(ps);
 
-    // B1 step 4 / R4.3: re-probe the real resource once more before committing to a genuine
-    // park -- closes the race between the caller's original failed probe and the moment
-    // registration above completed.
-    auto acc = storage.TryAccessWithPending(rw_type, resolved_iso, pending);
-    if (acc) {
+    // Everything from here to the end of this block runs with `ps` ALREADY published to `event`,
+    // i.e. already claimable-and-resumable by another thread. Both statements below allocate
+    // (Register push_back; TryAccess constructs an Accessor with its Transaction), so both can
+    // throw -- and an exception escaping await_suspend resumes and unwinds this coroutine,
+    // destroying the very frame `ps->on_resume` captured, while `ps` sits registered and
+    // unclaimed. The next NotifyAll/Sweep/Drain would then resume freed memory. Every other exit
+    // from this function either self-claims or never published; the throwing exit is the one that
+    // needs closing, and it is reachable exactly under memory pressure, which is also when
+    // acquires are contended.
+    try {
+      registry.Register(ps);
+
+      // B1 step 4 / R4.3: re-probe the real resource once more before committing to a genuine
+      // park -- closes the race between the caller's original failed probe and the moment
+      // registration above completed.
+      // Plain TryAccess, NOT TryAccessWithPending: a SUCCESSFUL PendingScope::try_acquire() disarms
+      // the scope for good (resource_lock.hpp -- `std::exchange(lock_, nullptr)`, after which every
+      // call returns nullopt unconditionally). This probe can succeed and then still lose ClaimPark
+      // below, in which case we park and the campaign continues -- so consuming the caller's
+      // campaign-long handle here would leave every later probe failing regardless of lock state,
+      // guaranteeing a spurious *AccessTimeout and dropping writer-preference for the rest of the
+      // campaign. This probe only needs to close the register-vs-release race (B1 step 4); the
+      // campaign's pending registration is already standing and keeps gating on our behalf.
+      auto acc = storage.TryAccess(rw_type, resolved_iso);
+      if (acc) {
+        if (utils::ClaimPark(*ps)) {
+          // Won: no wake source will ever invoke on_resume for this ps -- best-effort cleanup,
+          // then continue synchronously with the accessor already in hand.
+          event.RemoveWaiter(ps);
+          registry.Deregister(ps);
+          *abandon_result = std::move(acc);
+          return false;
+        }
+        // Lost: some wake source already claimed ps and WILL resume us -- treat as a genuine
+        // park. Release the accessor we just (redundantly) acquired; the resume path re-probes
+        // and re-acquires (correct even though the lock is free right now, R4.3).
+        acc.reset();
+        return true;
+      }
+    } catch (...) {
+      // Same single-owner arbitration the abandon path uses, applied to the unwind: we may only
+      // let this frame die if nobody else can resume it.
       if (utils::ClaimPark(*ps)) {
-        // Won: no wake source will ever invoke on_resume for this ps -- best-effort cleanup,
-        // then continue synchronously with the accessor already in hand.
+        // We own `ps`; no wake source will ever touch it. Safe to unwind and let the caller see
+        // the real error (deadline/OOM handling is the acquire loop's caller's business).
         event.RemoveWaiter(ps);
         registry.Deregister(ps);
-        *abandon_result = std::move(acc);
-        return false;
+        throw;
       }
-      // Lost: some wake source already claimed ps and WILL resume us -- treat as a genuine
-      // park. Release the accessor we just (redundantly) acquired; the resume path re-probes
-      // and re-acquires (correct even though the lock is free right now, R4.3).
-      acc.reset();
+      // A wake source already claimed `ps` and WILL resume this handle, so the frame must survive:
+      // suspend instead of unwinding. The swallowed exception was a transient failure of an
+      // opportunistic probe -- the resumed campaign re-probes and either acquires or times out
+      // honestly, which is strictly better than resuming a destroyed frame.
       return true;
     }
 
@@ -248,7 +282,7 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
 
     std::optional<std::unique_ptr<storage::Accessor>> abandon_result;
     co_await detail::AcquireAwaitable{
-        mem_storage, pool, rw, resolved_iso, pending, deadline, *worker_id, epoch, &abandon_result, on_park_resumed};
+        mem_storage, pool, rw, resolved_iso, deadline, *worker_id, epoch, &abandon_result, on_park_resumed};
 
     if (abandon_result) {
       // R4.3 abandon-path win: the awaitable's own re-probe already acquired (and claimed) the

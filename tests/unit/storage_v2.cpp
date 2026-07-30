@@ -3203,13 +3203,63 @@ TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
   EXPECT_NO_THROW(write_acc->Abort());
 }
 
+// TryAccessWithPending is deliberately ONE-SHOT for UNIQUE/READ_ONLY: it probes through the
+// caller's PendingScope, and utils::PendingScope::try_acquire() disarms itself on SUCCESS
+// (std::exchange(lock_, nullptr)), after which every later call returns failure unconditionally --
+// regardless of lock state. Pinning that here because it is not obvious from the call site and
+// because getting it wrong is expensive: the park path's abandon re-probe (AcquireAwaitable) can
+// succeed and then still lose ClaimPark, after which the campaign continues probing. Using this
+// overload there consumed the campaign's handle and made every subsequent probe fail, guaranteeing
+// a spurious *AccessTimeout for a lock that was free.
+TEST_F(StorageTryAccessTest, TryAccessWithPendingIsOneShotOnSuccess) {
+  using namespace memgraph::storage;
+
+  auto pending = store.MakePendingHandle(UNIQUE);
+
+  auto first = store.TryAccessWithPending(UNIQUE, std::nullopt, pending);
+  ASSERT_NE(first, nullptr) << "uncontended UNIQUE probe should succeed";
+  first->Abort();
+  first.reset();  // fully release the UNIQUE hold
+
+  EXPECT_EQ(store.TryAccessWithPending(UNIQUE, std::nullopt, pending), nullptr)
+      << "the handle was consumed by the successful probe above; reusing it must fail even though "
+         "main_lock_ is now free. A caller that keeps probing after a success needs a fresh handle "
+         "(or the non-consuming plain TryAccess).";
+}
+
+// The invariant the park path's abandon re-probe depends on: a plain TryAccess must NOT touch a
+// pending registration the caller is holding for a longer campaign. This is what lets
+// AcquireAwaitable re-probe (B1 step 4) without destroying the campaign-long PendingHandle that
+// keeps UNIQUE/READ_ONLY writer-preference registered across every suspend/resume (R4.6).
+TEST_F(StorageTryAccessTest, PlainTryAccessDoesNotConsumeACallerHeldPendingHandle) {
+  using namespace memgraph::storage;
+
+  auto pending = store.MakePendingHandle(UNIQUE);
+
+  // Stand in for the abandon re-probe: opportunistically take and release the lock.
+  auto probe = store.TryAccess(UNIQUE);
+  ASSERT_NE(probe, nullptr);
+  probe->Abort();
+  probe.reset();
+
+  // The campaign's handle must still be live and usable -- this is the regression guard.
+  auto acquired = store.TryAccessWithPending(UNIQUE, std::nullopt, pending);
+  EXPECT_NE(acquired, nullptr)
+      << "plain TryAccess consumed the caller's PendingHandle; the park campaign can no longer "
+         "acquire and will ride to its deadline and throw";
+  if (acquired) acquired->Abort();
+}
+
 // --- IP-1 coro-prepare-accessor-yield: storage-side wake hook ---
 // (opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 3 §R3.1)
 //
 // Storage::NotifyMainLockReleased() must fire (claim + invoke on_resume) a waiter parked on
-// main_lock_resume_event() exactly when: the experimental flag is ON, AND the release was of a
-// UNIQUE or READ_ONLY guard. It must NOT fire on a plain READ/WRITE release, and must be a cheap,
-// safe no-op with the flag off or with nobody parked.
+// main_lock_resume_event() whenever the experimental flag is ON and a hold on main_lock_ is
+// released -- in ANY mode, READ and WRITE included (F5). The design doc's original "UNIQUE or
+// READ_ONLY only" rule was wrong: can_acquire<UNIQUE>() requires state == UNLOCKED, so the last
+// READ/WRITE holder releasing is precisely the event that admits a pending UNIQUE, and a
+// READ_ONLY->READ or WRITE->READ downgrade dropping ro_count/w_count admits a pending WRITE.
+// It must also be a cheap, safe no-op with the flag off or with nobody parked.
 class StorageMainLockWakeHookTest : public ::testing::Test {
  protected:
   StorageMainLockWakeHookTest() : saved_flag_(FLAGS_experimental_coro_prepare_accessor_yield) {}

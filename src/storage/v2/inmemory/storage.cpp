@@ -2970,10 +2970,21 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     // lock_guard_condition<WRITE> is gated on unique_pending_ and that acquirer is in turn waiting
     // on the READ we would still be holding.
     read_guard.unlock();
+    // Dropping r_count can leave main_lock_ UNLOCKED, which is exactly can_acquire<UNIQUE>'s gate,
+    // so this release CAN admit a parked waiter -- and it happens before main_lock_guard exists, so
+    // the OnScopeExit above cannot cover it. Without this the waiter sleeps to the deadline sweep
+    // while the WRITE acquisition below is itself gated on that waiter's unique_pending_count:
+    // both stall for the whole access timeout, which is strictly worse than the blocking path.
+    NotifyMainLockReleased();
     auto write_guard = Guard{main_lock_, Guard::WRITE};
     // The mode can flip in the gap, so re-read it under the hold we will actually use. Downgrading
     // is non-blocking, unlike the escalation above.
-    if (storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) write_guard.downgrade_to_read();
+    if (storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+      write_guard.downgrade_to_read();
+      // WRITE->READ drops w_count to 0, which is can_acquire<READ_ONLY>'s gate -- the same admitting
+      // event DowngradeToReadIfValid() notifies for READ_ONLY->READ. Notify after the demotion.
+      NotifyMainLockReleased();
+    }
     return write_guard;
   }();
 

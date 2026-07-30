@@ -430,10 +430,16 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       while (true) {
         const auto outcome = shared_this->session_.Execute();
         if (outcome == bolt::ExecuteResult::kNeedsCoroPrepare) {
-          // shared_this is captured here and forwarded down as an opaque std::function, so no frame
-          // in the chain stores a named shared_ptr<Session> (which would form a session ->
-          // parked_prepare_ -> frame -> session cycle); the closure is the sole thing keeping the
-          // session alive across the park.
+          // shared_this is captured here and forwarded down as an opaque std::function; that closure
+          // is what keeps the session alive across the park.
+          // NB there IS a refcount cycle while parked -- session -> parked_prepare_ -> frames ->
+          // std::function -> shared_ptr<Session>. Type-erasing the callable hides the cycle from a
+          // reader, not from the refcount: PrepareCoro takes the std::function by value and copies it
+          // again into AcquireAccessorCoro, so two live frames hold a reference to the session that
+          // transitively owns them. The cycle is broken by hand, by parked_prepare_.reset() on every
+          // resume path -- which is exactly why any path that drops a resume leaks the Session and
+          // its DatabaseAccess, keeping Gatekeeper<Database>::count_ above zero and stalling
+          // shutdown. Do not "simplify" the reset away.
           // parked_prepare_ MUST already hold the Task before Resume() is called. Post-F1 every resume
           // is posted pinned back to THIS worker via RescheduleTaskOnWorker (never inline, not even a
           // shutdown drain -- priority_thread_pool.cpp), so the resume closure cannot run until this
@@ -510,11 +516,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   // execution entirely (see query::detail::AcquireAwaitable's on_park_resumed doc comment for why
   // that ordering is safe).
   //
-  // R4.1: takes `on_park_resumed` as an opaque std::function, NOT a `shared_ptr<Session>` -- this
-  // frame stores exactly the same kind of caller-supplied closure every OTHER frame in the chain
-  // already has to (AcquireAccessorCoro holds it as a frame local across its whole retry loop), never
-  // a separately-named session shared_ptr of its own (which would look like, and partially be, a
-  // session -> parked_prepare_ -> frame -> shared_ptr<session> cycle).
+  // R4.1: takes `on_park_resumed` as an opaque std::function rather than a named
+  // `shared_ptr<Session>`, so this frame stores exactly the same kind of caller-supplied closure
+  // every OTHER frame in the chain already has to (AcquireAccessorCoro holds it as a frame local
+  // across its whole retry loop). That is a uniformity argument, NOT a cycle-avoidance one: the
+  // closure holds a shared_ptr<Session> regardless of the static type wrapping it, so the
+  // session -> parked_prepare_ -> frame -> session cycle is real while parked. See the longer note
+  // at the kNeedsCoroPrepare site in RunLoop -- it is broken by parked_prepare_.reset().
   utils::Task<void> DrivePreparedRun(std::function<void()> on_park_resumed) {
     co_await bolt::HandlePrepareCoro(session_, std::move(on_park_resumed));
   }

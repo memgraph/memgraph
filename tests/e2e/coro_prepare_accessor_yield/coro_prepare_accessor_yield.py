@@ -41,7 +41,7 @@ def test_flag_on_park_keeps_probe_responsive():
     assertion fails outright under plain blocking: see test_flag_off_control_probe_stays_blocked
     in the control file, which reproduces the identical scenario with the flag off and asserts
     the opposite (high latency)."""
-    p_elapsed, _ = common.run_responsiveness_scenario()
+    p_elapsed, contenders = common.run_responsiveness_scenario()
     print(
         f"[flag-on] P (RETURN 1) latency under contention: {p_elapsed:.3f}s "
         f"(pass threshold: < {common.RESPONSIVE_THRESHOLD_SECONDS}s)"
@@ -50,6 +50,29 @@ def test_flag_on_park_keeps_probe_responsive():
         f"RETURN 1 took {p_elapsed:.3f}s while every bolt worker was pinned by conflicting "
         f"CREATE INDEX contenders (parking ON) -- expected < {common.RESPONSIVE_THRESHOLD_SECONDS}s. "
         "Workers should have been parked and freed instead of blocking."
+    )
+
+    # Second, independent assertion on the SAME run: the parked contenders must actually get the
+    # lock, not merely fail to hang. Flag-on they park, which frees the workers H's own COMMIT needs
+    # to dispatch, so H releases EARLY and its WRITE release wakes them (F5) -- observed ~1.5s, i.e.
+    # well inside TIMEOUT_SEC and even below HOLD_SECONDS. Flag-off the same contenders ride out the
+    # timeout (observed 6.0s), so this assertion is what separates the two states on outcome rather
+    # than only on the probe's latency.
+    # An access-timeout here is the signature of a campaign that woke but could no longer acquire,
+    # which is what a consumed/dead pending handle produces (the abandon re-probe must use plain
+    # TryAccess, never TryAccessWithPending -- see AcquireAwaitable). Deliberately asserted only in
+    # the flag-ON test: flag-off these same contenders ride out the timeout by design, which is why
+    # run_responsiveness_scenario() itself stays neutral about contender outcomes.
+    timed_out = {
+        i: r for i, r in contenders.items() if r["error"] and "access to the storage" in r["error"]
+    }
+    assert not timed_out, (
+        "parked contenders hit the storage access timeout instead of acquiring after the holder "
+        f"released: { {i: round(r['elapsed'], 3) for i, r in timed_out.items()} } "
+        f"(HOLD_SECONDS={common.HOLD_SECONDS}s, TIMEOUT_SEC={common.TIMEOUT_SEC}s). Expected each to "
+        "succeed at ~HOLD_SECONDS. If elapsed is ~TIMEOUT_SEC this is a woken-but-cannot-acquire "
+        "regression; if elapsed is only marginally above HOLD_SECONDS the scenario's 1s margin has "
+        "become too tight and the constants need widening, not the code."
     )
 
 
