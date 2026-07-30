@@ -418,15 +418,16 @@ if [[ ! -L "$SYSROOT/usr/lib64/libstdc++.so.6" ]]; then
 fi
 
 # Also expose the sysroot glibc's runtime libs (libm.so.6, libc.so.6, ...) in
-# $SYSROOT/usr/lib64. glibc installs them into $SYSROOT/lib64 (slibdir), which
-# linkers only find via their built-in "=/lib64" search path — present in
-# x86_64 hosts' ld but absent from Debian-family aarch64 ld (multiarch dirs
-# only). Without this, DT_NEEDED entries like libstdc++.so's libm.so.6 fail to
-# resolve ("try using -rpath-link") on ARM.
-if [[ ! -e "$SYSROOT/usr/lib64/libm.so.6" ]]; then
+# $SYSROOT/usr/lib64 and $SYSROOT/usr/lib. glibc installs them into
+# $SYSROOT/lib64 (slibdir), but ld resolves transitive DT_NEEDED entries
+# (e.g. libstdc++.so -> libm.so.6) ONLY via its built-in sysroot-prefixed
+# SEARCH_DIRs, never via -L: that's "=/lib64" on x86-64 hosts' ld but only
+# "=/lib" and "=/usr/lib" on Debian-family aarch64 ld. Cover both layouts.
+if [[ ! -e "$SYSROOT/usr/lib/libm.so.6" ]]; then
     for lib in $SYSROOT/lib64/*.so*; do
         [[ -e "$lib" ]] || continue
         ln -sf "../../lib64/$(basename "$lib")" "$SYSROOT/usr/lib64/$(basename "$lib")"
+        ln -sf "../../lib64/$(basename "$lib")" "$SYSROOT/usr/lib/$(basename "$lib")"
     done
 fi
 
