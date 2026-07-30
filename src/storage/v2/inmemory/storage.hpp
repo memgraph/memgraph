@@ -111,7 +111,7 @@ struct IndexPerformanceTracker {
 /// writer-preference and reopens the v0 starvation hole). Engages the scope matching `rw_type` at
 /// construction; stays empty (no scope engaged, matching TryAccess()'s plain non-blocking probe)
 /// for READ/WRITE, which never register as pending in the first place (see
-/// utils::ResourceLock::lock_guard_condition).
+/// utils::ResourceLock::can_acquire).
 ///
 /// Non-copyable/non-movable (mirrors UniquePendingScope/ReadOnlyPendingScope themselves): built
 /// in place at its point of use via guaranteed copy elision (MakePendingHandle() returns a

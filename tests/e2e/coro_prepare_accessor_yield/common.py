@@ -16,12 +16,12 @@ opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md.
 THE MECHANISM (see utils/resource_lock.hpp and query/interpreter.cpp's IndexQuery/CypherQuery
 Visit() overloads for the ground truth):
 
-  * READ and WRITE storage accessors COEXIST: ResourceLock::lock_guard_condition<READ>() only
+  * READ and WRITE storage accessors COEXIST: ResourceLock::can_acquire<READ>() only
     checks that no UNIQUE is pending -- it never checks w_count. So a plain read (or a bare
     `RETURN 1`) never blocks, and is never blocked by, an open write transaction.
   * READ_ONLY (what `CREATE INDEX` takes for IN_MEMORY_TRANSACTIONAL --
     IndexQuery::Action::CREATE) and UNIQUE are the only access types that get CONTENDED against a
-    concurrent WRITE: lock_guard_condition<READ_ONLY>() requires `w_count == 0`.
+    concurrent WRITE: can_acquire<READ_ONLY>() requires `w_count == 0`.
   * An explicit (BEGIN'd) transaction defaults to StorageAccessType::WRITE unless the driver
     marks it read-only (PrepareTransactionQuery's BEGIN handler: `extras.is_read ? READ : WRITE`;
     mgclient never sets that flag), regardless of which statements are subsequently run inside
