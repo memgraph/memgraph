@@ -49,6 +49,15 @@ struct RoleWUsername : Roles {
 
 using UserOrRole = std::variant<User, RoleWUsername>;
 
+// What an SSO auth module reported for a coordinator login. Coordinators have no kvstore user records to attach an
+// identity to, so the module's response is the only place the principal exists; it is carried separately from the roles
+// so the session can record who authenticated, not just which roles they hold. Empty when the module reported no
+// username -- unlike the data-instance path this doesn't reject the login, it only leaves the session unattributed.
+struct SSOIdentity {
+  std::string username;
+  std::vector<std::string> roles;
+};
+
 /**
  * This class serves as the main Authentication/Authorization storage.
  * It provides functions for managing Users, Roles, Permissions and FineGrainedAccessPermissions.
@@ -159,7 +168,7 @@ class Auth final {
   std::optional<UserOrRole> SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response);
 
   /**
-   * Runs the SSO auth module for a coordinator connection and returns the role names it reports on success.
+   * Runs the SSO auth module for a coordinator connection and returns the identity it reports on success.
    *
    * Unlike SSOAuthenticate, this performs NO validation against the auth kvstore (no GetRole lookup, no local-user
    * collision check): coordinators keep no user/role records in the kvstore. The caller validates the returned role
@@ -168,10 +177,10 @@ class Auth final {
    * @param scheme
    * @param identity_provider_response
    *
-   * @return the role names on a successful authentication, nullopt on any module/authentication/parse failure
+   * @return the reported username + role names on a successful authentication, nullopt on any
+   *         module/authentication/parse failure
    */
-  std::optional<std::vector<std::string>> SSOGetRoleNames(const std::string &scheme,
-                                                          const std::string &identity_provider_response);
+  std::optional<SSOIdentity> SSOGetIdentity(const std::string &scheme, const std::string &identity_provider_response);
 
   /**
    * Gets a user from the storage.

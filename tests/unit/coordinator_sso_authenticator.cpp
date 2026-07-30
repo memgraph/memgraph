@@ -30,8 +30,15 @@ constexpr uint64_t kRead = static_cast<uint64_t>(auth::Permission::COORDINATOR_R
 constexpr uint64_t kWrite = static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE);
 
 // A module runner that always returns the given (possibly empty / absent) role set, ignoring scheme + response.
-CoordinatorSSOAuthenticator::ModuleRunner ModuleReturning(std::optional<std::vector<std::string>> roles) {
-  return [roles = std::move(roles)](std::string const & /*scheme*/, std::string const & /*response*/) { return roles; };
+CoordinatorSSOAuthenticator::ModuleRunner ModuleReturning(std::optional<std::vector<std::string>> roles,
+                                                          std::string username = "alice") {
+  std::optional<auth::SSOIdentity> identity;
+  if (roles) {
+    identity = auth::SSOIdentity{.username = std::move(username), .roles = std::move(*roles)};
+  }
+  return [identity = std::move(identity)](std::string const & /*scheme*/, std::string const & /*response*/) {
+    return identity;
+  };
 }
 
 // A role/mask provider backed by a fixed name->mask map (a role absent from the map "doesn't exist").
@@ -53,6 +60,27 @@ TEST(CoordinatorSSOAuthenticator, SingleRoleSuccessYieldsItsMask) {
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(result->effective_mask, kRead);
   EXPECT_EQ(result->roles, (std::vector<std::string>{"reader"}));
+}
+
+TEST(CoordinatorSSOAuthenticator, PrincipalIsCarriedThroughToTheResult) {
+  // The module's username is what attributes a control-plane query to a person: a coordinator session has no
+  // QueryUserOrRole to derive it from, so losing it here leaves the session unattributed.
+  CoordinatorSSOAuthenticator authenticator{ModuleReturning(std::vector<std::string>{"reader"}, "alice@example.com"),
+                                            RolesFrom({{"reader", kRead}})};
+  auto const result = authenticator.Authenticate("oidc", "token");
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->username, "alice@example.com");
+}
+
+TEST(CoordinatorSSOAuthenticator, MissingPrincipalStillAuthenticates) {
+  // A module that reports no username authorizes normally (the coordinator authorizes by role); the session is just
+  // left unattributed rather than rejected.
+  CoordinatorSSOAuthenticator authenticator{ModuleReturning(std::vector<std::string>{"reader"}, ""),
+                                            RolesFrom({{"reader", kRead}})};
+  auto const result = authenticator.Authenticate("oidc", "token");
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->effective_mask, kRead);
+  EXPECT_TRUE(result->username.empty());
 }
 
 TEST(CoordinatorSSOAuthenticator, MultiRoleYieldsUnionOfMasks) {

@@ -25,15 +25,15 @@ CoordinatorSSOAuthenticator::CoordinatorSSOAuthenticator(ModuleRunner module_run
 
 std::optional<CoordinatorSSOAuthenticator::AuthResult> CoordinatorSSOAuthenticator::Authenticate(
     std::string const &scheme, std::string const &identity_provider_response) const {
-  auto role_names = module_runner_(scheme, identity_provider_response);
+  auto identity = module_runner_(scheme, identity_provider_response);
   // Invalid token / module failure / malformed response / no roles returned -> reject.
-  if (!role_names || role_names->empty()) {
+  if (!identity || identity->roles.empty()) {
     return std::nullopt;
   }
 
   std::vector<uint64_t> role_masks;
-  role_masks.reserve(role_names->size());
-  for (auto const &role_name : *role_names) {
+  role_masks.reserve(identity->roles.size());
+  for (auto const &role_name : identity->roles) {
     auto const mask = role_mask_provider_(role_name);
     // Every role returned by the module must exist in the coordinator's committed role set; a single missing role
     // rejects the whole authentication (a multi-role response succeeds only when all roles exist).
@@ -50,7 +50,8 @@ std::optional<CoordinatorSSOAuthenticator::AuthResult> CoordinatorSSOAuthenticat
   if (!auth::CoordinatorMaskSatisfies(effective_mask, auth::Permission::COORDINATOR_READ)) {
     return std::nullopt;
   }
-  return AuthResult{.effective_mask = effective_mask, .roles = std::move(*role_names)};
+  return AuthResult{
+      .effective_mask = effective_mask, .roles = std::move(identity->roles), .username = std::move(identity->username)};
 }
 
 }  // namespace memgraph::glue

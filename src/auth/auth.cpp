@@ -384,7 +384,7 @@ auto ParseAndMigrateJson(std::string_view str) {
 // Validates an auth module's response object and, on a successful authentication, returns the role names it reports.
 // Returns nullopt if the module did not authenticate, the response is malformed, or no role was returned. This is the
 // portion of the module contract shared by the data-instance path (Auth::CallExternalModule, which additionally
-// validates the roles against the auth kvstore) and the coordinator path (Auth::SSOGetRoleNames, which validates them
+// validates the roles against the auth kvstore) and the coordinator path (Auth::SSOGetIdentity, which validates them
 // against the Raft-replicated coordinator role set instead).
 std::optional<std::vector<std::string>> ExtractAuthenticatedRoleNames(const nlohmann::json &ret) {
   auto get_errors = [&ret]() -> std::string {
@@ -637,8 +637,8 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   return user_or_role;
 }
 
-std::optional<std::vector<std::string>> Auth::SSOGetRoleNames(const std::string &scheme,
-                                                              const std::string &identity_provider_response) {
+std::optional<SSOIdentity> Auth::SSOGetIdentity(const std::string &scheme,
+                                                const std::string &identity_provider_response) {
   // Same enterprise-license + configured-module gate as the data-instance SSO path: a missing license or an unmapped
   // scheme rejects (returns nullopt), so SSO on coordinators is enterprise-gated too.
   spdlog::info("Coordinator SSO login attempt using scheme '{}'.", scheme);
@@ -651,7 +651,7 @@ std::optional<std::vector<std::string>> Auth::SSOGetRoleNames(const std::string 
   params["scheme"] = scheme;
   params["response"] = identity_provider_response;
 
-  // Reuse the auth-module subprocess machinery to run the module, but only extract the role names it reports. The
+  // Reuse the auth-module subprocess machinery to run the module, but only extract the identity it reports. The
   // coordinator path deliberately does NOT validate the roles against the auth kvstore (GetRole) or check for a
   // colliding local user -- coordinators have no user/role records in the kvstore; role existence is checked by the
   // caller against the Raft-replicated coordinator role set.
@@ -662,9 +662,27 @@ std::optional<std::vector<std::string>> Auth::SSOGetRoleNames(const std::string 
     spdlog::warn("Coordinator SSO login failed for scheme '{}'.", scheme);
     return std::nullopt;
   }
-  spdlog::info(
-      "Coordinator SSO login succeeded for scheme '{}' with roles: {}.", scheme, utils::JoinVector(*role_names, ", "));
-  return role_names;
+
+  // The principal is recorded, not validated: a module that omits it still logs in (the coordinator authorizes by
+  // role), but its queries can't be attributed to anybody, so say so once at login instead of silently.
+  auto username = std::invoke([&ret]() -> std::string {
+    if (!ret.contains("username") || !ret.at("username").is_string()) {
+      return {};
+    }
+    return ret.at("username").get<std::string>();
+  });
+  if (username.empty()) {
+    spdlog::warn(utils::MessageWithLink(
+        "The coordinator SSO module returned no username; queries from this session will be recorded without a "
+        "principal.",
+        "https://memgr.ph/sso"));
+  }
+
+  spdlog::info("Coordinator SSO login succeeded for scheme '{}' as user '{}' with roles: {}.",
+               scheme,
+               username,
+               utils::JoinVector(*role_names, ", "));
+  return SSOIdentity{.username = std::move(username), .roles = std::move(*role_names)};
 }
 
 void Auth::LinkUser(User &user) const {

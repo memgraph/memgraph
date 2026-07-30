@@ -386,9 +386,9 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::CoordinatorSSOA
   };
 
   auto module_runner = [this](std::string const &sso_scheme,
-                              std::string const &response) -> std::optional<std::vector<std::string>> {
+                              std::string const &response) -> std::optional<auth::SSOIdentity> {
     auto locked_auth = auth_->Lock();
-    return locked_auth->SSOGetRoleNames(sso_scheme, response);
+    return locked_auth->SSOGetIdentity(sso_scheme, response);
   };
 
   CoordinatorSSOAuthenticator const authenticator{std::move(module_runner), std::move(role_mask_provider)};
@@ -404,6 +404,10 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::CoordinatorSSOA
   // without COORDINATOR_READ or COORDINATOR_WRITE, so a surviving session starts with at least read privileges.
   interpreter_.SetCoordinatorPrivileges(auth_result->effective_mask);
   interpreter_.SetCoordinatorRoles(std::move(auth_result->roles));
+  // Records the principal the identity provider authenticated. There is no QueryUserOrRole to derive it from here (a
+  // coordinator authorizes by Raft-replicated role, not by a kvstore user), so the module's username is the only thing
+  // that ties a control-plane query -- FORCE RESET CLUSTER STATE, SET INSTANCE TO MAIN -- back to a person.
+  interpreter_.SetSessionInfo(UUID(), std::move(auth_result->username), GetLoginTimestamp());
   return {};
 }
 
@@ -491,7 +495,10 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     auto &db = interpreter_.current_db_.db_acc_;
     const auto &user_or_role = interpreter_.user_or_role_;
-    const auto username = user_or_role ? (user_or_role->username() ? *user_or_role->username() : "") : "";
+    // Coordinator sessions authorize by Raft-replicated role and never build a QueryUserOrRole, so fall back to the
+    // principal recorded at login; without it every control-plane query would be audited with an empty username.
+    const auto username =
+        user_or_role && user_or_role->username() ? *user_or_role->username() : interpreter_.session_info_.username;
     audit_log_->Record(fmt::format("{}:{}", endpoint_.address().to_string(), std::to_string(endpoint_.port())),
                        username,
                        query,

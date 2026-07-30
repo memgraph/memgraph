@@ -19,6 +19,8 @@
 #include <string>
 #include <vector>
 
+#include "auth/auth.hpp"
+
 namespace memgraph::glue {
 
 // Coordinator SSO authenticator: a deep module that authenticates an SSO connection to a coordinator against the
@@ -32,19 +34,21 @@ namespace memgraph::glue {
 // mask can be exercised in isolation with a fake module runner and a fake role/mask provider.
 class CoordinatorSSOAuthenticator {
  public:
-  // Runs the SSO module for `scheme` with the identity-provider `response` and returns the role names it reports on
+  // Runs the SSO module for `scheme` with the identity-provider `response` and returns the identity it reports on
   // success. Returns nullopt on any module/authentication/parse failure (including a missing enterprise license).
   using ModuleRunner =
-      std::function<std::optional<std::vector<std::string>>(std::string const &scheme, std::string const &response)>;
+      std::function<std::optional<auth::SSOIdentity>(std::string const &scheme, std::string const &response)>;
 
   // Returns the coordinator role's privilege mask if `role_name` exists in the committed role set, nullopt otherwise.
   using RoleMaskProvider = std::function<std::optional<uint64_t>(std::string const &role_name)>;
 
-  // Outcome of a successful authentication: the session's effective privilege mask and the role names the session
-  // authenticated with (carried so SHOW CURRENT ROLE can report them).
+  // Outcome of a successful authentication: the session's effective privilege mask, the role names the session
+  // authenticated with (carried so SHOW CURRENT ROLE can report them), and the principal the module authenticated
+  // (carried so the session can record who ran a query; empty if the module reported no username).
   struct AuthResult {
     uint64_t effective_mask;
     std::vector<std::string> roles;
+    std::string username;
   };
 
   CoordinatorSSOAuthenticator(ModuleRunner module_runner, RoleMaskProvider role_mask_provider);
