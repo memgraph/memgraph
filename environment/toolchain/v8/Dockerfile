@@ -20,40 +20,21 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
-        coreutils gcc g++ build-essential make \
-        wget curl \
-        gnupg \
+        coreutils gcc g++ build-essential make file \
+        wget gnupg \
         tar gzip bzip2 xz-utils unzip \
-        zlib1g-dev \
-        libexpat1-dev libbabeltrace-dev liblzma-dev python3-dev texinfo \
-        libcurl4-openssl-dev \
-        libreadline-dev \
-        libffi-dev libxml2-dev \
-        file \
         git \
-        libgmp-dev \
-        gperf \
-        libssl-dev \
-        libedit-dev libpcre2-dev libpcre3-dev automake bison \
-        libtool pkg-config \
-        libsasl2-dev \
+        rsync \
+        gawk bison python3 \
+        m4 \
+        perl \
+        pkg-config \
+        autoconf automake libtool \
+        zlib1g-dev libbz2-dev liblzma-dev libzstd-dev \
         libdw-dev \
         libboost-filesystem-dev libboost-program-options-dev \
-        libboost-iostreams-dev libboost-system-dev \
-        libbz2-dev libzstd-dev \
-        python3 python3-pip \
-        gawk \
-        rsync && \
+        libboost-iostreams-dev libboost-system-dev && \
     rm -rf /var/lib/apt/lists/*
-
-# Rust toolchain — build.sh sources $HOME/.cargo/env unconditionally even
-# though the toolchain itself doesn't compile Rust. Version mirrors
-# install_rust in environment/util.sh.
-ARG RUST_VERSION=1.85
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-        sh -s -- -y --profile minimal --default-toolchain ${RUST_VERSION} && \
-    /root/.cargo/bin/rustc --version
-ENV PATH=/root/.cargo/bin:${PATH}
 
 # build.sh writes here. Pre-create so the script doesn't have to.
 RUN mkdir -p /opt/toolchain-v8

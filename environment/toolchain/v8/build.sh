@@ -95,7 +95,6 @@ echo "ALL BUILD PACKAGES: $(${ENV_SCRIPT} list TOOLCHAIN_BUILD_DEPS)"
 ${ENV_SCRIPT} check TOOLCHAIN_BUILD_DEPS
 echo "ALL RUN PACKAGES: $(${ENV_SCRIPT} list TOOLCHAIN_RUN_DEPS)"
 ${ENV_SCRIPT} check TOOLCHAIN_RUN_DEPS
-. "$HOME/.cargo/env"
 
 # check installation directory
 NAME=toolchain-v$TOOLCHAIN_VERSION
@@ -124,6 +123,8 @@ if [ ! -d $PREFIX ] || [ ! -w $PREFIX ]; then
 fi
 
 # create archives directory
+# Host deps (apt): wget, gnupg, ca-certificates, git (LLVM/mgconsole/heaptrack
+# clones), coreutils (sha*sum), tar, gzip, bzip2, xz-utils.
 mkdir -p archives && pushd archives
 # download all archives
 if [ ! -f gcc-$GCC_VERSION.tar.gz ]; then
@@ -235,6 +236,7 @@ pushd build
 # host system's. Kept reproducible across hosts at the cost of one glibc build.
 # ----------------------------------------------------------------------------
 
+# Host deps (apt): gcc, make (headers_install compiles scripts/unifdef), rsync.
 log_tool_name "Linux kernel headers $LINUX_HEADERS_VERSION"
 if [[ ! -d "$SYSROOT/usr/include/linux" ]]; then
     if [[ -d "linux-$LINUX_HEADERS_VERSION" ]]; then
@@ -251,6 +253,7 @@ if [[ ! -d "$SYSROOT/usr/include/linux" ]]; then
     popd
 fi
 
+# Host deps (apt): gcc, g++, make (build-essential), gawk, bison, python3.
 log_tool_name "glibc $GLIBC_VERSION"
 if [[ ! -f "$SYSROOT/lib64/libc.so.6" && ! -f "$SYSROOT/lib/libc.so.6" ]]; then
     if [[ -d "glibc-$GLIBC_VERSION" ]]; then
@@ -296,6 +299,8 @@ if [[ ! -f "$SYSROOT/lib64/libc.so.6" && ! -f "$SYSROOT/lib/libc.so.6" ]]; then
     popd && popd
 fi
 
+# Host deps (apt): build-essential, m4 (in-tree gmp), wget + bzip2
+# (download_prerequisites fetches gmp/mpfr/mpc/isl as .tar.bz2).
 log_tool_name "GCC $GCC_VERSION"
 if [ ! -f "$PREFIX/bin/gcc" ]; then
     if [ -d "gcc-$GCC_VERSION" ]; then
@@ -432,6 +437,7 @@ if [[ ! -e "$SYSROOT/usr/lib/libm.so.6" ]]; then
 fi
 
 # NOTE: manually install gmp and mpfr (required by gdb)
+# Host deps (apt): m4, make (compiler is the just-built toolchain gcc via CC).
 log_tool_name "gmp (from gcc)"
 if [ ! -f "$PREFIX/lib/libgmp.a" ]; then
     pushd $DIR/build/gcc-$GCC_VERSION/gmp
@@ -453,6 +459,7 @@ if [ ! -f "$PREFIX/lib/libgmp.a" ]; then
     popd
 fi
 
+# Host deps (apt): make (gmp comes from $PREFIX above).
 log_tool_name "mpfr (from gcc)"
 if [ ! -f "$PREFIX/lib/libmpfr.a" ]; then
     pushd $DIR/build/gcc-$GCC_VERSION/mpfr
@@ -473,6 +480,7 @@ if [ ! -f "$PREFIX/lib/libmpfr.a" ]; then
     popd
 fi
 
+# Host deps (apt): gcc, g++, make, bison (gprofng's parser); zlib is bundled.
 log_tool_name "binutils $BINUTILS_VERSION"
 if [ ! -f "$PREFIX/bin/ld" ]; then
     if [ -d "binutils-$BINUTILS_VERSION" ]; then
@@ -549,6 +557,7 @@ fi
 # default. Consumed by GDB / cmake / mgconsole.
 # ----------------------------------------------------------------------------
 
+# Host deps (apt): make only — compiler is the toolchain gcc from here on.
 log_tool_name "zlib $ZLIB_VERSION (sysroot)"
 if [[ ! -f "$SYSROOT/usr/lib/libz.a" ]]; then
     if [[ -d "zlib-$ZLIB_VERSION" ]]; then
@@ -562,6 +571,7 @@ if [[ ! -f "$SYSROOT/usr/lib/libz.a" ]]; then
     popd
 fi
 
+# Host deps (apt): make.
 log_tool_name "ncurses $NCURSES_VERSION (sysroot)"
 if [[ ! -f "$SYSROOT/usr/lib/libncurses.a" ]]; then
     if [[ -d "ncurses-$NCURSES_VERSION" ]]; then
@@ -591,6 +601,7 @@ if [[ ! -f "$SYSROOT/usr/lib/libncurses.a" ]]; then
     popd
 fi
 
+# Host deps (apt): make, perl (openssl's Configure is a perl script).
 log_tool_name "openssl $OPENSSL_VERSION (sysroot)"
 if [[ ! -f "$SYSROOT/usr/lib64/libssl.a" && ! -f "$SYSROOT/usr/lib/libssl.a" ]]; then
     if [[ -d "openssl-$OPENSSL_VERSION" ]]; then
@@ -610,6 +621,8 @@ if [[ ! -f "$SYSROOT/usr/lib64/libssl.a" && ! -f "$SYSROOT/usr/lib/libssl.a" ]];
     popd
 fi
 
+# Host deps (apt): make, pkg-config (resolves sysroot OpenSSL/zlib .pc files
+# via PKG_CONFIG_LIBDIR).
 log_tool_name "curl $CURL_VERSION (sysroot)"
 if [[ ! -f "$SYSROOT/usr/lib/libcurl.a" ]]; then
     if [[ -d "curl-$CURL_VERSION" ]]; then
@@ -634,6 +647,7 @@ if [[ ! -f "$SYSROOT/usr/lib/libcurl.a" ]]; then
     popd
 fi
 
+# Host deps (apt): make.
 log_tool_name "libffi $LIBFFI_VERSION (sysroot)"
 if [[ ! -f "$SYSROOT/usr/lib/libffi.a" && ! -f "$SYSROOT/usr/lib64/libffi.a" ]]; then
     if [[ -d "libffi-$LIBFFI_VERSION" ]]; then
@@ -650,6 +664,8 @@ if [[ ! -f "$SYSROOT/usr/lib/libffi.a" && ! -f "$SYSROOT/usr/lib64/libffi.a" ]];
     popd
 fi
 
+# Host deps (apt): make, pkg-config — zlib/ncurses/openssl/libffi deps all come
+# from the sysroot built above.
 log_tool_name "Python $PYTHON_VERSION (sysroot)"
 if [[ ! -f "$SYSROOT/usr/lib/libpython${PYTHON_MAJMIN}.so" ]]; then
     if [[ -d "Python-$PYTHON_VERSION" ]]; then
@@ -678,6 +694,8 @@ if [[ ! -f "$SYSROOT/usr/lib/libpython${PYTHON_MAJMIN}.so" ]]; then
     popd
 fi
 
+# Host deps (apt): make — gmp/mpfr come from $PREFIX, python/ncurses/zlib from
+# the sysroot; expat/lzma/babeltrace/intel-pt features are disabled below.
 log_tool_name "GDB $GDB_VERSION"
 if [[ ! -f "$PREFIX/bin/gdb" ]]; then
     if [[ -d "gdb-$GDB_VERSION" ]]; then
@@ -754,6 +772,7 @@ if [[ ! -f "$PREFIX/bin/gdb" ]]; then
     popd && popd
 fi
 
+# Host deps (apt): unzip.
 log_tool_name "install pahole"
 if [[ ! -d "$PREFIX/share/pahole-gdb" ]]; then
     unzip ../archives/pahole-gdb-master.zip
@@ -786,6 +805,8 @@ end
 EOF
 fi
 
+# Host deps (apt): make — compiler is the toolchain gcc; curl/ncurses/openssl/
+# zlib come from the sysroot (--system-curl + CMAKE_SYSROOT below).
 log_tool_name "cmake $CMAKE_VERSION"
 if [[ ! -f "$PREFIX/bin/cmake" ]]; then
     if [[ -d cmake-$CMAKE_VERSION ]]; then
@@ -822,6 +843,7 @@ if [[ ! -f "$PREFIX/bin/cmake" ]]; then
     popd && popd
 fi
 
+# Host deps (apt): make ("gcc"/"g++" resolve to the toolchain via PATH).
 log_tool_name "cppcheck $CPPCHECK_VERSION"
 if [[ ! -f "$PREFIX/bin/cppcheck" ]]; then
     if [[ -d "cppcheck-$CPPCHECK_VERSION" ]]; then
@@ -846,6 +868,8 @@ if [[ ! -f "$PREFIX/bin/cppcheck" ]]; then
     popd
 fi
 
+# Host deps (apt): autoconf (via automake), automake, libtool, bison, make —
+# PCRE2 is built from our own pinned tarball, not libpcre2-dev.
 log_tool_name "swig $SWIG_VERSION"
 if [[ ! -d "swig-$SWIG_VERSION/install" ]]; then
     if [[ -d swig-$SWIG_VERSION ]]; then
@@ -866,6 +890,8 @@ if [[ ! -d "swig-$SWIG_VERSION/install" ]]; then
     popd && popd
 fi
 
+# Host deps (apt): make, python3 — cmake/gcc/binutils come from $PREFIX, swig
+# from the stage above, zlib/libffi from the sysroot (FIND_ROOT_PATH=ONLY).
 log_tool_name "LLVM $LLVM_VERSION"
 if [[ ! -f "$PREFIX/bin/clang" ]]; then
     if [[ -d llvmorg-$LLVM_VERSION ]]; then
@@ -1032,6 +1058,7 @@ COMMON_CONFIGURE_FLAGS="--enable-shared=no --prefix=$PREFIX"
 COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
 
 MGCONSOLE_TAG="v1.7.0"
+# Host deps (apt): git, make — OpenSSL comes from the sysroot.
 log_tool_name "mgconsole $MGCONSOLE_TAG"
 if [[ ! -f "$PREFIX/bin/mgconsole" ]]; then
     if [[ -d mgconsole ]]; then
@@ -1055,6 +1082,11 @@ if [[ ! -f "$PREFIX/bin/mgconsole" ]]; then
     popd
 fi
 
+# Host deps (apt): git, make, libdw-dev (also pulls libelf-dev for
+# libebl.a/libelf.a), libboost-filesystem-dev, libboost-program-options-dev,
+# libboost-iostreams-dev, libboost-system-dev, and the static compression
+# archives the link line below names: zlib1g-dev, libbz2-dev, liblzma-dev,
+# libzstd-dev.
 HEAPTRACK_TAG="v1.5.0"
 log_tool_name "heaptrack $HEAPTRACK_TAG"
 if [[ ! -f "$PREFIX/bin/heaptrack" ]]; then

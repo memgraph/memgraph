@@ -19,39 +19,27 @@ fi
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils gcc g++ build-essential make # generic build tools
-    wget # used for archive download
-    gnupg # used for archive signature verification
-    tar gzip bzip2 xz-utils unzip # used for archive unpacking
-    zlib1g-dev # zlib library used for all builds
-    libexpat1-dev libbabeltrace-dev liblzma-dev python3-dev texinfo # for gdb
-    libcurl4-openssl-dev # for cmake
-    libreadline-dev # for cmake and llvm
-    libffi-dev libxml2-dev # for llvm
-    curl # snappy
-    file
-    git # for thrift
-    libgmp-dev # for gdb
-    gperf # for proxygen
-    libssl-dev
-    libedit-dev libpcre2-dev libpcre3-dev automake bison # for swig
-    custom-rust
-    libtool # for protobuf
-    libssl-dev pkg-config # for pulsar
-    libsasl2-dev # for librdkafka
-    python3-pip # for conan
-    libdw-dev libbz2-dev libzstd-dev # for heaptrack
+    file # libtool library checks (swig)
+    wget # archive download
+    gnupg # archive signature verification
+    tar gzip bzip2 xz-utils unzip # archive unpacking (unzip: pahole)
+    git # LLVM / mgconsole / heaptrack clones
+    rsync # kernel headers_install
+    gawk bison python3 # glibc (bison also: binutils gprofng, swig)
+    m4 # gcc's in-tree gmp
+    perl # openssl Configure
+    pkg-config # sysroot .pc resolution (curl, python)
+    autoconf automake libtool # swig autogen.sh
+    zlib1g-dev libbz2-dev liblzma-dev libzstd-dev # heaptrack static compression deps
+    libdw-dev # heaptrack (pulls libelf-dev)
     libboost-filesystem-dev libboost-program-options-dev libboost-iostreams-dev libboost-system-dev # for heaptrack
 )
 
 TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
-    tar gzip bzip2 xz-utils # used for archive unpacking
+    tar gzip bzip2 xz-utils # archive unpacking
     zlib1g # zlib library used for all builds
-    libexpat1 libbabeltrace1 liblzma5 python3 # for gdb
-    libcurl4 # for cmake
-    libreadline8 # for cmake and llvm
-    libffi7 libxml2 # for llvm
-    libssl-dev # for libevent
+    python3 # llvm helper scripts; gdb ships its own python via the sysroot
 )
 
 MEMGRAPH_BUILD_DEPS=(
