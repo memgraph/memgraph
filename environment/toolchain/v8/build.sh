@@ -417,6 +417,19 @@ if [[ ! -L "$SYSROOT/usr/lib64/libstdc++.so.6" ]]; then
     done
 fi
 
+# Also expose the sysroot glibc's runtime libs (libm.so.6, libc.so.6, ...) in
+# $SYSROOT/usr/lib64. glibc installs them into $SYSROOT/lib64 (slibdir), which
+# linkers only find via their built-in "=/lib64" search path — present in
+# x86_64 hosts' ld but absent from Debian-family aarch64 ld (multiarch dirs
+# only). Without this, DT_NEEDED entries like libstdc++.so's libm.so.6 fail to
+# resolve ("try using -rpath-link") on ARM.
+if [[ ! -e "$SYSROOT/usr/lib64/libm.so.6" ]]; then
+    for lib in $SYSROOT/lib64/*.so*; do
+        [[ -e "$lib" ]] || continue
+        ln -sf "../../lib64/$(basename "$lib")" "$SYSROOT/usr/lib64/$(basename "$lib")"
+    done
+fi
+
 # NOTE: manually install gmp and mpfr (required by gdb)
 log_tool_name "gmp (from gcc)"
 if [ ! -f "$PREFIX/lib/libgmp.a" ]; then
