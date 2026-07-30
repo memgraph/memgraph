@@ -802,6 +802,11 @@ class InMemoryStorage final : public Storage {
   ///
   /// Default arguments are not inherited through the base declaration: a call on a concrete
   /// InMemoryStorage expression resolves to THIS declaration, so the default is repeated here.
+  /// Constructs an InMemoryAccessor adopting `guard`, notifying parked waiters if the constructor
+  /// throws -- see the definition for why that notify cannot be left to ~Accessor.
+  std::unique_ptr<Accessor> NewAccessorOrNotifyRelease(std::optional<IsolationLevel> override_isolation_level,
+                                                      utils::ResourceLockGuard guard);
+
   std::unique_ptr<Accessor> TryAccess(StorageAccessType rw_type,
                                       std::optional<IsolationLevel> override_isolation_level = {}) override;
 

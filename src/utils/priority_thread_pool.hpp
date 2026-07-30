@@ -240,12 +240,19 @@ class PriorityThreadPool {
       hp_workers_;       // High priority work threads | ideally tasks yield and this isn't needed
   HotMask hot_threads_;  // Mask of workers waiting for new work (but still not sleeping)
 
+  // Deadline-sweep registry for parked waiters (IP-1 B2); swept once per monitor tick alongside
+  // the stuck-task migration below. See park_registry() accessor doc comment.
+  //
+  // MUST be declared BEFORE pool_/monitoring_ so it is destroyed AFTER them: both the workers and
+  // the monitor touch it (Register from await_suspend, Sweep from the monitor tick), and
+  // Worker::stop() only clears a flag -- it does not join. On a teardown that reaches the
+  // destructor without an intervening AwaitShutdown(), a worker still inside await_suspend would
+  // otherwise Register() on a destroyed mutex and vector. Production joins first, so this is
+  // latent there; unit tests and any other embedding are not protected by that accident.
+  DeadlineParkRegistry park_registry_;
+
   std::vector<std::jthread> pool_;  // All available threads (list so the elements are stable)
   utils::Scheduler monitoring_;     // Background task monitoring the overall throughput and rearranging
-
-  // Deadline-sweep registry for parked waiters (IP-1 B2); swept once per monitor tick alongside
-  // the stuck-task migration above. See park_registry() accessor doc comment.
-  DeadlineParkRegistry park_registry_;
 
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker

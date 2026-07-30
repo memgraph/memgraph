@@ -4694,11 +4694,26 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
       this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, timeout)});
 }
 
+std::unique_ptr<Storage::Accessor> InMemoryStorage::NewAccessorOrNotifyRelease(
+    std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard) {
+  // The accessor's constructor allocates (CreateTransaction, index/constraint snapshots), so it can
+  // throw -- and when it does, `guard_` has already been constructed, so member unwinding releases
+  // main_lock_ while ~Accessor never runs. That skips the notify ~Accessor would have done, leaving
+  // a parked waiter asleep until its deadline sweep even though the hold is gone. Notify here
+  // instead; the guard is already released by the time this handler runs, so C3 holds.
+  try {
+    return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
+  } catch (...) {
+    NotifyMainLockReleased();
+    throw;
+  }
+}
+
 std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType rw_type,
                                                               std::optional<IsolationLevel> override_isolation_level) {
   utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::try_to_lock};
   if (!guard.owns_lock()) return nullptr;
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
+  return NewAccessorOrNotifyRelease(override_isolation_level, std::move(guard));
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccessWithPending(
@@ -4733,7 +4748,7 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccessWithPending(
   }();
 
   if (!guard) return nullptr;
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(*guard)});
+  return NewAccessorOrNotifyRelease(override_isolation_level, std::move(*guard));
 }
 
 void InMemoryStorage::CreateSnapshotHandler(

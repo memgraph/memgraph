@@ -162,6 +162,19 @@ class [[nodiscard]] Task {
   T Run() {
     DMG_ASSERT(handle_, "Run() on an empty/moved-from Task.");
     handle_.resume();
+    // Only non-void T is unsafe here, so only non-void T is asserted. If the chain PARKED instead
+    // of completing, the promise holds neither a value nor an exception, and TakeValue() would read
+    // an uninitialised union member -- silent UB in release, which is why this is MG_ASSERT and not
+    // DMG_ASSERT. Promise<void>::TakeValue() only rethrows, so driving a Task<void> that parks is
+    // legitimate: the caller keeps the Task alive and a wake source resumes the frame later (see
+    // tests/unit/coro_accessor.cpp's park tests, which do exactly that). Callers that need a VALUE
+    // out of a chain that can suspend must use Resume() + Done() + TakeValue() instead.
+    if constexpr (!std::is_void_v<T>) {
+      MG_ASSERT(handle_.done(),
+                "Run() drove a non-void Task that suspended instead of completing -- it parked, so "
+                "there is no value to take. Use Resume() + Done() + TakeValue() for a Task that can "
+                "suspend.");
+    }
     return handle_.promise().TakeValue();
   }
 
