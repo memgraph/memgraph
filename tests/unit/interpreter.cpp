@@ -368,8 +368,6 @@ TYPED_TEST(InterpreterTest, EdgePropertyInListIndexedEquivalence) {
 // order, so an ORDER BY on the indexed property must still sort rather than
 // being elided as already-ordered.
 TYPED_TEST(InterpreterTest, EdgePropertyInListOrderByNotElided) {
-  using EPV = memgraph::storage::ExternalPropertyValue;
-
   // Edge-type indexes are only supported on in-memory storage.
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
     return;

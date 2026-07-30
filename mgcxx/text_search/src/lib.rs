@@ -20,7 +20,7 @@ use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::AggregationCollector;
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
-use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, Query, QueryParser, RegexQuery};
+use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, Query, QueryParser};
 use tantivy::schema::Value as _;
 use tantivy::schema::*;
 use tantivy::tokenizer::{TextAnalyzer, TokenStream};
@@ -193,62 +193,10 @@ fn apply_fuzzy_config(
     Ok(())
 }
 
-fn owned_value_to_json(val: OwnedValue) -> serde_json::Value {
-    match val {
-        OwnedValue::Null => serde_json::Value::Null,
-        OwnedValue::Str(s) => serde_json::Value::String(s),
-        OwnedValue::U64(n) => serde_json::json!(n),
-        OwnedValue::I64(n) => serde_json::json!(n),
-        OwnedValue::F64(n) => serde_json::json!(n),
-        OwnedValue::Bool(b) => serde_json::Value::Bool(b),
-        OwnedValue::Array(arr) => {
-            serde_json::Value::Array(arr.into_iter().map(owned_value_to_json).collect())
-        }
-        OwnedValue::Object(entries) => {
-            let map: serde_json::Map<String, serde_json::Value> = entries
-                .into_iter()
-                .map(|(k, v)| (k, owned_value_to_json(v)))
-                .collect();
-            serde_json::Value::Object(map)
-        }
-        other => match serde_json::to_value(&other) {
-            Ok(v) => v,
-            Err(e) => {
-                log::error!(
-                    "Failed to serialize OwnedValue to JSON in owned_value_to_json: value={:?}, error={}",
-                    other,
-                    e
-                );
-                serde_json::Value::Null
-            }
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn test_owned_value_to_json_nested() {
-        let doc = OwnedValue::Object(vec![
-            ("name".to_string(), OwnedValue::Str("test".to_string())),
-            ("count".to_string(), OwnedValue::I64(-3)),
-            ("tags".to_string(), OwnedValue::Array(vec![
-                OwnedValue::Bool(true),
-                OwnedValue::U64(42),
-            ])),
-            ("nested".to_string(), OwnedValue::Object(vec![
-                ("x".to_string(), OwnedValue::F64(1.5)),
-            ])),
-            ("empty".to_string(), OwnedValue::Null),
-        ]);
-        assert_eq!(
-            owned_value_to_json(doc),
-            json!({"name": "test", "count": -3, "tags": [true, 42u64], "nested": {"x": 1.5}, "empty": null})
-        );
-    }
+    use tantivy::query::RegexQuery;
 
     fn chars(s: &str) -> Vec<char> {
         s.chars().collect()

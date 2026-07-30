@@ -75,13 +75,11 @@ double algoLouvainWithDistOneColoringNoMap(graph* G, long *C, int nThreads, int*
 
 	/* Book keeping variables */
 	long    NV        = G->numVertices;
-	long    NS        = G->sVertices;
 	long    NE        = G->numEdges;
 	long    *vtxPtr   = G->edgeListPtrs;
 	edge    *vtxInd   = G->edgeList;
 
 	/* Modularity Needed variables */
-	long totalEdgeWeightTwice;
 	double constantForSecondTerm;
 	double prevMod=Lower;
 	double currMod=-1;

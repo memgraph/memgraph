@@ -76,13 +76,10 @@ double algoLouvainWithDistOneColoring(graph* G, mgp_graph *mg_graph, long *C, in
 
     /* Book keeping variables */
     long    NV        = G->numVertices;
-    long    NS        = G->sVertices;
-    long    NE        = G->numEdges;
     long    *vtxPtr   = G->edgeListPtrs;
     edge    *vtxInd   = G->edgeList;
 
     /* Modularity Needed variables */
-    long totalEdgeWeightTwice;
     double constantForSecondTerm;
     double prevMod=Lower;
     double currMod=-1;

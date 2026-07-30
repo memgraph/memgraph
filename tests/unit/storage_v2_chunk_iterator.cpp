@@ -2692,7 +2692,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingComprehensiveEdgeCases) 
         auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
         edge_gids.push_back(edge->Gid());
       } else {
-        auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id2_);
+        [[maybe_unused]] auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id2_);
       }
     }
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());

@@ -65,13 +65,10 @@ double parallelLouvianMethodFastTrackResistance(graph *G, mgp_graph *mg_graph, l
     double total = 0, totItr = 0;
 
     long    NV        = G->numVertices;
-    long    NS        = G->sVertices;
-    long    NE        = G->numEdges;
     long    *vtxPtr   = G->edgeListPtrs;
     edge    *vtxInd   = G->edgeList;
 
     /* Variables for computing modularity */
-    long totalEdgeWeightTwice;
     double constantForSecondTerm;
     double currMod=-1.0;
     double prevMod=-1.0;

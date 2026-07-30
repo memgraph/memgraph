@@ -165,7 +165,7 @@ impl List {
         }
     }
 
-    pub fn iter(&self) -> Result<ListIterator> {
+    pub fn iter(&self) -> Result<ListIterator<'_>> {
         Ok(ListIterator {
             list: self,
             position: 0,

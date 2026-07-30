@@ -97,7 +97,7 @@ constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIE
 constexpr uint64_t kMgVmMaxMapCount = 524'288;
 
 void WarnDeprecatedFlags() {
-  auto warn_if_set = [](std::string_view name, std::string_view message) {
+  [[maybe_unused]] auto warn_if_set = [](std::string_view name, std::string_view message) {
     const auto info = gflags::GetCommandLineFlagInfoOrDie(std::string{name}.c_str());
     if (!info.is_default) spdlog::warn("{}", message);
   };

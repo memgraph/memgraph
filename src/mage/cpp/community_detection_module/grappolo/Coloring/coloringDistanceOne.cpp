@@ -68,7 +68,6 @@ int algoDistanceOneVertexColoringOpt(graph *G, int *vtxColor, int nThreads, doub
   double time1=0, time2=0, totalTime=0;
   //Get the iterators for the graph:
   long NVer    = G->numVertices;
-  long NEdge   = G->numEdges;
   long *verPtr = G->edgeListPtrs;   //Vertex Pointer: pointers to endV
   edge *verInd = G->edgeList;       //Vertex Index: destination id of an edge (src -> dest)
 
@@ -114,8 +113,6 @@ int algoDistanceOneVertexColoringOpt(graph *G, int *vtxColor, int nThreads, doub
   /////////////////////////////////////////////////////////////////////////////////////////
   //////////////////////////// START THE WHILE LOOP ///////////////////////////////////////
   /////////////////////////////////////////////////////////////////////////////////////////
-  long nConflicts = 0; //Number of conflicts
-  int nLoops = 0;     //Number of rounds of conflict resolution
 
 #ifdef PRINT_DETAILED_STATS_
 #endif
@@ -161,8 +158,6 @@ int algoDistanceOneVertexColoringOpt(graph *G, int *vtxColor, int nThreads, doub
 
 		time2  = omp_get_wtime() - time2;
 		totalTime += time2;
-		nConflicts += QtmpTail;
-		nLoops++;
 
 #ifdef PRINT_DETAILED_STATS_
 #endif
@@ -231,9 +226,6 @@ int algoDistanceOneVertexColoring(graph *G, int *vtxColor, int nThreads, double 
 	double time1=0, time2=0, totalTime=0;
   //Get the iterators for the graph:
   long NVer    = G->numVertices;
-  long NS      = G->sVertices;
-  long NT      = NVer - NS;
-  long NEdge           = G->numEdges;
   long *verPtr         = G->edgeListPtrs;   //Vertex Pointer: pointers to endV
   edge *verInd         = G->edgeList;       //Vertex Index: destination id of an edge (src -> dest)
 
@@ -268,7 +260,6 @@ int algoDistanceOneVertexColoring(graph *G, int *vtxColor, int nThreads, double 
   /////////////////////////////////////////////////////////////////////////////////////////
   //////////////////////////// START THE WHILE LOOP ///////////////////////////////////////
   /////////////////////////////////////////////////////////////////////////////////////////
-  long nConflicts = 0; //Number of conflicts
   int nLoops = 0;     //Number of rounds of conflict resolution
   int *Mark = (int *) malloc ( MaxDegree * NVer * sizeof(int) );
   if( Mark == NULL ) {
@@ -348,7 +339,6 @@ int algoDistanceOneVertexColoring(graph *G, int *vtxColor, int nThreads, double 
 
     time2  = omp_get_wtime() - time2;
     totalTime += time2;
-    nConflicts += QtmpTail;
     nLoops++;
     //Swap the two queues:
     Qswap = Q;

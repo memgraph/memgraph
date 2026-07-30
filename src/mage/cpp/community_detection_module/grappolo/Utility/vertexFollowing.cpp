@@ -97,10 +97,8 @@ double buildNewGraphVF(graph *Gin, graph *Gout, long *C, long numUniqueClusters)
 #endif
 
   double time1, time2, TotTime=0; //For timing purposes
-  double total = 0, totItr = 0;
   //Pointers into the input graph structure:
   long    NV_in        = Gin->numVertices;
-  long    NE_in        = Gin->numEdges;
   long    *vtxPtrIn    = Gin->edgeListPtrs;
   edge    *vtxIndIn    = Gin->edgeList;
 

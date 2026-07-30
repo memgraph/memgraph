@@ -63,14 +63,14 @@ ColorElem distanceOneMarkArray(BitVector &mark, const Graph &g, const GraphElem 
 void distanceOneChecked(const Graph &g, const GraphElem nv ,const ColorVector &colors);
 void generateRandomNumbers(std::vector<double> &randVec);
 
-/******* Coloring Functions ******
-
-/* Basic coloring (unbalanced) in initialColoring.cpp
+ ******* Coloring Functions ******
+ *
+ * Basic coloring (unbalanced) in initialColoring.cpp
 ColorElem initColoring(const Graph &g, ColorVector &colors, std::string input);
-/* Basic coloring (ab-inital) in initialColoringLU.cpp
+ * Basic coloring (ab-inital) in initialColoringLU.cpp
 ColorElem initColoringLU(const Graph &g, ColorVector &colors, std::string input);
 
-/* Vertex base redistribution in vBase.cpp
+ * Vertex base redistribution in vBase.cpp
  * type: 0) FF, 1) LU
 ColorElem vBaseRedistribution(const Graph &g, ColorVector &baseColors, std::string input, ColorElem ncolors, int type);
 ColorElem TrueSerialvBaseRedistribution(const Graph &g, ColorVector &baseColors, std::string input, ColorElem ncolors, int type);
@@ -79,7 +79,7 @@ ColorElem wBaseRedistribution(const Graph &g, ColorVector &baseColors, std::stri
 
 ColorElem mBaseRedistribution(const Graph &g, ColorVector &baseColors, std::string input, ColorElem ncolors, int type);
 
-/* Color base redistribution in cBase.cpp
+ * Color base redistribution in cBase.cpp
  * type: 0) FF, 1) LU
 ColorElem cBaseRedistribution(const Graph &g, ColorVector &baseColors, std::string input, ColorElem ncolors, int type);
 

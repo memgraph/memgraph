@@ -393,7 +393,6 @@ std::vector<std::pair<std::uint64_t, double>> GetKatz(const mg_graph::GraphView<
 std::vector<std::pair<std::uint64_t, double>> SetKatz(const mg_graph::GraphView<> &graph, const double alpha,
                                                       const double epsilon) {
   katz_alg::alpha = alpha;
-  katz_alg::k = k;  // NOLINT(clang-diagnostic-self-assign)
   katz_alg::epsilon = epsilon;
   katz_alg::context.Init(graph);
 

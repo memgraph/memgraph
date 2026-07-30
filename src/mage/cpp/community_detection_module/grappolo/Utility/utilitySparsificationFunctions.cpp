@@ -125,15 +125,11 @@ void mergeSort(edge *arr, long l, long r) {
 } //End of mergeSort()
 
 void SortNeighborListUsingInsertionAndMergeSort(graph *G) {
-    double time1=0, time2=0;
     //Get the iterators for the graph:
     long NVer     = G->numVertices;
-    long NEdge    = G->numEdges;       //Returns the correct number of edges (not twice)
     long *verPtr  = G->edgeListPtrs;   //Vertex Pointer: pointers to endV
     edge *verInd  = G->edgeList;       //Vertex Index: destination id of an edge (src -> dest)
-    
-    time1 = omp_get_wtime();
-    double* simWeights = (double*) malloc (2*NEdge*sizeof(double)); assert(simWeights != 0);
+
 #pragma omp parallel for
     for (long v = 0; v < NVer; v++) {
         long adj1 = verPtr[v];
@@ -162,14 +158,12 @@ void SortNeighborListUsingInsertionAndMergeSort(graph *G) {
 
 //WARNING: Assume that the neighbor lists are sorted
 double* computeEdgeSimilarityMetrics(graph *G) {
-    double time1=0, time2=0;
     //Get the iterators for the graph:
     long NVer     = G->numVertices;
     long NEdge    = G->numEdges;       //Returns the correct number of edges (not twice)
     long *verPtr  = G->edgeListPtrs;   //Vertex Pointer: pointers to endV
     edge *verInd  = G->edgeList;       //Vertex Index: destination id of an edge (src -> dest)
-    
-    time1 = omp_get_wtime();
+
     double* simWeights = (double*) malloc (2*NEdge*sizeof(double)); assert(simWeights != 0);
 #pragma omp parallel for
     for (long v = 0; v < NVer; v++) {
@@ -215,26 +209,21 @@ double* computeEdgeSimilarityMetrics(graph *G) {
             
         }//End of for(i)
     }//End of for(v)
-    time2 = omp_get_wtime();
-    
+
     return(simWeights);
 }
 
 //Build a sparsified graph and return it:
 graph* buildSparifiedGraph(graph *Gin, double alpha) {
     assert (alpha <= 1.0);
-    double time1=0, time2=0, totalTime=0;
     //Get the iterators for the graph:
     long NVer     = Gin->numVertices;
     long NEdge    = Gin->numEdges;       //Returns the correct number of edges (not twice)
     long *verPtr  = Gin->edgeListPtrs;   //Vertex Pointer: pointers to endV
-    edge *verInd  = Gin->edgeList;       //Vertex Index: destination id of an edge (src -> dest)
-    
+
     //Step 1: Sort the neighbors based on their indices:
-    time1 = omp_get_wtime();
     SortNeighborListUsingInsertionAndMergeSort(Gin);
-    time2 = omp_get_wtime();
-    
+
     //Step 2: Compute Similarities:
     double * simWeights = computeEdgeSimilarityMetrics(Gin);
     

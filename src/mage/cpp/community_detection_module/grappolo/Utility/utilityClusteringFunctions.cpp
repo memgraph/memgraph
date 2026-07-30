@@ -199,7 +199,6 @@ double buildLocalMapCounterNoMap(long v, mapElement* clusterLocalMap, long* vtxP
     long adj2  = vtxPtr[v+1];
     long sPosition = vtxPtr[v]+v; //Starting position of local map for v
 
-    long storedAlready = 0;
     double selfLoop = 0;
     for(long j=adj1; j<adj2; j++) {
         if(vtxInd[j].tail == v) {	// SelfLoop need to be recorded

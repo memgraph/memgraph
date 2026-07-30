@@ -151,13 +151,6 @@ std::string ConstructQueryPreffix(const ParamNames &names) {
                      match_string);  // NOLINT(clang-analyzer-optin.cplusplus.UninitializedObject)
 }
 
-// NOLINTNEXTLINE(clang-diagnostic-unused-function)
-std::string ConstructPreffixQuery(const mgp::Map &parameters) {
-  const auto param_names = ExtractParamNames(parameters);
-  // NOLINTNEXTLINE(clang-analyzer-optin.cplusplus.UninitializedObject)
-  return ConstructQueryPreffix(param_names);
-}
-
 std::string ConstructFinalQuery(const std::string &running_query, const std::string &preffix_query) {
   return fmt::format("{} {}", preffix_query, running_query);
 }

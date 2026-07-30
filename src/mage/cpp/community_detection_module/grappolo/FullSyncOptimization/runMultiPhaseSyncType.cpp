@@ -52,7 +52,7 @@ using namespace std;
 void runMultiPhaseSyncType(graph *G, mgp_graph *mg_graph, long *C_orig, int syncType, long minGraphSize,
                            double threshold, double C_threshold, int numThreads, int threadsOpt)
 {
-    double totTimeClustering=0, totTimeBuildingPhase=0, totTimeColoring=0, tmpTime=0;
+    double tmpTime=0;
     int tmpItr=0, totItr = 0;
     long NV = G->numVertices;
 
@@ -108,7 +108,6 @@ void runMultiPhaseSyncType(graph *G, mgp_graph *mg_graph, long *C_orig, int sync
             nonET = true;
         }
 
-        totTimeClustering += tmpTime;
         totItr += tmpItr;
 
         //Renumber the clusters contiguously
@@ -139,7 +138,6 @@ void runMultiPhaseSyncType(graph *G, mgp_graph *mg_graph, long *C_orig, int sync
         if( (currMod - prevMod) > threshold ) {
             Gnew = (graph *) malloc (sizeof(graph)); assert(Gnew != 0);
             tmpTime =  buildNextLevelGraphOpt(G, mg_graph, Gnew, C, numClusters, numThreads);
-            totTimeBuildingPhase += tmpTime;
             //Free up the previous graph
             free(G->edgeListPtrs);
             free(G->edgeList);

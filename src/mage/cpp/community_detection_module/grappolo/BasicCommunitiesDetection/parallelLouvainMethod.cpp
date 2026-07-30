@@ -83,8 +83,7 @@ double parallelLouvianMethod(graph *G, mgp_graph *mg_graph, long *C, int nThread
     double total = 0, totItr = 0;
 
     long    NV        = G->numVertices;
-    long    NS        = G->sVertices;
-    long    NE        = G->numEdges;
+    [[maybe_unused]] long    NE        = G->numEdges;
 #ifdef USE_PMEM_ALLOC
     // create PMEM partition with specific size
     struct memkind *pmem_kind = NULL;
@@ -118,7 +117,6 @@ double parallelLouvianMethod(graph *G, mgp_graph *mg_graph, long *C, int nThread
 #endif
 
     /* Variables for computing modularity */
-    long totalEdgeWeightTwice;
     double constantForSecondTerm;
     double prevMod=-1;
     double currMod=-1;

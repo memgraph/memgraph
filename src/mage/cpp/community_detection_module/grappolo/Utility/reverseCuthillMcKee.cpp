@@ -43,21 +43,18 @@ void algoReverseCuthillMcKee(graph *G, long *pOrder, int nThreads )
         nT = omp_get_num_threads();
     }
 
-    double time1=0, time2=0, total=0, totalTime=0;
     long    NV        = G->numVertices;
     long    NS        = G->sVertices;
     long    NT        = NV - NS;
     bool    isSym     = true;
     if(NT > 0)
         isSym = false; //A bipartite graph
-    long    NE        = G->numEdges;
     long    *vtxPtr   = G->edgeListPtrs;
     edge    *vtxInd   = G->edgeList;
 
     //////STEP 1: Sort the vertices in order of their degree
 
     //Compute the degree of each vertex:
-    time1 = omp_get_wtime();
     long *degree  = (long *) malloc (NV * sizeof(long)); assert(degree != 0);
 #pragma omp parallel for
     for (long i=0; i<NV; i++) {
@@ -90,8 +87,6 @@ void algoReverseCuthillMcKee(graph *G, long *pOrder, int nThreads )
         }
     }
     free(degree);
-    time2 = omp_get_wtime();
-    totalTime += time2-time1;
 
     ////////STEP 2: Now perform the BFS
 
@@ -121,14 +116,10 @@ void algoReverseCuthillMcKee(graph *G, long *pOrder, int nThreads )
     R[howManyAdded] = data[0].id; //Enter the vertex in the vector
     howManyAdded++;
 
-    long nCC = 1;
-
     while (howManyAdded < NV) { //Process until all the vertices have been added to the queue
         //The size of Q1 is now QTail+1; the elements are contained in Q1[0] through Q1[Q1Tail]
-        int nLoops=0; //Count number of iterations in the while loop
         while ( QTail > 0 ) {
             //KEY IDEA: Process all the members of the queue concurrently:
-            time1 = omp_get_wtime();
 #pragma omp parallel for
             for (long Qi=0; Qi<QTail; Qi++) {
                 long v = Q[Qi];
@@ -154,9 +145,6 @@ void algoReverseCuthillMcKee(graph *G, long *pOrder, int nThreads )
             Qtmp = Qswap;
             QTail = QtmpTail; //Number of elements
             QtmpTail = 0; //Symbolic emptying of the second queue
-            nLoops++;
-            time2  = omp_get_wtime();
-            total += time2-time1;
         } //end of while ( !Q.empty() )
 
         /////Now look for the next smallest id:
@@ -181,9 +169,6 @@ void algoReverseCuthillMcKee(graph *G, long *pOrder, int nThreads )
                 howManyAdded++; //Increment the #vertices that have been added to the stack
             }
         }//End of if()
-        nCC++;
-        totalTime += total;
-        total = 0;
     }
     //Clean Up:
     free(Q);
@@ -246,21 +231,18 @@ void algoReverseCuthillMcKeeStrict( graph *G, long *pOrder, int nThreads )
         nT = omp_get_num_threads();
     }
 
-    double time1=0, time2=0, total=0, totalTime=0;
     long    NV        = G->numVertices;
     long    NS        = G->sVertices;
     long    NT        = NV - NS;
     bool    isSym     = true;
     if(NT > 0)
         isSym = false; //A bipartite graph
-    long    NE        = G->numEdges;
     long    *vtxPtr   = G->edgeListPtrs;
     edge    *vtxInd   = G->edgeList;
 
     //////STEP 1: Sort the vertices in order of their degree
 
     //Compute the degree of each vertex:
-    time1 = omp_get_wtime();
     long *degree  = (long *) malloc (NV * sizeof(long)); assert(degree != 0);
 #pragma omp parallel for
     for (long i=0; i<NV; i++) {
@@ -282,7 +264,6 @@ void algoReverseCuthillMcKeeStrict( graph *G, long *pOrder, int nThreads )
         oneLevel[i] = -1; //Hold vertices at a given level
     }
     long howManyAdded = 0; //How many vertices have been added to the queue
-    long howManyAddedLevel = 0;
     //Do not add isolated (degree=0) vertices:
     for (int i=0; i<NV; i++) {
         if(degree[i] > 0) {
@@ -296,8 +277,6 @@ void algoReverseCuthillMcKeeStrict( graph *G, long *pOrder, int nThreads )
         }
     }
     free(degree);
-    time2 = omp_get_wtime();
-    totalTime += time2-time1;
 
     ////////STEP 2: Now perform the BFS
 
@@ -327,14 +306,10 @@ void algoReverseCuthillMcKeeStrict( graph *G, long *pOrder, int nThreads )
     R[howManyAdded] = data[0].id; //Enter the vertex in the vector
     howManyAdded++;
 
-    long nCC = 1;
-
     while (howManyAdded < NV) { //Process until all the vertices have been added to the queue
         //The size of Q1 is now QTail+1; the elements are contained in Q1[0] through Q1[Q1Tail]
-        int nLoops=0; //Count number of iterations in the while loop
         while ( QTail > 0 ) {
             //KEY IDEA: Process all the members of the queue concurrently:
-            time1 = omp_get_wtime();
             //#pragma omp parallel for
             for (long Qi=0; Qi<QTail; Qi++) {
                 long v = Q[Qi];
@@ -374,9 +349,6 @@ void algoReverseCuthillMcKeeStrict( graph *G, long *pOrder, int nThreads )
             Qtmp = Qswap;
             QTail = QtmpTail; //Number of elements
             QtmpTail = 0; //Symbolic emptying of the second queue
-            nLoops++;
-            time2  = omp_get_wtime();
-            total += time2-time1;
         } //end of while ( !Q.empty() )
 
         /////Now look for the next smallest id:
@@ -401,9 +373,6 @@ void algoReverseCuthillMcKeeStrict( graph *G, long *pOrder, int nThreads )
                 howManyAdded++; //Increment the #vertices that have been added to the stack
             }
         }//End of if()
-        nCC++;
-        totalTime += total;
-        total = 0;
     }
     //Clean Up:
     free(Q);

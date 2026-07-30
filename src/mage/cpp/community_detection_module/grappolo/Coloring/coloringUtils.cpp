@@ -71,10 +71,9 @@ void distanceOneConfResolution(graph* G, long v, int* vtxColor, double* randValu
 {
 	long *verPtr = G->edgeListPtrs;   //Vertex Pointer: pointers to endV
   edge *verInd = G->edgeList;       //Vertex Index: destination id of an edge (src -> dest)
-	int maxColor = -1, adjColor = -1;
 	long adj1 = verPtr[v];
 	long adj2 = verPtr[v+1];
-	
+
 	//Browse the adjacency set of vertex v
 	for(long k = adj1; k < adj2; k++ ) {
 		if ( v == verInd[k].tail ) //Self-loops

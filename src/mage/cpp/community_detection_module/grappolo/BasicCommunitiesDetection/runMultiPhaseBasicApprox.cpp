@@ -52,7 +52,7 @@ using namespace std;
 void runMultiPhaseBasicApprox(graph *G, mgp_graph *mg_graph, long *C_orig, int basicOpt, long minGraphSize,
                         double threshold, double C_threshold, int numThreads, int threadsOpt, int percentage)
 {
-    double totTimeClustering=0, totTimeBuildingPhase=0, totTimeColoring=0, tmpTime=0;
+    double tmpTime=0;
     int tmpItr=0, totItr = 0;
     long NV = G->numVertices;
 
@@ -83,7 +83,6 @@ void runMultiPhaseBasicApprox(graph *G, mgp_graph *mg_graph, long *C_orig, int b
             currMod = parallelLouvianMethodScale(G, mg_graph, C, numThreads, currMod, threshold, &tmpTime, &tmpItr);
         }
 
-        totTimeClustering += tmpTime;
         totItr += tmpItr;
 
         //Renumber the clusters contiguously
@@ -114,7 +113,6 @@ void runMultiPhaseBasicApprox(graph *G, mgp_graph *mg_graph, long *C_orig, int b
         if( (currMod - prevMod) > threshold ) {
             Gnew = (graph *) malloc (sizeof(graph)); assert(Gnew != 0);
             tmpTime = buildNextLevelGraphOpt(G, mg_graph, Gnew, C, numClusters, numThreads);
-            totTimeBuildingPhase += tmpTime;
             //Free up the previous graph
             free(G->edgeListPtrs);
             free(G->edgeList);

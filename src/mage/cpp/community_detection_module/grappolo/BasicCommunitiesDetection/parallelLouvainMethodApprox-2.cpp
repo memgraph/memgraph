@@ -67,13 +67,10 @@ double parallelLouvianMethodApprox2(graph *G, mgp_graph *mg_graph, long *C, int 
     double total = 0, totItr = 0;
     //long percentage = clustering_parameters.percentage;
     long    NV        = G->numVertices;
-    long    NS        = G->sVertices;
-    long    NE        = G->numEdges;
     long    *vtxPtr   = G->edgeListPtrs;
     edge    *vtxInd   = G->edgeList;
 
     /* Variables for computing modularity */
-    long totalEdgeWeightTwice;
     double constantForSecondTerm;
     double prevMod=-1;
     double currMod=-1;
