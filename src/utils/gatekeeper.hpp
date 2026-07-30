@@ -286,7 +286,7 @@ struct Gatekeeper {
       // Delete value if ok
       if (!predicate(*owner_->value_)) return false;
       // Opt-in lifetime guard around object destruction.
-      typename GatekeeperGuardFor<T>::type arena_guard;
+      [[maybe_unused]] typename GatekeeperGuardFor<T>::type arena_guard;
       owner_->value_ = std::nullopt;
       return true;
     }
