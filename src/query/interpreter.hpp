@@ -334,8 +334,10 @@ class Interpreter final {
   // per check via EffectiveCoordinatorPermissions. Zero denies everything, so an interpreter that never authenticated
   // grants nothing: every privileged path must call SetCoordinatorPrivileges explicitly.
   uint64_t coordinator_permissions_{0};
-  // Role names the session authenticated with on a coordinator (empty for a basic-auth passthrough session). Reported
-  // by SHOW CURRENT ROLE; coordinator roles live in Raft, not the auth kvstore, so they can't be looked up on demand.
+  // Role names the session authenticated with on a coordinator (empty for a basic-auth passthrough session). A claim
+  // captured at login, not a fact: both the privilege mask (EffectiveCoordinatorPermissions) and SHOW CURRENT ROLE
+  // re-check these names against the leader's committed role set on every use, so a dropped role stops counting and
+  // stops being reported without waiting for a reconnect.
   std::vector<std::string> coordinator_roles_;
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif

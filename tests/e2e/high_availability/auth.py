@@ -1410,6 +1410,9 @@ def test_sso_privilege_revocation_applies_to_connected_session(test_name):
             # ...while reads keep working through the remaining COORDINATOR_READ.
             assert "from_ops" in [name for (name,) in session.run("SHOW ROLES")]
 
+            # SHOW CURRENT ROLE still reports the role while it exists (privileges changed, the role didn't).
+            assert sorted(name for (name,) in session.run("SHOW CURRENT ROLE")) == ["ops"]
+
             # Dropping the role removes the last privilege: the open session is denied everything.
             sso_run(leader_port, "oidc", ADMIN_TOKEN, "DROP ROLE ops")
             try:
@@ -1417,6 +1420,10 @@ def test_sso_privilege_revocation_applies_to_connected_session(test_name):
                 assert False, "A session whose role was dropped must not run coordinator queries"
             except Exception as e:
                 assert "required privilege" in str(e), f"Unexpected error: {e}"
+
+            # SHOW CURRENT ROLE is checked against the live role set too, so it stops naming the dropped role instead of
+            # reporting a login-time claim that no longer exists. A session left with no roles reports a single null row.
+            assert sorted(name for (name,) in session.run("SHOW CURRENT ROLE")) == [None]
 
 
 def test_sso_show_current_role(test_name):

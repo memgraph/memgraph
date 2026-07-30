@@ -1174,17 +1174,37 @@ Callback HandleCoordinatorRoleQuery(AuthQuery *auth_query, coordination::Coordin
       return callback;
     case AuthQuery::Action::SHOW_CURRENT_ROLE:
       callback.header = {"role"};
-      callback.fn = [&interpreter] {
-        // The session's roles are captured at SSO authentication time; a basic-auth passthrough session has none and
-        // reports a single null row, mirroring the data-instance SHOW CURRENT ROLE of a user with no roles.
-        auto const &role_names = interpreter.GetCoordinatorRoles();
-        if (role_names.empty()) {
+      callback.fn = [coordinator_state = &coordinator_state, &interpreter] {
+        // The session's roles are captured at SSO authentication time, so they are reported filtered against the
+        // leader's committed role set -- the same live re-derivation the privilege gate does in
+        // EffectiveCoordinatorPermissions. Otherwise this keeps naming a role that DROP ROLE already removed, in
+        // exactly the situation where somebody runs this query, even though the session is correctly denied privileged
+        // queries. A basic-auth passthrough session has no roles and reports a single null row (mirroring the
+        // data-instance SHOW CURRENT ROLE of a user with no roles) without needing the leader at all.
+        auto const &claimed_roles = interpreter.GetCoordinatorRoles();
+        if (claimed_roles.empty()) {
           return std::vector<std::vector<TypedValue>>{{TypedValue()}};
         }
+
+        auto const committed_roles = coordinator_state->GetRoles();
+        if (!committed_roles.has_value()) {
+          // Fail closed like the privilege gate: report nothing rather than login-time roles that can't be verified.
+          throw QueryRuntimeException(
+              "Couldn't read the coordinator's role set to verify this session's roles: the leader is unreachable. Try "
+              "contacting other coordinators as there might be leader election happening or other coordinators are "
+              "down.");
+        }
+
         std::vector<std::vector<TypedValue>> rows;
-        rows.reserve(role_names.size());
-        for (auto const &role_name : role_names) {
-          rows.emplace_back(std::vector<TypedValue>{TypedValue(role_name)});
+        rows.reserve(claimed_roles.size());
+        for (auto const &role_name : claimed_roles) {
+          if (std::ranges::contains(*committed_roles, role_name, &coordination::CoordinatorRole::name)) {
+            rows.emplace_back(std::vector<TypedValue>{TypedValue(role_name)});
+          }
+        }
+        // Every role the session authenticated with has since been dropped; same shape as a session with no roles.
+        if (rows.empty()) {
+          return std::vector<std::vector<TypedValue>>{{TypedValue()}};
         }
         return rows;
       };
