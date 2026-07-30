@@ -489,7 +489,6 @@ if [ ! -f "$PREFIX/bin/ld" ]; then
                 --enable-ld=default \
                 --enable-gold \
                 --enable-lto \
-                --enable-pgo-build=lto \
                 --enable-plugins \
                 --enable-shared \
                 --enable-threads \
