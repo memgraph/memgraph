@@ -24,6 +24,7 @@
 #include "utils/coro_task.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/park_state.hpp"
 #include "utils/priority_thread_pool.hpp"
 
@@ -121,6 +122,9 @@ struct AcquireAwaitable {
     // from this function either self-claims or never published; the throwing exit is the one that
     // needs closing, and it is reachable exactly under memory pressure, which is also when
     // acquires are contended.
+    // Set iff the abandon path below wins ClaimPark on our own `ps`. Must outlive the try so the
+    // handler can distinguish our claim from a foreign one.
+    bool self_claimed = false;
     try {
       registry.Register(ps);
 
@@ -140,6 +144,10 @@ struct AcquireAwaitable {
         if (utils::ClaimPark(*ps)) {
           // Won: no wake source will ever invoke on_resume for this ps -- best-effort cleanup,
           // then continue synchronously with the accessor already in hand.
+          // Record it: ClaimPark is a one-shot exchange, so from here on OUR OWN claim is
+          // indistinguishable from a foreign one, and the handler below must not mistake it for
+          // "somebody will resume us" (see the note there).
+          self_claimed = true;
           event.RemoveWaiter(ps);
           registry.Deregister(ps);
           *abandon_result = std::move(acc);
@@ -154,7 +162,15 @@ struct AcquireAwaitable {
     } catch (...) {
       // Same single-owner arbitration the abandon path uses, applied to the unwind: we may only
       // let this frame die if nobody else can resume it.
-      if (utils::ClaimPark(*ps)) {
+      //
+      // `self_claimed` is load-bearing, not defensive. ClaimPark is a one-shot exchange, so if we
+      // already won it above, calling it again here returns false -- exactly as if a wake source
+      // had taken it. Treating that as "somebody will resume us" and suspending would disarm every
+      // wake source (NotifyAll, Sweep, both Drains all skip a claimed ParkState) with nobody left
+      // to resume: a permanently suspended coroutine, no deadline backstop, the Bolt worker already
+      // released, and the session's parked_prepare_ pinning the frame forever -- silently unkillable
+      // and worse than the UAF this handler exists to prevent.
+      if (self_claimed || utils::ClaimPark(*ps)) {
         // We own `ps`; no wake source will ever touch it. Safe to unwind and let the caller see
         // the real error (deadline/OOM handling is the acquire loop's caller's business).
         event.RemoveWaiter(ps);
@@ -252,6 +268,17 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
   // (Storage::SupportsParkAcquire() defaults to false; DiskStorage never overrides it, R4.6) --
   // this downcast is therefore safe.
   auto &mem_storage = static_cast<storage::InMemoryStorage &>(storage);
+
+  // Giving up is itself an admitting event, so it has to wake people too. When this campaign ends
+  // -- by timeout, by a propagated throw, or by success -- `pending`'s destructor drops
+  // unique_pending_count/ro_pending_count, and reaching 0 is exactly the gate in can_acquire<READ>,
+  // can_acquire<WRITE> and can_acquire<READ_ONLY>. ResourceLock notifies its own cv there, so a
+  // BLOCKING waiter wakes; a PARKED one waits on main_lock_resume_event_ and nobody pokes it, so it
+  // would sleep to its own deadline sweep even though its predicate just became true. Declared
+  // BEFORE `pending` so it is destroyed AFTER it -- the notify must follow the actual decrement
+  // (C3), the same ordering rule as every release site.
+  const utils::OnScopeExit notify_on_pending_release{[&mem_storage] { mem_storage.NotifyMainLockReleased(); }};
+
   // Campaign-long pending scope (R4.6): built ONCE, held across every iteration of the loop below
   // -- including every suspend/resume -- so UNIQUE/READ_ONLY's writer-preference stays registered
   // for the whole retry campaign instead of just a single probe.
