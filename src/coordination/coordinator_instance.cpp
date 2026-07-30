@@ -196,15 +196,19 @@ auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<Lead
 }
 
 auto CoordinatorInstance::YieldLeadership() const -> YieldLeadershipStatus {
+  // Resigning must work on any Raft leader, also on the one which isn't ready yet. That is the state in which the
+  // operator needs this escape hatch the most, and forwarding cannot reach it because the leader never has a connector
+  // to itself.
+  if (raft_state_->IsLeader()) {
+    raft_state_->YieldLeadership();
+    return YieldLeadershipStatus::SUCCESS;
+  }
+
   if (auto const res = ForwardToLeader<YieldLeadershipRpc, YieldLeadershipStatus>(); res.has_value()) {
     return *res;
   }
 
-  if (!raft_state_->IsLeader()) {
-    return YieldLeadershipStatus::NOT_LEADER;
-  }
-  raft_state_->YieldLeadership();
-  return YieldLeadershipStatus::SUCCESS;
+  return YieldLeadershipStatus::NOT_LEADER;
 }
 
 void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
@@ -573,10 +577,14 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     -> SetInstanceToMainCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
 
-  if (auto const res =
-          ForwardToLeader<SetInstanceToMainRpc, SetInstanceToMainCoordinatorStatus>(std::string{new_main_name});
-      res.has_value()) {
-    return *res;
+  // Forwarding only recognizes a ready leader as self, so a Raft leader which isn't ready yet has to be served locally.
+  // Otherwise the LEADER_NOT_READY escape hatch below would be unreachable.
+  if (!raft_state_->IsLeader()) {
+    if (auto const res =
+            ForwardToLeader<SetInstanceToMainRpc, SetInstanceToMainCoordinatorStatus>(std::string{new_main_name});
+        res.has_value()) {
+      return *res;
+    }
   }
 
   // The coordinator could be in LEADER_NOT_READY state because it restarted and before the restart user called
@@ -1784,7 +1792,13 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const
   return ShowCoordinatorSettingsAsLeader();
 }
 
-auto CoordinatorInstance::ShowCoordinatorSettingsAsLeader() const -> std::vector<std::pair<std::string, std::string>> {
+auto CoordinatorInstance::ShowCoordinatorSettingsAsLeader() const
+    -> std::optional<std::vector<std::pair<std::string, std::string>>> {
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    spdlog::trace("Leader is not ready, no coordinator settings to report.");
+    return std::nullopt;
+  }
+
   std::vector<std::pair<std::string, std::string>> settings{
       std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"},
       std::pair{std::string(kSyncFailoverOnly), raft_state_->GetSyncFailoverOnly() ? "true" : "false"},
@@ -1800,6 +1814,15 @@ auto CoordinatorInstance::ShowCoordinatorSettingsAsLeader() const -> std::vector
 
 auto CoordinatorInstance::ShowReplicationLagAsLeader() const
     -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
+  // The lock is held across the lag RPC because repl_instances_ may be cleared or erased concurrently by the
+  // leadership-change and (un)registration paths.
+  auto lock = std::shared_lock{coord_instance_lock_};
+
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    spdlog::trace("Leader is not ready, no replication lag to report.");
+    return {};
+  }
+
   for (auto const &repl_instance : repl_instances_) {
     auto const &instance_name = repl_instance.InstanceName();
     if (!raft_state_->IsCurrentMain(instance_name)) {
@@ -1836,7 +1859,7 @@ auto CoordinatorInstance::ShowReplicationLag() const
     if (res->empty()) {
       return std::nullopt;
     }
-    return std::move(*res);
+    return res;
   }
 
   return ShowReplicationLagAsLeader();

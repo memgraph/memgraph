@@ -53,6 +53,7 @@ class Client {
       {"ShowInstancesReq"sv, 10'000},          // coordinator sending to coordinator
       {"YieldLeadershipReq"sv, 10'000},        // coordinator sending to coordinator
       {"ShowCoordSettingsReq"sv, 10'000},      // coordinator sending to coordinator
+      {"CoordReplLagReq"sv, 10'000},           // coordinator sending to coordinator
       {"DemoteMainToReplicaReq"sv, 10'000},    // coordinator sending to main
       {"PromoteToMainReq"sv, 10'000},          // coordinator sending to replica
       {"RegisterReplicaOnMainReq"sv, 10'000},  // coordinator sending to main

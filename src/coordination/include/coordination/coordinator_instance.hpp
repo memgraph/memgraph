@@ -143,7 +143,8 @@ class CoordinatorInstance {
   auto ShowCoordinatorSettings() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
   auto ShowReplicationLag() const -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
 
-  auto ShowCoordinatorSettingsAsLeader() const -> std::vector<std::pair<std::string, std::string>>;
+  // nullopt if this coordinator isn't a ready leader.
+  auto ShowCoordinatorSettingsAsLeader() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
   auto ShowReplicationLagAsLeader() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
 
   auto GetTelemetryJson() const -> nlohmann::json;

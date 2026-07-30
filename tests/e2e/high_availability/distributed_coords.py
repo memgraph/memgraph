@@ -2531,13 +2531,21 @@ def test_yield_leadership(test_name):
     for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
-    # 2.
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(coord_cursor_1, "YIELD LEADERSHIP")
-    assert str(e.value) == "Only the current leader can yield the leadership!"
+    def get_leader():
+        leaders = [instance[0] for instance in show_instances(coord_cursor_1) if instance[5] == "leader"]
+        return leaders[0] if len(leaders) == 1 else None
 
-    # 3.
+    # 2. The leader resigns when asked directly.
+    mg_sleep_and_assert("coordinator_3", get_leader)
     execute_and_fetch_all(coord_cursor_3, "YIELD LEADERSHIP")
+    mg_sleep_and_assert_multiple(["coordinator_1", "coordinator_2"], [get_leader])
+
+    # 3. A follower forwards the request to the leader, which then resigns.
+    resigned_leader = get_leader()
+    execute_and_fetch_all(coord_cursor_3, "YIELD LEADERSHIP")
+    mg_sleep_and_assert_multiple(
+        [name for name in ["coordinator_1", "coordinator_2", "coordinator_3"] if name != resigned_leader], [get_leader]
+    )
 
 
 def test_distributed_automatic_failover_mixed_cluster(test_name):
