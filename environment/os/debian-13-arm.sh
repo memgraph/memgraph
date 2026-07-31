@@ -6,8 +6,16 @@ export DEBIAN_FRONTEND=noninteractive
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "debian-13"
-check_architecture "arm64" "aarch64"
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
+
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "debian-13"
+    check_architecture "arm64" "aarch64"
+else
+    echo "Skipping checks for debian-13-arm"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils gcc g++ build-essential make binutils binutils-gold # generic build tools
@@ -37,35 +45,28 @@ TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz-utils # used for archive unpacking
     zlib1g # zlib library used for all builds
-    libexpat1 libbabeltrace1 liblzma5 python3 # for gdb
-    libcurl4t64 # for cmake
-    file # for CPack
-    libreadline8t64 # for cmake and llvm
-    libffi8 libxml2 # for llvm
-    libssl-dev # for libevent
+    python3 # llvm helper scripts; gdb ships its own python via the sysroot
 )
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
-    g++ libstdc++-14-dev
+    g++ libstdc++-14-dev # conan tool builds (ninja links -static-libstdc++)
     make cmake pkg-config # build system
     curl wget # for downloading libs
-    uuid-dev default-jre-headless # required by antlr
-    libreadline-dev # for memgraph console
+    gperf # conan libseccomp source build
+    default-jre-headless # for neo4j (macro benchmarks)
+    libreadline-dev # optional readline support (manual tests)
     libpython3-dev python3-dev # for query modules
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
-    libssl-dev
-    libseccomp-dev
+    libssl-dev # for mgconsole (cloned + built at package time)
     netcat-traditional # tests are using nc to wait for memgraph
+    lsof # e2e test runners
     python3 virtualenv python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
-    libcurl4-openssl-dev # mg-requests
-    sbcl # for custom Lisp C++ preprocessing
-    mono-runtime mono-mcs zip unzip default-jdk-headless custom-maven # for driver tests
-    dotnet-sdk-8.0 golang custom-golang nodejs npm
+    zip unzip default-jdk-headless custom-maven # for driver tests
+    dotnet-sdk-8.0 golang custom-golang nodejs npm # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
-    libsasl2-dev
     ninja-build
     libkrb5-dev # for building python gssapi (kerberos auth module)
 )

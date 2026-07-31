@@ -3,8 +3,16 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "fedora-42"
-check_architecture "arm64" "aarch64"
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
+
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "fedora-42"
+    check_architecture "arm64" "aarch64"
+else
+    echo "Skipping checks for fedora-42-arm"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils-common gcc gcc-c++ make binutils-gold # generic build tools
@@ -37,40 +45,33 @@ TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz # used for archive unpacking
     zlib-ng-compat # zlib library used for all builds
-    expat xz-libs python3 # for gdb
-    readline # for cmake and llvm
-    libffi libxml2 # for llvm
-    openssl-devel
+    python3 # llvm helper scripts; gdb ships its own python via the sysroot
 )
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
-    gcc-c++ libstdc++-devel libstdc++-static
+    gcc-c++ libstdc++-devel libstdc++-static # conan tool builds (ninja links -static-libstdc++)
     make cmake pkgconf-pkg-config # build system
     wget2-wget # for downloading libs
-    libuuid-devel java-25-openjdk java-25-openjdk-devel # required by antlr
-    readline-devel # for memgraph console
+    perl # conan openssl's Configure
+    gperf # conan libseccomp source build
+    java-25-openjdk java-25-openjdk-devel # for driver tests and neo4j (macro benchmarks)
+    readline-devel # optional readline support (manual tests)
     python3-devel # for query modules
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
-    openssl-devel
-    libseccomp-devel
-    python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests
-    fmt-devel
+    openssl-devel # for mgconsole (cloned + built at package time)
+    python3 python3-pip python3-virtualenv nmap-ncat lsof # for qa, macro_benchmark and stress tests
     #
     # IMPORTANT: python3-yaml does NOT exist on Fedora
     # Install it manually using `pip3 install PyYAML`
     #
     PyYAML # Package name here does not correspond to the dnf package!
-    libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     which nodejs golang custom-golang # for driver tests
     zip unzip custom-maven # for driver tests
-    sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
-    cyrus-sasl-devel
     ninja-build
-    perl
     krb5-devel # for building python gssapi (kerberos auth module)
 )
 
