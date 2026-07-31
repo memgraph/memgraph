@@ -187,9 +187,10 @@ void Storage::NotifyMainLockReleased() {
   // Flag-off (or no waiters): exactly one relaxed load each, no mutex touched (R1 §B1/C5). This is
   // the ENTIRE cost paid by every release site that calls this function -- including plain
   // READ/WRITE releases (F5 fix: those DO need to poke this, since releasing the last conflicting
-  // WRITE/READ holder can be exactly what unblocks a parked READ_ONLY/UNIQUE waiter; see the
-  // Accessor destructor's comment above) -- when the experimental feature is disabled or nobody
-  // happens to be parked.
+  // WRITE/READ holder can be exactly what unblocks a parked READ_ONLY/UNIQUE waiter, which is why
+  // this hangs off ResourceLock's own notify points rather than off enumerated release sites --
+  // see set_admit_observer) -- when the experimental feature is disabled or nobody happens to be
+  // parked.
   if (!flags::run_time::CoroPrepareAccessorYieldEnabled()) {
     return;
   }

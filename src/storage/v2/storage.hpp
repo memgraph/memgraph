@@ -526,18 +526,25 @@ class Storage {
   // TODO: make non-public
   ReplicationStorageState repl_storage_state_;
 
+  // Wake event for a coro-prepare waiter parked on main_lock_ (see main_lock_resume_event() /
+  // NotifyMainLockReleased() above; IP-1 design doc REVISION 3 §R3.1). Pool-agnostic by design
+  // (utils::WorkerResumeEvent has no knowledge of PriorityThreadPool/tasks/coroutines) -- each
+  // waiter's ParkState carries its own on_resume closure.
+  //
+  // Declared BEFORE main_lock_ so it is destroyed AFTER it. main_lock_ holds an admit observer that
+  // calls NotifyMainLockReleased(), which touches this event, and members are destroyed in reverse
+  // declaration order -- so with the two the other way round, any main_lock_ release during teardown
+  // would reach a destroyed event. No such release is reachable today (nothing declared between them
+  // holds a guard, and ~Storage has no body), but the dependency runs one way and the declaration
+  // order should match it.
+  utils::WorkerResumeEvent main_lock_resume_event_;
+
   // Main storage lock.
   // Accessors take a shared lock when starting, so it is possible to block
   // creation of new accessors by taking a unique lock. This is used when doing
   // operations on storage that affect the global state, for example index
   // creation.
   mutable utils::ResourceLock main_lock_;
-
-  // Wake event for a coro-prepare waiter parked on main_lock_ (see main_lock_resume_event() /
-  // NotifyMainLockReleased() above; IP-1 design doc REVISION 3 §R3.1). Pool-agnostic by design
-  // (utils::WorkerResumeEvent has no knowledge of PriorityThreadPool/tasks/coroutines) -- each
-  // waiter's ParkState carries its own on_resume closure.
-  utils::WorkerResumeEvent main_lock_resume_event_;
 
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we
@@ -661,14 +668,21 @@ class Accessor {
 
   Accessor(Accessor &&other) noexcept;
 
-  // Defined out-of-line (storage.cpp): on ANY owning accessor (F5 -- UNIQUE/READ_ONLY/WRITE/READ),
-  // explicitly releases guard_ here, rather than relying on implicit member-destruction which runs
-  // AFTER this body, so Storage::NotifyMainLockReleased() runs strictly after main_lock_ is
-  // actually released (C3). The dtor branches on guard_.owns_lock() and notifies on every owning
-  // release; a guard handed off via ReleaseGuard() owns nothing here, so its new owner notifies
-  // instead. Releasing before transaction_'s implicit destruction is safe: Transaction's dtor does
-  // not depend on the hold. NotifyMainLockReleased() is a single relaxed flag load when nobody is
-  // parked, so the READ/WRITE hot path stays cheap.
+  // `= default` in storage.cpp (out-of-line only so this polymorphic class has one key function and
+  // the vtable is emitted in a single TU).
+  //
+  // It has no body on purpose. The wake for a parked waiter comes from guard_'s own implicit member
+  // destruction: ~ResourceLockGuard -> ResourceLock::release -> maybe_notify -> the admit observer
+  // Storage installs -> NotifyMainLockReleased(). That satisfies C3 (the wake must land after the hold
+  // is actually gone) because maybe_notify unlocks before invoking the observer, and it covers every
+  // release site rather than the ones an explicit dtor body happened to enumerate -- an earlier
+  // version of this dtor DID release and notify by hand, and hand-enumerating the sites is what
+  // previously missed five of them. A guard handed off via ReleaseGuard() owns nothing here, so its
+  // new owner's release notifies instead, with no branch needed on this side.
+  //
+  // Note guard_ is declared BEFORE transaction_ below, so the hold outlives the transaction and is
+  // released last. NotifyMainLockReleased() is a single relaxed flag load when nobody is parked, so
+  // the READ/WRITE hot path stays cheap.
   virtual ~Accessor();
 
   StorageAccessType original_access_type() const { return original_access_type_; }

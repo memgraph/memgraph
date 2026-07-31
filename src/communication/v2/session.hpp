@@ -383,20 +383,25 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       // Execute until all data has been read
       while (true) {
         const auto outcome = session_.Execute();
-        if (outcome == bolt::ExecuteResult::kNeedsCoroPrepare) {
-          // R4.7 (Session-surgery Stage B, IP-1 design doc): this outcome is only ever returned when
-          // GetCurrentWorkerId() is set, which requires running on a PriorityThreadPool (LP) worker.
-          // The ASIO scheduler (this method) never runs on a pool worker -- it executes directly on
-          // the connection's ASIO strand -- so Execute_'s own gate makes this branch unreachable in
-          // practice. Defense in depth: rather than looping forever on a state_ that would otherwise
-          // never leave State::Parsed, drain the (in this configuration always-synchronous, since
-          // AcquireAccessorCoro's own DMG_ASSERT would fire before ever registering a park attempt
-          // from a non-pool thread) coroutine Prepare chain to completion right here and continue.
-          DMG_ASSERT(false,
-                     "Execute_ returned kNeedsCoroPrepare on the ASIO scheduler path -- expected to be "
-                     "unreachable (GetCurrentWorkerId() should never be set here).");
-          utils::SyncWait(bolt::HandlePrepareCoro(session_, std::function<void()>{}));
-          continue;
+        if (outcome == bolt::ExecuteResult::kNeedsCoroPrepare) [[unlikely]] {
+          // R4.7 (Session-surgery Stage B, IP-1 design doc): unreachable. This outcome requires
+          // GetCurrentWorkerId() to be set (Execute_'s own gate), which only a PriorityThreadPool LP
+          // worker publishes; the ASIO scheduler runs on the connection's strand, never on a pool
+          // worker. Kept as a hard failure rather than a silent loop, because state_ would otherwise
+          // never leave State::Parsed.
+          //
+          // This used to "drain the chain right here" with utils::SyncWait(HandlePrepareCoro(...)),
+          // justified by AcquireAccessorCoro's DMG_ASSERT firing first. Two things were wrong with
+          // that. The assert is compiled out under NDEBUG, so in a release build nothing stopped the
+          // chain from genuinely parking. And SyncWait binds the Task as a TEMPORARY, destroyed at the
+          // end of the full expression: Task<void>::Run() deliberately tolerates a park (it returns
+          // with the frames suspended, see utils/coro_task.hpp), so the destructor would then
+          // handle_.destroy() a frame still registered -- and unclaimed -- in both park registries. The
+          // next NotifyAll/Sweep/Drain would resume freed memory. A defensive path that converts an
+          // impossible state into a use-after-free is worse than the hang it was written to avoid.
+          throw utils::BasicException(
+              "Execute_ returned kNeedsCoroPrepare on the ASIO scheduler path, which requires a pool "
+              "worker id that this thread cannot have. This is a bug in the scheduler wiring.");
         }
         if (outcome == bolt::ExecuteResult::kNoMoreData) break;
         // kMoreData: keep draining.
@@ -463,11 +468,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
             // coroutine frame's execution, strictly after h.resume() already returned control to the
             // posted resume closure -- the frame is merely sitting at its final_suspend by now.
             parked.reset();
-            // Re-drive exactly like a fresh DoWork iteration. The closure this runs from always
-            // executes on a mixed-work (LP) worker (PostResumeTask only ever targets those), so
-            // Priority::LOW is always the accurate thread priority here -- there is no way to observe
-            // the resuming worker's own ambient priority (PostResumeTask's closure signature discards
-            // it), and LOW is also always what a plain resumed pool task would run at.
+            // Re-drive exactly like a fresh DoWork iteration. Priority::LOW is what a resumed pool
+            // task runs at, and PostResumeTask's closure signature discards the resuming worker's own
+            // ambient priority anyway, so there is nothing more accurate available to pass.
+            //
+            // Usually -- not always -- an LP worker. PostResumeTask only ever posts to those, but its
+            // all-workers-stopped fallback runs the closure inline on whichever thread claimed the
+            // park, which during teardown can be the main shutdown thread or a thread releasing
+            // main_lock_. LOW remains the right value there too; it is the "always" that was wrong.
             shared_this->RunLoop(shared_this, utils::Priority::LOW);
           }));
           shared_this->parked_prepare_->Resume();

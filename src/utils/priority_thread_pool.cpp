@@ -415,8 +415,9 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
   std::optional<TaskSignature> task;
   // Drains BOTH queues; must-run tasks (parked-coroutine resumes) take precedence, so a resume is
   // serviced at the next task boundary rather than behind this worker's whole backlog. Only this
-  // worker's own dequeue path (here) and push() ever touch work_must_run_; the steal loop (Phase 2A)
-  // and sched_mon touch only work_.
+  // work_must_run_ is touched by this worker's own dequeue path (here), by push/try_push, and by an
+  // LP thief's Phase 2A steal -- never by sched_mon (which only migrates work_) and never by an HP
+  // thief. All of those hold this worker's mtx_.
   auto pop_task = [&] {
     const bool use_must_run = !work_must_run_.empty();
     auto &q = use_must_run ? work_must_run_ : work_;

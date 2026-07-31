@@ -290,9 +290,16 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
     return storage.Access(rw, resolved_iso, timeout);
   };
 
-  // HIGH priority never parks (§6); DiskStorage never supports parking (R4.6); flag-off must be
-  // byte-identical to today's behavior (§7/C5) -- all three fall back to the ordinary blocking
-  // acquire, never constructing a ParkState or registering anywhere.
+  // HIGH priority never parks (§6); DiskStorage never supports parking (R4.6); flag-off keeps today's
+  // behaviour (§7/C5) -- all three fall back to the ordinary blocking acquire, never constructing a
+  // ParkState or registering anywhere.
+  //
+  // On `is_high_priority`: as of today it never fires, and that is COINCIDENCE, not structure. Every
+  // query type ApproximatePreparePriority classifies as HIGH happens to leave `accessor_type_` unset,
+  // so Phase 2 -- and therefore this function -- is never reached for them at all. The neighbouring
+  // types in the same visitor (DescriptionQuery, DumpQuery, ShowEnumsQuery, ShowSchemaInfoQuery) DO
+  // take accessors, so one reclassification makes this branch live. Keep it: it is the cheap half of
+  // the contract, and the day it starts firing is the day nobody remembers it was ever dead.
   if (!storage.SupportsParkAcquire() || is_high_priority || !flags::run_time::CoroPrepareAccessorYieldEnabled()) {
     co_return blocking_access();
   }

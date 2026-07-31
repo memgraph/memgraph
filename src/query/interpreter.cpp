@@ -10560,6 +10560,30 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
   // so an unstamped PrepareCoro would look idle and could be reaped by the watchdog it never told
   // about itself. Omitted here only because this branch deliberately carries no watchdog to stamp.
 
+  // Arena attribution. Prepare() opens one scope over its whole body; this coroutine cannot, because a
+  // TLS guard must never straddle the co_await below -- it would restore the PARKING thread's saved
+  // arena state onto whichever worker resumed us, leaving this thread's attribution permanently wrong
+  // and corrupting the resumer's. So attribution is split into the non-suspending regions instead:
+  // this one, and the Phase 3 scope further down.
+  //
+  // Opened HERE, above the TransactionQuery early return, so BEGIN/COMMIT/ROLLBACK are covered exactly
+  // as Prepare() covers them -- their QueryExecution::Create and PrepareTransactionQuery allocations
+  // would otherwise land in the default arena instead of the tenant's.
+  //
+  // INVARIANT: released before the co_await. The `arena_scope.reset()` immediately preceding it is what
+  // does that, and it is the only correct place for it -- do not widen this guard's scope, and do not
+  // add another co_await inside its lifetime.
+  //
+  // Still NOT attributed: the accessor/Transaction that Phase 2's acquire allocates inside
+  // AcquireAccessorCoro (once per probe, freed again on a losing abandon-path probe). Covering it
+  // would mean teaching a deliberately DB-agnostic coroutine -- it takes a storage::Storage, and
+  // storage has no way back to its dbms::Database -- about arena identity. Small and transient
+  // against the execution-time allocations, which CrossThreadMemoryTracking attributes normally.
+  std::optional<memory::DbArenaScope> arena_scope;
+  if (current_db_.db_acc_) {
+    arena_scope.emplace(current_db_.db_acc_->get());
+  }
+
   if (std::holds_alternative<TransactionQuery>(parse_res)) {
     // Same shape as Prepare()'s early-return branch: no accessor involved, nothing to await here.
     const auto tx_query_enum = std::get<TransactionQuery>(parse_res);
@@ -10578,26 +10602,6 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
 
   auto &parse_info = std::get<ParseInfo>(parse_res);
   auto &parsed_query = parse_info.parsed_query;
-
-  // Arena attribution for the PRE-AWAIT work (Phase 1). Prepare() wraps its whole body in one such
-  // scope; this coroutine cannot, because a TLS guard must never straddle the co_await below -- it
-  // would restore the PARKING thread's saved arena state onto whichever worker resumed us, leaving
-  // this thread's attribution permanently wrong and corrupting the resumer's. So attribution is split
-  // into the two non-suspending regions instead: this one, and the Phase 3 scope further down.
-  //
-  // INVARIANT: this must be released before the co_await. The `arena_scope.reset()` immediately
-  // preceding it is what does that, and it is the only correct place for it -- do not move the guard
-  // into a wider scope, and do not add another co_await inside its lifetime.
-  //
-  // Still NOT attributed: the accessor/Transaction that Phase 2's acquire allocates inside
-  // AcquireAccessorCoro (once per probe, freed again on a losing abandon-path probe). Covering it
-  // would mean teaching a deliberately DB-agnostic coroutine -- it takes a storage::Storage, and
-  // storage has no way back to its dbms::Database -- about arena identity. Small and transient
-  // against the execution-time allocations, which CrossThreadMemoryTracking attributes normally.
-  std::optional<memory::DbArenaScope> arena_scope;
-  if (current_db_.db_acc_) {
-    arena_scope.emplace(current_db_.db_acc_->get());
-  }
 
   // ---- PHASE 1 (sync, once, no accessor -- mirrors Prepare()'s pre-try setup verbatim) ----
   if (in_explicit_transaction_) {
@@ -10709,6 +10713,13 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
       auto &storage = *(*current_db_.db_acc_)->storage();
       auto const deadline = std::chrono::steady_clock::now() + memgraph::flags::run_time::GetStorageAccessTimeoutSec();
       auto const priority = ApproximatePreparePriority(parsed_query);
+      // Unconditional deref below: reaching PrepareCoro at all requires Execute_ to have returned
+      // kNeedsCoroPrepare, which requires a published pool worker id -- so a pool necessarily exists.
+      // Asserted rather than assumed, because every other use site in this file null-checks it and a
+      // pool-less InterpreterContext is constructible (tests, embeddings).
+      MG_ASSERT(interpreter_context_->worker_pool,
+                "PrepareCoro reached its accessor acquire with no worker pool, which the "
+                "kNeedsCoroPrepare gate should make impossible.");
 
       // Release before suspending (see the INVARIANT at the declaration): from here to Phase 3 this
       // coroutine may park and resume on a different worker, and no TLS guard may span that.
