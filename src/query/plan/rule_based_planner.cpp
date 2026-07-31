@@ -903,6 +903,16 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
 
 namespace impl {
 
+std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<Clause *> &clauses,
+                                                              const SymbolTable &symbol_table) {
+  std::unordered_set<Symbol> symbols;
+  PCSymbolCollector collector(symbol_table, symbols);
+  for (auto *clause : clauses) {
+    clause->Accept(collector);
+  }
+  return symbols;
+}
+
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
   return std::ranges::all_of(filter.used_symbols,
                              [&bound_symbols](const auto &symbol) { return bound_symbols.contains(symbol); });
