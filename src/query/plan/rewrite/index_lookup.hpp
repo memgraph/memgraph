@@ -384,17 +384,25 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     using ProvidedScan = OrderByEliminator<TDbAccessor>::ProvidedScan;
     std::optional<ProvidedScan> provided;
     if (indexed_scan && !has_in_filter) {
-      if (auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(indexed_scan.get())) {
-        // A value scan fed by an Unwind is invoked once per unwound element
-        // (e.g. a user UNWIND driving an equality lookup). When the lookup value
-        // derives from the element the results follow element order, not
-        // property order, so the scan cannot be assumed to provide ordered
-        // iteration and must not eliminate an ORDER BY. Suppressing is
-        // conservative: an element-independent value is still ordered, but at
-        // worst we keep an unnecessary sort. The IN-list lowering is already
-        // covered by has_in_filter.
-        if (!(scan_by_props->input() && scan_by_props->input()->GetTypeInfo() == Unwind::kType)) {
-          provided = scan_by_props;
+      auto const *target = indexed_scan.get();
+      // A value scan fed by an Unwind is invoked once per unwound element
+      // (e.g. a user UNWIND driving an equality lookup). When the lookup value
+      // derives from the element the results follow element order, not
+      // property order, so the scan cannot be assumed to provide ordered
+      // iteration and must not eliminate an ORDER BY. Suppressing is
+      // conservative: an element-independent value is still ordered, but at
+      // worst we keep an unnecessary sort. The IN-list lowering is already
+      // covered by has_in_filter.
+      bool const fed_by_unwind = target->input() && target->input()->GetTypeInfo() == Unwind::kType;
+      if (!fed_by_unwind) {
+        if (auto *s = dynamic_cast<ScanAllByLabelProperties const *>(target)) {
+          provided = s;
+        } else if (auto *s = dynamic_cast<ScanAllByVertexProperty const *>(target)) {
+          provided = s;
+        } else if (auto *s = dynamic_cast<ScanAllByVertexPropertyValue const *>(target)) {
+          provided = s;
+        } else if (auto *s = dynamic_cast<ScanAllByVertexPropertyRange const *>(target)) {
+          provided = s;
         }
       }
     }

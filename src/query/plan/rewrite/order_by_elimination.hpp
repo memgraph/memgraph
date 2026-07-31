@@ -55,7 +55,8 @@ class OrderByEliminator {
 
   using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypePropertyRange *,
                                     const ScanAllByEdgePropertyRange *, const ScanAllByEdgeTypePropertyValue *,
-                                    const ScanAllByEdgePropertyValue *>;
+                                    const ScanAllByEdgePropertyValue *, const ScanAllByVertexProperty *,
+                                    const ScanAllByVertexPropertyValue *, const ScanAllByVertexPropertyRange *>;
 
   struct OrderByInfo {
     OrderBy *op{nullptr};
