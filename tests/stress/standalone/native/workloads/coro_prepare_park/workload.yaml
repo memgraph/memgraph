@@ -1,0 +1,61 @@
+# Parkable-Prepare contention soak -- PARKING ON arm.
+#
+# See workload.py's module docstring for what this pins and, importantly, what it does not.
+# The short version: the functional e2e proves parking WORKS; this proves it does not ROT.
+# Both of the feature's characteristic bugs are accumulation-shaped (a park published but
+# never delivered; a resumed park left registered behind itself), invisible at the e2e's
+# 3-contenders-for-6-seconds scale, and both were real defects on the branch.
+#
+# --storage-access-timeout-sec=1 is the SHIPPED default and is deliberately not raised. At 1s
+# a contended acquire rides out its deadline and is resumed by the deadline sweep, which is
+# the commonest park path in production and the one that used to leak a waiter on every
+# single occurrence.
+#
+# --bolt-num-workers=4 keeps the pool small enough that pinning it is easy: the whole point of
+# the responsiveness probe is that a blocking build runs out of workers, and a large pool
+# would mask that.
+#
+# NOTE: run this against an ASan or TSan build for sanitizer coverage of the park/resume
+# interleavings. Every wait in workload.py is a bounded poll rather than a fixed sleep, so it
+# stays correct under a 3-5x sanitizer slowdown.
+
+memgraph:
+  deployment:
+    externally_managed: false
+  args:
+    - "--bolt-num-workers=4"
+    - "--storage-access-timeout-sec=1"
+    - "--experimental-coro-prepare-accessor-yield=true"
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: coro-prepare-park
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/coro_prepare_park/workload.py
+      script_args:
+        - "--endpoint"
+        - "127.0.0.1:7687"
+        - "--parallelism"
+        - "8"
+        - "--duration-sec"
+        - "60"
+        - "--num-labels"
+        - "6"
+        - "--nodes-per-tx"
+        - "10"
+        - "--probe-ceiling-ms"
+        - "1000"
+        - "--expect-parking"
+        - "true"
+      timeout_min: 15

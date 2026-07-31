@@ -1,0 +1,64 @@
+# Parkable-Prepare contention soak -- PARKING OFF control arm.
+#
+# Same script, same contention, flag explicitly false. Two distinct reasons this arm exists,
+# and neither is "symmetry for its own sake":
+#
+#  1. THE FLAG-OFF PATH IS NOT UNCHANGED CODE. The feature's pool changes are NOT flag-gated:
+#     work_must_run_ became a second, stealable queue with its own precedence rule against
+#     queued HIGH-priority work, and the worker's post-loop teardown tail grew a branch that
+#     decides whether a pre-popped leftover runs or is dropped. Every installation runs that
+#     code whether or not parking is on. A soak with the flag off is the only thing that
+#     exercises it at scale.
+#  2. IT KEEPS THE ON-ARM HONEST. If parking silently stopped engaging, the on-arm's
+#     responsiveness assertion would be the only thing to notice -- and a fast machine can
+#     make a blocking build look responsive. Running the identical contention with the flag
+#     off gives the on-arm's latency number something to be compared against.
+#
+# The responsiveness assertion is deliberately NOT applied here (--expect-parking=false): a
+# blocking build pins its Bolt workers in try_lock_for, so high probe latency is CORRECT
+# behaviour for this arm, not a failure. The leak and liveness gates DO apply, for reason 1.
+#
+# The `=false` is stated EXPLICITLY rather than relying on the flag's default, and must stay
+# that way: the moment the default becomes ON, an absent flag would hand this control arm the
+# parking path and quietly turn it into a duplicate of the on-arm -- passing while proving
+# nothing. Both arms name the value they want so neither depends on what the default happens
+# to be.
+
+memgraph:
+  deployment:
+    externally_managed: false
+  args:
+    - "--bolt-num-workers=4"
+    - "--storage-access-timeout-sec=1"
+    - "--experimental-coro-prepare-accessor-yield=false"
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: coro-prepare-park-flag-off
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/coro_prepare_park/workload.py
+      script_args:
+        - "--endpoint"
+        - "127.0.0.1:7687"
+        - "--parallelism"
+        - "8"
+        - "--duration-sec"
+        - "60"
+        - "--num-labels"
+        - "6"
+        - "--nodes-per-tx"
+        - "10"
+        - "--expect-parking"
+        - "false"
+      timeout_min: 15
