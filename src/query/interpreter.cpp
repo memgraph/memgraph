@@ -10703,6 +10703,23 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
       }
     }
 
+    // Re-install the per-session log guard for the remainder of this coroutine (design doc §R3.2
+    // Phase 3, same rule as the arena scope below: entered HERE, never across the co_await above --
+    // a TLS guard that straddled a park would restore the PARKING thread's saved value onto whatever
+    // worker resumed us).
+    //
+    // Why it has to be re-installed at all: Session::Execute_ installs this guard per Bolt message,
+    // but on this path it RETURNED (kNeedsCoroPrepare) before the Prepare work ran, so the guard was
+    // already destroyed and the rest of Prepare executes on a pool worker with the TLS slot empty.
+    // Everything session-scoped downstream is gated on that slot being non-null -- the two
+    // EmitSessionTraceEvent calls below, whatever PlanAndFinalize emits, and (via
+    // MaybeEmitFailedQueryLog's "TLS guard absent => no bolt message is in flight" gate) the
+    // [failed-query] log. Without this, flag-on silently loses all of it while flag-off keeps it,
+    // which is precisely backwards: the flag exists for contended workloads, where those diagnostics
+    // are what you reach for first. Nesting is safe -- the guard saves and restores whatever was
+    // there, so the ordinary non-coro path (guard already installed by Execute_) is unaffected.
+    memgraph::logging::ScopedSessionLog const post_acquire_log_guard{GetLogContext()};
+
     // ---- PHASE 3 (sync, once, post-acquire) ----
     if (!in_explicit_transaction_) {
       SetupInterpreterTransaction(extras);
@@ -10762,6 +10779,12 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
     co_return PlanAndFinalize(
         parsed_query, params_getter, query_execution, qid, parallel_execution, std::move(system_transaction));
   } catch (const utils::BasicException &e) {
+    // Its own guard: the try block's locals (including post_acquire_log_guard above) are destroyed
+    // during unwinding, strictly BEFORE this handler runs, and a Phase-1 throw never reached that one
+    // in the first place. HandlePrepareFailure emits the "Failed query" trace event and the
+    // [failed-query] log, both TLS-gated, so this is the difference between the coro path reporting a
+    // failed Prepare and silently dropping it.
+    memgraph::logging::ScopedSessionLog const failure_log_guard{GetLogContext()};
     HandlePrepareFailure(query_execution_ptr, e);
     throw;
   }

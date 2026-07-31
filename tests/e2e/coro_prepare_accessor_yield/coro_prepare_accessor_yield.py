@@ -19,9 +19,13 @@
 # coro_prepare_accessor_yield_flag_off_control.py and asserts the opposite outcome on the exact
 # same scenario -- see that file for why the contrast matters.
 
+import glob
+import os
 import sys
+import time
 
 import common
+import mgclient
 import pytest
 
 
@@ -63,9 +67,7 @@ def test_flag_on_park_keeps_probe_responsive():
     # TryAccess, never TryAccessWithPending -- see AcquireAwaitable). Deliberately asserted only in
     # the flag-ON test: flag-off these same contenders ride out the timeout by design, which is why
     # run_responsiveness_scenario() itself stays neutral about contender outcomes.
-    timed_out = {
-        i: r for i, r in contenders.items() if r["error"] and "access to the storage" in r["error"]
-    }
+    timed_out = {i: r for i, r in contenders.items() if r["error"] and "access to the storage" in r["error"]}
     assert not timed_out, (
         "parked contenders hit the storage access timeout instead of acquiring after the holder "
         f"released: { {i: round(r['elapsed'], 3) for i, r in timed_out.items()} } "
@@ -95,3 +97,84 @@ def test_flag_on_timeout_semantics_preserved():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-s"]))
+
+
+# --- Prepare-phase observability under the coro path -----------------------------------
+#
+# The flag moves the whole Prepare phase off the Bolt dispatcher: Session::Execute_ returns
+# kNeedsCoroPrepare and destroys its per-message ScopedSessionLog before any Prepare work runs, so
+# everything TLS-gated downstream -- session-trace events, and the [failed-query] log via
+# MaybeEmitFailedQueryLog's "TLS guard absent => no bolt message is in flight" gate -- goes silent
+# unless PrepareCoro re-installs the guard for its own non-suspending regions.
+#
+# That regression is invisible from the client (the query still fails correctly, the operator just
+# stops being told why), and it lands on precisely the contended workloads this flag exists for.
+# The flag-off control asserts the same query DOES log, so this pair pins the contract "flag-on must
+# not cost diagnostics" rather than merely "some log line exists".
+
+LOG_GLOB = os.path.join(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")),
+    "e2e",
+    "logs",
+    "coro_prepare_accessor_yield_2*.log",
+)
+
+
+def _active_log_path():
+    candidates = glob.glob(LOG_GLOB)
+    assert candidates, f"memgraph did not create a log file matching {LOG_GLOB}"
+    return max(candidates, key=os.path.getmtime)
+
+
+def _read_appended(log_path, start_offset, *, expect, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while True:
+        with open(log_path, "r") as f:
+            f.seek(start_offset)
+            content = f.read()
+        if all(s in content for s in expect):
+            return content
+        if time.monotonic() >= deadline:
+            return content
+        time.sleep(0.05)
+
+
+def test_flag_on_prepare_failure_still_logs_failed_query():
+    """A Prepare-phase failure must still emit its [failed-query] line under the coro path.
+
+    The query matters, and most obvious candidates do NOT test this. Measured against a build with
+    the guard deliberately removed, these all still logged, because their failure never enters the
+    guard-less region: a parse error ("THIS IS NOT VALID CYPHER") and an unknown function or
+    procedure all fail while building the AST, before Execute_ returns kNeedsCoroPrepare; a
+    division-by-zero fails during Pull, which Execute_ still handles inline under its own guard.
+
+    An UNBOUND VARIABLE is different: it survives parsing and fails in symbol resolution inside
+    PlanAndFinalize -- i.e. inside PrepareCoro's try, on a pool worker, after Execute_'s guard is
+    gone -- and it fails late enough that query_execution exists, so the log line carries the query
+    text. On the guard-less build it emitted nothing at all. Do not "simplify" this to a parse error.
+    """
+    log_path = _active_log_path()
+    start = os.path.getsize(log_path)
+
+    conn = mgclient.connect(host="localhost", port=7687)
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute('SET SESSION SETTING "log.failed_queries" TO "true"')
+    try:
+        cur.fetchall()
+    except mgclient.DatabaseError:
+        pass
+
+    marker = "coro_prepare_failed_marker"
+    try:
+        cur.execute(f"RETURN {marker}")  # unbound variable -> fails in PlanAndFinalize
+        cur.fetchall()
+    except mgclient.DatabaseError:
+        pass  # expected: the query must still fail for the client
+
+    content = _read_appended(log_path, start, expect=["[failed-query]", marker])
+    relevant = [line for line in content.splitlines() if "[failed-query]" in line and marker in line]
+    assert relevant, (
+        "a Prepare-phase failure on the coro path emitted no [failed-query] line carrying the query "
+        f"text -- Prepare ran without a session-log guard. got: {content[-2000:]!r}"
+    )

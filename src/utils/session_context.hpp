@@ -25,8 +25,16 @@
 
 namespace memgraph::logging {
 
-// Per-session log state. Only the bolt dispatcher thread touches this; the TLS
-// guard (ScopedSessionLog) is installed there and workers never inherit it.
+// Per-session log state. Touched only by whichever thread is currently driving this session's
+// single in-flight message -- the TLS guard (ScopedSessionLog) is installed by that driver and no
+// other thread inherits it.
+//
+// That driver is normally the bolt dispatcher. With --experimental-coro-prepare-accessor-yield it
+// can instead be a PriorityThreadPool worker: Session::Execute_ returns kNeedsCoroPrepare before
+// running Prepare, so the Prepare work (and any park/resume of it) happens on a worker, which
+// re-installs the guard for its own non-suspending regions (Interpreter::PrepareCoro). Still exactly
+// one thread at a time -- a parked connection arms no read and dispatches nothing until its resume
+// completes -- so this stays free of concurrent access; it is just no longer always the same thread.
 class SessionLogContext {
  public:
   // Toggled by SET SESSION TRACE; events emit at INFO.

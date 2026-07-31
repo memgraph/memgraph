@@ -20,9 +20,13 @@
 # passing flag-ON test for the wrong reason. This file is what makes the flag-ON <1s result
 # meaningful.
 
+import glob
+import os
 import sys
+import time
 
 import common
+import mgclient
 import pytest
 
 
@@ -56,3 +60,63 @@ def test_flag_off_control_probe_stays_blocked():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-s"]))
+
+
+# --- Control half of the Prepare-phase observability pair ------------------------------
+#
+# Same query, flag OFF: Prepare runs inline inside Session::Execute_, under the per-message
+# ScopedSessionLog it installs, so the [failed-query] line is emitted with no help from anyone. This
+# is the baseline the flag-on arm must match -- without it, that arm could be passing for reasons
+# unrelated to the guard (e.g. if the log line came from some earlier, non-Prepare path).
+
+LOG_GLOB = os.path.join(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")),
+    "e2e",
+    "logs",
+    "coro_prepare_accessor_yield_flag_off_control_2*.log",
+)
+
+
+def _active_log_path():
+    candidates = glob.glob(LOG_GLOB)
+    assert candidates, f"memgraph did not create a log file matching {LOG_GLOB}"
+    return max(candidates, key=os.path.getmtime)
+
+
+def _read_appended(log_path, start_offset, *, expect, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while True:
+        with open(log_path, "r") as f:
+            f.seek(start_offset)
+            content = f.read()
+        if all(s in content for s in expect):
+            return content
+        if time.monotonic() >= deadline:
+            return content
+        time.sleep(0.05)
+
+
+def test_flag_off_control_prepare_failure_logs_failed_query():
+    """Baseline: the same Prepare-phase failure logs [failed-query] on the ordinary inline path."""
+    log_path = _active_log_path()
+    start = os.path.getsize(log_path)
+
+    conn = mgclient.connect(host="localhost", port=7687)
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute('SET SESSION SETTING "log.failed_queries" TO "true"')
+    try:
+        cur.fetchall()
+    except mgclient.DatabaseError:
+        pass
+
+    marker = "coro_prepare_failed_marker"
+    try:
+        cur.execute(f"RETURN {marker}")  # same query as the flag-on arm; see its docstring
+        cur.fetchall()
+    except mgclient.DatabaseError:
+        pass
+
+    content = _read_appended(log_path, start, expect=["[failed-query]", marker])
+    relevant = [line for line in content.splitlines() if "[failed-query]" in line and marker in line]
+    assert relevant, f"baseline (flag-off) failed to log a Prepare-phase failure; got: {content[-2000:]!r}"
