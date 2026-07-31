@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <boost/unordered/unordered_flat_set.hpp>
 
 #include "test_support/types.hpp"
 
@@ -18,6 +19,15 @@ import memgraph.planner.core.egraph;
 namespace memgraph::planner::core {
 
 using namespace test;
+
+// The touched-set as an owned set; production drains it into a reused buffer via
+// touched_eclasses_into(), so this convenience lives with the tests that want a
+// value to query.
+auto TouchedEclasses(TestEGraph const &egraph) -> boost::unordered_flat_set<EClassId> {
+  boost::unordered_flat_set<EClassId> out;
+  egraph.touched_eclasses_into(out);
+  return out;
+}
 
 TEST(EGraph_Basic, EmptyEGraph) {
   auto const egraph = TestEGraph{};
@@ -189,6 +199,66 @@ TEST(EGraph_DuplicateRemoval, CongruenceRemovesDuplicateENodes) {
   EXPECT_EQ(egraph.num_live_nodes(), 3);  // 1 merged leaf + 1 F
 
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
+// === Per-pass touched-set (foundation for incremental arming) ===
+
+TEST(EGraph_Touched, RecordsInsertsOnce) {
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::A).eclass_id;
+  auto b = egraph.emplace(Op::B).eclass_id;
+  egraph.emplace(Op::A);  // hash-cons hit: did_insert=false, no new touch
+
+  auto const touched = TouchedEclasses(egraph);
+  EXPECT_EQ(touched.size(), 2U);
+  EXPECT_TRUE(touched.contains(a));
+  EXPECT_TRUE(touched.contains(b));
+}
+
+TEST(EGraph_Touched, RecordsMergeSurvivorCanonicalized) {
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::A).eclass_id;
+  auto b = egraph.emplace(Op::B).eclass_id;
+  egraph.clear_touched();  // forget the inserts; measure only the merge
+
+  auto const [merged, did_merge] = egraph.merge(a, b);
+  ASSERT_TRUE(did_merge);
+
+  auto const touched = TouchedEclasses(egraph);
+  // The survivor, not the merged-away id: both a and b canonicalize to one class.
+  EXPECT_EQ(touched.size(), 1U);
+  EXPECT_TRUE(touched.contains(merged));
+  EXPECT_TRUE(touched.contains(egraph.find(a)));
+  EXPECT_TRUE(touched.contains(egraph.find(b)));
+}
+
+TEST(EGraph_Touched, ClearResets) {
+  TestEGraph egraph;
+  egraph.emplace(Op::A);
+  EXPECT_FALSE(TouchedEclasses(egraph).empty());
+  egraph.clear_touched();
+  EXPECT_TRUE(TouchedEclasses(egraph).empty());
+}
+
+TEST(EGraph_Touched, CapturesCascadeMergeDuringRebuild) {
+  // A child merge makes F(a) and F(b) congruent; rebuild merges them as a
+  // cascade. That cascade merge happens inside rebuild() yet must still land in
+  // the touched-set.
+  TestEGraph egraph;
+  TestProcessingContext ctx;
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+  auto b = egraph.emplace(Op::A, 1).eclass_id;
+  auto fa = egraph.emplace(Op::F, {a}).eclass_id;
+  auto fb = egraph.emplace(Op::F, {b}).eclass_id;
+
+  egraph.clear_touched();  // forget the inserts
+  egraph.merge(a, b);      // direct merge
+  egraph.rebuild(ctx);     // F(a) ≡ F(b) merge happens here, in the cascade
+
+  ASSERT_EQ(egraph.find(fa), egraph.find(fb)) << "the F classes must have cascade-merged";
+  auto const touched = TouchedEclasses(egraph);
+  EXPECT_TRUE(touched.contains(egraph.find(a))) << "the direct merge target";
+  EXPECT_TRUE(touched.contains(egraph.find(fa))) << "the cascade merge target, produced inside rebuild";
 }
 
 TEST(EGraph_DuplicateRemoval, MultipleDuplicatesRemoved) {
