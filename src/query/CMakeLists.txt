@@ -223,6 +223,14 @@ set(MG_PYTHON_STABLE_ABI_FLOOR "0x030a0000" CACHE STRING
 # then loads against any libpython3 >= the floor at runtime.
 set(MG_PYTHON_LINK_TARGET Python3::Python)
 
+# The host libpython was built against the HOST glibc, which may be newer than
+# the sysroot's pinned glibc — its undefined symbols (pthread_create@GLIBC_2.34,
+# ...) then can't resolve at link time and lld's --no-allow-shlib-undefined
+# rejects the link (observed with Arch's libpython3.14). At runtime this is
+# moot: the DT_NEEDED rewrite loads the target machine's own python, which
+# always matches that machine's glibc. Relax the check for consumers.
+target_link_options(Python3::Python INTERFACE "-Wl,--allow-shlib-undefined")
+
 target_compile_definitions(mg-query PUBLIC
     "Py_LIMITED_API=${MG_PYTHON_STABLE_ABI_FLOOR}")
 
