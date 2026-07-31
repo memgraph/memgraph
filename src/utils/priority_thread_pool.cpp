@@ -418,8 +418,22 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
   // work_must_run_ is touched by this worker's own dequeue path (here), by push/try_push, and by an
   // LP thief's Phase 2A steal -- never by sched_mon (which only migrates work_) and never by an HP
   // thief. All of those hold this worker's mtx_.
+  // True when work_'s head is a HIGH-priority item. Ids are handed out decreasing from
+  // kMaxLowPriorityId for LP and from kMinHighPriorityId upward for HP, and Work orders by id in a
+  // max-heap, so work_.top() is HP exactly when its id exceeds the LP ceiling.
+  auto work_head_is_high_priority = [this] { return !work_.empty() && work_.top().id > kMaxLowPriorityId; };
+
+  // Set by pop_task alongside `task`: whether the item it pulled came from work_must_run_. Read only
+  // by the post-loop tail, which must run a leftover resume but must NOT start ordinary work.
+  bool task_is_must_run = false;
+
   auto pop_task = [&] {
-    const bool use_must_run = !work_must_run_.empty();
+    // Must-run (a parked coroutine's resume) beats ordinary work: a query is blocked on it with its
+    // storage-access timeout running. It must NOT beat a queued HIGH-priority item, though -- before
+    // this queue existed there was one max-heap and HP was strictly first, and silently demoting HP
+    // below every resume would be a priority inversion introduced by a feature that is flag-gated off.
+    const bool use_must_run = !work_must_run_.empty() && !work_head_is_high_priority();
+    task_is_must_run = use_must_run;
     auto &q = use_must_run ? work_must_run_ : work_;
     has_pending_work_.store(work_.size() + work_must_run_.size() > 1, std::memory_order::release);
     last_task_.store(q.top().id, std::memory_order_release);
@@ -481,7 +495,10 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
         // resumed park continues Prepare, which must run as LP work (see the worker-id TLS contract).
         std::priority_queue<Work> *victim_q = nullptr;
         if constexpr (ThreadPriority != Priority::HIGH) {
-          if (!worker->work_must_run_.empty()) victim_q = &worker->work_must_run_;
+          // Same precedence rule as the victim's own pop_task: prefer its resume, unless it has a
+          // HIGH-priority item queued, which stays first.
+          const bool victim_work_head_is_hp = !worker->work_.empty() && worker->work_.top().id > kMaxLowPriorityId;
+          if (!worker->work_must_run_.empty() && !victim_work_head_is_hp) victim_q = &worker->work_must_run_;
         }
         if (!victim_q) {
           if (worker->work_.empty()) continue;
@@ -500,6 +517,7 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
 
         // Move work to current thread
         last_task_.store(victim_q->top().id, std::memory_order_release);
+        task_is_must_run = (victim_q == &worker->work_must_run_);
         task = std::move(victim_q->top().work);
 
         victim_q->pop();
@@ -545,23 +563,29 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
   }
 
   // IP-1 F1 fix (opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 5):
-  // the loop above can exit (run_ observed false at the top of `while`) in the very same instant
-  // the cv_.wait predicate already popped a task into `task` -- popping and the run_ check are not
-  // atomic with each other -- so `task`, if set here, must still run rather than be silently
-  // dropped. Then drain any remaining MUST-RUN work: PostResumeTask (see its doc comment) posts
-  // rather than resuming inline while any worker lives, so a bail-resume can still be accepted here,
-  // in the window between stop() being requested and this thread actually returning (e.g. a
-  // lock-release NotifyAll racing the tail of PriorityThreadPool::ShutDown()). This drain is exactly
-  // what makes try_push's "accepted => eventually run" promise true. Draining ONLY work_must_run_ --
-  // never the stealable work_ queue,
-  // which may hold ordinary application work that must NOT start once this worker is torn down --
-  // guarantees no parked coroutine frame is left registered-but-never-resumed (a permanent leak)
-  // once this function returns.
-  if (task) {
+  // the loop above can exit (run_ observed false at the top of `while`) in the very same instant the
+  // cv_.wait predicate already popped a task into `task` -- popping and the run_ check are not atomic
+  // with each other. If that item was a RESUME it must still run: dropping it strands a parked query
+  // and leaks the session it pins, which is what try_push's "accepted => eventually run" promise
+  // rests on.
+  //
+  // If it was ordinary work, it is dropped, exactly as master does. Master's loop ends right here, so
+  // a task popped in that same instant was destroyed unrun -- and running it instead would be a
+  // flag-independent change to shutdown behaviour (query work starting after ShutDown() was
+  // requested, concurrently with the rest of the teardown handler) shipped by a feature that is off
+  // by default. `task_is_must_run` is what keeps the fix to the case that needs it.
+  if (task && task_is_must_run) {
     ParkArmGuard const arm_guard;  // same task-boundary arming as Phase 1A above
     task.value()(ThreadPriority);
-    task.reset();
   }
+  task.reset();
+
+  // Then drain any remaining must-run work. PostResumeTask (see its doc comment) posts rather than
+  // resuming inline while any worker lives, so a bail-resume can still be accepted here, in the window
+  // between stop() being requested and this thread actually returning (e.g. a lock-release NotifyAll
+  // racing the tail of PriorityThreadPool::ShutDown()). Draining ONLY work_must_run_ -- never the
+  // stealable work_ queue, which may hold ordinary application work that must NOT start once this
+  // worker is torn down -- guarantees no parked coroutine frame is left registered-but-never-resumed.
   for (;;) {
     TaskSignature drained_task;
     {

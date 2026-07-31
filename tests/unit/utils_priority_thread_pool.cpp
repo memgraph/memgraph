@@ -12,9 +12,12 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include <utils/priority_thread_pool.hpp>
 #include "utils/synchronized.hpp"
@@ -532,30 +535,38 @@ TEST(PriorityThreadPool, PostResumeTaskRunsOnAnLpWorker) {
   pool.AwaitShutdown();
 }
 
-// The point of un-pinning (IP-1 F6). Pre-F6 a resume was pinned to the worker that parked, so a
-// long unrelated task on that worker delayed it arbitrarily -- which for a parked query means its
-// storage-access timeout was not enforced on time either. Occupy every worker but one and confirm
-// the resume still runs promptly.
-TEST(PriorityThreadPool, PostResumeTaskNotBlockedByABusyWorker) {
+// The point of un-pinning (IP-1 F6). Pre-F6 a resume was pinned to the worker that parked, so a long
+// unrelated task on that worker delayed it arbitrarily -- which for a parked query means its
+// storage-access timeout was not enforced on time either.
+//
+// Every worker is wedged before the resume is posted, so target selection cannot fall back on a hot or
+// idle worker: the post necessarily lands on a BUSY worker's queue. Then exactly one worker is freed.
+// What this pins is the property that matters -- a resume is not hostage to the whole backlog of
+// whichever worker happened to receive it. It does not isolate WHICH mechanism delivers it (an LP
+// thief's steal, or the receiving worker reaching its own task boundary), because a test cannot choose
+// which worker PostResumeTask picks.
+TEST(PriorityThreadPool, PostResumeTaskNotBlockedByBusyWorkers) {
   using namespace memgraph;
-  constexpr size_t kWorkers = 2;
+  constexpr size_t kWorkers = 4;
   memgraph::utils::PriorityThreadPool pool{kWorkers, 1};
 
-  std::atomic<bool> block{true};
+  std::vector<std::unique_ptr<std::atomic<bool>>> blocks;
+  blocks.reserve(kWorkers);
+  for (size_t i = 0; i < kWorkers; ++i) blocks.emplace_back(std::make_unique<std::atomic<bool>>(true));
+
   std::atomic<int> occupied{0};
-  // Wedge kWorkers-1 workers. ScheduledAddTask prefers hot (idle) workers, so distinct tasks land
-  // on distinct workers here; each one parks itself on `block` until the test releases it.
-  for (size_t i = 0; i < kWorkers - 1; ++i) {
+  for (size_t i = 0; i < kWorkers; ++i) {
     pool.ScheduledAddTask(
-        [&](auto) {
+        [&, i](auto) {
           occupied.fetch_add(1);
+          auto &block = *blocks[i];
           while (block.load()) {
             block.wait(true);
           }
         },
         utils::Priority::LOW);
   }
-  while (occupied.load() != static_cast<int>(kWorkers - 1)) {
+  while (occupied.load() != static_cast<int>(kWorkers)) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
@@ -565,15 +576,117 @@ TEST(PriorityThreadPool, PostResumeTaskNotBlockedByABusyWorker) {
     resumed.notify_one();
   });
 
-  // No wait-with-timeout primitive here; poll for a bounded spell. The pre-F6 pinned behavior could
-  // not satisfy this if the resume happened to target a wedged worker.
+  // Nobody is free yet, so nothing can have run it.
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  EXPECT_FALSE(resumed.load()) << "no worker was free, so the resume cannot have run";
+
+  // Free exactly one worker.
+  *blocks[0] = false;
+  blocks[0]->notify_all();
+
   for (int i = 0; i < 500 && !resumed.load(); ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
-  EXPECT_TRUE(resumed.load()) << "resume must not wait for a busy worker to become free";
+  EXPECT_TRUE(resumed.load()) << "one free worker was not enough to service a resume queued on a busy one";
+
+  for (auto &b : blocks) {
+    *b = false;
+    b->notify_all();
+  }
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// The tail drain -- the sole basis for try_push's "accepted => eventually run" promise, and for
+// PostResumeTask being allowed to ignore stop_requested(). Previously untested: the two teardown tests
+// below both post AFTER ShutDown(), by which point every worker's run_ is false, so try_push refuses
+// everywhere and the closure takes the inline fallback instead. This one posts INTO the window that
+// actually needs the drain -- accepted while the worker is alive, serviced after it was told to stop.
+TEST(PriorityThreadPool, MustRunItemAcceptedBeforeStopIsDrainedByTheWorkerTail) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{1, 1};  // one LP worker, so the target is unambiguous
+
+  std::atomic<bool> block{true};
+  std::atomic<bool> wedged{false};
+  pool.ScheduledAddTask(
+      [&](auto) {
+        wedged = true;
+        wedged.notify_one();
+        while (block.load()) {
+          block.wait(true);
+        }
+      },
+      utils::Priority::LOW);
+  wedged.wait(false);
+
+  // The worker is alive but busy, so try_push accepts into its must-run queue rather than refusing.
+  std::atomic<bool> ran{false};
+  pool.PostResumeTask([&] { ran = true; });
+  EXPECT_FALSE(ran.load()) << "the worker is still wedged; nothing should have run it yet";
+
+  // Tell the worker to stop while it is STILL inside its task, then let it finish. It leaves the run
+  // loop with run_ == false and must drain the accepted item on the way out.
+  std::thread shutdown_thread([&] { pool.ShutDown(); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  block = false;
+  block.notify_all();
+
+  shutdown_thread.join();
+  pool.AwaitShutdown();
+  EXPECT_TRUE(ran.load()) << "a must-run item accepted before stop() was dropped instead of drained -- "
+                             "that breaks 'accepted => eventually run', and each dropped item is a "
+                             "permanently parked query";
+}
+
+// Resumes jump ordinary work, but must NOT jump a queued HIGH-priority item: before the must-run queue
+// existed there was one max-heap and HP was strictly first, so demoting HP below every resume would be
+// a priority inversion introduced by a flag that defaults to off.
+TEST(PriorityThreadPool, HighPriorityWorkStillPrecedesAResume) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{1, 1};
+
+  std::atomic<bool> block{true};
+  std::atomic<bool> wedged{false};
+  pool.ScheduledAddTask(
+      [&](auto) {
+        wedged = true;
+        wedged.notify_one();
+        while (block.load()) {
+          block.wait(true);
+        }
+      },
+      utils::Priority::LOW);
+  wedged.wait(false);
+
+  // Both queued behind the wedged task on the same (only) LP worker.
+  std::mutex order_mutex;
+  std::vector<std::string> order;
+  auto record = [&](std::string what) {
+    std::lock_guard<std::mutex> lock(order_mutex);
+    order.push_back(std::move(what));
+  };
+
+  pool.PostResumeTask([&] { record("resume"); });
+  pool.ScheduledAddTask([&](auto) { record("high"); }, utils::Priority::HIGH);
 
   block = false;
   block.notify_all();
+
+  // Wait for both, then check which ran first. The HP task may also be stolen by the HP worker, which
+  // is equally fine -- either way it must not be stuck behind the resume.
+  for (int i = 0; i < 500; ++i) {
+    {
+      std::lock_guard<std::mutex> lock(order_mutex);
+      if (order.size() == 2) break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  std::lock_guard<std::mutex> lock(order_mutex);
+  ASSERT_EQ(order.size(), 2U) << "both tasks should have run";
+  EXPECT_EQ(order.front(), "high") << "a queued HIGH-priority task was served after a parked-query "
+                                      "resume; must-run work must not preempt HP work";
+
   pool.ShutDown();
   pool.AwaitShutdown();
 }
