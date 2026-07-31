@@ -11,8 +11,9 @@
 
 # CONTROL for the coroutine-park Prepare path e2e (coro_prepare_accessor_yield.py). Runs the
 # IDENTICAL scenario (common.run_responsiveness_scenario) against a cluster where
-# --experimental-coro-prepare-accessor-yield is absent (default false), and asserts the OPPOSITE
-# outcome: the probe must be SLOW.
+# --experimental-coro-prepare-accessor-yield is explicitly FALSE, and asserts the OPPOSITE outcome:
+# the probe must be SLOW. The `=false` in workloads.yaml is required, not decorative -- the flag's
+# default is now ON, so omitting it would hand this control cluster the parking path.
 #
 # Why this file exists: a "P is fast" assertion alone proves nothing unless we also demonstrate
 # that the same scenario, without parking, makes P slow. Without this contrast, a fast box, a

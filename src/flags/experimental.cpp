@@ -102,15 +102,15 @@ DEFINE_VALIDATED_string(experimental_config, "", kConfigHelp.c_str(),
                         { return memgraph::flags::ValidExperimentalConfig(value); });
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(experimental_coro_prepare_accessor_yield, false,
+DEFINE_bool(experimental_coro_prepare_accessor_yield, memgraph::flags::kCoroPrepareAccessorYieldDefault,
             "EXPERIMENTAL: allow a contended UNIQUE/READ_ONLY storage accessor acquisition during "
             "Prepare to park its pool worker (via a C++20 coroutine) instead of blocking, and retry "
             "once the lock is released, instead of blocking for up to --storage-access-timeout-sec. "
-            "Enabling the flag turns on the full coroutine parking integration (storage-side release "
+            "The flag turns on the full coroutine parking integration (storage-side release "
             "notification plus the query/session driver -- HandlePrepareCoro, "
             "Session::DrivePreparedRun/RunLoop, Interpreter::PrepareCoro), so a contended acquire parks "
-            "the Bolt worker and resumes it on release. Default OFF leaves the existing synchronous "
-            "acquire path unchanged.");
+            "the Bolt worker and resumes it on release. Set to false to restore the existing "
+            "synchronous acquire path, which blocks the worker in try_lock_for for the whole timeout.");
 
 namespace memgraph::flags {
 
