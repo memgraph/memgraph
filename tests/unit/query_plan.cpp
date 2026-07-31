@@ -5064,6 +5064,67 @@ TYPED_TEST(TestPlanner, PatternComprehensionInForeachBodyWithExternalReference) 
   ASSERT_NE(once, nullptr) << "Foreach input should be Once";
 }
 
+TYPED_TEST(TestPlanner, PatternComprehensionOverSymbolBoundInsideForeachBody) {
+  // Test FOREACH (i IN [1] | CREATE (q) SET q.prop = [(q)-->() | 1])
+  // `q` is bound by a CREATE inside the body, so the comprehension can only be planned once that CREATE has run.
+  // The body is drained after every clause, so the RollUpApply lands between CreateNode and SetProperty. Draining
+  // only on entry - as before - left the comprehension pending forever and its frame slot unwritten.
+  //
+  // Expected plan structure:
+  //   EmptyResult
+  //   Foreach
+  //   |\
+  //   | SetProperty
+  //   | RollUpApply
+  //   | |\
+  //   | | Produce {anon_result}
+  //   | | Expand (q)-[anon_edge]->(anon_node)
+  //   | | Once
+  //   | CreateNode (q)
+  //   | Once
+  //   Once
+
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("q"), EDGE("anon_edge", EdgeAtom::Direction::OUT), NODE("anon_node")), nullptr, LITERAL(1));
+
+  auto *foreach_clause = FOREACH(NEXPR("i", LIST(LITERAL(1))),
+                                 {CREATE(PATTERN(NODE("q"))), SET(PROPERTY_LOOKUP(dba, "q", prop), pattern_comp)});
+
+  auto *query = QUERY(SINGLE_QUERY(foreach_clause));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto &plan = planner.plan();
+  auto *empty_result = dynamic_cast<EmptyResult *>(&plan);
+  ASSERT_NE(empty_result, nullptr) << "Root should be EmptyResult";
+
+  auto *foreach_op = dynamic_cast<Foreach *>(empty_result->input_.get());
+  ASSERT_NE(foreach_op, nullptr) << "Should have Foreach operator";
+
+  auto *set_property = dynamic_cast<SetProperty *>(foreach_op->update_clauses_.get());
+  ASSERT_NE(set_property, nullptr) << "Foreach update branch should end with SetProperty";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(set_property->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply must sit between CreateNode and SetProperty; without the per-clause "
+                                "drain the comprehension is never planned at all";
+
+  // The comprehension must expand from the just-created `q`, not re-scan, and must read View::NEW - `q` does not
+  // exist under View::OLD, which surfaces as "Trying to get relationships from a node that doesn't exist".
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr) << "Comprehension branch should end with Produce";
+  auto *expand = dynamic_cast<Expand *>(branch_produce->input_.get());
+  ASSERT_NE(expand, nullptr) << "Comprehension branch should expand from the bound `q`, not ScanAll";
+  EXPECT_EQ(expand->common_.existing_node, false);
+  EXPECT_EQ(expand->view_, memgraph::storage::View::NEW)
+      << "A comprehension planned after a write it depends on must read View::NEW";
+
+  auto *create_node = dynamic_cast<CreateNode *>(rollup->input_.get());
+  ASSERT_NE(create_node, nullptr) << "CreateNode should be below the RollUpApply";
+}
+
 TYPED_TEST(TestPlanner, PatternComprehensionInsideCountAggregate) {
   // Test MATCH (n) RETURN count([(n)-[e]->(m) | m]) AS c
   // The pattern comprehension is inside count(), so RollUpApply must come BEFORE Aggregate.
