@@ -492,8 +492,8 @@ int StrippedQuery::MatchParameter(int start) const {
   if (original_[start] != '$') return 0;
   // ANTLR skips whitespace between '$' and the parameter name/number,
   // so the stripper must do the same to stay in sync.
-  int ws = MatchWhitespaceAndComments(start + 1);
-  int after_ws = start + 1 + ws;
+  int const ws = MatchWhitespaceAndComments(start + 1);
+  int const after_ws = start + 1 + ws;
   if (after_ws >= len) return 0;
   int max_len = 0;
   max_len = std::max(max_len, MatchUnescapedName(after_ws));
