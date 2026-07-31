@@ -154,6 +154,25 @@ TEST(CoroAccessor, ParkWakeAcquire) {
   ASSERT_TRUE(BoundedWaitUntil([&] { return done.load(); }, std::chrono::milliseconds(2000)))
       << "parked coroutine never woke up and completed";
 
+  // The OTHER direction of the post-resume prune, and the one ParkTimeoutLeavesNoWaiterRegistered
+  // structurally cannot cover. There, a deadline Sweep claimed the park and erased its own registry
+  // entry, leaving the wake-event twin. Here a lock-release NotifyAll claimed it and emptied
+  // `waiters_` wholesale, leaving the DEADLINE-REGISTRY twin -- so only AcquireAccessorCoro's own
+  // `park_registry().Deregister()` removes it, and a retained entry defeats Sweep's cheap
+  // "nothing parked" fast path for the rest of the pool's life (every 100ms tick takes the mutex and
+  // walks the list) while holding a fired ParkState alive.
+  //
+  // Asserted IMMEDIATELY after `done`, and that is load-bearing rather than tidy: Sweep lazy-prunes
+  // already-claimed entries regardless of deadline (R4.5), so the next monitor tick would clean up a
+  // missing Deregister and mask it. `done` is set by the driver after AcquireAccessorCoro returns,
+  // i.e. microseconds after the prune, against a 100ms tick -- but the margin is timing, not logic,
+  // so do not move this check further down or add waits before it.
+  EXPECT_EQ(pool.park_registry().Size(), 0U)
+      << "a park resumed by a lock-release NotifyAll stayed registered in the deadline registry -- "
+         "NotifyAll only empties its own waiter list, so nothing else would ever remove this entry";
+  EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 0U)
+      << "the wake event still reports a pending waiter after the park it belonged to completed";
+
   EXPECT_FALSE(eptr) << "unexpected exception from the parked acquire";
   ASSERT_TRUE(result.has_value());
   EXPECT_NE(*result, nullptr);

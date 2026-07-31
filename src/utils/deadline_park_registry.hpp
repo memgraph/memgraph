@@ -72,6 +72,17 @@ class DeadlineParkRegistry {
     }
   }
 
+  /// Number of entries currently registered. Exposed for TESTS, and for one reason: the
+  /// deadline-registry half of AcquireAccessorCoro's post-resume prune is otherwise completely
+  /// unobservable. The wake-event half can be checked through `WorkerResumeEvent::WaitersPending()`
+  /// (which production code reads anyway, as a fast-path gate), but nothing outside this class ever
+  /// reads this list, so a resumed-but-never-deregistered entry left no visible trace to assert on.
+  ///
+  /// Reads the same lock-free mirror `Sweep`'s empty fast path uses, so it is callable from any
+  /// thread and carries the same benign staleness: it may not yet reflect a `Register` that another
+  /// thread is in the middle of.
+  size_t Size() const { return size_.load(std::memory_order_acquire); }
+
   /// Sweeps the registry once, invoking `on_resume` for every waiter whose deadline has passed and
   /// that this call wins the claim on. The invoked closure is expected to hand its frame back onto
   /// its owning worker and re-probe its resource, see the deadline has passed, and throw its own

@@ -10715,11 +10715,18 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
       auto const priority = ApproximatePreparePriority(parsed_query);
       // Unconditional deref below: reaching PrepareCoro at all requires Execute_ to have returned
       // kNeedsCoroPrepare, which requires a published pool worker id -- so a pool necessarily exists.
-      // Asserted rather than assumed, because every other use site in this file null-checks it and a
+      // Checked rather than assumed, because every other use site in this file null-checks it and a
       // pool-less InterpreterContext is constructible (tests, embeddings).
-      MG_ASSERT(interpreter_context_->worker_pool,
-                "PrepareCoro reached its accessor acquire with no worker pool, which the "
-                "kNeedsCoroPrepare gate should make impossible.");
+      //
+      // A throw, not MG_ASSERT: this is the same "should be impossible, but the object model allows
+      // it" case as the db_acc_ check a few lines up, which throws -- and the consequence of being
+      // wrong should be a failed query, not a whole-process abort taking every other session's
+      // in-flight transaction with it. It unwinds into the catch below like any other Prepare failure.
+      if (!interpreter_context_->worker_pool) [[unlikely]] {
+        throw QueryException(
+            "Parkable Prepare reached its accessor acquire with no worker pool, which the "
+            "kNeedsCoroPrepare gate should make impossible.");
+      }
 
       // Release before suspending (see the INVARIANT at the declaration): from here to Phase 3 this
       // coroutine may park and resume on a different worker, and no TLS guard may span that.

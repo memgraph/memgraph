@@ -638,6 +638,55 @@ TEST(PriorityThreadPool, MustRunItemAcceptedBeforeStopIsDrainedByTheWorkerTail) 
                              "permanently parked query";
 }
 
+// The other half of the same tail branch, and the half that keeps this feature out of flag-off
+// installations' shutdown behaviour. The tail runs a leftover item only when it is a RESUME; an
+// ordinary task the worker had already dequeued when it observed run_ == false must be dropped unrun,
+// exactly as master drops it (master's loop ends right there, destroying the task).
+//
+// Without the `&& task_is_must_run` condition the branch would start ordinary QUERY work after
+// ShutDown() was requested, concurrently with the rest of the teardown handler, on every installation
+// whether or not --experimental-coro-prepare-accessor-yield is set. That is a flag-independent change
+// to shutdown semantics, so it needs a test of its own and not just a comment.
+//
+// Fully deterministic, with no window to race: the worker cannot dequeue B while it is blocked inside
+// A, and Worker::stop() only sets run_ = false and notifies -- it never joins -- so ShutDown() has
+// certainly published run_ == false by the time A is released. The worker then reaches Phase 1B,
+// dequeues B, continues to the top of `while (run_)`, and leaves the loop holding it.
+TEST(PriorityThreadPool, OrdinaryLeftoverIsDroppedAtTeardownJustLikeMaster) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{1, 1};  // one LP worker, so B's queue is unambiguous
+
+  std::atomic<bool> block{true};
+  std::atomic<bool> wedged{false};
+  pool.ScheduledAddTask(
+      [&](auto) {
+        wedged = true;
+        wedged.notify_one();
+        while (block.load()) {
+          block.wait(true);
+        }
+      },
+      utils::Priority::LOW);
+  wedged.wait(false);
+
+  // B is queued behind the wedged task while the pool is still accepting work (ScheduledAddTask
+  // refuses once shutdown is requested, so it has to be enqueued before the ShutDown below). LOW on
+  // purpose: an HP thief only ever steals HIGH items, so nothing but this worker can service it.
+  std::atomic<bool> ordinary_ran{false};
+  pool.ScheduledAddTask([&](auto) { ordinary_ran = true; }, utils::Priority::LOW);
+
+  pool.ShutDown();  // run_ = false, monitor stopped; does not join, and B stays queued
+
+  block = false;
+  block.notify_all();
+  pool.AwaitShutdown();
+
+  EXPECT_FALSE(ordinary_ran.load())
+      << "an ordinary task the worker had dequeued as it left the run loop was executed during "
+         "teardown. Master destroys it unrun; running it starts query work after ShutDown() was "
+         "requested, and this happens with the coro-prepare flag off too";
+}
+
 // Resumes jump ordinary work, but must NOT jump a queued HIGH-priority item: before the must-run queue
 // existed there was one max-heap and HP was strictly first, so demoting HP below every resume would be
 // a priority inversion introduced by a flag that defaults to off.
