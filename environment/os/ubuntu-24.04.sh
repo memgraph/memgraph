@@ -47,41 +47,31 @@ TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz-utils # used for archive unpacking
     zlib1g # zlib library used for all builds
-    libexpat1 libipt2 libbabeltrace1 liblzma5 python3 # for gdb
-    libcurl4t64 # for cmake
-    libreadline8t64 # for cmake and llvm
-    libffi8 libxml2 # for llvm
-    libssl-dev # for libevent
+    python3 # llvm helper scripts; gdb ships its own python via the sysroot
 )
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
+    g++ libstdc++-14-dev # conan tool builds (ninja links -static-libstdc++)
     make cmake pkg-config # build system
     curl wget # for downloading libs
-    uuid-dev default-jre-headless # required by antlr
-    libreadline-dev # for memgraph console
+    gperf # conan libseccomp source build
+    default-jre-headless # for neo4j (macro benchmarks)
+    libreadline-dev # optional readline support (manual tests)
     libpython3-dev python3-dev # for query modules
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
-    libssl-dev
-    libseccomp-dev
+    libssl-dev # for mgconsole (cloned + built at package time)
     netcat-traditional # tests are using nc to wait for memgraph
+    lsof # e2e test runners
     iptables # for stress tests that simulate network failures
     python3 python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
-    libcurl4-openssl-dev # mg-requests
-    sbcl # for custom Lisp C++ preprocessing
-    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven # for driver tests
+    zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven # for driver tests (JDK 17 required)
     dotnet-sdk-8.0 golang custom-golang custom-node # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
-    libsasl2-dev
     ninja-build
-    libopenblas-dev # required for building scipy
     libkrb5-dev # for building python gssapi (kerberos auth module)
-    # Pulsar dependencies
-    # libnghttp2-dev libpsl-dev librtmp-dev libldap2-dev libidn2-dev libbrotli-dev libidn2-dev libssh-dev
-    fakeroot debhelper # for building deb packages
-    gperf
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"

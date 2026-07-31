@@ -108,6 +108,13 @@ function check_custom_package() {
                 echo "$pkg"
             fi
             ;;
+        custom-node)
+            # nvm-based install (install_node); nvm has no fixed binary path,
+            # so probe for any node on PATH or an nvm dir.
+            if ! command -v node >/dev/null 2>&1 && [ ! -d "$HOME/.nvm" ]; then
+                echo "$pkg"
+            fi
+            ;;
         *)
             return 1
             ;;

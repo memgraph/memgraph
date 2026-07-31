@@ -44,19 +44,17 @@ TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz # used for archive unpacking
     zlib # zlib library used for all builds
-    expat xz-libs python3 # for gdb
-    readline # for cmake and llvm
-    libffi libxml2 # for llvm
-    openssl-devel
-    perl # for openssl
+    python3 # llvm helper scripts; gdb ships its own python via the sysroot
 )
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
+    gcc-c++ libstdc++-devel libstdc++-static # conan tool builds (ninja links -static-libstdc++)
     make cmake pkgconf-pkg-config # build system
     wget # for downloading libs
-    libuuid-devel java-11-openjdk # required by antlr
-    readline-devel # for memgraph console
+    perl # conan openssl's Configure
+    gperf # conan libseccomp source build
+    readline-devel # optional readline support (manual tests)
     # MAGE's query-module python deps (torch/PyG/DGL wheels) are python 3.12
     # only, so memgraph embeds python 3.12 here (built with
     # -DMG_PYTHON_VERSION=3.12) rather than the distro-default 3.9. Needs the
@@ -65,22 +63,18 @@ MEMGRAPH_BUILD_DEPS=(
     python3.12-devel python3.12 python3.12-pip # for query modules
     python3-devel # for build tooling that still targets the system python
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
-    openssl-devel
-    libseccomp-devel
-    python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests
+    openssl-devel # for mgconsole (cloned + built at package time)
+    python3 python3-pip python3-virtualenv nmap-ncat lsof # for qa, macro_benchmark and stress tests
     #
     # IMPORTANT: python3-yaml does NOT exist on CentOS
     # Install it manually using `pip3 install PyYAML`
     #
     PyYAML # Package name here does not correspond to the yum package!
-    libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     which nodejs golang custom-golang # for driver tests
-    zip unzip java-11-openjdk-devel java-17-openjdk java-17-openjdk-devel custom-maven # for driver tests
-    sbcl # for custom Lisp C++ preprocessing
+    zip unzip java-17-openjdk java-17-openjdk-devel custom-maven # for driver tests (JDK 17 required) and neo4j (macro benchmarks)
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
-    cyrus-sasl-devel
     ninja-build
     krb5-devel # for building python gssapi (kerberos auth module)
 )

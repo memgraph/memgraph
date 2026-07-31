@@ -8,30 +8,36 @@ SKIP_CHECK=$(parse_skip_check_flag "$@")
 
 # Only run checks if --skip-check flag is not provided
 if [[ "$SKIP_CHECK" == false ]]; then
-    check_operating_system "rocky-10"
+    check_operating_system "fedora-45"
     check_architecture "x86_64"
 else
-    echo "Skipping checks for rocky-10"
+    echo "Skipping checks for fedora-45"
 fi
 
 TOOLCHAIN_BUILD_DEPS=(
-    wget # used for archive download
-    coreutils-common gcc gcc-c++ make # generic build tools
-    # NOTE: Pure libcurl conflicts with libcurl-minimal
-    libcurl-devel # cmake build requires it
+    coreutils-common gcc gcc-c++ make binutils-gold # generic build tools
+    wget2-wget # used for archive download
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
+    # NOTE: https://discussion.fedoraproject.org/t/f40-change-proposal-transitioning-to-zlib-ng-as-a-compatible-replacement-for-zlib-system-wide/95807
     zlib-ng-compat-devel zlib-ng-compat-static # zlib library used for all builds
     expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
+    curl libcurl-devel # for cmake
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
-    libedit-devel pcre2-devel automake bison # for swig
-    file gmp-devel gperf diffutils
+    libedit-devel pcre-devel pcre2-devel automake bison # for swig
+    file
+    openssl openssl-devel openssl-devel-engine # for pulsar
+    gmp-devel
+    gperf
+    diffutils
     libipt libipt-devel # intel
     patch
+    perl # for openssl
+    git
     custom-rust # for mgcxx
     libtool # for protobuf
-    openssl-devel pkgconf-pkg-config # for pulsar
+    pkgconf-pkg-config # for pulsar
     cyrus-sasl-devel # for librdkafka
     python3-pip # for conan
 )
@@ -47,22 +53,23 @@ MEMGRAPH_BUILD_DEPS=(
     git # source code control
     gcc-c++ libstdc++-devel libstdc++-static # conan tool builds (ninja links -static-libstdc++)
     make cmake pkgconf-pkg-config # build system
-    wget # for downloading libs
+    wget2-wget # for downloading libs
     perl # conan openssl's Configure
     gperf # conan libseccomp source build
+    java-25-openjdk java-25-openjdk-devel # for driver tests and neo4j (macro benchmarks)
     readline-devel # optional readline support (manual tests)
     python3-devel # for query modules
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
     openssl-devel # for mgconsole (cloned + built at package time)
     python3 python3-pip python3-virtualenv nmap-ncat lsof # for qa, macro_benchmark and stress tests
     #
-    # IMPORTANT: python3-yaml does NOT exist on Rocky
+    # IMPORTANT: python3-yaml does NOT exist on Fedora
     # Install it manually using `pip3 install PyYAML`
     #
     PyYAML # Package name here does not correspond to the dnf package!
     rpm-build rpmlint # for RPM package building
     which nodejs golang custom-golang # for driver tests
-    zip unzip java-21-openjdk-headless java-21-openjdk java-21-openjdk-devel custom-maven # for driver tests and neo4j (macro benchmarks)
+    zip unzip custom-maven # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     ninja-build
@@ -96,7 +103,7 @@ check() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|cl-asdf|common-lisp-controller|sbcl)
+            custom-*|PyYAML|python3-virtualenv)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -113,7 +120,7 @@ check() {
 
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
-        missing=$(python3 "$DIR/check-packages.py" "check" "rocky-10" "${standard_packages[@]}")
+        missing=$(python3 "$DIR/check-packages.py" "check" "fedora-45" "${standard_packages[@]}")
     fi
 
     # Check custom packages with bash logic
@@ -125,21 +132,6 @@ check() {
             fi
         else
             case "$pkg" in
-                cl-asdf)
-                    if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-                common-lisp-controller)
-                    if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-                sbcl)
-                    if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
                 PyYAML)
                     if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
                         missing_custom="$pkg $missing_custom"
@@ -177,15 +169,10 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
 
-    # enable CRB and devel repos
-    dnf install -y dnf-plugins-core
-    dnf config-manager --set-enabled crb
-    dnf config-manager --set-enabled devel
-    dnf install -y epel-release
-
     # enable rpm fusion
-    dnf install --nogpgcheck -y https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-10.noarch.rpm
+    dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm
 
+    dnf update -y
     dnf install -y wget git python3 python3-pip
 
     # Separate standard and custom packages
@@ -194,7 +181,7 @@ install() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|cl-asdf|common-lisp-controller|sbcl)
+            custom-*|PyYAML|python3-virtualenv)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -205,7 +192,7 @@ install() {
 
     # Install standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
-        if ! python3 "$DIR/check-packages.py" "install" "rocky-10" "${standard_packages[@]}"; then
+        if ! python3 "$DIR/check-packages.py" "install" "fedora-45" "${standard_packages[@]}"; then
             echo "Failed to install standard packages"
             exit 1
         fi
@@ -217,21 +204,6 @@ install() {
     # Handle non-custom packages that need special installation
     for pkg in "${custom_packages[@]}"; do
         case "$pkg" in
-            cl-asdf)
-                if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
-                    dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/cl-asdf-20101028-18.el8.noarch.rpm
-                fi
-                ;;
-            common-lisp-controller)
-                if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
-                    dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/common-lisp-controller-7.4-20.el8.noarch.rpm
-                fi
-                ;;
-            sbcl)
-                if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
-                    dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/sbcl-2.0.1-4.el8.x86_64.rpm
-                fi
-                ;;
             PyYAML)
                 if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
                     pip3 install --user PyYAML
