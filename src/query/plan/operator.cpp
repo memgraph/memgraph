@@ -1607,8 +1607,8 @@ UniqueCursorPtr ScanAllByVertexProperty::MakeCursor(utils::MemoryResource *mem,
                                                                     "ScanAllByVertexProperty");
 }
 
-std::string ScanAllByVertexProperty::ToString() const {
-  return fmt::format("ScanAllByVertexProperty ({} {{{}}})", output_symbol_.name(), dba_->PropertyToName(property_));
+std::string ScanAllByVertexProperty::ToString(const DbAccessor *dba) const {
+  return fmt::format("ScanAllByVertexProperty ({} {{{}}})", output_symbol_.name(), dba->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanAllByVertexProperty::Clone(AstStorage *storage) const {
@@ -1646,9 +1646,8 @@ UniqueCursorPtr ScanAllByVertexPropertyValue::MakeCursor(utils::MemoryResource *
                                                                     "ScanAllByVertexPropertyValue");
 }
 
-std::string ScanAllByVertexPropertyValue::ToString() const {
-  return fmt::format(
-      "ScanAllByVertexPropertyValue ({} {{{}}})", output_symbol_.name(), dba_->PropertyToName(property_));
+std::string ScanAllByVertexPropertyValue::ToString(const DbAccessor *dba) const {
+  return fmt::format("ScanAllByVertexPropertyValue ({} {{{}}})", output_symbol_.name(), dba->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanAllByVertexPropertyValue::Clone(AstStorage *storage) const {
@@ -1691,9 +1690,8 @@ UniqueCursorPtr ScanAllByVertexPropertyRange::MakeCursor(utils::MemoryResource *
                                                                     "ScanAllByVertexPropertyRange");
 }
 
-std::string ScanAllByVertexPropertyRange::ToString() const {
-  return fmt::format(
-      "ScanAllByVertexPropertyRange ({} {{{}}})", output_symbol_.name(), dba_->PropertyToName(property_));
+std::string ScanAllByVertexPropertyRange::ToString(const DbAccessor *dba) const {
+  return fmt::format("ScanAllByVertexPropertyRange ({} {{{}}})", output_symbol_.name(), dba->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanAllByVertexPropertyRange::Clone(AstStorage *storage) const {
@@ -10361,9 +10359,9 @@ UniqueCursorPtr ScanParallelByVertexProperty::MakeCursor(utils::MemoryResource *
 #endif
 }
 
-std::string ScanParallelByVertexProperty::ToString() const {
+std::string ScanParallelByVertexProperty::ToString(const DbAccessor *dba) const {
   return fmt::format(
-      "ScanParallelByVertexProperty (threads: {}, {{{}}})", num_threads_, dba_->PropertyToName(property_));
+      "ScanParallelByVertexProperty (threads: {}, {{{}}})", num_threads_, dba->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByVertexProperty::Clone(AstStorage *storage) const {
@@ -10402,9 +10400,9 @@ UniqueCursorPtr ScanParallelByVertexPropertyValue::MakeCursor(utils::MemoryResou
 #endif
 }
 
-std::string ScanParallelByVertexPropertyValue::ToString() const {
+std::string ScanParallelByVertexPropertyValue::ToString(const DbAccessor *dba) const {
   return fmt::format(
-      "ScanParallelByVertexPropertyValue (threads: {}, {{{}}})", num_threads_, dba_->PropertyToName(property_));
+      "ScanParallelByVertexPropertyValue (threads: {}, {{{}}})", num_threads_, dba->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByVertexPropertyValue::Clone(AstStorage *storage) const {
@@ -10449,9 +10447,9 @@ UniqueCursorPtr ScanParallelByVertexPropertyRange::MakeCursor(utils::MemoryResou
 #endif
 }
 
-std::string ScanParallelByVertexPropertyRange::ToString() const {
+std::string ScanParallelByVertexPropertyRange::ToString(const DbAccessor *dba) const {
   return fmt::format(
-      "ScanParallelByVertexPropertyRange (threads: {}, {{{}}})", num_threads_, dba_->PropertyToName(property_));
+      "ScanParallelByVertexPropertyRange (threads: {}, {{{}}})", num_threads_, dba->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByVertexPropertyRange::Clone(AstStorage *storage) const {

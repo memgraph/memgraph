@@ -867,7 +867,7 @@ class ScanAllByVertexProperty : public memgraph::query::plan::ScanAll {
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
-  std::string ToString() const override;
+  std::string ToString(const DbAccessor *dba) const override;
 
   storage::PropertyId property_;
 
@@ -887,7 +887,7 @@ class ScanAllByVertexPropertyValue : public memgraph::query::plan::ScanAll {
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
-  std::string ToString() const override;
+  std::string ToString(const DbAccessor *dba) const override;
 
   storage::PropertyId property_;
   Expression *expression_;
@@ -909,7 +909,7 @@ class ScanAllByVertexPropertyRange : public memgraph::query::plan::ScanAll {
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
-  std::string ToString() const override;
+  std::string ToString(const DbAccessor *dba) const override;
 
   storage::PropertyId property_;
   std::optional<Bound> lower_bound_;
@@ -2308,7 +2308,7 @@ class ScanParallelByVertexProperty : public memgraph::query::plan::ScanParallel 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
-  std::string ToString() const override;
+  std::string ToString(const DbAccessor *dba) const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
   storage::PropertyId property_;
@@ -2328,7 +2328,7 @@ class ScanParallelByVertexPropertyValue : public memgraph::query::plan::ScanPara
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
-  std::string ToString() const override;
+  std::string ToString(const DbAccessor *dba) const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
   storage::PropertyId property_;
@@ -2350,7 +2350,7 @@ class ScanParallelByVertexPropertyRange : public memgraph::query::plan::ScanPara
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
-  std::string ToString() const override;
+  std::string ToString(const DbAccessor *dba) const override;
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
   storage::PropertyId property_;
