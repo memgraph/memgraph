@@ -82,6 +82,25 @@ class ParkState {
   void set_on_resume(std::function<void()> on_resume) { on_resume_ = std::move(on_resume); }
 
  private:
+  /// Moves `on_resume_` out and invokes the moved-out copy, so this `ParkState` stops owning whatever
+  /// the closure captured the instant the resume fires.
+  ///
+  /// Load-bearing, not tidiness. In the real integration `on_resume_` captures a
+  /// `shared_ptr<Session>` to keep the connection alive across the park, and a `ParkState` routinely
+  /// outlives its own resume: `DeadlineParkRegistry::Sweep` erases the entry from its own list but
+  /// nothing prunes the twin entry in `Storage::main_lock_resume_event_` until that event next
+  /// notifies. Every timed-out parked query therefore left a fired `ParkState` sitting in `waiters_`
+  /// still holding the Session -- and through it a `DatabaseAccess`, and through that
+  /// `Gatekeeper<Database>::count_` above zero, which is what stalls DROP DATABASE. Releasing here
+  /// makes the leftover entry inert regardless of when it is finally pruned.
+  ///
+  /// Exactly one caller ever reaches this (the gate guarantees a single delivery), so the moved-from
+  /// state is never observed by a second invocation.
+  void TakeAndInvokeOnResume() {
+    auto on_resume = std::move(on_resume_);
+    on_resume();
+  }
+
   /// Deliberately private, reachable ONLY through `RequestResume`/`ArmPark`. Both halves of the
   /// delivery gate are the whole safety argument for an un-pinned resume (see the gate discussion
   /// below): a wake source that invoked this directly would resume a coroutine frame whose parking
@@ -138,7 +157,7 @@ inline bool ClaimPark(ParkState &ps) { return !ps.claimed.exchange(true, std::me
 /// it here iff the parking thread already armed; otherwise the arming side will.
 inline void RequestResume(ParkState &ps) {
   if (ps.gate.exchange(ParkGate::kResumeRequested, std::memory_order_acq_rel) == ParkGate::kArmed) {
-    ps.on_resume_();
+    ps.TakeAndInvokeOnResume();
   }
 }
 
@@ -147,7 +166,7 @@ inline void RequestResume(ParkState &ps) {
 /// for a resume while we were still parking; otherwise that winner will, if one ever shows up.
 inline void ArmPark(ParkState &ps) {
   if (ps.gate.exchange(ParkGate::kArmed, std::memory_order_acq_rel) == ParkGate::kResumeRequested) {
-    ps.on_resume_();
+    ps.TakeAndInvokeOnResume();
   }
 }
 

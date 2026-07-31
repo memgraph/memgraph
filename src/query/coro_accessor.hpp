@@ -67,6 +67,9 @@ struct AcquireAwaitable {
   // ClaimPark -- AcquireAccessorCoro checks this immediately after co_await returns, without this
   // call ever having actually suspended.
   std::optional<std::unique_ptr<storage::Accessor>> *abandon_result;
+  // Set unconditionally to the ParkState this attempt built, so AcquireAccessorCoro can prune it from
+  // BOTH registries after a genuine resume -- see the cleanup at the bottom of the acquire loop.
+  std::shared_ptr<utils::ParkState> *parked_ps;
   // Session-surgery Stage B (IP-1 design doc REVISION 4 §R4.1/R4.2): opaque hook invoked by the
   // posted resume closure right AFTER it resumes the parked handle -- never for the synchronous
   // (never-parked) fast path, since in that case this closure is never constructed at all. This
@@ -82,6 +85,10 @@ struct AcquireAwaitable {
   bool await_suspend(std::coroutine_handle<> h) {
     auto ps = std::make_shared<utils::ParkState>();
     ps->deadline = deadline;
+    // Published to the frame before anything can claim `ps`. Safe to write frame memory here for the
+    // same reason the rest of this function is: the gate cannot deliver a resume until this thread's
+    // task ends (utils/park_state.hpp).
+    *parked_ps = ps;
     auto *pool_ptr = &pool;
     // resumed_cb is copied into BOTH the outer (on_resume) and inner (posted) closures, both of
     // which live inside ps (heap-allocated, kept alive by the registries -- see park_state.hpp) for
@@ -342,13 +349,34 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
     }
 
     std::optional<std::unique_ptr<storage::Accessor>> abandon_result;
+    std::shared_ptr<utils::ParkState> parked_ps;
     co_await detail::AcquireAwaitable{
-        mem_storage, pool, rw, resolved_iso, deadline, epoch, &abandon_result, on_park_resumed};
+        mem_storage, pool, rw, resolved_iso, deadline, epoch, &abandon_result, &parked_ps, on_park_resumed};
 
     if (abandon_result) {
       // R4.3 abandon-path win: the awaitable's own re-probe already acquired (and claimed) the
       // accessor without ever truly suspending -- nothing resumed us, we simply continued.
       co_return std::move(*abandon_result);
+    }
+
+    // Prune the ParkState we were just resumed from, from BOTH registries. Whichever wake source
+    // claimed it removed it from its OWN list only, and nothing else ever removes the twin entry:
+    //   - a lock-release NotifyAll empties `waiters_` wholesale but leaves the deadline registry entry;
+    //   - a deadline Sweep erases its own entry but leaves the `waiters_` one.
+    // The second case was a real leak, and on the commonest path there is: at the shipped
+    // --storage-access-timeout-sec default of 1s, a contended query that rides out its deadline is
+    // resumed by the sweep, so EVERY timed-out park used to leave a fired ParkState in `waiters_`.
+    // That kept `waiters_pending_` non-zero, which permanently defeated NotifyMainLockReleased's
+    // cheap "nobody is parked" gate and made every later admitting transition on that storage take the
+    // event mutex and bump the epoch -- and a bumped epoch fails concurrent RegisterWaiter calls, which
+    // sends other parkers back around this loop with no backoff. So the stale entry did not merely
+    // retain memory, it converted real parkers into spinners. (The Session it also retained is handled
+    // at the source now: ParkState releases its on_resume closure when the resume fires.)
+    // Both calls are best-effort and idempotent -- each is a no-op when the entry is already gone --
+    // so doing both is how we stay correct without knowing which source woke us.
+    if (parked_ps) {
+      mem_storage.main_lock_resume_event().RemoveWaiter(parked_ps);
+      pool.park_registry().Deregister(parked_ps);
     }
 
     // Genuinely resumed, on some pool worker -- which one is deliberately not ours to know post-F6

@@ -194,6 +194,13 @@ TEST(CoroAccessor, ParkTimeout) {
   ASSERT_TRUE(eptr) << "expected a UniqueAccessTimeout, got neither a result nor an exception";
   EXPECT_THROW(std::rethrow_exception(eptr), storage::UniqueAccessTimeout);
 
+  // NOTE: this particular assertion is NOT discriminating, and is kept only because it is true and
+  // cheap. A UNIQUE campaign holds a real PendingScope, so unwinding the timed-out coroutine
+  // destroys it -> unregister_pending -> maybe_notify -> the admit observer -> NotifyAll, which
+  // empties `waiters_` as a side effect and would hide a missing prune. WRITE is the case that
+  // actually tests it -- see ParkTimeoutLeavesNoWaiterRegistered below.
+  EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 0U);
+
   held->Abort();
   held.reset();
 
@@ -344,4 +351,60 @@ TEST(CoroAccessor, ParkThenShutdownUnwindsPromptly) {
 
   held->Abort();
   held.reset();
+}
+
+// (g) A timed-out park must leave NOTHING registered behind it, on the path where nothing else
+// cleans up for it.
+//
+// WRITE is load-bearing here. Whichever wake source claims a park removes it from its OWN list only:
+// a lock-release NotifyAll empties `waiters_` wholesale, while the deadline Sweep erases its own
+// entry and leaves the `waiters_` twin. So a sweep-resumed park needs the coroutine to prune the
+// event side -- and for UNIQUE/READ_ONLY that leak is masked, because unwinding the campaign destroys
+// its PendingScope, which notifies, which triggers a NotifyAll that empties `waiters_` anyway.
+// MakePendingHandle(WRITE) engages no scope at all (inmemory/storage.hpp), so nothing notifies and
+// nothing masks it.
+//
+// Left unpruned, the consequences compound: `waiters_pending_` stays non-zero, which permanently
+// defeats NotifyMainLockReleased's "nobody is parked" fast path, so every later admitting transition
+// on this storage takes the event mutex AND bumps the epoch -- and a bumped epoch fails concurrent
+// RegisterWaiter calls, sending other parkers back around the acquire loop with no backoff. The
+// entry also retained the ParkState's on_resume closure, which in production holds a
+// shared_ptr<Session> and through it a DatabaseAccess, stalling DROP DATABASE.
+TEST(CoroAccessor, ParkTimeoutLeavesNoWaiterRegistered) {
+  ScopedCoroPrepareFlag flag_on{true};
+
+  storage::InMemoryStorage store{NoGcConfig()};
+  utils::PriorityThreadPool pool{2, 1};
+
+  // A held UNIQUE blocks WRITE (can_acquire<WRITE> requires state != UNIQUE), so the WRITE parks.
+  auto held = store.UniqueAccess();
+  ASSERT_TRUE(held);
+
+  std::optional<std::unique_ptr<storage::Accessor>> result;
+  std::exception_ptr eptr;
+  std::atomic<bool> done{false};
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(150);
+  auto driver =
+      MakeDriver(store, storage::WRITE, std::nullopt, deadline, pool, /*is_high_priority=*/false, result, eptr, done);
+
+  pool.ScheduledAddTask([&](auto /*priority*/) { driver.Run(); }, utils::Priority::LOW);
+
+  ASSERT_TRUE(BoundedWaitUntil([&] { return done.load(); }, std::chrono::milliseconds(2000)))
+      << "deadline sweep never woke the parked coroutine to time it out";
+  ASSERT_FALSE(result.has_value());
+  ASSERT_TRUE(eptr);
+  EXPECT_THROW(std::rethrow_exception(eptr), storage::SharedAccessTimeout);
+
+  // The holder is still held, so no lock release has happened and nothing but the coroutine itself
+  // could have pruned the wake event.
+  EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 0U)
+      << "a timed-out WRITE park left itself registered on the storage wake event -- it would retain "
+         "its Session, defeat the no-waiters fast path, and spin later parkers via epoch bumps";
+
+  held->Abort();
+  held.reset();
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
 }
