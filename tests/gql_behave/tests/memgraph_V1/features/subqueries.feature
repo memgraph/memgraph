@@ -847,3 +847,28 @@ Feature: Subqueries
         Then the result should be:
             | playerName | cnt |
             | 'Player A' | 1   |
+
+    Scenario: A plain MATCH in a CALL subquery declares a fresh variable, not the un-imported outer one
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            CALL {
+              MATCH (p)-[:ACTED_IN]->(x)
+              RETURN x
+            }
+            RETURN p.name AS name, x.title AS title
+            ORDER BY name, title
+            """
+        Then the result should be, in order:
+            | name       | title |
+            | 'Regina'   | 'M1'  |
+            | 'Regina'   | 'M2'  |
+            | 'Zoe'      | 'M1'  |
+            | 'Zoe'      | 'M2'  |

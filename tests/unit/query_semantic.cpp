@@ -1730,6 +1730,23 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionAtTopLevelDeclaresUndeclared
   EXPECT_EQ(symbol_table.at(ComprehensionStartNode(comprehension)).name(), "zz");
 }
 
+TYPED_TEST(TestSymbolGenerator, PlainMatchInSubqueryShadowsUnimportedOuterVariable) {
+  // MATCH (a) CALL { MATCH (a)-[:R]->(x) RETURN x } RETURN a, x
+  // The subquery's own MATCH pattern is the same case as the comprehension: `a` is out of scope, so the pattern
+  // declares it afresh. Binding it to the outer symbol made the branch's scan overwrite the caller's frame slot,
+  // which dropped every outer row but the last.
+  auto *outer_a = NODE("a");
+  auto *inner_a = NODE("a");
+  auto *subquery = SINGLE_QUERY(
+      MATCH(PATTERN(inner_a, EDGE("anon_edge", EdgeAtom::Direction::OUT, {}, false), NODE("x"))), RETURN("x"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_a)), CALL_SUBQUERY(subquery), RETURN("a", "x")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_NE(symbol_table.at(*outer_a->identifier_), symbol_table.at(*inner_a->identifier_))
+      << "a subquery MATCH pattern must declare the un-imported name afresh, leaving the outer `a` intact";
+}
+
 TYPED_TEST(TestSymbolGenerator, CreateInSubqueryMayRedeclareUnimportedOuterVariable) {
   // MATCH (p) CALL { CREATE (p) RETURN p AS q } RETURN q
   // `p` is out of scope in the subquery, so the CREATE declares a fresh node instead of raising a redeclaration
