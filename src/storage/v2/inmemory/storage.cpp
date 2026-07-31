@@ -2021,14 +2021,9 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
 
 void InMemoryStorage::InMemoryAccessor::DowngradeToReadIfValid() {
   if (guard_.owns_lock() && guard_.type() == utils::ResourceLockGuard::READ_ONLY) {
+    // Dropping ro_count to 0 admits a pending WRITE; ResourceLock's own notify point handles both
+    // audiences (cv for blocking waiters, the admit observer for parked ones).
     guard_.downgrade_to_read();
-    // F5's rule applies to a downgrade, not just a release: dropping ro_count to 0 is exactly what
-    // admits a pending WRITE. downgrade_to_read() notifies main_lock_'s own cv, so a BLOCKING writer
-    // wakes -- but a PARKED one waits on main_lock_resume_event_, which nothing else pokes here. That
-    // left a WRITE parked behind CREATE INDEX asleep until the deadline sweep (~storage-access-timeout)
-    // instead of proceeding the moment index population downgraded, defeating the park in the very
-    // case it exists for. Notify AFTER the downgrade (C3): the hold is already demoted above.
-    storage_->NotifyMainLockReleased();
   }
 }
 
@@ -2934,12 +2929,6 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // NOTE: A single call need not handle objects deleted under a different storage mode: SetStorageMode
   // runs GC before any transaction in the new mode can start.
 
-  // Wake any parked (coro-prepare) acquirer once GC's hold on main_lock_ is gone. Declared BEFORE
-  // main_lock_guard so it is destroyed AFTER it: the notify must land after the actual release
-  // (C3), never while the hold is still standing. GC's hold is released by RAII here, so there is
-  // no explicit unlock site to hang this off.
-  const utils::OnScopeExit notify_on_release{[this] { NotifyMainLockReleased(); }};
-
   using Guard = utils::ResourceLockGuard;
   auto const main_lock_guard = [&] -> Guard {
     // Adopt SetStorageMode's UNIQUE hold if it passed one; reacquiring would deadlock.
@@ -2970,21 +2959,10 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     // lock_guard_condition<WRITE> is gated on unique_pending_ and that acquirer is in turn waiting
     // on the READ we would still be holding.
     read_guard.unlock();
-    // Dropping r_count can leave main_lock_ UNLOCKED, which is exactly can_acquire<UNIQUE>'s gate,
-    // so this release CAN admit a parked waiter -- and it happens before main_lock_guard exists, so
-    // the OnScopeExit above cannot cover it. Without this the waiter sleeps to the deadline sweep
-    // while the WRITE acquisition below is itself gated on that waiter's unique_pending_count:
-    // both stall for the whole access timeout, which is strictly worse than the blocking path.
-    NotifyMainLockReleased();
     auto write_guard = Guard{main_lock_, Guard::WRITE};
     // The mode can flip in the gap, so re-read it under the hold we will actually use. Downgrading
     // is non-blocking, unlike the escalation above.
-    if (storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-      write_guard.downgrade_to_read();
-      // WRITE->READ drops w_count to 0, which is can_acquire<READ_ONLY>'s gate -- the same admitting
-      // event DowngradeToReadIfValid() notifies for READ_ONLY->READ. Notify after the demotion.
-      NotifyMainLockReleased();
-    }
+    if (storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) write_guard.downgrade_to_read();
     return write_guard;
   }();
 
@@ -4694,26 +4672,11 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
       this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, timeout)});
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::NewAccessorOrNotifyRelease(
-    std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard) {
-  // The accessor's constructor allocates (CreateTransaction, index/constraint snapshots), so it can
-  // throw -- and when it does, `guard_` has already been constructed, so member unwinding releases
-  // main_lock_ while ~Accessor never runs. That skips the notify ~Accessor would have done, leaving
-  // a parked waiter asleep until its deadline sweep even though the hold is gone. Notify here
-  // instead; the guard is already released by the time this handler runs, so C3 holds.
-  try {
-    return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
-  } catch (...) {
-    NotifyMainLockReleased();
-    throw;
-  }
-}
-
 std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType rw_type,
                                                               std::optional<IsolationLevel> override_isolation_level) {
   utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::try_to_lock};
   if (!guard.owns_lock()) return nullptr;
-  return NewAccessorOrNotifyRelease(override_isolation_level, std::move(guard));
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccessWithPending(
@@ -4748,7 +4711,7 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccessWithPending(
   }();
 
   if (!guard) return nullptr;
-  return NewAccessorOrNotifyRelease(override_isolation_level, std::move(*guard));
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(*guard)});
 }
 
 void InMemoryStorage::CreateSnapshotHandler(

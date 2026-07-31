@@ -101,6 +101,17 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
         };
         return std::make_unique<DefaultDatabaseProtector>();
       }} {
+  // Wire the park wake to main_lock_'s own admission points, once, instead of to the call sites that
+  // release it. ResourceLock is the only place that knows whether a transition actually admitted
+  // anybody (see set_admit_observer), so this is exhaustive by construction: every release, every
+  // downgrade, a pending registration dropped by a timed-out or throwing acquirer, and a guard
+  // unwound because an Accessor constructor threw all funnel through the same notify point.
+  // Enumerating those sites by hand is what previously missed five of them.
+  //
+  // `this` is safe to capture: Storage is neither copied nor moved (owned via unique_ptr), main_lock_
+  // is a member, and the observer is installed before the lock is shared with any other thread.
+  main_lock_.set_admit_observer([this] { NotifyMainLockReleased(); });
+
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 
@@ -160,50 +171,15 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
 // constructors above, a destructor cannot be qualified through Storage::Accessor's type-alias
 // name (-Wdtor-typedef); it must use the class's own name, and we're already inside
 // `namespace memgraph::storage` here so the unqualified name resolves to the real class.
-Accessor::~Accessor() {
-  // F5 fix (IP-1 design doc REVISION 3 §R3.1 was wrong here): notify on EVERY release mode, not
-  // just UNIQUE/READ_ONLY. main_lock_'s conflict matrix is UNIQUE excludes all; READ_ONLY excludes
-  // WRITE (coexists with READ); READ/WRITE coexist with each other and with themselves. That means
-  // a parked READ_ONLY/UNIQUE waiter can be unblocked by the LAST conflicting WRITE (or READ, for
-  // a parked UNIQUE) holder releasing -- not only by another UNIQUE/READ_ONLY release. Skipping
-  // WRITE/READ release notification (the original rule) meant a parked query behind ongoing writes
-  // was never woken when those writes drained; it slept until its deadline and only then
-  // re-probed. Explicitly release the guard HERE (rather than letting it release via implicit
-  // member destruction, which runs after this function body returns) so the
-  // NotifyMainLockReleased() call below is guaranteed to observe main_lock_ already released (C3
-  // -- required for the epoch-based lost-wakeup protocol in WorkerResumeEvent). This is safe to do
-  // before transaction_'s own (later, implicit) destruction because Transaction::~Transaction is
-  // `= default` and touches no main_lock_-guarded state -- the real transaction teardown already
-  // ran via Abort()/FinalizeTransaction() in the derived accessor's destructor body, which executes
-  // before this base-class destructor even starts.
-  //
-  // NotifyMainLockReleased() itself stays cheap on the common path: flag-off is one relaxed bool
-  // load, flag-on-but-nobody-parked is one additional relaxed size load (C5) -- calling it
-  // unconditionally here (including for every WRITE/READ commit) costs nothing extra there. Only a
-  // genuinely parked waiter causes the bounded (and correctness-necessary) extra wake-and-reprobe
-  // churn documented on NotifyMainLockReleased() -- worst case it re-parks until the true
-  // unblocking release, which is strictly better than riding to the ~1s deadline.
-  //
-  // One unified guard_ holds whichever mode this Accessor was constructed with. If it owns nothing,
-  // ownership was handed off elsewhere (Accessor::ReleaseGuard(), used by SetStorageMode) and that
-  // other owner is responsible for its own release + notify -- nothing to do here.
-  if (guard_.owns_lock()) {
-    guard_.unlock();
-    storage_->NotifyMainLockReleased();
-  }
-}
+Accessor::~Accessor() = default;
 
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
 std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
-  auto main_guard = std::unique_lock{main_lock_};
+  auto const main_guard = std::unique_lock{main_lock_};
   isolation_level_ = isolation_level;
-  // Explicit unlock (rather than letting main_guard release at function-scope end) so the notify
-  // below observes main_lock_ already released (C3), matching the Accessor destructor's approach.
-  main_guard.unlock();
-  NotifyMainLockReleased();
   return {};
 }
 

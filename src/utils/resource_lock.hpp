@@ -12,6 +12,7 @@
 
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -130,7 +131,16 @@ struct ResourceLock {
 
   void maybe_notify(std::unique_lock<std::mutex> &lock, NotifyKind kind) {
     lock.unlock();
-    if (kind == NotifyKind::All) cv.notify_all();
+    if (kind != NotifyKind::All) return;
+    cv.notify_all();
+    // Same event, second audience. `cv` reaches waiters blocked inside acquire(); the observer
+    // reaches waiters that are NOT on the cv at all -- e.g. a suspended coroutine parked on a
+    // separate wake event. Both must learn about an admission, and this is the only place that
+    // knows an admission happened.
+    //
+    // Fires with mtx already released (above), which is the ordering every waiter needs: it must
+    // not observe "you may proceed" while the hold that gated it is still standing.
+    if (admit_observer_) admit_observer_();
   }
 
   /// Acquires in mode `Req`, `wait` supplying the wait strategy. Requires `lock` to own mtx; leaves
@@ -221,6 +231,24 @@ struct ResourceLock {
   }
 
  public:
+  /// Installs a callback invoked on EVERY state change that can admit a waiter, after mtx is
+  /// released. Exists for owners whose waiters are not on `cv`: a suspended coroutine parked on a
+  /// separate wake event cannot be reached by cv.notify_all, but needs the same signal.
+  ///
+  /// Why it lives here rather than at the call sites that release the lock: this class is the only
+  /// place that knows whether a given transition actually admitted anybody. That knowledge is
+  /// encoded in unlock_should_notify / pending_release_should_notify, and it is not obvious from
+  /// outside -- e.g. releasing a plain READ admits a pending UNIQUE (which needs state == UNLOCKED),
+  /// and a WRITE->READ downgrade admits a pending READ_ONLY (which needs w_count == 0). Every
+  /// admitting transition funnels through maybe_notify, so hooking there is exhaustive by
+  /// construction; hooking the release sites instead is a list you can be incomplete about, and
+  /// historically was, repeatedly.
+  ///
+  /// Call once during setup, before the lock is shared with other threads: it is read without mtx.
+  /// The callback runs with mtx NOT held, so it may take other locks, but must not re-enter this
+  /// lock.
+  void set_admit_observer(std::function<void()> observer) { admit_observer_ = std::move(observer); }
+
   void lock() {
     auto lock = std::unique_lock{mtx};
     acquire<LockReq::UNIQUE>(lock, blocking_wait());
@@ -294,6 +322,11 @@ struct ResourceLock {
   // Callers waiting to acquire UNIQUE (blocking lock()/try_lock_for(), or a UniquePendingScope
   // campaign). Gates new shared acquisitions for writer-preference; see can_acquire.
   uint32_t unique_pending_count = 0;
+
+  // Set once at construction time by an owner that has waiters which do not wait on `cv`; see
+  // set_admit_observer(). Read in maybe_notify with mtx NOT held, which is safe precisely because
+  // it is never mutated after that: treat it as const-after-setup.
+  std::function<void()> admit_observer_;
 };
 
 struct SharedResourceLockGuard {

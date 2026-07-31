@@ -693,10 +693,11 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
   spdlog::info("Received snapshot saved to {}", dst_snapshot_file);
   {
-    // NOTE (IP-1 coro-prepare-accessor-yield, R3.1): this UNIQUE main_lock_ release (replica-side
-    // recovery RPC handler) is deliberately NOT wired to NotifyMainLockReleased() -- it's a
-    // raw-lock acquisition outside the Accessor path, not on any query hot path, and a coro-prepare
-    // waiter missing this wake is backstopped by the ~1s deadline sweep (B2).
+    // NOTE (IP-1 coro-prepare-accessor-yield): this raw UNIQUE main_lock_ acquisition sits outside
+    // the Accessor path, but it still wakes parked waiters on release -- ResourceLock fires
+    // Storage's admit observer from its own notify points, so every release is covered without the
+    // call site knowing about the park machinery. It used to be an accepted latency regression here
+    // (waiter rode the ~1s deadline sweep); it no longer is.
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
       spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
@@ -894,8 +895,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(
       return;
     }
     {
-      // NOTE (IP-1 coro-prepare-accessor-yield, R3.1): deliberately not wired to
-      // NotifyMainLockReleased() -- see the SnapshotHandler occurrence above for rationale.
+      // NOTE (IP-1 coro-prepare-accessor-yield): as above -- covered automatically by
+      // ResourceLock's admit observer; see the SnapshotHandler occurrence above.
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
         spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
@@ -1038,8 +1039,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
       return;
     }
     {
-      // NOTE (IP-1 coro-prepare-accessor-yield, R3.1): deliberately not wired to
-      // NotifyMainLockReleased() -- see the SnapshotHandler occurrence above for rationale.
+      // NOTE (IP-1 coro-prepare-accessor-yield): as above -- covered automatically by
+      // ResourceLock's admit observer; see the SnapshotHandler occurrence above.
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
         spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());

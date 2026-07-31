@@ -269,16 +269,6 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
   // this downcast is therefore safe.
   auto &mem_storage = static_cast<storage::InMemoryStorage &>(storage);
 
-  // Giving up is itself an admitting event, so it has to wake people too. When this campaign ends
-  // -- by timeout, by a propagated throw, or by success -- `pending`'s destructor drops
-  // unique_pending_count/ro_pending_count, and reaching 0 is exactly the gate in can_acquire<READ>,
-  // can_acquire<WRITE> and can_acquire<READ_ONLY>. ResourceLock notifies its own cv there, so a
-  // BLOCKING waiter wakes; a PARKED one waits on main_lock_resume_event_ and nobody pokes it, so it
-  // would sleep to its own deadline sweep even though its predicate just became true. Declared
-  // BEFORE `pending` so it is destroyed AFTER it -- the notify must follow the actual decrement
-  // (C3), the same ordering rule as every release site.
-  const utils::OnScopeExit notify_on_pending_release{[&mem_storage] { mem_storage.NotifyMainLockReleased(); }};
-
   // Campaign-long pending scope (R4.6): built ONCE, held across every iteration of the loop below
   // -- including every suspend/resume -- so UNIQUE/READ_ONLY's writer-preference stays registered
   // for the whole retry campaign instead of just a single probe.
