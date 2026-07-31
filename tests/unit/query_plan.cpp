@@ -5029,12 +5029,103 @@ TYPED_TEST(TestPlanner, PatternComprehensionOverSymbolBoundInsideForeachBody) {
   ASSERT_NE(branch_produce, nullptr) << "Comprehension branch should end with Produce";
   auto *expand = dynamic_cast<Expand *>(branch_produce->input_.get());
   ASSERT_NE(expand, nullptr) << "Comprehension branch should expand from the bound `q`, not ScanAll";
+  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
+      << "the expansion must start from the `q` on the frame, not re-scan the graph";
   EXPECT_EQ(expand->common_.existing_node, false);
   EXPECT_EQ(expand->view_, memgraph::storage::View::NEW)
       << "A comprehension planned after a write it depends on must read View::NEW";
 
   auto *create_node = dynamic_cast<CreateNode *>(rollup->input_.get());
   ASSERT_NE(create_node, nullptr) << "CreateNode should be below the RollUpApply";
+}
+
+namespace {
+
+/// Walks down the single-input chain from @p root and returns the first operator of type TOp, or nullptr.
+template <class TOp>
+TOp *FindOpOfType(memgraph::query::plan::LogicalOperator *root) {
+  for (auto *op = root; op != nullptr;) {
+    if (auto *found = dynamic_cast<TOp *>(op)) return found;
+    if (!op->HasSingleInput()) return nullptr;
+    op = op->input().get();
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+TYPED_TEST(TestPlanner, PatternComprehensionInMergeOnCreateIsPlannedInsideBranch) {
+  // Test MERGE (q) ON CREATE SET q.prop = [(q)-->() | 1]
+  // `q` is bound by the MERGE pattern, and the SET runs inside the Merge's create branch, so the comprehension must
+  // be spliced into that branch - between CreateNode and SetProperty. Splicing it onto the chain the MERGE sits on
+  // would leave the frame slot unwritten when the SET reads it.
+  //
+  // Expected create branch (bottom-up): Once -> CreateNode (q) -> RollUpApply -> SetProperty
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("q"), EDGE("anon_edge", EdgeAtom::Direction::OUT), NODE("anon_node")), nullptr, LITERAL(1));
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("q")), ON_CREATE(SET(PROPERTY_LOOKUP(dba, "q", prop), pattern_comp)))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *merge = FindOpOfType<Merge>(&planner.plan());
+  ASSERT_NE(merge, nullptr) << "expected a Merge operator";
+
+  auto *set_property = dynamic_cast<SetProperty *>(merge->merge_create_.get());
+  ASSERT_NE(set_property, nullptr) << "the create branch should end with SetProperty";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(set_property->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply must sit inside the create branch, below the SetProperty that reads it";
+
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr);
+  auto *expand = dynamic_cast<Expand *>(branch_produce->input_.get());
+  ASSERT_NE(expand, nullptr) << "the comprehension must expand from the merged `q`, not re-scan";
+  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
+      << "the expansion must start from the just-created `q` on the frame, not a ScanAll";
+  EXPECT_EQ(expand->view_, memgraph::storage::View::NEW)
+      << "`q` was created in this command, so it is invisible under View::OLD";
+
+  EXPECT_NE(dynamic_cast<CreateNode *>(rollup->input_.get()), nullptr) << "CreateNode belongs below the RollUpApply";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInMergeOnMatchCorrelatesToMatchedNode) {
+  // Test MERGE (q) ON MATCH SET q.prop = [(q)-->() | 1]
+  // ON MATCH binds the pattern into a *copy* of the bound symbol set that the planning context does not share, so the
+  // branch's symbols have to be handed to the comprehension planner explicitly. Without that the branch is planned
+  // uncorrelated - a ScanAll - and the query silently returns a whole-graph count instead of `q`'s own.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("q"), EDGE("anon_edge", EdgeAtom::Direction::OUT), NODE("anon_node")), nullptr, LITERAL(1));
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("q")), ON_MATCH(SET(PROPERTY_LOOKUP(dba, "q", prop), pattern_comp)))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *merge = FindOpOfType<Merge>(&planner.plan());
+  ASSERT_NE(merge, nullptr) << "expected a Merge operator";
+
+  auto *set_property = dynamic_cast<SetProperty *>(merge->merge_match_.get());
+  ASSERT_NE(set_property, nullptr) << "the match branch should end with SetProperty";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(set_property->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply must sit inside the match branch, below the SetProperty that reads it";
+
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr);
+  auto *expand = dynamic_cast<Expand *>(branch_produce->input_.get());
+  ASSERT_NE(expand, nullptr) << "the comprehension must expand from the matched `q`, not re-scan the whole graph";
+  EXPECT_EQ(dynamic_cast<ScanAll *>(expand->input_.get()), nullptr)
+      << "a ScanAll below the Expand means `q` was not treated as bound, so the branch counts the whole graph";
+  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
+      << "the expansion must start from the `q` the branch already has on the frame";
 }
 
 TYPED_TEST(TestPlanner, PatternComprehensionInsideCountAggregate) {
