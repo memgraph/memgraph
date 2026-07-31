@@ -516,6 +516,14 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
   for (auto *pre_query_directive : ctx->preQueryDirective()) {
     if (auto *index_hints_ctx = pre_query_directive->indexHints()) {
       for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
+        if (auto *prop_ctx = index_hint_ctx->propertyKeyName()) {
+          auto property = std::any_cast<PropertyIx>(prop_ctx->accept(this));
+          pre_query_directives.index_hints_.emplace_back(
+              // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
+              IndexHint{.index_type_ = IndexHint::IndexType::VERTEX_PROPERTY,
+                        .property_ixs_ = {PropertyIxPath{{property}}}});
+          continue;
+        }
         auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
         auto *list = index_hint_ctx->nestedPropertyKeyList();
         if (!list) {

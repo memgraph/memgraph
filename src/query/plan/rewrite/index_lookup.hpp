@@ -96,6 +96,13 @@ struct IndexHints {
           continue;
         }
         point_index_hints_.emplace_back(index_hint);
+      } else if (index_type == IndexHint::IndexType::VERTEX_PROPERTY) {
+        auto property_name = index_hint.property_ixs_[0].path[0].name;
+        if (!db->VertexPropertyIndexReady(db->NameToProperty(property_name))) {
+          spdlog::debug("Vertex-property index for property {} doesn't exist", property_name);
+          continue;
+        }
+        vertex_property_index_hints_.emplace_back(index_hint);
       }
     }
   }
@@ -142,9 +149,20 @@ struct IndexHints {
     return false;
   }
 
+  template <class TDbAccessor>
+  bool HasVertexPropertyIndex(TDbAccessor *db, storage::PropertyId property) const {
+    for (const auto &[index_type, label_hint, property_ixs] : vertex_property_index_hints_) {
+      if (db->NameToProperty(property_ixs[0].path[0].name) == property) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   std::vector<IndexHint> label_index_hints_{};
   std::vector<IndexHint> label_property_index_hints_{};
   std::vector<IndexHint> point_index_hints_{};  // TODO: check this is used somewhere
+  std::vector<IndexHint> vertex_property_index_hints_{};
 };
 
 namespace impl {
@@ -1637,6 +1655,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       FilterInfo filter;
       storage::PropertyId property;
       int64_t estimated_count;
+      bool has_hint;
     };
 
     std::optional<Candidate> best;
@@ -1653,8 +1672,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto const estimated = filter.property_filter->type_ == PropertyFilter::Type::IS_NOT_NULL
                                  ? total
                                  : static_cast<int64_t>(total * CardParam::kFilter);
-      if (!best || estimated < best->estimated_count) {
-        best = Candidate{filter, property, estimated};
+      auto const has_hint = index_hints_.HasVertexPropertyIndex(db_, property);
+      if (!best || (has_hint && !best->has_hint) || estimated < best->estimated_count) {
+        best = Candidate{filter, property, estimated, has_hint};
       }
     }
 
@@ -1855,6 +1875,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         return ScanByIndexResult{std::move(op), std::move(metadata)};
       }
     }
+    // If a vertex-property index hint is active, try it first — it overrides label+property
+    if (!index_hints_.vertex_property_index_hints_.empty()) {
+      auto hinted = FindBestVertexPropertyScan(node_symbol, bound_symbols, input, view, metadata);
+      if (hinted) return std::move(*hinted);
+    }
+
     std::optional<LabelPropertyIndex> found_index = FindBestLabelPropertiesIndex(node_symbol, bound_symbols);
     if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.
