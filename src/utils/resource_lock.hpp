@@ -245,8 +245,21 @@ struct ResourceLock {
   /// historically was, repeatedly.
   ///
   /// Call once during setup, before the lock is shared with other threads: it is read without mtx.
-  /// The callback runs with mtx NOT held, so it may take other locks, but must not re-enter this
-  /// lock.
+  ///
+  /// The callback runs with mtx NOT held. It may take other locks, and it MAY re-enter this one --
+  /// that is not merely tolerated, it happens: the storage observer can end up driving a parked
+  /// coroutine's resume, which probes this very lock again (TryAccessWithPending -> try_acquire_pending
+  /// -> lock mtx). An earlier version of this comment forbade re-entry, which the code already
+  /// contradicted. What is actually required is weaker and is satisfied here:
+  ///   - maybe_notify unlocks BEFORE invoking, so re-entry cannot self-deadlock;
+  ///   - the callback must not assume any particular lock state on entry, since it is invoked from
+  ///     release, unregister_pending, downgrade_to_read and a failed acquire alike;
+  ///   - re-entry must terminate. It does because each nested probe either acquires (ending the chain)
+  ///     or parks (which posts rather than recursing); the chain is bounded by the parked waiters that
+  ///     were already registered when the outermost notify started.
+  /// Being called from inside a destructor is also normal -- ~ResourceLockGuard is the commonest
+  /// release site -- so the callback must not throw. The one installed by storage satisfies this: its
+  /// delivery path swallows and logs (see ParkState::TakeAndInvokeOnResume).
   void set_admit_observer(std::function<void()> observer) { admit_observer_ = std::move(observer); }
 
   void lock() {

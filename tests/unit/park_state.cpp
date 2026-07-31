@@ -142,6 +142,42 @@ TEST(ParkStateGate, ManyClaimersPlusArmDeliverExactlyOnce) {
   }
 }
 
+// Delivery must never propagate an exception. Every caller is somewhere a throw does outsized damage:
+// inside ~ResourceLockGuard (a destructor -- an escape terminates the process), inside
+// WorkerResumeEvent::ResumeAll's and DeadlineParkRegistry::Sweep/Drain's loops over claimed waiters
+// (an escape abandons the REST of them, each a permanently parked query), and inside ~ParkArmGuard
+// while a task unwinds.
+TEST(ParkStateGate, DeliveryDoesNotPropagateAnException) {
+  auto ps = std::make_shared<ParkState>();
+  ps->set_on_resume([] { throw std::runtime_error{"posting the resume failed"}; });
+
+  ASSERT_TRUE(ClaimPark(*ps));
+  RequestResume(*ps);  // deferred, gate still kParking
+  EXPECT_NO_THROW(ArmPark(*ps)) << "a failed delivery must be swallowed, not propagated";
+}
+
+// The same, through the stack: one waiter whose delivery throws must not stop the others from being
+// armed. This is the loop-abandonment case, which is the one that multiplies a single failure into
+// several permanently parked queries.
+TEST(ParkStateGate, AFailedDeliveryDoesNotStrandTheOtherPendingParks) {
+  std::atomic<int> good_resumed{0};
+  auto bad = std::make_shared<ParkState>();
+  bad->set_on_resume([] { throw std::runtime_error{"posting the resume failed"}; });
+  auto good = MakeCounting(&good_resumed);
+
+  // `good` published first, so it is armed LAST (innermost first) -- i.e. after the failure.
+  PublishPendingPark(good);
+  PublishPendingPark(bad);
+  ASSERT_TRUE(ClaimPark(*good));
+  ASSERT_TRUE(ClaimPark(*bad));
+  RequestResume(*good);
+  RequestResume(*bad);
+
+  EXPECT_NO_THROW(ArmPendingParksAbove(0));
+  EXPECT_EQ(good_resumed.load(), 1) << "a failed delivery aborted the arming loop and stranded the rest";
+  EXPECT_TRUE(memgraph::utils::tls_pending_parks.empty());
+}
+
 // --- the pending-arm stack, i.e. what the pool worker loop drives ---
 
 TEST(ParkStatePendingArm, ArmingDeliversAPublishedPark) {

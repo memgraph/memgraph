@@ -254,6 +254,12 @@ class PriorityThreadPool {
     // Stats
     std::atomic_bool has_pending_work_{false};
     std::atomic_bool working_{false};
+    // Write-ONCE, true -> false, by stop() only. Load-bearing beyond the obvious: try_push's
+    // "accepted => eventually run" promise (see PostResumeTask) is proved from the mutex ordering
+    // between try_push's read of run_ and stop()'s write of it. If run_ could ever go back to true,
+    // an accepted push could be ordered after the tail drain already broke on an empty queue, and the
+    // item -- a parked query's resume -- would be silently dropped. Nothing in the pool resets it;
+    // ShutDown() calls stop() once per worker and the destructor guards on stop_requested().
     std::atomic_bool run_{true};
     // Used by monitor to decide if worker is blocked
     std::atomic<TaskID> last_task_{0};

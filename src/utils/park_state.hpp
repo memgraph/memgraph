@@ -96,9 +96,23 @@ class ParkState {
   ///
   /// Exactly one caller ever reaches this (the gate guarantees a single delivery), so the moved-from
   /// state is never observed by a second invocation.
-  void TakeAndInvokeOnResume() {
+  void TakeAndInvokeOnResume() noexcept {
     auto on_resume = std::move(on_resume_);
-    on_resume();
+    // Never propagate. Delivery allocates (it posts a task), and every caller is somewhere a throw
+    // would do disproportionate damage:
+    //   - ~ResourceLockGuard -> release -> the admit observer -> here, i.e. inside a destructor, where
+    //     an escaping exception terminates the process;
+    //   - WorkerResumeEvent::ResumeAll and DeadlineParkRegistry::Sweep/Drain loop over every claimed
+    //     waiter, so an escape would abandon the REST of them un-resumed -- each one a permanently
+    //     parked query, which is a far worse outcome than the one that failed;
+    //   - ~ParkArmGuard, during a task's own unwinding.
+    // Losing one resume strands one query (loudly logged). Losing the instance, or the other waiters,
+    // is worse. This is why callers may treat RequestResume/ArmPark as non-throwing.
+    try {
+      on_resume();
+    } catch (const std::exception &e) {
+      spdlog::critical("Failed to deliver a parked query's resume: {}. That query will not make progress.", e.what());
+    }
   }
 
   /// Deliberately private, reachable ONLY through `RequestResume`/`ArmPark`. Both halves of the
@@ -236,17 +250,10 @@ struct ParkArmGuard {
   ParkArmGuard(ParkArmGuard &&) = delete;
   ParkArmGuard &operator=(ParkArmGuard &&) = delete;
 
-  ~ParkArmGuard() {
-    // Arming posts a resume, which allocates; a throw out of a destructor would terminate the
-    // process, and this guard is specifically designed to run while a task unwinds -- i.e. exactly
-    // when the allocation is most likely to fail. Losing the arm hangs one park; terminating loses
-    // the instance.
-    try {
-      ArmPendingParksAbove(base_depth_);
-    } catch (const std::exception &e) {
-      spdlog::critical("Failed to arm a parked query's resume: {}. That query will not make progress.", e.what());
-    }
-  }
+  // No try/catch needed: delivery cannot throw (ParkState::TakeAndInvokeOnResume is noexcept and
+  // swallows), and popping a shared_ptr off the stack does not allocate. That matters here because
+  // this destructor runs while a task unwinds, where an escaping exception would terminate.
+  ~ParkArmGuard() { ArmPendingParksAbove(base_depth_); }
 
  private:
   size_t base_depth_;

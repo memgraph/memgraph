@@ -271,9 +271,19 @@ void PriorityThreadPool::PostResumeTask(std::function<void()> closure) {
   // Target selection matters more for a resume than for ordinary work: must-run items are not
   // migrated by sched_mon, so handing one to a worker that is mid-task means waiting out that task.
   // Prefer a hot (spinning, work-hungry) worker; failing that, ANY worker that is not currently
-  // executing something -- a sleeping worker is not "hot" but push() wakes it, and it will start the
-  // resume immediately. Round-robin is the last resort, and the steal loop covers the residue (a
-  // worker that becomes busy between this choice and the push).
+  // executing something -- a sleeping worker is not "hot" but it does have working_ == false, and
+  // push() notifies its cv, so it starts the resume immediately. Round-robin is the last resort.
+  //
+  // Why sched_mon migration is NOT also needed here, since its absence reads like a gap: migration
+  // exists to move work off a stuck worker onto an idle one, and both halves of that are already
+  // covered. If any worker is idle or asleep at post time, the scan above finds it (working_ == false
+  // covers both states), so the resume never lands on a busy worker while a free one exists. If a
+  // worker frees up AFTER the post, it reaches Phase 2A and steals the resume -- a wedged victim with
+  // a queued must-run item satisfies the steal precondition (has_pending_work_ && working_) exactly.
+  // What remains is every LP worker being busy and staying busy, where the resume runs on whichever
+  // worker reaches a task boundary first. That is the pool's own scheduling granularity, not a
+  // property of this queue: there is no free thread to run it on sooner, and migration would have
+  // nowhere to migrate to.
   auto tid = hot_threads_.GetHotElement();
   if (!tid) {
     for (size_t i = 0; i < workers_.size(); ++i) {
