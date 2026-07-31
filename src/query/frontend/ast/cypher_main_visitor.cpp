@@ -670,6 +670,7 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
 antlrcpp::Any CypherMainVisitor::visitCreateGlobalVertexIndex(MemgraphCypher::CreateGlobalVertexIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::CREATE;
+  index_query->is_global_ = true;
   auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
   index_query->properties_ = {PropertyIxPath{{std::move(name_key)}}};
   return index_query;
@@ -678,6 +679,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateGlobalVertexIndex(MemgraphCypher::Cr
 antlrcpp::Any CypherMainVisitor::visitDropGlobalVertexIndex(MemgraphCypher::DropGlobalVertexIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::DROP;
+  index_query->is_global_ = true;
   auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
   index_query->properties_ = {PropertyIxPath{{std::move(name_key)}}};
   return index_query;

@@ -2220,6 +2220,7 @@ class IndexQuery : public memgraph::query::Query {
   // For CREATE: absent/empty => IndexOrder::ASC.
   // For DROP:   absent/empty => drop both ASC and DESC for (label, properties).
   std::unordered_map<Expression *, Expression *> config_;
+  bool is_global_ = false;
 
   IndexQuery *Clone(AstStorage *storage) const override {
     IndexQuery *object = storage->Create<IndexQuery>();
@@ -2233,6 +2234,7 @@ class IndexQuery : public memgraph::query::Query {
     for (auto const &[key_expr, value_expr] : config_) {
       object->config_.emplace(key_expr->Clone(storage), value_expr->Clone(storage));
     }
+    object->is_global_ = is_global_;
     return object;
   }
 

@@ -4435,7 +4435,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   auto *storage = db_acc->storage();
 
   // Global vertex property index: no label, just a property.
-  if (index_query->label_.name.empty()) {
+  if (index_query->is_global_) {
     MG_ASSERT(index_query->properties_.size() == 1, "Global vertex property index requires exactly one property.");
     auto property = storage->NameToProperty(index_query->properties_[0].path[0].name);
     auto const &prop_name = index_query->properties_[0].path[0].name;
