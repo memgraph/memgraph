@@ -151,6 +151,16 @@ struct AcquireAwaitable {
       // guaranteeing a spurious *AccessTimeout and dropping writer-preference for the rest of the
       // campaign. This probe only needs to close the register-vs-release race (B1 step 4); the
       // campaign's pending registration is already standing and keeps gating on our behalf.
+      //
+      // VERIFIED DETERMINISTICALLY (2026-07-31), not just reasoned about. A temporary thread_local
+      // hook was added here -- fired in the published-but-not-yet-re-probed window -- and a test used
+      // it to force the exact damaging interleaving: take ClaimPark away from this re-probe so the
+      // campaign must continue, then free the lock so the re-probe succeeds anyway. With the plain
+      // TryAccess below, the post-resume probe acquires in ~3ms. With TryAccessWithPending restored
+      // (the original bug), the same test rides out the whole 5s deadline and throws
+      // UniqueAccessTimeout on a completely free lock -- the customer-visible symptom. The hook and
+      // the test were removed afterwards, per review: reproducing this needs a seam in production
+      // code, and the seam is not worth carrying. Re-add both if this line is ever touched.
       auto acc = storage.TryAccess(rw_type, resolved_iso);
       if (acc) {
         if (utils::ClaimPark(*ps)) {
