@@ -36,7 +36,7 @@ void Indices::RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_acti
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
       ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
   static_cast<InMemoryVertexPropertyIndex *>(vertex_property_index_.get())
-      ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+      ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
 }
 
 void Indices::RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp,

@@ -310,12 +310,16 @@ uint64_t InMemoryVertexPropertyIndex::ActiveIndices::ApproximateVertexCount(
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
 }
 
-void InMemoryVertexPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
+void InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                                        std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
   CleanupAllIndices();
 
   auto cpy = all_indices_.ReadCopy();
+  if (cpy->empty()) return;
+
+  auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
 
   for (auto &[property_id, index] : *cpy) {
     if (token.stop_requested()) return;
