@@ -147,21 +147,23 @@ struct AcquireAwaitable {
     // Set iff the abandon path below wins ClaimPark on our own `ps`. Must outlive the try so the
     // handler can distinguish our claim from a foreign one.
     bool self_claimed = false;
-    // Whether we got as far as publishing the pending arm. The handler needs it because discarding a
-    // park this thread never published would pop somebody else's off the stack.
-    bool published = false;
+    // Publish the pending arm BEFORE anything here can throw, so that a wake source claiming `ps` in
+    // the very next instant finds an arming side already accounted for. Outside the try, and that
+    // placement is now sound rather than merely tidy: `PublishPendingPark` is `noexcept` because the
+    // pending-park stack is intrusive (utils/park_state.hpp) and linking allocates nothing.
+    //
+    // It has to be unconditional-and-infallible, not just exception-safe, and this is the second time
+    // that lesson was learned here. When publishing was a vector `push_back` it could throw, and the
+    // `catch` below then had to reason about a park that was registered on the wake event but absent
+    // from this thread's arming stack. Moving the call inside the try fixed the branch that UNWINDS,
+    // and left the branch that SUSPENDS silently broken: on a lost `ClaimPark` it concluded "somebody
+    // else will resume us", but nothing can ever arm a park that was never published, so the gate stuck
+    // at kResumeRequested, the frame never resumed, and its campaign-long PendingHandle pinned
+    // unique_pending_count above zero for the life of the process -- a bricked storage, not a leak. The
+    // fix is that the failure is now unrepresentable, which is why the `published` bookkeeping flag is
+    // gone: there is no longer a state in which we reached the try without having published.
+    utils::PublishPendingPark(ps);
     try {
-      // Publish the pending arm before anything else in here can throw, so that a wake source
-      // claiming `ps` in the very next instant finds an arming side already accounted for. This is
-      // INSIDE the try because publishing itself allocates (a vector push_back) and can therefore
-      // throw: it used to be a shared_ptr move-assign, and the depth-stack change made it a
-      // potentially-throwing call while leaving it outside. A throw there left `ps` registered on the
-      // wake event with gate == kParking and nothing on the stack to arm it -- no use-after-free (the
-      // gate prevents any delivery), but the ParkState kept holding its on_resume closure and through
-      // it the Session, which is exactly the leak the resumed-park pruning exists to close.
-      utils::PublishPendingPark(ps);
-      published = true;
-
       registry.Register(ps);
 
       // B1 step 4 / R4.3: re-probe the real resource once more before committing to a genuine
@@ -222,13 +224,28 @@ struct AcquireAwaitable {
         // the real error (deadline/OOM handling is the acquire loop's caller's business).
         event.RemoveWaiter(ps);
         registry.Deregister(ps);
-        if (published) utils::DiscardPendingPark(ps);
+        utils::DiscardPendingPark(ps);
         throw;
       }
       // A wake source already claimed `ps` and WILL resume this handle, so the frame must survive:
       // suspend instead of unwinding. The swallowed exception was a transient failure of an
       // opportunistic probe -- the resumed campaign re-probes and either acquires or times out
       // honestly, which is strictly better than resuming a destroyed frame.
+      //
+      // "WILL resume" rests on exactly one thing: `ps` is on this thread's pending-arm stack, so this
+      // task's `ParkArmGuard` arms it when the task ends, completing the gate rendezvous the claim
+      // winner's `RequestResume` started. That is guaranteed here because publishing happens
+      // unconditionally above and cannot fail. It is NOT a self-evident property of this branch -- when
+      // publishing could throw, this same `return true` was a permanent hang. Do not move the publish
+      // back inside this try.
+      //
+      // Prune both registries on the way out. Not load-bearing: the resume WILL fire, and the resumed
+      // coroutine prunes both at the bottom of the acquire loop. Kept because it costs two idempotent
+      // calls and takes the stale-entry outcome (a fired `ParkState` left in `waiters_`, which keeps
+      // `waiters_pending_` non-zero and turns every later admitting transition into an epoch bump that
+      // makes real parkers spin) out of the code's reachable set without depending on that argument.
+      event.RemoveWaiter(ps);
+      registry.Deregister(ps);
       return true;
     }
 

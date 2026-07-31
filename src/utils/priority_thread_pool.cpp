@@ -255,13 +255,21 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
 // delivery gate -- NOT the choice of worker -- is what guarantees a resume cannot start while the
 // parking thread is still inside its own await_suspend/driver.
 //
-// NEVER resumes inline on the caller's thread (IP-1 F1, shutdown-window UAF): the caller here is
-// whichever thread claimed the park -- a lock-releasing thread, the sched_mon deadline sweep, or the
-// shutdown drain -- and none of them may drive (let alone destroy) a coroutine frame. Posting during
-// shutdown is both allowed and required: ShutDown() drains parked waiters BEFORE stopping any
-// worker, so the target is still looping, and Worker::operator()'s tail additionally drains
-// work_must_run_ as a backstop for a resume posted after stop() was requested but before the thread
-// actually returned.
+// POSTS rather than resuming inline, for as long as any worker can still accept the task (IP-1 F1,
+// shutdown-window UAF): the caller here is whichever thread claimed the park -- a lock-releasing
+// thread, the sched_mon deadline sweep, or the shutdown drain -- and none of them may drive (let alone
+// destroy) a coroutine frame. Posting during shutdown is both allowed and required: ShutDown() drains
+// parked waiters BEFORE stopping any worker, so the target is still looping, and
+// Worker::operator()'s tail additionally drains work_must_run_ as a backstop for a resume posted after
+// stop() was requested but before the thread actually returned.
+//
+// The one exception, stated here because an earlier version of this comment said "NEVER resumes inline"
+// and the body has always contradicted it: if EVERY worker refuses the push (all of them stopped), the
+// last resort at the bottom of this function runs the closure inline on the caller's thread. That is
+// not a weakening of the rule above -- it is only reachable once no thread is left that could run the
+// task, where the choice is between resuming inline and stranding the query forever. It carries its own
+// ParkArmGuard and catch(...) precisely because it executes a session chain from a thread that is not a
+// pool worker. Do not restore the absolute phrasing; describe the fallback instead.
 void PriorityThreadPool::PostResumeTask(std::function<void()> closure) {
   DMG_ASSERT(!workers_.empty(), "PostResumeTask on a pool with no mixed-work workers.");
   // Deliberately no `pool_stop_source_.stop_requested()` bail (unlike ScheduledAddTask): a dropped

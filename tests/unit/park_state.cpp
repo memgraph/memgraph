@@ -175,7 +175,7 @@ TEST(ParkStateGate, AFailedDeliveryDoesNotStrandTheOtherPendingParks) {
 
   EXPECT_NO_THROW(ArmPendingParksAbove(0));
   EXPECT_EQ(good_resumed.load(), 1) << "a failed delivery aborted the arming loop and stranded the rest";
-  EXPECT_TRUE(memgraph::utils::tls_pending_parks.empty());
+  EXPECT_TRUE(memgraph::utils::tls_pending_park_head == nullptr);
 }
 
 // --- the pending-arm stack, i.e. what the pool worker loop drives ---
@@ -305,7 +305,7 @@ TEST(ParkStatePendingArm, ArmingDrainsParksPublishedWhileArming) {
   ArmPendingParksAbove(0);
   EXPECT_EQ(first_resumed.load(), 1);
   EXPECT_EQ(late_resumed.load(), 1) << "a park published while arming was never armed";
-  EXPECT_TRUE(memgraph::utils::tls_pending_parks.empty());
+  EXPECT_TRUE(memgraph::utils::tls_pending_park_head == nullptr);
 }
 
 // The stack is per-thread: two threads parking concurrently do not see each other's pending parks.
@@ -332,4 +332,71 @@ TEST(ParkStatePendingArm, PendingStackIsPerThread) {
 
   EXPECT_EQ(resumed_a.load(), 1);
   EXPECT_EQ(resumed_b.load(), 1);
+}
+
+// --- Regression: publishing a pending park must be INFALLIBLE, not merely exception-safe ---
+//
+// The defect this guards was a BLOCKER found in review, and it is worth stating exactly, because the
+// obvious-looking fix is the one that failed. `PublishPendingPark` was a `std::vector::push_back`. On
+// `bad_alloc` the `ParkState` was already registered on the wake event (RegisterWaiter runs first, and
+// must, for the register-before-recheck race) but was NOT on this thread's pending-arm stack. If a wake
+// source claimed it in that window, `AcquireAwaitable::await_suspend`'s catch handler lost `ClaimPark`,
+// concluded "somebody else will resume us" and suspended the frame -- but arming only ever walks the
+// pending-arm stack, so nothing could arm a park that was never published. Gate stuck at
+// kResumeRequested, `claimed` blocking every later claim, frame never resumed, and its campaign-long
+// PendingHandle pinning unique_pending_count above zero for the life of the process. Not a leak: a
+// bricked storage.
+//
+// Moving the publish inside the try (an earlier fix) only rescued the branch that UNWINDS. The branch
+// that SUSPENDS still assumed an arming side was owed. So the guarantee this test pins is the stronger
+// one that actually makes the suspend branch sound: the call cannot fail at all.
+TEST(ParkStateGate, PublishingAPendingParkCannotThrow) {
+  // Compile-time half. If someone reintroduces an allocating container here, this stops compiling
+  // rather than reintroducing the blocker quietly.
+  static_assert(noexcept(PublishPendingPark(std::shared_ptr<ParkState>{})),
+                "PublishPendingPark must be noexcept: AcquireAwaitable's lose-ClaimPark branch suspends the "
+                "frame on the assumption that an arming side is owed, which is only true if publishing "
+                "either did not run or fully succeeded. A throwing publish makes that branch a permanent "
+                "hang and bricks the storage.");
+
+  // Runtime half: deep nesting must not need to grow anything. A vector would reallocate here; the
+  // intrusive stack links storage the ParkStates already own.
+  constexpr int kDepth = 512;
+  std::vector<std::shared_ptr<ParkState>> parks;
+  std::atomic<int> resumed{0};
+  parks.reserve(kDepth);
+  for (int i = 0; i < kDepth; ++i) {
+    parks.push_back(MakeCounting(&resumed));
+    PublishPendingPark(parks.back());
+  }
+  for (auto &ps : parks) ASSERT_TRUE(ClaimPark(*ps));
+  for (auto &ps : parks) RequestResume(*ps);
+
+  ArmPendingParksAbove(0);
+  EXPECT_EQ(resumed.load(), kDepth) << "a deeply nested pending-park stack lost deliveries";
+  EXPECT_TRUE(memgraph::utils::tls_pending_park_head == nullptr);
+  EXPECT_EQ(memgraph::utils::tls_pending_park_depth, 0U);
+}
+
+// The half of the blocker that is about the SUSPEND branch's precondition rather than about allocation:
+// a park that has been claimed by a foreign source and had RequestResume called on it is delivered by
+// the arming side, and delivered EXACTLY ONCE. If the park is absent from the stack (which is what the
+// throwing publish used to produce) nothing arms it -- so this test also documents, by contrast, why the
+// publish must precede anything that can throw.
+TEST(ParkStateGate, ForeignClaimBeforeArmingIsDeliveredByTheArmingSide) {
+  std::atomic<int> resumed{0};
+  auto ps = MakeCounting(&resumed);
+
+  PublishPendingPark(ps);
+  // Foreign wake source: wins the claim and asks for a resume while the "parking thread" is still
+  // inside its own await_suspend, i.e. before any arming point.
+  ASSERT_TRUE(ClaimPark(*ps));
+  RequestResume(*ps);
+  EXPECT_EQ(resumed.load(), 0) << "a resume was delivered while the parking thread was still parking";
+  EXPECT_EQ(ps->gate.load(), ParkGate::kResumeRequested);
+
+  // The parking thread reaches its task boundary: the arming side completes the rendezvous.
+  ArmPendingParksAbove(0);
+  EXPECT_EQ(resumed.load(), 1) << "the arming side did not deliver a resume the claim winner had requested";
+  EXPECT_TRUE(memgraph::utils::tls_pending_park_head == nullptr);
 }

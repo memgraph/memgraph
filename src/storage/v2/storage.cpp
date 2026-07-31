@@ -184,13 +184,17 @@ std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(
 }
 
 void Storage::NotifyMainLockReleased() {
-  // Flag-off (or no waiters): exactly one relaxed load each, no mutex touched (R1 §B1/C5). This is
-  // the ENTIRE cost paid by every release site that calls this function -- including plain
+  // Cost, stated exactly, because this runs on every release of this storage's main lock: ONE relaxed
+  // load with the feature off, and TWO with it on and nobody parked (the flag, then the waiter count).
+  // No mutex is touched in either case (R1 §B1/C5). An earlier version of this comment said "exactly
+  // one relaxed load" full stop, which was true only of the flag-off path -- worth being precise about
+  // now that the flag defaults ON, since the two-load path is the one every installation takes.
+  //
+  // This is the ENTIRE cost paid by every release site that calls this function -- including plain
   // READ/WRITE releases (F5 fix: those DO need to poke this, since releasing the last conflicting
   // WRITE/READ holder can be exactly what unblocks a parked READ_ONLY/UNIQUE waiter, which is why
   // this hangs off ResourceLock's own notify points rather than off enumerated release sites --
-  // see set_admit_observer) -- when the experimental feature is disabled or nobody happens to be
-  // parked.
+  // see set_admit_observer).
   if (!flags::run_time::CoroPrepareAccessorYieldEnabled()) {
     return;
   }

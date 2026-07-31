@@ -44,11 +44,18 @@ namespace memgraph::utils {
 /// the point of view of this header and its two registries, `on_resume` is a black box: they
 /// never need to know it wraps a coroutine handle at all.
 ///
-/// Only the caller that wins `ClaimPark` may invoke `on_resume` -- exactly once, exactly one
+/// Only the caller that wins `ClaimPark` may cause `on_resume` to run -- exactly once, exactly one
 /// winner across every wake source that ever races on this `ParkState` (lock-release
 /// `WorkerResumeEvent::NotifyAll`, `DeadlineParkRegistry::Sweep`'s deadline sweep, either
 /// registry's shutdown `Drain()`, and the awaitable's own abandon-path claim, R4.3). Losers must
-/// not call `on_resume` and must not otherwise touch this `ParkState` beyond reading `claimed`.
+/// not ask for a resume and must not otherwise touch this `ParkState` beyond reading `claimed`.
+///
+/// "May cause to run", NOT "may invoke": winning the claim does not put the winner in a position to
+/// call anything. `on_resume_` is private, and the winner's only move is `RequestResume`, which may
+/// well NOT deliver -- if the parking thread has not armed yet, the winner just records the request
+/// and the ARMING side delivers later, on a different thread. Claim and delivery are deliberately
+/// separate decisions (who vs. when); reading this paragraph as "the winner invokes the closure"
+/// misses the entire point of the gate below.
 ///
 /// ---------------------------------------------------------------------------------------------
 /// Why `ParkState` is heap-allocated via `shared_ptr`, not a coroutine-frame local (R2).
@@ -77,6 +84,15 @@ class ParkState {
   std::chrono::steady_clock::time_point deadline;
   std::atomic<bool> claimed{false};
   std::atomic<ParkGate> gate{ParkGate::kParking};
+
+  /// Intrusive link for this thread's pending-arm stack (`tls_pending_park_head` below). Lives HERE,
+  /// in storage the publisher already owns, so that publishing a park allocates nothing and therefore
+  /// cannot throw -- which is load-bearing, not a micro-optimisation. See `PublishPendingPark`.
+  ///
+  /// Only ever read or written by `PublishPendingPark`/`DiscardPendingPark`/`ArmPendingParksAbove`,
+  /// and only on the thread that published this `ParkState`, so it needs no synchronisation: a wake
+  /// source on another thread touches `claimed`, `gate` and `on_resume_`, never this.
+  std::shared_ptr<ParkState> next_pending;
 
   /// Set once, by whoever constructs this ParkState, before it is published to any registry.
   void set_on_resume(std::function<void()> on_resume) { on_resume_ = std::move(on_resume); }
@@ -216,12 +232,36 @@ inline void ArmPark(ParkState &ps) {
 ///
 /// A stack makes that nesting REPRESENTABLE instead of fatal, which is why this is not merely an
 /// assert. Depth, not identity, is what each arming site keys off -- see `ParkArmGuard`.
-inline thread_local std::vector<std::shared_ptr<ParkState>> tls_pending_parks;
+/// An INTRUSIVE stack (link in `ParkState::next_pending`), innermost at the head, with an explicit
+/// depth so arming sites can key off depth exactly as before.
+///
+/// Intrusive specifically so that publishing CANNOT THROW. This was a `std::vector` and that was a
+/// blocker: `push_back` allocates, and a `bad_alloc` there left `ps` registered on the wake event but
+/// absent from this stack. If a wake source claimed `ps` in that window, the publisher's `catch`
+/// handler lost `ClaimPark`, concluded "somebody else will resume us" and suspended -- but nothing
+/// could ever arm a park that was never published, so the gate stayed at `kResumeRequested`, the frame
+/// never resumed, and its campaign-long `PendingHandle` pinned `unique_pending_count` above zero
+/// forever. That bricks the storage, which is the exact failure this whole stack exists to prevent.
+///
+/// The fix is not a bigger `catch`: it is making the failure UNREPRESENTABLE. `ParkState` is already
+/// heap-allocated before it is published, so linking it costs two `shared_ptr` assignments and no
+/// allocation. Do not reintroduce a container here, and do not "simplify" this back to a vector with a
+/// `reserve` -- `reserve` still throws, and a deep enough nesting still reallocates.
+inline thread_local std::shared_ptr<ParkState> tls_pending_park_head;
+inline thread_local size_t tls_pending_park_depth = 0;
 
 /// Publishes `ps` as pending-arm for this thread. Call right after `ps` becomes visible to the
 /// registries (i.e. right after a successful `WorkerResumeEvent::RegisterWaiter`), so that a wake
 /// source claiming immediately afterwards finds a `ParkState` whose arming side is accounted for.
-inline void PublishPendingPark(std::shared_ptr<ParkState> ps) { tls_pending_parks.push_back(std::move(ps)); }
+///
+/// `noexcept` is part of the contract, not an annotation: every caller's exception-safety argument
+/// depends on this call either not running yet or having fully succeeded. Static-asserted in
+/// tests/unit/park_state.cpp so the guarantee cannot be lost silently.
+inline void PublishPendingPark(std::shared_ptr<ParkState> ps) noexcept {
+  ps->next_pending = std::move(tls_pending_park_head);
+  tls_pending_park_head = std::move(ps);
+  ++tls_pending_park_depth;
+}
 
 /// Drops a pending-arm park WITHOUT arming it. Only for a parking attempt that published `ps` and
 /// then self-claimed it (the abandon path / shutdown self-claim): the publisher itself is the claim
@@ -233,10 +273,12 @@ inline void PublishPendingPark(std::shared_ptr<ParkState> ps) { tls_pending_park
 /// than DMG_ASSERT deliberately -- a mismatch here would drop somebody else's arm, and that is the
 /// brick-the-database failure described above, which must not be a no-op in a release build.
 inline void DiscardPendingPark(const std::shared_ptr<ParkState> &ps) {
-  MG_ASSERT(!tls_pending_parks.empty() && tls_pending_parks.back() == ps,
+  MG_ASSERT(tls_pending_park_head == ps,
             "DiscardPendingPark on a park that is not this thread's innermost pending park -- dropping it "
             "would strand the real one, which permanently blocks every acquisition on its storage.");
-  tls_pending_parks.pop_back();
+  auto next = std::move(tls_pending_park_head->next_pending);
+  tls_pending_park_head = std::move(next);
+  --tls_pending_park_depth;
 }
 
 /// Arms every park published above `base_depth`, innermost first, and pops them. Each arming site
@@ -252,9 +294,13 @@ inline void DiscardPendingPark(const std::shared_ptr<ParkState> &ps) {
 /// re-test finds nothing. The loop earns its keep only if a future arming site forgets its guard,
 /// which is cheap insurance for a failure mode whose cost is a permanently parked query.
 inline void ArmPendingParksAbove(size_t base_depth) {
-  while (tls_pending_parks.size() > base_depth) {
-    auto ps = std::move(tls_pending_parks.back());
-    tls_pending_parks.pop_back();
+  while (tls_pending_park_depth > base_depth) {
+    auto ps = std::move(tls_pending_park_head);
+    tls_pending_park_head = std::move(ps->next_pending);
+    --tls_pending_park_depth;
+    // Popped BEFORE arming, deliberately: `ArmPark` can invoke `on_resume_`, which on the inline path
+    // re-enters a session chain that may publish a park of its own. Popping first means that nested
+    // publish sees a consistent stack and its own guard's base equals ours.
     ArmPark(*ps);
   }
 }
@@ -264,7 +310,7 @@ inline void ArmPendingParksAbove(size_t base_depth) {
 /// three, and `PostResumeTask`'s inline fallback. A site without one leaves any park its task
 /// published unarmed forever.
 struct ParkArmGuard {
-  ParkArmGuard() : base_depth_{tls_pending_parks.size()} {}
+  ParkArmGuard() : base_depth_{tls_pending_park_depth} {}
 
   ParkArmGuard(const ParkArmGuard &) = delete;
   ParkArmGuard &operator=(const ParkArmGuard &) = delete;
