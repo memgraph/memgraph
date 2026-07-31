@@ -3292,5 +3292,16 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
+/// Executes a read-only builtin introspection procedure that takes no arguments and does not touch
+/// the graph (mg.procedures / mg.functions / mg.transformations / mg.get_module_files), with NO
+/// storage accessor. Builds the mgp_result signature exactly as CallProcedureCursor does (shared
+/// BuildProcedureResultSignature), invokes the procedure callback with an empty argument list and a
+/// graph-less stub, and returns the rows projected onto the yielded `result_fields` in YIELD order.
+/// Throws QueryRuntimeException on procedure error, mirroring the operator path. Backs the
+/// interpreter's accessor-free fast path for Memgraph Lab introspection queries.
+std::vector<std::vector<TypedValue>> CallNoGraphReadProcedure(std::string_view procedure_name,
+                                                              const std::vector<std::string> &result_fields,
+                                                              utils::MemoryResource *memory);
+
 }  // namespace plan
 }  // namespace memgraph::query

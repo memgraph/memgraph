@@ -227,6 +227,65 @@ TYPED_TEST(InterpreterTest, NonConstantReturnTakesNormalPath) {
   }
 }
 
+// Memgraph Lab issues `CALL mg.procedures() YIELD *` on connect and the sibling mg.* introspection
+// calls on layout init. These read only the module registry, so they take the accessor-free fast
+// path (no storage transaction). Verify the columns/values are correct and that the fast path is
+// taken (no "plan_execution_time" in the summary).
+TYPED_TEST(InterpreterTest, BuiltinIntrospectionUsesAccessorFreeFastPath) {
+  {
+    // YIELD * exposes all result fields in the procedure's (alphabetical) map order.
+    auto stream = this->Interpret("CALL mg.procedures() YIELD *");
+    ASSERT_EQ(stream.GetHeader().size(), 5U);
+    EXPECT_EQ(stream.GetHeader()[0], "is_editable");
+    EXPECT_EQ(stream.GetHeader()[1], "is_write");
+    EXPECT_EQ(stream.GetHeader()[2], "name");
+    EXPECT_EQ(stream.GetHeader()[3], "path");
+    EXPECT_EQ(stream.GetHeader()[4], "signature");
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);  // fast path: no plan executed
+    // mg.procedures must list itself, and it is a read procedure.
+    bool found_self = false;
+    for (auto &row : stream.GetResults()) {
+      if (row[2].ValueString() == "mg.procedures") {
+        found_self = true;
+        EXPECT_FALSE(row[1].ValueBool());  // is_write == false
+      }
+    }
+    EXPECT_TRUE(found_self);
+  }
+  {
+    // Explicit single-field YIELD.
+    auto stream = this->Interpret("CALL mg.functions() YIELD name");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "name");
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    // Aliased YIELD -- header uses the alias.
+    auto stream = this->Interpret("CALL mg.procedures() YIELD name AS n");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "n");
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+}
+
+// The accessor-free fast path must return exactly the rows the normal (planned) path would. A
+// trailing RETURN forces the normal path, giving a baseline to diff against.
+TYPED_TEST(InterpreterTest, BuiltinIntrospectionMatchesNormalPath) {
+  auto sorted_names = [](auto &stream) {
+    std::vector<std::string> out;
+    out.reserve(stream.GetResults().size());
+    for (auto &row : stream.GetResults()) out.push_back(row[0].ValueString());
+    std::sort(out.begin(), out.end());
+    return out;
+  };
+  auto fast = this->Interpret("CALL mg.procedures() YIELD name");                // fast path
+  auto normal = this->Interpret("CALL mg.procedures() YIELD name RETURN name");  // trailing clause -> normal
+  EXPECT_EQ(fast.GetSummary().count("plan_execution_time"), 0U);
+  EXPECT_EQ(normal.GetSummary().count("plan_execution_time"), 1U);
+  EXPECT_FALSE(sorted_names(fast).empty());
+  EXPECT_EQ(sorted_names(fast), sorted_names(normal));
+}
+
 TYPED_TEST(InterpreterTest, MultiplePulls) {
   {
     auto [stream, qid] = this->Prepare("UNWIND [1,2,3,4,5] as n RETURN n");
