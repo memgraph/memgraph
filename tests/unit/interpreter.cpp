@@ -150,6 +150,83 @@ class InterpreterTest : public ::testing::Test {
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(InterpreterTest, StorageTypes);
 
+// Memgraph Lab fires connection-check / probe queries like `RETURN 1` and
+// `RETURN 1 AS APP_INTERNAL_EXEC_VAR` continuously. These are constant RETURNs and take the
+// accessor-free fast path (no storage transaction is opened). Verify the results/headers are
+// correct AND that the fast path is actually taken: the normal Cypher path drives a PullPlan which
+// records "plan_execution_time" in the summary; the fast path uses PullPlanVector and never plans,
+// so that key is absent. Its absence is a proxy for "no storage accessor was opened".
+TYPED_TEST(InterpreterTest, ConstantReturnUsesAccessorFreeFastPath) {
+  {
+    auto stream = this->Interpret("RETURN 1 AS APP_INTERNAL_EXEC_VAR");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "APP_INTERNAL_EXEC_VAR");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);  // fast path: no plan executed
+  }
+  {
+    auto stream = this->Interpret("RETURN 1");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "1");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    // Multiple constants, mixed types, alias vs. no alias.
+    auto stream = this->Interpret("RETURN 1, 'x' AS s, true AS b");
+    ASSERT_EQ(stream.GetHeader().size(), 3U);
+    EXPECT_EQ(stream.GetHeader()[0], "1");
+    EXPECT_EQ(stream.GetHeader()[1], "s");
+    EXPECT_EQ(stream.GetHeader()[2], "b");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetResults()[0][1].ValueString(), "x");
+    EXPECT_EQ(stream.GetResults()[0][2].ValueBool(), true);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    // List/map built solely from constants are still constant.
+    auto stream = this->Interpret("RETURN [1, 2] AS l, {a: 1} AS m");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueList().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueList()[0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetResults()[0][1].ValueMap().at("a").ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+}
+
+// Queries that are not constant RETURNs must still take the normal, accessor-backed path (which
+// plans and therefore records "plan_execution_time").
+TYPED_TEST(InterpreterTest, NonConstantReturnTakesNormalPath) {
+  {
+    auto stream = this->Interpret("RETURN 1 + 1 AS x");  // arithmetic is not a constant literal
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN abs(-3) AS x");  // function call needs the normal path
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+  }
+  {
+    auto stream = this->Interpret("MATCH (n) RETURN count(n) AS c");  // reads the graph
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN DISTINCT 1 AS x");  // DISTINCT excludes the fast path
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+  }
+}
+
 TYPED_TEST(InterpreterTest, MultiplePulls) {
   {
     auto [stream, qid] = this->Prepare("UNWIND [1,2,3,4,5] as n RETURN n");
@@ -1518,19 +1595,20 @@ TYPED_TEST(InterpreterTest, LoadCsvClause) {
 }
 
 TYPED_TEST(InterpreterTest, CacheableQueries) {
-  // This should be cached
+  // A constant RETURN is served by the accessor-free fast path, which never plans. Its AST is still
+  // cached, but no plan is produced, so the plan cache stays empty.
   {
-    SCOPED_TRACE("Cacheable query");
+    SCOPED_TRACE("Constant RETURN is AST-cached but not plan-cached");
     this->Interpret("RETURN 1");
     EXPECT_EQ(this->AstCacheSize(), 1U);
-    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   }
 
   {
     SCOPED_TRACE("Cacheable procedure query");
     this->Interpret("CALL mg.procedures() YIELD name RETURN name");
     EXPECT_EQ(this->AstCacheSize(), 2U);
-    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 2U);
+    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   }
 }
 
