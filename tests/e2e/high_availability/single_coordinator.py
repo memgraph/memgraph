@@ -292,9 +292,9 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
 
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
 
@@ -312,7 +312,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
     ]
     mg_sleep_and_assert(new_expected_data_on_coord, partial(show_instances, coord_cursor))
 
@@ -429,7 +429,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
         ("instance_4", "localhost:7691", "", "localhost:10014", "up", "replica"),
     ]
@@ -453,8 +453,8 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "replica"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
         ("instance_4", "localhost:7691", "", "localhost:10014", "up", "replica"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
@@ -479,9 +479,9 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
 
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "replica"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "replica"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
         ("instance_4", "localhost:7691", "", "localhost:10014", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
@@ -500,9 +500,9 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
 
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
         ("instance_4", "localhost:7691", "", "localhost:10014", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
@@ -629,9 +629,9 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
         ("instance_4", "localhost:7691", "", "localhost:10014", "up", "replica"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
@@ -662,9 +662,9 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
-        ("instance_4", "localhost:7691", "", "localhost:10014", "down", "unknown"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "replica"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
+        ("instance_4", "localhost:7691", "", "localhost:10014", "down", "replica"),
     ]
 
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
@@ -687,8 +687,8 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
-        ("instance_4", "localhost:7691", "", "localhost:10014", "down", "unknown"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
+        ("instance_4", "localhost:7691", "", "localhost:10014", "down", "replica"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
 
@@ -816,10 +816,10 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
 
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
-        ("instance_4", "localhost:7691", "", "localhost:10014", "down", "unknown"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
+        ("instance_4", "localhost:7691", "", "localhost:10014", "down", "replica"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
 
@@ -842,9 +842,9 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
 
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "replica"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "replica"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
         ("instance_4", "localhost:7691", "", "localhost:10014", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
@@ -855,8 +855,8 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "replica"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
         ("instance_4", "localhost:7691", "", "localhost:10014", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
@@ -912,7 +912,7 @@ def test_replication_works_on_failover_simple(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
 
@@ -1019,7 +1019,7 @@ def test_replication_works_on_replica_instance_restart(test_name):
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
     ]
     mg_sleep_and_assert_collection(expected_data_on_coord, partial(show_instances, coord_cursor))
@@ -1132,7 +1132,7 @@ def test_show_instances(test_name):
 
     expected_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
     ]
@@ -1142,8 +1142,8 @@ def test_show_instances(test_name):
 
     expected_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "replica"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data, partial(show_instances, coord_cursor))
@@ -1181,7 +1181,7 @@ def test_simple_automatic_failover(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
 
@@ -1277,7 +1277,7 @@ def test_replica_instance_restarts(test_name):
 
     expected_data_down = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
     ]
@@ -1305,7 +1305,7 @@ def test_automatic_failover_main_back_as_replica(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "replica"),
     ]
     mg_sleep_and_assert(expected_data_after_failover, partial(show_instances, coord_cursor))
 
@@ -1337,9 +1337,9 @@ def test_automatic_failover_main_back_as_main(test_name):
 
     expected_data_all_down = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "replica"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "replica"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "main"),
     ]
 
     mg_sleep_and_assert(expected_data_all_down, partial(show_instances, coord_cursor))
@@ -1347,8 +1347,8 @@ def test_automatic_failover_main_back_as_main(test_name):
     interactive_mg_runner.start(memgraph_instances_description, "instance_3")
     expected_data_main_back = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "replica"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data_main_back, partial(show_instances, coord_cursor))

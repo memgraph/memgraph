@@ -231,7 +231,7 @@ def test_ttl_high_availability_failover(test_name):
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "replica"),
     ]
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
 
@@ -258,7 +258,7 @@ def test_ttl_high_availability_failover(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
     ]
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
@@ -370,7 +370,7 @@ def test_ttl_role_transition_ha(test_name):
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "replica"),
     ]
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
 

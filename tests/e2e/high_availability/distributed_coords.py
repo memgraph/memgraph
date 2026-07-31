@@ -479,17 +479,8 @@ def test_even_number_coords(test_name):
 
     assert "Writing to Raft log failed. Please retry the operation." in str(e.value)
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "unknown", "follower"),
-        ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
-    ]
-
-    mg_sleep_and_assert(follower_data, partial(show_instances, coord_cursor_3))
+    # Without a quorum there is no leader to forward the read to, so nothing is reported.
+    mg_sleep_and_assert([], partial(show_instances, coord_cursor_3))
 
     # 6
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
@@ -540,7 +531,7 @@ def test_old_main_comes_back_on_new_leader_as_replica(test_name):
 
     # Wait until failover happens
     wait_for_status_change(partial(show_instances, coord_cursor_1), {"instance_1", "instance_2"}, "main")
-    wait_for_status_change(partial(show_instances, coord_cursor_1), {"instance_3"}, "unknown")
+    wait_for_status_change(partial(show_instances, coord_cursor_1), {"instance_3"}, "replica")
 
     # Both instance_1 and instance_2 could become main depending on the order of pings in the system.
     # Both coordinator_1 and coordinator_2 could become leader depending on the NuRaft election.
@@ -550,7 +541,7 @@ def test_old_main_comes_back_on_new_leader_as_replica(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     leader_instance_3_down = find_instance_and_assert_instances(
@@ -701,7 +692,7 @@ def test_distributed_automatic_failover(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
@@ -772,7 +763,7 @@ def test_distributed_automatic_failover_with_leadership_change(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     wait_for_status_change(partial(show_instances, coord_cursor_1), {"instance_1", "instance_2"}, "main")
@@ -885,17 +876,9 @@ def test_no_leader_after_leader_and_follower_die(test_name):
     interactive_mg_runner.kill(inner_memgraph_instances, "coordinator_3")
     interactive_mg_runner.kill(inner_memgraph_instances, "coordinator_2")
 
-    coord_1_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
-    mg_sleep_and_assert(coord_1_data, partial(show_instances, coord_cursor_1))
+    # The remaining follower has no leader to forward the read to, so nothing is reported.
+    mg_sleep_and_assert([], partial(show_instances, coord_cursor_1))
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(
@@ -1413,7 +1396,7 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     mg_sleep_and_assert_collection(data, partial(show_instances, coord_cursor_1))
@@ -1428,9 +1411,9 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     mg_sleep_and_assert_collection(data, partial(show_instances, coord_cursor_1))
@@ -1447,7 +1430,7 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
@@ -1464,8 +1447,8 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
@@ -1574,7 +1557,7 @@ def test_multiple_old_mains_single_failover(test_name):
     basic_instances = [
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     expected_data_on_coord = []
@@ -1605,7 +1588,7 @@ def test_multiple_old_mains_single_failover(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     coord2_leader_data = [
@@ -1614,7 +1597,7 @@ def test_multiple_old_mains_single_failover(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     mg_sleep_and_assert_multiple(
@@ -2147,10 +2130,10 @@ def test_all_coords_down_resume(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
-    wait_for_status_change(partial(show_instances, coord_cursor_1), {"instance_3"}, "unknown")
+    wait_for_status_change(partial(show_instances, coord_cursor_1), {"instance_3"}, "replica")
 
     leader = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
 
@@ -2248,7 +2231,7 @@ def test_one_coord_down_with_durability_resume(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_3))
@@ -2347,11 +2330,9 @@ def test_main_reselected_to_become_main(test_name):
     interactive_mg_runner.kill(inner_instances_description, "instance_1")
     interactive_mg_runner.kill(inner_instances_description, "instance_2")
 
-    # Wait until failover happens
+    # Both replicas are reported as down while keeping the replica role from the Raft log.
     leader_data = update_tuple_value(leader_data, "instance_1", 0, -2, "down")
-    leader_data = update_tuple_value(leader_data, "instance_1", 0, -1, "unknown")
     leader_data = update_tuple_value(leader_data, "instance_2", 0, -2, "down")
-    leader_data = update_tuple_value(leader_data, "instance_2", 0, -1, "unknown")
     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_3))
 
     # write to main
@@ -2514,7 +2495,7 @@ def test_demote_promote(test_name):
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_3))
@@ -2565,7 +2546,7 @@ def test_distributed_automatic_failover_mixed_cluster(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
 
     # Instance 2 needs to become main because instance 1 is async replica
