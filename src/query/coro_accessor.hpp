@@ -38,11 +38,12 @@ namespace detail {
 /// -- see AcquireAccessorCoro below for the surrounding loop.
 ///
 /// `await_suspend` implements the FULL single-owner arbitration, not just "register and suspend":
-///  1. Builds a `shared_ptr<ParkState>` whose `on_resume` reschedules THIS coroutine handle back
-///     onto the CURRENT pool worker (`RescheduleTaskOnWorker`) -- resuming the handle propagates
-///     up the `Task<>` chain via symmetric transfer (utils/coro_task.hpp), so nothing here needs
-///     to know about session/Bolt-layer re-drive (that is a later, top-level concern -- see the
-///     doc comment on AcquireAccessorCoro).
+///  1. Builds a `shared_ptr<ParkState>` whose `on_resume` posts a resume of THIS coroutine handle
+///     to any available pool worker (`PostResumeTask`) -- resuming the handle propagates up the
+///     `Task<>` chain via symmetric transfer (utils/coro_task.hpp), so nothing here needs to know
+///     about session/Bolt-layer re-drive (that is a later, top-level concern -- see the doc comment
+///     on AcquireAccessorCoro). WHEN that resume may run is the ParkState delivery gate's job
+///     (utils/park_state.hpp): not until this thread's pool task ends.
 ///  2. `WorkerResumeEvent::RegisterWaiter` under the captured `epoch` (B1's register-before-
 ///     recheck protocol). A `false` return means the epoch already moved between the caller's
 ///     probe and here -- `ps` never reached any registry, so there is nobody to race a claim
@@ -61,14 +62,13 @@ struct AcquireAwaitable {
   storage::StorageAccessType rw_type;
   std::optional<storage::IsolationLevel> resolved_iso;
   std::chrono::steady_clock::time_point deadline;
-  size_t worker_id;
   uint64_t epoch;
   // Filled in iff the abandon-path re-probe (R4.3) itself won the accessor while ALSO winning
   // ClaimPark -- AcquireAccessorCoro checks this immediately after co_await returns, without this
   // call ever having actually suspended.
   std::optional<std::unique_ptr<storage::Accessor>> *abandon_result;
   // Session-surgery Stage B (IP-1 design doc REVISION 4 §R4.1/R4.2): opaque hook invoked by the
-  // pinned reschedule closure right AFTER it resumes the parked handle -- never for the synchronous
+  // posted resume closure right AFTER it resumes the parked handle -- never for the synchronous
   // (never-parked) fast path, since in that case this closure is never constructed at all. This
   // struct/AcquireAccessorCoro deliberately know nothing about what it does (typically: keep the
   // owning session alive for the whole park via a captured shared_ptr, and -- once the WHOLE Task
@@ -81,7 +81,6 @@ struct AcquireAwaitable {
 
   bool await_suspend(std::coroutine_handle<> h) {
     auto ps = std::make_shared<utils::ParkState>();
-    ps->worker_id = worker_id;
     ps->deadline = deadline;
     auto *pool_ptr = &pool;
     // resumed_cb is copied into BOTH the outer (on_resume) and inner (posted) closures, both of
@@ -90,8 +89,14 @@ struct AcquireAwaitable {
     // shared_ptr captured inside resumed_cb alive across the entire park (R4.1's lifetime
     // requirement), not merely during the moment on_resume happens to run.
     auto resumed_cb = on_park_resumed;
-    ps->on_resume = [pool_ptr, wid = worker_id, h, resumed_cb] {
-      pool_ptr->RescheduleTaskOnWorker(wid, [h, resumed_cb] {
+    ps->set_on_resume([pool_ptr, h, resumed_cb] {
+      // Any LP worker, never inline on the caller's thread: on_resume runs from whichever thread
+      // claimed the park (a lock releaser, the deadline sweep, the shutdown drain, or this thread's
+      // own arm at its task boundary), and none of those may drive a coroutine frame themselves.
+      // IP-1 F6: this used to pin the resume back onto the parking worker to serialize it against
+      // the parking thread; the ParkState delivery gate does that now, so the resume is free to run
+      // wherever a worker is available and no longer waits out one worker's backlog.
+      pool_ptr->PostResumeTask([h, resumed_cb] {
         h.resume();
         // Runs strictly AFTER h.resume() returns -- i.e. outside any coroutine frame's own
         // execution (the frame, if it fully completed, is merely sitting at its final_suspend by
@@ -101,7 +106,7 @@ struct AcquireAwaitable {
         // owns this frame).
         if (resumed_cb) resumed_cb();
       });
-    };
+    });
 
     auto &event = storage.main_lock_resume_event();
     if (!event.RegisterWaiter(ps, epoch)) {
@@ -110,6 +115,13 @@ struct AcquireAwaitable {
       // loop iteration. No claim contest needed.
       return false;
     }
+
+    // Registered: from here on another thread may CLAIM `ps` at any moment. It may not yet DELIVER
+    // the resume -- that is gated until this thread's pool task ends, which is exactly what makes
+    // the rest of this function (and the driver we return into) safe to keep touching frame-resident
+    // state. Publishing the pending arm right here, before anything else can throw, is what
+    // guarantees the arming side is accounted for from the first instant a claim is possible.
+    utils::PublishPendingPark(ps);
 
     auto &registry = pool.park_registry();
 
@@ -150,6 +162,7 @@ struct AcquireAwaitable {
           self_claimed = true;
           event.RemoveWaiter(ps);
           registry.Deregister(ps);
+          utils::DiscardPendingPark(ps);  // we are the claim winner; nothing will ever ask for a resume
           *abandon_result = std::move(acc);
           return false;
         }
@@ -175,6 +188,7 @@ struct AcquireAwaitable {
         // the real error (deadline/OOM handling is the acquire loop's caller's business).
         event.RemoveWaiter(ps);
         registry.Deregister(ps);
+        utils::DiscardPendingPark(ps);
         throw;
       }
       // A wake source already claimed `ps` and WILL resume this handle, so the frame must survive:
@@ -201,6 +215,7 @@ struct AcquireAwaitable {
       if (utils::ClaimPark(*ps)) {
         event.RemoveWaiter(ps);
         registry.Deregister(ps);
+        utils::DiscardPendingPark(ps);
         return false;
       }
       // Lost: a real Drain()/NotifyAll()/Sweep() already claimed ps and WILL resume us -- its own
@@ -222,8 +237,8 @@ struct AcquireAwaitable {
 /// contended UNIQUE/READ_ONLY acquisition is retried, whenever parking is both possible
 /// (InMemory storage) and enabled (LOW priority, flag on).
 ///
-/// Layering note: `on_resume` here means "resume THIS suspended handle, pinned to its worker" --
-/// resuming the handle propagates up the `Task<>` chain via symmetric transfer
+/// Layering note: `on_resume` here means "resume THIS suspended handle, on whichever worker services
+/// the post" -- resuming the handle propagates up the `Task<>` chain via symmetric transfer
 /// (utils/coro_task.hpp). The session-aware "re-drive DoWork after the top-level Task completes"
 /// concern (Session-surgery Stage B) is layered in via the opaque `on_park_resumed` hook below,
 /// supplied by the Bolt session layer (communication::v2::Session::DrivePreparedRun) -- this
@@ -237,8 +252,9 @@ struct AcquireAwaitable {
 ///                         never reads/resets `next_transaction_isolation_level` itself).
 /// @param deadline         Absolute deadline; re-checked on every loop iteration/resume so a
 ///                         parked campaign still honors the ~1s `*AccessTimeout` contract.
-/// @param pool              The pool this coroutine runs on -- used to discover the current
-///                         worker (via `utils::GetCurrentWorkerId()`) and to pin the resume.
+/// @param pool              The pool this coroutine runs on -- used to post the resume and to reach
+///                         the deadline registry. The park path requires running AS a pool task (see
+///                         the assert below): the worker run loop is what arms the park.
 /// @param is_high_priority  HIGH-priority queries never park (design doc §6): they always take
 ///                         the ordinary blocking path below, same as flag-off/DiskStorage.
 /// @param on_park_resumed   Session-surgery Stage B hook (R4.1/R4.2), threaded verbatim into every
@@ -291,15 +307,16 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
       throw storage::SharedAccessTimeout{};
     }
 
-    const auto worker_id = utils::GetCurrentWorkerId();
-    DMG_ASSERT(worker_id.has_value(),
+    DMG_ASSERT(utils::GetCurrentWorkerId().has_value(),
                "AcquireAccessorCoro's park path must run on a pool (LP) worker (GetCurrentWorkerId() is "
                "only published there) -- the caller must schedule this coroutine onto the pool before "
-               "driving it, exactly like any other LOW-priority pool task.");
+               "driving it, exactly like any other LOW-priority pool task. The worker's run loop is what "
+               "ARMS the park at the end of this task (utils/park_state.hpp); parking anywhere else "
+               "would publish a ParkState nobody ever arms, and hang it forever.");
 
     std::optional<std::unique_ptr<storage::Accessor>> abandon_result;
     co_await detail::AcquireAwaitable{
-        mem_storage, pool, rw, resolved_iso, deadline, *worker_id, epoch, &abandon_result, on_park_resumed};
+        mem_storage, pool, rw, resolved_iso, deadline, epoch, &abandon_result, on_park_resumed};
 
     if (abandon_result) {
       // R4.3 abandon-path win: the awaitable's own re-probe already acquired (and claimed) the
@@ -307,9 +324,9 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
       co_return std::move(*abandon_result);
     }
 
-    // Genuinely resumed. Post-F1 the resume always runs on this pool worker (on_resume posts pinned
-    // via RescheduleTaskOnWorker, never inline on the draining thread), but a shutdown drain can be
-    // what woke us, so bail before touching storage state if the pool is tearing down.
+    // Genuinely resumed, on some pool worker -- which one is deliberately not ours to know post-F6
+    // (on_resume always POSTS, never resumes inline on the claiming/draining thread). A shutdown
+    // drain can be what woke us, so bail before touching storage state if the pool is tearing down.
     if (pool.IsShuttingDown()) {
       throw utils::BasicException("AcquireAccessorCoro: pool is shutting down, abandoning parked accessor acquire");
     }

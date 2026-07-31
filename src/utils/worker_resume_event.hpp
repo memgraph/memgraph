@@ -208,7 +208,10 @@ class WorkerResumeEvent {
     // mutex_ is released here -- on_resume() runs entirely outside the lock (C3).
     for (auto &ps : local) {
       if (ClaimPark(*ps)) {
-        ps->on_resume();
+        // Via the delivery gate, never `on_resume()` directly: winning the claim decides that WE
+        // resume this waiter, not that it may be resumed YET -- the parking thread may still be
+        // inside its own await_suspend/driver. See park_state.hpp's gate discussion.
+        RequestResume(*ps);
       }
       // Else: some other wake source (deadline sweep, shutdown drain, or the waiter's own
       // abandon-path claim, R4.3) already won -- do not invoke on_resume, single-owner holds.

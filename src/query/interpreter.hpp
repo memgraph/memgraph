@@ -386,7 +386,7 @@ class Interpreter final {
    * `on_park_resumed` (Stage B, IP-1 design doc REVISION 4 §R4.2): forwarded verbatim to
    * query::AcquireAccessorCoro, which threads it into the ParkState built if/when the accessor
    * acquire genuinely parks. Invoked once per genuine cross-thread resume (never for a synchronous
-   * completion) by the pinned reschedule closure, after it resumes the parked handle -- see
+   * completion) by the posted resume closure, after it resumes the parked handle -- see
    * communication::v2::Session::DrivePreparedRun. Empty/default for any caller that never expects a
    * park (tests, a plain SyncWait).
    */

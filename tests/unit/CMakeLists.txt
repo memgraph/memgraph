@@ -482,6 +482,11 @@ add_unit_test(coro_task
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(park_state
+    SOURCES park_state.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(worker_resume_event
     SOURCES worker_resume_event.cpp
     LINK_TARGETS mg-utils

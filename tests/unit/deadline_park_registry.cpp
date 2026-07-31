@@ -30,19 +30,23 @@ using memgraph::utils::WorkerResumeEvent;
 
 namespace {
 
-// Builds a ParkState whose on_resume pushes worker_id into *invoked_worker_ids (guarded by
+// Builds a ParkState whose on_resume pushes `tag` into *invoked_tags (guarded by
 // *mutex, since some tests race Sweep from multiple threads). The registry never inspects or
 // resumes anything itself -- only the wake-source callback that wins the claim ever runs
 // on_resume -- so a plain recording closure is all these tests need (no real coroutine frame).
-std::shared_ptr<ParkState> MakeParkState(size_t worker_id, std::chrono::steady_clock::time_point deadline,
-                                         std::vector<size_t> *invoked_worker_ids, std::mutex *mutex) {
+std::shared_ptr<ParkState> MakeParkState(size_t tag, std::chrono::steady_clock::time_point deadline,
+                                         std::vector<size_t> *invoked_tags, std::mutex *mutex) {
   auto ps = std::make_shared<ParkState>();
-  ps->worker_id = worker_id;
   ps->deadline = deadline;
-  ps->on_resume = [worker_id, invoked_worker_ids, mutex] {
+  ps->set_on_resume([tag, invoked_tags, mutex] {
     std::lock_guard<std::mutex> lock(*mutex);
-    invoked_worker_ids->push_back(worker_id);
-  };
+    invoked_tags->push_back(tag);
+  });
+  // Pre-armed: these tests are about WHICH entries this registry decides to resume, not about WHEN a
+  // real parking thread lets that resume be delivered (the delivery gate, utils/park_state.hpp --
+  // covered by tests/unit/park_state.cpp). Arming up front keeps every assertion below about
+  // DeadlineParkRegistry alone.
+  memgraph::utils::ArmPark(*ps);
   return ps;
 }
 
@@ -54,7 +58,7 @@ TEST(DeadlineParkRegistry, PastDeadlineEntryIsClaimedAndRescheduledOnce) {
   const auto now = std::chrono::steady_clock::now();
   std::mutex mutex;
   std::vector<size_t> invoked;
-  auto ps = MakeParkState(/*worker_id=*/3, /*deadline=*/now - std::chrono::seconds(1), &invoked, &mutex);
+  auto ps = MakeParkState(/*tag=*/3, /*deadline=*/now - std::chrono::seconds(1), &invoked, &mutex);
   registry.Register(ps);
 
   registry.Sweep(now);
@@ -75,7 +79,7 @@ TEST(DeadlineParkRegistry, FutureDeadlineEntryIsLeftAlone) {
   const auto now = std::chrono::steady_clock::now();
   std::mutex mutex;
   std::vector<size_t> invoked;
-  auto ps = MakeParkState(/*worker_id=*/7, /*deadline=*/now + std::chrono::hours(1), &invoked, &mutex);
+  auto ps = MakeParkState(/*tag=*/7, /*deadline=*/now + std::chrono::hours(1), &invoked, &mutex);
   registry.Register(ps);
 
   registry.Sweep(now);
@@ -101,7 +105,7 @@ TEST(DeadlineParkRegistry, AlreadyClaimedEntryIsPrunedWithoutReschedule) {
   const auto now = std::chrono::steady_clock::now();
   std::mutex mutex;
   std::vector<size_t> invoked;
-  auto ps = MakeParkState(/*worker_id=*/9, /*deadline=*/now - std::chrono::seconds(1), &invoked, &mutex);
+  auto ps = MakeParkState(/*tag=*/9, /*deadline=*/now - std::chrono::seconds(1), &invoked, &mutex);
   registry.Register(ps);
 
   // Simulate the lock-release path claiming it first (without invoking on_resume itself, exactly
@@ -120,9 +124,9 @@ TEST(DeadlineParkRegistry, ConcurrentSweepsRescheduleAtMostOnce) {
   const auto now = std::chrono::steady_clock::now();
   std::atomic<int> total_resumes{0};
   auto ps = std::make_shared<ParkState>();
-  ps->worker_id = 1;
   ps->deadline = now - std::chrono::seconds(1);
-  ps->on_resume = [&total_resumes] { total_resumes.fetch_add(1, std::memory_order_relaxed); };
+  ps->set_on_resume([&total_resumes] { total_resumes.fetch_add(1, std::memory_order_relaxed); });
+  memgraph::utils::ArmPark(*ps);  // pre-armed: see MakeParkState
   registry.Register(ps);
 
   constexpr int kNumSweepers = 8;
@@ -145,9 +149,9 @@ TEST(DeadlineParkRegistry, SweepRacingManualClaimParkResolvesToOneWinner) {
   std::atomic<int> sweep_resumes{0};
   std::atomic<bool> manual_claim_won{false};
   auto ps = std::make_shared<ParkState>();
-  ps->worker_id = 2;
+  memgraph::utils::ArmPark(*ps);  // pre-armed: see MakeParkState
   ps->deadline = now - std::chrono::seconds(1);
-  ps->on_resume = [&sweep_resumes] { sweep_resumes.fetch_add(1, std::memory_order_relaxed); };
+  ps->set_on_resume([&sweep_resumes] { sweep_resumes.fetch_add(1, std::memory_order_relaxed); });
   registry.Register(ps);
 
   std::thread sweeper([&] { registry.Sweep(now); });
@@ -173,7 +177,7 @@ TEST(DeadlineParkRegistry, DeregisterRemovesEntryFromLaterSweep) {
   const auto now = std::chrono::steady_clock::now();
   std::mutex mutex;
   std::vector<size_t> invoked;
-  auto ps = MakeParkState(/*worker_id=*/4, /*deadline=*/now - std::chrono::seconds(1), &invoked, &mutex);
+  auto ps = MakeParkState(/*tag=*/4, /*deadline=*/now - std::chrono::seconds(1), &invoked, &mutex);
   registry.Register(ps);
 
   registry.Deregister(ps);
@@ -191,8 +195,8 @@ TEST(DeadlineParkRegistry, MixedDueAndFutureEntriesOnlyDueOneRescheduled) {
   const auto now = std::chrono::steady_clock::now();
   std::mutex mutex;
   std::vector<size_t> invoked;
-  auto due = MakeParkState(/*worker_id=*/5, /*deadline=*/now - std::chrono::milliseconds(1), &invoked, &mutex);
-  auto future = MakeParkState(/*worker_id=*/6, /*deadline=*/now + std::chrono::hours(1), &invoked, &mutex);
+  auto due = MakeParkState(/*tag=*/5, /*deadline=*/now - std::chrono::milliseconds(1), &invoked, &mutex);
+  auto future = MakeParkState(/*tag=*/6, /*deadline=*/now + std::chrono::hours(1), &invoked, &mutex);
   registry.Register(due);
   registry.Register(future);
 
@@ -211,8 +215,8 @@ TEST(DeadlineParkRegistry, DrainResumesAllEntriesRegardlessOfDeadline) {
   const auto now = std::chrono::steady_clock::now();
   std::mutex mutex;
   std::vector<size_t> invoked;
-  auto due = MakeParkState(/*worker_id=*/1, /*deadline=*/now - std::chrono::seconds(1), &invoked, &mutex);
-  auto future = MakeParkState(/*worker_id=*/2, /*deadline=*/now + std::chrono::hours(1), &invoked, &mutex);
+  auto due = MakeParkState(/*tag=*/1, /*deadline=*/now - std::chrono::seconds(1), &invoked, &mutex);
+  auto future = MakeParkState(/*tag=*/2, /*deadline=*/now + std::chrono::hours(1), &invoked, &mutex);
   registry.Register(due);
   registry.Register(future);
 
@@ -234,9 +238,9 @@ TEST(DeadlineParkRegistry, DrainRacingSweepResolvesToOneWinner) {
   const auto now = std::chrono::steady_clock::now();
   std::atomic<int> total_resumes{0};
   auto ps = std::make_shared<ParkState>();
-  ps->worker_id = 8;
+  memgraph::utils::ArmPark(*ps);  // pre-armed: see MakeParkState
   ps->deadline = now - std::chrono::seconds(1);
-  ps->on_resume = [&total_resumes] { total_resumes.fetch_add(1, std::memory_order_relaxed); };
+  ps->set_on_resume([&total_resumes] { total_resumes.fetch_add(1, std::memory_order_relaxed); });
   registry.Register(ps);
 
   std::thread sweeper([&] { registry.Sweep(now); });
@@ -260,9 +264,9 @@ TEST(DeadlineParkRegistry, EntryClaimedByWorkerResumeEventNotifyAllNotReinvokedB
 
   std::atomic<int> resumed{0};
   auto ps = std::make_shared<ParkState>();
-  ps->worker_id = 42;
+  memgraph::utils::ArmPark(*ps);                 // pre-armed: see MakeParkState
   ps->deadline = now - std::chrono::seconds(1);  // already due for the deadline sweep
-  ps->on_resume = [&resumed] { resumed.fetch_add(1, std::memory_order_relaxed); };
+  ps->set_on_resume([&resumed] { resumed.fetch_add(1, std::memory_order_relaxed); });
 
   const uint64_t epoch = event.Epoch();
   ASSERT_TRUE(event.RegisterWaiter(ps, epoch));

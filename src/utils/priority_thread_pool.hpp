@@ -23,6 +23,7 @@
 
 #include "utils/deadline_park_registry.hpp"
 #include "utils/logging.hpp"
+#include "utils/park_state.hpp"
 #include "utils/priorities.hpp"
 #include "utils/scheduler.hpp"
 
@@ -31,11 +32,16 @@ namespace memgraph::utils {
 /// Thread-local worker-id publication for LP (mixed-work) pool workers ONLY. Published at the
 /// top of the worker's run loop (before it processes any task) and cleared when the worker
 /// exits its run loop. HP workers never publish (see Worker::operator() — the id space for HP
-/// workers is disjoint from `workers_`, and RescheduleTaskOnWorker indexes into `workers_`, so
-/// an HP worker publishing its own index would let a caller mistakenly pin a continuation to
-/// the wrong LP worker). Lets code running ON a pool worker discover which worker it is on, e.g.
-/// to pin a continuation for later resume via PriorityThreadPool::RescheduleTaskOnWorker.
-/// Returns std::nullopt off a pool worker thread (or on an HP worker thread).
+/// workers is disjoint from `workers_`, so an HP worker publishing its own index would make it
+/// indistinguishable from an unrelated LP worker).
+///
+/// Post IP-1 F6 nothing pins work to a specific worker any more, so the ID itself is no longer
+/// consumed; `has_value()` is. It is the test for "am I running as an LP pool task", which is what
+/// the parkable-Prepare path actually requires: a park is only safe where something will later ARM
+/// it (utils/park_state.hpp), and the LP worker run loop is what does that, unconditionally, at
+/// every task boundary. Both the Bolt-side decision to take the coroutine Prepare path at all
+/// (communication/bolt/v1/session.hpp) and the park-path assert in query/coro_accessor.hpp are
+/// exactly that test. Returns std::nullopt off a pool worker thread (or on an HP worker thread).
 void SetCurrentWorker(size_t worker_id);
 std::optional<size_t> GetCurrentWorkerId();
 void ClearCurrentWorker();
@@ -166,18 +172,32 @@ class PriorityThreadPool {
 
   uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
 
-  /// Returns true once the pool has been asked to stop (ShutDown()/dtor). Used by callers of
-  /// RescheduleTaskOnWorker (and, later, resume-on-shutdown paths) to detect that no further
-  /// forward progress will be scheduled and bail out cleanly instead of parking forever.
+  /// Returns true once the pool has been asked to stop (ShutDown()/dtor). Read by the park paths
+  /// (query::AcquireAccessorCoro's post-resume check, query::detail::AcquireAwaitable's shutdown
+  /// self-claim) to detect that no further forward progress will be scheduled and bail out cleanly
+  /// instead of parking forever.
   bool IsShuttingDown() const { return pool_stop_source_.stop_requested(); }
 
   /**
-   * Reschedules a plain closure onto a specific mixed-work (LP) worker, PINNED so it can never
-   * be stolen by another worker and is never migrated by the periodic monitor (sched_mon). Use
-   * when a continuation must run on that exact worker (e.g. to respect worker-local state).
-   * worker_id must be in [0, GetNumMixedWorkers()).
+   * Posts a parked coroutine's resume onto ANY mixed-work (LP) worker, preferring an idle one
+   * exactly like ScheduledAddTask does (IP-1 F6, un-pinned resume).
+   *
+   * Differs from ScheduledAddTask in the only two ways a resume needs:
+   *  - it is NOT refused once shutdown has been requested. A parked frame that never resumes is a
+   *    leaked session (and its DatabaseAccess), which stalls the very shutdown doing the refusing;
+   *    the pool's own teardown DRAINS parked waiters (see ShutDown) and every resulting resume must
+   *    land somewhere that still runs it.
+   *  - it lands in the target worker's separate must-run queue, which takes precedence over ordinary
+   *    work and, crucially, is drained by the worker before it exits (see Worker::operator()'s tail)
+   *    rather than dropped like the ordinary queue.
+   *
+   * WHEN the posted resume may run is NOT this function's concern -- that exclusion belongs to the
+   * ParkState delivery gate (utils/park_state.hpp), which is what lets this post go to an arbitrary
+   * worker at all. Before IP-1 F6 this pinned the resume onto the parking worker to get that
+   * exclusion for free, at the cost of making every parked query's wake latency (and therefore its
+   * storage-access timeout) hostage to one worker's backlog.
    */
-  void RescheduleTaskOnWorker(size_t worker_id, std::function<void()> closure);
+  void PostResumeTask(std::function<void()> closure);
 
   /// Registry of parked waiters, swept once per tick by the existing periodic monitor (sched_mon)
   /// so an absolute deadline is honored without a dedicated timer thread (IP-1 R1 §B2 / R2). The
@@ -201,15 +221,19 @@ class PriorityThreadPool {
     struct Work {
       TaskID id;                   // ID used to order (issued by the pool)
       mutable TaskSignature work;  // mutable so it can be moved from the queue
-      bool pinned{false};          // if true, task must run on THIS worker (never stolen/migrated)
 
       bool operator<(const Work &other) const { return id < other.id; }
     };
 
-    // pinned=false (default) is the pre-existing behavior, byte-identical: the task lands in the
-    // stealable work_ queue exactly as before. pinned=true routes to work_pinned_ instead (new,
-    // additive path — see PriorityThreadPool::RescheduleTaskOnWorker).
-    void push(TaskSignature new_task, TaskID id, bool pinned = false);
+    // must_run=false (default) is the pre-existing behavior, byte-identical: the task lands in the
+    // stealable work_ queue exactly as before. must_run=true routes to work_must_run_ instead (new,
+    // additive path — see PriorityThreadPool::PostResumeTask).
+    void push(TaskSignature new_task, TaskID id, bool must_run = false);
+
+    // push, but refuses a worker that has already been asked to stop (see PostResumeTask). Takes
+    // the task by rvalue reference and only consumes it on success, so a caller can retry another
+    // worker with the same task.
+    bool try_push(TaskSignature &&new_task, TaskID id, bool must_run = false);
 
     void stop();
 
@@ -219,8 +243,13 @@ class PriorityThreadPool {
    private:
     mutable std::mutex mtx_;
     std::condition_variable cv_;
-    std::priority_queue<Work> work_;         // Stealable + migratable by sched_mon
-    std::priority_queue<Work> work_pinned_;  // Never stolen, never migrated — same mutex as work_
+    std::priority_queue<Work> work_;  // Stealable + migratable by sched_mon
+    // Parked-coroutine resumes (PostResumeTask). Serviced ahead of work_, and PREFERRED by an LP
+    // thief's steal loop — a query is blocked on each of these with its storage-access timeout
+    // running, and sched_mon does not migrate them, so stealing is what keeps one wedged worker from
+    // delaying a resume. Unlike work_, drained by this worker before it exits rather than dropped: a
+    // dropped resume leaks the parked session and stalls shutdown. Same mutex as work_.
+    std::priority_queue<Work> work_must_run_;
 
     // Stats
     std::atomic_bool has_pending_work_{false};

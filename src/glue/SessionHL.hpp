@@ -94,7 +94,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   ///
   /// `on_park_resumed` (Session-surgery Stage B, IP-1 R4.2): forwarded to Interpreter::PrepareCoro ->
   /// query::AcquireAccessorCoro. Invoked (once per genuine cross-thread resume, never for a
-  /// synchronous completion) by the pinned reschedule closure right after it resumes the parked
+  /// synchronous completion) by the posted resume closure right after it resumes the parked
   /// handle -- see communication::v2::Session::DrivePreparedRun (the only real caller; empty/default
   /// for tests and any other caller that never expects a park, e.g. a plain SyncWait).
   utils::Task<std::pair<std::vector<std::string>, std::optional<int>>> InterpretPrepareCoro(

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -476,7 +476,7 @@ TEST(TaskCollection, LargeTaskSet) {
   pool.AwaitShutdown();
 }
 
-// --- Unit 3a: pinned queue / RescheduleTaskOnWorker / worker-id TLS / IsShuttingDown ---
+// --- Unit 3a: must-run queue / PostResumeTask / worker-id TLS / IsShuttingDown ---
 
 TEST(PriorityThreadPool, CurrentWorkerIdTLS) {
   using namespace memgraph;
@@ -502,7 +502,7 @@ TEST(PriorityThreadPool, CurrentWorkerIdTLS) {
   pool.AwaitShutdown();
 }
 
-TEST(PriorityThreadPool, RescheduleTaskOnWorkerRunsOnTargetWorker) {
+TEST(PriorityThreadPool, PostResumeTaskRunsOnAnLpWorker) {
   using namespace memgraph;
   memgraph::utils::PriorityThreadPool pool{2, 1};
 
@@ -510,8 +510,7 @@ TEST(PriorityThreadPool, RescheduleTaskOnWorkerRunsOnTargetWorker) {
   std::optional<size_t> observed_id;
   std::atomic<bool> done{false};
 
-  // Target worker 1 explicitly (pool has 2 mixed-work workers: 0 and 1).
-  pool.RescheduleTaskOnWorker(1, [&] {
+  pool.PostResumeTask([&] {
     {
       std::lock_guard<std::mutex> lock(m);
       observed_id = utils::GetCurrentWorkerId();
@@ -523,68 +522,94 @@ TEST(PriorityThreadPool, RescheduleTaskOnWorkerRunsOnTargetWorker) {
   done.wait(false);
   {
     std::lock_guard<std::mutex> lock(m);
+    // WHICH worker is deliberately unspecified post-F6; that it is an LP pool worker is not, since
+    // the resumed coroutine may park again and a park requires a worker that will arm it.
     ASSERT_TRUE(observed_id.has_value());
-    ASSERT_EQ(*observed_id, 1U);
+    ASSERT_LT(*observed_id, pool.GetNumMixedWorkers());
   }
 
   pool.ShutDown();
   pool.AwaitShutdown();
 }
 
-TEST(PriorityThreadPool, PinnedTaskNotStolenByIdleWorker) {
+// The point of un-pinning (IP-1 F6). Pre-F6 a resume was pinned to the worker that parked, so a
+// long unrelated task on that worker delayed it arbitrarily -- which for a parked query means its
+// storage-access timeout was not enforced on time either. Occupy every worker but one and confirm
+// the resume still runs promptly.
+TEST(PriorityThreadPool, PostResumeTaskNotBlockedByABusyWorker) {
+  using namespace memgraph;
+  constexpr size_t kWorkers = 2;
+  memgraph::utils::PriorityThreadPool pool{kWorkers, 1};
+
+  std::atomic<bool> block{true};
+  std::atomic<int> occupied{0};
+  // Wedge kWorkers-1 workers. ScheduledAddTask prefers hot (idle) workers, so distinct tasks land
+  // on distinct workers here; each one parks itself on `block` until the test releases it.
+  for (size_t i = 0; i < kWorkers - 1; ++i) {
+    pool.ScheduledAddTask(
+        [&](auto) {
+          occupied.fetch_add(1);
+          while (block.load()) {
+            block.wait(true);
+          }
+        },
+        utils::Priority::LOW);
+  }
+  while (occupied.load() != static_cast<int>(kWorkers - 1)) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  std::atomic<bool> resumed{false};
+  pool.PostResumeTask([&] {
+    resumed = true;
+    resumed.notify_one();
+  });
+
+  // No wait-with-timeout primitive here; poll for a bounded spell. The pre-F6 pinned behavior could
+  // not satisfy this if the resume happened to target a wedged worker.
+  for (int i = 0; i < 500 && !resumed.load(); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  EXPECT_TRUE(resumed.load()) << "resume must not wait for a busy worker to become free";
+
+  block = false;
+  block.notify_all();
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// A resume posted after shutdown was requested must still run: dropping it leaks the parked
+// session (and its DatabaseAccess), which stalls the very shutdown that dropped it. This is the
+// window ShutDown()'s park drain posts into -- workers are stop()-ed but not yet joined.
+TEST(PriorityThreadPool, PostResumeTaskDuringShutdownStillRuns) {
   using namespace memgraph;
   memgraph::utils::PriorityThreadPool pool{2, 1};
 
-  // Pin a blocking task onto worker 0 and confirm it actually starts there. While it blocks,
-  // worker 1 is idle and its steal loop repeatedly looks at worker 0 (has_pending_work_ &&
-  // working_) but must only ever find work_ (empty here) — work_pinned_ is invisible to it.
-  std::atomic<bool> block{true};
-  std::atomic<size_t> blocked_worker_id{999};
-  pool.RescheduleTaskOnWorker(0, [&] {
-    blocked_worker_id = *utils::GetCurrentWorkerId();
-    while (block.load()) {
-      block.wait(true);
-    }
-  });
+  std::atomic<bool> ran{false};
+  pool.ShutDown();
+  ASSERT_TRUE(pool.IsShuttingDown());
+  pool.PostResumeTask([&] { ran = true; });
 
-  while (blocked_worker_id.load() == 999) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
-  ASSERT_EQ(blocked_worker_id.load(), 0U);
+  pool.AwaitShutdown();  // joins; any accepted must-run item has been drained by now
+  EXPECT_TRUE(ran.load()) << "a resume posted during teardown must never be dropped";
+}
 
-  // Let worker 1 settle into idle (hot-spin then sleep) before the pinned task is pushed.
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-  std::mutex m;
-  std::optional<size_t> pinned_ran_on;
-  std::atomic<bool> pinned_done{false};
-  pool.RescheduleTaskOnWorker(0, [&] {
-    {
-      std::lock_guard<std::mutex> lock(m);
-      pinned_ran_on = utils::GetCurrentWorkerId();
-    }
-    pinned_done = true;
-    pinned_done.notify_one();
-  });
-
-  // Give worker 1's steal loop (and the periodic sched_mon migrator) repeated chances to
-  // (wrongly) grab the pinned task while worker 0 is still blocked.
-  std::this_thread::sleep_for(std::chrono::milliseconds(300));
-  ASSERT_FALSE(pinned_done.load()) << "pinned task must not run while its target worker is still busy";
-
-  // Unblock worker 0; it alone can now drain work_pinned_ and run the continuation.
-  block = false;
-  block.notify_one();
-
-  pinned_done.wait(false);
-  {
-    std::lock_guard<std::mutex> lock(m);
-    ASSERT_TRUE(pinned_ran_on.has_value());
-    ASSERT_EQ(*pinned_ran_on, 0U);
-  }
+// Same, but from the parking side: ScheduledAddTask is refused once shutdown starts, and
+// PostResumeTask deliberately is not.
+TEST(PriorityThreadPool, ScheduledAddTaskRefusedAfterShutdownButResumeIsNot) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{1, 1};
 
   pool.ShutDown();
+
+  std::atomic<int> ordinary{0};
+  std::atomic<int> resume{0};
+  pool.ScheduledAddTask([&](auto) { ordinary.fetch_add(1); }, utils::Priority::LOW);
+  pool.PostResumeTask([&] { resume.fetch_add(1); });
+
   pool.AwaitShutdown();
+  EXPECT_EQ(ordinary.load(), 0) << "ordinary work must not start once shutdown was requested";
+  EXPECT_EQ(resume.load(), 1) << "a resume must run regardless";
 }
 
 TEST(PriorityThreadPool, IsShuttingDownTransitions) {

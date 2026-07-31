@@ -3281,7 +3281,12 @@ class StorageMainLockWakeHookTest : public ::testing::Test {
   auto RegisterRecordingWaiter(std::shared_ptr<bool> fired) -> std::shared_ptr<memgraph::utils::ParkState> {
     auto &event = store.main_lock_resume_event();
     auto ps = std::make_shared<memgraph::utils::ParkState>();
-    ps->on_resume = [fired] { *fired = true; };
+    ps->set_on_resume([fired] { *fired = true; });
+    // Pre-armed. These tests assert WHICH storage releases wake a parked waiter; a real waiter is
+    // armed by its own pool worker at the end of the task that parked it (utils/park_state.hpp), and
+    // there is no pool here. Without this, every wake below would be correctly DEFERRED rather than
+    // delivered, and the assertions would be measuring the gate instead of the release paths.
+    memgraph::utils::ArmPark(*ps);
     const auto epoch = event.Epoch();
     bool const registered = event.RegisterWaiter(ps, epoch);
     EXPECT_TRUE(registered) << "epoch moved between Epoch() and RegisterWaiter() -- unexpected in a single-threaded "

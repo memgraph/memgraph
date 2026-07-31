@@ -115,7 +115,10 @@ class DeadlineParkRegistry {
     //     exactly once -- no other wake source can win it afterwards.
     for (auto &ps : due_or_dead) {
       if (now >= ps->deadline && ClaimPark(*ps)) {
-        ps->on_resume();
+        // Via the delivery gate, not `on_resume()` directly -- the parking thread may still be
+        // inside its own await_suspend/driver (park_state.hpp). A deadline that expires inside that
+        // window is delivered by the arming side the moment it closes.
+        RequestResume(*ps);
       }
       // Else: pruned without invoking on_resume -- either it was already claimed, or (in the
       // racing-Sweep case) another concurrent caller won the claim first.
@@ -136,7 +139,7 @@ class DeadlineParkRegistry {
     }
     for (auto &ps : all) {
       if (ClaimPark(*ps)) {
-        ps->on_resume();
+        RequestResume(*ps);  // delivery gate, see park_state.hpp
       }
       // Else: already claimed by some other wake source -- single-owner holds, do nothing.
     }

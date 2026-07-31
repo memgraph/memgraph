@@ -414,7 +414,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   // AND this connection is being driven via DoWork (PRIORITY_QUEUE_WITH_SIDECAR scheduler, i.e. on a
   // PriorityThreadPool worker) -- see the ExecuteResult::kNeedsCoroPrepare doc comment. While
   // engaged, this session's single in-flight-task slot is retained by the parked frame: no DoRead,
-  // no further dispatch, until the pinned resume drives it back through RunLoop (B3).
+  // no further dispatch, until the posted resume drives it back through RunLoop (B3).
   std::optional<utils::Task<void>> parked_prepare_;
 
   // Drives a single connection iteration exactly like DoWork's original inline loop did: repeatedly
@@ -440,11 +440,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           // resume path -- which is exactly why any path that drops a resume leaks the Session and
           // its DatabaseAccess, keeping Gatekeeper<Database>::count_ above zero and stalling
           // shutdown. Do not "simplify" the reset away.
-          // parked_prepare_ MUST already hold the Task before Resume() is called. Post-F1 every resume
-          // is posted pinned back to THIS worker via RescheduleTaskOnWorker (never inline, not even a
-          // shutdown drain -- priority_thread_pool.cpp), so the resume closure cannot run until this
-          // RunLoop returns; emplacing first still guarantees parked_prepare_ is engaged before any
-          // resume closure could observe it.
+          // parked_prepare_ MUST already hold the Task before Resume() is called -- and, more than
+          // that, NOTHING below may race a resume: the `if (!Done())` check, and this member itself,
+          // are touched by both this thread and the resume closure. What guarantees that is the
+          // ParkState delivery gate (utils/park_state.hpp): a claim taken while we are still inside
+          // Resume() cannot be DELIVERED until this whole pool task ends, which is strictly after
+          // this function returns. Post-F6 the resume then runs on whatever worker services the post,
+          // not necessarily this one -- the exclusion is the gate's, not the scheduler's.
           shared_this->parked_prepare_.emplace(shared_this->DrivePreparedRun([shared_this] {
             auto &parked = shared_this->parked_prepare_;
             if (!parked || !parked->Done()) {
@@ -459,22 +461,22 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
             }
             // Safe here (unlike inside DrivePreparedRun's own body): this closure runs OUTSIDE any
             // coroutine frame's execution, strictly after h.resume() already returned control to the
-            // pinned reschedule closure -- the frame is merely sitting at its final_suspend by now.
+            // posted resume closure -- the frame is merely sitting at its final_suspend by now.
             parked.reset();
-            // Re-drive exactly like a fresh DoWork iteration. The pinned closure this runs from
-            // always executes on a mixed-work (LP) worker (RescheduleTaskOnWorker only ever targets
-            // those), so Priority::LOW is always the accurate thread priority here -- there is no way
-            // to observe the resuming worker's own ambient priority (RescheduleTaskOnWorker's
-            // closure signature discards it), and LOW is also always what a plain resumed pool task
-            // would run at.
+            // Re-drive exactly like a fresh DoWork iteration. The closure this runs from always
+            // executes on a mixed-work (LP) worker (PostResumeTask only ever targets those), so
+            // Priority::LOW is always the accurate thread priority here -- there is no way to observe
+            // the resuming worker's own ambient priority (PostResumeTask's closure signature discards
+            // it), and LOW is also always what a plain resumed pool task would run at.
             shared_this->RunLoop(shared_this, utils::Priority::LOW);
           }));
           shared_this->parked_prepare_->Resume();
           if (!shared_this->parked_prepare_->Done()) {
             // PARKED (B3/R3.3): retain this connection's single in-flight slot. Do NOT arm DoRead,
-            // do NOT dispatch/re-post -- the ONLY thing that re-drives this connection is the pinned
-            // resume (RescheduleTaskOnWorker), which re-enters via this same coroutine chain and,
-            // once it fully completes, calls back into RunLoop itself (see DrivePreparedRun).
+            // do NOT dispatch/re-post -- the ONLY thing that re-drives this connection is the posted
+            // resume (PostResumeTask), which re-enters via this same coroutine chain and, once it
+            // fully completes, calls back into RunLoop itself (see DrivePreparedRun). That resume
+            // cannot start before this function returns -- see the gate note at the emplace above.
             return;
           }
           // Completed synchronously: Resume()'s single call above ran the WHOLE chain to completion
@@ -511,8 +513,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   // coroutine's frame is owned by `parked_prepare_` itself: touching (let alone destroying/resetting)
   // that member from WITHIN this frame's own execution would destroy the very coroutine currently
   // running. All the "what happens once this whole chain is done" logic instead lives in the caller-
-  // supplied `on_park_resumed` closure (built by RunLoop, see above), which runs from the pinned
-  // reschedule closure strictly AFTER it resumes the parked handle -- i.e. OUTSIDE this frame's
+  // supplied `on_park_resumed` closure (built by RunLoop, see above), which runs from the posted
+  // resume closure strictly AFTER it resumes the parked handle -- i.e. OUTSIDE this frame's
   // execution entirely (see query::detail::AcquireAwaitable's on_park_resumed doc comment for why
   // that ordering is safe).
   //

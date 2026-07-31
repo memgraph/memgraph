@@ -31,10 +31,15 @@ namespace {
 // Builds a ParkState whose on_resume increments *counter -- the recording-closure equivalent of
 // the old "resume a real coroutine handle" evidence, but without needing a coroutine frame at all
 // (ParkState::on_resume is now an opaque std::function<void()>, see utils/park_state.hpp).
-std::shared_ptr<ParkState> MakeRecordingParkState(std::atomic<int> *counter, size_t worker_id) {
+std::shared_ptr<ParkState> MakeRecordingParkState(std::atomic<int> *counter) {
   auto ps = std::make_shared<ParkState>();
-  ps->worker_id = worker_id;
-  ps->on_resume = [counter] { counter->fetch_add(1, std::memory_order_relaxed); };
+  ps->set_on_resume([counter] { counter->fetch_add(1, std::memory_order_relaxed); });
+  // Pre-armed: these tests are about WHO this event decides to resume, not about WHEN a real parking
+  // thread lets that resume be delivered. A ParkState starts un-armed (kParking) so that a claim
+  // taken while its owner is still parking is deferred to the owner's task boundary -- see the
+  // delivery-gate discussion in utils/park_state.hpp, and tests/unit/park_state.cpp for the gate's
+  // own coverage. Arming up front keeps every assertion below about WorkerResumeEvent alone.
+  memgraph::utils::ArmPark(*ps);
   return ps;
 }
 
@@ -44,7 +49,7 @@ std::shared_ptr<ParkState> MakeRecordingParkState(std::atomic<int> *counter, siz
 TEST(WorkerResumeEvent, RegisterWaiterCurrentEpochSucceeds) {
   WorkerResumeEvent event;
   std::atomic<int> resumed{0};
-  auto ps = MakeRecordingParkState(&resumed, /*worker_id=*/1);
+  auto ps = MakeRecordingParkState(&resumed);
 
   const uint64_t epoch = event.Epoch();
   EXPECT_EQ(epoch, 0u);
@@ -69,7 +74,7 @@ TEST(WorkerResumeEvent, RegisterWaiterStaleEpochFails) {
   EXPECT_NE(event.Epoch(), stale_epoch);
 
   std::atomic<int> resumed{0};
-  auto ps = MakeRecordingParkState(&resumed, /*worker_id=*/2);
+  auto ps = MakeRecordingParkState(&resumed);
 
   EXPECT_FALSE(event.RegisterWaiter(ps, stale_epoch));
   EXPECT_EQ(event.WaitersPending(), 0u);
@@ -85,7 +90,7 @@ TEST(WorkerResumeEvent, NotifyAllResumesEveryWaiterExactlyOnce) {
   std::vector<std::shared_ptr<ParkState>> parks;
   parks.reserve(kNumWaiters);
   for (int i = 0; i < kNumWaiters; ++i) {
-    parks.push_back(MakeRecordingParkState(&resumed[i], static_cast<size_t>(i)));
+    parks.push_back(MakeRecordingParkState(&resumed[i]));
   }
 
   const uint64_t epoch = event.Epoch();
@@ -110,8 +115,8 @@ TEST(WorkerResumeEvent, RemoveWaiterPreventsLaterResume) {
   WorkerResumeEvent event;
   std::atomic<int> resumed_removed{0};
   std::atomic<int> resumed_kept{0};
-  auto removed_ps = MakeRecordingParkState(&resumed_removed, /*worker_id=*/10);
-  auto kept_ps = MakeRecordingParkState(&resumed_kept, /*worker_id=*/11);
+  auto removed_ps = MakeRecordingParkState(&resumed_removed);
+  auto kept_ps = MakeRecordingParkState(&resumed_kept);
 
   const uint64_t epoch = event.Epoch();
   EXPECT_TRUE(event.RegisterWaiter(removed_ps, epoch));
@@ -139,7 +144,7 @@ TEST(WorkerResumeEvent, RemoveWaiterPreventsLaterResume) {
 TEST(WorkerResumeEvent, BackToBackNotifyAllResumesOnce) {
   WorkerResumeEvent event;
   std::atomic<int> resumed{0};
-  auto ps = MakeRecordingParkState(&resumed, /*worker_id=*/5);
+  auto ps = MakeRecordingParkState(&resumed);
 
   const uint64_t epoch = event.Epoch();
   EXPECT_TRUE(event.RegisterWaiter(ps, epoch));
@@ -158,7 +163,7 @@ TEST(WorkerResumeEvent, BackToBackNotifyAllResumesOnce) {
 TEST(WorkerResumeEvent, AbandonPathWinPreventsLaterNotifyAllResume) {
   WorkerResumeEvent event;
   std::atomic<int> resumed{0};
-  auto ps = MakeRecordingParkState(&resumed, /*worker_id=*/0);
+  auto ps = MakeRecordingParkState(&resumed);
 
   const uint64_t epoch = event.Epoch();
   ASSERT_TRUE(event.RegisterWaiter(ps, epoch));
@@ -180,7 +185,7 @@ TEST(WorkerResumeEvent, AbandonPathWinPreventsLaterNotifyAllResume) {
 TEST(WorkerResumeEvent, AbandonPathLoseToNotifyAllResumesExactlyOnce) {
   WorkerResumeEvent event;
   std::atomic<int> resumed{0};
-  auto ps = MakeRecordingParkState(&resumed, /*worker_id=*/0);
+  auto ps = MakeRecordingParkState(&resumed);
 
   const uint64_t epoch = event.Epoch();
   ASSERT_TRUE(event.RegisterWaiter(ps, epoch));
@@ -205,7 +210,7 @@ TEST(WorkerResumeEvent, DrainResumesAllWaitersExactlyOnce) {
 
   const uint64_t epoch = event.Epoch();
   for (int i = 0; i < kNumWaiters; ++i) {
-    auto ps = MakeRecordingParkState(&resumed[i], static_cast<size_t>(i));
+    auto ps = MakeRecordingParkState(&resumed[i]);
     ASSERT_TRUE(event.RegisterWaiter(ps, epoch));
     parks.push_back(ps);
   }
@@ -261,7 +266,7 @@ TEST(WorkerResumeEvent, ConcurrentRegisterAndNotifyResumesEachExactlyOnce) {
   waiter_threads.reserve(kNumWaiters);
   for (int i = 0; i < kNumWaiters; ++i) {
     waiter_threads.emplace_back([&event, &resume_counts, &registered_ok, i] {
-      auto ps = MakeRecordingParkState(&resume_counts[i], static_cast<size_t>(i));
+      auto ps = MakeRecordingParkState(&resume_counts[i]);
 
       bool registered = false;
       for (int attempt = 0; attempt < kMaxRegisterAttempts && !registered; ++attempt) {
