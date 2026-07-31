@@ -4117,6 +4117,95 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
       .rw_type = RWType::NONE};
 }
 
+// A CypherQuery is "accessor-free" when it produces its result without touching the graph, so it
+// can run with no storage transaction at all (NO_ACCESS): no main_lock_ hold, no entry in
+// active_transactions. Memgraph Lab issues such queries continuously (connection checks, feature
+// detection), and opening a READ transaction for each registers as tenant activity.
+//
+// A constant expression is one the (accessor-less) PrimitiveLiteralExpressionEvaluator can
+// evaluate: literals, parameters, and lists/maps built solely from those. Anything referencing the
+// graph, a function, or an identifier is not constant and must take the normal path.
+bool IsConstantExpression(Expression *expression) {
+  if (expression == nullptr) return false;
+  if (utils::Downcast<PrimitiveLiteral>(expression) != nullptr ||
+      utils::Downcast<ParameterLookup>(expression) != nullptr) {
+    return true;
+  }
+  if (auto *list_literal = utils::Downcast<ListLiteral>(expression)) {
+    return std::ranges::all_of(list_literal->elements_, IsConstantExpression);
+  }
+  if (auto *map_literal = utils::Downcast<MapLiteral>(expression)) {
+    return std::ranges::all_of(map_literal->elements_,
+                               [](auto const &entry) { return IsConstantExpression(entry.second); });
+  }
+  return false;
+}
+
+// Recognizes `RETURN <constant expressions>`: a single RETURN clause with no
+// DISTINCT/ORDER BY/SKIP/LIMIT/`*` and no UNION. Covers Lab's `RETURN 1 AS APP_INTERNAL_EXEC_VAR`
+// connection check and the every-2s `RETURN 1` quick-connect probe. Strict by design: anything
+// else falls through to the normal READ path.
+bool IsConstantReturnQuery(const CypherQuery &query) {
+  if (query.single_query_ == nullptr || !query.cypher_unions_.empty()) return false;
+  auto const &clauses = query.single_query_->clauses_;
+  if (clauses.size() != 1) return false;
+  auto *return_clause = utils::Downcast<Return>(clauses.front());
+  if (return_clause == nullptr) return false;
+  auto const &body = return_clause->body_;
+  if (body.distinct || body.all_identifiers || !body.order_by.empty() || body.skip != nullptr ||
+      body.limit != nullptr || body.named_expressions.empty()) {
+    return false;
+  }
+  return std::ranges::all_of(body.named_expressions, [](NamedExpression *named_expression) {
+    return named_expression != nullptr && IsConstantExpression(named_expression->expression_);
+  });
+}
+
+// Prepares a constant `RETURN` query for execution with no storage accessor. Evaluates the constant
+// expressions once (no DbAccessor) and streams the single resulting row. Header derivation mirrors
+// the normal Cypher path (see PrepareCypherQuery) so the column names are byte-identical.
+PreparedQuery PrepareConstantReturnQuery(ParsedQuery parsed_query) {
+  auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+  MG_ASSERT(cypher_query && cypher_query->single_query_, "Constant RETURN query expects a cypher single query");
+  auto *return_clause = utils::Downcast<Return>(cypher_query->single_query_->clauses_.front());
+  MG_ASSERT(return_clause, "Constant RETURN query expects a RETURN clause");
+  auto const &named_expressions = return_clause->body_.named_expressions;
+
+  std::vector<std::string> header;
+  header.reserve(named_expressions.size());
+  for (auto *named_expression : named_expressions) {
+    header.push_back(utils::FindOr(parsed_query.stripped_query.named_expressions(),
+                                   named_expression->token_position_,
+                                   std::string{named_expression->name_})
+                         .first);
+  }
+
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parsed_query.parameters;
+  PrimitiveLiteralExpressionEvaluator evaluator{evaluation_context, /*dba=*/nullptr};
+
+  std::vector<TypedValue> row;
+  row.reserve(named_expressions.size());
+  for (auto *named_expression : named_expressions) {
+    row.emplace_back(named_expression->expression_->Accept(evaluator));
+  }
+  std::vector<std::vector<TypedValue>> rows;
+  rows.push_back(std::move(row));
+
+  return PreparedQuery{
+      .header = std::move(header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [pull_plan = std::make_shared<PullPlanVector>(std::move(rows))](
+                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::NOTHING;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
+}
+
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
                                   InterpreterContext *interpreter_context, Interpreter &interpreter,
@@ -10116,7 +10205,13 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(ShowSchemaInfoQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
 
   // Write access required
-  void Visit(CypherQuery & /*unused*/) override {
+  void Visit(CypherQuery &cypher_query) override {
+    // Constant RETURN (e.g. Lab's connection-check `RETURN 1`) produces its row without touching
+    // the graph, so it runs with no storage transaction. Leaving accessor_type_ unset (NO_ACCESS)
+    // makes Prepare skip SetupDatabaseTransaction entirely.
+    if (IsConstantReturnQuery(cypher_query)) {
+      return;
+    }
     could_commit_ = true;
     accessor_type_ = cypher_access_type();
   }
@@ -10461,22 +10556,31 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 #endif
 
-    if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query = PrepareCypherQuery(std::move(parsed_query),
-                                          &query_execution->summary,
-                                          interpreter_context_,
-                                          current_db_,
-                                          memory_resource,
-                                          &query_execution->notifications,
-                                          user_or_role_,
-                                          make_stopping_context(),
-                                          *this,
-                                          &*frame_change_collector_
+    if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
+      // Accessor-free Lab introspection queries run with no storage transaction (see the
+      // QueryTransactionRequirements visitor, which left accessor_type_ unset for them). They must
+      // not reach PrepareCypherQuery, which asserts a current DB transaction. Only applies to
+      // implicit transactions; inside BEGIN...COMMIT the accessor is pre-opened and the query takes
+      // the normal path.
+      if (!in_explicit_transaction_ && IsConstantReturnQuery(*cypher_query)) {
+        prepared_query = PrepareConstantReturnQuery(std::move(parsed_query));
+      } else {
+        prepared_query = PrepareCypherQuery(std::move(parsed_query),
+                                            &query_execution->summary,
+                                            interpreter_context_,
+                                            current_db_,
+                                            memory_resource,
+                                            &query_execution->notifications,
+                                            user_or_role_,
+                                            make_stopping_context(),
+                                            *this,
+                                            &*frame_change_collector_
 #ifdef MG_ENTERPRISE
-                                          ,
-                                          user_resource_
+                                            ,
+                                            user_resource_
 #endif
-      );
+        );
+      }
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(
           std::move(parsed_query), &query_execution->notifications, interpreter_context_, *this, current_db_);
