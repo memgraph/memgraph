@@ -1604,3 +1604,165 @@ TYPED_TEST(TestSymbolGenerator, ListComprehensionInWith) {
   // 0, we erase the x symbol as it is only mentioned in the list comprehension
   ASSERT_EQ(collector.symbols_.size(), 0);
 }
+
+// Shadowing of un-imported outer variables inside a `CALL {}` subquery. Such a name is out of scope in the subquery,
+// so a pattern occurrence of it declares a fresh variable rather than referencing the outer one. Referencing it would
+// resolve to the outer symbol and make the branch write through its frame slot, which the subquery shares with its
+// caller. `SUBQUERY_COMPREHENSION(name)` builds `[(<name>)-->() | 1]`.
+//
+// Note the subquery RETURNs below list two NamedExpressions rather than a bare name plus one: `RETURN("t", NEXPR(...))`
+// selects the `RETURN(expr, AS(name))` overload, which would overwrite the comprehension with an identifier.
+#define SUBQUERY_COMPREHENSION(name)                                                                                   \
+  PATTERN_COMPREHENSION(                                                                                               \
+      nullptr,                                                                                                         \
+      PATTERN(                                                                                                         \
+          NODE(name), EDGE("anon_edge", EdgeAtom::Direction::OUT, {}, false), NODE("anon_node", std::nullopt, false)), \
+      nullptr,                                                                                                         \
+      LITERAL(1))
+
+namespace {
+
+const Identifier &ComprehensionStartNode(PatternComprehension *pc) {
+  auto *node = dynamic_cast<NodeAtom *>(pc->pattern_->atoms_[0]);
+  MG_ASSERT(node, "expected the comprehension's first atom to be a node");
+  return *node->identifier_;
+}
+
+// A subquery's RETURN rejects an unaliased expression, and the NEXPR helper does not set the flag.
+NamedExpression *Aliased(NamedExpression *named_expr) {
+  named_expr->is_aliased_ = true;
+  return named_expr;
+}
+
+}  // namespace
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryShadowsUnimportedOuterVariable) {
+  // MATCH (p) CALL { MATCH (t) RETURN t, [(p)-->() | 1] AS k } RETURN p, k
+  auto *outer_p = NODE("p");
+  auto *comprehension = SUBQUERY_COMPREHENSION("p");
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
+                                RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_p)), CALL_SUBQUERY(subquery), RETURN("p", "k")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  const auto outer_symbol = symbol_table.at(*outer_p->identifier_);
+  const auto inner_symbol = symbol_table.at(ComprehensionStartNode(comprehension));
+  EXPECT_NE(outer_symbol, inner_symbol) << "the un-imported name must be declared afresh, not bound to the outer `p`";
+  EXPECT_EQ(outer_symbol.name(), inner_symbol.name());
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryCorrelatesExplicitlyImportedVariable) {
+  // MATCH (p) CALL (p) { MATCH (t) RETURN t, [(p)-->() | 1] AS k } RETURN p, k
+  auto *outer_p = NODE("p");
+  auto *comprehension = SUBQUERY_COMPREHENSION("p");
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
+                                RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
+  auto *call_sub = CALL_SUBQUERY(subquery);
+  call_sub->has_variable_scope_ = true;
+  call_sub->scoped_variables_.push_back(NEXPR("p", IDENT("p")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_p)), call_sub, RETURN("p", "k")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_EQ(symbol_table.at(*outer_p->identifier_), symbol_table.at(ComprehensionStartNode(comprehension)))
+      << "an explicitly imported name is in scope, so it must still correlate";
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryCorrelatesWithCallStar) {
+  // MATCH (p) CALL (*) { MATCH (t) RETURN t, [(p)-->() | 1] AS k } RETURN p, k
+  auto *outer_p = NODE("p");
+  auto *comprehension = SUBQUERY_COMPREHENSION("p");
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
+                                RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
+  auto *call_sub = CALL_SUBQUERY(subquery);
+  call_sub->has_variable_scope_ = true;
+  call_sub->all_variables_scoped_ = true;
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_p)), call_sub, RETURN("p", "k")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_EQ(symbol_table.at(*outer_p->identifier_), symbol_table.at(ComprehensionStartNode(comprehension)))
+      << "CALL (*) imports every user-declared outer variable";
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInNestedSubqueryReshadowsImportedVariable) {
+  // MATCH (p) CALL (p) { CALL { MATCH (t) RETURN t, [(p)-->() | 1] AS k } RETURN t, k } RETURN p, k
+  // The inner `CALL {}` imports nothing, so `p` is out of scope again even though the outer subquery imported it.
+  auto *outer_p = NODE("p");
+  auto *comprehension = SUBQUERY_COMPREHENSION("p");
+  auto *inner_subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
+                                      RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
+  auto *outer_subquery = SINGLE_QUERY(CALL_SUBQUERY(inner_subquery), RETURN("t", "k"));
+  auto *call_sub = CALL_SUBQUERY(outer_subquery);
+  call_sub->has_variable_scope_ = true;
+  call_sub->scoped_variables_.push_back(NEXPR("p", IDENT("p")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_p)), call_sub, RETURN("p", "k")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_NE(symbol_table.at(*outer_p->identifier_), symbol_table.at(ComprehensionStartNode(comprehension)))
+      << "the innermost CALL {} imported nothing, so `p` is out of scope there too";
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryCorrelatesItsOwnScopeVariable) {
+  // MATCH (p) CALL { MATCH (t) RETURN t, [(t)-->() | 1] AS k } RETURN t, k
+  // `t` is declared inside the subquery, so it is in scope there and must correlate, not be shadowed.
+  auto *inner_t = NODE("t");
+  auto *comprehension = SUBQUERY_COMPREHENSION("t");
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(inner_t)),
+                                RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), CALL_SUBQUERY(subquery), RETURN("t", "k")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_EQ(symbol_table.at(*inner_t->identifier_), symbol_table.at(ComprehensionStartNode(comprehension)))
+      << "a name declared inside the subquery is in scope there, so shadowing must not fire";
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionAtTopLevelDeclaresUndeclaredNameAfresh) {
+  // MATCH (t) RETURN [(zz)-->() | 1] AS k -- no CALL {} anywhere, so the rule must not fire differently here
+  auto *comprehension = SUBQUERY_COMPREHENSION("zz");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("t"))), RETURN(NEXPR("k", comprehension))));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_EQ(symbol_table.at(ComprehensionStartNode(comprehension)).name(), "zz");
+}
+
+TYPED_TEST(TestSymbolGenerator, CreateInSubqueryMayRedeclareUnimportedOuterVariable) {
+  // MATCH (p) CALL { CREATE (p) RETURN p AS q } RETURN q
+  // `p` is out of scope in the subquery, so the CREATE declares a fresh node instead of raising a redeclaration
+  // error, and the outer `p` keeps its own frame slot.
+  auto *outer_p = NODE("p");
+  auto *created_p = NODE("p");
+  auto *subquery = SINGLE_QUERY(CREATE(PATTERN(created_p)), RETURN(IDENT("p"), AS("q")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_p)), CALL_SUBQUERY(subquery), RETURN("q")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_NE(symbol_table.at(*outer_p->identifier_), symbol_table.at(*created_p->identifier_))
+      << "the created node must be a fresh symbol, so the outer `p` survives the subquery";
+}
+
+TYPED_TEST(TestSymbolGenerator, SubqueryReturningShadowingNameStillCollidesWithOuterScope) {
+  // MATCH (p) CALL { CREATE (p) RETURN p } RETURN p
+  // Returning the shadowing name under its own name would collide with the caller's `p`; still rejected.
+  auto *subquery = SINGLE_QUERY(CREATE(PATTERN(NODE("p"))), RETURN("p"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), CALL_SUBQUERY(subquery), RETURN("p")));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, ExistsPatternInSubqueryRejectsUnimportedOuterVariable) {
+  // MATCH (p) CALL { MATCH (t) WHERE exists((p)-->()) RETURN t } RETURN t
+  // A pattern expression may not introduce variables, so the out-of-scope `p` is an unbound reference.
+  auto *exists = EXISTS(PATTERN(
+      NODE("p"), EDGE("anon_edge", EdgeAtom::Direction::OUT, {}, false), NODE("anon_node", std::nullopt, false)));
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))), WHERE(exists), RETURN("t"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), CALL_SUBQUERY(subquery), RETURN("t")));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+#undef SUBQUERY_COMPREHENSION
