@@ -69,14 +69,27 @@ class Client {
       {"SnapshotReq"sv, 60'000},        // Waiting 60'' on a progress/final response
       // Follower coordinator forwarding to the leader; these run on the caller's Bolt session thread, so a missing
       // timeout would block the session forever against a reachable-but-stuck leader.
-      {"RegisterInstanceReq"sv, 10'000},
-      {"UnregisterInstanceReq"sv, 10'000},
-      {"SetInstanceToMainReq"sv, 10'000},
-      {"DemoteInstanceReq"sv, 10'000},
+      //
+      // The four instance ops below must outlast the leader-side work they trigger, or the follower reports failure for
+      // an operation the leader already committed to Raft. Budgets are the sum of that work plus headroom, taking the
+      // Raft commit as capped by client_req_timeout_ (3'') and each RPC to a data instance by its entry above (10''):
+      //   Demote/Unregister  3'' + one RPC to the current main             = 13''
+      //   Register           3'' + demote the new replica + register it    = 23''
+      //   SetInstanceToMain  3'' + one SwapMainUUID per other instance + promote the new main = 33'' at three
+      //                      instances; the budget below covers five. Beyond that the follower can still time out
+      //                      before the leader answers -- it grows with instance count, so no fixed value bounds it.
+      {"RegisterInstanceReq"sv, 30'000},
+      {"UnregisterInstanceReq"sv, 20'000},
+      {"SetInstanceToMainReq"sv, 60'000},
+      {"DemoteInstanceReq"sv, 20'000},
+      // Raft commit only (3''), no fan-out to data instances.
       {"AddCoordinatorReq"sv, 10'000},
       {"RemoveCoordinatorReq"sv, 10'000},
       {"UpdateConfigReq"sv, 10'000},
-      {"ForceResetReq"sv, 10'000},
+      // Reconciliation retries under a 1''..60'' backoff for as long as this coordinator stays leader, so the
+      // leader-side work has no upper bound at all. This budget only keeps a genuinely wedged leader from blocking the
+      // session; hitting it does not mean the reset failed, and FORCE RESET CLUSTER STATE is safe to re-run.
+      {"ForceResetReq"sv, 60'000},
       {"GetRoutingTableReq"sv, 10'000},
       {"CoordReplLagReq"sv, 10'000},
       {"CreateRoleReq"sv, 10'000},
