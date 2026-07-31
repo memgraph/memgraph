@@ -342,10 +342,13 @@ void PriorityThreadPool::PostResumeTask(std::function<void()> closure) {
   // leave every remaining claimed waiter un-resumed -- each one a permanently parked query.
   spdlog::trace("PostResumeTask: all workers stopped, running parked resume inline during teardown");
   ParkArmGuard const arm_guard;
+  // catch(...) rather than catch(const std::exception&): the point is that ONE failed resume must not
+  // abandon the remaining claimed waiters this runs among, and a non-std exception would do exactly
+  // that.
   try {
     task(Priority::LOW);
-  } catch (const std::exception &e) {
-    spdlog::critical("Parked query's inline teardown resume threw: {}. That query will not make progress.", e.what());
+  } catch (...) {
+    spdlog::critical("Parked query's inline teardown resume threw. That query will not make progress.");
   }
 }
 
@@ -507,8 +510,12 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
         if constexpr (ThreadPriority != Priority::HIGH) {
           // Same precedence rule as the victim's own pop_task: prefer its resume, unless it has a
           // HIGH-priority item queued, which stays first.
-          const bool victim_work_head_is_hp = !worker->work_.empty() && worker->work_.top().id > kMaxLowPriorityId;
-          if (!worker->work_must_run_.empty() && !victim_work_head_is_hp) victim_q = &worker->work_must_run_;
+          // Ordered so the must-run test short-circuits: with the flag off work_must_run_ is always
+          // empty, and this runs under the victim's mtx_ on the steal hot path for every LP thief.
+          if (!worker->work_must_run_.empty() &&
+              !(!worker->work_.empty() && worker->work_.top().id > kMaxLowPriorityId)) {
+            victim_q = &worker->work_must_run_;
+          }
         }
         if (!victim_q) {
           if (worker->work_.empty()) continue;
@@ -586,7 +593,14 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
   // by default. `task_is_must_run` is what keeps the fix to the case that needs it.
   if (task && task_is_must_run) {
     ParkArmGuard const arm_guard;  // same task-boundary arming as Phase 1A above
-    task.value()(ThreadPriority);
+    // catch(...) for the same reason as PostResumeTask's inline fallback: an exception escaping here
+    // would propagate out of the worker's thread function, which terminates the process, and would
+    // also abandon whatever else is still queued in the drain below. One stranded query beats that.
+    try {
+      task.value()(ThreadPriority);
+    } catch (...) {
+      spdlog::critical("Parked query's resume threw during worker teardown. That query will not make progress.");
+    }
   }
   task.reset();
 
@@ -605,7 +619,12 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
       work_must_run_.pop();
     }
     ParkArmGuard const arm_guard;  // a drained resume can itself re-park; arm it like any other task
-    drained_task(ThreadPriority);
+    try {
+      drained_task(ThreadPriority);
+    } catch (...) {
+      // Must not abandon the rest of the queue, and must not escape the thread function.
+      spdlog::critical("Parked query's resume threw during the worker's must-run drain. It will not make progress.");
+    }
   }
 
   // Teardown: drop this worker's published identity so GetCurrentWorkerId() returns nullopt

@@ -85,10 +85,6 @@ struct AcquireAwaitable {
   bool await_suspend(std::coroutine_handle<> h) {
     auto ps = std::make_shared<utils::ParkState>();
     ps->deadline = deadline;
-    // Published to the frame before anything can claim `ps`. Safe to write frame memory here for the
-    // same reason the rest of this function is: the gate cannot deliver a resume until this thread's
-    // task ends (utils/park_state.hpp).
-    *parked_ps = ps;
     auto *pool_ptr = &pool;
     // resumed_cb is copied into BOTH the outer (on_resume) and inner (posted) closures, both of
     // which live inside ps (heap-allocated, kept alive by the registries -- see park_state.hpp) for
@@ -117,6 +113,7 @@ struct AcquireAwaitable {
 
     auto &event = storage.main_lock_resume_event();
     if (!event.RegisterWaiter(ps, epoch)) {
+      // NB `*parked_ps` is deliberately still null here -- see below.
       // Epoch already moved (B1 waiter step 3, "register" rejected): `ps` never entered any
       // registry, so nobody can ever claim/resume it -- just drop it and re-probe on the next
       // loop iteration. No claim contest needed.
@@ -124,11 +121,17 @@ struct AcquireAwaitable {
     }
 
     // Registered: from here on another thread may CLAIM `ps` at any moment. It may not yet DELIVER
-    // the resume -- that is gated until this thread's pool task ends, which is exactly what makes
-    // the rest of this function (and the driver we return into) safe to keep touching frame-resident
-    // state. Publishing the pending arm right here, before anything else can throw, is what
-    // guarantees the arming side is accounted for from the first instant a claim is possible.
-    utils::PublishPendingPark(ps);
+    // the resume -- that is gated until this thread's pool task ends, which is what makes the rest of
+    // this function (and the driver we return into) safe to keep touching frame-resident state.
+    //
+    // Hand `ps` back to the frame only now, AFTER a successful registration, so the caller's
+    // post-resume prune runs only on a park that was actually registered. Assigning it earlier meant
+    // the epoch-reject path above also paid the prune -- two mutexes and two O(N) list scans -- on
+    // every iteration of a loop that already spins without backoff, and the reason a parker lands
+    // there is epoch churn from a long waiter list, i.e. exactly when those scans cost most. Safe to
+    // write frame memory here for the same reason as the rest of this function: the gate cannot
+    // deliver a resume until this thread's task ends (utils/park_state.hpp).
+    *parked_ps = ps;
 
     auto &registry = pool.park_registry();
 
@@ -144,7 +147,21 @@ struct AcquireAwaitable {
     // Set iff the abandon path below wins ClaimPark on our own `ps`. Must outlive the try so the
     // handler can distinguish our claim from a foreign one.
     bool self_claimed = false;
+    // Whether we got as far as publishing the pending arm. The handler needs it because discarding a
+    // park this thread never published would pop somebody else's off the stack.
+    bool published = false;
     try {
+      // Publish the pending arm before anything else in here can throw, so that a wake source
+      // claiming `ps` in the very next instant finds an arming side already accounted for. This is
+      // INSIDE the try because publishing itself allocates (a vector push_back) and can therefore
+      // throw: it used to be a shared_ptr move-assign, and the depth-stack change made it a
+      // potentially-throwing call while leaving it outside. A throw there left `ps` registered on the
+      // wake event with gate == kParking and nothing on the stack to arm it -- no use-after-free (the
+      // gate prevents any delivery), but the ParkState kept holding its on_resume closure and through
+      // it the Session, which is exactly the leak the resumed-park pruning exists to close.
+      utils::PublishPendingPark(ps);
+      published = true;
+
       registry.Register(ps);
 
       // B1 step 4 / R4.3: re-probe the real resource once more before committing to a genuine
@@ -205,7 +222,7 @@ struct AcquireAwaitable {
         // the real error (deadline/OOM handling is the acquire loop's caller's business).
         event.RemoveWaiter(ps);
         registry.Deregister(ps);
-        utils::DiscardPendingPark(ps);
+        if (published) utils::DiscardPendingPark(ps);
         throw;
       }
       // A wake source already claimed `ps` and WILL resume this handle, so the frame must survive:
@@ -315,6 +332,15 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
   auto pending = mem_storage.MakePendingHandle(rw);
 
   for (;;) {
+    // Tearing down? Do not start an acquire at all. Without this the only shutdown check was
+    // post-co_await, so a chain re-driven during teardown (the inline resume re-enters
+    // Session::RunLoop -> Execute(), and a pipelined RUN still in the decoder buffer starts a fresh
+    // Prepare) would probe, find no worker id, and take the blocking fallback below -- on the main
+    // shutdown thread, for up to the whole --storage-access-timeout-sec.
+    if (pool.IsShuttingDown()) {
+      throw utils::BasicException("AcquireAccessorCoro: pool is shutting down, refusing to acquire a new accessor");
+    }
+
     // Capture BEFORE the probe (B1's lost-wakeup guard): this is the epoch that must still hold
     // for a subsequent park (below) to be safe.
     const auto epoch = mem_storage.main_lock_resume_event().Epoch();

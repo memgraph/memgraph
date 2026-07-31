@@ -65,9 +65,12 @@ INSTANCE = "park_shutdown_main"
 # the park was NOT in flight at stop time, which is what the assertion at the end checks.
 ACCESS_TIMEOUT_SEC = 120
 
-# Generous. A correct shutdown here is milliseconds; the failure mode is ~5 minutes (~Gatekeeper's
-# wait), so anything in between still discriminates cleanly.
-SHUTDOWN_BUDGET_SEC = 30.0
+# Deliberately BELOW interactive_mg_runner's own stop timeout, which polls for 15s and then asserts
+# (tests/e2e/memgraph.py). At 30s this assertion could never fire -- the runner's would always win --
+# so it was decoration. At 10s a hang of 10-15s fails here with this message; anything longer fails in
+# the runner with its own. Either way the test fails, which is what matters; the point of the lower
+# number is that the assertion below is reachable and therefore means something.
+SHUTDOWN_BUDGET_SEC = 10.0
 
 PARK_SETTLE_SEC = 3.0
 
@@ -144,11 +147,12 @@ def test_graceful_shutdown_with_a_parked_query(test_name):
         f"DatabaseAccess) alive."
     )
 
-    # Proof the test measured what it claims to. The contender parked with a 120s budget and the stop
-    # happened ~3s in, so its query cannot have completed and cannot have timed out. Whatever error it
-    # got must come from the shutdown -- the coroutine's own bail, or the connection dropping. An
-    # access-timeout here would mean the park had already resolved before the stop, i.e. shutdown ran
-    # with nothing parked and the assertion above was vacuous.
+    # Vacuity check, and precisely what it does and does not establish. It rules out the two ways the
+    # contender could have stopped being parked before the stop: succeeding (it got the lock) and timing
+    # out (its 120s budget expired -- impossible at ~3s, but assert it rather than argue it). It does NOT
+    # distinguish "was parked" from "was queued and had not started", because a dropped connection looks
+    # the same from here and there is no server-side signal for parked-ness -- PrepareCoro defers
+    # SetupInterpreterTransaction, so a parked query is deliberately invisible to SHOW TRANSACTIONS.
     contender.join(timeout=30.0)
     assert not contender.is_alive(), "contender outlived the process it was talking to"
     assert not result_queue.empty(), "contender reported nothing"
@@ -162,7 +166,6 @@ def test_graceful_shutdown_with_a_parked_query(test_name):
         f"shutdown, which means it was no longer parked when the stop began and the measurement above "
         f"was vacuous. error was: {outcome['error']!r}"
     )
-    assert elapsed < PARK_SETTLE_SEC + SHUTDOWN_BUDGET_SEC
 
 
 if __name__ == "__main__":

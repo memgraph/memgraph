@@ -658,6 +658,24 @@ TEST(PriorityThreadPool, HighPriorityWorkStillPrecedesAResume) {
       utils::Priority::LOW);
   wedged.wait(false);
 
+  // Wedge the HP worker too, with a HIGH task of its own. Without this the test is only
+  // probabilistically discriminating: an awake HP worker steals the HIGH item straight off the wedged
+  // LP worker (Phase 2A) and records "high" first regardless of pop_task's precedence, so it would pass
+  // with the fix reverted. Same for sched_mon's 100ms migration tick. Wedging it leaves pop_task as the
+  // only thing that can order these two.
+  std::atomic<bool> hp_block{true};
+  std::atomic<bool> hp_wedged{false};
+  pool.ScheduledAddTask(
+      [&](auto) {
+        hp_wedged = true;
+        hp_wedged.notify_one();
+        while (hp_block.load()) {
+          hp_block.wait(true);
+        }
+      },
+      utils::Priority::HIGH);
+  hp_wedged.wait(false);
+
   // Both queued behind the wedged task on the same (only) LP worker.
   std::mutex order_mutex;
   std::vector<std::string> order;
@@ -672,8 +690,8 @@ TEST(PriorityThreadPool, HighPriorityWorkStillPrecedesAResume) {
   block = false;
   block.notify_all();
 
-  // Wait for both, then check which ran first. The HP task may also be stolen by the HP worker, which
-  // is equally fine -- either way it must not be stuck behind the resume.
+  // Wait for both, then check which ran first. With both workers wedged until now, pop_task on the LP
+  // worker is the only thing that could have ordered them.
   for (int i = 0; i < 500; ++i) {
     {
       std::lock_guard<std::mutex> lock(order_mutex);
@@ -687,6 +705,8 @@ TEST(PriorityThreadPool, HighPriorityWorkStillPrecedesAResume) {
   EXPECT_EQ(order.front(), "high") << "a queued HIGH-priority task was served after a parked-query "
                                       "resume; must-run work must not preempt HP work";
 
+  hp_block = false;
+  hp_block.notify_all();
   pool.ShutDown();
   pool.AwaitShutdown();
 }

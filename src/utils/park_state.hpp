@@ -108,10 +108,17 @@ class ParkState {
     //   - ~ParkArmGuard, during a task's own unwinding.
     // Losing one resume strands one query (loudly logged). Losing the instance, or the other waiters,
     // is worse. This is why callers may treat RequestResume/ArmPark as non-throwing.
+    // catch(...), not catch(const std::exception&): this function is noexcept, so ANY escaping
+    // exception -- including one that does not derive from std::exception -- calls std::terminate,
+    // which is the exact outcome the swallow exists to prevent. The log is itself inside a try for the
+    // same reason: spdlog can throw, and here it would throw on the way out of a failure.
     try {
       on_resume();
-    } catch (const std::exception &e) {
-      spdlog::critical("Failed to deliver a parked query's resume: {}. That query will not make progress.", e.what());
+    } catch (...) {
+      try {
+        spdlog::critical("Failed to deliver a parked query's resume. That query will not make progress.");
+      } catch (...) {  // NOLINT(bugprone-empty-catch)
+      }
     }
   }
 
@@ -158,13 +165,22 @@ inline bool ClaimPark(ParkState &ps) { return !ps.claimed.exchange(true, std::me
 /// invokes `on_resume` exactly once, and neither can invoke it early. `on_resume` may then post the
 /// resume to ANY worker.
 ///
-/// Asymmetry worth knowing: over-arming is harmless (a `ParkState` nobody ever requested a resume
-/// for just moves to `kArmed` and stays there), while under-arming hangs the park forever -- and not
+/// Asymmetry worth knowing: arming a park nobody has requested a resume for is harmless (it just moves
+/// to `kArmed` and stays there), while under-arming hangs the park forever -- and not
 /// only for that query: the parked frame holds its campaign-long `PendingHandle`, which keeps
 /// `unique_pending_count` above zero and makes `can_acquire<WRITE>`, `<READ>` and `<READ_ONLY>` all
 /// false for good on that storage. So arm from somewhere that cannot be skipped: `ParkArmGuard` below,
-/// wrapped around EVERY site that runs a pool task body (utils::PriorityThreadPool's three run-loop
-/// sites plus `PostResumeTask`'s inline fallback).
+/// wrapped around every site that runs a SESSION/Prepare task body: utils::PriorityThreadPool's three
+/// run-loop sites plus `PostResumeTask`'s inline fallback. (`TaskCollection::WaitOrSteal` also invokes
+/// a task body inline and deliberately has no guard: those are Pull-time parallel-execution tasks,
+/// which never reach the Prepare park path, and the caller is itself inside a guarded task -- so a park
+/// published under it would be armed by that outer guard, strictly after the inline body returned.)
+///
+/// Arming a park whose resume has ALREADY been delivered is a different matter and must not happen: it
+/// would find `kResumeRequested` and invoke a moved-from `on_resume_`. Each `ParkState` is pushed once
+/// and popped when armed, so it cannot. Worth knowing what changed here: before `on_resume_` was moved
+/// out on delivery, a double arm resumed the handle TWICE -- a use-after-free. Now the same mistake
+/// merely logs, which is a real improvement but not a licence to rely on it.
 
 /// Called by the winner of `ClaimPark`. This is the ONLY way a wake source can ask for a resume --
 /// `on_resume_` is private precisely so "claim, then resume" cannot be written by accident. Invokes
@@ -228,8 +244,13 @@ inline void DiscardPendingPark(const std::shared_ptr<ParkState> &ps) {
 /// nested execution published -- never an outer task's park, whose driver has not finished yet and for
 /// which a delivered resume would be exactly the race the gate exists to prevent.
 ///
-/// Loops rather than arming once: `ArmPark` may invoke `on_resume_`, which on the inline-resume path
-/// runs a whole session chain that can publish yet another park before returning.
+/// The loop is DEFENCE IN DEPTH, not a mechanism anything currently relies on -- reviewed and stated
+/// precisely because an earlier version of this comment justified it with a path that does not exist.
+/// `ArmPark` can invoke `on_resume_`, which on the inline-resume path runs a session chain that may
+/// publish another park; but that chain runs under its OWN `ParkArmGuard`, whose base equals ours by
+/// then (we pop before arming), so it consumes what it published before returning and this loop's
+/// re-test finds nothing. The loop earns its keep only if a future arming site forgets its guard,
+/// which is cheap insurance for a failure mode whose cost is a permanently parked query.
 inline void ArmPendingParksAbove(size_t base_depth) {
   while (tls_pending_parks.size() > base_depth) {
     auto ps = std::move(tls_pending_parks.back());

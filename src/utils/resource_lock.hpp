@@ -252,11 +252,17 @@ struct ResourceLock {
   /// -> lock mtx). An earlier version of this comment forbade re-entry, which the code already
   /// contradicted. What is actually required is weaker and is satisfied here:
   ///   - maybe_notify unlocks BEFORE invoking, so re-entry cannot self-deadlock;
-  ///   - the callback must not assume any particular lock state on entry, since it is invoked from
-  ///     release, unregister_pending, downgrade_to_read and a failed acquire alike;
-  ///   - re-entry must terminate. It does because each nested probe either acquires (ending the chain)
-  ///     or parks (which posts rather than recursing); the chain is bounded by the parked waiters that
-  ///     were already registered when the outermost notify started.
+  ///   - the callback must not assume any particular lock state on entry: release, unregister_pending
+  ///     and downgrade_to_read all invoke it, as does a failed acquire, though only when dropping a
+  ///     READ_ONLY/UNIQUE pending count to zero (pending_release_should_notify) -- a failed WRITE/READ
+  ///     acquire never does;
+  ///   - re-entry must terminate. The reason is NOT that each nested step acquires or parks -- the
+  ///     recursing path does neither: a resumed coroutine bailing on shutdown destroys its campaign
+  ///     PendingHandle, whose unregister_pending notifies again. It terminates because the storage
+  ///     observer's NotifyAll moves its whole waiter list out under its own mutex before invoking
+  ///     anything, and NotifyMainLockReleased gates on WaitersPending() > 0 -- so a nested notify finds
+  ///     an empty list and stops. Note this bounds the recursion COUNT, not the stack depth: each level
+  ///     is a full query-execution frame, so a teardown with very many parked waiters nests deeply.
   /// Being called from inside a destructor is also normal -- ~ResourceLockGuard is the commonest
   /// release site -- so the callback must not throw. The one installed by storage satisfies this: its
   /// delivery path swallows and logs (see ParkState::TakeAndInvokeOnResume).

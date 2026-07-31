@@ -1123,7 +1123,7 @@ int main(int argc, char **argv) {
     spdlog::info("Workers shutting down.");
     if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they stop first
 
-    spdlog::info("Communication server shutting down.");
+    // Shutdown communication server
     server.Shutdown();
 
 // DataInstanceManagementServer needs to be closed before replication state because some RPCs require access to
