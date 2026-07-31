@@ -1092,30 +1092,27 @@ int main(int argc, char **argv) {
       telemetry->Stop();
     }
 
-    // Stop incoming traffic BEFORE draining or stopping workers. Nothing that arrives after this can
-    // start a query, so the set of parked waiters stops growing from the outside and the drains below
-    // have a stable population to work with.
-    //
-    // This runs before worker_pool_->ShutDown() even though a worker can still enqueue io tasks
-    // afterwards: Server::Shutdown() is io_context_.stop(), which does NOT destroy the context (the
-    // io threads are joined later, in AwaitShutdown()), so a late post is safely dropped rather than
-    // unsafe. The only thing lost is delivery of an in-flight response, which a shutdown that stops
-    // workers first does not deliver either.
-    spdlog::info("Communication server shutting down.");
-    server.Shutdown();
-
-    // Now drain parked waiters, while the workers that have to run their resumes are still ALIVE.
-    // Draining after the pool has stopped is the bug this ordering exists to avoid: a ParkState that
-    // registered with a Storage's wake event but had not yet reached the pool's deadline registry
-    // misses the pool's one-shot drain, and a later storage-side drain then claims it and posts a
-    // resume to a worker that has already returned -- so it never runs, the coroutine stays parked
+    // Drain parked waiters while the workers that have to run their resumes are still ALIVE, i.e.
+    // strictly before worker_pool_->ShutDown(). Draining after the pool has stopped is the bug this
+    // placement exists to avoid: a resume claimed then has nowhere to run, the coroutine stays parked
     // forever, and the Session it pins (with its DatabaseAccess) leaks, holding
     // Gatekeeper<Database>::count_ above zero and stalling teardown for minutes.
     //
     // A query already dispatched to a worker can still park between here and the pool's own drain
-    // inside ShutDown(); that drain runs while the workers are still looping, so it covers the
-    // window. Anything registering after THAT is covered by await_suspend's shutdown self-claim.
-    // StopAllBackgroundTasks() further down drains again; by then it is a no-op prune.
+    // inside ShutDown(); that drain runs while the workers are still looping, so it covers the window.
+    // Anything registering after THAT is covered by await_suspend's shutdown self-claim, since
+    // ShutDown() sets its stop flag before draining. StopAllBackgroundTasks() further down drains
+    // again as the DROP DATABASE path needs it to.
+    //
+    // Deliberately NOT preceded by server.Shutdown(). An earlier version of this stopped incoming
+    // traffic first, on the reasoning that the parked population should stop growing from outside
+    // before draining. Review showed that bought nothing -- the two mechanisms above already cover
+    // every registration window, with or without new arrivals -- and cost something real: master
+    // stops the pool before the server precisely because "workers can enqueue io tasks", and
+    // Worker::stop() only sets a flag without joining, so a worker finishing a query after ShutDown()
+    // returns still posts its Bolt response. With the io_context already stopped that response is
+    // dropped. That is a flag-independent regression, affecting installations that never enable this
+    // feature, in exchange for an ordering that was not load-bearing.
     if (dbms_handler.has_value()) {
       dbms_handler->ForEach([](memgraph::dbms::DatabaseAccess acc) {
         spdlog::trace("Draining parked storage waiters for db: {}", acc->name());
@@ -1124,7 +1121,10 @@ int main(int argc, char **argv) {
     }
 
     spdlog::info("Workers shutting down.");
-    if (worker_pool_) worker_pool_->ShutDown();
+    if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they stop first
+
+    spdlog::info("Communication server shutting down.");
+    server.Shutdown();
 
 // DataInstanceManagementServer needs to be closed before replication state because some RPCs require access to
 // replication state
