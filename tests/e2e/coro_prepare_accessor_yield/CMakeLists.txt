@@ -5,5 +5,6 @@ endfunction()
 copy_coro_prepare_accessor_yield_e2e_python_files(common.py)
 copy_coro_prepare_accessor_yield_e2e_python_files(coro_prepare_accessor_yield.py)
 copy_coro_prepare_accessor_yield_e2e_python_files(coro_prepare_accessor_yield_flag_off_control.py)
+copy_coro_prepare_accessor_yield_e2e_python_files(park_shutdown.py)
 
 copy_e2e_files(coro_prepare_accessor_yield workloads.yaml)

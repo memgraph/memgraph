@@ -48,3 +48,11 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["coro_prepare_accessor_yield/coro_prepare_accessor_yield_flag_off_control.py"]
     <<: *coro_prepare_accessor_yield_off_cluster
+
+  # Manages its OWN memgraph process (interactive_mg_runner) because the thing under test is the
+  # shutdown sequence itself -- the test has to own the process lifetime and time the stop. Hence no
+  # `cluster:` key here.
+  - name: "CoroPrepareParkShutdown"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["coro_prepare_accessor_yield/park_shutdown.py"]
+    proc: "tests/e2e/coro_prepare_accessor_yield/"
