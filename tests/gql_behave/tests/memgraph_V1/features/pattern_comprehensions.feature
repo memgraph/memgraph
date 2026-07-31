@@ -712,3 +712,117 @@ Feature: Pattern comprehensions
         Then the result should be:
             | name     |
             | 'Regina' |
+
+    Scenario: Pattern comprehension over a node created inside the same FOREACH body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] |
+              CREATE (q:Marker)
+              SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m]))
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN count(q) AS created, collect(DISTINCT q.cnt) AS counts
+            """
+        Then the result should be:
+            | created | counts |
+            | 2       | [0]    |
+
+    Scenario: Pattern comprehension over a node merged inside the same FOREACH body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] |
+              MERGE (q:Marker {id: 1})
+              SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m]))
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN count(q) AS merged, collect(DISTINCT q.cnt) AS counts
+            """
+        Then the result should be:
+            | merged | counts |
+            | 1      | [0]    |
+
+    Scenario: Pattern comprehension over a node created by an enclosing FOREACH body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] |
+              CREATE (q:Marker)
+              FOREACH (j IN [1] |
+                SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m])))
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN count(q) AS created, collect(DISTINCT q.cnt) AS counts
+            """
+        Then the result should be:
+            | created | counts |
+            | 1       | [0]    |
+
+    Scenario: Pattern comprehension in a FOREACH body sees edges created in that body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Zoe'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] |
+              CREATE (q:Marker)-[:ACTED_IN]->(:Movie {title: 'New'})
+              SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m]))
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN collect(q.cnt) AS counts
+            """
+        Then the result should be:
+            | counts |
+            | [1]    |
+
+    Scenario: A comprehension on a pre-FOREACH symbol is unaffected by one bound inside the body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] |
+              CREATE (q:Marker)
+              SET q.outer = size([(p)-[:ACTED_IN]->(m) | m]),
+                  q.inner = size([(q)-[:ACTED_IN]->(m2) | m2]))
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN sum(q.outer) AS outer_sum, collect(DISTINCT q.inner) AS inners
+            """
+        Then the result should be:
+            | outer_sum | inners |
+            | 1         | [0]    |

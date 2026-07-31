@@ -18,6 +18,7 @@
 #include <ranges>
 #include <stack>
 #include <unordered_set>
+#include <utility>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -42,7 +43,8 @@ class WhereReadSymbolsCollector : public UsedSymbolsCollector {
   using UsedSymbolsCollector::UsedSymbolsCollector;
 
   bool PreVisit(PatternComprehension &pc) override {
-    // Visits pc.pattern_ and sets the in-comprehension flag, which keeps anonymous symbols out.
+    // Visits pc.pattern_ and enters the comprehension, which keeps anonymous symbols out. The base tracks a depth,
+    // so a comprehension nested in filter_/resultExpr_ below does not release us early.
     UsedSymbolsCollector::PreVisit(pc);
     if (pc.filter_) {
       pc.filter_->Accept(*this);
@@ -705,6 +707,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       case BodyPosition::kWhere:
         return where_pattern_comprehension_datas_;
     }
+    std::unreachable();
   }
 
   const ReturnBody &body_;
@@ -844,7 +847,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<Distinct>(std::move(last_op), body.output_symbols());
   }
   // Splices a RollUpApply for each planned comprehension in @p pc_data onto last_op.
-  auto splice_comprehensions = [&](auto pc_data) {
+  auto splice_comprehensions = [&](auto &&pc_data) {
     for (auto &[result_symbol, list_collection_data] : pc_data) {
       if (list_collection_data.op) {
         auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());

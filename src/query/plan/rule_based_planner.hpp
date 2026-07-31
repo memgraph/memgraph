@@ -314,42 +314,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
           return DepsSatisfied(pc, symbols_bound_by_query_part, context.bound_symbols);
         };
 
-        // Helper to check if a pattern comprehension has variable-length paths.
-        // ExpandVariable requires View::OLD, so comprehensions with VLE must use OLD.
-        auto has_variable_length_expansion = [](const PatternComprehensionMatching &pc) {
-          for (const auto &expansion : pc.expansions) {
-            if (expansion.edge && expansion.edge->IsVariable()) {
-              return true;
-            }
-          }
-          return false;
-        };
-
-        // Helper to check if a pattern comprehension references externally bound symbols.
-        // This includes both explicit external_symbols AND expansion_symbols that were already bound
-        // before the comprehension (e.g., `a` in `[(a)-->(x) | x.id]` when `a` comes from CREATE).
-        auto references_external_symbols = [&](const PatternComprehensionMatching &pc) {
-          // Check explicit external symbols (from filter/result expressions)
-          if (!pc.external_symbols.empty()) return true;
-          // Check if any expansion symbol was already bound (external reference in pattern)
-          for (const auto &sym : pc.expansion_symbols) {
-            if (context.bound_symbols.contains(sym)) return true;
-          }
-          return false;
-        };
-
         // Helper to plan and apply all satisfiable comprehensions before write clauses
         auto plan_and_apply_comprehensions = [&]() {
           for (auto it = pending_comprehensions.begin(); it != pending_comprehensions.end();) {
             const auto &[sym, pc] = *it;
             if (deps_satisfied(pc)) {
-              // Use View::OLD for variable-length paths (ExpandVariable requires it).
-              // Use View::NEW after writes if the comprehension references externally bound symbols,
-              // so it can see newly created edges/properties on those nodes.
-              auto view =
-                  has_variable_length_expansion(pc)
-                      ? storage::View::OLD
-                      : ((write_occurred && references_external_symbols(pc)) ? storage::View::NEW : storage::View::OLD);
+              auto view = PatternComprehensionView(pc, write_occurred, context.bound_symbols);
               auto op = Plan(pc, view, kNoExtraBoundSymbols);
               auto symbols = op->ModifiedSymbols(*context.symbol_table);
               input_op = std::make_unique<RollUpApply>(std::move(input_op), std::move(op), symbols, sym);
@@ -1348,6 +1318,28 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     });
   }
 
+  /// ExpandVariable requires View::OLD, so a comprehension whose pattern has a variable-length edge must use it.
+  static bool HasVariableLengthExpansion(const PatternComprehensionMatching &pc) {
+    return std::ranges::any_of(pc.expansions,
+                               [](const auto &expansion) { return expansion.edge && expansion.edge->IsVariable(); });
+  }
+
+  /// True if the comprehension reads something bound outside it: either from its filter or result expression, or a
+  /// pattern symbol that is already bound, e.g. `a` in `[(a)-->(x)|x]` when `a` comes from a CREATE.
+  static bool ReferencesExternalSymbols(const PatternComprehensionMatching &pc,
+                                        const std::unordered_set<Symbol> &bound_symbols) {
+    if (!pc.external_symbols.empty()) return true;
+    return std::ranges::any_of(pc.expansion_symbols, [&](const Symbol &sym) { return bound_symbols.contains(sym); });
+  }
+
+  /// The view a comprehension must be planned with. Every site draining `pending_comprehensions` must use this: a
+  /// comprehension planned after a write, over a symbol that write bound, sees nothing under View::OLD.
+  static storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, bool write_occurred,
+                                                const std::unordered_set<Symbol> &bound_symbols) {
+    if (HasVariableLengthExpansion(pc)) return storage::View::OLD;
+    return write_occurred && ReferencesExternalSymbols(pc, bound_symbols) ? storage::View::NEW : storage::View::OLD;
+  }
+
   std::unique_ptr<LogicalOperator> HandleForeachClause(
       query::Foreach *foreach, std::unique_ptr<LogicalOperator> input_op, const SymbolTable &symbol_table,
       std::unordered_set<Symbol> &bound_symbols, const SingleQueryPart &query_part, uint64_t &merge_id,
@@ -1357,12 +1349,15 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     bound_symbols.insert(symbol);
     std::unique_ptr<LogicalOperator> op = std::make_unique<plan::Once>();
 
+    // Every clause a FOREACH body may hold is a write, so anything planned after the first one must read View::NEW.
+    bool write_occurred = false;
+
     // Helper to plan comprehensions whose dependencies are now satisfied
     auto plan_satisfied_comprehensions = [&]() {
       for (auto it = pending_comprehensions.begin(); it != pending_comprehensions.end();) {
         const auto &[sym, pc] = *it;
         if (DepsSatisfied(pc, symbols_bound_by_query_part, bound_symbols)) {
-          auto pc_op = Plan(pc, storage::View::OLD, kNoExtraBoundSymbols);
+          auto pc_op = Plan(pc, PatternComprehensionView(pc, write_occurred, bound_symbols), kNoExtraBoundSymbols);
           auto symbols = pc_op->ModifiedSymbols(symbol_table);
           op = std::make_unique<RollUpApply>(std::move(op), std::move(pc_op), symbols, sym);
           it = pending_comprehensions.erase(it);
@@ -1390,6 +1385,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       } else {
         op = HandleWriteClause(clause, op, symbol_table, bound_symbols);
       }
+      // A body clause can bind the very symbol a pending comprehension expands from, so drain again after each one -
+      // exactly as the main clause loop does. Without this the comprehension stays pending and is never planned.
+      write_occurred = true;
+      plan_satisfied_comprehensions();
     }
     return std::make_unique<plan::Foreach>(
         std::move(input_op), std::move(op), foreach->named_expression_->expression_, symbol);
