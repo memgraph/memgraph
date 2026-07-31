@@ -195,13 +195,21 @@ auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<Lead
   return raft_state_->GetLeaderCoordinatorData();
 }
 
-auto CoordinatorInstance::YieldLeadership() const -> YieldLeadershipStatus {
+auto CoordinatorInstance::YieldLeadershipAsLeader() const -> YieldLeadershipStatus {
   // Resigning must work on any Raft leader, also on the one which isn't ready yet. That is the state in which the
   // operator needs this escape hatch the most, and forwarding cannot reach it because the leader never has a connector
   // to itself.
+  if (!raft_state_->IsLeader()) {
+    return YieldLeadershipStatus::NOT_LEADER;
+  }
+
+  raft_state_->YieldLeadership();
+  return YieldLeadershipStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::YieldLeadership() const -> YieldLeadershipStatus {
   if (raft_state_->IsLeader()) {
-    raft_state_->YieldLeadership();
-    return YieldLeadershipStatus::SUCCESS;
+    return YieldLeadershipAsLeader();
   }
 
   if (auto const res = ForwardToLeader<YieldLeadershipRpc, YieldLeadershipStatus>(); res.has_value()) {
@@ -1817,14 +1825,14 @@ auto CoordinatorInstance::ShowCoordinatorSettingsAsLeader() const
 
 auto CoordinatorInstance::ShowReplicationLagAsLeader() const
     -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
-  // The lock is held across the lag RPC because repl_instances_ may be cleared or erased concurrently by the
-  // leadership-change and (un)registration paths.
-  auto lock = std::shared_lock{coord_instance_lock_};
-
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     spdlog::trace("Leader is not ready, no replication lag to report.");
     return {};
   }
+
+  // The lock is held across the lag RPC because repl_instances_ may be cleared or erased concurrently by the
+  // leadership-change and (un)registration paths.
+  auto lock = std::shared_lock{coord_instance_lock_};
 
   for (auto const &repl_instance : repl_instances_) {
     auto const &instance_name = repl_instance.InstanceName();

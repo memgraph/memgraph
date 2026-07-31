@@ -130,6 +130,10 @@ class CoordinatorInstance {
 
   auto YieldLeadership() const -> YieldLeadershipStatus;
 
+  // NOT_LEADER if this coordinator isn't the Raft leader. Doesn't forward, so the handler serving a forwarded request
+  // never blocks the single management thread on another hop.
+  auto YieldLeadershipAsLeader() const -> YieldLeadershipStatus;
+
   auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
   void ShuttingDown();

@@ -142,7 +142,9 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
           slk::Reader *req_reader,
           slk::Builder *res_builder) -> void {
         CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<YieldLeadershipRpc, YieldLeadershipStatus>(
-            [&coordinator_instance]() -> YieldLeadershipStatus { return coordinator_instance.YieldLeadership(); },
+            [&coordinator_instance]() -> YieldLeadershipStatus {
+              return coordinator_instance.YieldLeadershipAsLeader();
+            },
             request_version,
             req_reader,
             res_builder);
