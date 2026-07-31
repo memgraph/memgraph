@@ -202,6 +202,11 @@ Expression *BoolJoin(AstStorage &storage, Expression *expr1, Expression *expr2) 
   return expr1 ? expr1 : expr2;
 }
 
+/// Result symbols of the top-level pattern comprehensions @p clauses evaluate. Used to splice a comprehension into
+/// the operator branch that actually reads it, rather than the chain its clause happens to sit on.
+std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<Clause *> &clauses,
+                                                              const SymbolTable &symbol_table);
+
 }  // namespace impl
 
 /// @brief Planner which uses hardcoded rules to produce operators.
@@ -349,7 +354,11 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                        context.in_exists_subquery);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             plan_and_apply_comprehensions();
-            input_op = GenMerge(*merge, std::move(input_op), single_query_part.merge_matching[merge_id++]);
+            input_op = GenMerge(*merge,
+                                std::move(input_op),
+                                single_query_part.merge_matching[merge_id++],
+                                pending_comprehensions,
+                                symbols_bound_by_query_part);
             // Treat MERGE clause as write, because we do not know if it will create anything.
             context.is_write_query = true;
             write_occurred = true;
@@ -818,7 +827,9 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     return last_op;
   }
 
-  auto GenMerge(query::Merge &merge, std::unique_ptr<LogicalOperator> input_op, const Matching &matching) {
+  auto GenMerge(query::Merge &merge, std::unique_ptr<LogicalOperator> input_op, const Matching &matching,
+                std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions,
+                const std::unordered_set<Symbol> &symbols_bound_by_query_part) {
     // Copy the bound symbol set, because we don't want to use the updated
     // version when generating the create part.
     std::unordered_set<Symbol> bound_symbols_copy(context_->bound_symbols);
@@ -829,10 +840,39 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     auto once_with_symbols = std::make_unique<Once>(bound_symbols);
     auto on_match = PlanMatching(match_ctx, std::move(once_with_symbols));
 
+    // ON CREATE / ON MATCH run inside their own branch, so a comprehension one of them reads has to be spliced into
+    // that branch. Splicing it onto the chain the MERGE itself sits on would evaluate it above the Merge, leaving the
+    // frame slot unwritten when the SET below reads it. Only the comprehensions that branch actually evaluates are
+    // taken, so the two branches cannot steal each other's.
+    auto splice_branch_comprehensions = [&](std::unique_ptr<LogicalOperator> branch,
+                                            const std::vector<query::Clause *> &sets,
+                                            const std::unordered_set<Symbol> &branch_bound_symbols) {
+      if (sets.empty() || pending_comprehensions.empty()) return branch;
+      const auto wanted = impl::CollectPatternComprehensionSymbols(sets, *context_->symbol_table);
+      for (const auto &sym : wanted) {
+        auto it = pending_comprehensions.find(sym);
+        if (it == pending_comprehensions.end()) continue;
+        const auto &pc = it->second;
+        if (!DepsSatisfied(pc, symbols_bound_by_query_part, branch_bound_symbols)) continue;
+        // The branch has just written the nodes the comprehension expands from, so it must read View::NEW. The
+        // branch's own symbols go in as extras: ON MATCH binds the pattern into a copy of the bound set the planning
+        // context does not share, and without them the branch would be planned uncorrelated.
+        auto pc_op =
+            Plan(pc, PatternComprehensionView(pc, /*write_occurred=*/true, branch_bound_symbols), branch_bound_symbols);
+        auto symbols = pc_op->ModifiedSymbols(*context_->symbol_table);
+        branch = std::make_unique<RollUpApply>(std::move(branch), std::move(pc_op), symbols, sym);
+        pending_comprehensions.erase(it);
+      }
+      return branch;
+    };
+
+    on_match = splice_branch_comprehensions(std::move(on_match), merge.on_match_, bound_symbols_copy);
+
     once_with_symbols = std::make_unique<Once>(std::move(bound_symbols));
     // Use the original bound_symbols, so we fill it with new symbols.
     auto on_create = GenCreateForPattern(
         *merge.pattern_, std::move(once_with_symbols), *context_->symbol_table, context_->bound_symbols);
+    on_create = splice_branch_comprehensions(std::move(on_create), merge.on_create_, context_->bound_symbols);
     for (auto &set : merge.on_create_) {
       on_create = HandleWriteClause(set, on_create, *context_->symbol_table, context_->bound_symbols);
       MG_ASSERT(on_create, "Expected SET in MERGE ... ON CREATE");
@@ -1381,7 +1421,11 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                  pending_comprehensions,
                                  symbols_bound_by_query_part);
       } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-        op = GenMerge(*merge, std::move(op), query_part.merge_matching[merge_id++]);
+        op = GenMerge(*merge,
+                      std::move(op),
+                      query_part.merge_matching[merge_id++],
+                      pending_comprehensions,
+                      symbols_bound_by_query_part);
       } else {
         op = HandleWriteClause(clause, op, symbol_table, bound_symbols);
       }

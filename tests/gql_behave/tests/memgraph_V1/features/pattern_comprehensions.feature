@@ -826,3 +826,70 @@ Feature: Pattern comprehensions
         Then the result should be:
             | outer_sum | inners |
             | 1         | [0]    |
+
+    Scenario: Pattern comprehension in MERGE ON CREATE correlates to the merged node
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            MERGE (q:Marker {id: 1})
+              ON CREATE SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m])
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN count(q) AS n, collect(q.cnt) AS counts
+            """
+        Then the result should be:
+            | n | counts |
+            | 1 | [0]    |
+
+    Scenario: Pattern comprehension in MERGE ON MATCH correlates to the matched node
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            MERGE (q:Person {name: 'Zoe'})
+              ON MATCH SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m])
+            """
+        When executing query:
+            """
+            MATCH (q:Person {name: 'Zoe'})
+            RETURN q.cnt AS cnt
+            """
+        Then the result should be:
+            | cnt |
+            | 1   |
+
+    Scenario: Pattern comprehension in a MERGE ON CREATE inside a FOREACH body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] |
+              MERGE (q:Marker {id: 1})
+                ON CREATE SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m]))
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN count(q) AS n, collect(q.cnt) AS counts
+            """
+        Then the result should be:
+            | n | counts |
+            | 1 | [0]    |
