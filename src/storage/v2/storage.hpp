@@ -411,6 +411,16 @@ class Storage {
   /// READ alike -- must poke this; see NotifyMainLockReleased().
   utils::WorkerResumeEvent &main_lock_resume_event() { return main_lock_resume_event_; }
 
+  /// Resumes and releases every waiter parked on `main_lock_resume_event()`, so each observes
+  /// shutdown and bails instead of sleeping forever. Idempotent: Drain() moves every entry out and
+  /// only invokes a resume for one whose single-owner ClaimPark it wins, so a second pass is a
+  /// harmless prune.
+  ///
+  /// MUST be called while the worker pool is still running -- a resume is posted to a worker, and a
+  /// worker that has already exited will never execute it, leaving the coroutine parked forever and
+  /// leaking the Session it pins. See the shutdown sequence in memgraph.cpp.
+  void DrainParkedMainLockWaiters() { main_lock_resume_event_.Drain(); }
+
   /// Wakes any coro-prepare waiter parked on `main_lock_resume_event()`, if the experimental flag
   /// is on AND somebody is actually parked (R3.1/C5) -- cheap otherwise: one relaxed bool load
   /// (flag off) or one relaxed size load (no waiters). Callers MUST invoke this AFTER the guard has
@@ -499,15 +509,17 @@ class Storage {
     // database" into a process-wide shutdown hang (observed as the 17.3s+ -- in practice unbounded,
     // only ever cut short externally -- shutdown latency this fix addresses).
     //
-    // Draining here is safe and correct regardless of ordering relative to the pool's own drain:
-    // WorkerResumeEvent::Drain() unconditionally moves every entry out of waiters_ (releasing this
-    // registry's reference) and only invokes on_resume() for an entry it still WINS the single-owner
-    // ClaimPark on -- an entry already claimed by the pool's drain (the expected common case, since
-    // PriorityThreadPool::ShutDown() runs first in the memgraph.cpp shutdown sequence, well before
-    // this function is reached via dbms_handler->ForEach(StopAllBackgroundTasks)) simply loses that
-    // claim and is pruned without a second (dangling/UAF-risking) resume attempt. Cheap: this runs
-    // once per database at shutdown/drop time, never on a hot path, so no flag gate is needed (unlike
-    // NotifyMainLockReleased's per-release cost).
+    // By the time process shutdown reaches here the real drain has already happened, earlier and
+    // deliberately: memgraph.cpp stops incoming traffic, then drains every storage's parked waiters
+    // while the worker pool is still alive, and only then stops the pool. This call is the
+    // idempotent second pass (and the only pass on the DROP DATABASE path, where the pool is not
+    // shutting down at all). Drain() moves every entry out of waiters_ and only resumes one whose
+    // ClaimPark it wins, so an already-claimed entry is pruned rather than resumed twice.
+    //
+    // Do NOT rely on this as the primary drain: a resume is posted to a worker, so draining after the
+    // pool has stopped never runs it -- the coroutine stays parked and leaks the Session it pins,
+    // holding Gatekeeper<Database>::count_ above zero and stalling ~Gatekeeper for minutes. That was
+    // the original failure this whole mechanism was added for; see DrainParkedMainLockWaiters().
     main_lock_resume_event_.Drain();
   }
 

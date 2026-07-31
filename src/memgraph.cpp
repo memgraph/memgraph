@@ -1092,10 +1092,39 @@ int main(int argc, char **argv) {
       telemetry->Stop();
     }
 
-    spdlog::info("Workers shutting down.");
-    if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
-    // Shutdown communication server
+    // Stop incoming traffic BEFORE draining or stopping workers. Nothing that arrives after this can
+    // start a query, so the set of parked waiters stops growing from the outside and the drains below
+    // have a stable population to work with.
+    //
+    // This runs before worker_pool_->ShutDown() even though a worker can still enqueue io tasks
+    // afterwards: Server::Shutdown() is io_context_.stop(), which does NOT destroy the context (the
+    // io threads are joined later, in AwaitShutdown()), so a late post is safely dropped rather than
+    // unsafe. The only thing lost is delivery of an in-flight response, which a shutdown that stops
+    // workers first does not deliver either.
+    spdlog::info("Communication server shutting down.");
     server.Shutdown();
+
+    // Now drain parked waiters, while the workers that have to run their resumes are still ALIVE.
+    // Draining after the pool has stopped is the bug this ordering exists to avoid: a ParkState that
+    // registered with a Storage's wake event but had not yet reached the pool's deadline registry
+    // misses the pool's one-shot drain, and a later storage-side drain then claims it and posts a
+    // resume to a worker that has already returned -- so it never runs, the coroutine stays parked
+    // forever, and the Session it pins (with its DatabaseAccess) leaks, holding
+    // Gatekeeper<Database>::count_ above zero and stalling teardown for minutes.
+    //
+    // A query already dispatched to a worker can still park between here and the pool's own drain
+    // inside ShutDown(); that drain runs while the workers are still looping, so it covers the
+    // window. Anything registering after THAT is covered by await_suspend's shutdown self-claim.
+    // StopAllBackgroundTasks() further down drains again; by then it is a no-op prune.
+    if (dbms_handler.has_value()) {
+      dbms_handler->ForEach([](memgraph::dbms::DatabaseAccess acc) {
+        spdlog::trace("Draining parked storage waiters for db: {}", acc->name());
+        acc->storage()->DrainParkedMainLockWaiters();
+      });
+    }
+
+    spdlog::info("Workers shutting down.");
+    if (worker_pool_) worker_pool_->ShutDown();
 
 // DataInstanceManagementServer needs to be closed before replication state because some RPCs require access to
 // replication state
