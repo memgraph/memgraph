@@ -1935,12 +1935,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
       }
     }
-    if (vertex_prop_result) return std::move(*vertex_prop_result);
     if (!or_labels.empty()) {
       auto best_group = FindBestIndexGroup(node_symbol, bound_symbols, or_labels);
       // If we satisfy max_vertex_count and if there is a group for which we can find an index let's use it and chain
       // it in unions
       if ((!max_vertex_count || best_group.vertex_count <= *max_vertex_count) && !best_group.indices.empty()) {
+        // Prefer vertex-property scan only if it has a lower estimated count than the OR-labels union
+        if (vertex_prop_result && vertex_prop_result->estimated_count < best_group.vertex_count) {
+          return std::move(*vertex_prop_result);
+        }
         // Collect one index scan per disjoined label, then fold them into a
         // balanced Union tree with a single deduplicating Distinct on top.
         std::vector<std::unique_ptr<LogicalOperator>> scans;
@@ -1991,6 +1994,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         return ScanByIndexResult{BalancedDisjunctionUnion(std::move(scans), node_symbol), std::move(metadata)};
       }
     }
+    if (vertex_prop_result) return std::move(*vertex_prop_result);
     return std::nullopt;
   }
 
