@@ -1,0 +1,1 @@
+MATCH (:label1:label2:label3 {a : 5, b : 10}) RETURN 1

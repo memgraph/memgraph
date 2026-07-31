@@ -1,0 +1,1 @@
+CALL mg.procedures() YIELD * RETURN *

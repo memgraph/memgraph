@@ -1,0 +1,1 @@
+MATCH (a:Account)-[:LOGGED_IN_FROM]->(d:Device)<-[:LOGGED_IN_FROM]-(b:Account) WHERE a <> b RETURN a.name, b.name, d.ip

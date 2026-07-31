@@ -1,0 +1,1 @@
+MATCH (a:Account) WHERE a.name =~ 'A.*' RETURN a.name, a.balance

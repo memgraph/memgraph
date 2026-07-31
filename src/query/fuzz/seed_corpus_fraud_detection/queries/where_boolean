@@ -1,0 +1,1 @@
+MATCH (a:Account)-[t:TRANSFERRED_TO]->(b:Account) WHERE (t.amount > 5000 AND NOT b.flagged) OR a.balance < 500 RETURN a.name, b.name, t.amount

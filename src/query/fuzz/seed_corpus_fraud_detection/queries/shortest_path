@@ -1,0 +1,1 @@
+MATCH p = shortestPath((a:Account {id: 1})-[:TRANSFERRED_TO*]-(b:Account {id: 4})) RETURN p

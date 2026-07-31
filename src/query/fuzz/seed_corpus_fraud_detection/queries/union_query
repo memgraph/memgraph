@@ -1,0 +1,1 @@
+MATCH (a:Account {flagged: true}) RETURN a.name AS name, 'flagged' AS reason UNION MATCH (a:Account) WHERE a.balance < 100 RETURN a.name AS name, 'low_balance' AS reason

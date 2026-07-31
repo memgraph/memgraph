@@ -1,0 +1,1 @@
+MATCH (a:Account) WHERE EXISTS { (a)-[:TRANSFERRED_TO]->(:Account {flagged: true}) } RETURN a.name

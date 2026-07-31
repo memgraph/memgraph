@@ -1,0 +1,1 @@
+MATCH (a:Account) RETURN a.name, CASE WHEN a.balance < 1000 THEN 'high_risk' WHEN a.balance < 10000 THEN 'medium_risk' ELSE 'low_risk' END AS risk

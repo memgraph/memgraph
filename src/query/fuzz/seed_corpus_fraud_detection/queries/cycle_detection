@@ -1,0 +1,1 @@
+MATCH p = (a:Account)-[:TRANSFERRED_TO*3..5]->(a) RETURN nodes(p)

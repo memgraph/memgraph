@@ -1,0 +1,1 @@
+CREATE (a:Account {id: 100, name: 'Temp1', balance: 0}), (b:Account {id: 101, name: 'Temp2', balance: 0}), (a)-[:TRANSFERRED_TO {amount: 1}]->(b) RETURN a, b

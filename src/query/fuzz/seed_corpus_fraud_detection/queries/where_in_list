@@ -1,0 +1,1 @@
+MATCH (a:Account) WHERE a.id IN [1, 3, 5] RETURN a.name, a.balance

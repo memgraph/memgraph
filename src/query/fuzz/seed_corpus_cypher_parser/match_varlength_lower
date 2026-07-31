@@ -1,0 +1,1 @@
+MATCH ()-[r*42..]->() RETURN r

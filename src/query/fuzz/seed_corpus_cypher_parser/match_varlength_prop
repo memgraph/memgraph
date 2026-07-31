@@ -1,0 +1,1 @@
+MATCH ()-[r* {prop: 42}]->() RETURN r
