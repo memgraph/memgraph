@@ -7970,6 +7970,33 @@ std::unordered_map<std::string, int64_t> CallProcedure::GetAndResetCounters() {
 
 namespace {
 
+// Populates `result.signature` for a procedure call: the yielded `result_fields` first (indices
+// 0..k-1 in YIELD order), then any remaining procedure result fields at higher indices so a
+// callback that inserts every field still finds a slot. Shared by CallProcedureCursor and the
+// interpreter's accessor-free introspection fast path (CallNoGraphReadProcedure) so the two paths
+// cannot drift.
+void BuildProcedureResultSignature(mgp_result &result, const mgp_proc &proc,
+                                   const std::vector<std::string> &result_fields, std::string_view procedure_name) {
+  for (size_t i = 0UZ; i < result_fields.size(); ++i) {
+    auto signature_it = proc.results.find(memgraph::utils::pmr::string{result_fields[i], proc.results.get_allocator()});
+    if (signature_it == proc.results.end()) {
+      throw QueryRuntimeException(
+          "The procedure named '{}' has no result field named '{}'.", procedure_name, result_fields[i]);
+    }
+    result.signature.emplace(
+        result_fields[i],
+        ResultsMetadata{signature_it->second.first, signature_it->second.second, static_cast<uint32_t>(i)});
+  }
+  if (proc.results.size() == result_fields.size()) return;
+  // Not all results were yielded but they still need to be inserted inside the signature.
+  uint32_t index = result_fields.size();
+  for (auto const &[name, signature] : proc.results) {
+    if (!result.signature.contains(name)) {
+      result.signature.emplace(name, ResultsMetadata{signature.first, signature.second, index++});
+    }
+  }
+}
+
 void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result,
@@ -8078,6 +8105,53 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 
 }  // namespace
 
+std::vector<std::vector<TypedValue>> CallNoGraphReadProcedure(std::string_view procedure_name,
+                                                              const std::vector<std::string> &result_fields,
+                                                              utils::MemoryResource *memory) {
+  auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, procedure_name);
+  if (!maybe_found) {
+    throw QueryRuntimeException("There is no procedure named '{}'.", procedure_name);
+  }
+  // Hold the module shared_ptr for the whole invocation (mirrors CallProcedureCursor).
+  auto module = std::move(maybe_found->first);
+  const auto *proc = maybe_found->second;
+  if (proc->info.is_write) {
+    throw QueryRuntimeException("The procedure named '{}' is a write procedure.", procedure_name);
+  }
+
+  mgp_result result{memory};
+  BuildProcedureResultSignature(result, *proc, result_fields, procedure_name);
+
+  mgp_list proc_args(memory);  // these introspection procedures take no arguments
+  mgp_memory proc_memory{memory};
+  // The builtin introspection procedures never touch the graph, so pass a graph-less stub and skip
+  // the post-call serialization check -- the one place the operator path dereferences the accessor.
+  // This is what lets the query run with no storage transaction.
+  mgp_graph graph{static_cast<memgraph::query::DbAccessor *>(nullptr),
+                  memgraph::storage::View::OLD,
+                  nullptr,
+                  memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+  proc->cb(&proc_args, &graph, &result, &proc_memory);
+
+  if (result.error_msg) {
+    memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
+    throw QueryRuntimeException("{}: {}", procedure_name, *result.error_msg);
+  }
+
+  // Project each row onto the yielded fields (indices 0..k-1, in YIELD order).
+  std::vector<std::vector<TypedValue>> rows;
+  rows.reserve(result.rows.size());
+  for (auto &record : result.rows) {
+    std::vector<TypedValue> row;
+    row.reserve(result_fields.size());
+    for (size_t i = 0UZ; i < result_fields.size(); ++i) {
+      row.emplace_back(std::move(record.values[i]));
+    }
+    rows.push_back(std::move(row));
+  }
+  return rows;
+}
+
 class CallProcedureCursor : public Cursor {
   const CallProcedure *self_;
   UniqueCursorPtr input_cursor_;
@@ -8117,26 +8191,7 @@ class CallProcedureCursor : public Cursor {
                                   get_proc_type_str(proc_->info.is_write));
     }
 
-    for (size_t i = 0UZ; i < self_->result_fields_.size(); ++i) {
-      auto signature_it =
-          proc_->results.find(memgraph::utils::pmr::string{self_->result_fields_[i], proc_->results.get_allocator()});
-      if (signature_it == proc_->results.end()) {
-        throw QueryRuntimeException("The procedure named '{}' has no result field named '{}'.",
-                                    self_->procedure_name_,
-                                    self_->result_fields_[i]);
-      }
-      result_.signature.emplace(
-          self_->result_fields_[i],
-          ResultsMetadata{signature_it->second.first, signature_it->second.second, static_cast<uint32_t>(i)});
-    }
-    if (proc_->results.size() == self_->result_fields_.size()) return;
-    // Not all results were yielded but they still need to be inserted inside the signature
-    uint32_t index = self_->result_fields_.size();
-    for (auto const &[name, signature] : proc_->results) {
-      if (!result_.signature.contains(name)) {
-        result_.signature.emplace(name, ResultsMetadata{signature.first, signature.second, index++});
-      }
-    }
+    BuildProcedureResultSignature(result_, *proc_, self_->result_fields_, self_->procedure_name_);
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {

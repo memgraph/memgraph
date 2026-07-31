@@ -4206,6 +4206,61 @@ PreparedQuery PrepareConstantReturnQuery(ParsedQuery parsed_query) {
       .rw_type = RWType::NONE};
 }
 
+// The builtin `mg.*` introspection procedures that read only the module registry (never the
+// graph), so `CALL mg.<name>()` can run with no storage accessor. An explicit allowlist keeps the
+// accessor-free path auditable.
+constexpr bool IsGraphFreeIntrospectionProcedure(std::string_view procedure_name) {
+  return procedure_name == "mg.procedures" || procedure_name == "mg.functions" ||
+         procedure_name == "mg.transformations" || procedure_name == "mg.get_module_files";
+}
+
+// Recognizes a standalone `CALL mg.<introspection>() [YIELD ...]`: a single CallProcedure clause,
+// no arguments, a YIELD (non-empty result fields), no trailing clauses (RETURN/WHERE/...), no UNION.
+// Covers Lab's `CALL mg.procedures() YIELD *` feature-detection query and the layout-init mg.*
+// calls. Anything else (arguments, trailing clauses, non-allowlisted procedure) falls through to the
+// normal path.
+bool IsBuiltinIntrospectionQuery(const CypherQuery &query) {
+  if (query.single_query_ == nullptr || !query.cypher_unions_.empty()) return false;
+  auto const &clauses = query.single_query_->clauses_;
+  if (clauses.size() != 1) return false;
+  auto *call_procedure = utils::Downcast<CallProcedure>(clauses.front());
+  if (call_procedure == nullptr) return false;
+  return call_procedure->arguments_.empty() && !call_procedure->result_fields_.empty() &&
+         IsGraphFreeIntrospectionProcedure(call_procedure->procedure_name_);
+}
+
+// Prepares a `CALL mg.<introspection>()` query with no storage accessor: invokes the procedure via
+// CallNoGraphReadProcedure (graph-less) and streams the rows. Header derivation matches the normal
+// path (yielded identifier names, in order); results are byte-identical because the same procedure
+// callback and signature construction are reused.
+PreparedQuery PrepareBuiltinIntrospectionQuery(ParsedQuery parsed_query) {
+  auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+  MG_ASSERT(cypher_query && cypher_query->single_query_, "Introspection query expects a cypher single query");
+  auto *call_procedure = utils::Downcast<CallProcedure>(cypher_query->single_query_->clauses_.front());
+  MG_ASSERT(call_procedure, "Introspection query expects a CALL clause");
+
+  std::vector<std::string> header;
+  header.reserve(call_procedure->result_identifiers_.size());
+  for (auto *identifier : call_procedure->result_identifiers_) {
+    header.push_back(identifier->name_);
+  }
+
+  auto rows = plan::CallNoGraphReadProcedure(
+      call_procedure->procedure_name_, call_procedure->result_fields_, utils::NewDeleteResource());
+
+  return PreparedQuery{
+      .header = std::move(header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [pull_plan = std::make_shared<PullPlanVector>(std::move(rows))](
+                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::NOTHING;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
+}
+
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
                                   InterpreterContext *interpreter_context, Interpreter &interpreter,
@@ -10206,10 +10261,11 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Write access required
   void Visit(CypherQuery &cypher_query) override {
-    // Constant RETURN (e.g. Lab's connection-check `RETURN 1`) produces its row without touching
-    // the graph, so it runs with no storage transaction. Leaving accessor_type_ unset (NO_ACCESS)
-    // makes Prepare skip SetupDatabaseTransaction entirely.
-    if (IsConstantReturnQuery(cypher_query)) {
+    // Accessor-free Lab introspection queries produce their result without touching the graph, so
+    // they run with no storage transaction. Leaving accessor_type_ unset (NO_ACCESS) makes Prepare
+    // skip SetupDatabaseTransaction entirely: constant RETURN (e.g. the connection-check `RETURN 1`)
+    // and `CALL mg.<introspection>()` (e.g. feature detection).
+    if (IsConstantReturnQuery(cypher_query) || IsBuiltinIntrospectionQuery(cypher_query)) {
       return;
     }
     could_commit_ = true;
@@ -10564,6 +10620,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // the normal path.
       if (!in_explicit_transaction_ && IsConstantReturnQuery(*cypher_query)) {
         prepared_query = PrepareConstantReturnQuery(std::move(parsed_query));
+      } else if (!in_explicit_transaction_ && IsBuiltinIntrospectionQuery(*cypher_query)) {
+        prepared_query = PrepareBuiltinIntrospectionQuery(std::move(parsed_query));
       } else {
         prepared_query = PrepareCypherQuery(std::move(parsed_query),
                                             &query_execution->summary,
