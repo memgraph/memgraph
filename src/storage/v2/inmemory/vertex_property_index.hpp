@@ -19,6 +19,7 @@
 #include "metrics/prometheus_metrics.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
+#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/errors.hpp"
 #include "storage/v2/indices/vertex_property_index.hpp"
@@ -238,11 +239,13 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
   };
 
   bool CreateIndexOnePass(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+                          std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
                           ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   bool RegisterIndex(PropertyId property, ActiveIndicesUpdater const &updater);
   auto PopulateIndex(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+                     std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)

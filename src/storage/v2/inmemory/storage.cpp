@@ -2147,8 +2147,13 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_vertex_property_index
-           ->PopulateIndex(
-               property, in_memory->vertices_.access(), updater, std::nullopt, &transaction_, std::move(cancel_check))
+           ->PopulateIndex(property,
+                           in_memory->vertices_.access(),
+                           std::nullopt,
+                           updater,
+                           std::nullopt,
+                           &transaction_,
+                           std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }

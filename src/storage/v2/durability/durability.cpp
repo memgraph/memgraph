@@ -379,7 +379,8 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
   spdlog::info("Recreating {} global vertex property indices from metadata.", indices_metadata.vertex_property.size());
   auto *mem_vertex_property_index = static_cast<InMemoryVertexPropertyIndex *>(indices->vertex_property_index_.get());
   for (const auto &property : indices_metadata.vertex_property) {
-    if (!mem_vertex_property_index->CreateIndexOnePass(property, vertices->access(), updater, snapshot_info)) {
+    if (!mem_vertex_property_index->CreateIndexOnePass(
+            property, vertices->access(), parallel_exec_info, updater, snapshot_info)) {
       throw RecoveryFailure("The global vertex property index must be created here!");
     }
     spdlog::info("Vertex index on property {} is recreated from metadata", name_id_mapper->IdToName(property.AsUint()));

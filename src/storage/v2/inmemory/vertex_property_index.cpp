@@ -168,23 +168,24 @@ bool InMemoryVertexPropertyIndex::PublishIndex(PropertyId property, uint64_t com
   return true;
 }
 
-bool InMemoryVertexPropertyIndex::CreateIndexOnePass(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                                                     ActiveIndicesUpdater const &updater,
-                                                     std::optional<SnapshotObserverInfo> const &snapshot_info) {
+bool InMemoryVertexPropertyIndex::CreateIndexOnePass(
+    PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+    std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
+    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto res = RegisterIndex(property, updater);
   if (!res) return false;
-  auto res2 = PopulateIndex(property, std::move(vertices), updater, snapshot_info);
+  auto res2 = PopulateIndex(property, std::move(vertices), parallel_exec_info, updater, snapshot_info);
   if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
   return PublishIndex(property, 0);
 }
 
-auto InMemoryVertexPropertyIndex::PopulateIndex(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                                                ActiveIndicesUpdater const &updater,
-                                                std::optional<SnapshotObserverInfo> const &snapshot_info,
-                                                Transaction const *tx, CheckCancelFunction cancel_check)
-    -> std::expected<void, IndexPopulateError> {
+auto InMemoryVertexPropertyIndex::PopulateIndex(
+    PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+    std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
+    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info,
+    Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
   auto index = GetIndividualIndex(property);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -196,14 +197,12 @@ auto InMemoryVertexPropertyIndex::PopulateIndex(PropertyId property, utils::Skip
       auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
         TryInsertVertexPropertyIndex(vertex, property, index_accessor, snapshot_info, *tx);
       };
-      PopulateIndexDispatch(
-          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
+      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     } else {
       auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
         TryInsertVertexPropertyIndex(vertex, property, index_accessor, snapshot_info);
       };
-      PopulateIndexDispatch(
-          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
+      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     }
   } catch (PopulateCancel const &) {
     (void)DropIndex(property, updater);
