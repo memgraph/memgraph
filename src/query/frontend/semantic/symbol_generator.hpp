@@ -219,6 +219,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
   std::vector<Scope> scopes_;
   Scope global_scope_;
+  // Symbols declared by the CREATE clause currently being visited. A pattern comprehension inside that clause may not
+  // reference one of them - see the check in Visit(Identifier &). Empty outside a CREATE; CREATE cannot nest.
+  std::unordered_set<Symbol> create_clause_symbols_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups

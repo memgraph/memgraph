@@ -242,11 +242,13 @@ bool SymbolGenerator::PostVisit(CypherUnion &cypher_union) {
 
 bool SymbolGenerator::PreVisit(Create &) {
   scopes_.back().in_create = true;
+  create_clause_symbols_.clear();
   return true;
 }
 
 bool SymbolGenerator::PostVisit(Create &) {
   scopes_.back().in_create = false;
+  create_clause_symbols_.clear();
   return true;
 }
 
@@ -523,6 +525,10 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // A shadowed outer name must not resolve to the enclosing query's symbol, so declare it in this scope.
     symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, type)
                                 : GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
+    // An atom that was not already in scope is declared here, so this CREATE clause is what binds it.
+    if (scope.in_create && !name_in_scope) {
+      create_clause_symbols_.insert(symbol);
+    }
   } else if (scope.in_pattern && !scope.in_pattern_atom_identifier && scope.in_match) {
     if (scope.in_edge_range && scope.visiting_edge && scope.visiting_edge->identifier_ &&
         scope.visiting_edge->identifier_->name_ == ident.name_) {
@@ -549,6 +555,13 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       throw UnboundVariableError(ident.name_);
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
+  }
+
+  // The operator that binds a symbol declared by this CREATE is the same one that reads the comprehension's result, so
+  // the frame slot is still unwritten when the clause needs it. There is no placement that works - reject instead.
+  if (scope.in_pattern_comprehension && create_clause_symbols_.contains(symbol)) {
+    throw SemanticException(
+        "Entity '{}' cannot be created and referenced by a pattern comprehension in the same clause.", ident.name_);
   }
 
   ident.MapTo(symbol);
