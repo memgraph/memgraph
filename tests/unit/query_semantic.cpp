@@ -1783,3 +1783,97 @@ TYPED_TEST(TestSymbolGenerator, ExistsPatternInSubqueryRejectsUnimportedOuterVar
 }
 
 #undef SUBQUERY_COMPREHENSION
+
+// A pattern comprehension may not reference a symbol the same CREATE clause declares. The operator that binds the
+// symbol is the one that reads the comprehension's result, so the frame slot is unwritten no matter where the
+// RollUpApply is spliced. A comprehension over a symbol bound by an *earlier* clause is fine and must keep working -
+// that is the whole point of correlating them.
+namespace {
+
+// NODE() has no properties overload, so set the map directly. The variant's first alternative is the map, which is
+// what a default-constructed NodeAtom holds.
+NodeAtom *WithProperty(AstStorage &storage, NodeAtom *node, const std::string &name, Expression *value) {
+  std::get<std::unordered_map<PropertyIx, Expression *>>(node->properties_)[storage.GetPropertyIx(name)] = value;
+  return node;
+}
+
+}  // namespace
+
+// `[(<name>)-->() | 1]`
+#define SELF_COMPREHENSION(name)                                                                                       \
+  PATTERN_COMPREHENSION(                                                                                               \
+      nullptr,                                                                                                         \
+      PATTERN(                                                                                                         \
+          NODE(name), EDGE("anon_edge", EdgeAtom::Direction::OUT, {}, false), NODE("anon_node", std::nullopt, false)), \
+      nullptr,                                                                                                         \
+      LITERAL(1))
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedBySameClauseIsRejected) {
+  // CREATE (q:L {c: [(q)-->() | 1]})
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", SELF_COMPREHENSION("q"));
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(created))));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedBySameClauseInForeachIsRejected) {
+  // FOREACH (i IN [1] | CREATE (q:L {c: [(q)-->() | 1]}))
+  // The FOREACH-wrapped form is the one that regressed: before the fix the merge-base planned it with an uncorrelated
+  // scan and completed with a wrong count, and afterwards it failed with an internal error.
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", SELF_COMPREHENSION("q"));
+  auto *query = QUERY(SINGLE_QUERY(FOREACH(NEXPR("i", LIST(LITERAL(1))), {CREATE(PATTERN(created))})));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedByEarlierPatternInSameClauseIsRejected) {
+  // CREATE (a:L), (q:L {c: [(a)-->() | 1]})
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", SELF_COMPREHENSION("a"));
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("a", "L")), PATTERN(created))));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionReferencingCreatedNodeOnlyInItsFilterIsRejected) {
+  // CREATE (q:L {c: [(z)-->() WHERE z = q | 1]})
+  // The reference is outside the comprehension's pattern, so it resolves through a different branch of
+  // Visit(Identifier) than the cases above.
+  auto *comprehension = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(
+          NODE("z"), EDGE("anon_edge", EdgeAtom::Direction::OUT, {}, false), NODE("anon_node", std::nullopt, false)),
+      WHERE(EQ(IDENT("z"), IDENT("q"))),
+      LITERAL(1));
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", comprehension);
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(created))));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedByAnEarlierCreateClauseIsAccepted) {
+  // CREATE (a:L) CREATE (q:L {c: [(a)-->() | 1]})
+  // A separate clause binds `a`, so the comprehension is drained after it and correlates normally.
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", SELF_COMPREHENSION("a"));
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("a", "L"))), CREATE(PATTERN(created))));
+
+  EXPECT_NO_THROW(MakeSymbolTable(query));
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverMatchedNodeInsideCreateIsAccepted) {
+  // MATCH (p) CREATE (q:L {c: [(p)-->() | 1]})
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", SELF_COMPREHENSION("p"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), CREATE(PATTERN(created))));
+
+  EXPECT_NO_THROW(MakeSymbolTable(query));
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverItsOwnNodesInsideCreateIsAccepted) {
+  // CREATE (q:L {c: [(z)-->() | 1]})
+  // Nothing the CREATE binds is referenced, so the comprehension stands alone.
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", SELF_COMPREHENSION("z"));
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(created))));
+
+  EXPECT_NO_THROW(MakeSymbolTable(query));
+}
+
+#undef SELF_COMPREHENSION
