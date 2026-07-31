@@ -285,3 +285,63 @@ TEST(CoroAccessor, FlagOffUsesBlockingPath) {
   pool.ShutDown();
   pool.AwaitShutdown();
 }
+
+// (e) PARK -> SHUTDOWN: a genuinely parked acquire must be resumed and unwound by the pool's
+// teardown, promptly, rather than left registered forever holding its session alive. This is the
+// path the original symptom was on (an unbounded shutdown stall), and the one un-pinning most
+// disturbed: pre-F6 the drain's resume was posted to the parking worker, which was guaranteed
+// still alive; now it is posted to whichever worker will take it, and the arming side may be what
+// delivers it. Nothing else in the suite covers ShutDown() with a park in flight.
+TEST(CoroAccessor, ParkThenShutdownUnwindsPromptly) {
+  ScopedCoroPrepareFlag flag_on{true};
+
+  storage::InMemoryStorage store{NoGcConfig()};
+  utils::PriorityThreadPool pool{2, 1};
+
+  auto held = store.UniqueAccess();
+  ASSERT_TRUE(held);
+
+  std::optional<std::unique_ptr<storage::Accessor>> result;
+  std::exception_ptr eptr;
+  std::atomic<bool> done{false};
+
+  // Deadline far enough out that the deadline sweep cannot be what resolves this -- the only thing
+  // that can complete this acquire is the shutdown drain.
+  auto driver = MakeDriver(store,
+                           storage::UNIQUE,
+                           std::nullopt,
+                           std::chrono::steady_clock::now() + std::chrono::seconds(600),
+                           pool,
+                           /*is_high_priority=*/false,
+                           result,
+                           eptr,
+                           done);
+
+  pool.ScheduledAddTask([&](auto /*priority*/) { driver.Run(); }, utils::Priority::LOW);
+
+  ASSERT_TRUE(BoundedWaitUntil([&] { return store.main_lock_resume_event().WaitersPending() > 0; },
+                               std::chrono::milliseconds(1000)))
+      << "coroutine never parked, so this test would not be exercising shutdown-with-a-park";
+  ASSERT_FALSE(done.load());
+
+  const auto shutdown_start = std::chrono::steady_clock::now();
+  pool.ShutDown();
+  pool.AwaitShutdown();
+  const auto shutdown_elapsed = std::chrono::steady_clock::now() - shutdown_start;
+
+  // Generous bound: the point is that this does not wait out the 600s deadline (or hang forever),
+  // not that it hits any particular latency.
+  EXPECT_LT(shutdown_elapsed, std::chrono::seconds(5))
+      << "shutdown waited on the parked acquire instead of draining it";
+
+  // The drain must have RESUMED the park, not merely dropped it: the coroutine has to observe
+  // IsShuttingDown() and unwind, which is what releases its session/accessor references.
+  EXPECT_TRUE(done.load()) << "parked coroutine was never resumed by the shutdown drain -- a leaked "
+                              "session and, in production, a shutdown that never finishes";
+  EXPECT_FALSE(result.has_value()) << "must not hand back an accessor when the pool is tearing down";
+  EXPECT_TRUE(eptr) << "expected the shutdown bail exception";
+  EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 0U) << "drain must leave no waiter registered";
+
+  held->Abort();
+  held.reset();
+}
