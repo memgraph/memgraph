@@ -317,12 +317,29 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
       throw storage::SharedAccessTimeout{};
     }
 
-    DMG_ASSERT(utils::GetCurrentWorkerId().has_value(),
-               "AcquireAccessorCoro's park path must run on a pool (LP) worker (GetCurrentWorkerId() is "
-               "only published there) -- the caller must schedule this coroutine onto the pool before "
-               "driving it, exactly like any other LOW-priority pool task. The worker's run loop is what "
-               "ARMS the park at the end of this task (utils/park_state.hpp); parking anywhere else "
-               "would publish a ParkState nobody ever arms, and hang it forever.");
+    // Parking is only safe where something will later ARM the park -- and the only thing that does is
+    // utils::PriorityThreadPool's ParkArmGuard, wrapped around pool task bodies. Off a pool worker
+    // there is no arming site, so a published park would sit registered with gate == kParking forever,
+    // holding its campaign PendingHandle and thereby blocking every later acquisition on this storage
+    // (utils/park_state.hpp).
+    //
+    // This is a RUNTIME fallback, not an assert. It used to be a DMG_ASSERT, which is compiled out
+    // under NDEBUG -- i.e. absent from every release build, precisely where the consequence is a
+    // permanently unusable database. Falling back to the ordinary blocking acquire is always correct:
+    // it is what flag-off, HIGH priority and DiskStorage already do, and holding our own campaign
+    // `pending` across it changes nothing (a scope's own count never gates its own mode --
+    // can_acquire<UNIQUE> ignores unique_pending_count, and READ_ONLY's campaign registers
+    // ro_pending_count). Worst case we block a non-pool thread that was never freed by parking anyway.
+    if (!utils::GetCurrentWorkerId().has_value()) [[unlikely]] {
+      DMG_ASSERT(false,
+                 "AcquireAccessorCoro reached its park path off a pool (LP) worker -- the caller must "
+                 "schedule this coroutine onto the pool before driving it. Falling back to a blocking "
+                 "acquire; see the comment here for why that is safe.");
+      spdlog::error(
+          "Parkable accessor acquire reached its park path off a pool worker; falling back to a blocking "
+          "acquire. This is a bug in the caller -- the coroutine must be driven as a pool task.");
+      co_return blocking_access();
+    }
 
     std::optional<std::unique_ptr<storage::Accessor>> abandon_result;
     co_await detail::AcquireAwaitable{

@@ -304,19 +304,39 @@ void PriorityThreadPool::PostResumeTask(std::function<void()> closure) {
     if (worker->try_push(std::move(task), id, /*must_run=*/true)) return;
   }
 
-  // Every worker is already stopped. Run it here rather than drop it -- which is safe purely because
-  // of the ParkState delivery gate: `on_resume` is now only ever invoked AFTER the parking thread's
-  // task ended (either by the claim winner finding kArmed, or by the arming side itself), so the
-  // frame is quiescent and no other thread is driving it. That was NOT true pre-F6, when an inline
-  // resume from a claiming thread could race the parking thread still inside await_suspend (the F1
-  // UAF), which is why the old pinned path never resumed inline under any circumstances.
+  // Every worker is already stopped. Run it here rather than drop it -- dropping leaks the parked
+  // session and stalls the very shutdown that dropped it. Safe to drive the frame because of the
+  // ParkState delivery gate: `on_resume` is only ever invoked AFTER the parking thread's task ended
+  // (either by the claim winner finding kArmed, or by the arming side itself), so the frame is
+  // quiescent and no other thread is driving it. That was NOT true pre-F6, when an inline resume from
+  // a claiming thread could race the parking thread still inside await_suspend (the F1 UAF), which is
+  // why the old pinned path never resumed inline under any circumstances.
   //
-  // Reachability: the arming side is itself a live worker (it arms from its own task boundary), so it
-  // always finds at least itself above; and a claim-side delivery this late requires a ParkState that
-  // survived ShutDown()'s Drain(), which claims everything registered. This is a backstop, not a
-  // path with known traffic -- a resumed park bails immediately on IsShuttingDown() either way.
+  // Reachability -- three real claimants, none of them hypothetical (an earlier version of this
+  // comment claimed the arming side "always finds at least itself above", which is false: an arming
+  // worker reaching here from its own tail has already had run_ set to false, so its own try_push
+  // refuses too):
+  //   1. an LP worker arming from its tail, every worker having been stopped;
+  //   2. the main shutdown thread, via Storage::StopAllBackgroundTasks() -> the wake event's Drain();
+  //   3. any thread releasing main_lock_ in that window (~Accessor -> release -> the admit observer).
+  // For 2 and 3 this runs a full session chain on a thread that is not a pool worker at all.
+  //
+  // ParkArmGuard is REQUIRED here, not defensive: the resumed chain re-enters Session::RunLoop and can
+  // park again, and a park published by this inline execution has no other arming site -- the run
+  // loop's three guards belong to worker task bodies, and this is not one. Without it that park stays
+  // registered with gate == kParking forever, holding its campaign PendingHandle and thereby blocking
+  // every subsequent acquisition on its storage (see utils/park_state.hpp).
+  //
+  // The try/catch keeps one failed resume from abandoning the rest: this runs inside
+  // WorkerResumeEvent::ResumeAll's loop over claimed waiters, and an escaping exception there would
+  // leave every remaining claimed waiter un-resumed -- each one a permanently parked query.
   spdlog::trace("PostResumeTask: all workers stopped, running parked resume inline during teardown");
-  task(Priority::LOW);
+  ParkArmGuard const arm_guard;
+  try {
+    task(Priority::LOW);
+  } catch (const std::exception &e) {
+    spdlog::critical("Parked query's inline teardown resume threw: {}. That query will not make progress.", e.what());
+  }
 }
 
 // Like push, but refuses once this worker has been asked to stop -- see PostResumeTask for why a

@@ -18,7 +18,7 @@
 #include "utils/park_state.hpp"
 
 using memgraph::utils::ArmPark;
-using memgraph::utils::ArmPendingPark;
+using memgraph::utils::ArmPendingParksAbove;
 using memgraph::utils::ClaimPark;
 using memgraph::utils::DiscardPendingPark;
 using memgraph::utils::ParkArmGuard;
@@ -142,9 +142,9 @@ TEST(ParkStateGate, ManyClaimersPlusArmDeliverExactlyOnce) {
   }
 }
 
-// --- the thread-local pending-arm slot, i.e. what the pool worker loop drives ---
+// --- the pending-arm stack, i.e. what the pool worker loop drives ---
 
-TEST(ParkStatePendingArm, ArmPendingParkDeliversAPublishedPark) {
+TEST(ParkStatePendingArm, ArmingDeliversAPublishedPark) {
   std::atomic<int> resumed{0};
   auto ps = MakeCounting(&resumed);
 
@@ -153,42 +153,32 @@ TEST(ParkStatePendingArm, ArmPendingParkDeliversAPublishedPark) {
   RequestResume(*ps);
   EXPECT_EQ(resumed.load(), 0);
 
-  ArmPendingPark();
+  ArmPendingParksAbove(0);
   EXPECT_EQ(resumed.load(), 1);
 }
 
-TEST(ParkStatePendingArm, ArmPendingParkIsANoOpWithNothingPublished) {
-  ArmPendingPark();  // must not crash or assert
-  ArmPendingPark();
+TEST(ParkStatePendingArm, ArmingIsANoOpWithNothingPublished) {
+  ArmPendingParksAbove(0);  // must not crash
+  ArmPendingParksAbove(0);
 }
 
-TEST(ParkStatePendingArm, ArmPendingParkClearsTheSlot) {
+TEST(ParkStatePendingArm, ArmingPopsWhatItArmed) {
   std::atomic<int> resumed{0};
   auto ps = MakeCounting(&resumed);
 
   PublishPendingPark(ps);
   ASSERT_TRUE(ClaimPark(*ps));
   RequestResume(*ps);
-  ArmPendingPark();
+  ArmPendingParksAbove(0);
   ASSERT_EQ(resumed.load(), 1);
 
-  // Slot cleared: a second arm must not re-deliver, and publishing again must be accepted (the
-  // single-slot assert only fires on a genuine double-publish).
-  ArmPendingPark();
+  ArmPendingParksAbove(0);  // stack is empty; must not re-deliver
   EXPECT_EQ(resumed.load(), 1);
-
-  std::atomic<int> resumed2{0};
-  auto ps2 = MakeCounting(&resumed2);
-  PublishPendingPark(ps2);
-  ASSERT_TRUE(ClaimPark(*ps2));
-  RequestResume(*ps2);
-  ArmPendingPark();
-  EXPECT_EQ(resumed2.load(), 1);
 }
 
 // The self-claim paths (abandon win, shutdown self-claim, the unwind) discard rather than arm: the
 // publisher IS the claim winner, so no resume can ever be requested.
-TEST(ParkStatePendingArm, DiscardPendingParkSuppressesDelivery) {
+TEST(ParkStatePendingArm, DiscardSuppressesDelivery) {
   std::atomic<int> resumed{0};
   auto ps = MakeCounting(&resumed);
 
@@ -196,12 +186,11 @@ TEST(ParkStatePendingArm, DiscardPendingParkSuppressesDelivery) {
   ASSERT_TRUE(ClaimPark(*ps));  // we are the winner, as the abandon path would be
   DiscardPendingPark(ps);
 
-  ArmPendingPark();
+  ArmPendingParksAbove(0);
   EXPECT_EQ(resumed.load(), 0);
 }
 
-// A task that leaves by exception still arms -- the guard is why "forgot to arm" is unrepresentable
-// rather than merely unlikely.
+// A task that leaves by exception still arms.
 TEST(ParkStatePendingArm, ParkArmGuardArmsOnAnExceptionalExit) {
   std::atomic<int> resumed{0};
   auto ps = MakeCounting(&resumed);
@@ -218,8 +207,73 @@ TEST(ParkStatePendingArm, ParkArmGuardArmsOnAnExceptionalExit) {
   EXPECT_EQ(resumed.load(), 1) << "a throwing task must still arm its park";
 }
 
-// The slot is per-thread: two threads parking concurrently do not see each other's pending park.
-TEST(ParkStatePendingArm, PendingSlotIsPerThread) {
+// THE REGRESSION GUARD for the review's blocker finding. Task execution nests: PostResumeTask's
+// all-workers-stopped fallback runs a resume inline, that resume re-enters the session chain, and a
+// brand new query can park while the OUTER park is still awaiting its own arm. With a single TLS slot
+// the inner publish silently overwrote the outer park, which then stayed registered with
+// gate == kParking forever -- unreachable by any wake source, holding its campaign PendingHandle, and
+// so blocking every subsequent acquisition on that storage.
+TEST(ParkStatePendingArm, NestedPublishDoesNotStrandTheOuterPark) {
+  std::atomic<int> outer_resumed{0};
+  std::atomic<int> inner_resumed{0};
+  auto outer = MakeCounting(&outer_resumed);
+  auto inner = MakeCounting(&inner_resumed);
+
+  {
+    ParkArmGuard const outer_guard;  // stands in for the worker's task boundary
+    PublishPendingPark(outer);
+    ASSERT_TRUE(ClaimPark(*outer));
+    RequestResume(*outer);  // deferred: outer's task has not ended
+    ASSERT_EQ(outer_resumed.load(), 0);
+
+    {
+      // The nested unit of execution: an inline resume, which parks again.
+      ParkArmGuard const inner_guard;
+      PublishPendingPark(inner);
+      ASSERT_TRUE(ClaimPark(*inner));
+      RequestResume(*inner);
+      EXPECT_EQ(inner_resumed.load(), 0);
+      EXPECT_EQ(outer_resumed.load(), 0) << "the nested unit must NOT arm the outer park -- its driver "
+                                            "has not finished, which is the race the gate prevents";
+    }
+    // Inner unit ended: its own park is armed, the outer one still is not.
+    EXPECT_EQ(inner_resumed.load(), 1);
+    EXPECT_EQ(outer_resumed.load(), 0) << "outer park armed too early";
+  }
+
+  EXPECT_EQ(outer_resumed.load(), 1) << "outer park was stranded -- it would hang forever and block "
+                                        "every later acquisition on its storage";
+}
+
+// Arming loops rather than firing once: ArmPark may invoke on_resume_, which on the inline path runs a
+// chain that publishes yet another park before returning. A single-shot arm would strand that one.
+TEST(ParkStatePendingArm, ArmingDrainsParksPublishedWhileArming) {
+  std::atomic<int> first_resumed{0};
+  std::atomic<int> late_resumed{0};
+  auto first = std::make_shared<ParkState>();
+  auto late = std::make_shared<ParkState>();
+  late->set_on_resume([&] { late_resumed.fetch_add(1, std::memory_order_relaxed); });
+
+  // Arming `first` publishes `late` from inside on_resume_, exactly as an inline resume would.
+  first->set_on_resume([&] {
+    first_resumed.fetch_add(1, std::memory_order_relaxed);
+    PublishPendingPark(late);
+    ASSERT_TRUE(ClaimPark(*late));
+    RequestResume(*late);
+  });
+
+  PublishPendingPark(first);
+  ASSERT_TRUE(ClaimPark(*first));
+  RequestResume(*first);
+
+  ArmPendingParksAbove(0);
+  EXPECT_EQ(first_resumed.load(), 1);
+  EXPECT_EQ(late_resumed.load(), 1) << "a park published while arming was never armed";
+  EXPECT_TRUE(memgraph::utils::tls_pending_parks.empty());
+}
+
+// The stack is per-thread: two threads parking concurrently do not see each other's pending parks.
+TEST(ParkStatePendingArm, PendingStackIsPerThread) {
   std::atomic<int> resumed_a{0};
   std::atomic<int> resumed_b{0};
   auto ps_a = MakeCounting(&resumed_a);
@@ -229,13 +283,13 @@ TEST(ParkStatePendingArm, PendingSlotIsPerThread) {
     PublishPendingPark(ps_a);
     ASSERT_TRUE(ClaimPark(*ps_a));
     RequestResume(*ps_a);
-    ArmPendingPark();
+    ArmPendingParksAbove(0);
   });
   std::thread tb([&] {
     PublishPendingPark(ps_b);
     ASSERT_TRUE(ClaimPark(*ps_b));
     RequestResume(*ps_b);
-    ArmPendingPark();
+    ArmPendingParksAbove(0);
   });
   ta.join();
   tb.join();

@@ -15,9 +15,11 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "utils/logging.hpp"
 
@@ -124,9 +126,12 @@ inline bool ClaimPark(ParkState &ps) { return !ps.claimed.exchange(true, std::me
 /// resume to ANY worker.
 ///
 /// Asymmetry worth knowing: over-arming is harmless (a `ParkState` nobody ever requested a resume
-/// for just moves to `kArmed` and stays there), while under-arming hangs the park forever. Arm from
-/// a place that cannot be skipped -- utils::PriorityThreadPool's worker loop does it unconditionally
-/// after every task, via `ArmPendingPark` below.
+/// for just moves to `kArmed` and stays there), while under-arming hangs the park forever -- and not
+/// only for that query: the parked frame holds its campaign-long `PendingHandle`, which keeps
+/// `unique_pending_count` above zero and makes `can_acquire<WRITE>`, `<READ>` and `<READ_ONLY>` all
+/// false for good on that storage. So arm from somewhere that cannot be skipped: `ParkArmGuard` below,
+/// wrapped around EVERY site that runs a pool task body (utils::PriorityThreadPool's three run-loop
+/// sites plus `PostResumeTask`'s inline fallback).
 
 /// Called by the winner of `ClaimPark`. This is the ONLY way a wake source can ask for a resume --
 /// `on_resume_` is private precisely so "claim, then resume" cannot be written by accident. Invokes
@@ -146,50 +151,86 @@ inline void ArmPark(ParkState &ps) {
   }
 }
 
-/// The park published by THIS thread during the pool task it is currently running, awaiting its
-/// `ArmPark`. At most one is ever pending: a coroutine chain suspends at exactly one point, and
-/// publishing it is the last thing the parking task does before unwinding out (a re-park always
-/// happens in a later, separately-armed task -- the resume is a fresh pool task).
-inline thread_local std::shared_ptr<ParkState> tls_pending_park;
+/// Parks published by THIS thread that are still awaiting their `ArmPark`, innermost last.
+///
+/// A STACK rather than a single slot, because task execution nests. `PostResumeTask`'s
+/// all-workers-stopped fallback (utils/priority_thread_pool.cpp) runs a resume INLINE on the claiming
+/// thread, and that resume re-enters the whole session chain -- `h.resume()` -> the caller's resumed
+/// hook -> `Session::RunLoop` -> `Execute()` -> possibly a brand new query that parks. That nested
+/// park is published while the OUTER park is still pending its own arm. With one slot the inner
+/// publish silently overwrote the outer one, and an overwritten park is not merely a lost query: it
+/// stays registered with `gate == kParking`, so no `RequestResume` can ever deliver it, and its
+/// coroutine frame holds the campaign-long `PendingHandle` forever -- which pins
+/// `unique_pending_count` above zero and makes `can_acquire<WRITE>`, `<READ>` and `<READ_ONLY>` all
+/// false permanently (utils/resource_lock.hpp). Untimed acquirers (the TTL thread, replication apply)
+/// then block forever and the database is bricked until the process restarts.
+///
+/// A stack makes that nesting REPRESENTABLE instead of fatal, which is why this is not merely an
+/// assert. Depth, not identity, is what each arming site keys off -- see `ParkArmGuard`.
+inline thread_local std::vector<std::shared_ptr<ParkState>> tls_pending_parks;
 
-/// Publishes `ps` as this thread's pending-arm park. Call right after `ps` becomes visible to the
+/// Publishes `ps` as pending-arm for this thread. Call right after `ps` becomes visible to the
 /// registries (i.e. right after a successful `WorkerResumeEvent::RegisterWaiter`), so that a wake
 /// source claiming immediately afterwards finds a `ParkState` whose arming side is accounted for.
-inline void PublishPendingPark(std::shared_ptr<ParkState> ps) {
-  DMG_ASSERT(!tls_pending_park,
-             "Two parks pending arm on one thread -- a task published a second park before the "
-             "first was armed, which the single-suspend-point invariant forbids.");
-  tls_pending_park = std::move(ps);
-}
+inline void PublishPendingPark(std::shared_ptr<ParkState> ps) { tls_pending_parks.push_back(std::move(ps)); }
 
-/// Drops this thread's pending-arm park WITHOUT arming it. Only for a parking attempt that published
-/// `ps` and then self-claimed it (the abandon path / shutdown self-claim): the publisher itself is
-/// the claim winner, so no resume will ever be requested and arming would be a no-op anyway --
-/// clearing merely avoids holding the `ParkState` alive until this thread's next park. Takes `ps` so
-/// the identity is checked: discarding somebody else's pending park would drop its arm and hang it.
+/// Drops a pending-arm park WITHOUT arming it. Only for a parking attempt that published `ps` and
+/// then self-claimed it (the abandon path / shutdown self-claim): the publisher itself is the claim
+/// winner, so no resume will ever be requested and arming would be a no-op anyway -- dropping it
+/// merely avoids holding the `ParkState` alive until this thread's next arming point.
+///
+/// `ps` must be the innermost pending park, which it always is: a publisher self-claims within the
+/// same `await_suspend` that published, with no nested task execution in between. MG_ASSERT rather
+/// than DMG_ASSERT deliberately -- a mismatch here would drop somebody else's arm, and that is the
+/// brick-the-database failure described above, which must not be a no-op in a release build.
 inline void DiscardPendingPark(const std::shared_ptr<ParkState> &ps) {
-  DMG_ASSERT(tls_pending_park == ps, "DiscardPendingPark on a park this thread did not publish.");
-  tls_pending_park.reset();
+  MG_ASSERT(!tls_pending_parks.empty() && tls_pending_parks.back() == ps,
+            "DiscardPendingPark on a park that is not this thread's innermost pending park -- dropping it "
+            "would strand the real one, which permanently blocks every acquisition on its storage.");
+  tls_pending_parks.pop_back();
 }
 
-/// Arms this thread's pending-arm park, if any. Called unconditionally at every pool-task boundary
-/// (utils::PriorityThreadPool::Worker's run loop) -- see the gate discussion above for why this must
-/// be somewhere impossible to skip rather than in each individual driver.
-inline void ArmPendingPark() {
-  if (!tls_pending_park) return;
-  auto ps = std::move(tls_pending_park);  // leaves the slot empty
-  ArmPark(*ps);
+/// Arms every park published above `base_depth`, innermost first, and pops them. Each arming site
+/// passes the depth it observed on entry, so a nested arming point can only ever arm the parks its own
+/// nested execution published -- never an outer task's park, whose driver has not finished yet and for
+/// which a delivered resume would be exactly the race the gate exists to prevent.
+///
+/// Loops rather than arming once: `ArmPark` may invoke `on_resume_`, which on the inline-resume path
+/// runs a whole session chain that can publish yet another park before returning.
+inline void ArmPendingParksAbove(size_t base_depth) {
+  while (tls_pending_parks.size() > base_depth) {
+    auto ps = std::move(tls_pending_parks.back());
+    tls_pending_parks.pop_back();
+    ArmPark(*ps);
+  }
 }
 
-/// Scope guard form of `ArmPendingPark`, so a task that exits by exception still arms.
+/// Scope guard around one unit of task execution: arms whatever that unit published, and does so even
+/// if it exits by exception. MUST wrap EVERY site that invokes a pool task body -- the run loop's
+/// three, and `PostResumeTask`'s inline fallback. A site without one leaves any park its task
+/// published unarmed forever.
 struct ParkArmGuard {
-  ParkArmGuard() = default;
+  ParkArmGuard() : base_depth_{tls_pending_parks.size()} {}
+
   ParkArmGuard(const ParkArmGuard &) = delete;
   ParkArmGuard &operator=(const ParkArmGuard &) = delete;
   ParkArmGuard(ParkArmGuard &&) = delete;
   ParkArmGuard &operator=(ParkArmGuard &&) = delete;
 
-  ~ParkArmGuard() { ArmPendingPark(); }
+  ~ParkArmGuard() {
+    // Arming posts a resume, which allocates; a throw out of a destructor would terminate the
+    // process, and this guard is specifically designed to run while a task unwinds -- i.e. exactly
+    // when the allocation is most likely to fail. Losing the arm hangs one park; terminating loses
+    // the instance.
+    try {
+      ArmPendingParksAbove(base_depth_);
+    } catch (const std::exception &e) {
+      spdlog::critical("Failed to arm a parked query's resume: {}. That query will not make progress.", e.what());
+    }
+  }
+
+ private:
+  size_t base_depth_;
 };
 
 }  // namespace memgraph::utils
