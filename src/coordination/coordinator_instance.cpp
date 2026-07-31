@@ -364,13 +364,13 @@ auto CoordinatorInstance::ShowInstances() const -> std::optional<std::vector<Ins
   spdlog::trace("Sending show instances RPC to leader with id {}", leader_id);
   auto maybe_res = leader->SendRpc<ShowInstancesRpc>();
 
-  if (!maybe_res) {
+  if (!maybe_res.has_value() || !maybe_res->has_value()) {
     spdlog::trace("Couldn't get instances from leader {}. No instances to report.", leader_id);
     return std::nullopt;
   }
 
   spdlog::trace("Got instances from leader {}.", leader_id);
-  return maybe_res;
+  return std::move(*maybe_res);
 }
 
 auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus {
@@ -518,8 +518,8 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
   if (!status.compare_exchange_strong(
           expected, CoordinatorStatus::LEADER_NOT_READY, std::memory_order_acq_rel, std::memory_order_acquire)) {
     if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendRpc<ForceResetRpc>() ? ReconcileClusterStateStatus::SUCCESS
-                                              : ReconcileClusterStateStatus::LEADER_FAILED;
+      return leader->SendRpc<ForceResetRpc>().value_or(false) ? ReconcileClusterStateStatus::SUCCESS
+                                                              : ReconcileClusterStateStatus::LEADER_FAILED;
     }
 
     return ReconcileClusterStateStatus::LEADER_NOT_FOUND;
@@ -1230,7 +1230,7 @@ auto CoordinatorInstance::GetRoles() const -> std::optional<std::vector<Coordina
   if (leader_id != raft_state_->GetMyCoordinatorId() && leader_id != -1) {
     if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
       if (auto res = leader->SendRpc<GetRolesRpc>(); res.has_value()) {
-        return res;
+        return std::move(*res);
       }
     }
   }
@@ -1327,7 +1327,7 @@ auto CoordinatorInstance::GetRolePrivileges(std::string_view const role_name) co
   if (leader_id != raft_state_->GetMyCoordinatorId() && leader_id != -1) {
     if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
       if (auto const res = leader->SendRpc<GetRolePrivilegesRpc>(std::string{role_name}); res.has_value()) {
-        return res;
+        return *res;
       }
     }
   }
@@ -1687,10 +1687,11 @@ auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::s
   }
 
   auto res = leader->SendRpc<GetRoutingTableRpc>(std::string{db_name});
-  if (res.empty()) {
+  if (!res.has_value()) {
     spdlog::trace("Couldn't get routing table from leader {}. Returning empty routing table.", leader_id);
+    return RoutingTable{};
   }
-  return res;
+  return std::move(*res);
 }
 
 auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::string> {
@@ -1785,11 +1786,13 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
 
 auto CoordinatorInstance::ShowCoordinatorSettings() const
     -> std::optional<std::vector<std::pair<std::string, std::string>>> {
-  if (auto res = ForwardReadToLeader<ShowCoordSettingsRpc>(); res.has_value()) {
-    return std::move(*res);
+  if (AmReadyLeader()) {
+    return ShowCoordinatorSettingsAsLeader();
   }
 
-  return ShowCoordinatorSettingsAsLeader();
+  // An unreachable leader (outer nullopt) and a leader which isn't ready (inner nullopt) both mean we have no settings
+  // to report.
+  return SendReadToLeader<ShowCoordSettingsRpc>().value_or(std::nullopt);
 }
 
 auto CoordinatorInstance::ShowCoordinatorSettingsAsLeader() const
@@ -1853,16 +1856,12 @@ auto CoordinatorInstance::ShowReplicationLagAsLeader() const
 
 auto CoordinatorInstance::ShowReplicationLag() const
     -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>> {
-  if (auto res = ForwardReadToLeader<CoordReplicationLagRpc>(); res.has_value()) {
-    // The response carries a plain map, so a failed RPC is indistinguishable from an empty result. Both mean we have
-    // nothing to report.
-    if (res->empty()) {
-      return std::nullopt;
-    }
-    return res;
+  if (AmReadyLeader()) {
+    return ShowReplicationLagAsLeader();
   }
 
-  return ShowReplicationLagAsLeader();
+  // nullopt only if the leader couldn't be reached; an empty map is the leader's answer that there is no lag to report.
+  return SendReadToLeader<CoordReplicationLagRpc>();
 }
 
 auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {

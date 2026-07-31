@@ -180,17 +180,22 @@ class CoordinatorInstance {
   // the duration of the call; nullptr means no connector for that id.
   auto FindClientConnector(int32_t leader_id) const -> std::shared_ptr<CoordinatorInstanceConnector>;
 
+  auto AmReadyLeader() const -> bool {
+    return raft_state_->GetLeaderId() == raft_state_->GetMyCoordinatorId() &&
+           status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY;
+  }
+
   // nullopt if I am the leader, otherwise StatusMessage
   template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
   auto ForwardToLeader(Args &&...args) const -> std::optional<StatusEnum> {
-    auto const leader_id = raft_state_->GetLeaderId();
-    if (leader_id == raft_state_->GetMyCoordinatorId() &&
-        status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
+    if (AmReadyLeader()) {
       return std::nullopt;
     }
+    auto const leader_id = raft_state_->GetLeaderId();
     // The shared owner is held for the whole (blocking) call, so a concurrent config change can't destroy it mid-RPC.
     if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendRpc<Rpc>(std::forward<Args>(args)...) ? StatusEnum::SUCCESS : StatusEnum::LEADER_FAILED;
+      return leader->SendRpc<Rpc>(std::forward<Args>(args)...).value_or(false) ? StatusEnum::SUCCESS
+                                                                              : StatusEnum::LEADER_FAILED;
     }
     return StatusEnum::LEADER_NOT_FOUND;
   }
@@ -206,8 +211,10 @@ class CoordinatorInstance {
       return std::nullopt;
     }
     if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
-      if (auto const res = leader->SendRpc<Rpc>(std::forward<Args>(args)...); res.has_value()) {
-        return *res;
+      // Outer optional: the RPC itself succeeded. Inner: the leader actually reported a status. Both must hold, or we
+      // would return nullopt here and the caller would misread it as "I am the leader".
+      if (auto const res = leader->SendRpc<Rpc>(std::forward<Args>(args)...); res.has_value() && res->has_value()) {
+        return **res;
       }
       return StatusEnum::LEADER_FAILED;
     }
@@ -215,21 +222,15 @@ class CoordinatorInstance {
   }
 
   // Same as ForwardToLeader but for queries reading the cluster state, where the leader's answer is the payload rather
-  // than a status. nullopt if I am the leader, otherwise the leader's response. An unreachable leader yields a
-  // default-constructed response, which every caller reports as "nothing to show".
+  // than a status. Callers must first check AmReadyLeader() and serve the read locally if it holds. nullopt if the
+  // leader couldn't be reached, which is distinct from the leader answering with an empty payload.
   template <rpc::IsRpc Rpc, typename... Args>
-  auto ForwardReadToLeader(Args &&...args) const
-      -> std::optional<decltype(std::declval<typename Rpc::Response>().arg_)> {
-    using Payload = decltype(std::declval<typename Rpc::Response>().arg_);
+  auto SendReadToLeader(Args &&...args) const -> std::optional<decltype(std::declval<typename Rpc::Response>().arg_)> {
     auto const leader_id = raft_state_->GetLeaderId();
-    if (leader_id == raft_state_->GetMyCoordinatorId() &&
-        status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
-      return std::nullopt;
-    }
     auto const leader = FindClientConnector(leader_id);
     if (leader == nullptr) {
       spdlog::trace("Connection to leader {} not found, {} not forwarded.", leader_id, Rpc::Request::kType.name);
-      return std::optional<Payload>{Payload{}};
+      return std::nullopt;
     }
     return leader->SendRpc<Rpc>(std::forward<Args>(args)...);
   }
