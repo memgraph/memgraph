@@ -95,6 +95,40 @@ def test_flag_on_timeout_semantics_preserved():
     ), f"timeout should fire before the holder releases ({result['elapsed']:.2f}s)"
 
 
+def test_flag_on_accessor_timeout_logs_the_query_text():
+    """A Prepare-phase failure BEFORE the accessor is acquired must still log its query text.
+
+    This is the complement of the test above, and it covers the hole that one could not: PrepareCoro
+    creates its QueryExecution in Phase 3, i.e. AFTER the acquire, so a pre-acquire failure reaches
+    HandlePrepareFailure with no QueryExecution to read the query string from. The *AccessTimeout this
+    feature exists to handle is exactly such a failure, so flag-on it logged [failed-query] with
+    query="" while the identical failure flag-off logged the real text.
+
+    Deliberately an accessor TIMEOUT and not a planning error: a planning error happens in
+    PlanAndFinalize, which is past Phase 3, where the QueryExecution already exists -- so it would
+    pass either way.
+    """
+    log_path = _active_log_path()
+    start = os.path.getsize(log_path)
+
+    # No SET SESSION SETTING here: log.failed_queries is SESSION-scoped, and the scenario helper opens
+    # its own connections, so a setting applied here would not reach the query that times out. The
+    # cluster runs with --log-failed-queries=true instead (workloads.yaml).
+    #
+    # Same scenario as the timeout test: a held WRITE accessor makes CREATE INDEX time out.
+    result = common.run_timeout_preserved_scenario()
+    assert result["error"] is not None, "scenario did not time out, so nothing was logged to check"
+
+    content = _read_appended(log_path, start, expect=["[failed-query]"])
+    failed = [line for line in content.splitlines() if "[failed-query]" in line]
+    assert failed, f"an accessor timeout emitted no [failed-query] line at all; got: {content[-2000:]!r}"
+    with_text = [line for line in failed if "CREATE INDEX" in line]
+    assert with_text, (
+        "the [failed-query] line for an accessor timeout carries no query text -- pre-acquire failures "
+        f"lose it, while flag-off keeps it. lines were: {failed!r}"
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-s"]))
 

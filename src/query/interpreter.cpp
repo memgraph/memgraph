@@ -10107,7 +10107,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     return PlanAndFinalize(
         parsed_query, params_getter, query_execution, qid, parallel_execution, std::move(system_transaction));
   } catch (const utils::BasicException &e) {
-    HandlePrepareFailure(query_execution_ptr, e);
+    HandlePrepareFailure(query_execution_ptr, e, parsed_query.query_string);
     throw;
   }
 }
@@ -10504,12 +10504,18 @@ Interpreter::PrepareResult Interpreter::PlanAndFinalize(
 // A). Callers still do their own `try { ... } catch (const utils::BasicException &e) { HandlePrepareFailure(...);
 // throw; }` wrapping (this helper does not rethrow itself), so both paths log/abort identically on failure.
 void Interpreter::HandlePrepareFailure(std::unique_ptr<QueryExecution> *query_execution_ptr,
-                                       const utils::BasicException &e) {
+                                       const utils::BasicException &e, std::string_view query_text_fallback) {
   memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
-  // query_execution holds the query string copy that survives Prepare* moving it out.
-  const std::string_view failed_query_text = (query_execution_ptr && *query_execution_ptr)
-                                                 ? std::string_view{(*query_execution_ptr)->query_string}
-                                                 : std::string_view{};
+  // query_execution holds the query string copy that survives Prepare* moving it out. It only exists
+  // once Prepare* has got far enough to create it, though, and PrepareCoro creates it in Phase 3 --
+  // AFTER the accessor acquire -- so every pre-acquire failure arrives here with a null pointer.
+  // That includes the *AccessTimeout this whole feature is about, plus the coordinator check, the
+  // broken-DB gate, DatabaseContextRequiredException and StorageModeChangedDuringSetupException. Left
+  // to the null path they logged query="" while the identical failure flag-off logged the real text,
+  // so the caller passes the parsed query string as a fallback.
+  auto const failed_query_text = (query_execution_ptr && *query_execution_ptr)
+                                     ? std::string_view{(*query_execution_ptr)->query_string}
+                                     : query_text_fallback;
   MaybeEmitFailedQueryLog(failed_query_text, e.what());
   // Trigger first failed query
   metrics::FirstFailedQuery();
@@ -10814,7 +10820,7 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
     // [failed-query] log, both TLS-gated, so this is the difference between the coro path reporting a
     // failed Prepare and silently dropping it.
     memgraph::logging::ScopedSessionLog const failure_log_guard{GetLogContext()};
-    HandlePrepareFailure(query_execution_ptr, e);
+    HandlePrepareFailure(query_execution_ptr, e, parsed_query.query_string);
     throw;
   }
 }

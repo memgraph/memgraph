@@ -12,6 +12,7 @@ coro_prepare_accessor_yield_on_cluster: &coro_prepare_accessor_yield_on_cluster
           "--log-level=TRACE",
           "--bolt-num-workers=2",
           "--storage-access-timeout-sec=6",
+          "--log-failed-queries=true",
           "--experimental-coro-prepare-accessor-yield=true",
         ]
       log_file: "coro_prepare_accessor_yield.log"
@@ -30,6 +31,7 @@ coro_prepare_accessor_yield_off_cluster: &coro_prepare_accessor_yield_off_cluste
           "--log-level=TRACE",
           "--bolt-num-workers=2",
           "--storage-access-timeout-sec=6",
+          "--log-failed-queries=true",
         ]
       log_file: "coro_prepare_accessor_yield_flag_off_control.log"
       setup_queries: []

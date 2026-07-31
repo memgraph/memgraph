@@ -684,7 +684,11 @@ class Interpreter final {
   // Shared Prepare()/PrepareCoro() catch-block body (utils::BasicException path): logs, increments
   // failed-prepare metrics, and calls AbortCommand(query_execution_ptr). Always rethrows via `throw;`
   // at the call site (this helper does not itself rethrow).
-  void HandlePrepareFailure(std::unique_ptr<QueryExecution> *query_execution_ptr, const utils::BasicException &e);
+  // `query_text_fallback` is used when `query_execution_ptr` is null (or empty), which is every
+  // failure that happens before Prepare* creates the QueryExecution -- for PrepareCoro that is
+  // everything up to and including the accessor acquire. Pass the parsed query string.
+  void HandlePrepareFailure(std::unique_ptr<QueryExecution> *query_execution_ptr, const utils::BasicException &e,
+                            std::string_view query_text_fallback);
 };
 
 template <typename TStream>
