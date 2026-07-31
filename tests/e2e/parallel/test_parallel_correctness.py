@@ -313,6 +313,10 @@ class TestParallelIndices:
         """Test global vertex property index for all values (IS NOT NULL)."""
         verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age IS NOT NULL RETURN n")
 
+    def test_global_vertex_property_index_null_range(self, indexed_db):
+        """Parallel range scan with null bounds returns no results."""
+        verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age > head([]) RETURN count(n)")
+
     @pytest.fixture
     def desc_indexed_db(self, memgraph):
         """Database with a DESC-ordered label+property index only."""

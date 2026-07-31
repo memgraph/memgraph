@@ -122,6 +122,7 @@ class InMemoryStorage final : public Storage {
   friend class InMemoryEdgeTypeIndex;
   friend class InMemoryEdgeTypePropertyIndex;
   friend class InMemoryEdgePropertyIndex;
+  friend class InMemoryVertexPropertyIndex;
   friend class InMemoryUniqueConstraints;
 
  public:

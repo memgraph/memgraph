@@ -10437,6 +10437,7 @@ UniqueCursorPtr ScanParallelByVertexPropertyRange::MakeCursor(utils::MemoryResou
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    if (!maybe_lower && !maybe_upper) return db->ChunkedVertices(view_, property_, std::nullopt, std::nullopt, 0);
     return db->ChunkedVertices(view_, property_, maybe_lower, maybe_upper, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
