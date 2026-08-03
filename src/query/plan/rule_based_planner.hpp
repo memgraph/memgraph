@@ -408,6 +408,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
               context.bound_symbols.insert(sym);
               result_symbols.push_back(sym);
             }
+            // A CallProcedure's arguments and its YIELD ... WHERE can both hold a comprehension, and it is a query
+            // part boundary, so nothing downstream can drain it. Splice below the operator: the frame slot written
+            // per input row survives the procedure's rows and is what the Filter above reads.
+            plan_and_apply_comprehensions();
             // TODO: When we add support for write and eager procedures, we will
             // need to plan this operator with Accumulate and pass in
             // storage::View::NEW.
@@ -1392,10 +1396,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   /// The one *early* place a pending comprehension becomes a `RollUpApply`. It must be spliced onto the chain that
   /// *reads* it, not merely the one its clause sits on; both defects this file has had came from that.
   ///
-  /// Five chains can evaluate a comprehension. Three drain here: the main clause chain, a FOREACH body, each MERGE
-  /// branch. A WITH/RETURN body drains on demand in `ReturnBodyContext`, needing a splice point per position. A
-  /// `CallProcedure` clause - arguments as much as `YIELD ... WHERE` - has **no** drain: it is a query-part boundary,
-  /// so nothing downstream can drain it either. Known gap, and why `pending_comprehensions` cannot be asserted empty.
+  /// Five chains can evaluate a comprehension. Four drain here: the main clause chain, a FOREACH body, each MERGE
+  /// branch, and a `CallProcedure` clause - arguments as much as `YIELD ... WHERE`, which is a query-part boundary so
+  /// nothing downstream could drain it. A WITH/RETURN body drains on demand in `ReturnBodyContext`, needing a splice
+  /// point per position.
   ///
   /// @param bound_symbols what is bound on @p chain, for the dependency check and the view.
   /// @param only when non-null, restricts the drain to these result symbols, so MERGE branches cannot steal each
