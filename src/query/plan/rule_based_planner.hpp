@@ -1249,8 +1249,15 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         bound_symbols.insert(*total_weight);
       }
 
+      // ExpandVariable can only read View::OLD, so a variable-length pattern that must see writes from its own
+      // query part has no valid plan. Reject the query instead of asserting, which would abort the process.
+      if (view != storage::View::OLD) {
+        throw QueryException(
+            "A variable-length pattern cannot be evaluated after a write in the same query part. Separate them with a "
+            "WITH clause.");
+      }
+
       // TODO: Pass weight lambda.
-      MG_ASSERT(view == storage::View::OLD, "ExpandVariable should only be planned with storage::View::OLD");
       last_op = std::make_unique<ExpandVariable>(std::move(last_op),
                                                  node1_symbol,
                                                  node_symbol,
