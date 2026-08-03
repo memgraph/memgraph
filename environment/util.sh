@@ -337,6 +337,38 @@ function install_node() {
     ' bash "$node_version"
 }
 
+# Resolve a Python interpreter >= 3.10 and print its absolute path. Some
+# distros default to an older python3 but ship a newer versioned binary
+# alongside (e.g. centos-9: python3 = 3.9, python3.12 installed) — prefer the
+# default python3 when it qualifies, otherwise fall back to the newest
+# versioned executable. $MG_PYTHON overrides the search entirely; if it is set
+# but too old, that is a hard error rather than a silent fallback.
+function resolve_python() {
+    local check='import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'
+    if [[ -n "${MG_PYTHON:-}" ]]; then
+        if ! command -v "$MG_PYTHON" >/dev/null 2>&1; then
+            echo "Error: MG_PYTHON='$MG_PYTHON' not found" >&2
+            return 1
+        fi
+        if ! "$MG_PYTHON" -c "$check" 2>/dev/null; then
+            echo "Error: MG_PYTHON='$MG_PYTHON' is $("$MG_PYTHON" --version 2>&1), but >= 3.10 is required" >&2
+            return 1
+        fi
+        command -v "$MG_PYTHON"
+        return 0
+    fi
+    local candidate
+    for candidate in python3 python3.14 python3.13 python3.12 python3.11 python3.10; do
+        if command -v "$candidate" >/dev/null 2>&1 \
+            && "$candidate" -c "$check" 2>/dev/null; then
+            command -v "$candidate"
+            return 0
+        fi
+    done
+    echo "Error: no Python >= 3.10 found (searched python3, python3.14..python3.10; set MG_PYTHON to override)" >&2
+    return 1
+}
+
 function parse_operating_system() {
     local os_output=$(operating_system)
     local os_name=""
