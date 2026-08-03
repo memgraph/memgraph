@@ -460,12 +460,14 @@ Feature: Pattern comprehensions
 
     Scenario: Pattern comprehension in the ORDER BY of a WITH sorts on the bound variable
         Given an empty graph
+        # Created fewest-edges-first, so the expected order is the reverse of the scan order: a sort key that is the
+        # same for every row - an uncorrelated whole-graph count - cannot produce it.
         And having executed:
             """
+            CREATE (:Person {name: 'Bob'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
             CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
             CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
-            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
-            CREATE (:Person {name: 'Bob'})
             """
         When executing query:
             """
@@ -522,12 +524,13 @@ Feature: Pattern comprehensions
 
     Scenario: Pattern comprehension in the ORDER BY of a RETURN sorts on the bound variable
         Given an empty graph
+        # As above: fewest edges created first, so the scan order is the reverse of the expected one.
         And having executed:
             """
+            CREATE (:Person {name: 'Bob'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
             CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
             CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
-            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
-            CREATE (:Person {name: 'Bob'})
             """
         When executing query:
             """
@@ -786,6 +789,7 @@ Feature: Pattern comprehensions
         And having executed:
             """
             CREATE (:Person {name: 'Zoe'})
+            CREATE (:Extra)-[:ACTED_IN]->(:Movie {title: 'Old'})
             """
         And having executed:
             """
@@ -854,7 +858,8 @@ Feature: Pattern comprehensions
         And having executed:
             """
             CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
-            CREATE (:Person {name: 'Regina'})
+            CREATE (b:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'J1'})
+            CREATE (b)-[:ACTED_IN]->(:Movie {title: 'J2'})
             """
         And having executed:
             """
