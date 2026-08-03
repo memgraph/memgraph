@@ -649,11 +649,14 @@ auto InMemoryLabelPropertyIndex::GetIndividualIndex(LabelId const &label, Proper
 
 void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                                  const Transaction &tx) {
-  auto const prop_ids = vertex_after_update->properties.ExtractPropertyIds();
+  // Decoded on first use: extracting the ids walks the whole property store, and a label
+  // with no index on it never reaches the filter below.
+  auto prop_ids = std::optional<std::vector<PropertyId>>{};
 
   auto const relevant_index = [&](auto &&each) {
     auto &[index_props, _] = each;
-    auto vector_has_property = [&](auto &&index_prop) { return r::binary_search(prop_ids, index_prop); };
+    if (!prop_ids) prop_ids = vertex_after_update->properties.ExtractPropertyIds();
+    auto vector_has_property = [&](auto &&index_prop) { return r::binary_search(*prop_ids, index_prop); };
     return r::any_of(index_props[0], vector_has_property);
   };
 
@@ -682,11 +685,13 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId remo
   // that sweep is gated on vertex deletions — so reclaim eagerly here.
   if (tx.storage_mode != StorageMode::IN_MEMORY_ANALYTICAL) return;
 
-  auto const prop_ids = vertex_before_update->properties.ExtractPropertyIds();
+  // Decoded on first use; see UpdateOnAddLabel.
+  auto prop_ids = std::optional<std::vector<PropertyId>>{};
 
   auto const relevant_index = [&](auto &&each) {
     auto &[index_props, _] = each;
-    auto vector_has_property = [&](auto &&index_prop) { return r::binary_search(prop_ids, index_prop); };
+    if (!prop_ids) prop_ids = vertex_before_update->properties.ExtractPropertyIds();
+    auto vector_has_property = [&](auto &&index_prop) { return r::binary_search(*prop_ids, index_prop); };
     return r::any_of(index_props[0], vector_has_property);
   };
 
