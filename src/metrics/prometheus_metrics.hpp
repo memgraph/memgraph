@@ -190,7 +190,7 @@ class PrometheusMetrics {
   void RemoveDatabase(utils::UUID const &uuid);
 
   /// Removes the metrics associated with the pre-cluster default database,
-  /// and replcaes them with metrics labelled with the UUID of the new
+  /// and replaces them with metrics labelled with the UUID of the new
   /// default database.
   DatabaseMetricHandles RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
 
