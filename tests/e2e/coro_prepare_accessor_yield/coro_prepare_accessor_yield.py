@@ -19,7 +19,6 @@
 # coro_prepare_accessor_yield_flag_off_control.py and asserts the opposite outcome on the exact
 # same scenario -- see that file for why the contrast matters.
 
-import glob
 import os
 import sys
 import time
@@ -27,6 +26,9 @@ import time
 import common
 import mgclient
 import pytest
+
+# Log file stem for this arm; its workloads.yaml entry sets the matching --log-file.
+LOG_STEM = "coro_prepare_accessor_yield"
 
 
 @pytest.fixture(autouse=True)
@@ -108,7 +110,7 @@ def test_flag_on_accessor_timeout_logs_the_query_text():
     PlanAndFinalize, which is past Phase 3, where the QueryExecution already exists -- so it would
     pass either way.
     """
-    log_path = _active_log_path()
+    log_path = common.active_log_path(LOG_STEM)
     start = os.path.getsize(log_path)
 
     # No SET SESSION SETTING here: log.failed_queries is SESSION-scoped, and the scenario helper opens
@@ -119,7 +121,7 @@ def test_flag_on_accessor_timeout_logs_the_query_text():
     result = common.run_timeout_preserved_scenario()
     assert result["error"] is not None, "scenario did not time out, so nothing was logged to check"
 
-    content = _read_appended(log_path, start, expect=["[failed-query]"])
+    content = common.read_appended(log_path, start, expect=["[failed-query]"])
     failed = [line for line in content.splitlines() if "[failed-query]" in line]
     assert failed, f"an accessor timeout emitted no [failed-query] line at all; got: {content[-2000:]!r}"
     with_text = [line for line in failed if "CREATE INDEX" in line]
@@ -146,32 +148,6 @@ if __name__ == "__main__":
 # The flag-off control asserts the same query DOES log, so this pair pins the contract "flag-on must
 # not cost diagnostics" rather than merely "some log line exists".
 
-LOG_GLOB = os.path.join(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")),
-    "e2e",
-    "logs",
-    "coro_prepare_accessor_yield_2*.log",
-)
-
-
-def _active_log_path():
-    candidates = glob.glob(LOG_GLOB)
-    assert candidates, f"memgraph did not create a log file matching {LOG_GLOB}"
-    return max(candidates, key=os.path.getmtime)
-
-
-def _read_appended(log_path, start_offset, *, expect, timeout=5.0):
-    deadline = time.monotonic() + timeout
-    while True:
-        with open(log_path, "r") as f:
-            f.seek(start_offset)
-            content = f.read()
-        if all(s in content for s in expect):
-            return content
-        if time.monotonic() >= deadline:
-            return content
-        time.sleep(0.05)
-
 
 def test_flag_on_prepare_failure_still_logs_failed_query():
     """A Prepare-phase failure must still emit its [failed-query] line under the coro path.
@@ -187,7 +163,7 @@ def test_flag_on_prepare_failure_still_logs_failed_query():
     gone -- and it fails late enough that query_execution exists, so the log line carries the query
     text. On the guard-less build it emitted nothing at all. Do not "simplify" this to a parse error.
     """
-    log_path = _active_log_path()
+    log_path = common.active_log_path(LOG_STEM)
     start = os.path.getsize(log_path)
 
     conn = mgclient.connect(host="localhost", port=7687)
@@ -206,7 +182,7 @@ def test_flag_on_prepare_failure_still_logs_failed_query():
     except mgclient.DatabaseError:
         pass  # expected: the query must still fail for the client
 
-    content = _read_appended(log_path, start, expect=["[failed-query]", marker])
+    content = common.read_appended(log_path, start, expect=["[failed-query]", marker])
     relevant = [line for line in content.splitlines() if "[failed-query]" in line and marker in line]
     assert relevant, (
         "a Prepare-phase failure on the coro path emitted no [failed-query] line carrying the query "

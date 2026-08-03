@@ -249,8 +249,13 @@ TEST(CoroAccessor, ParkTimeout) {
 
 // (c) FAST PATH: uncontended acquisition succeeds immediately and never parks -- no waiter is
 // ever registered on the storage's wake event.
-TEST(CoroAccessor, FastPathNeverParks) {
-  ScopedCoroPrepareFlag flag_on{true};
+// (c) An UNCONTENDED acquire never registers a park -- with the flag ON (it takes the coroutine's own
+// fast path, probing successfully before any park attempt) and with it OFF (it takes the ordinary
+// blocking path). Same observable outcome via two different code paths, so both are asserted.
+class CoroAccessorUncontended : public ::testing::TestWithParam<bool> {};
+
+TEST_P(CoroAccessorUncontended, AcquireRegistersNoPark) {
+  ScopedCoroPrepareFlag const flag{GetParam()};
 
   storage::InMemoryStorage store{NoGcConfig()};
   utils::PriorityThreadPool pool{2, 1};
@@ -269,6 +274,9 @@ TEST(CoroAccessor, FastPathNeverParks) {
   pool.ShutDown();
   pool.AwaitShutdown();
 }
+
+INSTANTIATE_TEST_SUITE_P(FlagOnAndOff, CoroAccessorUncontended, ::testing::Bool(),
+                         [](const testing::TestParamInfo<bool> &info) { return info.param ? "FlagOn" : "FlagOff"; });
 
 // (d) HIGH priority bypasses the park path entirely -- even with the flag on and InMemory
 // storage, it always takes the ordinary blocking Access()/UniqueAccess()/ReadOnlyAccess() path,
@@ -306,28 +314,6 @@ TEST(CoroAccessor, HighPriorityUsesBlockingPathAndStillAcquires) {
   EXPECT_NO_THROW(acc->Abort());
 
   releaser.join();
-  pool.ShutDown();
-  pool.AwaitShutdown();
-}
-
-// (d, continued) Flag OFF also bypasses the park path entirely, same as HIGH priority above.
-TEST(CoroAccessor, FlagOffUsesBlockingPath) {
-  ScopedCoroPrepareFlag flag_off{false};
-
-  storage::InMemoryStorage store{NoGcConfig()};
-  utils::PriorityThreadPool pool{2, 1};
-
-  auto acc = utils::SyncWait(AcquireAccessorCoro(store,
-                                                 storage::WRITE,
-                                                 std::nullopt,
-                                                 std::chrono::steady_clock::now() + std::chrono::seconds(5),
-                                                 pool,
-                                                 /*is_high_priority=*/false));
-
-  ASSERT_NE(acc, nullptr);
-  EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 0U);
-  EXPECT_NO_THROW(acc->Abort());
-
   pool.ShutDown();
   pool.AwaitShutdown();
 }

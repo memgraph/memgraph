@@ -26,25 +26,18 @@ DECLARE_string(experimental_enabled);
 DECLARE_string(experimental_config);
 
 // Standalone experimental bool flag (not part of the --experimental-enabled=x,y,z bitmask above):
-// gates the storage-side wake hook AND the query/session parking (HandlePrepareCoro,
-// Session::RunLoop/DrivePreparedRun, Interpreter::PrepareCoro) for IP-1 "parkable Prepare via C++20
-// coroutine" -- see opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md.
-//
-// Default ON. Release-path cost, stated to match Storage::NotifyMainLockReleased() exactly: TWO
-// relaxed atomic loads when on and nobody is parked (the flag, then the waiter count), ONE when the
-// flag is off. No mutex is touched in either case.
+// gates IP-1 "parkable Prepare via C++20 coroutine" at every level -- the storage-side wake hook
+// (installed only when on), the Bolt entry point, the acquire coroutine, and the shutdown drain.
+// Default ON; off restores the synchronous blocking acquire exactly.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(experimental_coro_prepare_accessor_yield);
 
 namespace memgraph::flags {
 
-/// Single source of truth for --experimental-coro-prepare-accessor-yield's default. BOTH the gflag
-/// definition (flags/experimental.cpp) and the cached-atomic initialiser
-/// (flags/run_time_configurable.cpp) must use this and nothing else. Those two lived as independently
-/// hardcoded literals in separate TUs and desynced once already -- the gflag said true while the cache
-/// said false, so any process that never calls RefreshCoroPrepareAccessorYieldEnabled (unit tests,
-/// embedded uses) silently disagreed with the server, and only review caught it. With one constant the
-/// disagreement is not expressible.
+/// Single source of truth for the flag's default. BOTH the gflag definition (flags/experimental.cpp)
+/// and the cached-atomic initialiser (flags/run_time_configurable.cpp) must use this and nothing
+/// else: as independently hardcoded literals they desynced once, and a process that never calls
+/// RefreshCoroPrepareAccessorYieldEnabled (unit tests, embedded uses) then disagrees with the server.
 constexpr bool kCoroPrepareAccessorYieldDefault = true;
 
 // Each bit is an enabled experiment

@@ -10527,60 +10527,42 @@ void Interpreter::HandlePrepareFailure(std::unique_ptr<QueryExecution> *query_ex
   AbortCommand(query_execution_ptr);
 }
 
-// Coroutine variant of Prepare() (Session-surgery Stage A, IP-1 design doc
-// opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 3 §R3.2). Mirrors
-// Prepare() phase-for-phase where possible; the ACCESSOR ACQUIRE is now a `co_await`
-// (query::AcquireAccessorCoro) instead of a blocking call, and everything Phase 1 needs is computed
-// synchronously BEFORE that await runs, with query_execution/system_transaction/the coordinator-check/
-// (Phase 3's) tx-id assignment all deferred to run AFTER the accessor is in hand.
+// Coroutine variant of Prepare(), and the DEFAULT Prepare path as of the flag flip: Session::RunLoop
+// drives it via bolt::ExecuteResult::kNeedsCoroPrepare -> HandlePrepareCoro -> InterpretPrepareCoro.
 //
-// Deliberate divergence from Prepare(), required by the design doc: SetupInterpreterTransaction()
-// (which publishes transaction_status_=ACTIVE alongside current_transaction_, interpreter.hpp:500-504)
-// is NOT called until Phase 3, so the interpreter stays IDLE for the whole accessor-acquire campaign
-// including any park -- see REVISION 1 §D ("NEVER expose ACTIVE with current_transaction_==nullopt").
+// Mirrors Prepare() phase-for-phase where possible; the ACCESSOR ACQUIRE becomes a `co_await` on
+// AcquireAccessorCoro instead of a blocking call. Everything Phase 1 needs is computed synchronously
+// BEFORE that await, with query_execution / system_transaction / the coordinator check deferred to
+// Phase 3, after the accessor is in hand.
 //
-// FRAME OWNERSHIP (design doc §R4.1): PrepareCoro is a member function of Interpreter, so its
-// coroutine frame implicitly captures `this` (a raw Interpreter*) -- there is no session shared_ptr to
-// hold here; that is SessionHL::InterpretPrepareCoro's concern (Stage B). `parsed_query`/`parse_info`
-// and the small locals below (accessor_type/could_commit/resolved_iso/has_load_parquet/
-// parallel_execution/cypher_query/query_execution_ptr) all live as ordinary coroutine-frame locals and
-// survive the co_await exactly like any other suspended coroutine's locals -- none of them owns a lock
-// or arena scope that spans the await (the interpreter-level DbArenaScope is entered in Phase 3 only,
-// per the design doc's top hazard).
+// The phase ORDER is the part that cannot be shared with Prepare(), so it is the part that drifts.
+// SetupInterpreterTransaction() in particular must stay in Phase 1, BEFORE the acquire -- see the
+// comment at its call site for what breaks otherwise.
 //
-// This IS the default Prepare path as of the flag flip: communication::v2::Session::RunLoop drives it
-// via bolt::ExecuteResult::kNeedsCoroPrepare -> HandlePrepareCoro -> SessionHL::InterpretPrepareCoro.
-// (It was written as an isolated, unit-testable Stage A with no Bolt driver; that sentence survived
-// three revisions past the point where it stopped being true and read as "this is dead code".)
+// FRAME OWNERSHIP: PrepareCoro is an Interpreter member, so its frame implicitly captures a raw
+// `this`; there is no session shared_ptr held here (that is InterpretPrepareCoro's concern).
+// `parsed_query`/`parse_info` and the small locals below survive the co_await like any other
+// suspended coroutine's locals -- none of them owns a lock or arena scope spanning the await.
 utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_res, UserParameters_fn params_getter,
                                                                  QueryExtras const &extras,
                                                                  std::function<void()> on_park_resumed) {
-  // NOTE for whoever lands the idle-in-transaction watchdog (fix/reset-sticky-state-idle-watchdog):
-  // Prepare() stamps last_activity_steady_ns_/query_in_progress_ on entry and exit, and this
-  // coroutine MUST do the same once those members exist. It is a query entry point like Prepare(),
-  // and a parked query is the worst case to get wrong -- it is genuinely mid-query while suspended,
-  // so an unstamped PrepareCoro would look idle and could be reaped by the watchdog it never told
-  // about itself. Omitted here only because this branch deliberately carries no watchdog to stamp.
-
   // Arena attribution. Prepare() opens one scope over its whole body; this coroutine cannot, because a
   // TLS guard must never straddle the co_await below -- it would restore the PARKING thread's saved
   // arena state onto whichever worker resumed us, leaving this thread's attribution permanently wrong
-  // and corrupting the resumer's. So attribution is split into the non-suspending regions instead:
-  // this one, and the Phase 3 scope further down.
+  // and corrupting the resumer's. Attribution is split into the non-suspending regions instead: this
+  // one, and the Phase 3 scope further down.
   //
   // Opened HERE, above the TransactionQuery early return, so BEGIN/COMMIT/ROLLBACK are covered exactly
-  // as Prepare() covers them -- their QueryExecution::Create and PrepareTransactionQuery allocations
-  // would otherwise land in the default arena instead of the tenant's.
+  // as Prepare() covers them; otherwise their QueryExecution::Create and PrepareTransactionQuery
+  // allocations land in the default arena rather than the tenant's.
   //
-  // INVARIANT: released before the co_await. The `arena_scope.reset()` immediately preceding it is what
-  // does that, and it is the only correct place for it -- do not widen this guard's scope, and do not
-  // add another co_await inside its lifetime.
+  // INVARIANT: released before the co_await, by the `arena_scope.reset()` immediately preceding it. Do
+  // not widen this guard's scope, and do not add another co_await inside its lifetime.
   //
   // Still NOT attributed: the accessor/Transaction that Phase 2's acquire allocates inside
-  // AcquireAccessorCoro (once per probe, freed again on a losing abandon-path probe). Covering it
-  // would mean teaching a deliberately DB-agnostic coroutine -- it takes a storage::Storage, and
-  // storage has no way back to its dbms::Database -- about arena identity. Small and transient
-  // against the execution-time allocations, which CrossThreadMemoryTracking attributes normally.
+  // AcquireAccessorCoro. Covering it would mean teaching a deliberately DB-agnostic coroutine about
+  // arena identity -- it takes a storage::Storage, which has no way back to its dbms::Database. Small
+  // and transient against execution-time allocations, which CrossThreadMemoryTracking attributes.
   std::optional<memory::DbArenaScope> arena_scope;
   if (current_db_.db_acc_) {
     arena_scope.emplace(current_db_.db_acc_->get());
@@ -10621,28 +10603,22 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
       // transaction, abort it since we're about to prepare a new query.
       AbortCommand(nullptr);
     }
-    // Same position as Prepare()'s (see master): BEFORE Phase 2's acquire, deliberately. This was
-    // deferred to Phase 3 in an earlier revision and that was a REGRESSION, caught by review:
-    // publishing the transaction only after the accessor is held means a query parked on a contended
-    // accessor reports IDLE with `current_transaction_ == nullopt`, so it is invisible to
-    // SHOW TRANSACTIONS (ShowTransactions skips any interpreter whose status is not ACTIVE and whose
-    // transaction id is unset), un-TERMINATE-able (TerminateTransactions CASes from ACTIVE only),
-    // uncounted by DROP DATABASE ... FORCE's best-effort sweep, and its eventual `elapsed_ms` excludes
-    // the entire lock wait because the start timestamps are stamped here. That is exactly the
-    // diagnostic an operator reaches for during the lock pile-up this feature exists to relieve, and
-    // it got worse -- not better -- on ON_DISK_TRANSACTIONAL, where SupportsParkAcquire() is false so
-    // the acquire blocks for the whole --storage-access-timeout-sec while still reporting IDLE.
+    // MUST stay here, BEFORE Phase 2's acquire -- master's position. Deferring it to Phase 3 was a
+    // regression: publishing the transaction only after the accessor is held makes a query parked on a
+    // contended accessor report IDLE with `current_transaction_ == nullopt`, so it is invisible to
+    // SHOW TRANSACTIONS (which skips interpreters that are not ACTIVE with a set tx id),
+    // un-TERMINATE-able (TerminateTransactions CASes from ACTIVE only), uncounted by
+    // DROP DATABASE ... FORCE's sweep, and its `elapsed_ms` excludes the whole lock wait, since the
+    // start timestamps are stamped here. That is precisely the diagnostic an operator reaches for during
+    // the pile-up this feature exists to relieve -- and it was worse on ON_DISK_TRANSACTIONAL, where
+    // SupportsParkAcquire() is false so the acquire blocks the full timeout while reporting IDLE.
     //
-    // The deferral's stated justification was that we must never expose ACTIVE with
-    // `current_transaction_ == nullopt`. That invariant is satisfied intrinsically by
-    // SetupInterpreterTransaction itself, which assigns `current_transaction_` before the
-    // release-store of ACTIVE -- so calling it here cannot expose the torn state. The function has no
-    // accessor dependency at all (a fresh tx id, two timestamps, the status, the log tx id, and
-    // metadata), which is why it can sit on either side of the acquire; correctness of the DIAGNOSTICS
-    // is what decides, and it decides for here.
-    //
-    // Every failure path already reverts it: HandlePrepareFailure -> AbortCommand -> Abort(), whose CAS
-    // accepts ACTIVE and drives back to IDLE. That is what master relies on too.
+    // The deferral was justified by "never expose ACTIVE with current_transaction_ == nullopt", but
+    // SetupInterpreterTransaction satisfies that intrinsically: it assigns `current_transaction_` before
+    // the release-store of ACTIVE. It has no accessor dependency at all (a fresh tx id, two timestamps,
+    // the status, the log tx id, metadata), so it may sit on either side of the acquire and the
+    // diagnostics decide. Every failure path reverts it via HandlePrepareFailure -> AbortCommand ->
+    // Abort(), whose CAS accepts ACTIVE and returns to IDLE, exactly as master relies on.
     SetupInterpreterTransaction(extras);
     memgraph::logging::EmitSessionTraceEvent(
         "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0));

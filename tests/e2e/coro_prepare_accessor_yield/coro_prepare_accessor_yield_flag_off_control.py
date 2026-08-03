@@ -21,7 +21,6 @@
 # passing flag-ON test for the wrong reason. This file is what makes the flag-ON <1s result
 # meaningful.
 
-import glob
 import os
 import sys
 import time
@@ -29,6 +28,9 @@ import time
 import common
 import mgclient
 import pytest
+
+# Log file stem for this arm; its workloads.yaml entry sets the matching --log-file.
+LOG_STEM = "coro_prepare_accessor_yield_flag_off_control"
 
 
 @pytest.fixture(autouse=True)
@@ -70,36 +72,10 @@ if __name__ == "__main__":
 # is the baseline the flag-on arm must match -- without it, that arm could be passing for reasons
 # unrelated to the guard (e.g. if the log line came from some earlier, non-Prepare path).
 
-LOG_GLOB = os.path.join(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")),
-    "e2e",
-    "logs",
-    "coro_prepare_accessor_yield_flag_off_control_2*.log",
-)
-
-
-def _active_log_path():
-    candidates = glob.glob(LOG_GLOB)
-    assert candidates, f"memgraph did not create a log file matching {LOG_GLOB}"
-    return max(candidates, key=os.path.getmtime)
-
-
-def _read_appended(log_path, start_offset, *, expect, timeout=5.0):
-    deadline = time.monotonic() + timeout
-    while True:
-        with open(log_path, "r") as f:
-            f.seek(start_offset)
-            content = f.read()
-        if all(s in content for s in expect):
-            return content
-        if time.monotonic() >= deadline:
-            return content
-        time.sleep(0.05)
-
 
 def test_flag_off_control_prepare_failure_logs_failed_query():
     """Baseline: the same Prepare-phase failure logs [failed-query] on the ordinary inline path."""
-    log_path = _active_log_path()
+    log_path = common.active_log_path(LOG_STEM)
     start = os.path.getsize(log_path)
 
     conn = mgclient.connect(host="localhost", port=7687)
@@ -118,6 +94,6 @@ def test_flag_off_control_prepare_failure_logs_failed_query():
     except mgclient.DatabaseError:
         pass
 
-    content = _read_appended(log_path, start, expect=["[failed-query]", marker])
+    content = common.read_appended(log_path, start, expect=["[failed-query]", marker])
     relevant = [line for line in content.splitlines() if "[failed-query]" in line and marker in line]
     assert relevant, f"baseline (flag-off) failed to log a Prepare-phase failure; got: {content[-2000:]!r}"

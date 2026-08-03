@@ -235,43 +235,34 @@ struct ResourceLock {
   /// released. Exists for owners whose waiters are not on `cv`: a suspended coroutine parked on a
   /// separate wake event cannot be reached by cv.notify_all, but needs the same signal.
   ///
-  /// Why it lives here rather than at the call sites that release the lock: this class is the only
-  /// place that knows whether a given transition actually admitted anybody. That knowledge is
-  /// encoded in unlock_should_notify / pending_release_should_notify, and it is not obvious from
-  /// outside -- e.g. releasing a plain READ admits a pending UNIQUE (which needs state == UNLOCKED),
-  /// and a WRITE->READ downgrade admits a pending READ_ONLY (which needs w_count == 0). Every
-  /// admitting transition funnels through maybe_notify, so hooking there is exhaustive by
-  /// construction; hooking the release sites instead is a list you can be incomplete about, and
-  /// historically was, repeatedly.
+  /// Why it lives here and not at the release call sites: this class is the only place that knows
+  /// whether a transition actually admitted anybody. That knowledge is encoded in
+  /// unlock_should_notify / pending_release_should_notify and is not obvious from outside -- releasing
+  /// a plain READ admits a pending UNIQUE (needs state == UNLOCKED), and a WRITE->READ downgrade admits
+  /// a pending READ_ONLY (needs w_count == 0). Every admitting transition funnels through
+  /// maybe_notify, so hooking there is exhaustive by construction; hooking release sites is a list you
+  /// can be incomplete about, and historically was.
   ///
   /// Call once during setup, before the lock is shared with other threads: it is read without mtx.
   ///
-  /// The callback runs with mtx NOT held. It may take other locks, and it MAY re-enter this one --
-  /// that is not merely tolerated, it happens: the storage observer can end up driving a parked
-  /// coroutine's resume, which probes this very lock again (TryAccessWithPending -> try_acquire_pending
-  /// -> lock mtx). An earlier version of this comment forbade re-entry, which the code already
-  /// contradicted. What is actually required is weaker and is satisfied here:
+  /// The callback runs with mtx NOT held, may take other locks, and MAY re-enter this one -- not merely
+  /// tolerated, it happens: the storage observer can drive a parked coroutine's resume, which probes
+  /// this lock again. What is required:
   ///   - maybe_notify unlocks BEFORE invoking, so re-entry cannot self-deadlock;
-  ///   - the callback must not assume any particular lock state on entry: release, unregister_pending
-  ///     and downgrade_to_read all invoke it, as does a failed acquire, though only when dropping a
-  ///     READ_ONLY/UNIQUE pending count to zero (pending_release_should_notify) -- a failed WRITE/READ
-  ///     acquire never does;
-  ///   - re-entry must terminate. The reason is NOT that each nested step acquires or parks -- the
-  ///     recursing path does neither: a resumed coroutine bailing on shutdown destroys its campaign
-  ///     PendingHandle, whose unregister_pending notifies again. It terminates because the storage
-  ///     observer's NotifyAll moves its whole waiter list out under its own mutex before invoking
-  ///     anything, and NotifyMainLockReleased gates on WaitersPending() > 0 -- so a nested notify finds
-  ///     an empty list and stops. Stack depth is O(1), NOT O(waiters): because NotifyAll moves the
-  ///     whole list out and decrements the pending count BEFORE invoking anything, the N resumes run
-  ///     sequentially inside one loop rather than nesting one query frame per waiter. (An earlier
-  ///     version of this comment claimed the opposite -- "a teardown with very many parked waiters
-  ///     nests deeply" -- which would have invited someone to "fix" code that is already correct.)
-  /// Being called from inside a destructor is also normal -- ~ResourceLockGuard is the commonest
-  /// release site -- so the callback must not throw. The observer installed by storage satisfies that
-  /// at its DELIVERY step, which swallows and logs (see ParkState::TakeAndInvokeOnResume). Be precise
-  /// about the residual, though: the mutex acquisition AHEAD of delivery (NotifyAll -> ResumeAll's
-  /// lock_guard) is not noexcept, so a std::system_error there would still escape into a destructor.
-  /// Practically unreachable, but it is the one gap in "the requirement is satisfied".
+  ///   - the callback must assume no particular lock state on entry -- release, unregister_pending and
+  ///     downgrade_to_read all invoke it, as does a failed acquire, but only one dropping a
+  ///     READ_ONLY/UNIQUE pending count to zero (a failed WRITE/READ acquire never does);
+  ///   - re-entry must terminate. Not because each nested step acquires or parks -- the recursing path
+  ///     does neither (a resumed coroutine bailing on shutdown destroys its campaign PendingHandle,
+  ///     whose unregister_pending notifies again). It terminates because the storage observer's
+  ///     NotifyAll moves its whole waiter list out under its own mutex before invoking anything, and
+  ///     the notify gates on WaitersPending() > 0, so a nested notify finds an empty list. Depth is
+  ///     O(1), NOT O(waiters): N resumes run sequentially in one loop rather than nesting a frame each.
+  ///
+  /// Being invoked from inside a destructor is normal -- ~ResourceLockGuard is the commonest release
+  /// site -- so the callback must not throw. Storage's observer satisfies that at its DELIVERY step,
+  /// which swallows and logs. One residual: the mutex acquisition AHEAD of delivery is not noexcept, so
+  /// a std::system_error there would still escape into a destructor. Practically unreachable.
   void set_admit_observer(std::function<void()> observer) { admit_observer_ = std::move(observer); }
 
   void lock() {

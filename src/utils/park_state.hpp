@@ -25,59 +25,33 @@
 
 namespace memgraph::utils {
 
-/// Single-owner park descriptor shared by `WorkerResumeEvent` and `DeadlineParkRegistry` (IP-1
-/// design doc, opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md, REVISION 2's
-/// "ParkState single-owner model" and REVISION 4 R4.1/R4.2/R4.3 -- BINDING on this shape).
+/// Single-owner park descriptor shared by `WorkerResumeEvent` and `DeadlineParkRegistry`.
 ///
-/// ---------------------------------------------------------------------------------------------
-/// Why `on_resume` is a closure, not a bare `std::coroutine_handle<>` (R4.1/R4.2).
-/// ---------------------------------------------------------------------------------------------
-/// An earlier revision of this design stored a bare `std::coroutine_handle<> handle` here and had
-/// every wake source `handle.resume()` it directly. That shape cannot express the real resume
-/// contract: resuming a parked Prepare-coroutine is not just "continue this frame" -- it is a
-/// SESSION-AWARE continuation that (per R4.2) must keep the owning session alive across a
-/// cross-thread resume, detect pool shutdown before touching any per-database state, and, once
-/// the frame completes, re-drive the connection's normal post-Execute bookkeeping. None of that
-/// can live inside `WorkerResumeEvent`/`DeadlineParkRegistry` themselves (R4.1: they must stay
-/// coroutine-agnostic and reusable outside the Prepare-accessor use case), so it is factored out
-/// into an opaque `std::function<void()>` supplied by whoever constructs the `ParkState`. From
-/// the point of view of this header and its two registries, `on_resume` is a black box: they
-/// never need to know it wraps a coroutine handle at all.
+/// `on_resume` is an opaque closure rather than a bare `std::coroutine_handle<>` because resuming a
+/// parked Prepare is not just "continue this frame": it must keep the owning session alive across a
+/// cross-thread resume, detect pool shutdown before touching per-database state, and re-drive the
+/// connection's post-Execute bookkeeping once the frame completes. Keeping that behind a
+/// `std::function` is what lets the two registries stay coroutine-agnostic and reusable.
 ///
-/// Only the caller that wins `ClaimPark` may cause `on_resume` to run -- exactly once, exactly one
-/// winner across every wake source that ever races on this `ParkState` (lock-release
-/// `WorkerResumeEvent::NotifyAll`, `DeadlineParkRegistry::Sweep`'s deadline sweep, either
-/// registry's shutdown `Drain()`, and the awaitable's own abandon-path claim, R4.3). Losers must
-/// not ask for a resume and must not otherwise touch this `ParkState` beyond reading `claimed`.
+/// Only the caller that wins `ClaimPark` may cause `on_resume` to run -- exactly one winner across
+/// every wake source that can race here (lock-release `WorkerResumeEvent::NotifyAll`,
+/// `DeadlineParkRegistry::Sweep`, either registry's shutdown `Drain()`, and the awaitable's own
+/// abandon-path claim). Losers must not ask for a resume and must not touch anything but `claimed`.
 ///
-/// "May cause to run", NOT "may invoke": winning the claim does not put the winner in a position to
-/// call anything. `on_resume_` is private, and the winner's only move is `RequestResume`, which may
-/// well NOT deliver -- if the parking thread has not armed yet, the winner just records the request
-/// and the ARMING side delivers later, on a different thread. Claim and delivery are deliberately
-/// separate decisions (who vs. when); reading this paragraph as "the winner invokes the closure"
-/// misses the entire point of the gate below.
+/// "May cause to run", NOT "may invoke": the winner's only move is `RequestResume`, which may well
+/// NOT deliver -- if the parking thread has not armed yet, the winner records the request and the
+/// ARMING side delivers later, on another thread. Claim decides WHO, the gate decides WHEN.
 ///
-/// ---------------------------------------------------------------------------------------------
-/// Why `ParkState` is heap-allocated via `shared_ptr`, not a coroutine-frame local (R2).
-/// ---------------------------------------------------------------------------------------------
-/// A parked coroutine can be woken by up to three independent sources (see above). Exactly one of
-/// them may ever invoke `on_resume`; the others must detect "already taken" and touch nothing
-/// else. `claimed` is the single-owner flag that arbitrates this -- but for it to be observable by
-/// a *losing* waker, it must remain valid storage even after the *winning* waker has invoked
-/// `on_resume` (and thereby possibly driven the coroutine frame to completion and destruction).
-/// If `ParkState` lived inside the coroutine frame, a losing waker could race the frame's
-/// destruction and read a dangling `claimed` flag. Keeping it on its own heap allocation, kept
-/// alive by `shared_ptr` refcounting from every registry it is registered in (plus, in the real
-/// integration, the coroutine frame's own reference so it can find its `ParkState` again on a
-/// re-probe), avoids that race entirely.
-
-/// Delivery gate (see `RequestResume`/`ArmPark` below). Distinct from `claimed`: `claimed` decides
-/// WHO may resume, `gate` decides WHEN that resume may actually be delivered.
+/// Heap-allocated via `shared_ptr` rather than living in the coroutine frame because `claimed` must
+/// stay readable by a LOSING waker even after the winner has driven the frame to completion and
+/// destruction. Refcounting from every registry it is registered in keeps that storage valid.
 class ParkState;
 inline void PublishPendingPark(std::shared_ptr<ParkState> ps) noexcept;
 inline void DiscardPendingPark(const std::shared_ptr<ParkState> &ps);
 inline void ArmPendingParksAbove(size_t base_depth);
 
+/// Delivery gate (see `RequestResume`/`ArmPark`). Distinct from `claimed`: `claimed` decides WHO may
+/// resume, `gate` decides WHEN that resume may be delivered.
 enum class ParkGate : uint8_t {
   kParking,          // published to the registries, but the parking thread has not finished yet
   kArmed,            // the parking thread is done -- a resume may be delivered immediately
@@ -97,33 +71,26 @@ class ParkState {
   /// Moves `on_resume_` out and invokes the moved-out copy, so this `ParkState` stops owning whatever
   /// the closure captured the instant the resume fires.
   ///
-  /// Load-bearing, not tidiness. In the real integration `on_resume_` captures a
-  /// `shared_ptr<Session>` to keep the connection alive across the park, and a `ParkState` routinely
-  /// outlives its own resume: `DeadlineParkRegistry::Sweep` erases the entry from its own list but
-  /// nothing prunes the twin entry in `Storage::main_lock_resume_event_` until that event next
-  /// notifies. Every timed-out parked query therefore left a fired `ParkState` sitting in `waiters_`
-  /// still holding the Session -- and through it a `DatabaseAccess`, and through that
-  /// `Gatekeeper<Database>::count_` above zero, which is what stalls DROP DATABASE. Releasing here
-  /// makes the leftover entry inert regardless of when it is finally pruned.
+  /// Load-bearing, not tidiness: `on_resume_` captures a `shared_ptr<Session>`, and a `ParkState`
+  /// routinely outlives its own resume (`DeadlineParkRegistry::Sweep` erases its own entry, but the
+  /// twin entry in `Storage::main_lock_resume_event_` is not pruned until that event next notifies).
+  /// A fired-but-unpruned `ParkState` still holding the Session keeps a `DatabaseAccess` alive, and
+  /// with it `Gatekeeper<Database>::count_` above zero -- which is what stalls DROP DATABASE.
+  /// Releasing here makes the leftover entry inert however late it is pruned.
   ///
-  /// Exactly one caller ever reaches this (the gate guarantees a single delivery), so the moved-from
-  /// state is never observed by a second invocation.
+  /// The gate guarantees a single delivery, so the moved-from state is never seen by a second call.
   void TakeAndInvokeOnResume() noexcept {
     auto on_resume = std::move(on_resume_);
-    // Never propagate. Delivery allocates (it posts a task), and every caller is somewhere a throw
-    // would do disproportionate damage:
-    //   - ~ResourceLockGuard -> release -> the admit observer -> here, i.e. inside a destructor, where
-    //     an escaping exception terminates the process;
-    //   - WorkerResumeEvent::ResumeAll and DeadlineParkRegistry::Sweep/Drain loop over every claimed
-    //     waiter, so an escape would abandon the REST of them un-resumed -- each one a permanently
-    //     parked query, which is a far worse outcome than the one that failed;
-    //   - ~ParkArmGuard, during a task's own unwinding.
-    // Losing one resume strands one query (loudly logged). Losing the instance, or the other waiters,
-    // is worse. This is why callers may treat RequestResume/ArmPark as non-throwing.
-    // catch(...), not catch(const std::exception&): this function is noexcept, so ANY escaping
-    // exception -- including one that does not derive from std::exception -- calls std::terminate,
-    // which is the exact outcome the swallow exists to prevent. The log is itself inside a try for the
-    // same reason: spdlog can throw, and here it would throw on the way out of a failure.
+    // Never propagate; delivery allocates (it posts a task) and every caller is somewhere a throw
+    // does disproportionate damage: inside ~ResourceLockGuard (via the admit observer), inside
+    // ~ParkArmGuard during unwinding, or mid-loop in ResumeAll/Sweep/Drain -- where an escape would
+    // abandon the REST of the waiters, each one a permanently parked query. Stranding the single
+    // query that failed, loudly, is the least-bad outcome; this is why callers may treat
+    // RequestResume/ArmPark as non-throwing.
+    //
+    // catch(...) rather than catch(const std::exception &) because this function is noexcept: a
+    // non-std exception escaping would call std::terminate, the exact outcome being prevented. The
+    // log is itself wrapped for the same reason -- spdlog can throw, here on the way out of a failure.
     try {
       on_resume();
     } catch (...) {
@@ -134,23 +101,19 @@ class ParkState {
     }
   }
 
-  /// Deliberately private, reachable ONLY through `RequestResume`/`ArmPark`. Both halves of the
-  /// delivery gate are the whole safety argument for an un-pinned resume (see the gate discussion
-  /// below): a wake source that invoked this directly would resume a coroutine frame whose parking
-  /// thread may still be inside `await_suspend` -- the use-after-free that pinning used to prevent
-  /// structurally. Encapsulation is what keeps that a compile error rather than a code-review note.
+  /// Private, reachable ONLY through `RequestResume`/`ArmPark`: a wake source invoking this directly
+  /// would resume a frame whose parking thread may still be inside `await_suspend` -- the
+  /// use-after-free the gate exists to prevent. Encapsulation makes that a compile error.
   std::function<void()> on_resume_;
 
   /// Intrusive link for the publishing thread's pending-arm stack (`tls_pending_park_head` below).
-  /// Lives HERE, in storage the publisher already owns, so that publishing a park allocates nothing and
-  /// therefore cannot throw -- load-bearing, not a micro-optimisation. See `PublishPendingPark`.
+  /// Lives here, in storage the publisher already owns, so publishing allocates nothing and therefore
+  /// cannot throw -- load-bearing; see `PublishPendingPark`.
   ///
-  /// PRIVATE, with only the three stack functions as friends, for the same reason `on_resume_` is: the
-  /// safety property ("touched only by the publishing thread, never by a wake source") was previously
-  /// enforced by a comment, and a comment is not enforcement. A wake source on another thread touches
-  /// `claimed`, `gate` and `on_resume_` -- never this. It also must never be re-linked while already
-  /// on a stack, which the per-attempt `make_shared` guarantees; splicing one thread's chain into
-  /// another's would be silent.
+  /// Private (friended to the three stack functions) to enforce rather than merely document that only
+  /// the publishing thread touches it: a wake source on another thread touches `claimed`, `gate` and
+  /// `on_resume_`, never this. It must also never be re-linked while already on a stack -- the
+  /// per-attempt `make_shared` guarantees that, and splicing two threads' chains would be silent.
   std::shared_ptr<ParkState> next_pending;
 
   friend void RequestResume(ParkState &);
@@ -160,58 +123,48 @@ class ParkState {
   friend void ArmPendingParksAbove(size_t);
 };
 
-/// Attempts to claim `ps` for exactly one wake source. Returns true to EXACTLY ONE caller across
-/// all wake sources that ever race on the same `ParkState` -- every other caller, whether racing
-/// concurrently or arriving after the fact, gets false. Only the caller that receives `true` may
-/// ask for a resume (`RequestResume`, never `on_resume` directly -- it is private for that reason);
-/// a caller that receives `false` must not, and must simply stop (R4.3: this includes the awaitable's
-/// own abandon-path claim attempt, which loses exactly when some other wake source got there first
-/// and is already driving -- or has already driven -- the resume to completion).
+/// Attempts to claim `ps` for exactly one wake source. Returns true to EXACTLY ONE caller across all
+/// wake sources that ever race on the same `ParkState`; everyone else, racing or late, gets false.
+/// Only the winner may ask for a resume (via `RequestResume`); a loser must simply stop. That
+/// includes the awaitable's own abandon-path claim, which loses precisely when another wake source
+/// got there first and is already driving the resume.
 inline bool ClaimPark(ParkState &ps) { return !ps.claimed.exchange(true, std::memory_order_acq_rel); }
 
-/// ---------------------------------------------------------------------------------------------
-/// The delivery gate: why winning `ClaimPark` is NOT enough to resume (IP-1 F6, un-pinned resume).
-/// ---------------------------------------------------------------------------------------------
-/// A park is published to the registries from INSIDE the parking thread's `await_suspend`, and that
-/// thread keeps running for a while afterwards: it finishes `await_suspend` itself (the B1
-/// register-before-recheck re-probe, the shutdown self-claim), then unwinds back through
-/// `coroutine_handle::resume()` into its DRIVER, which still has post-`Resume()` bookkeeping to do
-/// (see communication::v2::Session::RunLoop: it must observe `!Done()` and retain the connection's
-/// single in-flight slot before returning). None of that may run concurrently with a resume, which
-/// re-enters the very same coroutine chain and the very same session state.
+/// THE DELIVERY GATE: why winning `ClaimPark` is not enough to resume.
 ///
-/// Until IP-1 F6 that exclusion came for free from PINNING the resume onto the parking worker: a
-/// same-worker pinned task cannot start until that worker returns to its run loop, i.e. until the
-/// whole driver call finished. Pinning conflated WHEN the resume may run with WHERE it runs, and the
-/// WHERE half is what made a parked query's timeout (and its ordinary wake latency) hostage to one
-/// worker's backlog -- an unrelated long-running task on that worker delays the resume arbitrarily.
+/// A park is published from INSIDE the parking thread's `await_suspend`, and that thread keeps running
+/// afterwards: it finishes `await_suspend` (register-before-recheck re-probe, shutdown self-claim),
+/// then unwinds through `coroutine_handle::resume()` into its DRIVER, which still has post-`Resume()`
+/// bookkeeping to do (`Session::RunLoop` must observe `!Done()` and retain the connection's single
+/// in-flight slot). None of that may run concurrently with a resume, which re-enters the same
+/// coroutine chain and the same session state.
 ///
-/// This gate keeps the WHEN and drops the WHERE. It is a two-party rendezvous on a single atomic
-/// between the claim winner (`RequestResume`) and the parking thread's task boundary (`ArmPark`):
-/// each exchanges in its own marker and reads what the other left, so whichever arrives SECOND
-/// invokes `on_resume` exactly once, and neither can invoke it early. `on_resume` may then post the
-/// resume to ANY worker.
+/// That exclusion used to come for free from PINNING the resume to the parking worker, since a
+/// same-worker task cannot start until that worker returns to its run loop. But pinning conflated WHEN
+/// the resume may run with WHERE, and the WHERE half made every parked query's wake latency hostage to
+/// one worker's backlog. This gate keeps the WHEN and drops the WHERE: a two-party rendezvous on one
+/// atomic between the claim winner (`RequestResume`) and the parking thread's task boundary
+/// (`ArmPark`). Each exchanges in its marker and reads the other's, so whoever arrives SECOND delivers
+/// exactly once and neither can deliver early. `on_resume` may then post to ANY worker.
 ///
-/// Asymmetry worth knowing: arming a park nobody has requested a resume for is harmless (it just moves
-/// to `kArmed` and stays there), while under-arming hangs the park forever -- and not
-/// only for that query: the parked frame holds its campaign-long `PendingHandle`, which keeps
-/// `unique_pending_count` above zero and makes `can_acquire<WRITE>`, `<READ>` and `<READ_ONLY>` all
-/// false for good on that storage. So arm from somewhere that cannot be skipped: `ParkArmGuard` below,
-/// wrapped around every site that runs a SESSION/Prepare task body: utils::PriorityThreadPool's three
-/// run-loop sites plus `PostResumeTask`'s inline fallback. (`TaskCollection::WaitOrSteal` also invokes
-/// a task body inline and deliberately has no guard: those are Pull-time parallel-execution tasks,
-/// which never reach the Prepare park path, and the caller is itself inside a guarded task -- so a park
-/// published under it would be armed by that outer guard, strictly after the inline body returned.)
+/// The asymmetry that matters: arming a park nobody requested a resume for is harmless, while
+/// UNDER-arming hangs it forever -- and not only that query. The parked frame holds its campaign-long
+/// `PendingHandle`, which keeps `unique_pending_count` above zero and makes `can_acquire<WRITE>`,
+/// `<READ>` and `<READ_ONLY>` all permanently false on that storage, so untimed acquirers (TTL thread,
+/// replication apply) block forever and the database is bricked until restart. Hence arming lives in
+/// `ParkArmGuard`, which must wrap EVERY site that runs a session/Prepare task body: the pool's three
+/// run-loop sites plus `PostResumeTask`'s inline fallback. (`TaskCollection::WaitOrSteal` also runs a
+/// task body inline and deliberately has no guard -- those are Pull-time parallel tasks that never
+/// reach the Prepare park path, and its caller is itself inside a guarded task, so any park published
+/// underneath is armed by that outer guard once the inline body returns.)
 ///
-/// Arming a park whose resume has ALREADY been delivered is a different matter and must not happen: it
-/// would find `kResumeRequested` and invoke a moved-from `on_resume_`. Each `ParkState` is pushed once
-/// and popped when armed, so it cannot. Worth knowing what changed here: before `on_resume_` was moved
-/// out on delivery, a double arm resumed the handle TWICE -- a use-after-free. Now the same mistake
-/// merely logs, which is a real improvement but not a licence to rely on it.
+/// Arming an ALREADY-delivered park must not happen -- it would find `kResumeRequested` and invoke a
+/// moved-from `on_resume_`. Each `ParkState` is pushed once and popped when armed, so it cannot. (That
+/// mistake used to be a double `resume()`, i.e. a use-after-free; it now merely logs, which is an
+/// improvement and not a licence to rely on it.)
 
-/// Called by the winner of `ClaimPark`. This is the ONLY way a wake source can ask for a resume --
-/// `on_resume_` is private precisely so "claim, then resume" cannot be written by accident. Invokes
-/// it here iff the parking thread already armed; otherwise the arming side will.
+/// Called by the winner of `ClaimPark` -- the ONLY way a wake source can ask for a resume. Delivers
+/// here iff the parking thread already armed; otherwise the arming side will.
 inline void RequestResume(ParkState &ps) {
   if (ps.gate.exchange(ParkGate::kResumeRequested, std::memory_order_acq_rel) == ParkGate::kArmed) {
     ps.TakeAndInvokeOnResume();
@@ -227,37 +180,26 @@ inline void ArmPark(ParkState &ps) {
   }
 }
 
-/// Parks published by THIS thread that are still awaiting their `ArmPark`, innermost last.
+/// Parks published by THIS thread still awaiting their `ArmPark`. Intrusive singly-linked stack
+/// (link in `ParkState::next_pending`), innermost at the head, with an explicit depth that arming
+/// sites key off (see `ParkArmGuard`).
 ///
-/// A STACK rather than a single slot, because task execution nests. `PostResumeTask`'s
-/// all-workers-stopped fallback (utils/priority_thread_pool.cpp) runs a resume INLINE on the claiming
-/// thread, and that resume re-enters the whole session chain -- `h.resume()` -> the caller's resumed
-/// hook -> `Session::RunLoop` -> `Execute()` -> possibly a brand new query that parks. That nested
-/// park is published while the OUTER park is still pending its own arm. With one slot the inner
-/// publish silently overwrote the outer one, and an overwritten park is not merely a lost query: it
-/// stays registered with `gate == kParking`, so no `RequestResume` can ever deliver it, and its
-/// coroutine frame holds the campaign-long `PendingHandle` forever -- which pins
-/// `unique_pending_count` above zero and makes `can_acquire<WRITE>`, `<READ>` and `<READ_ONLY>` all
-/// false permanently (utils/resource_lock.hpp). Untimed acquirers (the TTL thread, replication apply)
-/// then block forever and the database is bricked until the process restarts.
+/// A STACK rather than a single slot, because task execution nests: `PostResumeTask`'s
+/// all-workers-stopped fallback runs a resume INLINE on the claiming thread, and that resume re-enters
+/// the session chain (`h.resume()` -> resumed hook -> `Session::RunLoop` -> `Execute()` -> possibly a
+/// new query that parks) while the OUTER park is still pending its arm. With one slot the inner publish
+/// silently overwrote the outer, leaving it registered at `gate == kParking` -- unarmable, so its frame
+/// pins `unique_pending_count` forever and bricks the storage (see the gate's asymmetry note above).
+/// A stack makes that nesting representable instead of fatal, which is why this is not just an assert.
 ///
-/// A stack makes that nesting REPRESENTABLE instead of fatal, which is why this is not merely an
-/// assert. Depth, not identity, is what each arming site keys off -- see `ParkArmGuard`.
-/// An INTRUSIVE stack (link in `ParkState::next_pending`), innermost at the head, with an explicit
-/// depth so arming sites can key off depth exactly as before.
-///
-/// Intrusive specifically so that publishing CANNOT THROW. This was a `std::vector` and that was a
-/// blocker: `push_back` allocates, and a `bad_alloc` there left `ps` registered on the wake event but
-/// absent from this stack. If a wake source claimed `ps` in that window, the publisher's `catch`
-/// handler lost `ClaimPark`, concluded "somebody else will resume us" and suspended -- but nothing
-/// could ever arm a park that was never published, so the gate stayed at `kResumeRequested`, the frame
-/// never resumed, and its campaign-long `PendingHandle` pinned `unique_pending_count` above zero
-/// forever. That bricks the storage, which is the exact failure this whole stack exists to prevent.
-///
-/// The fix is not a bigger `catch`: it is making the failure UNREPRESENTABLE. `ParkState` is already
-/// heap-allocated before it is published, so linking it costs two `shared_ptr` assignments and no
-/// allocation. Do not reintroduce a container here, and do not "simplify" this back to a vector with a
-/// `reserve` -- `reserve` still throws, and a deep enough nesting still reallocates.
+/// INTRUSIVE specifically so publishing CANNOT THROW. As a `std::vector` this was a blocker:
+/// `push_back` allocates, and a `bad_alloc` left `ps` registered on the wake event but absent from the
+/// stack. A wake source claiming in that window made the publisher lose `ClaimPark`, conclude
+/// "somebody else will resume us" and suspend -- but nothing can arm a park that was never published,
+/// so the frame never resumed and bricked the storage exactly as above. The fix is not a bigger
+/// `catch`, it is making the failure unrepresentable: `ParkState` is already heap-allocated before
+/// publication, so linking costs two `shared_ptr` assignments and no allocation. Do not reintroduce a
+/// container -- `reserve` still throws, and deep enough nesting still reallocates.
 inline thread_local std::shared_ptr<ParkState> tls_pending_park_head;
 inline thread_local size_t tls_pending_park_depth = 0;
 
@@ -274,28 +216,22 @@ inline void PublishPendingPark(std::shared_ptr<ParkState> ps) noexcept {
   ++tls_pending_park_depth;
 }
 
-/// Drops a pending-arm park WITHOUT arming it. Only for a parking attempt that published `ps` and
-/// then self-claimed it (the abandon path / shutdown self-claim): the publisher itself is the claim
-/// winner, so no resume will ever be requested and arming would be a no-op anyway -- dropping it
-/// merely avoids holding the `ParkState` alive until this thread's next arming point.
+/// Drops a pending-arm park WITHOUT arming it. Only for a parking attempt that published `ps` and then
+/// self-claimed it (abandon path / shutdown self-claim): the publisher is itself the claim winner, so
+/// no resume will ever be requested and arming would be a no-op -- dropping it merely avoids holding
+/// the `ParkState` alive until this thread's next arming point.
 ///
-/// `ps` must be the innermost pending park. An earlier version of this comment justified that with
-/// "a publisher self-claims within the same `await_suspend` that published, with no nested task
-/// execution in between" -- which is FALSE, and worth correcting rather than deleting because the
-/// false version reads as reassuring. Nested task execution IS reachable inside that window: releasing
-/// a `main_lock_` hold there (a destructed accessor, or an accessor that unwinds partly built) reaches
-/// ResourceLock's admit observer, which can claim a foreign park and, when every worker is stopped,
-/// run its resume INLINE on this thread -- a whole session chain that may publish a park of its own.
+/// `ps` must be the innermost pending park. Note the reason is NOT "no nested task execution can
+/// happen in between" -- nesting IS reachable here: releasing a `main_lock_` hold inside that window
+/// reaches ResourceLock's admit observer, which can claim a foreign park and, with every worker
+/// stopped, run its resume inline on this thread. What holds the invariant is that such a nested
+/// publish is BALANCED before control returns: the inline-resume site runs under its own
+/// `ParkArmGuard`, and `ArmPendingParksAbove` pops each park before arming, so the nested chain
+/// consumes exactly what it published and the head is `ps` again by the time we get here. THAT is the
+/// property a future edit must preserve.
 ///
-/// What actually holds the invariant is that any such nested publish is BALANCED before control
-/// returns: the inline-resume site runs under its own `ParkArmGuard` (utils/priority_thread_pool.cpp),
-/// and `ArmPendingParksAbove` pops each park before arming it, so the nested chain consumes exactly
-/// what it published. The head is `ps` again by the time we get here. That is the property a future
-/// edit must preserve -- not "nesting cannot happen".
-///
-/// MG_ASSERT rather than DMG_ASSERT deliberately -- a mismatch here would drop somebody else's arm,
-/// and that is the brick-the-database failure described above, which must not be a no-op in a release
-/// build.
+/// MG_ASSERT, not DMG_ASSERT: a mismatch drops somebody else's arm, which is the brick-the-database
+/// failure above and must not be a no-op in a release build.
 inline void DiscardPendingPark(const std::shared_ptr<ParkState> &ps) {
   MG_ASSERT(tls_pending_park_head == ps,
             "DiscardPendingPark on a park that is not this thread's innermost pending park -- dropping it "
@@ -305,18 +241,16 @@ inline void DiscardPendingPark(const std::shared_ptr<ParkState> &ps) {
   --tls_pending_park_depth;
 }
 
-/// Arms every park published above `base_depth`, innermost first, and pops them. Each arming site
-/// passes the depth it observed on entry, so a nested arming point can only ever arm the parks its own
-/// nested execution published -- never an outer task's park, whose driver has not finished yet and for
-/// which a delivered resume would be exactly the race the gate exists to prevent.
+/// Arms every park published above `base_depth`, innermost first, popping as it goes. Each arming site
+/// passes the depth it observed on entry, so a nested arming point can only arm the parks its own
+/// nested execution published -- never an outer task's, whose driver has not finished and for which a
+/// delivered resume is exactly the race the gate prevents.
 ///
-/// The loop is DEFENCE IN DEPTH, not a mechanism anything currently relies on -- reviewed and stated
-/// precisely because an earlier version of this comment justified it with a path that does not exist.
-/// `ArmPark` can invoke `on_resume_`, which on the inline-resume path runs a session chain that may
-/// publish another park; but that chain runs under its OWN `ParkArmGuard`, whose base equals ours by
-/// then (we pop before arming), so it consumes what it published before returning and this loop's
-/// re-test finds nothing. The loop earns its keep only if a future arming site forgets its guard,
-/// which is cheap insurance for a failure mode whose cost is a permanently parked query.
+/// The loop is DEFENCE IN DEPTH; nothing currently relies on iterating more than once. `ArmPark` can
+/// invoke `on_resume_`, which on the inline path runs a session chain that may publish another park --
+/// but that chain has its OWN `ParkArmGuard` whose base equals ours (we pop before arming), so it
+/// consumes what it published and this loop's re-test finds nothing. The loop earns its keep only if a
+/// future arming site forgets its guard.
 inline void ArmPendingParksAbove(size_t base_depth) {
   while (tls_pending_park_depth > base_depth) {
     auto ps = std::move(tls_pending_park_head);

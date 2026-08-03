@@ -9,76 +9,45 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-"""Shared scenario for the parkable-Prepare accessor-yield e2e tests
-(--experimental-coro-prepare-accessor-yield), Session-surgery Stage B. See
-opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md.
+"""Shared scenario for the parkable-Prepare accessor-yield e2e tests.
 
-THE MECHANISM (see utils/resource_lock.hpp and query/interpreter.cpp's IndexQuery/CypherQuery
-Visit() overloads for the ground truth):
+THE SCENARIO: hold a WRITE accessor open (H), fire enough conflicting CREATE INDEX contenders to
+saturate every worker thread (C0..Ck), then measure how long an unrelated `RETURN 1` (P) takes.
+Under parking, P is fast regardless of the contenders, because every worker they touched was freed
+almost immediately. Under blocking, P waits behind the pinned workers.
 
-  * READ and WRITE storage accessors COEXIST: ResourceLock::can_acquire<READ>() only
-    checks that no UNIQUE is pending -- it never checks w_count. So a plain read (or a bare
-    `RETURN 1`) never blocks, and is never blocked by, an open write transaction.
-  * READ_ONLY (what `CREATE INDEX` takes for IN_MEMORY_TRANSACTIONAL --
-    IndexQuery::Action::CREATE) and UNIQUE are the only access types that get CONTENDED against a
-    concurrent WRITE: can_acquire<READ_ONLY>() requires `w_count == 0`.
-  * An explicit (BEGIN'd) transaction defaults to StorageAccessType::WRITE unless the driver
-    marks it read-only (PrepareTransactionQuery's BEGIN handler: `extras.is_read ? READ : WRITE`;
-    mgclient never sets that flag), regardless of which statements are subsequently run inside
-    it. So holding an explicit transaction open with ANY statement -- even `RETURN 1` -- holds a
-    WRITE accessor. This module still issues an explicit write (`CREATE`) for the holder, both
-    because it is the least ambiguous way to force WRITE and because it is what a real
-    long-running interactive write transaction looks like.
-  * `CREATE INDEX` (and RETURN 1, and BEGIN/COMMIT/ROLLBACK) are all LOW priority ONCE PARSED
-    (SessionHL::ApproximateQueryPriority: only a hand-picked allowlist of non-Cypher/non-index
-    system queries gets HIGH -- see src/glue/SessionHL.cpp:223-259). With a small
-    --bolt-num-workers pool, enough concurrent LOW priority CREATE INDEX contenders can pin every
-    worker -- if their accessor acquire blocks the worker thread instead of parking it, nothing
-    else LOW priority (including a trivial RETURN 1) can be dispatched until a worker frees up.
-  * IMPORTANT ESCAPE HATCH -- why NUM_CONTENDERS is bolt-num-workers + 1, not bolt-num-workers:
-    `--bolt-num-workers=N` only sizes the LP ("mixed-work") tier of `utils::PriorityThreadPool`.
-    There is ALWAYS one additional, fixed HP (high-priority) worker thread alongside it
-    (src/memgraph.cpp: `worker_pool_.emplace(bolt_num_workers /*LP*/, 1U /*HP*/, ...)`), not
-    counted by the flag. `SessionHL::ApproximateQueryPriority()` (SessionHL.cpp:223-258) can only
-    classify a query as LOW *after* it has been parsed (`state_ == Parsed`); a request's very
-    first dispatch (from `OnRead`, before any parsing happens) falls through to the function's
-    default, `utils::Priority::HIGH` (SessionHL.cpp:258). A HIGH-tagged task queued behind an
-    already-busy LP worker is exactly what the dedicated HP thread's work-stealing loop looks for
-    (src/utils/priority_thread_pool.cpp's steal gate: `if (worker->work_.top().id <=
-    kMaxLowPriorityId) continue;`), so it can steal and run that task on the HP thread --
-    independent of whether both LP workers are pinned. Concretely: with exactly
-    `--bolt-num-workers` contenders and a single free-standing `RETURN 1` probe, the probe's
-    first (and often only) dispatch is HIGH-tagged and gets stolen onto the ever-present HP
-    thread, returning fast REGARDLESS of flag state or LP-pool saturation -- this was verified
-    empirically (an earlier iteration of this test measured the probe returning in ~7ms with the
-    flag OFF and every LP worker genuinely, provably blocked for 6-12s) and independently against
-    the source. To close this escape hatch, NUM_CONTENDERS below is bolt-num-workers + 1: enough
-    to saturate every LP worker AND the one HP thread, so the probe (also HIGH-tagged on its
-    first dispatch) has no free thread anywhere to be stolen onto.
+WHY IT DISCRIMINATES (ground truth: utils/resource_lock.hpp, SessionHL::ApproximateQueryPriority):
 
-This is exactly the discriminating scenario: hold a WRITE accessor open (H), fire enough
-conflicting CREATE INDEX contenders to saturate every worker thread including the HP one (C0..Ck),
-then measure how long a completely unrelated RETURN 1 (P) takes to come back. Under real parking,
-P is fast regardless of the contenders (every thread they touched was freed almost immediately).
-Under plain blocking, P is stuck behind the pinned threads until one frees.
+  * READ and WRITE accessors COEXIST -- can_acquire<READ>() checks only that no UNIQUE is pending,
+    never w_count. So `RETURN 1` neither blocks nor is blocked by an open write transaction.
+  * READ_ONLY (what `CREATE INDEX` takes on IN_MEMORY_TRANSACTIONAL) and UNIQUE are the only types
+    contended against a concurrent WRITE: can_acquire<READ_ONLY>() requires w_count == 0.
+  * A BEGIN'd transaction takes WRITE unless the driver marks it read-only, which mgclient never
+    does -- so any explicit transaction holds WRITE whatever runs inside it. The holder still issues
+    a real `CREATE`, as the least ambiguous way to force WRITE.
+  * CREATE INDEX and RETURN 1 are both LOW priority once parsed, so enough concurrent contenders can
+    pin every worker -- if their acquire blocks the worker instead of parking it, nothing else LOW
+    can be dispatched until one frees.
 
-WHY THE CONTENDERS ARE SEPARATE PROCESSES, NOT THREADS -- mgclient does not release the GIL
-during a blocking `execute()`/response-read (its C extension wraps `mg_session_run`/`_pull`/
-`_fetch` without `Py_BEGIN_ALLOW_THREADS`; see the still-open upstream issue
-https://github.com/memgraph/pymgclient/issues/44, "Release the GIL when dealing with not Python
-related things"). An earlier iteration of this module ran the contenders as `threading.Thread`s
-and hit exactly that bug: server-side TRACE logs showed only ONE contender's query actually being
-dispatched at scenario start; the other contenders' bolt connections weren't even *accepted*
-until the first contender's blocking call finally returned (up to 6s later) and released the
-GIL -- starving every other Python thread in the process, including the one meant to fire P's
-probe and the one meant to release H on schedule. Running each contender in its own OS process
-(`concurrent.futures.ProcessPoolExecutor`) gives each one its own GIL, so they are genuinely
-concurrent from the server's point of view, matching what the scenario is actually meant to
-exercise (NUM_CONTENDERS real concurrent connections, not one real connection plus
-NUM_CONTENDERS-1 GIL-starved stragglers).
+TWO EMPIRICAL FINDINGS, both of which cost a broken version of this test to learn:
+
+  1. NUM_CONTENDERS is bolt-num-workers + 1, NOT bolt-num-workers. `--bolt-num-workers=N` sizes only
+     the LP tier; there is always one additional fixed HP thread. A request's FIRST dispatch happens
+     before parsing, so it falls through to the HIGH default -- and a HIGH-tagged task queued behind
+     a busy LP worker is exactly what the HP thread's steal loop looks for. With exactly N
+     contenders, the probe gets stolen onto the HP thread and returns fast REGARDLESS of flag state:
+     measured at ~7ms with the flag OFF while every LP worker was provably blocked for 6-12s. The
+     +1 saturates the HP thread too, so the probe has nowhere to be stolen.
+  2. The contenders are separate PROCESSES, not threads. mgclient does not release the GIL during a
+     blocking execute()/response-read (https://github.com/memgraph/pymgclient/issues/44). As
+     threads, server TRACE logs showed only ONE contender's query dispatched -- the others' Bolt
+     connections were not even accepted until the first blocking call returned up to 6s later,
+     starving the threads meant to fire the probe and release the holder on schedule.
 """
 
 import concurrent.futures
+import glob
+import os
 import threading
 import time
 import typing
@@ -302,3 +271,38 @@ def run_timeout_preserved_scenario(hold_seconds: float = TIMEOUT_PRESERVED_HOLD_
     holder.close()
 
     return result_holder[0]
+
+
+# ---------------------------------------------------------------------------
+# Log assertions, shared by the flag-on and flag-off arms. Both arms assert on the SAME log lines
+# (the on-arm that a diagnostic survives parking, the off-arm that it was there to begin with), so
+# these live here rather than being copied into each -- they were byte-identical duplicates.
+# ---------------------------------------------------------------------------
+
+
+def active_log_path(stem: str) -> str:
+    """Newest log file for `stem`. Each arm has its OWN log name (set by its workloads.yaml entry),
+    so the stem is a parameter -- hardcoding one arm's name silently reads the other arm's log."""
+    pattern = os.path.join(
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")),
+        "e2e",
+        "logs",
+        f"{stem}_2*.log",
+    )
+    candidates = glob.glob(pattern)
+    assert candidates, f"memgraph did not create a log file matching {pattern}"
+    return max(candidates, key=os.path.getmtime)
+
+
+def read_appended(log_path, start_offset, *, expect, timeout=5.0) -> str:
+    """Polls the log from `start_offset` until every string in `expect` appears, or `timeout`."""
+    deadline = time.monotonic() + timeout
+    while True:
+        with open(log_path, "r") as f:
+            f.seek(start_offset)
+            content = f.read()
+        if all(s in content for s in expect):
+            return content
+        if time.monotonic() >= deadline:
+            return content
+        time.sleep(0.05)

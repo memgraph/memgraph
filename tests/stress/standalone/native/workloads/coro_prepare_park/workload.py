@@ -15,97 +15,76 @@
 """
 Parkable-Prepare (--experimental-coro-prepare-accessor-yield) contention soak.
 
-WHY THIS EXISTS, and it is not "more coverage for its own sake". The feature's two
-characteristic failure modes are BOTH ACCUMULATION bugs, and both were real defects on the
-branch that introduced it -- each found by adversarial review, neither by any test:
+WHY THIS EXISTS: the feature's two characteristic failure modes are both ACCUMULATION bugs, both
+were real defects on this branch, and both were found by review rather than by any test.
 
-  1. A park that is published but never delivered. The coroutine frame stays suspended
-     forever, its `shared_ptr<Session>` never dies, that Session holds a DatabaseAccess, and
-     Gatekeeper<Database>::count_ never returns to zero.
-  2. A resumed park left registered behind itself. `waiters_pending_` stays non-zero, which
-     permanently defeats the "nobody is parked" fast path, and every later admitting
-     transition then bumps the wake epoch -- a bumped epoch fails concurrent RegisterWaiter
-     calls, so REAL parkers are sent back around the acquire loop with no backoff. One stale
-     entry converts parkers into spinners.
+  1. A park published but never delivered. The frame stays suspended forever, its
+     shared_ptr<Session> never dies, and Gatekeeper<Database>::count_ never returns to zero.
+  2. A resumed park left registered behind itself. `waiters_pending_` stays non-zero, defeating the
+     "nobody is parked" fast path, so every later admitting transition bumps the wake epoch -- and a
+     bumped epoch fails concurrent RegisterWaiter calls, sending REAL parkers back around the
+     acquire loop with no backoff. One stale entry turns parkers into spinners.
 
-Neither is visible in the functional e2e (3 contenders, ~6 seconds, one deterministic
-scenario). One leaked entry per timed-out park is invisible at that scale and obvious at
-100k. The e2e proves parking WORKS; this proves it does not ROT.
+Neither is visible in the functional e2e (3 contenders, ~6s, one deterministic scenario): one leaked
+entry per timed-out park is invisible there and obvious at 100k. The e2e proves parking WORKS; this
+proves it does not ROT.
 
----------------------------------------------------------------------------------------------
-CONTENTION DESIGN -- and a mistake worth not repeating
+CONTENTION DESIGN, and the mistake not to repeat. The first version saturated the pool with eight
+WRITER threads and asserted the probe stayed fast. It failed at p50 ~0.96s -- and that was the
+test's fault. Busy writers are not BLOCKED writers: a worker executing a real transaction is not
+being wasted, and parking neither can nor should help. Worse, that design's continuously-pending
+UNIQUE gates every new acquire of every kind (can_acquire<READ> demands unique_pending_count == 0),
+so the probe was not waiting for a worker, it was inadmissible -- and no amount of parking fixes
+inadmissible.
 
-The first version of this file saturated the pool with EIGHT WRITER THREADS doing small
-committed transactions, then asserted the probe stayed fast. It failed, at p50 ~0.96s, and the
-failure was the test's fault, not the server's. Measured, not guessed:
+What parking recovers is workers pinned in try_lock_for on an accessor somebody else holds, so
+Phase A builds exactly that: ONE long-held WRITE accessor, more READ_ONLY contenders than there are
+Bolt workers. Measured on this branch: parking ON p50 0.0016s over 365 probes, OFF p50 0.9500s over
+22. Phase B then runs harsher mixed churn (including UNIQUE) purely to MANUFACTURE PARKS for the
+leak gate, with NO latency assertion -- under a pending UNIQUE, slow is correct.
 
-    writers + READ_ONLY churn : p50 0.9620s
-    writers + UNIQUE churn    : p50 1.9772s
-    writers + both            : p50 1.0657s
-
-Busy writers are not BLOCKED writers. A pool worker executing a real transaction is not a
-worker being wasted, and parking neither can nor should help there -- that latency was
-ordinary queueing behind productive work. Worse, the continuously-PENDING UNIQUE in that
-design gates every new acquire of every kind (can_acquire<READ> demands
-unique_pending_count == 0), so the probe was not waiting for a worker at all; it was
-inadmissible. No amount of parking fixes inadmissible.
-
-What parking actually recovers is workers pinned in `try_lock_for` waiting on an accessor
-somebody else holds. So Phase A below builds exactly that: ONE long-held WRITE accessor, and
-more READ_ONLY contenders than there are Bolt workers. Same shape, measured on this branch:
-
-    parking ON  : 365 probes, p50 0.0016s
-    parking OFF :  22 probes, p50 0.9500s
-
-~600x, and that is the property worth asserting. Phase B then runs the harsher mixed churn
-(including UNIQUE) purely to MANUFACTURE PARKS for the leak gate, with NO latency assertion --
-because under a pending UNIQUE, slow is correct.
-
----------------------------------------------------------------------------------------------
 WHAT IT ASSERTS
 
-  A. LEAK GATE (the load-bearing one). After the contended window every workload driver is
-     closed, then the run waits for `ActiveBoltSessions` to return to the pre-run baseline. A
-     leaked park is exactly a Session that outlives its connection, and SessionHL holds a
-     ScopedGauge on that metric for the session's whole lifetime -- so this is a direct probe
-     of failure mode 1, needing no enterprise license and no multi-tenancy (unlike the
-     DROP DATABASE formulation, which also works but only with a license).
-  B. RESPONSIVENESS, Phase A, flag-on only. An unrelated `RETURN 1` must stay fast while every
-     Bolt worker has a contender blocked on a held accessor.
-  C. NO STRANDED WORK. The server answers after the run, and every client error matched a
-     known marker -- an unrecognised error fails the run rather than being swallowed.
-  D. NON-VACUITY. Contention must have actually happened: the run fails if the contenders
-     completed nothing, if Phase B produced no accessor timeouts (i.e. nothing ever rode a
-     deadline, so no park was manufactured), or if the probe never ran.
+  A. LEAK GATE (load-bearing). After the contended window every driver is closed, then the run waits
+     for `ActiveBoltSessions` to return to the pre-run baseline. A leaked park is precisely a Session
+     outliving its connection, and SessionHL holds a ScopedGauge on that metric for the session's
+     whole lifetime -- a direct probe of failure mode 1, needing no enterprise license (unlike the
+     DROP DATABASE formulation, which also works but only with one).
+  B. RESPONSIVENESS (Phase A, flag-on only). An unrelated `RETURN 1` stays fast while every Bolt
+     worker has a contender blocked on a held accessor.
+  C. NO STRANDED WORK. The server answers afterwards, and every client error matched a known marker;
+     an unrecognised error fails the run rather than being swallowed.
+  D. NON-VACUITY. The run fails if the contenders completed nothing, if Phase B produced no accessor
+     timeouts (so no park was manufactured), or if the probe never ran.
 
-WHAT IT DOES **NOT** ASSERT -- do not read more into a green run than this
+WHAT IT DOES NOT ASSERT
 
-  * It does not prove a park ever occurred. There is no server-side signal for parked-ness:
-    PrepareCoro defers SetupInterpreterTransaction, so a parked query is deliberately
-    invisible to SHOW TRANSACTIONS. The on/off latency contrast is the only evidence, and it
-    is statistical, not structural.
-  * It does not localise a leak. A failing gate says "a Session outlived its connection", not
-    which of the two registries kept it alive.
-  * It does not exercise shutdown-with-parks-in-flight. The stress runner owns the process
-    lifetime; that path is covered by the park_shutdown e2e instead.
+  * It does not prove a park occurred. The on/off latency contrast is the only evidence here, and it
+    is statistical, not structural. NOTE this limitation is now narrower than it was: a parked query
+    IS visible to SHOW TRANSACTIONS, since SetupInterpreterTransaction runs in Phase 1 BEFORE the
+    acquire. Asserting parked-ness directly is therefore possible and simply not done yet.
+  * It does not localise a leak -- a failing gate says "a Session outlived its connection", not which
+    registry kept it alive.
+  * It does not exercise shutdown with parks in flight; the stress runner owns the process lifetime,
+    so the park_shutdown e2e covers that.
 
-Access types come from interpreter.cpp's TransactionRequirements visitor; only UNIQUE and
-READ_ONLY can park. `CREATE INDEX` is READ_ONLY, `CREATE POINT INDEX` is UNIQUE, and an
-explicit transaction doing a CREATE holds WRITE. Index DDL is idempotent in Memgraph -- CREATE
-on an existing index and DROP on a missing one both return OK -- which is what lets the
-"unrecognised error fails the run" rule be strict.
+Only UNIQUE and READ_ONLY can park. `CREATE INDEX` is READ_ONLY, `CREATE POINT INDEX` is UNIQUE, and
+an explicit transaction doing a CREATE holds WRITE. Index DDL is idempotent in Memgraph -- CREATE on
+an existing index and DROP on a missing one both return OK -- which is what lets the "unrecognised
+error fails the run" rule be strict.
 
 Run directly (smoke test):
 
   python3 workload.py --endpoint 127.0.0.1:7687 --responsive-sec 20 --churn-sec 40
 
-The stress runner invokes it via workload.yaml's script_args. Designed to stay correct under
-ASan/TSan slowdown: every wait is a bounded poll, never a fixed sleep sized to a guess.
+The stress runner invokes it via workload.yaml's script_args. Stays correct under ASan/TSan slowdown:
+every wait is a bounded poll, never a fixed sleep sized to a guess.
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import os
 import random
 import sys
@@ -183,6 +162,18 @@ class Counters:
             self.latencies = []
 
 
+@dataclasses.dataclass
+class WorkerCfg:
+    """Everything every worker needs and none of them vary: connection, stop flag, shared tallies."""
+
+    endpoint: str
+    username: str
+    password: str
+    stop_flag: list[bool]
+    errors: ErrorCollector
+    counters: Counters
+
+
 def make_driver(endpoint: str, username: str, password: str):
     return GraphDatabase.driver(f"bolt://{endpoint}", auth=(username, password), encrypted=False)
 
@@ -229,113 +220,104 @@ def read_active_bolt_sessions(session) -> int:
     sys.exit("FATAL: SHOW METRICS INFO did not report ActiveBoltSessions -- the leak gate cannot run")
 
 
+def worker_loop(cfg, name: str, body) -> int:
+    """
+    Shared scaffold for every worker below: own driver (never shared -- a shared session would
+    serialise unrelated queries behind each other and measure the wrong thing), loop until the
+    stop flag, classify anything that escapes, close on the way out.
+
+    `body(sess_factory)` returns how many units of work it completed in one iteration; a raising
+    body is classified and counts zero, matching each worker's own previous behaviour.
+    """
+    total = 0
+    driver = make_driver(cfg.endpoint, cfg.username, cfg.password)
+    try:
+        while not cfg.stop_flag[0]:
+            try:
+                total += body(driver.session)
+            except Exception as exc:  # noqa: BLE001 - classified, never fatal to the run
+                classify(exc, name, cfg.errors, cfg.counters)
+    finally:
+        driver.close()
+    return total
+
+
+def ddl_pair(cfg, name: str, label: str, sess_factory, unique_mode: bool = False) -> int:
+    """
+    CREATE-then-DROP of one index, honouring the stop flag between the halves.
+
+    Classifies per QUERY rather than per pair, deliberately: a failed CREATE must not cost the DROP
+    its attempt, nor a successful CREATE its tally. Each half is an independent unit of work.
+    """
+    prop, kind = ("pt", "POINT INDEX") if unique_mode else ("p", "INDEX")
+    done = 0
+    for verb in ("CREATE", "DROP"):
+        if cfg.stop_flag[0]:
+            break
+        try:
+            with sess_factory() as sess:
+                run_query(sess, f"{verb} {kind} ON :{label}({prop})")
+            done += 1
+        except Exception as exc:  # noqa: BLE001
+            classify(exc, name, cfg.errors, cfg.counters)
+    return done
+
+
 # ---------------------------------------------------------------------------
 # Phase A workers -- the discriminating shape: one long-held accessor, more
 # blocked contenders than there are Bolt workers.
 # ---------------------------------------------------------------------------
 
 
-def holder_worker(
-    endpoint: str,
-    username: str,
-    password: str,
-    hold_sec: float,
-    stop_flag: list[bool],
-    errors: ErrorCollector,
-    counters: Counters,
-) -> int:
+def holder_worker(cfg, hold_sec: float) -> int:
     """
     Holds a WRITE accessor open for `hold_sec` at a time. WRITE blocks READ_ONLY
-    (can_acquire<READ_ONLY> demands w_count == 0), which is what makes the contenders park
-    rather than sail through. Released and retaken in a loop so the run also exercises the
-    release/wake path repeatedly, not just once.
+    (can_acquire<READ_ONLY> demands w_count == 0), which is what makes the contenders park rather
+    than sail through. Released and retaken in a loop so the run exercises the release/wake path
+    repeatedly, not just once.
     """
-    holds = 0
-    driver = make_driver(endpoint, username, password)
-    try:
-        while not stop_flag[0]:
-            try:
-                with driver.session() as sess:
-                    tx = sess.begin_transaction()
-                    tx.run("CREATE (:ParkHolder {p: 1})").consume()
-                    # Bounded poll rather than a flat sleep so a stop request is honoured
-                    # promptly even with a long hold configured.
-                    hold_deadline = time.monotonic() + hold_sec
-                    while time.monotonic() < hold_deadline and not stop_flag[0]:
-                        time.sleep(0.05)
-                    tx.commit()
-                holds += 1
-            except Exception as exc:  # noqa: BLE001 - classified below
-                classify(exc, "holder", errors, counters)
-    finally:
-        driver.close()
-    return holds
+
+    def body(sess_factory) -> int:
+        with sess_factory() as sess:
+            tx = sess.begin_transaction()
+            tx.run("CREATE (:ParkHolder {p: 1})").consume()
+            # Bounded poll rather than a flat sleep, so a stop request is honoured promptly even
+            # with a long hold configured.
+            hold_deadline = time.monotonic() + hold_sec
+            while time.monotonic() < hold_deadline and not cfg.stop_flag[0]:
+                time.sleep(0.05)
+            tx.commit()
+        return 1
+
+    return worker_loop(cfg, "holder", body)
 
 
-def contender_worker(
-    cid: int,
-    endpoint: str,
-    username: str,
-    password: str,
-    stop_flag: list[bool],
-    errors: ErrorCollector,
-    counters: Counters,
-) -> int:
+def contender_worker(cfg, cid: int) -> int:
     """
     Wants READ_ONLY while the holder has WRITE, so it blocks -- and under the flag it PARKS,
-    releasing its Bolt worker. These are the workers the probe below depends on being free.
-    Its own label so contenders never conflict with each other, only with the holder.
+    releasing its Bolt worker. These are the workers the probe depends on being free. Its own
+    label, so contenders conflict only with the holder and never with each other.
     """
-    ops = 0
-    driver = make_driver(endpoint, username, password)
-    try:
-        while not stop_flag[0]:
-            for query in (f"CREATE INDEX ON :C{cid}(p)", f"DROP INDEX ON :C{cid}(p)"):
-                if stop_flag[0]:
-                    break
-                try:
-                    with driver.session() as sess:
-                        run_query(sess, query)
-                    ops += 1
-                except Exception as exc:  # noqa: BLE001
-                    classify(exc, f"contender-{cid}", errors, counters)
-    finally:
-        driver.close()
-    return ops
+    name = f"contender-{cid}"
+    return worker_loop(cfg, name, lambda sf: ddl_pair(cfg, name, f"C{cid}", sf))
 
 
-def probe_worker(
-    endpoint: str,
-    username: str,
-    password: str,
-    stop_flag: list[bool],
-    errors: ErrorCollector,
-    counters: Counters,
-) -> int:
+def probe_worker(cfg) -> int:
     """
     The responsiveness probe. `RETURN 1` is unrelated to the contended label, so its latency
     measures whether a pool worker was AVAILABLE -- the property parking provides. Under the
     blocking path the workers sit in try_lock_for and this goes slow.
-
-    Its own connection deliberately: a probe sharing a contending session would serialise
-    behind that session's in-flight query and measure the wrong thing.
     """
-    ran = 0
-    driver = make_driver(endpoint, username, password)
-    try:
-        while not stop_flag[0]:
-            started = time.monotonic()
-            try:
-                with driver.session() as sess:
-                    run_query(sess, "RETURN 1 AS ok")
-                counters.add_latency(time.monotonic() - started)
-                ran += 1
-            except Exception as exc:  # noqa: BLE001
-                classify(exc, "probe", errors, counters)
-            time.sleep(0.05)
-    finally:
-        driver.close()
-    return ran
+
+    def body(sess_factory) -> int:
+        started = time.monotonic()
+        with sess_factory() as sess:
+            run_query(sess, "RETURN 1 AS ok")
+        cfg.counters.add_latency(time.monotonic() - started)
+        time.sleep(0.05)
+        return 1
+
+    return worker_loop(cfg, "probe", body)
 
 
 # ---------------------------------------------------------------------------
@@ -344,74 +326,33 @@ def probe_worker(
 # ---------------------------------------------------------------------------
 
 
-def writer_worker(
-    wid: int,
-    endpoint: str,
-    username: str,
-    password: str,
-    num_labels: int,
-    nodes_per_tx: int,
-    stop_flag: list[bool],
-    errors: ErrorCollector,
-    counters: Counters,
-) -> int:
-    committed = 0
-    driver = make_driver(endpoint, username, password)
-    try:
-        while not stop_flag[0]:
-            label = f"L{random.randrange(num_labels)}"
-            try:
-                with driver.session() as sess:
-                    tx = sess.begin_transaction()
-                    for i in range(nodes_per_tx):
-                        tx.run(f"CREATE (:{label} {{p: $v}})", v=committed * nodes_per_tx + i)
-                    tx.commit()
-                committed += 1
-            except Exception as exc:  # noqa: BLE001
-                classify(exc, f"writer-{wid}", errors, counters)
-    finally:
-        driver.close()
-    return committed
+def writer_worker(cfg, wid: int, num_labels: int, nodes_per_tx: int) -> int:
+    committed = [0]
+
+    def body(sess_factory) -> int:
+        label = f"L{random.randrange(num_labels)}"
+        with sess_factory() as sess:
+            tx = sess.begin_transaction()
+            for i in range(nodes_per_tx):
+                tx.run(f"CREATE (:{label} {{p: $v}})", v=committed[0] * nodes_per_tx + i)
+            tx.commit()
+        committed[0] += 1
+        return 1
+
+    return worker_loop(cfg, f"writer-{wid}", body)
 
 
-def ddl_churn_worker(
-    endpoint: str,
-    username: str,
-    password: str,
-    num_labels: int,
-    unique_mode: bool,
-    stop_flag: list[bool],
-    errors: ErrorCollector,
-    counters: Counters,
-) -> int:
+def ddl_churn_worker(cfg, num_labels: int, unique_mode: bool) -> int:
     """
     READ_ONLY churn (`CREATE INDEX`) or UNIQUE churn (`CREATE POINT INDEX`). UNIQUE needs
     state == UNLOCKED so it parks behind every other holder, and while merely pending it gates
     every new acquire of every kind -- the harshest shape the lock has, and the reason Phase B
     makes no latency claim.
     """
-    ops = 0
-    driver = make_driver(endpoint, username, password)
-    kind = "unique-ddl" if unique_mode else "ro-ddl"
-    try:
-        while not stop_flag[0]:
-            label = f"L{random.randrange(num_labels)}"
-            if unique_mode:
-                queries = (f"CREATE POINT INDEX ON :{label}(pt)", f"DROP POINT INDEX ON :{label}(pt)")
-            else:
-                queries = (f"CREATE INDEX ON :{label}(p)", f"DROP INDEX ON :{label}(p)")
-            for query in queries:
-                if stop_flag[0]:
-                    break
-                try:
-                    with driver.session() as sess:
-                        run_query(sess, query)
-                    ops += 1
-                except Exception as exc:  # noqa: BLE001
-                    classify(exc, kind, errors, counters)
-    finally:
-        driver.close()
-    return ops
+    name = "unique-ddl" if unique_mode else "ro-ddl"
+    return worker_loop(
+        cfg, name, lambda sf: ddl_pair(cfg, name, f"L{random.randrange(num_labels)}", sf, unique_mode=unique_mode)
+    )
 
 
 def percentile(values: list[float], pct: float) -> float:
@@ -517,42 +458,14 @@ def main() -> None:
         flush=True,
     )
     stop_a = [False]
+    cfg_a = WorkerCfg(args.endpoint, args.username, args.password, stop_a, errors, counters)
     with ThreadPoolExecutor(max_workers=args.contenders + 2) as pool:
         futures_a: list[tuple[str, object]] = [
-            (
-                "holder",
-                pool.submit(
-                    holder_worker,
-                    args.endpoint,
-                    args.username,
-                    args.password,
-                    args.hold_sec,
-                    stop_a,
-                    errors,
-                    counters,
-                ),
-            ),
-            (
-                "probe",
-                pool.submit(probe_worker, args.endpoint, args.username, args.password, stop_a, errors, counters),
-            ),
+            ("holder", pool.submit(holder_worker, cfg_a, args.hold_sec)),
+            ("probe", pool.submit(probe_worker, cfg_a)),
         ]
         for cid in range(args.contenders):
-            futures_a.append(
-                (
-                    "contender",
-                    pool.submit(
-                        contender_worker,
-                        cid,
-                        args.endpoint,
-                        args.username,
-                        args.password,
-                        stop_a,
-                        errors,
-                        counters,
-                    ),
-                )
-            )
+            futures_a.append(("contender", pool.submit(contender_worker, cfg_a, cid)))
         time.sleep(args.responsive_sec)
         stop_a[0] = True
         print("  Phase 2A stop signal sent, draining...", flush=True)
@@ -573,43 +486,14 @@ def main() -> None:
         flush=True,
     )
     stop_b = [False]
+    cfg_b = WorkerCfg(args.endpoint, args.username, args.password, stop_b, errors, counters)
     with ThreadPoolExecutor(max_workers=args.parallelism + 2) as pool:
-        futures_b: list[tuple[str, object]] = []
-        for wid in range(args.parallelism):
-            futures_b.append(
-                (
-                    "writer",
-                    pool.submit(
-                        writer_worker,
-                        wid,
-                        args.endpoint,
-                        args.username,
-                        args.password,
-                        args.num_labels,
-                        args.nodes_per_tx,
-                        stop_b,
-                        errors,
-                        counters,
-                    ),
-                )
-            )
+        futures_b: list[tuple[str, object]] = [
+            ("writer", pool.submit(writer_worker, cfg_b, wid, args.num_labels, args.nodes_per_tx))
+            for wid in range(args.parallelism)
+        ]
         for unique_mode, role in ((False, "ro_ddl"), (True, "unique_ddl")):
-            futures_b.append(
-                (
-                    role,
-                    pool.submit(
-                        ddl_churn_worker,
-                        args.endpoint,
-                        args.username,
-                        args.password,
-                        args.num_labels,
-                        unique_mode,
-                        stop_b,
-                        errors,
-                        counters,
-                    ),
-                )
-            )
+            futures_b.append((role, pool.submit(ddl_churn_worker, cfg_b, args.num_labels, unique_mode)))
         time.sleep(args.churn_sec)
         stop_b[0] = True
         print("  Phase 2B stop signal sent, draining...", flush=True)
