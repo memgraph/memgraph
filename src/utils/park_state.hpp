@@ -73,6 +73,11 @@ namespace memgraph::utils {
 
 /// Delivery gate (see `RequestResume`/`ArmPark` below). Distinct from `claimed`: `claimed` decides
 /// WHO may resume, `gate` decides WHEN that resume may actually be delivered.
+class ParkState;
+inline void PublishPendingPark(std::shared_ptr<ParkState> ps) noexcept;
+inline void DiscardPendingPark(const std::shared_ptr<ParkState> &ps);
+inline void ArmPendingParksAbove(size_t base_depth);
+
 enum class ParkGate : uint8_t {
   kParking,          // published to the registries, but the parking thread has not finished yet
   kArmed,            // the parking thread is done -- a resume may be delivered immediately
@@ -84,15 +89,6 @@ class ParkState {
   std::chrono::steady_clock::time_point deadline;
   std::atomic<bool> claimed{false};
   std::atomic<ParkGate> gate{ParkGate::kParking};
-
-  /// Intrusive link for this thread's pending-arm stack (`tls_pending_park_head` below). Lives HERE,
-  /// in storage the publisher already owns, so that publishing a park allocates nothing and therefore
-  /// cannot throw -- which is load-bearing, not a micro-optimisation. See `PublishPendingPark`.
-  ///
-  /// Only ever read or written by `PublishPendingPark`/`DiscardPendingPark`/`ArmPendingParksAbove`,
-  /// and only on the thread that published this `ParkState`, so it needs no synchronisation: a wake
-  /// source on another thread touches `claimed`, `gate` and `on_resume_`, never this.
-  std::shared_ptr<ParkState> next_pending;
 
   /// Set once, by whoever constructs this ParkState, before it is published to any registry.
   void set_on_resume(std::function<void()> on_resume) { on_resume_ = std::move(on_resume); }
@@ -145,8 +141,23 @@ class ParkState {
   /// structurally. Encapsulation is what keeps that a compile error rather than a code-review note.
   std::function<void()> on_resume_;
 
+  /// Intrusive link for the publishing thread's pending-arm stack (`tls_pending_park_head` below).
+  /// Lives HERE, in storage the publisher already owns, so that publishing a park allocates nothing and
+  /// therefore cannot throw -- load-bearing, not a micro-optimisation. See `PublishPendingPark`.
+  ///
+  /// PRIVATE, with only the three stack functions as friends, for the same reason `on_resume_` is: the
+  /// safety property ("touched only by the publishing thread, never by a wake source") was previously
+  /// enforced by a comment, and a comment is not enforcement. A wake source on another thread touches
+  /// `claimed`, `gate` and `on_resume_` -- never this. It also must never be re-linked while already
+  /// on a stack, which the per-attempt `make_shared` guarantees; splicing one thread's chain into
+  /// another's would be silent.
+  std::shared_ptr<ParkState> next_pending;
+
   friend void RequestResume(ParkState &);
   friend void ArmPark(ParkState &);
+  friend void PublishPendingPark(std::shared_ptr<ParkState>) noexcept;
+  friend void DiscardPendingPark(const std::shared_ptr<ParkState> &);
+  friend void ArmPendingParksAbove(size_t);
 };
 
 /// Attempts to claim `ps` for exactly one wake source. Returns true to EXACTLY ONE caller across
@@ -268,10 +279,23 @@ inline void PublishPendingPark(std::shared_ptr<ParkState> ps) noexcept {
 /// winner, so no resume will ever be requested and arming would be a no-op anyway -- dropping it
 /// merely avoids holding the `ParkState` alive until this thread's next arming point.
 ///
-/// `ps` must be the innermost pending park, which it always is: a publisher self-claims within the
-/// same `await_suspend` that published, with no nested task execution in between. MG_ASSERT rather
-/// than DMG_ASSERT deliberately -- a mismatch here would drop somebody else's arm, and that is the
-/// brick-the-database failure described above, which must not be a no-op in a release build.
+/// `ps` must be the innermost pending park. An earlier version of this comment justified that with
+/// "a publisher self-claims within the same `await_suspend` that published, with no nested task
+/// execution in between" -- which is FALSE, and worth correcting rather than deleting because the
+/// false version reads as reassuring. Nested task execution IS reachable inside that window: releasing
+/// a `main_lock_` hold there (a destructed accessor, or an accessor that unwinds partly built) reaches
+/// ResourceLock's admit observer, which can claim a foreign park and, when every worker is stopped,
+/// run its resume INLINE on this thread -- a whole session chain that may publish a park of its own.
+///
+/// What actually holds the invariant is that any such nested publish is BALANCED before control
+/// returns: the inline-resume site runs under its own `ParkArmGuard` (utils/priority_thread_pool.cpp),
+/// and `ArmPendingParksAbove` pops each park before arming it, so the nested chain consumes exactly
+/// what it published. The head is `ps` again by the time we get here. That is the property a future
+/// edit must preserve -- not "nesting cannot happen".
+///
+/// MG_ASSERT rather than DMG_ASSERT deliberately -- a mismatch here would drop somebody else's arm,
+/// and that is the brick-the-database failure described above, which must not be a no-op in a release
+/// build.
 inline void DiscardPendingPark(const std::shared_ptr<ParkState> &ps) {
   MG_ASSERT(tls_pending_park_head == ps,
             "DiscardPendingPark on a park that is not this thread's innermost pending park -- dropping it "

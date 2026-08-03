@@ -454,7 +454,9 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     // Must-run (a parked coroutine's resume) beats ordinary work: a query is blocked on it with its
     // storage-access timeout running. It must NOT beat a queued HIGH-priority item, though -- before
     // this queue existed there was one max-heap and HP was strictly first, and silently demoting HP
-    // below every resume would be a priority inversion introduced by a feature that is flag-gated off.
+    // below every resume would be a priority inversion introduced by this feature. Note the queue's
+    // precedence rules are NOT flag-gated -- they run for every installation regardless of whether
+    // parking is enabled -- so the inversion would be everyone's, not an opt-in minority's.
     const bool use_must_run = !work_must_run_.empty() && !work_head_is_high_priority();
     task_is_must_run = use_must_run;
     auto &q = use_must_run ? work_must_run_ : work_;
@@ -599,8 +601,9 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
   // If it was ordinary work, it is dropped, exactly as master does. Master's loop ends right here, so
   // a task popped in that same instant was destroyed unrun -- and running it instead would be a
   // flag-independent change to shutdown behaviour (query work starting after ShutDown() was
-  // requested, concurrently with the rest of the teardown handler) shipped by a feature that is off
-  // by default. `task_is_must_run` is what keeps the fix to the case that needs it.
+  // requested, concurrently with the rest of the teardown handler). The argument does not depend on the
+  // flag's default: this tail runs for every installation whether or not parking is enabled.
+  // `task_is_must_run` is what keeps the fix to the case that needs it.
   if (task && task_is_must_run) {
     ParkArmGuard const arm_guard;  // same task-boundary arming as Phase 1A above
     // catch(...) for the same reason as PostResumeTask's inline fallback: an exception escaping here

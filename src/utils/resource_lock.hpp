@@ -261,11 +261,17 @@ struct ResourceLock {
   ///     PendingHandle, whose unregister_pending notifies again. It terminates because the storage
   ///     observer's NotifyAll moves its whole waiter list out under its own mutex before invoking
   ///     anything, and NotifyMainLockReleased gates on WaitersPending() > 0 -- so a nested notify finds
-  ///     an empty list and stops. Note this bounds the recursion COUNT, not the stack depth: each level
-  ///     is a full query-execution frame, so a teardown with very many parked waiters nests deeply.
+  ///     an empty list and stops. Stack depth is O(1), NOT O(waiters): because NotifyAll moves the
+  ///     whole list out and decrements the pending count BEFORE invoking anything, the N resumes run
+  ///     sequentially inside one loop rather than nesting one query frame per waiter. (An earlier
+  ///     version of this comment claimed the opposite -- "a teardown with very many parked waiters
+  ///     nests deeply" -- which would have invited someone to "fix" code that is already correct.)
   /// Being called from inside a destructor is also normal -- ~ResourceLockGuard is the commonest
-  /// release site -- so the callback must not throw. The one installed by storage satisfies this: its
-  /// delivery path swallows and logs (see ParkState::TakeAndInvokeOnResume).
+  /// release site -- so the callback must not throw. The observer installed by storage satisfies that
+  /// at its DELIVERY step, which swallows and logs (see ParkState::TakeAndInvokeOnResume). Be precise
+  /// about the residual, though: the mutex acquisition AHEAD of delivery (NotifyAll -> ResumeAll's
+  /// lock_guard) is not noexcept, so a std::system_error there would still escape into a destructor.
+  /// Practically unreachable, but it is the one gap in "the requirement is satisfied".
   void set_admit_observer(std::function<void()> observer) { admit_observer_ = std::move(observer); }
 
   void lock() {

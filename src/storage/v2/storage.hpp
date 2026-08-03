@@ -422,9 +422,10 @@ class Storage {
   void DrainParkedMainLockWaiters() { main_lock_resume_event_.Drain(); }
 
   /// Wakes any coro-prepare waiter parked on `main_lock_resume_event()`, if the experimental flag
-  /// is on AND somebody is actually parked (R3.1/C5) -- cheap otherwise: one relaxed bool load
-  /// (flag off) or one relaxed size load (no waiters). Callers MUST invoke this AFTER the guard has
-  /// ACTUALLY released `main_lock_` (C3) -- never while still holding it.
+  /// is on AND somebody is actually parked (R3.1/C5) -- cheap otherwise: ONE relaxed bool load with the
+  /// flag off, TWO loads with it on and nobody parked (the flag, then an ACQUIRE load of the waiter
+  /// count -- not relaxed; see NotifyMainLockReleased's own comment, which this used to contradict). Callers MUST
+  /// invoke this AFTER the guard has ACTUALLY released `main_lock_` (C3) -- never while still holding it.
   ///
   /// F5 fix: call this for EVERY release mode, including plain READ/WRITE, not only UNIQUE/
   /// READ_ONLY. main_lock_'s conflict matrix (utils::ResourceLock) is: UNIQUE excludes all;
@@ -681,7 +682,7 @@ class Accessor {
   // new owner's release notifies instead, with no branch needed on this side.
   //
   // Note guard_ is declared BEFORE transaction_ below, so the hold outlives the transaction and is
-  // released last. NotifyMainLockReleased() is a single relaxed flag load when nobody is parked, so
+  // released last. NotifyMainLockReleased() is one relaxed flag load (flag off) or two loads (flag on,
   // the READ/WRITE hot path stays cheap.
   virtual ~Accessor();
 

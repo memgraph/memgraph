@@ -10548,8 +10548,10 @@ void Interpreter::HandlePrepareFailure(std::unique_ptr<QueryExecution> *query_ex
 // or arena scope that spans the await (the interpreter-level DbArenaScope is entered in Phase 3 only,
 // per the design doc's top hazard).
 //
-// Stage A only builds this coroutine so it compiles and is unit-testable in isolation; nothing yet
-// drives/schedules it from the Bolt layer (Stage B).
+// This IS the default Prepare path as of the flag flip: communication::v2::Session::RunLoop drives it
+// via bolt::ExecuteResult::kNeedsCoroPrepare -> HandlePrepareCoro -> SessionHL::InterpretPrepareCoro.
+// (It was written as an isolated, unit-testable Stage A with no Bolt driver; that sentence survived
+// three revisions past the point where it stopped being true and read as "this is dead code".)
 utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_res, UserParameters_fn params_getter,
                                                                  QueryExtras const &extras,
                                                                  std::function<void()> on_park_resumed) {
@@ -10619,10 +10621,31 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
       // transaction, abort it since we're about to prepare a new query.
       AbortCommand(nullptr);
     }
-    // NOTE (deliberate divergence from Prepare(), see the function doc comment above):
-    // SetupInterpreterTransaction() itself is deferred to Phase 3, below. A parked autocommit query is
-    // therefore briefly invisible to SHOW TRANSACTIONS / not TERMINATE-able while parked -- acceptable,
-    // since a thread blocked in Access() is equally un-interruptible today.
+    // Same position as Prepare()'s (see master): BEFORE Phase 2's acquire, deliberately. This was
+    // deferred to Phase 3 in an earlier revision and that was a REGRESSION, caught by review:
+    // publishing the transaction only after the accessor is held means a query parked on a contended
+    // accessor reports IDLE with `current_transaction_ == nullopt`, so it is invisible to
+    // SHOW TRANSACTIONS (ShowTransactions skips any interpreter whose status is not ACTIVE and whose
+    // transaction id is unset), un-TERMINATE-able (TerminateTransactions CASes from ACTIVE only),
+    // uncounted by DROP DATABASE ... FORCE's best-effort sweep, and its eventual `elapsed_ms` excludes
+    // the entire lock wait because the start timestamps are stamped here. That is exactly the
+    // diagnostic an operator reaches for during the lock pile-up this feature exists to relieve, and
+    // it got worse -- not better -- on ON_DISK_TRANSACTIONAL, where SupportsParkAcquire() is false so
+    // the acquire blocks for the whole --storage-access-timeout-sec while still reporting IDLE.
+    //
+    // The deferral's stated justification was that we must never expose ACTIVE with
+    // `current_transaction_ == nullopt`. That invariant is satisfied intrinsically by
+    // SetupInterpreterTransaction itself, which assigns `current_transaction_` before the
+    // release-store of ACTIVE -- so calling it here cannot expose the torn state. The function has no
+    // accessor dependency at all (a fresh tx id, two timestamps, the status, the log tx id, and
+    // metadata), which is why it can sit on either side of the acquire; correctness of the DIAGNOSTICS
+    // is what decides, and it decides for here.
+    //
+    // Every failure path already reverts it: HandlePrepareFailure -> AbortCommand -> Abort(), whose CAS
+    // accepts ACTIVE and drives back to IDLE. That is what master relies on too.
+    SetupInterpreterTransaction(extras);
+    memgraph::logging::EmitSessionTraceEvent(
+        "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0));
   }
 
   auto *const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -10769,13 +10792,10 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
     memgraph::logging::ScopedSessionLog const post_acquire_log_guard{GetLogContext()};
 
     // ---- PHASE 3 (sync, once, post-acquire) ----
-    if (!in_explicit_transaction_) {
-      SetupInterpreterTransaction(extras);
-      memgraph::logging::EmitSessionTraceEvent(
-          "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0));
-    }
+    // SetupInterpreterTransaction is NOT called here: it belongs in Phase 1, before the acquire, so a
+    // parked query stays visible to SHOW TRANSACTIONS and TERMINATE-able. See the long note at its
+    // call site above before moving it back.
 
-    // SetupInterpreterTransaction selected the execution DB for data queries.
     // System-only queries can intentionally have no current DB tracker.
     auto *db_query_tracker = current_db_.db_acc_ ? current_db_.db_acc_->get()->DbQueryMemoryTracker() : nullptr;
     if (has_load_parquet || parallel_execution) {

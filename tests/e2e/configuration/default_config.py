@@ -342,6 +342,11 @@ startup_config_dict = {
         "",
         "Experimental features to be used, JSON object. Options []",
     ),
+    "experimental_coro_prepare_accessor_yield": (
+        "false",
+        "false",
+        "EXPERIMENTAL: allow a contended UNIQUE/READ_ONLY storage accessor acquisition during Prepare to park its pool worker (via a C++20 coroutine) instead of blocking, and retry once the lock is released, instead of blocking for up to --storage-access-timeout-sec. The flag turns on the full coroutine parking integration (storage-side release notification plus the query/session driver -- HandlePrepareCoro, Session::DrivePreparedRun/RunLoop, Interpreter::PrepareCoro), so a contended acquire parks the Bolt worker and resumes it on release. Set to false to restore the existing synchronous acquire path, which blocks the worker in try_lock_for for the whole timeout.",
+    ),
     "schema_info_enabled": ("false", "false", "Set to true to enable run-time schema info tracking."),
     "storage_rocksdb_enable_thread_tracking": (
         "false",

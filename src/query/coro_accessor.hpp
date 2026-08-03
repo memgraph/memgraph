@@ -196,9 +196,12 @@ struct AcquireAwaitable {
           // indistinguishable from a foreign one, and the handler below must not mistake it for
           // "somebody will resume us" (see the note there).
           self_claimed = true;
+          // Discard FIRST, then prune: RemoveWaiter/Deregister can throw (each takes a mutex), and a
+          // throw after the Discard would leave `ps` on the pending-arm stack for a frame that is
+          // unwinding. Same ordering rule as the catch handler below.
+          utils::DiscardPendingPark(ps);  // we are the claim winner; nothing will ever ask for a resume
           event.RemoveWaiter(ps);
           registry.Deregister(ps);
-          utils::DiscardPendingPark(ps);  // we are the claim winner; nothing will ever ask for a resume
           *abandon_result = std::move(acc);
           return false;
         }
@@ -222,9 +225,17 @@ struct AcquireAwaitable {
       if (self_claimed || utils::ClaimPark(*ps)) {
         // We own `ps`; no wake source will ever touch it. Safe to unwind and let the caller see
         // the real error (deadline/OOM handling is the acquire loop's caller's business).
+        //
+        // Discard FIRST, before the two registry prunes. Both of those take a mutex and can therefore
+        // throw std::system_error; if one did after the Discard, `ps` would be left on this thread's
+        // pending-arm stack, and the task-boundary ParkArmGuard would then arm a ParkState whose frame
+        // is being destroyed by this very unwind. Ordering it first makes the stack correct no matter
+        // which of the following calls fails. (Arming a self-claimed park delivers nothing -- the gate
+        // is still kParking and we hold the claim -- so the residue of a throw here is at worst a stale
+        // registry entry, not a resume.)
+        utils::DiscardPendingPark(ps);
         event.RemoveWaiter(ps);
         registry.Deregister(ps);
-        utils::DiscardPendingPark(ps);
         throw;
       }
       // A wake source already claimed `ps` and WILL resume this handle, so the frame must survive:
@@ -239,13 +250,20 @@ struct AcquireAwaitable {
       // publishing could throw, this same `return true` was a permanent hang. Do not move the publish
       // back inside this try.
       //
-      // Prune both registries on the way out. Not load-bearing: the resume WILL fire, and the resumed
-      // coroutine prunes both at the bottom of the acquire loop. Kept because it costs two idempotent
-      // calls and takes the stale-entry outcome (a fired `ParkState` left in `waiters_`, which keeps
-      // `waiters_pending_` non-zero and turns every later admitting transition into an epoch bump that
-      // makes real parkers spin) out of the code's reachable set without depending on that argument.
-      event.RemoveWaiter(ps);
-      registry.Deregister(ps);
+      // NOTHING ELSE MAY GO HERE. An earlier revision pruned both registries on the way out as
+      // "harmless defence-in-depth against a stale entry". It was not harmless: RemoveWaiter and
+      // Deregister each take a mutex and can throw std::system_error, and a throw on THIS branch is
+      // qualitatively different from one on the branch above. Per [expr.await]/5 the exception is
+      // re-thrown at the `co_await`, so the frame unwinds and the Task temporary holding it is
+      // destroyed -- while `ps` is still on the pending-arm stack with a foreign RequestResume already
+      // recorded. The task-boundary ParkArmGuard then completes the rendezvous and resumes a destroyed
+      // frame. Worse, std::system_error is not a utils::BasicException, so PrepareCoro's handler does
+      // not match it: the session reports an ordinary query failure and carries on, and the
+      // use-after-free lands later, on an unrelated worker. Silent and deferred.
+      //
+      // The prune was never needed: the resume is guaranteed to fire, and the resumed coroutine prunes
+      // both registries at the bottom of the acquire loop before it re-probes. Leave this branch as a
+      // bare `return true`.
       return true;
     }
 
@@ -264,9 +282,9 @@ struct AcquireAwaitable {
     // clean bail a genuine cross-thread shutdown-drain resume would produce.
     if (pool.IsShuttingDown()) {
       if (utils::ClaimPark(*ps)) {
+        utils::DiscardPendingPark(ps);  // Discard before the prunes -- see the abandon path above.
         event.RemoveWaiter(ps);
         registry.Deregister(ps);
-        utils::DiscardPendingPark(ps);
         return false;
       }
       // Lost: a real Drain()/NotifyAll()/Sweep() already claimed ps and WILL resume us -- its own

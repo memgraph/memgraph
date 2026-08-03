@@ -413,15 +413,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
   }
 
-  // Session-surgery Stage B (IP-1 design doc REVISION 3 §R3.3 / REVISION 4, opencode-work/
-  // resource-lock-starvation/coro-prepare/ip1-design.md): owns the parked top-level Prepare
-  // coroutine, if any. Only ever engaged when flags::run_time::CoroPrepareAccessorYieldEnabled()
-  // AND this connection is being driven via DoWork (PRIORITY_QUEUE_WITH_SIDECAR scheduler, i.e. on a
-  // PriorityThreadPool worker) -- see the ExecuteResult::kNeedsCoroPrepare doc comment. While
-  // engaged, this session's single in-flight-task slot is retained by the parked frame: no DoRead,
-  // no further dispatch, until the posted resume drives it back through RunLoop (B3).
-  std::optional<utils::Task<void>> parked_prepare_;
-
   // Drives a single connection iteration exactly like DoWork's original inline loop did: repeatedly
   // calls session_.Execute() until it signals kNoMoreData (arm a fresh read) or kNeedsCoroPrepare
   // (drive the coroutine Prepare chain via DrivePreparedRun, parking this connection's slot if it
@@ -698,5 +689,22 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
+
+  // Session-surgery Stage B: owns the parked top-level Prepare coroutine, if any. Only ever engaged
+  // when flags::run_time::CoroPrepareAccessorYieldEnabled() AND this connection is being driven via
+  // DoWork (PRIORITY_QUEUE_WITH_SIDECAR scheduler, i.e. on a PriorityThreadPool worker) -- see the
+  // ExecuteResult::kNeedsCoroPrepare doc comment. While engaged, this session's single in-flight-task
+  // slot is retained by the parked frame: no DoRead, no further dispatch, until the posted resume
+  // drives it back through RunLoop.
+  //
+  // DECLARED LAST, deliberately, and it must stay last. Members are destroyed in reverse declaration
+  // order, and ~Task destroys a still-suspended coroutine frame -- whose locals include a
+  // PendingHandle registered on the storage's main_lock_, a ScopedSessionLog, and references into
+  // session_. Declared before session_/socket_ (where it originally sat), those would already be gone
+  // by the time the frame unwound. Unreachable today, because a suspended frame holds a
+  // shared_ptr<Session> and so ~Session cannot run while this is engaged -- but the entire point of
+  // this design is that that cycle gets broken by hand, so do not rely on the cycle for ordering
+  // safety when declaration order gives it for free.
+  std::optional<utils::Task<void>> parked_prepare_;
 };
 }  // namespace memgraph::communication::v2

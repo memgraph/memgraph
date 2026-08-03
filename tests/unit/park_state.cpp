@@ -351,8 +351,14 @@ TEST(ParkStatePendingArm, PendingStackIsPerThread) {
 // that SUSPENDS still assumed an arming side was owed. So the guarantee this test pins is the stronger
 // one that actually makes the suspend branch sound: the call cannot fail at all.
 TEST(ParkStateGate, PublishingAPendingParkCannotThrow) {
-  // Compile-time half. If someone reintroduces an allocating container here, this stops compiling
-  // rather than reintroducing the blocker quietly.
+  // Compile-time half, and be precise about what it does and does not catch -- an earlier version of
+  // this comment claimed more than the assertion delivers. `noexcept(expr)` inspects the callee's
+  // exception SPECIFICATION, not its body. So this catches someone REMOVING the `noexcept` from
+  // PublishPendingPark (mutation-verified: the build fails with this message). It does NOT catch
+  // someone reintroducing an allocating container while leaving `noexcept` in place -- that still
+  // compiles, and the failure mode merely changes from "permanent hang" to "std::terminate on
+  // bad_alloc". The only real guard against that is the intrusive design itself plus the runtime half
+  // below, which allocates nothing no matter how deep the stack goes.
   static_assert(noexcept(PublishPendingPark(std::shared_ptr<ParkState>{})),
                 "PublishPendingPark must be noexcept: AcquireAwaitable's lose-ClaimPark branch suspends the "
                 "frame on the assumption that an arming side is owed, which is only true if publishing "
