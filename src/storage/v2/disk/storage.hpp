@@ -52,11 +52,11 @@ class DiskStorage final : public Storage {
 
   ~DiskStorage() override;
 
-  // No synchronization needed: only called from DbmsHandler::Update() on a clean
-  // storage with zero committed or in-flight transactions, so no concurrent
-  // readers exist.
   void RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) override {
     metric_handles_ = new_handles;
+    // Disk indices don't store gauge handles, so nothing to rebind there.
+    constraints_.RebindMetricHandles(new_handles);
+    ttl_.RebindMetricHandles(new_handles.deleted_nodes, new_handles.deleted_edges);
   }
 
   class DiskAccessor final : public Storage::Accessor {

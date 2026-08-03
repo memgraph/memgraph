@@ -45,7 +45,7 @@ Constraints::Constraints(const Config &config, StorageMode storage_mode,
 
 void Constraints::RebindMetricHandles(metrics::DatabaseMetricHandles const &handles) {
   existence_constraints_->SetGauge(handles.active_existence_constraints);
-  static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->SetGauge(handles.active_unique_constraints);
+  unique_constraints_->SetGauge(handles.active_unique_constraints);
   type_constraints_->SetGauge(handles.active_type_constraints);
 }
 
