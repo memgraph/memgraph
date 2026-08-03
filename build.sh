@@ -34,6 +34,9 @@ OPTIONS:
 
 ENVIRONMENT VARIABLES:
     VENV_DIR                Path to Python virtual environment (default: env)
+    MG_PYTHON               Python interpreter to use (must be >= 3.10). By
+                            default the newest suitable python3/python3.X on
+                            PATH is picked automatically.
 
 CMAKE_ARGS:
     Any additional arguments are passed directly to CMake configuration.
@@ -225,6 +228,13 @@ source environment/util.sh
 DISTRO="$(operating_system)"
 echo "Distro: $DISTRO"
 
+# Resolve a Python >= 3.10 (the floor for every python invocation here and in
+# init-dev). Handles distros whose default python3 is older but ship a newer
+# versioned binary (e.g. centos-9: python3 = 3.9, python3.12 installed).
+PYTHON="$(resolve_python)" || exit 1
+export MG_PYTHON="$PYTHON"
+echo "Python: $PYTHON ($("$PYTHON" --version 2>&1))"
+
 # Validate build type
 if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD_TYPE" != "Debug" ]]; then
     echo "Error: --build-type must be either 'Release', 'RelWithDebInfo', or 'Debug'"
@@ -282,11 +292,18 @@ bash ./init-dev "${DEV_SETUP_ARGS[@]}"
 
 if [[ -f "$VENV_DIR/bin/activate" ]]; then
     echo "Using existing virtual environment at $VENV_DIR"
+    # A venv created by an older interpreter keeps that version forever —
+    # reject it rather than fail later in subtler ways.
+    if ! "$VENV_DIR/bin/python" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+        echo "Error: $VENV_DIR uses $("$VENV_DIR/bin/python" --version 2>&1), but >= 3.10 is required." >&2
+        echo "Delete it (rm -rf $VENV_DIR) and re-run to recreate it with $PYTHON." >&2
+        exit 1
+    fi
     source "$VENV_DIR/bin/activate"
     trap 'deactivate 2>/dev/null' EXIT ERR
 else
     echo "Creating virtual environment and installing conan"
-    python3 -m venv "$VENV_DIR"
+    "$PYTHON" -m venv "$VENV_DIR"
     source "$VENV_DIR/bin/activate"
     trap 'deactivate 2>/dev/null' EXIT ERR
     pip install "conan>=2.26.0"

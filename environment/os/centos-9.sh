@@ -69,6 +69,7 @@ MEMGRAPH_BUILD_DEPS=(
     # IMPORTANT: python3-yaml does NOT exist on CentOS
     # Install it manually using `pip3 install PyYAML`
     #
+    custom-rust custom-node
     PyYAML # Package name here does not correspond to the yum package!
     rpm-build rpmlint # for RPM package building
     which nodejs golang custom-golang # for driver tests
