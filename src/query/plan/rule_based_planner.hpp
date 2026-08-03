@@ -384,6 +384,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
               context.bound_symbols.insert(sym);
               result_symbols.push_back(sym);
             }
+            // A CallProcedure's arguments and its YIELD ... WHERE can both hold a comprehension, and it is a query
+            // part boundary, so nothing downstream can drain it. Splice below the operator: the frame slot written
+            // per input row survives the procedure's rows and is what the Filter above reads.
+            plan_and_apply_comprehensions();
             // TODO: When we add support for write and eager procedures, we will
             // need to plan this operator with Accumulate and pass in
             // storage::View::NEW.

@@ -898,3 +898,39 @@ Feature: Pattern comprehensions
         Then the result should be:
             | n | counts |
             | 1 | [0]    |
+
+    Scenario: Pattern comprehension in a CALL YIELD WHERE after a write
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Alice'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) SET p.z = 1
+            CALL mg.procedures() YIELD name
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN DISTINCT p.name AS name
+            """
+        Then the result should be:
+            | name    |
+            | 'Alice' |
+
+    Scenario: Pattern comprehension in a CALL YIELD WHERE with no preceding write
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Alice'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            CALL mg.procedures() YIELD name
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN DISTINCT p.name AS name
+            """
+        Then the result should be:
+            | name    |
+            | 'Alice' |
