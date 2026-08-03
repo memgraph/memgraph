@@ -6,32 +6,22 @@ source "$SCRIPT_DIR/../util.sh"
 
 SUPPORTED_OS=(
     all
-    centos-10
-    debian-12 debian-12-arm debian-13 debian-13-arm
-    fedora-42 fedora-42-arm
+    centos-9 centos-10
+    debian-12 debian-12-arm
+    debian-13 debian-13-arm
     fedora-43 fedora-43-arm
+    fedora-44 fedora-44-arm
+    fedora-45 fedora-45-arm
     rocky-10
-    ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
+    ubuntu-22.04 ubuntu-22.04-arm
+    ubuntu-24.04 ubuntu-24.04-arm
     ubuntu-26.04 ubuntu-26.04-arm
 )
 
 # Define toolchain download URLs for supported OS and architectures
 declare -A TOOLCHAIN_URLS=(
-    [centos-10]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-centos-10-x86_64.tar.gz"
-    [debian-12]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-debian-12-amd64.tar.gz"
-    [debian-12-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-debian-12-arm64.tar.gz"
-    [debian-13]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-debian-13-amd64.tar.gz"
-    [debian-13-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-debian-13-arm64.tar.gz"
-    [fedora-42]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-fedora-42-x86_64.tar.gz"
-    [fedora-42-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-fedora-42-aarch64.tar.gz"
-    [fedora-43]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-fedora-43-x86_64.tar.gz"
-    [fedora-43-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-fedora-43-aarch64.tar.gz"
-    [rocky-10]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-rocky-10-x86_64.tar.gz"
-    [ubuntu-22.04]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-ubuntu-22.04-amd64.tar.gz"
-    [ubuntu-24.04]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-ubuntu-24.04-amd64.tar.gz"
-    [ubuntu-24.04-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-ubuntu-24.04-arm64.tar.gz"
-    [ubuntu-26.04]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-ubuntu-26.04-amd64.tar.gz"
-    [ubuntu-26.04-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-ubuntu-26.04-arm64.tar.gz"
+    [x86_64]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-x86_64.tar.gz"
+    [aarch64]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-aarch64.tar.gz"
 )
 
 # Parse command line arguments to extract --set-os flag
@@ -97,7 +87,8 @@ run_script() {
 # New function for 'prepare' command to download and extract the toolchain
 prepare_toolchain() {
     local os_arch="$1"
-    local toolchain_url="${TOOLCHAIN_URLS[$os_arch]}"
+    local toolchain_arch=$([[ $os_arch == *-arm ]] && echo "aarch64" || echo "x86_64")
+    local toolchain_url="${TOOLCHAIN_URLS[$toolchain_arch]}"
 
     if [ -z "$toolchain_url" ]; then
         echo "No toolchain URL found for $os_arch. Please ensure your OS and architecture are supported."
