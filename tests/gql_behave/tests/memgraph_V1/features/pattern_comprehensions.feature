@@ -991,3 +991,23 @@ Feature: Pattern comprehensions
         Then the result should be:
             | name    |
             | 'Alice' |
+
+
+    # The comprehension correlates to nothing, so the old rule left it on the pre-write view and it counted only the
+    # pre-existing edge. What decides the view is the write history, not whether the branch reads an outer symbol.
+    Scenario: Uncorrelated pattern comprehension after a write sees that write
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A)-[:R]->(:B)
+            """
+        When executing query:
+            """
+            CREATE (:A)-[:R]->(:B)
+            CREATE (t:T)
+            SET t.c = size([(x:A)-[:R]->(y:B) | y])
+            RETURN t.c AS c
+            """
+        Then the result should be:
+            | c |
+            | 2 |

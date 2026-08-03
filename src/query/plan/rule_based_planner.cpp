@@ -879,12 +879,6 @@ std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<
   return symbols;
 }
 
-bool ReferencesExternalSymbols(const PatternComprehensionMatching &pc,
-                               const std::unordered_set<Symbol> &bound_symbols) {
-  if (!pc.external_symbols.empty()) return true;
-  return std::ranges::any_of(pc.expansion_symbols, [&](const Symbol &sym) { return bound_symbols.contains(sym); });
-}
-
 storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, storage::View preferred,
                                        const std::unordered_set<Symbol> &bound_symbols,
                                        const std::unordered_set<Symbol> &write_bound_symbols) {

@@ -205,10 +205,6 @@ Expression *BoolJoin(AstStorage &storage, Expression *expr1, Expression *expr2) 
 std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<Clause *> &clauses,
                                                               const SymbolTable &symbol_table);
 
-/// Whether the comprehension reads something bound outside it - from its filter or result expression, or an already
-/// bound pattern symbol, e.g. `a` in `[(a)-->(x)|x]` when a CREATE bound it.
-bool ReferencesExternalSymbols(const PatternComprehensionMatching &pc, const std::unordered_set<Symbol> &bound_symbols);
-
 /// Applies the variable-length rule to the view a drain site would otherwise use, from the single place every
 /// comprehension - nested ones included - passes through, @c RuleBasedPlanner::PlanPatternComprehension.
 ///
@@ -1416,8 +1412,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         ++it;
         continue;
       }
-      auto const preferred = write_occurred && impl::ReferencesExternalSymbols(pc, bound_symbols) ? storage::View::NEW
-                                                                                                  : storage::View::OLD;
+      // A clause sees the effects of the clauses before it, and within one command there is no AdvanceCommand to fold
+      // a write into View::OLD, so the write history alone decides - not whether the branch happens to read an outer
+      // symbol. Same rule the on-demand path in `ReturnBodyContext` uses.
+      auto const preferred = write_occurred ? storage::View::NEW : storage::View::OLD;
       auto pc_op = Plan(pc, preferred, bound_symbols);
       auto symbols = pc_op->ModifiedSymbols(*context_->symbol_table);
       chain = std::make_unique<RollUpApply>(std::move(chain), std::move(pc_op), symbols, sym);
