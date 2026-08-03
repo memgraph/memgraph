@@ -260,6 +260,8 @@ class DbmsHandler {
       // Default db cannot be deleted and remade, have to just update the UUID
       storage->config_.salient.uuid = config.uuid;
       if (storage->config_.register_metrics) {
+        // Null out handles first so storage holds no dangling pointers while
+        // RebindDefaultDatabaseUUID destroys the old prometheus objects.
         storage->RebindMetricHandles({});
         auto new_handles = metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
         storage->RebindMetricHandles(new_handles);
