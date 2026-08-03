@@ -330,14 +330,16 @@ void PriorityThreadPool::PostResumeTask(std::function<void()> closure) {
   // a claiming thread could race the parking thread still inside await_suspend (the F1 UAF), which is
   // why the old pinned path never resumed inline under any circumstances.
   //
-  // Reachability -- three real claimants, none of them hypothetical (an earlier version of this
-  // comment claimed the arming side "always finds at least itself above", which is false: an arming
-  // worker reaching here from its own tail has already had run_ set to false, so its own try_push
-  // refuses too):
+  // Reachability -- three real claimants, none of them hypothetical:
   //   1. an LP worker arming from its tail, every worker having been stopped;
   //   2. the main shutdown thread, via Storage::StopAllBackgroundTasks() -> the wake event's Drain();
   //   3. any thread releasing main_lock_ in that window (~Accessor -> release -> the admit observer).
   // For 2 and 3 this runs a full session chain on a thread that is not a pool worker at all.
+  //
+  // (Historical note, and the list above is the current truth, not this: an earlier version of this
+  // comment argued case 1 away by claiming the arming side "always finds at least itself above". That
+  // is false -- a worker arming from its own tail has already had run_ set to false, so its own
+  // try_push refuses too, which is precisely how case 1 arises.)
   //
   // ParkArmGuard is REQUIRED here, not defensive: the resumed chain re-enters Session::RunLoop and can
   // park again, and a park published by this inline execution has no other arming site -- the run

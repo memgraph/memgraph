@@ -1417,3 +1417,49 @@ TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
   EXPECT_EQ(unique_timeouts.load(), 0) << "a pending UNIQUE waiter was not woken within " << kUniqueTimeout.count()
                                        << "ms while " << kSharedCyclers << " shared acquirers were parked";
 }
+
+// A SUCCESSFUL PendingScope::try_acquire() CONSUMES the scope's pending registration.
+//
+// This exists to re-establish an oracle for a claim that was previously only a comment. The park
+// path's re-probe inside AcquireAwaitable::await_suspend deliberately calls the plain
+// InMemoryStorage::TryAccess(), NOT TryAccessWithPending(), and the comment there explains why: a
+// successful pending probe hands the scope's registration out with the guard, so reusing the
+// campaign's handle for an opportunistic probe would silently disarm writer-preference for the rest
+// of the campaign. That was verified once with a temporary hook in production code; the hook was
+// removed by review decision (rightly -- it was a seam that existed only for a test), which left the
+// engineering conclusion resting on prose.
+//
+// The property is checkable one level down, with no seam anywhere: ~PendingScope's own
+// `if (lock_ == nullptr) return;  // ownership transferred out by a successful try_acquire()` is the
+// mechanism, and its consequence is observable through plain try_lock(). So the reason the park path
+// must not reuse the handle is now pinned by a test, even though the specific misuse is not
+// reachable from production code any more.
+TEST_F(ResourceLockTest, SuccessfulPendingAcquireConsumesTheCampaignsWriterPreference) {
+  {
+    UniquePendingScope scope(lock);
+
+    // Live, registered campaign: writer-preference must hold a new WRITE off, which is the whole
+    // point of holding the scope across a retry loop.
+    EXPECT_FALSE(lock.try_lock_shared())
+        << "a registered UniquePendingScope must gate new shared acquirers -- without this the "
+           "campaign has no writer-preference and the test below proves nothing";
+
+    auto guard = scope.try_acquire();
+    ASSERT_TRUE(guard.has_value()) << "the lock is otherwise free, so the campaign should acquire";
+    guard.reset();  // release the UNIQUE hold; the scope object itself is still in scope
+
+    // The scope still EXISTS but its registration went out with the guard. A caller that believed it
+    // still held a live campaign -- which is exactly what reusing this handle for an opportunistic
+    // re-probe would assume -- now has no writer-preference at all.
+    EXPECT_TRUE(lock.try_lock_shared())
+        << "a shared acquirer was still gated after the campaign's pending registration had been "
+           "consumed by a successful try_acquire(); if this ever becomes true, re-read the re-probe "
+           "comment in query/coro_accessor.hpp, because its reasoning depends on this being false";
+    lock.unlock_shared();
+  }
+
+  // Sanity: the consumed scope's destructor must not double-unregister (its lock_ was nulled), so the
+  // lock is fully usable afterwards.
+  EXPECT_TRUE(lock.try_lock()) << "the lock was left in a wedged state after a consumed pending scope";
+  lock.unlock();
+}

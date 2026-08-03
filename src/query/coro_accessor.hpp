@@ -338,10 +338,27 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
     co_return blocking_access();
   }
 
-  // storage.SupportsParkAcquire() == true implies InMemoryStorage: it is the ONLY override
-  // (Storage::SupportsParkAcquire() defaults to false; DiskStorage never overrides it, R4.6) --
-  // this downcast is therefore safe.
-  auto &mem_storage = static_cast<storage::InMemoryStorage &>(storage);
+  // `SupportsParkAcquire() == true` implies InMemoryStorage today, because it is the only override
+  // (Storage::SupportsParkAcquire() defaults to false and DiskStorage never overrides it, R4.6). That
+  // is a documentary invariant, not a checked one, and a `static_cast` on the strength of it is
+  // undefined behaviour the moment some future subclass overrides both `TryAccess` and
+  // `SupportsParkAcquire` -- silently, and in a park path where the symptom would be a corrupted
+  // wake-event registration rather than an obvious crash.
+  //
+  // Checked instead. Deliberately NOT `MG_ASSERT` (which review suggested): aborting the whole process
+  // is disproportionate for a caller/subclass bug, and this file already converted an assert to a
+  // recoverable path once for that reason. Falling back to the blocking acquire is not a degraded
+  // guess either -- it is exactly what every other non-parking storage does, so a mis-declaring
+  // subclass gets correct behaviour plus a loud log instead of UB.
+  auto *mem_storage_ptr = dynamic_cast<storage::InMemoryStorage *>(&storage);
+  if (!mem_storage_ptr) [[unlikely]] {
+    spdlog::error(
+        "A storage type reports SupportsParkAcquire() but is not an InMemoryStorage; falling back to a "
+        "blocking accessor acquire. This is a bug in that storage subclass -- the park path's wake hook and "
+        "pending-handle machinery are InMemoryStorage-specific.");
+    co_return blocking_access();
+  }
+  auto &mem_storage = *mem_storage_ptr;
 
   // Campaign-long pending scope (R4.6): built ONCE, held across every iteration of the loop below
   // -- including every suspend/resume -- so UNIQUE/READ_ONLY's writer-preference stays registered
