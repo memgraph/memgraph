@@ -25,7 +25,17 @@ if (READLINE_LIBRARY AND READLINE_INCLUDE_DIR)
   # `-lreadline` the sysroot-pinned linker cannot resolve.
   if (NOT TARGET readline)
     add_library(readline SHARED IMPORTED)
-    set_property(TARGET readline PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${READLINE_INCLUDE_DIR})
+    # CMake suppresses `-isystem /usr/include` from generated command lines,
+    # and under the toolchain sysroot that directory is NOT searched
+    # implicitly either — the headers silently go missing (Debian builds only
+    # survived via Python3::Python's -idirafter side door). Propagate it as
+    # -idirafter: appended after the sysroot search paths, so toolchain
+    # headers keep priority.
+    if (READLINE_INCLUDE_DIR STREQUAL "/usr/include")
+      set_property(TARGET readline PROPERTY INTERFACE_COMPILE_OPTIONS "-idirafter" "/usr/include")
+    else()
+      set_property(TARGET readline PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${READLINE_INCLUDE_DIR})
+    endif()
     set_property(TARGET readline PROPERTY IMPORTED_LOCATION ${READLINE_LIBRARY})
   endif()
 else()
