@@ -239,6 +239,7 @@ class PrometheusMetrics {
     DatabaseMetricHandles handles;
   };
 
+  // Caller must hold databases_.mutex.
   void RemoveDatabaseUnsafe(utils::UUID const &uuid);
   DatabaseMetricHandles AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name);
 
