@@ -72,33 +72,37 @@ struct IndexPerformanceTracker {
         return;
       }
       case SET_PROPERTY: {
-        // without following the deltas parents to the object we do not know which vertex/edge this delta is for
-        impacts_vertex_indexes_ = true;
-        impacts_edge_indexes_ = true;
+        // A delta records the action but not the object it belongs to, and a property write on a
+        // vertex can only invalidate vertex index entries while one on an edge can only invalidate
+        // edge index entries. The transaction that created the delta knows which it was; see
+        // note_property_writes.
         return;
       }
       case ADD_LABEL:
       case REMOVE_LABEL: {
-        impacts_vertex_indexes_ = true;
+        impact_.vertex_indexes = true;
         return;
       }
       case ADD_IN_EDGE:
       case ADD_OUT_EDGE:
       case REMOVE_IN_EDGE:
       case REMOVE_OUT_EDGE: {
-        impacts_edge_indexes_ = true;
+        impact_.edge_indexes = true;
         return;
       }
     }
   }
 
-  bool impacts_vertex_indexes() { return impacts_vertex_indexes_; }
+  // What the property writes of a whole transaction could have invalidated, taken from the
+  // transaction rather than from its individual deltas.
+  void note_property_writes(IndexImpact impact) { impact_ |= impact; }
 
-  bool impacts_edge_indexes() { return impacts_edge_indexes_; }
+  bool impacts_vertex_indexes() { return impact_.vertex_indexes; }
+
+  bool impacts_edge_indexes() { return impact_.edge_indexes; }
 
  private:
-  bool impacts_vertex_indexes_ = false;
-  bool impacts_edge_indexes_ = false;
+  IndexImpact impact_{};
 };
 
 // The storage is based on this paper:
@@ -1009,12 +1013,13 @@ class InMemoryStorage final : public Storage {
 
   struct GCDeltas {
     GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<CommitInfo> commit_info,
-             uint64_t transaction_id)
+             uint64_t transaction_id, IndexImpact property_write_impact)
         : mark_timestamp_{mark_timestamp},
           deltas_{std::move(deltas)},
           commit_info_{std::move(commit_info)},
           unlinkable_timestamp_{commit_info_ ? commit_info_->timestamp.load(std::memory_order_acquire) : 0},
-          transaction_id_{transaction_id} {}
+          transaction_id_{transaction_id},
+          property_write_impact_{property_write_impact} {}
 
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
@@ -1024,6 +1029,7 @@ class InMemoryStorage final : public Storage {
     std::unique_ptr<CommitInfo> commit_info_{};  //!< the commit info the deltas are pointing at
     uint64_t unlinkable_timestamp_{};            //!< earliest timestamp when these deltas can be safely unlinked
     uint64_t transaction_id_{};                  //!< the transaction ID that created these deltas
+    IndexImpact property_write_impact_{};        //!< which index families these property writes could stale
   };
 
   utils::Synchronized<std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>, utils::SpinLock>

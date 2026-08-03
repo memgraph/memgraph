@@ -1457,6 +1457,7 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
   std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_vertices;
   std::list<Edge *, memory::DbAwareAllocator<Edge *>> current_deleted_edges;
   auto impact_tracker = IndexPerformanceTracker{};
+  impact_tracker.note_property_writes(transaction_.property_write_impact);
 
   // STEP 1 + STEP 2 - delta cleanup
   GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
@@ -1807,7 +1808,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         garbage_undo_buffers.emplace_back(mark_timestamp,
                                           std::move(transaction_.deltas),
                                           std::move(transaction_.commit_info),
-                                          transaction_.transaction_id);
+                                          transaction_.transaction_id,
+                                          transaction_.property_write_impact);
       });
     }
 
@@ -1901,13 +1903,19 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     if (!transaction_.deltas.empty()) {
       if (transaction_.has_non_sequential_deltas) {
         mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
-          waiting_list.emplace_back(InMemoryStorage::GCDeltas(
-              0, std::move(transaction_.deltas), std::move(transaction_.commit_info), transaction_.transaction_id));
+          waiting_list.emplace_back(InMemoryStorage::GCDeltas(0,
+                                                              std::move(transaction_.deltas),
+                                                              std::move(transaction_.commit_info),
+                                                              transaction_.transaction_id,
+                                                              transaction_.property_write_impact));
         });
       } else {
         mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
-          committed_transactions.emplace_back(
-              0, std::move(transaction_.deltas), std::move(transaction_.commit_info), transaction_.transaction_id);
+          committed_transactions.emplace_back(0,
+                                              std::move(transaction_.deltas),
+                                              std::move(transaction_.commit_info),
+                                              transaction_.transaction_id,
+                                              transaction_.property_write_impact);
         });
       }
     }
@@ -3298,6 +3306,8 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     // taking the lock will cause subtle race conditions that will leave the
     // chain in a broken state.
     // The chain can be only read without taking any locks.
+
+    index_impact.note_property_writes(linked_entry->property_write_impact_);
 
     for (Delta &delta : linked_entry->deltas_) {
       index_impact.update(delta.action);

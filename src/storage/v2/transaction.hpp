@@ -21,6 +21,7 @@
 #include <spdlog/spdlog.h>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/index_impact.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/memory.hpp"
@@ -235,6 +236,10 @@ struct Transaction {
   utils::pmr::list<MetadataDelta> md_deltas;
   bool has_serialization_error{};
   bool has_non_sequential_deltas{};
+  // A SET_PROPERTY delta does not say whether it belongs to a vertex or an edge. The object kind
+  // is a template parameter where the delta is created, so it is recorded here rather than
+  // reconstructed later by walking a chain to its owner.
+  IndexImpact property_write_impact{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};
   bool edge_import_mode_active{false};
