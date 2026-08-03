@@ -1326,6 +1326,8 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         matching.origin_clause = clause;
         query_part->pattern_comprehension_matchings.push_back(std::move(matching));
       }
+      // Keep the EXISTS matchings too - a WITH/RETURN body plans them on demand, keyed by result symbol.
+      query_part->exists_matchings.append_range(collector.getFilterMatchings());
 
       // Handle query part boundaries
       if (utils::Downcast<With>(clause) || utils::Downcast<Unwind>(clause) ||
