@@ -3015,6 +3015,95 @@ TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithWhere) {
       query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectFilter(), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithWhereAfterWriteClause) {
+  // Test MATCH (n) SET n.prop = 1 WITH n WHERE [(n)--(m) | 1] = [] RETURN n
+  // A write clause drains the pending comprehensions before it is planned, and `n` is bound there - but the
+  // comprehension resolves to the symbol the later WITH re-binds, not to the MATCH's `n`. Only because
+  // `symbols_bound_by_query_part` is seeded with the output symbols of every WITH/RETURN still ahead does the drain
+  // wait; otherwise the SET takes it, plans it uncorrelated, and the WHERE machinery never sees it at all.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   SET(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(1)),
+                                   WITH("n"),
+                                   WHERE(EQ(pattern_comp, LIST())),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  // Produce (RETURN) -> Filter (WHERE) -> RollUpApply -> Produce (WITH) -> Accumulate -> SetProperty -> ScanAll
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "Filter should be directly under Produce";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply belongs below the Filter; if the SET drained it early it sits under the "
+                                "SetProperty instead and the WHERE reads an unwritten slot";
+  auto *with_produce = dynamic_cast<Produce *>(rollup->input_.get());
+  ASSERT_NE(with_produce, nullptr) << "RollUpApply must come after the WITH's Produce";
+  auto *accumulate = dynamic_cast<Accumulate *>(with_produce->input_.get());
+  ASSERT_NE(accumulate, nullptr) << "a WITH after a write accumulates";
+  EXPECT_NE(dynamic_cast<SetProperty *>(accumulate->input_.get()), nullptr) << "SetProperty belongs below the WITH";
+
+  // The discriminator: a ScanAll below the Expand means the branch was planned before `n` was bound, so it counts the
+  // whole graph instead of this row's node.
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr) << "Branch root should be Produce";
+  auto *branch_expand = dynamic_cast<Expand *>(branch_produce->input_.get());
+  ASSERT_NE(branch_expand, nullptr) << "Branch should expand from the correlated `n`";
+  EXPECT_NE(dynamic_cast<Once *>(branch_expand->input_.get()), nullptr)
+      << "Correlated branch must start at Once, not ScanAll";
+}
+
+TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithWhereAfterForeach) {
+  // Test MATCH (n) FOREACH (i IN [1] | SET n.prop = 1) WITH n WHERE [(n)--(m) | 1] = [] RETURN n
+  // FOREACH drains onto its own body chain, and it must apply the same dependency check as the main clause loop. Its
+  // own copy tested only `external_symbols`, which is empty here - the comprehension's sole free reference is its
+  // pattern's start node - so it drained on entry to the FOREACH and was planned uncorrelated inside the body.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *foreach_clause = FOREACH(NEXPR("i", LIST(LITERAL(1))), {SET(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(1))});
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), foreach_clause, WITH("n"), WHERE(EQ(pattern_comp, LIST())), RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  // Produce (RETURN) -> Filter (WHERE) -> RollUpApply -> Produce (WITH) -> Accumulate -> Foreach -> ScanAll
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "Filter should be directly under Produce";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply belongs below the Filter; if the FOREACH drained it early it sits on the "
+                                "body's chain instead, where the WHERE cannot read it";
+  auto *with_produce = dynamic_cast<Produce *>(rollup->input_.get());
+  ASSERT_NE(with_produce, nullptr) << "RollUpApply must come after the WITH's Produce";
+  auto *accumulate = dynamic_cast<Accumulate *>(with_produce->input_.get());
+  ASSERT_NE(accumulate, nullptr) << "a WITH after a write accumulates";
+  auto *foreach_op = dynamic_cast<Foreach *>(accumulate->input_.get());
+  ASSERT_NE(foreach_op, nullptr) << "Foreach belongs below the WITH";
+  auto *body_set = dynamic_cast<SetProperty *>(foreach_op->update_clauses_.get());
+  ASSERT_NE(body_set, nullptr) << "the FOREACH body should be just the SetProperty";
+  EXPECT_NE(dynamic_cast<Once *>(body_set->input_.get()), nullptr)
+      << "the FOREACH body must not have taken the WITH's comprehension";
+
+  // Same discriminator as above: Once, not ScanAll, below the Expand.
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr) << "Branch root should be Produce";
+  auto *branch_expand = dynamic_cast<Expand *>(branch_produce->input_.get());
+  ASSERT_NE(branch_expand, nullptr) << "Branch should expand from the correlated `n`";
+  EXPECT_NE(dynamic_cast<Once *>(branch_expand->input_.get()), nullptr)
+      << "Correlated branch must start at Once, not ScanAll";
+}
+
 TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithOrderBy) {
   // Test MATCH (n) WITH n ORDER BY length([(n)--(m) | 1]) RETURN n
   // As above, but for ORDER BY: the sort key must be computed per row from the bound `n`.
