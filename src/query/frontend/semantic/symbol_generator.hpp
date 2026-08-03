@@ -74,7 +74,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(Match &) override;
   bool PreVisit(Foreach &) override;
   bool PostVisit(Foreach &) override;
-  bool PreVisit(SetProperty & /*set_property*/) override;
   bool PostVisit(SetProperty & /*set_property*/) override;
   bool PostVisit(RemoveProperty & /*remove_property*/) override;
   bool PreVisit(SetLabels &) override;
@@ -151,7 +150,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_exists_pattern{false};
     bool in_exists_subquery{false};
     bool in_reduce{false};
-    bool in_set_property{false};
     bool in_call_subquery{false};
     bool has_return{false};
     bool in_set_labels{false};
@@ -186,6 +184,11 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   };
 
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
+
+  /// The positive allow-list of positions an EXISTS may appear in - the ones the planner has a splice point for.
+  /// Default-deny: an unnamed position reaches a planner with no placement machinery for it, which would make the
+  /// expression read a frame slot nobody ever wrote instead of raising an error.
+  static bool IsSupportedExistsPosition(const Scope &scope);
 
   // Whether @p name resolves in any scope from @p from outwards; pass `call_subquery_base` to ask about a subquery.
   bool HasSymbol(const std::string &name, size_t from = 0) const;
