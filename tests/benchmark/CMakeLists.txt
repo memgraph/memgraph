@@ -71,6 +71,9 @@ target_link_libraries(${test_prefix}storage_v2_gc mg::storage)
 add_benchmark(storage_v2_gc2.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc2 mg::storage)
 
+add_benchmark(storage_v2_gc_index_sweep.cpp)
+target_link_libraries(${test_prefix}storage_v2_gc_index_sweep mg::storage mg-metrics)
+
 add_benchmark(storage_v2_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v2_property_store mg::storage)
 
