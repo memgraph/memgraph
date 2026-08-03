@@ -273,7 +273,7 @@ bool InMemoryEdgePropertyIndex::PublishIndex(PropertyId property, uint64_t commi
 
 void InMemoryEdgePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status_.Commit(commit_timestamp);
-  gauge_ = metrics::ScopedGauge{gauge.gauge};
+  gauge_ = metrics::ScopedGauge{gauge.ref};
 }
 
 InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() = default;
