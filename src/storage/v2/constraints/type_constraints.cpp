@@ -214,7 +214,7 @@ void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, Type
 
   // Commit status in-place (shared_ptr allows modification without copy-on-write)
   constraint->status.Commit(commit_timestamp);
-  constraint->gauge_ = metrics::ScopedGauge{gauge_.gauge};
+  constraint->gauge_ = metrics::ScopedGauge{gauge_.ref};
 }
 
 TypeConstraints::IndividualConstraintPtr TypeConstraints::DropConstraint(LabelId label, PropertyId property,

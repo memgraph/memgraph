@@ -53,9 +53,7 @@ class DiskStorage final : public Storage {
   ~DiskStorage() override;
 
   void RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) override {
-    std::unique_lock const handles_guard{metric_handles_mutex_};
     metric_handles_ = new_handles;
-    // Disk indices don't store gauge handles, so nothing to rebind there.
     constraints_.RebindMetricHandles(new_handles);
     ttl_.RebindMetricHandles(new_handles.deleted_nodes, new_handles.deleted_edges);
   }

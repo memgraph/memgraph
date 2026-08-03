@@ -315,7 +315,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 
 void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = metrics::ScopedGauge{gauge.gauge};
+  gauge_ = metrics::ScopedGauge{gauge.ref};
 }
 
 // --- ActiveConstraints implementation ---

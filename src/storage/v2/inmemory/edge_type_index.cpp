@@ -206,7 +206,7 @@ bool InMemoryEdgeTypeIndex::PublishIndex(EdgeTypeId edge_type, uint64_t commit_t
 
 void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status_.Commit(commit_timestamp);
-  gauge_ = metrics::ScopedGauge{gauge.gauge};
+  gauge_ = metrics::ScopedGauge{gauge.ref};
 }
 
 InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() = default;
