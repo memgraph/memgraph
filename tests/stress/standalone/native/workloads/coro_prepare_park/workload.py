@@ -386,41 +386,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--endpoint", default=os.environ.get("ENDPOINT", DEFAULT_ENDPOINT))
     parser.add_argument("--username", default=DEFAULT_USERNAME)
     parser.add_argument("--password", default=DEFAULT_PASSWORD)
-    parser.add_argument(
-        "--contenders",
-        type=int,
-        default=6,
-        help=(
-            "Phase A: threads blocked on the held accessor. MUST exceed --bolt-num-workers or the "
-            "probe finds a free worker regardless of parking and the assertion stops discriminating."
-        ),
-    )
+    # MUST exceed --bolt-num-workers, or the probe finds a free worker regardless of parking and the
+    # responsiveness assertion stops discriminating.
+    parser.add_argument("--contenders", type=int, default=6, help="Phase A: threads blocked on the hold")
     parser.add_argument("--hold-sec", type=float, default=3.0, help="Phase A: how long each WRITE hold lasts")
     parser.add_argument("--responsive-sec", type=float, default=20.0, help="Phase A duration")
     parser.add_argument("--churn-sec", type=float, default=40.0, help="Phase B duration (park manufacturing)")
     parser.add_argument("--parallelism", type=int, default=8, help="Phase B writer threads")
     parser.add_argument("--num-labels", type=int, default=6)
     parser.add_argument("--nodes-per-tx", type=int, default=10)
-    parser.add_argument(
-        "--probe-ceiling-ms",
-        type=float,
-        default=250.0,
-        help=(
-            "Phase A, flag-on only: probe p99 ceiling. Measured p50 on this branch is ~1.6ms parked "
-            "vs ~950ms blocking, so this sits far from both and is not a tuning knob."
-        ),
-    )
-    parser.add_argument(
-        "--expect-parking",
-        choices=("true", "false"),
-        default="true",
-        help=(
-            "true: assert Phase A responsiveness. false: the control arm -- run the identical "
-            "contention with the flag off and assert ONLY the leak/liveness gates, since a blocking "
-            "build is expected to be slow. The leak gate applies to BOTH arms on purpose: the pool "
-            "changes this feature made (work_must_run_, the teardown tail) are NOT flag-gated."
-        ),
-    )
+    # Sits far from both measured figures (~1.6ms parked, ~950ms blocking): not a tuning knob.
+    parser.add_argument("--probe-ceiling-ms", type=float, default=250.0, help="Phase A p99 ceiling, flag-on only")
+    # false = the control arm: identical contention, flag off, leak/liveness gates only (a blocking
+    # build is expected to be slow). The leak gate applies to BOTH arms on purpose -- the pool changes
+    # (work_must_run_, the teardown tail) are NOT flag-gated.
+    parser.add_argument("--expect-parking", choices=("true", "false"), default="true")
     # Stress-runner boilerplate, accepted and ignored.
     parser.add_argument("--worker-count", type=int, default=0)
     parser.add_argument("--logging", default="INFO")
@@ -506,32 +486,23 @@ def main() -> None:
     )
 
     # ---- Phase 3: non-vacuity. A green run must have actually contended. ----
+    # Each entry is (observed_count, what a zero would mean). A zero anywhere means the run proved
+    # nothing, so it fails rather than passing quietly.
     print("Phase 3: non-vacuity checks...", flush=True)
-    if tallies_a.get("contender", 0) == 0:
-        sys.exit(
-            "FAIL (vacuous): no Phase A contender completed a single READ_ONLY operation, so nothing "
-            "ever blocked on the held accessor and the responsiveness measurement means nothing."
-        )
-    if tallies_a.get("holder", 0) == 0:
-        sys.exit(
-            "FAIL (vacuous): the Phase A holder never completed a WRITE hold, so the contenders had "
-            "nothing to block on."
-        )
-    if expect_parking and tallies_a.get("probe", 0) == 0:
-        sys.exit("FAIL (vacuous): the responsiveness probe never completed a query, so its latency is unmeasured.")
-    if tallies_b.get("ro_ddl", 0) == 0 and tallies_b.get("unique_ddl", 0) == 0:
-        sys.exit(
-            "FAIL (vacuous): neither Phase B DDL thread completed an operation, so no READ_ONLY or "
-            "UNIQUE accessor was ever taken and no park was manufactured for the leak gate."
-        )
-    if counters.accessor_timeouts == 0:
-        sys.exit(
-            "FAIL (vacuous): not a single accessor timeout was observed across either phase. Under the "
-            "shipped 1s --storage-access-timeout-sec these phases are expected to produce them in "
-            "quantity, and they are the evidence that acquires genuinely rode their deadline -- i.e. "
-            "that parks were created and resolved by the deadline sweep, the path that used to leak a "
-            "waiter on every occurrence. Without them the leak gate has nothing to detect."
-        )
+    checks = [
+        (tallies_a.get("contender", 0), "no contender completed a READ_ONLY op -- nothing blocked on the hold"),
+        (tallies_a.get("holder", 0), "the holder never completed a WRITE hold -- nothing to block on"),
+        (tallies_b.get("ro_ddl", 0) + tallies_b.get("unique_ddl", 0), "no Phase B DDL ran -- no park manufactured"),
+        # Accessor timeouts are the EVIDENCE that acquires rode their deadline, i.e. that parks were
+        # created and resolved by the sweep -- the path that used to leak a waiter every time. Without
+        # them the leak gate has nothing to detect.
+        (counters.accessor_timeouts, "no accessor timeout in either phase -- the leak gate has nothing to detect"),
+    ]
+    if expect_parking:
+        checks.append((tallies_a.get("probe", 0), "the probe never completed a query -- its latency is unmeasured"))
+    for observed_count, meaning in checks:
+        if observed_count == 0:
+            sys.exit(f"FAIL (vacuous): {meaning}")
     print(
         f"  contention was real: contender_ops={tallies_a.get('contender', 0)}, "
         f"accessor_timeouts={counters.accessor_timeouts}",
@@ -551,13 +522,11 @@ def main() -> None:
 
     if observed is None or observed > baseline_sessions:
         observer.close()
+        # A Bolt session outliving its connection is the signature of a park published but never
+        # delivered; see specs/parkable-prepare.md for the chain down to ~Gatekeeper.
         sys.exit(
-            f"FAIL (session leak): ActiveBoltSessions settled at {observed}, above the pre-run baseline "
-            f"of {baseline_sessions}, {LEAK_SETTLE_TIMEOUT_SEC}s after every workload driver was closed. "
-            f"A Bolt session outliving its connection is the signature of a park that was published but "
-            f"never delivered: the suspended coroutine frame still holds its shared_ptr<Session>, that "
-            f"Session holds a DatabaseAccess, and Gatekeeper<Database>::count_ will not reach zero -- "
-            f"which stalls DROP DATABASE and, at shutdown, ~Gatekeeper."
+            f"FAIL (session leak): ActiveBoltSessions settled at {observed}, above the baseline of "
+            f"{baseline_sessions}, {LEAK_SETTLE_TIMEOUT_SEC}s after every driver was closed."
         )
     print(f"  ActiveBoltSessions returned to {observed} (baseline {baseline_sessions}): OK", flush=True)
 
@@ -574,13 +543,11 @@ def main() -> None:
         ceiling = args.probe_ceiling_ms / 1000.0
         if p99 > ceiling:
             observer.close()
+            # Reference for this shape: ~1.6ms parked, ~950ms blocking. Near the blocking figure means
+            # parking stopped engaging (is the flag on?); in between means resumes are being delayed.
             sys.exit(
-                f"FAIL (responsiveness): the RETURN 1 probe's p99 was {p99:.3f}s, above the "
-                f"{ceiling:.3f}s ceiling, while {args.contenders} contenders were blocked on a held "
-                f"WRITE accessor and should have been PARKED with their Bolt workers freed. Reference "
-                f"numbers for this exact shape: ~1.6ms parked, ~950ms blocking. A result near the "
-                f"blocking figure means parking stopped engaging (is the flag on for this arm?); an "
-                f"intermediate result means resumes are being delayed behind unrelated work."
+                f"FAIL (responsiveness): probe p99 {p99:.3f}s exceeded the {ceiling:.3f}s ceiling with "
+                f"{args.contenders} contenders blocked on a held WRITE accessor."
             )
         print("  probe stayed responsive while every worker had a blocked contender: OK", flush=True)
     else:
@@ -607,11 +574,9 @@ def main() -> None:
         print("  UNEXPECTED ERRORS detected:", file=sys.stderr, flush=True)
         for err in unexpected[:40]:
             print(f"    {err}", file=sys.stderr, flush=True)
-        sys.exit(
-            f"FAIL: {len(unexpected)} unexpected error(s) during the run. Only accessor timeouts and "
-            f"write conflicts are expected -- index DDL is idempotent, so anything else is a real defect "
-            f"or a new error path that needs classifying."
-        )
+        # Only accessor timeouts and write conflicts are expected; index DDL is idempotent, so anything
+        # else is a real defect or a new error path that needs classifying.
+        sys.exit(f"FAIL: {len(unexpected)} unexpected error(s) during the run.")
     print("  all client errors matched a known marker: OK", flush=True)
 
     print("[coro-prepare-park] PASSED", flush=True)

@@ -137,16 +137,12 @@ if __name__ == "__main__":
 
 # --- Prepare-phase observability under the coro path -----------------------------------
 #
-# The flag moves the whole Prepare phase off the Bolt dispatcher: Session::Execute_ returns
-# kNeedsCoroPrepare and destroys its per-message ScopedSessionLog before any Prepare work runs, so
-# everything TLS-gated downstream -- session-trace events, and the [failed-query] log via
-# MaybeEmitFailedQueryLog's "TLS guard absent => no bolt message is in flight" gate -- goes silent
-# unless PrepareCoro re-installs the guard for its own non-suspending regions.
-#
-# That regression is invisible from the client (the query still fails correctly, the operator just
-# stops being told why), and it lands on precisely the contended workloads this flag exists for.
-# The flag-off control asserts the same query DOES log, so this pair pins the contract "flag-on must
-# not cost diagnostics" rather than merely "some log line exists".
+# The flag moves Prepare off the Bolt dispatcher, and Execute_ destroys its per-message
+# ScopedSessionLog before any Prepare work runs -- so everything TLS-gated downstream (session-trace
+# events, the [failed-query] log) goes silent unless PrepareCoro re-installs the guard. That regression
+# is invisible from the client: the query still fails correctly, the operator just stops being told why.
+# Paired with the flag-off control asserting the SAME query does log, so this pins "flag-on must not
+# cost diagnostics" rather than "some log line exists".
 
 
 def test_flag_on_prepare_failure_still_logs_failed_query():

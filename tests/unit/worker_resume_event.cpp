@@ -63,8 +63,7 @@ TEST(WorkerResumeEvent, RegisterWaiterCurrentEpochSucceeds) {
   EXPECT_EQ(resumed.load(), 0);
 }
 
-// (b) RegisterWaiter with a stale epoch (captured before a NotifyAll bumped it) fails and does
-// NOT enqueue the waiter.
+// (b) A stale epoch (captured before a NotifyAll bumped it) fails and does NOT enqueue.
 TEST(WorkerResumeEvent, RegisterWaiterStaleEpochFails) {
   WorkerResumeEvent event;
   const uint64_t stale_epoch = event.Epoch();
@@ -81,8 +80,7 @@ TEST(WorkerResumeEvent, RegisterWaiterStaleEpochFails) {
   EXPECT_EQ(resumed.load(), 0);
 }
 
-// (c) NotifyAll invokes on_resume for every registered waiter exactly once, bumps the epoch, and
-// resets WaitersPending() to 0.
+// (c) NotifyAll delivers to every waiter exactly once, bumps the epoch, and zeroes WaitersPending().
 TEST(WorkerResumeEvent, NotifyAllResumesEveryWaiterExactlyOnce) {
   WorkerResumeEvent event;
   constexpr int kNumWaiters = 3;
@@ -109,8 +107,7 @@ TEST(WorkerResumeEvent, NotifyAllResumesEveryWaiterExactlyOnce) {
   }
 }
 
-// (d) RemoveWaiter decrements WaitersPending() and prevents that handle from being resumed by a
-// later NotifyAll.
+// (d) RemoveWaiter decrements WaitersPending() and prevents a later NotifyAll from resuming it.
 TEST(WorkerResumeEvent, RemoveWaiterPreventsLaterResume) {
   WorkerResumeEvent event;
   std::atomic<int> resumed_removed{0};
@@ -139,8 +136,8 @@ TEST(WorkerResumeEvent, RemoveWaiterPreventsLaterResume) {
   EXPECT_TRUE(kept_ps->claimed.load(std::memory_order_acquire));
 }
 
-// (e) Single-owner resume: two back-to-back NotifyAll calls resume each waiter exactly once
-// total -- the second call sees an empty waiter list.
+// (e) Single-owner resume: back-to-back NotifyAll calls deliver once in total -- the second sees an
+// empty list.
 TEST(WorkerResumeEvent, BackToBackNotifyAllResumesOnce) {
   WorkerResumeEvent event;
   std::atomic<int> resumed{0};
@@ -156,10 +153,9 @@ TEST(WorkerResumeEvent, BackToBackNotifyAllResumesOnce) {
   EXPECT_EQ(resumed.load(), 1) << "waiter must not be double-resumed by a second NotifyAll";
 }
 
-// (f) Abandon-path claim (R4.3), WIN case: the awaitable's own re-probe succeeds and it wins
-// ClaimPark on its own ParkState BEFORE any wake source does. on_resume must never fire -- the
-// winning claimant is expected to drive its own continuation synchronously, not via on_resume --
-// and a later NotifyAll on the (best-effort, not-yet-removed) entry must be a harmless no-op.
+// (f) Abandon path, WIN: the re-probe wins ClaimPark before any wake source. on_resume must never fire
+// (the winner drives its own continuation synchronously), and a later NotifyAll on the not-yet-removed
+// entry must be a harmless no-op.
 TEST(WorkerResumeEvent, AbandonPathWinPreventsLaterNotifyAllResume) {
   WorkerResumeEvent event;
   std::atomic<int> resumed{0};
@@ -178,10 +174,9 @@ TEST(WorkerResumeEvent, AbandonPathWinPreventsLaterNotifyAllResume) {
   EXPECT_EQ(resumed.load(), 0) << "on_resume must never fire once another party already won the claim";
 }
 
-// (g) Abandon-path claim (R4.3), LOSE case: a concurrent NotifyAll wins the race first (as if a
-// lock release happened between the waiter's re-probe and its own ClaimPark attempt). on_resume
-// fires exactly once (via NotifyAll), and the caller's own subsequent ClaimPark attempt correctly
-// observes the loss instead of double-invoking anything.
+// (g) Abandon path, LOSE: a concurrent NotifyAll wins first, as if a release landed between the
+// re-probe and its ClaimPark. on_resume fires exactly once, and the caller observes the loss rather
+// than double-invoking.
 TEST(WorkerResumeEvent, AbandonPathLoseToNotifyAllResumesExactlyOnce) {
   WorkerResumeEvent event;
   std::atomic<int> resumed{0};
@@ -199,8 +194,7 @@ TEST(WorkerResumeEvent, AbandonPathLoseToNotifyAllResumesExactlyOnce) {
   EXPECT_EQ(resumed.load(), 1) << "on_resume must be invoked exactly once total across both paths";
 }
 
-// (h) Drain() resumes (claims + invokes on_resume for) every currently-registered waiter exactly
-// once, and a later NotifyAll on the now-empty event is a no-op.
+// (h) Drain() delivers to every registered waiter exactly once; a later NotifyAll is a no-op.
 TEST(WorkerResumeEvent, DrainResumesAllWaitersExactlyOnce) {
   WorkerResumeEvent event;
   constexpr int kNumWaiters = 4;
@@ -231,12 +225,9 @@ TEST(WorkerResumeEvent, DrainResumesAllWaitersExactlyOnce) {
   }
 }
 
-// (i) Multi-threaded stress: many threads each capture the epoch and register a ParkState while
-// dedicated notifier threads repeatedly call NotifyAll. Asserts every waiter's on_resume is
-// invoked exactly once and none is lost or double-invoked -- i.e. the register-before-recheck /
-// release-before-check protocol documented in worker_resume_event.hpp (R1 B1) actually holds
-// under contention, not just in single-threaded call order, now routed through ClaimPark on a
-// shared ParkState rather than a bare handle.resume().
+// (i) Multi-threaded stress: registrars capture-and-register while notifiers repeatedly NotifyAll.
+// Asserts the register-before-recheck / release-before-check protocol holds under contention, not just
+// in single-threaded call order -- every waiter delivered exactly once, none lost or doubled.
 TEST(WorkerResumeEvent, ConcurrentRegisterAndNotifyResumesEachExactlyOnce) {
   WorkerResumeEvent event;
   constexpr int kNumWaiters = 32;
@@ -302,15 +293,10 @@ TEST(WorkerResumeEvent, ConcurrentRegisterAndNotifyResumesEachExactlyOnce) {
 }
 
 // Drain() CLOSES the event: no later registration may succeed, and callers can tell that apart from an
-// epoch bump.
-//
-// The window this guards was real. Drain() deliberately does not bump the epoch, so a RegisterWaiter
-// that took the mutex just after Drain's critical section saw an unchanged epoch, pushed onto the
-// just-emptied list, and parked with nothing left to wake it -- rescued only by the deadline sweep,
-// delaying a DROP DATABASE by up to the access timeout. Bumping the epoch would NOT have closed it: the
-// refused registration simply re-probes and re-registers under the new epoch onto the same drained
-// event. Only a sticky flag terminates the sequence, which is why this is a distinct state and not an
-// epoch value.
+// epoch bump. The window is real -- Drain deliberately does not bump the epoch, so a registration
+// arriving just after it used to push onto the just-emptied list and park with nothing left to wake it.
+// An epoch bump would not close it (the retry lands on the same drained event); only a sticky flag
+// does, which is why this is a distinct state.
 TEST(WorkerResumeEvent, DrainClosesTheEventAgainstLateRegistration) {
   WorkerResumeEvent event;
   std::atomic<int> resumed{0};

@@ -191,9 +191,8 @@ TEST(CoroAccessor, ParkWakeAcquire) {
   pool.AwaitShutdown();
 }
 
-// (b) PARK -> TIMEOUT: a conflicting UNIQUE request parks against a short absolute deadline and,
-// since the held accessor is NEVER released, must be woken by the pool's periodic deadline sweep
-// (not by a lock-release notify) and throw UniqueAccessTimeout at ~deadline.
+// (b) PARK -> TIMEOUT: the holder is NEVER released, so the park must be woken by the periodic
+// deadline sweep rather than a lock-release notify, and throw UniqueAccessTimeout at ~deadline.
 TEST(CoroAccessor, ParkTimeout) {
   ScopedCoroPrepareFlag flag_on{true};
 
@@ -236,11 +235,9 @@ TEST(CoroAccessor, ParkTimeout) {
   pool.AwaitShutdown();
 }
 
-// (c) FAST PATH: uncontended acquisition succeeds immediately and never parks -- no waiter is
-// ever registered on the storage's wake event.
-// (c) An UNCONTENDED acquire never registers a park -- with the flag ON (it takes the coroutine's own
-// fast path, probing successfully before any park attempt) and with it OFF (it takes the ordinary
-// blocking path). Same observable outcome via two different code paths, so both are asserted.
+// (c) An UNCONTENDED acquire never registers a park -- flag ON (the coroutine's own fast path probes
+// successfully before any park attempt) and OFF (the ordinary blocking path). Same outcome, two code
+// paths, so both are asserted.
 class CoroAccessorUncontended : public ::testing::TestWithParam<bool> {};
 
 TEST_P(CoroAccessorUncontended, AcquireRegistersNoPark) {
@@ -267,9 +264,8 @@ TEST_P(CoroAccessorUncontended, AcquireRegistersNoPark) {
 INSTANTIATE_TEST_SUITE_P(FlagOnAndOff, CoroAccessorUncontended, ::testing::Bool(),
                          [](const testing::TestParamInfo<bool> &info) { return info.param ? "FlagOn" : "FlagOff"; });
 
-// (d) HIGH priority bypasses the park path entirely -- even with the flag on and InMemory
-// storage, it always takes the ordinary blocking Access()/UniqueAccess()/ReadOnlyAccess() path,
-// and still succeeds once a conflicting holder releases (behaviorally identical to today).
+// (d) HIGH priority bypasses the park path even with the flag on and InMemory storage, and still
+// acquires once the conflicting holder releases.
 TEST(CoroAccessor, HighPriorityUsesBlockingPathAndStillAcquires) {
   ScopedCoroPrepareFlag flag_on{true};
 
@@ -307,12 +303,10 @@ TEST(CoroAccessor, HighPriorityUsesBlockingPathAndStillAcquires) {
   pool.AwaitShutdown();
 }
 
-// (e) PARK -> SHUTDOWN: a genuinely parked acquire must be resumed and unwound by the pool's
-// teardown, promptly, rather than left registered forever holding its session alive. This is the
-// path the original symptom was on (an unbounded shutdown stall), and the one un-pinning most
-// disturbed: pre-F6 the drain's resume was posted to the parking worker, which was guaranteed
-// still alive; now it is posted to whichever worker will take it, and the arming side may be what
-// delivers it. Nothing else in the suite covers ShutDown() with a park in flight.
+// (e) PARK -> SHUTDOWN: a parked acquire must be resumed and unwound PROMPTLY by pool teardown, not
+// left registered holding its session -- the original unbounded-shutdown-stall symptom. Un-pinning
+// disturbed this most, since the drain's resume now goes to whichever worker takes it and the arming
+// side may be what delivers. Nothing else in the suite covers ShutDown() with a park in flight.
 TEST(CoroAccessor, ParkThenShutdownUnwindsPromptly) {
   ScopedCoroPrepareFlag flag_on{true};
 
@@ -413,16 +407,13 @@ TEST(CoroAccessor, ParkTimeoutLeavesNoWaiterRegistered) {
   pool.AwaitShutdown();
 }
 
-// (h) STORAGE-SIDE DRAIN resumes a park that no lock release will ever wake.
+// (h) STORAGE-SIDE DRAIN resumes a park that no lock release will ever wake. The pool drain is already
+// pinned by (e); the storage-side ones could NOT be covered over Bolt, where session teardown releases
+// the holder and the ordinary notify wakes the park first (park_shutdown.py was mutation-measured to
+// guard none of them). Owning the holder as a local builds what Bolt cannot.
 //
-// Fills a real gap, not symmetry. The POOL drain is already pinned by ParkThenShutdownUnwindsPromptly.
-// The storage-side ones could NOT be covered over Bolt -- park_shutdown.py was measured by mutation to
-// guard none of them, because session teardown releases the holder and the ordinary notify path wakes
-// the park first. A unit test owns the holder as a local, so it can build what Bolt cannot: a park with
-// its conflicting holder still held.
-//
-// Discriminates RESUMES from merely DROPS: after the drain the resumed coroutine re-probes, still
-// cannot acquire, and RE-PARKS, so WaitersPending() returns to 1. A drop leaves it at 0 forever.
+// Discriminates RESUMES from merely DROPS: the resumed coroutine re-probes, still cannot acquire, and
+// RE-PARKS, so WaitersPending() returns to 1. A drop leaves it at 0 forever.
 TEST(CoroAccessor, StorageSideDrainResumesAParkNoReleaseCanWake) {
   ScopedCoroPrepareFlag flag_on{true};
 
