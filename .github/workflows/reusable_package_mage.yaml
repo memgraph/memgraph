@@ -626,8 +626,8 @@ jobs:
             --network none \
             -e MEMGRAPH_ENTERPRISE_LICENSE \
             -e MEMGRAPH_ORGANIZATION_NAME \
-            -e EXPECTED_PROCEDURES \
-            -e EXPECTED_FUNCTIONS \
+            -e EXPECTED_PROCEDURES="$EXPECTED_PROCEDURES" \
+            -e EXPECTED_FUNCTIONS="$EXPECTED_FUNCTIONS" \
             -v "$PWD/${OFFLINE_INSTALLER}:/installer.run:ro" \
             -v "$PWD/tools/ci/wait_for_memgraph_bolt.sh:/wait_for_memgraph_bolt.sh:ro" \
             ubuntu:24.04 \
