@@ -185,6 +185,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REVOKE
                       | ROLE
                       | ROLES
+                      | ROUTING
                       | ROWS
                       | RUNNING
                       | SCHEMA
@@ -212,6 +213,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STRING
                       | SYNC
                       | SUSPEND
+                      | TABLE
                       | TERMINATE
                       | TEXT
                       | TIMEOUT
@@ -368,6 +370,7 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | setCoordinatorSetting
                  | showCoordinatorSettings
                  | showReplicationLag
+                 | showRoutingTable
                  | updateConfig
                  ;
 
@@ -679,6 +682,8 @@ setCoordinatorSetting: SET COORDINATOR SETTING settingName TO settingValue ;
 showCoordinatorSettings: SHOW COORDINATOR SETTINGS ;
 
 showReplicationLag: SHOW REPLICATION LAG ;
+
+showRoutingTable: SHOW ROUTING TABLE ;
 
 coordinatorServerId : literal ;
 

@@ -146,6 +146,14 @@ def get_vertex_count(cursor):
     return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
 
 
+def show_routing_table(cursor):
+    """
+    Accepts a cursor to a coordinator and returns the routing table as a {role: servers} dict using the
+    `SHOW ROUTING TABLE` query. Servers are sorted because their order inside a role is not part of the contract.
+    """
+    return {role: sorted(servers) for role, servers in execute_and_fetch_all(cursor, "SHOW ROUTING TABLE;")}
+
+
 def show_replication_role(cursor):
     """
     Accepts a cursor and returns the replication role.

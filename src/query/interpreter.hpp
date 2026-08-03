@@ -204,6 +204,8 @@ class CoordinatorQueryHandler {
   virtual uint64_t ShowRolePrivileges(std::string_view role_name) = 0;
 
   virtual std::optional<coordination::ReplicationLagResult> ShowReplicationLag() = 0;
+
+  virtual coordination::RoutingTable GetRoutingTable(std::string_view db_name) = 0;
 };
 #endif
 

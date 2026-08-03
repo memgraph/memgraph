@@ -79,6 +79,8 @@ class CoordinatorHandler {
   // nullopt if the leader couldn't be reached.
   auto ShowReplicationLag() const -> std::optional<coordination::ReplicationLagResult>;
 
+  auto GetRoutingTable(std::string_view db_name) const -> coordination::RoutingTable;
+
  private:
   // NOLINTNEXTLINE
   coordination::CoordinatorState &coordinator_state_;

@@ -516,6 +516,17 @@ TEST(QueryStripper, KeywordsCanBeUsedInStrippedQueries) {
     StrippedQuery stripped("MATCH (n:Constraints), (m:Indexes) RETURN n, m");
     EXPECT_EQ(stripped.stripped_query().str(), "MATCH ( n : Constraints ) , ( m : Indexes ) RETURN n , m");
   }
+
+  {
+    StrippedQuery stripped("MATCH (routing:Table) RETURN routing");
+    EXPECT_EQ(stripped.stripped_query().str(), "MATCH ( routing : Table ) RETURN routing");
+  }
+}
+
+TEST(QueryStripper, ShowRoutingTable) {
+  StrippedQuery stripped("show   routing\n table");
+  EXPECT_EQ(stripped.literals().size(), 0);
+  EXPECT_EQ(stripped.stripped_query().str(), "show routing table");
 }
 
 TEST(QueryStripper, SignFoldInList) {
