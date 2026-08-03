@@ -1575,6 +1575,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto *scan_op = dynamic_cast<ScanAllByVertexProperty *>(op);
       auto *mapper = db_->GetStorageAccessor()->GetNameIdMapper();
       if (auto pvr = scan_op->expression_range_.ResolveAtPlantime(parameters_, mapper)) {
+        if (pvr->type_ == storage::PropertyRangeType::IS_NOT_NULL) {
+          return static_cast<double>(db_->VerticesCount(scan_op->property_));
+        }
         if (pvr->type_ == storage::PropertyRangeType::BOUNDED && pvr->lower_ && pvr->upper_ &&
             pvr->lower_->value() == pvr->upper_->value()) {
           return static_cast<double>(db_->VerticesCount(scan_op->property_, pvr->lower_->value()));

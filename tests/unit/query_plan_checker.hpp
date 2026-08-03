@@ -731,8 +731,7 @@ class ExpectScanAllByVertexProperty : public OpChecker<ScanAllByVertexProperty> 
 
 class ExpectScanAllByVertexPropertyValue : public OpChecker<ScanAllByVertexProperty> {
  public:
-  ExpectScanAllByVertexPropertyValue(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
-                                     memgraph::query::Expression * /*expression*/)
+  explicit ExpectScanAllByVertexPropertyValue(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
       : property_(prop_pair.second) {}
 
   void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {

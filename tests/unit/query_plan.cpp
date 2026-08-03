@@ -4714,7 +4714,7 @@ TYPED_TEST(TestPlanner, MatchVertexPropertyIndexEquality) {
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EQ(PROPERTY_LOOKUP(dba, "n", prop), lit_1)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByVertexPropertyValue(property_pair, lit_1), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByVertexPropertyValue(property_pair), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchVertexPropertyIndexRange) {
@@ -4751,11 +4751,8 @@ TYPED_TEST(TestPlanner, MatchVertexPropertyIndexFallbackBeatsLabel) {
       SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label"))), WHERE(EQ(PROPERTY_LOOKUP(dba, "n", prop), lit_1)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(),
-            symbol_table,
-            ExpectScanAllByVertexPropertyValue(property_pair, lit_1),
-            ExpectFilter(),
-            ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAllByVertexPropertyValue(property_pair), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchVertexPropertyIndexFallbackLosesToLabel) {

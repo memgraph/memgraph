@@ -733,7 +733,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       case Type::IS_NOT_NULL:
         return db_accessor_->VerticesCount(property);
       case Type::EQUAL:
-      case Type::IN: {
+      case Type::IN: {  // IN is lowered to EQUAL + Unwind at plan-build time, so fallthrough here is defensive
         if (auto val = ConstPropertyValue(range.lower_->value())) {
           return db_accessor_->VerticesCount(
               property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
@@ -744,6 +744,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       case Type::REGEX_MATCH:
         return EstimateVertexPropertyRangeCardinality(property, range.lower_, range.upper_);
     }
+    std::unreachable();
   }
 
   // Helper function to estimate cardinality for label properties queries.
