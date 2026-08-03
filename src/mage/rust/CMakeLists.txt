@@ -3,6 +3,15 @@
 # copied into the dist with the "lib" prefix stripped, since memgraph loads
 # modules by bare name.
 
+# Resolve cargo to an absolute path at configure time (same rationale as
+# mgcxx/text_search): a bare `cargo` is looked up on PATH at ninja time, which
+# breaks in CI / non-login shells where ~/.cargo/env was never sourced.
+find_program(CARGO_EXECUTABLE cargo HINTS "$ENV{HOME}/.cargo/bin")
+if(NOT CARGO_EXECUTABLE)
+    message(FATAL_ERROR "cargo not found (searched PATH and ~/.cargo/bin). "
+                        "Install Rust via rustup or source ~/.cargo/env.")
+endif()
+
 string(TOLOWER ${CMAKE_BUILD_TYPE} _mage_lc_build_type)
 if(_mage_lc_build_type STREQUAL "debug")
     set(MG_MAGE_CARGO_FLAGS "")
@@ -52,7 +61,7 @@ function(mage_add_rust_module crate_dir lib_name)
                 LD_LIBRARY_PATH=${MG_TOOLCHAIN_ROOT}/lib:${MG_TOOLCHAIN_ROOT}/lib64
                 CARGO_TARGET_DIR=${_target_dir}
                 CARGO_NET_GIT_FETCH_WITH_CLI=true
-                cargo build ${MG_MAGE_CARGO_FLAGS}
+                ${CARGO_EXECUTABLE} build ${MG_MAGE_CARGO_FLAGS}
         COMMAND ${CMAKE_COMMAND} -E copy ${_built} ${_dist}
         WORKING_DIRECTORY ${_src}
         DEPENDS ${_rs_sources}
