@@ -911,6 +911,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(Exists &exists) override {
     TypedValue const &frame_exists_value = frame_->at(symbol_table_->at(exists));
+    // A forced bool fold already wrote the answer; a deferred one wrote the closure that computes it.
+    if (frame_exists_value.IsBool()) {
+      return TypedValue(frame_exists_value.ValueBool(), ctx_->memory);
+    }
     if (!frame_exists_value.IsFunction()) [[unlikely]] {
       throw QueryRuntimeException(
           "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
