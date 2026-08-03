@@ -92,8 +92,12 @@ check_architecture() {
 function check_custom_package() {
     local pkg="$1"
 
-    # workaround for running the OS scripts with sudo
-    local user_home=$(getent passwd "${SUDO_USER:-$USER}" | cut -d: -f6)
+    # Check against the invoking user's home when running under sudo. $USER is
+    # NOT used as a fallback: it is set by login/su but absent in e.g.
+    # `docker exec` shells, and the distro scripts run with `set -u`.
+    local target_user="${SUDO_USER:-$(id -un)}"
+    local user_home
+    user_home="$(getent passwd "$target_user" | cut -d: -f6)"
 
     case "$pkg" in
         custom-maven*)
@@ -299,8 +303,15 @@ function install_rust() {
 
   target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 
-  sudo -u "$target_user" \
-    HOME="$target_home" \
+  # Drop privileges only when there is someone to drop to — when the target
+  # user IS the current user (no sudo, e.g. inside a container), run directly:
+  # the sudo binary may not even exist there.
+  local -a run_as=()
+  if [[ "$target_user" != "$(id -un)" ]]; then
+    run_as=(sudo -u "$target_user")
+  fi
+
+  "${run_as[@]}" env HOME="$target_home" \
     bash -c '
       set -euo pipefail
 
@@ -319,8 +330,13 @@ function install_node() {
 
   target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 
-  sudo -u "$target_user" \
-    HOME="$target_home" \
+  # See install_rust: skip sudo when already running as the target user.
+  local -a run_as=()
+  if [[ "$target_user" != "$(id -un)" ]]; then
+    run_as=(sudo -u "$target_user")
+  fi
+
+  "${run_as[@]}" env HOME="$target_home" \
     bash -c '
       set -euo pipefail
 
