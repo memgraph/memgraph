@@ -29,19 +29,13 @@
 
 namespace memgraph::utils {
 
-/// Thread-local worker-id publication for LP (mixed-work) pool workers ONLY. Published at the
-/// top of the worker's run loop (before it processes any task) and cleared when the worker
-/// exits its run loop. HP workers never publish (see Worker::operator() — the id space for HP
-/// workers is disjoint from `workers_`, so an HP worker publishing its own index would make it
-/// indistinguishable from an unrelated LP worker).
+/// Thread-local worker-id publication for LP (mixed-work) workers ONLY -- HP workers must never
+/// publish, since their id space is disjoint from `workers_` and would alias an LP worker.
 ///
-/// Post IP-1 F6 nothing pins work to a specific worker any more, so the ID itself is no longer
-/// consumed; `has_value()` is. It is the test for "am I running as an LP pool task", which is what
-/// the parkable-Prepare path actually requires: a park is only safe where something will later ARM
-/// it (utils/park_state.hpp), and the LP worker run loop is what does that, unconditionally, at
-/// every task boundary. Both the Bolt-side decision to take the coroutine Prepare path at all
-/// (communication/bolt/v1/session.hpp) and the park-path assert in query/coro_accessor.hpp are
-/// exactly that test. Returns std::nullopt off a pool worker thread (or on an HP worker thread).
+/// Nothing pins work to a specific worker any more, so the VALUE is unused and `has_value()` is the
+/// point: it answers "am I running as an LP pool task", which is what parking requires -- a park is
+/// only safe where something will later ARM it, and the LP run loop is what does that at every task
+/// boundary. Returns nullopt off a pool worker (or on an HP one).
 void SetCurrentWorker(size_t worker_id);
 std::optional<size_t> GetCurrentWorkerId();
 void ClearCurrentWorker();
@@ -179,23 +173,15 @@ class PriorityThreadPool {
   bool IsShuttingDown() const { return pool_stop_source_.stop_requested(); }
 
   /**
-   * Posts a parked coroutine's resume onto ANY mixed-work (LP) worker, preferring an idle one
-   * exactly like ScheduledAddTask does (IP-1 F6, un-pinned resume).
-   *
+   * Posts a parked coroutine's resume onto ANY mixed-work (LP) worker, preferring an idle one.
    * Differs from ScheduledAddTask in the only two ways a resume needs:
-   *  - it is NOT refused once shutdown has been requested. A parked frame that never resumes is a
-   *    leaked session (and its DatabaseAccess), which stalls the very shutdown doing the refusing;
-   *    the pool's own teardown DRAINS parked waiters (see ShutDown) and every resulting resume must
-   *    land somewhere that still runs it.
-   *  - it lands in the target worker's separate must-run queue, which takes precedence over ordinary
-   *    work and, crucially, is drained by the worker before it exits (see Worker::operator()'s tail)
-   *    rather than dropped like the ordinary queue.
+   *  - NOT refused once shutdown is requested -- a frame that never resumes is a leaked session, which
+   *    stalls the very shutdown doing the refusing;
+   *  - lands in the must-run queue, which takes precedence and is DRAINED before the worker exits
+   *    rather than dropped.
    *
-   * WHEN the posted resume may run is NOT this function's concern -- that exclusion belongs to the
-   * ParkState delivery gate (utils/park_state.hpp), which is what lets this post go to an arbitrary
-   * worker at all. Before IP-1 F6 this pinned the resume onto the parking worker to get that
-   * exclusion for free, at the cost of making every parked query's wake latency (and therefore its
-   * storage-access timeout) hostage to one worker's backlog.
+   * WHEN it may run is the delivery gate's concern, not this function's -- which is what lets the post
+   * target an arbitrary worker at all. See specs/parkable-prepare.md.
    */
   void PostResumeTask(std::function<void()> closure);
 
@@ -275,15 +261,12 @@ class PriorityThreadPool {
       hp_workers_;       // High priority work threads | ideally tasks yield and this isn't needed
   HotMask hot_threads_;  // Mask of workers waiting for new work (but still not sleeping)
 
-  // Deadline-sweep registry for parked waiters (IP-1 B2); swept once per monitor tick alongside
-  // the stuck-task migration below. See park_registry() accessor doc comment.
+  // Deadline-sweep registry for parked waiters, swept once per monitor tick.
   //
-  // MUST be declared BEFORE pool_/monitoring_ so it is destroyed AFTER them: both the workers and
-  // the monitor touch it (Register from await_suspend, Sweep from the monitor tick), and
-  // Worker::stop() only clears a flag -- it does not join. On a teardown that reaches the
-  // destructor without an intervening AwaitShutdown(), a worker still inside await_suspend would
-  // otherwise Register() on a destroyed mutex and vector. Production joins first, so this is
-  // latent there; unit tests and any other embedding are not protected by that accident.
+  // INVARIANT: declared BEFORE pool_/monitoring_ so it is destroyed AFTER them. Both workers and the
+  // monitor touch it, and Worker::stop() only clears a flag without joining -- so on a teardown that
+  // skips AwaitShutdown(), a worker still inside await_suspend would Register() on a destroyed mutex.
+  // Production joins first, making it latent there but not in tests or other embeddings.
   DeadlineParkRegistry park_registry_;
 
   std::vector<std::jthread> pool_;  // All available threads (list so the elements are stable)

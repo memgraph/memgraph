@@ -417,14 +417,11 @@ class Storage {
   /// Session it pins. See the shutdown sequence in memgraph.cpp.
   void DrainParkedMainLockWaiters();
 
-  /// Wakes any parked waiter. Callers MUST invoke this AFTER the guard has actually released
-  /// `main_lock_` -- never while still holding it.
+  /// Wakes any parked waiter. MUST be called AFTER the guard actually released `main_lock_`.
   ///
-  /// Every release mode must call it, including plain READ/WRITE. main_lock_'s conflict matrix is:
-  /// UNIQUE excludes all; READ_ONLY excludes WRITE (coexists with READ); READ/WRITE coexist. So a
-  /// parked READ_ONLY/UNIQUE waiter is unblocked precisely when the LAST conflicting WRITE (or READ,
-  /// for UNIQUE) holder releases -- not only by another UNIQUE/READ_ONLY release. "READ/WRITE never
-  /// gate another acquirer" is true of a NEW READ/WRITE acquirer and false of a WAITING one.
+  /// EVERY release mode must call it, plain READ/WRITE included: a parked READ_ONLY/UNIQUE waiter is
+  /// unblocked precisely when the LAST conflicting holder releases. "READ/WRITE never gate another
+  /// acquirer" is true of a NEW acquirer and false of a WAITING one.
   void NotifyMainLockReleased();
 
   virtual StorageInfo GetBaseInfo() = 0;
@@ -477,17 +474,12 @@ class Storage {
 
     ttl_.Shutdown();
 
-    // A genuine park dual-registers the SAME shared_ptr<ParkState> in TWO registries (see
-    // query::detail::AcquireAwaitable::await_suspend): the pool's DeadlineParkRegistry (deadline
-    // backstop, drained by PriorityThreadPool::ShutDown) and this per-Storage event (lock-release
-    // wake). Draining only the pool side leaks: the waiters_ entry keeps the ParkState alive, whose
-    // on_resume closure keeps the parked Session and its DatabaseAccess alive, which holds
-    // Gatekeeper<Database>::count_ above zero -- and ~Gatekeeper blocks 5 minutes on count_ == 0.
+    // A genuine park dual-registers in TWO registries -- the pool's deadline backstop and this
+    // per-Storage event -- and draining only the pool side leaks the Session, hence a DatabaseAccess,
+    // hence a 5-minute ~Gatekeeper wait.
     //
-    // This is the IDEMPOTENT SECOND PASS, and the only pass on the DROP DATABASE path (where the pool
-    // is not shutting down at all). Do NOT make it the primary one: a resume is posted to a worker,
-    // so draining after the pool has stopped never runs it. memgraph.cpp does the real drain while
-    // the pool is still alive.
+    // This is the IDEMPOTENT SECOND PASS, and the only pass on the DROP DATABASE path. Do NOT make it
+    // primary: a resume is POSTED to a worker, so draining after the pool stopped never runs it.
     DrainParkedMainLockWaiters();
   }
 
@@ -631,17 +623,12 @@ class Accessor {
 
   Accessor(Accessor &&other) noexcept;
 
-  // `= default` in storage.cpp -- out-of-line only so this polymorphic class has one key function and
-  // emits its vtable in a single TU.
+  // `= default` in storage.cpp, out-of-line only to emit the vtable in a single TU.
   //
-  // Empty on purpose: the wake for a parked waiter comes from guard_'s own implicit destruction
-  // (~ResourceLockGuard -> release -> maybe_notify -> Storage's admit observer). That covers every
-  // release site instead of the ones a hand-written dtor body happens to enumerate, and it lands
-  // after the hold is actually gone because maybe_notify unlocks before invoking the observer. A
-  // guard handed off via ReleaseGuard() owns nothing here, so its new owner notifies instead.
-  //
-  // guard_ is declared BEFORE transaction_ below, so the hold outlives the transaction and is
-  // released last.
+  // Empty on purpose: the wake comes from guard_'s own destruction (~ResourceLockGuard -> release ->
+  // maybe_notify -> the admit observer), which covers every release site rather than the ones a
+  // hand-written body enumerates, and lands after the hold is gone. guard_ is declared BEFORE
+  // transaction_, so the hold outlives the transaction and is released last.
   virtual ~Accessor();
 
   StorageAccessType original_access_type() const { return original_access_type_; }

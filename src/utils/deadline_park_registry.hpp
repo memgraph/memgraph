@@ -23,14 +23,11 @@
 
 namespace memgraph::utils {
 
-/// Timeout backstop for parked waiters (specs/parkable-prepare.md). Deliberately
-/// COROUTINE-AGNOSTIC: `ParkState::on_resume` is an opaque closure this registry only invokes, never
-/// a handle it resumes or inspects, which keeps it testable with plain recording closures.
+/// Timeout backstop for parked waiters. Coroutine-agnostic: `on_resume` is an opaque closure this
+/// registry only invokes. All four methods are safe to call concurrently.
 ///
-/// `Register`/`Deregister`/`Sweep`/`Drain` are all safe to call concurrently.
-///
-/// INVARIANT: `mutex_` is never held across `on_resume`. It runs arbitrary scheduler/session code and
-/// may re-park, so invoking it under the lock risks deadlock -- same rule as `WorkerResumeEvent`.
+/// INVARIANT: `mutex_` is never held across `on_resume` -- it runs arbitrary scheduler/session code and
+/// may re-park, so invoking it under the lock risks deadlock.
 class DeadlineParkRegistry {
  public:
   DeadlineParkRegistry() = default;
@@ -49,9 +46,8 @@ class DeadlineParkRegistry {
     size_.store(entries_.size(), std::memory_order_release);
   }
 
-  /// Best-effort removal, for a waiter resumed by some other wake source. Correctness does NOT depend
-  /// on it being called promptly or at all: a still-present entry is already `claimed`, so `Sweep`
-  /// prunes it without invoking anything. Purely to keep the registry small.
+  /// Best-effort. Correctness does NOT depend on it: a still-present entry is already `claimed`, so
+  /// `Sweep` prunes it without invoking anything.
   void Deregister(const std::shared_ptr<ParkState> &ps) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = std::find(entries_.begin(), entries_.end(), ps);
@@ -61,18 +57,15 @@ class DeadlineParkRegistry {
     }
   }
 
-  /// Exposed for TESTS: the deadline-registry half of AcquireAccessorCoro's post-resume prune is
-  /// otherwise unobservable, since nothing outside this class reads the list (the wake-event half is
-  /// visible through `WaitersPending()`). Reads the same lock-free mirror as `Sweep`'s fast path, with
-  /// the same benign staleness.
+  /// Exposed for TESTS: the deadline half of the post-resume prune is otherwise unobservable. Same
+  /// lock-free mirror as `Sweep`'s fast path, with the same benign staleness.
   size_t Size() const { return size_.load(std::memory_order_acquire); }
 
-  /// Sweeps once, delivering to every waiter that is past its deadline AND whose claim this call wins.
-  /// The closure is expected to re-probe, see the deadline passed, and throw its own timeout; this
-  /// function never inspects or reschedules anything itself.
+  /// Sweeps once, delivering to every waiter past its deadline whose claim this call wins. The closure
+  /// re-probes and throws its own timeout; this never inspects or reschedules anything.
   ///
-  /// Empty is ONE atomic load, no mutex, no allocation -- this runs on every monitor tick whether or
-  /// not the feature is in use.
+  /// Empty is ONE atomic load, no mutex -- it runs on every monitor tick whether or not the feature is
+  /// in use.
   void Sweep(std::chrono::steady_clock::time_point now) {
     if (size_.load(std::memory_order_acquire) == 0) [[likely]] {
       return;  // Cheap-when-empty fast path: no lock, no work.
@@ -129,10 +122,8 @@ class DeadlineParkRegistry {
  private:
   mutable std::mutex mutex_;
   std::vector<std::shared_ptr<ParkState>> entries_;
-  // Relaxed-ish size mirror of entries_.size(), read WITHOUT the mutex by Sweep's empty fast
-  // path. A benign race (Register racing a Sweep's fast-path load) can at worst defer noticing a
-  // freshly-registered entry until the next sweep tick -- acceptable since the sweep resolution is
-  // already coarse (one monitor period, ~100ms) relative to the ~1s deadlines it enforces.
+  // Size mirror read WITHOUT the mutex by Sweep's fast path. The benign race can at worst defer
+  // noticing a new entry by one ~100ms tick, against the ~1s deadlines it enforces.
   std::atomic<size_t> size_{0};
 };
 

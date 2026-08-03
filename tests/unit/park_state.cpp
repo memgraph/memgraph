@@ -244,11 +244,8 @@ TEST(ParkStatePendingArm, ParkArmGuardArmsOnAnExceptionalExit) {
 }
 
 // THE REGRESSION GUARD for the review's blocker finding. Task execution nests: PostResumeTask's
-// all-workers-stopped fallback runs a resume inline, that resume re-enters the session chain, and a
-// brand new query can park while the OUTER park is still awaiting its own arm. With a single TLS slot
-// the inner publish silently overwrote the outer park, which then stayed registered with
-// gate == kParking forever -- unreachable by any wake source, holding its campaign PendingHandle, and
-// so blocking every subsequent acquisition on that storage.
+// all-workers-stopped fallback runs a resume inline, that resume re-enters the session chain, and a brand new
+// query can park while the OUTER park is still awaiting its own arm.
 TEST(ParkStatePendingArm, NestedPublishDoesNotStrandTheOuterPark) {
   std::atomic<int> outer_resumed{0};
   std::atomic<int> inner_resumed{0};
@@ -334,22 +331,9 @@ TEST(ParkStatePendingArm, PendingStackIsPerThread) {
   EXPECT_EQ(resumed_b.load(), 1);
 }
 
-// --- Regression: publishing a pending park must be INFALLIBLE, not merely exception-safe ---
-//
-// The defect this guards was a BLOCKER found in review, and it is worth stating exactly, because the
-// obvious-looking fix is the one that failed. `PublishPendingPark` was a `std::vector::push_back`. On
-// `bad_alloc` the `ParkState` was already registered on the wake event (RegisterWaiter runs first, and
-// must, for the register-before-recheck race) but was NOT on this thread's pending-arm stack. If a wake
-// source claimed it in that window, `AcquireAwaitable::await_suspend`'s catch handler lost `ClaimPark`,
-// concluded "somebody else will resume us" and suspended the frame -- but arming only ever walks the
-// pending-arm stack, so nothing could arm a park that was never published. Gate stuck at
-// kResumeRequested, `claimed` blocking every later claim, frame never resumed, and its campaign-long
-// PendingHandle pinning unique_pending_count above zero for the life of the process. Not a leak: a
-// bricked storage.
-//
-// Moving the publish inside the try (an earlier fix) only rescued the branch that UNWINDS. The branch
-// that SUSPENDS still assumed an arming side was owed. So the guarantee this test pins is the stronger
-// one that actually makes the suspend branch sound: the call cannot fail at all.
+// --- Regression: publishing a pending park must be INFALLIBLE, not merely exception-safe --- The defect this
+// guards was a BLOCKER found in review, and it is worth stating exactly, because the obvious-looking fix is
+// the one that failed. `PublishPendingPark` was a `std::vector::push_back`.
 TEST(ParkStateGate, PublishingAPendingParkCannotThrow) {
   // Compile-time half, and be precise about what it does and does not catch -- an earlier version of
   // this comment claimed more than the assertion delivers. `noexcept(expr)` inspects the callee's

@@ -228,20 +228,15 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   }
 }
 
-// Same bookkeeping as SetupDatabaseTransaction above, but for an accessor already acquired elsewhere
-// (the parkable-Prepare coroutine's query::AcquireAccessorCoro) -- deliberately skips the
-// Access/UniqueAccess/ReadOnlyAccess call (and therefore never blocks here): the caller already holds
-// the lock by the time this runs. See interpreter.hpp's declaration doc comment and
-// opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md §R3.2 (Phase 3: "hand `acc` to
-// CurrentDB via a new SetupDatabaseTransactionWith(std::move(acc)) that skips the internal lock").
+// As SetupDatabaseTransaction above, but for an accessor acquired elsewhere (AcquireAccessorCoro), so
+// it never takes a hold and never blocks -- the caller already owns one.
 void memgraph::query::CurrentDB::SetupDatabaseTransactionWith(std::unique_ptr<storage::Accessor> accessor,
                                                               bool could_commit) {
   if (!db_acc_) {
     throw DatabaseContextRequiredException("Database required for the transaction setup.");
   }
   auto &db_acc = *db_acc_;
-  // Scoped to this call only (mirrors SetupDatabaseTransaction) -- NOT held across the coroutine's
-  // co_await, which already completed before this function is ever invoked (Phase 3, post-acquire).
+  // Scoped to this call only, never across a co_await -- the await completed before we are invoked.
   const memory::DbArenaScope db_arena_scope{db_acc.get()};
   db_transactional_accessor_ = std::move(accessor);
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
@@ -6006,9 +6001,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
                   "associated triggers. Drop all triggers and retry.");
             }
 
-            // NOTE (IP-1 coro-prepare-accessor-yield): a parked waiter is woken on this guard's
-            // release without this site doing anything -- ResourceLock fires Storage's admit
-            // observer from its own notify points.
+            // A parked waiter is woken on this guard's release without this site doing anything:
+            // ResourceLock fires the admit observer from its own notify points.
             std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
             if (auto vertex_cnt_approx = in.storage()->GetBaseInfo().vertex_count; vertex_cnt_approx > 0) {
               throw utils::BasicException(
@@ -9837,11 +9831,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   std::optional<storage::StorageAccessType> accessor_type_;
 };
 
-// Plain (non-visitor) result of QueryTransactionRequirements -- deliberately NOT derived from
-// QueryVisitor<void>/Visitor<...> so it can be returned by value: Visitor<...> user-declares a
-// virtual destructor (src/utils/visitor.hpp), which deprecates the implicit copy/move ctor
-// (-Wdeprecated-copy-with-dtor) and -Werror rejects returning a visitor by value. This struct only
-// carries the three fields the two call sites (Prepare()/PrepareCoro()) actually read.
+// Deliberately NOT derived from Visitor<...> so it can be returned by value: Visitor user-declares a
+// virtual dtor, which deprecates the implicit copy/move ctor and -Werror then rejects the return.
 struct TransactionRequirements {
   std::optional<storage::StorageAccessType> accessor_type_;
   std::optional<storage::IsolationLevel> isolation_level_override_;
@@ -9854,12 +9845,9 @@ struct TransactionRequirements {
   std::optional<storage::StorageMode> storage_mode_;
 };
 
-// Phase 1 helper (IP-1 design doc opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md
-// §R3.2): computes what accessor (if any) a NEW autocommit query needs. Read-only over the AST, no
-// side effects on interpreter/storage state -- shared by the synchronous Prepare() and the coroutine
-// PrepareCoro() so the two paths can never disagree on accessor_type_/isolation_level_override_/
-// could_commit_. Only ever called for `!in_explicit_transaction_` (an explicit BEGIN'd transaction
-// already has its accessor from BeginTransaction, so this is never consulted for it).
+// What accessor a NEW autocommit query needs. Read-only over the AST, shared by Prepare() and
+// PrepareCoro() so the two can never disagree. Only called when !in_explicit_transaction_ -- a BEGIN'd
+// transaction already has its accessor.
 TransactionRequirements ResolveTransactionRequirements(memgraph::query::CurrentDB const &current_db,
                                                        ParsedQuery &parsed_query) {
   auto storage_mode = current_db.db_acc_
@@ -9879,12 +9867,9 @@ TransactionRequirements ResolveTransactionRequirements(memgraph::query::CurrentD
   };
 }
 
-// Fail-closed gate for broken databases (those that failed durability recovery and came up empty under
-// --storage-allow-recovery-failure). Pure/read-only over `current_db`/`q`, throws QueryException on
-// rejection -- no side effects on shared state, safe to run in Phase 1 (before any accessor is
-// acquired) as well as at its original Prepare() call site. Factored out of Prepare()/PrepareCoro() so
-// both paths reject identically; see the allowlist rationale in the comment below (unchanged from the
-// original inline version).
+// Fail-closed gate for databases that failed durability recovery under
+// --storage-allow-recovery-failure. Pure over `current_db`/`q`, throws on rejection, so it is safe
+// either before or after an accessor is acquired.
 void CheckBrokenDatabaseGate(memgraph::query::CurrentDB const &current_db, Query *q) {
   if (!current_db.db_acc_ || !(*current_db.db_acc_)->storage()->IsBroken()) return;
   // Allowlist: in the broken state only the cure query (RECOVER SNAPSHOT) and meta/admin queries that
@@ -9927,16 +9912,11 @@ void CheckBrokenDatabaseGate(memgraph::query::CurrentDB const &current_db, Query
   }
 }
 
-// Mirrors SessionHL::ApproximateQueryPriority's ParseInfo/CypherQuery branch (src/glue/SessionHL.cpp,
-// currently lines 231-249) -- duplicated rather than shared because that function lives in glue/ (a
-// Bolt-session-layer file that query/ does not depend on) and dispatches over the whole ParseRes
-// variant plus live session/Bolt state, whereas PrepareCoro only ever needs this classification for a
-// ParsedQuery that has already been resolved past TransactionQuery (BEGIN/COMMIT/ROLLBACK is handled
-// as its own early-return branch in PrepareCoro, mirroring Prepare()). See IP-1 design doc REVISION 1
-// §B ("priority source (implementation trap)"): PreparedQuery::priority is NOT populated until AFTER
-// the accessor is acquired (it's set inside PrepareCypherQuery et al., which runs in Phase 3), so it
-// must never be read to decide whether THIS acquire may park -- this AST-level classification is the
-// only thing available at Phase 1/2 time.
+// Mirrors SessionHL::ApproximateQueryPriority's CypherQuery branch, duplicated rather than shared
+// because that lives in glue/ (which query/ does not depend on) and needs live session state.
+//
+// TRAP: PreparedQuery::priority is not populated until AFTER the acquire, so it must never be read to
+// decide whether THIS acquire may park. This AST-level classification is all that exists that early.
 utils::Priority ApproximatePreparePriority(ParsedQuery const &parsed_query) {
   if (utils::Downcast<CypherQuery>(parsed_query.query)) [[likely]] {
     return utils::Priority::LOW;
@@ -10112,13 +10092,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   }
 }
 
-// Shared Prepare()/PrepareCoro() tail (Session-surgery Stage A): behavior-preserving extraction of the
-// planning/plan-cache/PreparedQuery-dispatch code that, in Prepare(), used to run inline starting right
-// after the `if (!in_explicit_transaction_) { ... SetupDatabaseTransaction(...); }` block above and
-// ending at that function's `return {...}` -- i.e. this is called from EXACTLY the same relative
-// position Prepare() always called it from (no reordering, no behavior change for the sync path).
-// PrepareCoro() calls this too, from its own Phase 3 (after its accessor is set up via
-// SetupDatabaseTransactionWith instead of SetupDatabaseTransaction).
+// Shared Prepare()/PrepareCoro() tail: planning, plan cache, PreparedQuery dispatch. Called from the
+// same relative position in both, i.e. once the accessor is set up.
 Interpreter::PrepareResult Interpreter::PlanAndFinalize(
     ParsedQuery &parsed_query, UserParameters_fn const &params_getter, std::unique_ptr<QueryExecution> &query_execution,
     std::optional<int> qid, bool parallel_execution, std::optional<memgraph::system::Transaction> system_transaction) {
@@ -10499,20 +10474,15 @@ Interpreter::PrepareResult Interpreter::PlanAndFinalize(
           .db = query_execution->prepared_query->db};
 }
 
-// Shared Prepare()/PrepareCoro() catch-block body (utils::BasicException path) -- extracted verbatim
-// from Prepare()'s original `catch (const utils::BasicException &e) { ... }` (Session-surgery Stage
-// A). Callers still do their own `try { ... } catch (const utils::BasicException &e) { HandlePrepareFailure(...);
-// throw; }` wrapping (this helper does not rethrow itself), so both paths log/abort identically on failure.
+// Shared catch-block body for the utils::BasicException path. Does NOT rethrow -- each caller keeps its
+// own `catch (...) { HandlePrepareFailure(...); throw; }` so both paths log and abort identically.
 void Interpreter::HandlePrepareFailure(std::unique_ptr<QueryExecution> *query_execution_ptr,
                                        const utils::BasicException &e, std::string_view query_text_fallback) {
   memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
-  // query_execution holds the query string copy that survives Prepare* moving it out. It only exists
-  // once Prepare* has got far enough to create it, though, and PrepareCoro creates it in Phase 3 --
-  // AFTER the accessor acquire -- so every pre-acquire failure arrives here with a null pointer.
-  // That includes the *AccessTimeout this whole feature is about, plus the coordinator check, the
-  // broken-DB gate, DatabaseContextRequiredException and StorageModeChangedDuringSetupException. Left
-  // to the null path they logged query="" while the identical failure flag-off logged the real text,
-  // so the caller passes the parsed query string as a fallback.
+  // query_execution holds the surviving copy of the query string, but PrepareCoro only creates it AFTER
+  // the acquire -- so every pre-acquire failure arrives here with a null pointer, including the
+  // *AccessTimeout this feature is about. Those logged query="" while the same failure flag-off logged
+  // the real text, hence the caller-supplied fallback.
   auto const failed_query_text = (query_execution_ptr && *query_execution_ptr)
                                      ? std::string_view{(*query_execution_ptr)->query_string}
                                      : query_text_fallback;
@@ -10527,42 +10497,21 @@ void Interpreter::HandlePrepareFailure(std::unique_ptr<QueryExecution> *query_ex
   AbortCommand(query_execution_ptr);
 }
 
-// Coroutine variant of Prepare(), and the DEFAULT Prepare path as of the flag flip: Session::RunLoop
-// drives it via bolt::ExecuteResult::kNeedsCoroPrepare -> HandlePrepareCoro -> InterpretPrepareCoro.
+// Coroutine variant of Prepare(), and the DEFAULT path as of the flag flip. Mirrors Prepare() phase for
+// phase, with the accessor acquire becoming a `co_await`. See specs/parkable-prepare.md.
 //
-// Mirrors Prepare() phase-for-phase where possible; the ACCESSOR ACQUIRE becomes a `co_await` on
-// AcquireAccessorCoro instead of a blocking call. Everything Phase 1 needs is computed synchronously
-// BEFORE that await, with query_execution / system_transaction / the coordinator check deferred to
-// Phase 3, after the accessor is in hand.
-//
-// The phase ORDER is the part that cannot be shared with Prepare(), so it is the part that drifts.
-// SetupInterpreterTransaction() in particular must stay in Phase 1, BEFORE the acquire -- see the
-// comment at its call site for what breaks otherwise.
-//
-// FRAME OWNERSHIP: PrepareCoro is an Interpreter member, so its frame implicitly captures a raw
-// `this`; there is no session shared_ptr held here (that is InterpretPrepareCoro's concern).
-// `parsed_query`/`parse_info` and the small locals below survive the co_await like any other
-// suspended coroutine's locals -- none of them owns a lock or arena scope spanning the await.
+// The phase ORDER cannot be shared with Prepare(), so it is the part that drifts -- and has, once.
+// SetupInterpreterTransaction() MUST stay in Phase 1, before the acquire; see its call site.
 utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_res, UserParameters_fn params_getter,
                                                                  QueryExtras const &extras,
                                                                  std::function<void()> on_park_resumed) {
-  // Arena attribution. Prepare() opens one scope over its whole body; this coroutine cannot, because a
-  // TLS guard must never straddle the co_await below -- it would restore the PARKING thread's saved
-  // arena state onto whichever worker resumed us, leaving this thread's attribution permanently wrong
-  // and corrupting the resumer's. Attribution is split into the non-suspending regions instead: this
-  // one, and the Phase 3 scope further down.
+  // INVARIANT: this arena guard MUST be released before the co_await (by the `arena_scope.reset()`
+  // immediately preceding it). A TLS guard straddling the await would restore the PARKING thread's saved
+  // arena state onto whichever worker resumed us. Do not widen its scope; do not add a co_await inside
+  // it. Attribution is therefore split across the non-suspending regions: this one and Phase 3's.
   //
-  // Opened HERE, above the TransactionQuery early return, so BEGIN/COMMIT/ROLLBACK are covered exactly
-  // as Prepare() covers them; otherwise their QueryExecution::Create and PrepareTransactionQuery
-  // allocations land in the default arena rather than the tenant's.
-  //
-  // INVARIANT: released before the co_await, by the `arena_scope.reset()` immediately preceding it. Do
-  // not widen this guard's scope, and do not add another co_await inside its lifetime.
-  //
-  // Still NOT attributed: the accessor/Transaction that Phase 2's acquire allocates inside
-  // AcquireAccessorCoro. Covering it would mean teaching a deliberately DB-agnostic coroutine about
-  // arena identity -- it takes a storage::Storage, which has no way back to its dbms::Database. Small
-  // and transient against execution-time allocations, which CrossThreadMemoryTracking attributes.
+  // Opened above the TransactionQuery early return so BEGIN/COMMIT/ROLLBACK are covered as Prepare()
+  // covers them. The accessor the acquire allocates stays unattributed (see the spec).
   std::optional<memory::DbArenaScope> arena_scope;
   if (current_db_.db_acc_) {
     arena_scope.emplace(current_db_.db_acc_->get());
@@ -10603,22 +10552,11 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
       // transaction, abort it since we're about to prepare a new query.
       AbortCommand(nullptr);
     }
-    // MUST stay here, BEFORE Phase 2's acquire -- master's position. Deferring it to Phase 3 was a
-    // regression: publishing the transaction only after the accessor is held makes a query parked on a
-    // contended accessor report IDLE with `current_transaction_ == nullopt`, so it is invisible to
-    // SHOW TRANSACTIONS (which skips interpreters that are not ACTIVE with a set tx id),
-    // un-TERMINATE-able (TerminateTransactions CASes from ACTIVE only), uncounted by
-    // DROP DATABASE ... FORCE's sweep, and its `elapsed_ms` excludes the whole lock wait, since the
-    // start timestamps are stamped here. That is precisely the diagnostic an operator reaches for during
-    // the pile-up this feature exists to relieve -- and it was worse on ON_DISK_TRANSACTIONAL, where
-    // SupportsParkAcquire() is false so the acquire blocks the full timeout while reporting IDLE.
-    //
-    // The deferral was justified by "never expose ACTIVE with current_transaction_ == nullopt", but
-    // SetupInterpreterTransaction satisfies that intrinsically: it assigns `current_transaction_` before
-    // the release-store of ACTIVE. It has no accessor dependency at all (a fresh tx id, two timestamps,
-    // the status, the log tx id, metadata), so it may sit on either side of the acquire and the
-    // diagnostics decide. Every failure path reverts it via HandlePrepareFailure -> AbortCommand ->
-    // Abort(), whose CAS accepts ACTIVE and returns to IDLE, exactly as master relies on.
+    // MUST stay BEFORE the acquire -- master's position. Deferred to Phase 3, a parked query reports
+    // IDLE with no tx id, making it invisible to SHOW TRANSACTIONS, un-TERMINATE-able, and uncounted by
+    // DROP DATABASE ... FORCE. That is the exact diagnostic an operator needs during the pile-up this
+    // feature relieves. Safe on either side (no accessor dependency, and it sets current_transaction_
+    // before the release-store of ACTIVE); the diagnostics are what decide. Details in the spec.
     SetupInterpreterTransaction(extras);
     memgraph::logging::EmitSessionTraceEvent(
         "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0));
@@ -10663,15 +10601,9 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
   try {
 #ifdef MG_ENTERPRISE
     // TODO(antoniofilipovic) extend to cover Lab queries
-    // Must run before the accessor acquire below (Phase 2): coordinators have no db_acc, so any query
-    // that requests a storage accessor (e.g. CypherQuery) would otherwise throw a generic "Database
-    // required" error instead of this clearer coordinator-specific message. Unlike Prepare() (where
-    // this ran right after query_execution/system_transaction were already created), this runs before
-    // any of that exists here -- but it stays INSIDE this try (unlike SchemaAssert/parallel-execution-
-    // license, which -- matching Prepare() exactly -- throw further up, before this try, and are never
-    // caught by HandlePrepareFailure either) so a throw here is still caught below and goes through the
-    // same HandlePrepareFailure cleanup/metrics path Prepare() uses (query_execution_ptr is simply
-    // still null at this point, which HandlePrepareFailure already handles).
+    // Must run BEFORE the acquire: coordinators have no db_acc, so a query wanting an accessor would
+    // otherwise throw a generic "Database required" instead of this clearer message. Kept inside the try
+    // so a throw still routes through HandlePrepareFailure (which tolerates a null query_execution_ptr).
     if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator() &&
         !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query) &&
         !utils::Downcast<ReloadSSLQuery>(parsed_query.query) && !utils::Downcast<ShowConfigQuery>(parsed_query.query) &&
@@ -10680,11 +10612,8 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
     }
 #endif
 
-    // Resolve accessor requirements + broken-DB gate. Kept inside this try (query_execution_ptr still
-    // null, which HandlePrepareFailure handles) so a broken-DB / transaction-requirement rejection
-    // routes through the same cleanup/metrics path as Prepare() -- bumps failed_prepare /
-    // FirstFailedQuery and emits the [failed-query] log (NB1). Still resolved ONCE, before the Phase 2
-    // co_await, since the acquire coroutine no longer owns that call.
+    // Resolve accessor requirements + broken-DB gate, ONCE, before the co_await. Inside the try so a
+    // rejection takes the same cleanup/metrics path as Prepare() (failed_prepare, [failed-query]).
     if (!in_explicit_transaction_) {
       auto transaction_requirements = ResolveTransactionRequirements(current_db_, parsed_query);
       CheckBrokenDatabaseGate(current_db_, parsed_query.query);
@@ -10712,15 +10641,10 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
       auto &storage = *(*current_db_.db_acc_)->storage();
       auto const deadline = std::chrono::steady_clock::now() + memgraph::flags::run_time::GetStorageAccessTimeoutSec();
       auto const priority = ApproximatePreparePriority(parsed_query);
-      // Unconditional deref below: reaching PrepareCoro at all requires Execute_ to have returned
-      // kNeedsCoroPrepare, which requires a published pool worker id -- so a pool necessarily exists.
-      // Checked rather than assumed, because every other use site in this file null-checks it and a
-      // pool-less InterpreterContext is constructible (tests, embeddings).
-      //
-      // A throw, not MG_ASSERT: this is the same "should be impossible, but the object model allows
-      // it" case as the db_acc_ check a few lines up, which throws -- and the consequence of being
-      // wrong should be a failed query, not a whole-process abort taking every other session's
-      // in-flight transaction with it. It unwinds into the catch below like any other Prepare failure.
+      // Reaching here implies a published worker id, so a pool exists -- but checked, not assumed,
+      // since a pool-less InterpreterContext is constructible (tests, embeddings). A throw rather than
+      // MG_ASSERT: being wrong should fail one query, not abort the process and every other session's
+      // in-flight transaction with it.
       if (!interpreter_context_->worker_pool) [[unlikely]] {
         throw QueryException(
             "Parkable Prepare reached its accessor acquire with no worker pool, which the "
@@ -10750,21 +10674,14 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
       }
     }
 
-    // Re-install the per-session log guard for the remainder of this coroutine (design doc §R3.2
-    // Phase 3, same rule as the arena scope below: entered HERE, never across the co_await above --
-    // a TLS guard that straddled a park would restore the PARKING thread's saved value onto whatever
-    // worker resumed us).
+    // Re-installed HERE, never across the co_await -- a TLS guard straddling a park would restore the
+    // PARKING thread's saved value onto whichever worker resumed us.
     //
-    // Why it has to be re-installed at all: Session::Execute_ installs this guard per Bolt message,
-    // but on this path it RETURNED (kNeedsCoroPrepare) before the Prepare work ran, so the guard was
-    // already destroyed and the rest of Prepare executes on a pool worker with the TLS slot empty.
-    // Everything session-scoped downstream is gated on that slot being non-null -- the two
-    // EmitSessionTraceEvent calls below, whatever PlanAndFinalize emits, and (via
-    // MaybeEmitFailedQueryLog's "TLS guard absent => no bolt message is in flight" gate) the
-    // [failed-query] log. Without this, flag-on silently loses all of it while flag-off keeps it,
-    // which is precisely backwards: the flag exists for contended workloads, where those diagnostics
-    // are what you reach for first. Nesting is safe -- the guard saves and restores whatever was
-    // there, so the ordinary non-coro path (guard already installed by Execute_) is unaffected.
+    // Needed at all because Execute_ installs this per Bolt message but RETURNED before any Prepare work
+    // ran, so the rest of Prepare executes with the TLS slot empty -- and everything session-scoped
+    // downstream is gated on it, including the [failed-query] log. Without this, flag-on silently loses
+    // diagnostics that flag-off keeps, which is backwards for a flag that exists for contended
+    // workloads. Nesting is safe: the guard saves and restores whatever was there.
     memgraph::logging::ScopedSessionLog const post_acquire_log_guard{GetLogContext()};
 
     // ---- PHASE 3 (sync, once, post-acquire) ----
@@ -10804,18 +10721,11 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
     auto system_transaction = std::invoke([&]() -> std::optional<memgraph::system::Transaction> {
       if (!system_queries) return std::nullopt;
 
-      // LOCK-ORDER NOTE, written down rather than assumed. Prepare() takes the system transaction
-      // BEFORE the storage accessor; this path takes it AFTER (the accessor came from Phase 2's
-      // co_await above). That inversion is harmless ONLY BY COINCIDENCE: every query type in
-      // `system_queries` leaves `accessor_type_` unset in QueryTransactionRequirements, so no accessor
-      // is ever held when we reach here. Reclassify one of them -- or add a query that is both a system
-      // query and accessor-taking -- and this blocks for up to kSystemTxTryMS while holding main_lock_,
-      // a lock-order inversion against every other acquirer.
-      //
-      // Two review lanes independently called this the same shape as "HIGH-priority queries never
-      // park", which was also true only by coincidence and equally unrecorded. If a system query ever
-      // takes an accessor, either restore Prepare()'s ordering here or hold the system transaction
-      // across Phase 2 deliberately.
+      // LOCK-ORDER INVERSION, recorded rather than assumed: Prepare() takes the system transaction
+      // BEFORE the accessor, this path takes it AFTER. Harmless ONLY BY COINCIDENCE -- every type in
+      // `system_queries` leaves `accessor_type_` unset, so no accessor is held here. Add a query that is
+      // both a system query and accessor-taking and this blocks up to kSystemTxTryMS while holding
+      // main_lock_, inverted against every other acquirer.
       auto system_txn = interpreter_context_->system_->TryCreateTransaction(std::chrono::milliseconds(kSystemTxTryMS));
       if (!system_txn) {
         throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
@@ -10823,15 +10733,9 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
       return system_txn;
     });
 
-    // Interpreter-level arena scope (design doc §R3.2 Phase 3 / §5 top hazard): re-entered HERE,
-    // after the co_await, never across it. Same `arena_scope` the pre-await Phase 1 used and released
-    // -- one guard in the frame, so "released across the await, re-taken after" reads as a single
-    // story rather than two unrelated scopes. Covers planning/PlanAndFinalize below.
-    //
-    // Conditional on it being disengaged: Phase 2 only runs (and only releases the guard) for a new
-    // autocommit query that needs a fresh accessor. When it was skipped -- explicit transaction, or
-    // no accessor required -- the Phase 1 guard is still engaged, for the same database, and already
-    // covers this region; re-emplacing would pointlessly destroy and rebuild it.
+    // Re-entered HERE, after the co_await, never across it -- the same `arena_scope` Phase 1 released,
+    // so one guard tells the whole story. Conditional because Phase 2 only releases it for a new
+    // autocommit query; otherwise the Phase 1 guard is still engaged for the same database.
     if (current_db_.db_acc_ && !arena_scope) {
       arena_scope.emplace(current_db_.db_acc_->get());
     }

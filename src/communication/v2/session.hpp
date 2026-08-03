@@ -384,14 +384,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       while (true) {
         const auto outcome = session_.Execute();
         if (outcome == bolt::ExecuteResult::kNeedsCoroPrepare) [[unlikely]] {
-          // Unreachable: this outcome needs GetCurrentWorkerId(), which only a pool worker publishes,
-          // and the ASIO scheduler runs on the connection's strand. A hard failure rather than a silent
-          // loop, since state_ would otherwise never leave State::Parsed.
-          //
-          // Deliberately NOT "drain the chain here" via SyncWait: that binds the Task as a TEMPORARY
-          // destroyed at end of full-expression, and Run() tolerates a park, so the destructor would
-          // destroy a frame still registered and unclaimed in both registries. Turning an impossible
-          // state into a use-after-free is worse than the hang it would avoid.
+          // Unreachable: needs a worker id, which the ASIO strand cannot have. A hard failure rather than
+          // a silent loop, since state_ would otherwise never leave State::Parsed. Deliberately NOT
+          // "drain it here" via SyncWait -- that binds the Task as a temporary destroyed at end of
+          // full-expression, and Run() tolerates a park, so it would destroy a frame still registered in
+          // both registries.
           throw utils::BasicException(
               "Execute_ returned kNeedsCoroPrepare on the ASIO scheduler path, which requires a pool "
               "worker id that this thread cannot have. This is a bug in the scheduler wiring.");
@@ -419,16 +416,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       while (true) {
         const auto outcome = shared_this->session_.Execute();
         if (outcome == bolt::ExecuteResult::kNeedsCoroPrepare) {
-          // There IS a refcount cycle while parked: session -> parked_prepare_ -> frames ->
-          // std::function -> shared_ptr<Session>. Type erasure hides it from a reader, not from the
-          // refcount. It is broken by hand, by parked_prepare_.reset() on every resume path -- which is
-          // why any path that DROPS a resume leaks the Session and stalls shutdown. Do not "simplify"
-          // the reset away.
+          // There IS a refcount cycle while parked (session -> parked_prepare_ -> frames -> closure ->
+          // shared_ptr<Session>), broken BY HAND via parked_prepare_.reset() on every resume path -- which
+          // is why any path that DROPS a resume leaks the Session and stalls shutdown. Do not simplify it
+          // away.
           //
-          // parked_prepare_ MUST hold the Task before Resume() is called, and NOTHING below may race a
-          // resume: the `if (!Done())` check and this member are touched by both this thread and the
-          // resume closure. The gate guarantees it -- a claim taken while we are inside Resume() cannot
-          // be DELIVERED until this pool task ends, strictly after this function returns.
+          // parked_prepare_ MUST hold the Task before Resume(), and NOTHING below may race a resume: the
+          // gate guarantees a claim taken inside Resume() cannot be DELIVERED until this pool task ends.
           shared_this->parked_prepare_.emplace(shared_this->DrivePreparedRun([shared_this] {
             auto &parked = shared_this->parked_prepare_;
             if (!parked || !parked->Done()) {
@@ -436,20 +430,15 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
               // nothing to do yet; a later resume will find Done() == true and take the branch below.
               return;
             }
-            // Break the cycle FIRST, before anything that can throw, and only then look at the result.
-            // Moving the Task out and resetting immediately is what makes the reset unskippable -- the
-            // same shape the synchronous-completion branch below uses.
-            //
-            // Safe here, unlike inside DrivePreparedRun's own body: this closure runs OUTSIDE any
-            // coroutine frame's execution, strictly after h.resume() returned control to the posted
-            // resume closure, so the frame is merely sitting at its final_suspend.
+            // Break the cycle FIRST, before anything that can throw: moving the Task out and resetting
+            // immediately is what makes the reset unskippable. Safe here, unlike inside DrivePreparedRun's
+            // body, because this runs OUTSIDE any frame's execution.
             auto finished = std::move(*parked);
             parked.reset();
 
-            // The catch(...) is the load-bearing one: `TakeValue()` rethrows verbatim, so a non-std
-            // exception is representable, and with only the narrow handler it escaped this closure --
-            // skipping the reset above, leaking the Session, and terminating the process on its way out
-            // through the worker's task body (which has no handler, by design).
+            // The catch(...) is load-bearing: `TakeValue()` rethrows verbatim, so a non-std exception is
+            // representable, and the narrow handler alone let it escape -- skipping the reset, leaking the
+            // Session, and terminating the process via the worker's task body (no handler there, by design).
             try {
               finished.TakeValue();  // rethrow, if DrivePreparedRun itself somehow escaped an exception
             } catch (const std::exception &e) {

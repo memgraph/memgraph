@@ -158,10 +158,9 @@ class [[nodiscard]] Task {
   T Run() {
     DMG_ASSERT(handle_, "Run() on an empty/moved-from Task.");
     handle_.resume();
-    // Only non-void T is unsafe, so only non-void T is asserted. A chain that PARKED holds neither a
-    // value nor an exception, so TakeValue() would read an uninitialised union member -- silent UB in
-    // release, hence MG_ASSERT rather than DMG_ASSERT. Promise<void>::TakeValue() only rethrows, so
-    // driving a Task<void> that parks is legitimate and deliberately still allowed.
+    // Only non-void T is unsafe: a PARKED chain holds neither value nor exception, so TakeValue() would
+    // read an uninitialised union member -- silent UB in release, hence MG_ASSERT. Task<void> may park,
+    // since Promise<void>::TakeValue() only rethrows.
     if constexpr (!std::is_void_v<T>) {
       MG_ASSERT(handle_.done(),
                 "Run() drove a non-void Task that suspended instead of completing -- it parked, so "

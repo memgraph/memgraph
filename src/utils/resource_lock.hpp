@@ -245,24 +245,17 @@ struct ResourceLock {
   ///
   /// Call once during setup, before the lock is shared with other threads: it is read without mtx.
   ///
-  /// The callback runs with mtx NOT held, may take other locks, and MAY re-enter this one -- not merely
-  /// tolerated, it happens: the storage observer can drive a parked coroutine's resume, which probes
-  /// this lock again. What is required:
+  /// Runs with mtx NOT held, may take other locks, and MAY re-enter this one -- which happens, since the
+  /// storage observer can drive a resume that probes this lock again. Requirements:
   ///   - maybe_notify unlocks BEFORE invoking, so re-entry cannot self-deadlock;
-  ///   - the callback must assume no particular lock state on entry -- release, unregister_pending and
-  ///     downgrade_to_read all invoke it, as does a failed acquire, but only one dropping a
-  ///     READ_ONLY/UNIQUE pending count to zero (a failed WRITE/READ acquire never does);
-  ///   - re-entry must terminate. Not because each nested step acquires or parks -- the recursing path
-  ///     does neither (a resumed coroutine bailing on shutdown destroys its campaign PendingHandle,
-  ///     whose unregister_pending notifies again). It terminates because the storage observer's
-  ///     NotifyAll moves its whole waiter list out under its own mutex before invoking anything, and
-  ///     the notify gates on WaitersPending() > 0, so a nested notify finds an empty list. Depth is
-  ///     O(1), NOT O(waiters): N resumes run sequentially in one loop rather than nesting a frame each.
+  ///   - the callback must assume no particular lock state on entry;
+  ///   - re-entry must terminate. It does because the observer's NotifyAll moves its whole waiter list
+  ///     out before invoking anything and gates on a non-zero count, so a nested notify finds nothing.
+  ///     Depth is O(1), NOT O(waiters).
   ///
-  /// Being invoked from inside a destructor is normal -- ~ResourceLockGuard is the commonest release
-  /// site -- so the callback must not throw. Storage's observer satisfies that at its DELIVERY step,
-  /// which swallows and logs. One residual: the mutex acquisition AHEAD of delivery is not noexcept, so
-  /// a std::system_error there would still escape into a destructor. Practically unreachable.
+  /// Being invoked from a destructor is normal (~ResourceLockGuard is the commonest release site), so the
+  /// callback must not throw. Storage's observer swallows at its delivery step. One residual: the mutex
+  /// acquisition ahead of delivery is not noexcept. Practically unreachable.
   void set_admit_observer(std::function<void()> observer) { admit_observer_ = std::move(observer); }
 
   void lock() {

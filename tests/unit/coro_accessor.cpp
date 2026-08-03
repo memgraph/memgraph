@@ -361,13 +361,8 @@ TEST(CoroAccessor, ParkThenShutdownUnwindsPromptly) {
   held.reset();
 }
 
-// (g) A timed-out park must leave NOTHING registered behind it, on the path where nothing else cleans
-// up for it. Consequences of failing to prune: specs/parkable-prepare.md.
-//
-// WRITE is load-bearing. A sweep-resumed park needs the coroutine to prune the EVENT side, and for
-// UNIQUE/READ_ONLY that leak is masked -- unwinding the campaign destroys its PendingScope, which
-// notifies, which empties `waiters_` anyway. MakePendingHandle(WRITE) engages no scope at all, so
-// nothing masks it.
+// (g) A timed-out park must leave NOTHING registered behind it, on the path where nothing else cleans up for
+// it. Consequences of failing to prune: specs/parkable-prepare.md.
 TEST(CoroAccessor, ParkTimeoutLeavesNoWaiterRegistered) {
   ScopedCoroPrepareFlag flag_on{true};
 
@@ -407,13 +402,10 @@ TEST(CoroAccessor, ParkTimeoutLeavesNoWaiterRegistered) {
   pool.AwaitShutdown();
 }
 
-// (h) STORAGE-SIDE DRAIN resumes a park that no lock release will ever wake. The pool drain is already
-// pinned by (e); the storage-side ones could NOT be covered over Bolt, where session teardown releases
-// the holder and the ordinary notify wakes the park first (park_shutdown.py was mutation-measured to
-// guard none of them). Owning the holder as a local builds what Bolt cannot.
-//
-// Discriminates RESUMES from merely DROPS: the resumed coroutine re-probes, still cannot acquire, and
-// RE-PARKS, so WaitersPending() returns to 1. A drop leaves it at 0 forever.
+// (h) STORAGE-SIDE DRAIN resumes a park that no lock release will ever wake. The pool drain is already pinned
+// by (e); the storage-side ones could NOT be covered over Bolt, where session teardown releases the holder
+// and the ordinary notify wakes the park first (park_shutdown.py was mutation-measured to guard none of
+// them).
 TEST(CoroAccessor, StorageSideDrainResumesAParkNoReleaseCanWake) {
   ScopedCoroPrepareFlag flag_on{true};
 

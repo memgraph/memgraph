@@ -193,17 +193,9 @@ void PriorityThreadPool::ShutDown() {
     // shutdown or not, because dropping one leaks the parked session and stalls this very shutdown.
     pool_stop_source_.request_stop();
 
-    // Drain parked waiters WHILE THE WORKERS ARE STILL RUNNING; this is load-bearing, not an ordering
-    // nicety. Draining claims each ParkState and requests its resume through the gate, which posts onto
-    // a still-running worker -- stop() below has not run for ANY of them yet, so the post has somewhere
-    // to land. A waiter whose parking thread has not reached its task boundary is delivered by that
-    // arming side instead, from a worker that is by definition still alive. Each resumed chain then
-    // observes IsShuttingDown() and bails cleanly (throw -> unwind -> release accessor -> the session's
-    // parked_prepare_ is cleared) instead of proceeding into per-database work.
-    //
-    // Sequence: mark shutting down -> drain parked (here, workers still looping) -> stop monitor -> stop
-    // workers (each finishes its must-run queue, including a resume posted late in this window, before
-    // exiting) -> AwaitShutdown() joins -> destroy pool.
+    // Drain WHILE THE WORKERS ARE STILL RUNNING -- load-bearing, not an ordering nicety: each resume is
+    // POSTED to a worker, so draining after stop() would never run it. Order: mark shutting down -> drain
+    // parked (here) -> stop monitor -> stop workers (each finishes its must-run queue first) -> join.
     park_registry_.Drain();
 
     // Stop monitoring thread before workers
@@ -239,32 +231,20 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   // HP threads are going to steal this work if not executed in time
 }
 
-// Post a parked coroutine's resume to any mixed-work (LP) worker, preferring an idle one. An arbitrary
-// worker is safe because the delivery gate -- not the choice of worker -- is what stops a resume from
-// starting while the parking thread is still inside its own await_suspend/driver.
-//
-// POSTS rather than resuming inline for as long as any worker can accept the task: the caller is
-// whichever thread claimed the park, and none of them may drive, let alone destroy, a coroutine frame.
-// Posting during shutdown is both allowed and required -- ShutDown() drains parked waiters BEFORE
-// stopping any worker, and the worker tail drains work_must_run_ as a backstop for a late post.
-//
-// ONE exception, at the bottom of this function: if every worker refuses because all are stopped, the
-// closure runs inline. See the delta noted there.
+// Posts a parked resume to any LP worker, preferring an idle one. POSTS rather than resuming inline
+// because the caller is whichever thread claimed the park, and none of those may drive a coroutine
+// frame. Posting during shutdown is required, not merely allowed. ONE exception at the bottom of this
+// function: with every worker stopped, the closure runs inline -- see the delta noted there.
 void PriorityThreadPool::PostResumeTask(std::function<void()> closure) {
   DMG_ASSERT(!workers_.empty(), "PostResumeTask on a pool with no mixed-work workers.");
   // Deliberately no `pool_stop_source_.stop_requested()` bail (unlike ScheduledAddTask): a dropped
   // resume leaks the parked session and stalls the shutdown that dropped it.
   const auto id = --task_id_;  // ordinary LOW-priority id; resumes are ordered among themselves
 
-  // Target selection matters more here than for ordinary work, because must-run items are not migrated
-  // by sched_mon: handing one to a mid-task worker means waiting out that task. Prefer a hot (spinning)
-  // worker, else any with working_ == false (which covers sleeping ones, since push() notifies the cv),
-  // else round-robin.
-  //
-  // Migration is not needed on top of that, though its absence reads like a gap: an idle worker is found
-  // by the scan below, and one that frees up AFTER the post steals the resume at Phase 2A (a victim with
-  // a queued must-run item satisfies the steal precondition exactly). What remains -- every worker busy
-  // and staying busy -- is the pool's own scheduling granularity, with nowhere to migrate to.
+  // Must-run items are not migrated by sched_mon, so handing one to a mid-task worker means waiting that
+  // task out. Prefer a hot worker, else any with working_ == false, else round-robin. Migration is not
+  // needed on top: a worker that frees up AFTER the post steals the resume at Phase 2A, and if all stay
+  // busy there is nowhere to migrate to anyway.
   auto tid = hot_threads_.GetHotElement();
   if (!tid) {
     for (size_t i = 0; i < workers_.size(); ++i) {
@@ -299,16 +279,14 @@ void PriorityThreadPool::PostResumeTask(std::function<void()> closure) {
   // and stalls the very shutdown that dropped it. Driving the frame is safe because the delivery gate
   // only fires `on_resume` AFTER the parking thread's task ended, so the frame is quiescent.
   //
-  // ACCEPTED DELTA, do not "fix" it without reading specs/parkable-prepare.md: for two of the three
-  // claimants (the shutdown thread, and any thread releasing main_lock_) this runs a full session chain
-  // off a pool thread, reaching a SYNCHRONOUS, UN-TIMED socket send. A client with a full receive window
-  // can block a GC/TTL/replication or main-shutdown thread here indefinitely. Both obvious mitigations
-  // are wrong -- gating on IsShuttingDown() is a no-op since reaching here implies it, and dropping the
-  // resume leaves the frame parked holding a PendingHandle into an already-destroyed main_lock_.
+  // ACCEPTED DELTA, do not "fix" without reading specs/parkable-prepare.md: this can run a full session
+  // chain off a pool thread, reaching a SYNCHRONOUS, UN-TIMED socket send -- so a client with a full
+  // receive window can block a GC/TTL/shutdown thread here indefinitely. Both obvious mitigations are
+  // wrong (the spec says why).
   //
-  // ParkArmGuard is REQUIRED, not defensive: the resumed chain can park again and this is not a worker
-  // task body, so there is no other arming site and an unarmed park bricks the storage. catch(...) for
-  // a related reason: this runs inside ResumeAll's loop, so one escape would strand the other waiters.
+  // ParkArmGuard is REQUIRED, not defensive: this is not a worker task body, so a park published by the
+  // resumed chain has no other arming site and would brick the storage. catch(...) because this runs
+  // inside ResumeAll's loop, where one escape strands the remaining waiters.
   spdlog::trace("PostResumeTask: all workers stopped, running parked resume inline during teardown");
   ParkArmGuard const arm_guard;
   try {
@@ -547,19 +525,13 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     }
   }
 
-  // IP-1 F1 fix (opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 5):
-  // the loop above can exit (run_ observed false at the top of `while`) in the very same instant the
-  // cv_.wait predicate already popped a task into `task` -- popping and the run_ check are not atomic
-  // with each other. If that item was a RESUME it must still run: dropping it strands a parked query
-  // and leaks the session it pins, which is what try_push's "accepted => eventually run" promise
-  // rests on.
+  // The loop can exit (run_ false at the top of `while`) in the same instant the cv_.wait predicate
+  // already popped a task -- popping and the run_ check are not atomic. A popped RESUME must still run,
+  // or try_push's "accepted => eventually run" promise breaks and a parked query is stranded.
   //
-  // If it was ordinary work, it is dropped, exactly as master does. Master's loop ends right here, so
-  // a task popped in that same instant was destroyed unrun -- and running it instead would be a
-  // flag-independent change to shutdown behaviour (query work starting after ShutDown() was
-  // requested, concurrently with the rest of the teardown handler). The argument does not depend on the
-  // flag's default: this tail runs for every installation whether or not parking is enabled.
-  // `task_is_must_run` is what keeps the fix to the case that needs it.
+  // Ordinary work is still DROPPED here, exactly as master does; running it instead would be a
+  // flag-independent change to shutdown behaviour. `task_is_must_run` keeps the fix to the case that
+  // needs it.
   if (task && task_is_must_run) {
     ParkArmGuard const arm_guard;  // same task-boundary arming as Phase 1A above
     // catch(...) for the same reason as PostResumeTask's inline fallback: an exception escaping here

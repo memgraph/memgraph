@@ -24,15 +24,12 @@
 namespace memgraph::utils {
 
 /// Pool-agnostic event a parked coroutine registers on, notified by a lock-releaser once the resource
-/// might be free. Knows nothing of `PriorityThreadPool`, tasks or coroutine frames: each waiter is a
-/// `shared_ptr<ParkState>` whose `on_resume` closure already encapsulates what waking it means. That
-/// keeps this type -- and anything embedding it, e.g. `Storage` -- independent of both the pool and the
-/// coroutine machinery.
+/// might be free. Knows nothing of the pool or coroutines -- each waiter is a `shared_ptr<ParkState>`
+/// whose closure encapsulates what waking it means.
 ///
-/// TWO-SIDED WAKEUP PROTOCOL. The `WaitersPending()` fast path ("skip NotifyAll when nobody is
-/// parked") is sound ONLY if both sides keep this ordering; get it wrong and a release races a park so
-/// that the waiter misses the epoch bump AND the releaser misses the registration, which hangs the
-/// query indefinitely instead of surfacing its timeout. Derivation: specs/parkable-prepare.md.
+/// TWO-SIDED WAKEUP PROTOCOL. The `WaitersPending()` fast path is sound ONLY if both sides keep this
+/// ordering; otherwise a release races a park such that the waiter misses the epoch bump AND the
+/// releaser misses the registration, hanging the query instead of surfacing its timeout.
 ///
 ///   Waiter:   capture `Epoch()` BEFORE probing -> probe -> on failure `RegisterWaiter(ps, epoch)` ->
 ///             RE-PROBE once more -> only then behave as parked.

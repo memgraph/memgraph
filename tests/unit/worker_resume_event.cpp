@@ -292,11 +292,9 @@ TEST(WorkerResumeEvent, ConcurrentRegisterAndNotifyResumesEachExactlyOnce) {
   EXPECT_EQ(event.WaitersPending(), 0u);
 }
 
-// Drain() CLOSES the event: no later registration may succeed, and callers can tell that apart from an
-// epoch bump. The window is real -- Drain deliberately does not bump the epoch, so a registration
-// arriving just after it used to push onto the just-emptied list and park with nothing left to wake it.
-// An epoch bump would not close it (the retry lands on the same drained event); only a sticky flag
-// does, which is why this is a distinct state.
+// Drain() CLOSES the event: no later registration may succeed, and callers can tell that apart from an epoch
+// bump. The window is real -- Drain deliberately does not bump the epoch, so a registration arriving just
+// after it used to push onto the just-emptied list and park with nothing left to wake it.
 TEST(WorkerResumeEvent, DrainClosesTheEventAgainstLateRegistration) {
   WorkerResumeEvent event;
   std::atomic<int> resumed{0};

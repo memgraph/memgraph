@@ -65,19 +65,16 @@ struct AcquireAwaitable {
     auto ps = std::make_shared<utils::ParkState>();
     ps->deadline = deadline;
     auto *pool_ptr = &pool;
-    // Copied into BOTH the outer (on_resume) and inner (posted) closures, which live inside ps for the
-    // WHOLE park rather than the invocation instant -- that is what keeps a session-lifetime
-    // shared_ptr captured inside it alive across the park.
+    // Lives inside ps for the WHOLE park, not just the invocation instant -- that is what keeps the
+    // session-lifetime shared_ptr captured inside it alive across the park.
     auto resumed_cb = on_park_resumed;
     ps->set_on_resume([pool_ptr, h, resumed_cb] {
-      // Any worker, never inline on the caller's thread: on_resume runs from whichever thread claimed
-      // the park, and none of those may drive a coroutine frame. Serialising against the parking thread
-      // is the gate's job, not this posting's.
+      // Any worker, never inline: on_resume runs from whichever thread claimed the park, and none of
+      // those may drive a coroutine frame. Serialising against the parking thread is the gate's job.
       pool_ptr->PostResumeTask([h, resumed_cb] {
         h.resume();
-        // Strictly AFTER h.resume() returns, i.e. outside any frame's own execution, so this may touch
-        // caller-owned state that would be unsafe from inside the coroutine body -- e.g. destroying the
-        // very Task that owns this frame.
+        // Strictly AFTER h.resume() returns, so this may touch caller-owned state that is unsafe from
+        // inside the body -- e.g. destroying the very Task that owns this frame.
         if (resumed_cb) resumed_cb();
       });
     });
@@ -93,65 +90,44 @@ struct AcquireAwaitable {
       return false;
     }
 
-    // Registered: another thread may CLAIM `ps` from here on, but cannot DELIVER until this thread's
-    // pool task ends -- which is what keeps the rest of this function, and the driver we return into,
-    // safe to touch frame-resident state.
-    //
-    // Assigned only AFTER a successful registration, so the caller's post-resume prune runs only for a
-    // park that really registered. Earlier, the epoch-reject path paid that prune too -- two mutexes
-    // and two O(N) scans -- on every iteration of a loop that spins without backoff.
+    // Registered: another thread may CLAIM from here on but cannot DELIVER until this pool task ends,
+    // which is what keeps the rest of this function and its driver safe to touch frame state. Assigned
+    // only after a SUCCESSFUL registration, so the epoch-reject path does not pay the caller's prune
+    // (two mutexes, two O(N) scans) on every iteration of a loop that spins without backoff.
     *parked_ps = ps;
 
     auto &registry = pool.park_registry();
 
-    // From here on `ps` is published and claimable by another thread, and both statements below
-    // allocate and so can throw. An exception escaping await_suspend unwinds this coroutine, destroying
-    // the frame `ps->on_resume` captured while `ps` sits registered and unclaimed -- so the next wake
-    // would resume freed memory. That is what the catch below exists for; it is reachable exactly under
-    // memory pressure, which is also when acquires are contended.
+    // From here `ps` is published and claimable, and both statements below allocate and can throw. An
+    // escape would unwind this coroutine, destroying the frame `ps->on_resume` captured while `ps` sits
+    // registered and unclaimed -- so the next wake resumes freed memory. Hence the catch below.
     //
-    // Set iff the abandon path wins ClaimPark on our own `ps`. Must outlive the try so the handler can
+    // Set iff the abandon path wins ClaimPark on our own `ps`; must outlive the try so the handler can
     // tell our claim from a foreign one.
     bool self_claimed = false;
-    // Publish the pending arm BEFORE anything that can throw, so a wake source claiming `ps` in the
-    // next instant finds an arming side already accounted for. Outside the try, which is sound rather
-    // than merely tidy: `PublishPendingPark` is `noexcept` because the pending-park stack is intrusive
-    // and linking allocates nothing.
-    //
-    // This must be unconditional AND infallible, not just exception-safe. When publishing was a vector
-    // `push_back` it could throw; moving the call inside the try fixed the branch that UNWINDS and left
-    // the branch that SUSPENDS silently broken, because nothing can arm a park that was never
-    // published -- the gate stuck at kResumeRequested and the frame's campaign-long PendingHandle
-    // bricked the storage for the life of the process. Do not move this back inside the try.
+    // Publish BEFORE anything that can throw, and OUTSIDE the try -- sound because PublishPendingPark is
+    // noexcept. Must be unconditional AND infallible, not merely exception-safe: nothing can arm a park
+    // that was never published, and an unarmed park bricks the storage. Do not move it into the try
+    // (that was tried; it fixed the unwinding branch and silently broke the suspending one).
     utils::PublishPendingPark(ps);
     try {
       registry.Register(ps);
 
-      // Re-probe once more before committing to a genuine park, closing the race between the caller's
-      // original failed probe and the completion of the registration above.
+      // Re-probe once more, closing the race between the caller's failed probe and this registration.
       //
-      // Plain TryAccess, NOT TryAccessWithPending: a SUCCESSFUL PendingScope::try_acquire() disarms the
-      // scope for good (`std::exchange(lock_, nullptr)`, after which every call returns nullopt). This
-      // probe can succeed and STILL lose ClaimPark below, in which case we park and the campaign
-      // continues -- so consuming the caller's campaign-long handle here would make every later probe
-      // fail regardless of lock state, guaranteeing a spurious *AccessTimeout and dropping writer
-      // preference for the rest of the campaign. Closing the register-vs-release race is all this probe
-      // owes; the campaign's pending registration still gates on our behalf.
-      //
-      // Verified deterministically, not merely reasoned about: with a temporary hook forcing the
-      // damaging interleaving (lose ClaimPark, then free the lock so the re-probe succeeds anyway), the
-      // plain TryAccess acquires in ~3ms while TryAccessWithPending rides out the whole 5s deadline and
-      // throws UniqueAccessTimeout on a completely free lock. The hook needed a seam in production code
-      // and was removed with its test; re-add both if this line is ever touched.
+      // Plain TryAccess, NOT TryAccessWithPending -- a successful `PendingScope::try_acquire()` disarms
+      // the scope permanently, and this probe can succeed and STILL lose ClaimPark below, in which case
+      // the campaign continues with every later probe failing regardless of lock state. Measured: the
+      // wrong call rides out the whole deadline and throws on a completely free lock (see the spec).
       auto acc = storage.TryAccess(rw_type, resolved_iso);
       if (acc) {
         if (utils::ClaimPark(*ps)) {
-          // Won: nothing will ever deliver for this ps, so continue synchronously. Record the win --
-          // ClaimPark is one-shot, so from here our own claim is indistinguishable from a foreign one
-          // and the handler below must not read it as "somebody will resume us".
+          // Won: nothing will ever deliver for this ps, so continue synchronously. Recording the win is
+          // load-bearing -- ClaimPark is one-shot, so the handler below cannot otherwise tell our own
+          // claim from a foreign one.
           self_claimed = true;
-          // Discard FIRST, then prune: RemoveWaiter/Deregister each take a mutex and can throw, and a
-          // throw after the Discard would leave `ps` on the pending-arm stack for an unwinding frame.
+          // Discard FIRST: the prunes take mutexes and can throw, and a throw after the Discard would
+          // leave `ps` on the pending-arm stack for an unwinding frame.
           utils::DiscardPendingPark(ps);
           event.RemoveWaiter(ps);
           registry.Deregister(ps);
@@ -166,13 +142,8 @@ struct AcquireAwaitable {
       }
     } catch (...) {
       // Single-owner arbitration applied to the unwind: this frame may only die if nobody else can
-      // resume it.
-      //
-      // `self_claimed` is load-bearing, not defensive. ClaimPark is one-shot, so a second call after
-      // winning above returns false -- indistinguishable from a wake source having taken it. Reading
-      // that as "somebody will resume us" and suspending would disarm every wake source with nobody
-      // left to resume: a permanently suspended coroutine, no deadline backstop, silently unkillable,
-      // and worse than the UAF this handler prevents.
+      // resume it. Reading our OWN one-shot claim as "somebody will resume us" would disarm every wake
+      // source with nobody left to resume -- silently unkillable, worse than the UAF this prevents.
       if (self_claimed || utils::ClaimPark(*ps)) {
         // We own `ps`, so no wake source will touch it: safe to unwind and let the caller see the real
         // error. Discard before the prunes for the same reason as above -- a std::system_error from
@@ -184,29 +155,22 @@ struct AcquireAwaitable {
         registry.Deregister(ps);
         throw;
       }
-      // A wake source claimed `ps` and WILL resume this handle, so the frame must survive: suspend
-      // rather than unwind. "WILL resume" rests on `ps` being on this thread's pending-arm stack, so
-      // this task's ParkArmGuard arms it at the task boundary -- which holds only because publishing
-      // above is unconditional and infallible.
+      // A wake source claimed `ps` and WILL resume this handle, so the frame must survive: suspend, do
+      // not unwind. That rests on `ps` being on the pending-arm stack, which holds only because
+      // publishing above is unconditional and infallible.
       //
-      // NOTHING ELSE MAY GO HERE. Do not "defensively" prune the registries: both prunes take a mutex
-      // and can throw std::system_error, and per [expr.await]/5 a throw here is rethrown at the
-      // `co_await`, so the frame unwinds and its Task temporary dies while `ps` is still on the
-      // pending-arm stack with a foreign RequestResume recorded -- and the task-boundary ParkArmGuard
-      // then resumes a destroyed frame. Worse, std::system_error is not a utils::BasicException, so
-      // PrepareCoro's handler does not match: the session reports an ordinary failure and the UAF lands
-      // later on an unrelated worker. The prune is also unnecessary -- the resumed coroutine prunes both
-      // registries at the bottom of the acquire loop.
+      // NOTHING ELSE MAY GO HERE -- in particular do not "defensively" prune the registries. Both prunes
+      // can throw std::system_error, and per [expr.await]/5 a throw here is rethrown at the `co_await`:
+      // the frame unwinds while `ps` still carries a foreign RequestResume, so the task-boundary guard
+      // then resumes a destroyed frame -- and std::system_error is not a BasicException, so PrepareCoro
+      // does not catch it and the UAF lands later on an unrelated worker.
       return true;
     }
 
-    // Shutdown-race closer: ShutDown() drains the registry exactly ONCE, so a `ps` that finished
-    // registering strictly after that drain would sit there forever with nothing left to sweep or notify
-    // it. `IsShuttingDown()` is one-way and set as ShutDown()'s first action, strictly before its drain,
-    // so any `ps` reaching here self-claims rather than trusting a wake that may never come.
-    //
-    // On a win, deliberately do NOT set `abandon_result`: returning false with no accessor makes the
-    // post-co_await shutdown check throw, the same clean bail a real shutdown-drain resume produces.
+    // Shutdown-race closer: ShutDown() drains the registry exactly ONCE, so a `ps` registered strictly
+    // after that drain would sit there with nothing left to notify it. `IsShuttingDown()` is one-way and
+    // set before the drain, so we self-claim rather than trust a wake that may never come. On a win,
+    // deliberately leave `abandon_result` unset -- the post-co_await shutdown check then throws.
     if (pool.IsShuttingDown()) {
       if (utils::ClaimPark(*ps)) {
         utils::DiscardPendingPark(ps);  // Discard before the prunes -- see the abandon path above.
@@ -214,8 +178,7 @@ struct AcquireAwaitable {
         registry.Deregister(ps);
         return false;
       }
-      // Lost: a real Drain()/NotifyAll()/Sweep() already claimed ps and WILL resume us -- its own
-      // on_resume path re-checks IsShuttingDown() and bails cleanly, exactly like above.
+      // Lost: a real wake source claimed ps and WILL resume us; its path re-checks shutdown and bails.
       return true;
     }
 
@@ -227,28 +190,17 @@ struct AcquireAwaitable {
 
 }  // namespace detail
 
-/// The acquire coroutine at the heart of parkable Prepare. Resolves a storage accessor for `rw`,
-/// parking the CURRENT pool worker rather than blocking it while a contended UNIQUE/READ_ONLY
-/// acquisition is retried -- whenever parking is both possible (InMemory storage) and enabled (LOW
-/// priority, flag on).
+/// The acquire coroutine at the heart of parkable Prepare: resolves an accessor for `rw`, parking the
+/// current pool worker rather than blocking it, whenever parking is possible (InMemory) and enabled
+/// (LOW priority, flag on).
 ///
-/// Layering: `on_resume` here means "resume THIS handle, on whichever worker services the post", and
-/// resuming propagates up the `Task<>` chain by symmetric transfer. The session-aware "re-drive the
-/// connection loop once the top-level Task completes" concern is layered in through the opaque
-/// `on_park_resumed` hook, supplied by the Bolt session layer -- so this coroutine stays self-contained
-/// and testable without any of it (tests/unit/coro_accessor.cpp never passes one).
+/// The session-aware "re-drive the connection loop once the chain completes" concern is layered in via
+/// the opaque `on_park_resumed` hook, so this coroutine stays self-contained and testable without it.
 ///
-/// @param storage           The (per-DB) storage to acquire an accessor on.
-/// @param rw                Requested access type (UNIQUE/READ_ONLY/WRITE/READ).
-/// @param resolved_iso      Isolation-level override, resolved ONCE by the caller before this
-///                          coroutine starts; it never reads/resets next_transaction_isolation_level.
-/// @param deadline          Absolute deadline, re-checked every iteration and resume so a parked
-///                          campaign still honours the ~1s `*AccessTimeout` contract.
-/// @param pool              Used to post the resume and reach the deadline registry. The park path
-///                          requires running AS a pool task -- the worker run loop is what arms a park.
-/// @param is_high_priority  HIGH-priority queries never park; they take the blocking path.
-/// @param on_park_resumed   Threaded verbatim into every ParkState a genuine park builds; empty for
-///                          callers that never expect one (tests, a plain SyncWait).
+/// `resolved_iso` is resolved ONCE by the caller (this never reads next_transaction_isolation_level).
+/// `deadline` is absolute and re-checked every iteration, so a parked campaign still honours the
+/// `*AccessTimeout` contract. The park path requires running AS a pool task -- the run loop arms the
+/// park. `on_park_resumed` may be empty for callers that never expect a park (tests, a plain SyncWait).
 inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
     storage::Storage &storage, storage::StorageAccessType rw, std::optional<storage::IsolationLevel> resolved_iso,
     std::chrono::steady_clock::time_point deadline, utils::PriorityThreadPool &pool, bool is_high_priority,

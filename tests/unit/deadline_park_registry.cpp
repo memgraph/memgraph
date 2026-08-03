@@ -252,11 +252,10 @@ TEST(DeadlineParkRegistry, DrainRacingSweepResolvesToOneWinner) {
 }
 
 // (i) Cross-registry single ownership (R2/R4's whole point): a ParkState registered in BOTH a
-// WorkerResumeEvent AND a DeadlineParkRegistry, claimed and resumed by the WorkerResumeEvent's
-// NotifyAll (simulating the lock-release wake path firing first), must NOT be re-invoked by a
-// later DeadlineParkRegistry::Sweep even though its deadline has already passed -- the shared
-// ParkState::claimed flag is what makes these two independently-implemented registries agree on a
-// single winner.
+// WorkerResumeEvent AND a DeadlineParkRegistry, claimed and resumed by the WorkerResumeEvent's NotifyAll
+// (simulating the lock-release wake path firing first), must NOT be re-invoked by a later
+// DeadlineParkRegistry::Sweep even though its deadline has already passed -- the shared ParkState::claimed
+// flag is what makes these two independently-implemented registries agree on a single winner.
 TEST(DeadlineParkRegistry, EntryClaimedByWorkerResumeEventNotifyAllNotReinvokedBySweep) {
   WorkerResumeEvent event;
   DeadlineParkRegistry registry;
