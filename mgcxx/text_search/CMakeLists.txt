@@ -1,14 +1,23 @@
 string(TOLOWER ${CMAKE_BUILD_TYPE} cmake_lower_build_type)
 option(MGCXX_TEXT_SEARCH_VERBOSE "Make cargo build part verbose" OFF)
+# Resolve cargo to an absolute path at configure time. A bare `cargo` in the
+# custom command is looked up on PATH at ninja time, which breaks in CI /
+# non-login shells where ~/.cargo/env was never sourced (rustup installs to
+# ~/.cargo/bin and only login shells pick it up).
+find_program(CARGO_EXECUTABLE cargo HINTS "$ENV{HOME}/.cargo/bin")
+if(NOT CARGO_EXECUTABLE)
+  message(FATAL_ERROR "cargo not found (searched PATH and ~/.cargo/bin). "
+                      "Install Rust via rustup or source ~/.cargo/env.")
+endif()
 set(MGCXX_TEXT_SEARCH_CARGO_FLAGS "")
 if (MGCXX_TEXT_SEARCH_VERBOSE)
   set(MGCXX_TEXT_SEARCH_CARGO_FLAGS ${MGCXX_TEXT_SEARCH_CARGO_FLAGS} --verbose)
 endif()
 if (cmake_lower_build_type STREQUAL "debug")
-  set(CARGO_CMD cargo build ${MGCXX_TEXT_SEARCH_CARGO_FLAGS})
+  set(CARGO_CMD ${CARGO_EXECUTABLE} build ${MGCXX_TEXT_SEARCH_CARGO_FLAGS})
   set(MGCXX_TEXT_SEARCH_RUST_TARGET_DIR "debug")
 else ()
-  set(CARGO_CMD cargo build --release ${MGCXX_TEXT_SEARCH_CARGO_FLAGS})
+  set(CARGO_CMD ${CARGO_EXECUTABLE} build --release ${MGCXX_TEXT_SEARCH_CARGO_FLAGS})
   set(MGCXX_TEXT_SEARCH_RUST_TARGET_DIR "release")
 endif ()
 
@@ -87,7 +96,7 @@ install(FILES ${MGCXX_TEXT_SEARCH_RUST_LIB}
 
 if (${ENABLE_TESTS})
   add_test(NAME mgcxx_text_search_test
-   COMMAND cargo test
+   COMMAND ${CARGO_EXECUTABLE} test
    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   add_executable(test_bench test_bench.cpp)
   target_link_libraries(test_bench PRIVATE fmtlib_static benchmark::benchmark nlohmann_json::nlohmann_json mgcxx_text_search)

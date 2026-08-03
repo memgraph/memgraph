@@ -235,6 +235,13 @@ PYTHON="$(resolve_python)" || exit 1
 export MG_PYTHON="$PYTHON"
 echo "Python: $PYTHON ($("$PYTHON" --version 2>&1))"
 
+# Rust (mgcxx) is installed via rustup into ~/.cargo. Login shells get it on
+# PATH from ~/.cargo/env via the shell profile, but CI / non-login shells
+# don't — source it here so `cargo` resolves in both.
+if ! command -v cargo >/dev/null 2>&1 && [[ -f "$HOME/.cargo/env" ]]; then
+    source "$HOME/.cargo/env"
+fi
+
 # Validate build type
 if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD_TYPE" != "Debug" ]]; then
     echo "Error: --build-type must be either 'Release', 'RelWithDebInfo', or 'Debug'"
