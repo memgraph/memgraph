@@ -124,8 +124,6 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByEdgePropertyRange);
   PRE_VISIT(ScanAllByEdgeId);
   PRE_VISIT(ScanAllByVertexProperty);
-  PRE_VISIT(ScanAllByVertexPropertyValue);
-  PRE_VISIT(ScanAllByVertexPropertyRange);
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
@@ -230,8 +228,6 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanParallelByEdgePropertyValue);
   PRE_VISIT(ScanParallelByEdgePropertyRange);
   PRE_VISIT(ScanParallelByVertexProperty);
-  PRE_VISIT(ScanParallelByVertexPropertyValue);
-  PRE_VISIT(ScanParallelByVertexPropertyRange);
   PRE_VISIT(ScanChunk);
   PRE_VISIT(ScanChunkByEdge);
 
@@ -334,8 +330,6 @@ using ExpectScanParallelByEdgeProperty = OpChecker<ScanParallelByEdgeProperty>;
 using ExpectScanParallelByEdgePropertyValue = OpChecker<ScanParallelByEdgePropertyValue>;
 using ExpectScanParallelByEdgePropertyRange = OpChecker<ScanParallelByEdgePropertyRange>;
 using ExpectScanParallelByVertexProperty = OpChecker<ScanParallelByVertexProperty>;
-using ExpectScanParallelByVertexPropertyValue = OpChecker<ScanParallelByVertexPropertyValue>;
-using ExpectScanParallelByVertexPropertyRange = OpChecker<ScanParallelByVertexPropertyRange>;
 using ExpectScanChunk = OpChecker<ScanChunk>;
 using ExpectScanChunkByEdge = OpChecker<ScanChunkByEdge>;
 
@@ -735,29 +729,29 @@ class ExpectScanAllByVertexProperty : public OpChecker<ScanAllByVertexProperty> 
   memgraph::storage::PropertyId property_;
 };
 
-class ExpectScanAllByVertexPropertyValue : public OpChecker<ScanAllByVertexPropertyValue> {
+class ExpectScanAllByVertexPropertyValue : public OpChecker<ScanAllByVertexProperty> {
  public:
   ExpectScanAllByVertexPropertyValue(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
-                                     memgraph::query::Expression *expression)
-      : property_(prop_pair.second), expression_(expression) {}
+                                     memgraph::query::Expression * /*expression*/)
+      : property_(prop_pair.second) {}
 
-  void ExpectOp(ScanAllByVertexPropertyValue &scan_all, const SymbolTable &) override {
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
     EXPECT_EQ(scan_all.property_, property_);
-    EXPECT_EQ(typeid(scan_all.expression_).hash_code(), typeid(expression_).hash_code());
+    EXPECT_EQ(scan_all.expression_range_.type_, memgraph::query::plan::ExpressionRange::Type::EQUAL);
   }
 
  private:
   memgraph::storage::PropertyId property_;
-  memgraph::query::Expression *expression_;
 };
 
-class ExpectScanAllByVertexPropertyRange : public OpChecker<ScanAllByVertexPropertyRange> {
+class ExpectScanAllByVertexPropertyRange : public OpChecker<ScanAllByVertexProperty> {
  public:
   explicit ExpectScanAllByVertexPropertyRange(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
       : property_(prop_pair.second) {}
 
-  void ExpectOp(ScanAllByVertexPropertyRange &scan_all, const SymbolTable &) override {
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
     EXPECT_EQ(scan_all.property_, property_);
+    EXPECT_EQ(scan_all.expression_range_.type_, memgraph::query::plan::ExpressionRange::Type::RANGE);
   }
 
  private:

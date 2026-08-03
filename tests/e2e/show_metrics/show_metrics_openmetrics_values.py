@@ -44,8 +44,6 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "scan_all_by_edge_property_value_operator_total",
     "scan_all_by_edge_property_range_operator_total",
     "scan_all_by_vertex_property_operator_total",
-    "scan_all_by_vertex_property_value_operator_total",
-    "scan_all_by_vertex_property_range_operator_total",
     "scan_all_by_edge_id_operator_total",
     "scan_all_by_point_distance_operator_total",
     "scan_all_by_point_withinbbox_operator_total",

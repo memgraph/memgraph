@@ -626,7 +626,7 @@ def test_vertex_property_index_hint_forces_scan(memgraph):
     # Without hint, planner picks label+property index
     assert any("ScanAllByLabelProperties" in step for step in plan_no_hint)
     # With hint, planner picks vertex-property index
-    assert any("ScanAllByVertexPropertyValue" in step for step in plan_with_hint)
+    assert any("ScanAllByVertexProperty" in step for step in plan_with_hint)
 
 
 def test_vertex_property_index_hint_nonexistent_ignored(memgraph):

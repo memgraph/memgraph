@@ -357,26 +357,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(ScanAllByVertexPropertyValue &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-
-  bool PostVisit(ScanAllByVertexPropertyValue &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(ScanAllByVertexPropertyRange &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-
-  bool PostVisit(ScanAllByVertexPropertyRange &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
   bool PreVisit(ScanAllByPointDistance &op) override {
     prev_ops_.push_back(&op);
     return true;
@@ -416,10 +396,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         if (auto *s = dynamic_cast<ScanAllByLabelProperties const *>(target)) {
           provided = s;
         } else if (auto *s = dynamic_cast<ScanAllByVertexProperty const *>(target)) {
-          provided = s;
-        } else if (auto *s = dynamic_cast<ScanAllByVertexPropertyValue const *>(target)) {
-          provided = s;
-        } else if (auto *s = dynamic_cast<ScanAllByVertexPropertyRange const *>(target)) {
           provided = s;
         }
       }
@@ -1505,8 +1481,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     return type_info == ScanAllByLabel::kType || type_info == ScanAllByLabelProperties::kType ||
-           type_info == ScanAllById::kType || type_info == ScanAllByVertexProperty::kType ||
-           type_info == ScanAllByVertexPropertyValue::kType || type_info == ScanAllByVertexPropertyRange::kType;
+           type_info == ScanAllById::kType || type_info == ScanAllByVertexProperty::kType;
   }
 
   // Estimates whether STShortestPath (pairwise bidirectional BFS) is beneficial
@@ -1598,21 +1573,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (type_info == ScanAllByVertexProperty::kType) {
       auto *scan_op = dynamic_cast<ScanAllByVertexProperty *>(op);
-      return static_cast<double>(db_->VerticesCount(scan_op->property_));
-    }
-    if (type_info == ScanAllByVertexPropertyValue::kType) {
-      auto *scan_op = dynamic_cast<ScanAllByVertexPropertyValue *>(op);
       auto *mapper = db_->GetStorageAccessor()->GetNameIdMapper();
-      if (auto pvr = ExpressionRange::Equal(scan_op->expression_).ResolveAtPlantime(parameters_, mapper)) {
-        return static_cast<double>(db_->VerticesCount(scan_op->property_, pvr->lower_->value()));
-      }
-      return static_cast<double>(db_->VerticesCount(scan_op->property_));
-    }
-    if (type_info == ScanAllByVertexPropertyRange::kType) {
-      auto *scan_op = dynamic_cast<ScanAllByVertexPropertyRange *>(op);
-      auto *mapper = db_->GetStorageAccessor()->GetNameIdMapper();
-      if (auto pvr = ExpressionRange::Range(scan_op->lower_bound_, scan_op->upper_bound_)
-                         .ResolveAtPlantime(parameters_, mapper)) {
+      if (auto pvr = scan_op->expression_range_.ResolveAtPlantime(parameters_, mapper)) {
+        if (pvr->type_ == storage::PropertyRangeType::BOUNDED && pvr->lower_ && pvr->upper_ &&
+            pvr->lower_->value() == pvr->upper_->value()) {
+          return static_cast<double>(db_->VerticesCount(scan_op->property_, pvr->lower_->value()));
+        }
         return static_cast<double>(db_->VerticesCount(scan_op->property_, pvr->lower_, pvr->upper_));
       }
       return static_cast<double>(db_->VerticesCount(scan_op->property_));
@@ -1690,43 +1656,45 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto const estimated_count = best->estimated_count;
 
     if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
-      return ScanByIndexResult{
-          std::make_shared<ScanAllByVertexPropertyRange>(
-              input, node_symbol, best->property, prop_filter.lower_bound_, prop_filter.upper_bound_, view),
-          std::move(metadata),
-          false,
-          estimated_count};
+      return ScanByIndexResult{std::make_shared<ScanAllByVertexProperty>(
+                                   input,
+                                   node_symbol,
+                                   best->property,
+                                   ExpressionRange::Range(prop_filter.lower_bound_, prop_filter.upper_bound_),
+                                   view),
+                               std::move(metadata),
+                               false,
+                               estimated_count};
     }
     if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
-      Expression *empty_string = ast_storage_->Create<PrimitiveLiteral>("");
-      auto lower_bound = utils::MakeBoundInclusive(empty_string);
-      return ScanByIndexResult{
-          std::make_shared<ScanAllByVertexPropertyRange>(
-              input, node_symbol, best->property, std::make_optional(lower_bound), std::nullopt, view),
-          std::move(metadata),
-          false,
-          estimated_count};
+      return ScanByIndexResult{std::make_shared<ScanAllByVertexProperty>(
+                                   input, node_symbol, best->property, ExpressionRange::RegexMatch(), view),
+                               std::move(metadata),
+                               false,
+                               estimated_count};
     }
     if (prop_filter.type_ == PropertyFilter::Type::IN) {
       auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_);
-      return ScanByIndexResult{std::make_shared<ScanAllByVertexPropertyValue>(
-                                   std::move(unwound.op), node_symbol, best->property, unwound.element, view),
-                               std::move(metadata),
-                               true,
-                               estimated_count};
+      return ScanByIndexResult{
+          std::make_shared<ScanAllByVertexProperty>(
+              std::move(unwound.op), node_symbol, best->property, ExpressionRange::Equal(unwound.element), view),
+          std::move(metadata),
+          true,
+          estimated_count};
     }
     if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
-      return ScanByIndexResult{std::make_shared<ScanAllByVertexProperty>(input, node_symbol, best->property, view),
+      return ScanByIndexResult{std::make_shared<ScanAllByVertexProperty>(
+                                   input, node_symbol, best->property, ExpressionRange::IsNotNull(), view),
                                std::move(metadata),
                                false,
                                estimated_count};
     }
     MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
-    return ScanByIndexResult{
-        std::make_shared<ScanAllByVertexPropertyValue>(input, node_symbol, best->property, prop_filter.value_, view),
-        std::move(metadata),
-        false,
-        estimated_count};
+    return ScanByIndexResult{std::make_shared<ScanAllByVertexProperty>(
+                                 input, node_symbol, best->property, ExpressionRange::Equal(prop_filter.value_), view),
+                             std::move(metadata),
+                             false,
+                             estimated_count};
   }
 
   // Finds the best indexed scan operator for the given ScanAll without applying side effects.

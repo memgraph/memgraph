@@ -149,14 +149,6 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByVertexProperty & /*unused*/) override { return true; }
 
-  bool PreVisit(ScanAllByVertexPropertyValue & /*unused*/) override { return true; }
-
-  bool PostVisit(ScanAllByVertexPropertyValue & /*unused*/) override { return true; }
-
-  bool PreVisit(ScanAllByVertexPropertyRange & /*unused*/) override { return true; }
-
-  bool PostVisit(ScanAllByVertexPropertyRange & /*unused*/) override { return true; }
-
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override { return true; }
 
   bool PostVisit(ScanAllByEdgeId & /*unused*/) override { return true; }
@@ -280,14 +272,6 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanParallelByVertexProperty & /*unused*/) override { return true; }
 
   bool PostVisit(ScanParallelByVertexProperty & /*unused*/) override { return true; }
-
-  bool PreVisit(ScanParallelByVertexPropertyValue & /*unused*/) override { return true; }
-
-  bool PostVisit(ScanParallelByVertexPropertyValue & /*unused*/) override { return true; }
-
-  bool PreVisit(ScanParallelByVertexPropertyRange & /*unused*/) override { return true; }
-
-  bool PostVisit(ScanParallelByVertexPropertyRange & /*unused*/) override { return true; }
 
   bool PreVisit(Skip & /*unused*/) override { return true; }
 

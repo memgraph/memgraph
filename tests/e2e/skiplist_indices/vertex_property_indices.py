@@ -76,7 +76,7 @@ def test_scan_by_vertex_property_value_plan(memgraph):
     try:
         query = "MATCH (n) WHERE n.prop = 3 RETURN n.prop AS prop"
         plan = get_explain(memgraph, query)
-        assert any("ScanAllByVertexPropertyValue" in step for step in plan)
+        assert any("ScanAllByVertexProperty" in step for step in plan)
 
         results = {x["prop"] for x in memgraph.execute_and_fetch(query)}
         assert results == {3}
@@ -89,7 +89,7 @@ def test_scan_by_vertex_property_range_plan(memgraph):
     try:
         query = "MATCH (n) WHERE n.prop > 1 AND n.prop < 5 RETURN n.prop AS prop"
         plan = get_explain(memgraph, query)
-        assert any("ScanAllByVertexPropertyRange" in step for step in plan)
+        assert any("ScanAllByVertexProperty" in step for step in plan)
 
         results = {x["prop"] for x in memgraph.execute_and_fetch(query)}
         assert results == {2, 3, 4}

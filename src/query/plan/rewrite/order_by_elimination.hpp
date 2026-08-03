@@ -55,8 +55,7 @@ class OrderByEliminator {
 
   using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypePropertyRange *,
                                     const ScanAllByEdgePropertyRange *, const ScanAllByEdgeTypePropertyValue *,
-                                    const ScanAllByEdgePropertyValue *, const ScanAllByVertexProperty *,
-                                    const ScanAllByVertexPropertyValue *, const ScanAllByVertexPropertyRange *>;
+                                    const ScanAllByEdgePropertyValue *, const ScanAllByVertexProperty *>;
 
   struct OrderByInfo {
     OrderBy *op{nullptr};
@@ -196,8 +195,7 @@ class OrderByEliminator {
            type_info == ScanAllByEdgeTypeProperty::kType || type_info == ScanAllByEdgeTypePropertyValue::kType ||
            type_info == ScanAllByEdgeTypePropertyRange::kType || type_info == ScanAllByEdgeProperty::kType ||
            type_info == ScanAllByEdgePropertyValue::kType || type_info == ScanAllByEdgePropertyRange::kType ||
-           type_info == ScanAllByEdgeId::kType || type_info == ScanAllByVertexProperty::kType ||
-           type_info == ScanAllByVertexPropertyValue::kType || type_info == ScanAllByVertexPropertyRange::kType;
+           type_info == ScanAllByEdgeId::kType || type_info == ScanAllByVertexProperty::kType;
   }
 
   /// Check if a mutation operator (SetProperty, RemoveProperty) modifies a property

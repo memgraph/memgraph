@@ -296,8 +296,6 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdgePropertyRange & /*unused*/) override;
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override;
   bool PreVisit(ScanAllByVertexProperty & /*unused*/) override;
-  bool PreVisit(ScanAllByVertexPropertyValue & /*unused*/) override;
-  bool PreVisit(ScanAllByVertexPropertyRange & /*unused*/) override;
   bool PreVisit(ScanChunk & /*unused*/) override;
   bool PreVisit(ScanChunkByEdge & /*unused*/) override;
   bool PreVisit(ScanParallel & /*unused*/) override;
@@ -312,8 +310,6 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanParallelByEdgePropertyValue & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgePropertyRange & /*unused*/) override;
   bool PreVisit(ScanParallelByVertexProperty & /*unused*/) override;
-  bool PreVisit(ScanParallelByVertexPropertyValue & /*unused*/) override;
-  bool PreVisit(ScanParallelByVertexPropertyRange & /*unused*/) override;
   bool PreVisit(ParallelMerge & /*unused*/) override;
 
   bool PreVisit(EmptyResult & /*unused*/) override;
@@ -390,8 +386,6 @@ PRE_VISIT_TS(ScanAllByEdgePropertyValue);
 PRE_VISIT_TS(ScanAllByEdgePropertyRange);
 PRE_VISIT_TS(ScanAllByEdgeId);
 PRE_VISIT_TS(ScanAllByVertexProperty);
-PRE_VISIT_TS(ScanAllByVertexPropertyValue);
-PRE_VISIT_TS(ScanAllByVertexPropertyRange);
 PRE_VISIT_TS(ScanAllByPointDistance);
 PRE_VISIT_TS(ScanAllByPointWithinbbox);
 
@@ -432,8 +426,6 @@ PRE_VISIT_IGNORE(ScanParallelByEdgeProperty);
 PRE_VISIT_IGNORE(ScanParallelByEdgePropertyValue);
 PRE_VISIT_IGNORE(ScanParallelByEdgePropertyRange);
 PRE_VISIT_IGNORE(ScanParallelByVertexProperty);
-PRE_VISIT_IGNORE(ScanParallelByVertexPropertyValue);
-PRE_VISIT_IGNORE(ScanParallelByVertexPropertyRange);
 
 bool PlanPrinter::PreVisit(AggregateParallel & /*unused*/) {
   // Hiding in the plan, since it is an implementation detail
@@ -817,31 +809,6 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByVertexProperty &op) {
   return false;
 }
 
-bool PlanToJsonVisitor::PreVisit(ScanAllByVertexPropertyValue &op) {
-  json self;
-  self["name"] = "ScanAllByVertexPropertyValue";
-  self["property"] = ToJson(op.property_, *dba_);
-  self["expression"] = ToJson(op.expression_, *dba_);
-  self["output_symbol"] = ToJson(op.output_symbol_);
-  op.input_->Accept(*this);
-  self["input"] = PopOutput();
-  output_ = std::move(self);
-  return false;
-}
-
-bool PlanToJsonVisitor::PreVisit(ScanAllByVertexPropertyRange &op) {
-  json self;
-  self["name"] = "ScanAllByVertexPropertyRange";
-  self["property"] = ToJson(op.property_, *dba_);
-  self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
-  self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
-  self["output_symbol"] = ToJson(op.output_symbol_);
-  op.input_->Accept(*this);
-  self["input"] = PopOutput();
-  output_ = std::move(self);
-  return false;
-}
-
 bool PlanToJsonVisitor::PreVisit(ScanChunk &op) {
   json self;
   self["name"] = "ScanChunk";
@@ -1037,37 +1004,6 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByVertexProperty &op) {
   json self;
   self["name"] = "ScanParallelByVertexProperty";
   self["property"] = ToJson(op.property_, *dba_);
-  self["num_threads"] = op.num_threads_;
-  self["state_symbol"] = ToJson(op.state_symbol_);
-
-  op.input_->Accept(*this);
-  self["input"] = PopOutput();
-
-  output_ = std::move(self);
-  return false;
-}
-
-bool PlanToJsonVisitor::PreVisit(ScanParallelByVertexPropertyValue &op) {
-  json self;
-  self["name"] = "ScanParallelByVertexPropertyValue";
-  self["property"] = ToJson(op.property_, *dba_);
-  self["expression"] = ToJson(op.expression_, *dba_);
-  self["num_threads"] = op.num_threads_;
-  self["state_symbol"] = ToJson(op.state_symbol_);
-
-  op.input_->Accept(*this);
-  self["input"] = PopOutput();
-
-  output_ = std::move(self);
-  return false;
-}
-
-bool PlanToJsonVisitor::PreVisit(ScanParallelByVertexPropertyRange &op) {
-  json self;
-  self["name"] = "ScanParallelByVertexPropertyRange";
-  self["property"] = ToJson(op.property_, *dba_);
-  self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
-  self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
   self["num_threads"] = op.num_threads_;
   self["state_symbol"] = ToJson(op.state_symbol_);
 
