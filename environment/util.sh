@@ -92,6 +92,9 @@ check_architecture() {
 function check_custom_package() {
     local pkg="$1"
 
+    # workaround for running the OS scripts with sudo
+    local user_home=$(getent passwd "${SUDO_USER:-$USER}" | cut -d: -f6)
+
     case "$pkg" in
         custom-maven*)
             if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
@@ -104,14 +107,14 @@ function check_custom_package() {
             fi
             ;;
         custom-rust)
-            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+            if [ ! -x "$user_home/.cargo/bin/rustup" ]; then
                 echo "$pkg"
             fi
             ;;
         custom-node)
             # nvm-based install (install_node); nvm has no fixed binary path,
             # so probe for any node on PATH or an nvm dir.
-            if ! command -v node >/dev/null 2>&1 && [ ! -d "$HOME/.nvm" ]; then
+            if ! command -v node >/dev/null 2>&1 && [ ! -d "$user_home/.nvm" ]; then
                 echo "$pkg"
             fi
             ;;
@@ -289,19 +292,49 @@ function install_dotnet_sdk ()
   echo "dotnet sdk $DOTNETSDKVERSION installed under $DOTNETSDKINSTALLDIR"
 }
 
-function install_rust () {
-  RUST_VERSION="$1"
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-    && . "$HOME/.cargo/env" \
-    && rustup default ${RUST_VERSION}
+function install_rust() {
+  local rust_version="$1"
+  local target_user="${SUDO_USER:-$(id -un)}"
+  local target_home
+
+  target_home="$(getent passwd "$target_user" | cut -d: -f6)"
+
+  sudo -u "$target_user" \
+    HOME="$target_home" \
+    bash -c '
+      set -euo pipefail
+
+      curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs |
+        sh -s -- -y
+
+      . "$HOME/.cargo/env"
+      rustup default "$1"
+    ' bash "$rust_version"
 }
 
-function install_node () {
-  NODE_VERSION="$1"
-  curl -f --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
-      && . ~/.nvm/nvm.sh \
-      && nvm install ${NODE_VERSION} \
-      && nvm use ${NODE_VERSION}
+function install_node() {
+  local node_version="$1"
+  local target_user="${SUDO_USER:-$(id -un)}"
+  local target_home
+
+  target_home="$(getent passwd "$target_user" | cut -d: -f6)"
+
+  sudo -u "$target_user" \
+    HOME="$target_home" \
+    bash -c '
+      set -euo pipefail
+
+      export NVM_DIR="$HOME/.nvm"
+
+      curl -fsSL --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh |
+        bash
+
+      . "$NVM_DIR/nvm.sh"
+
+      nvm install "$1"
+      nvm use "$1"
+      nvm alias default "$1"
+    ' bash "$node_version"
 }
 
 function parse_operating_system() {
