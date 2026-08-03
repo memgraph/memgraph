@@ -384,19 +384,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       while (true) {
         const auto outcome = session_.Execute();
         if (outcome == bolt::ExecuteResult::kNeedsCoroPrepare) [[unlikely]] {
-          // Unreachable: this outcome requires GetCurrentWorkerId() to be set (Execute_'s own gate),
-          // which only a pool LP worker publishes, and the ASIO scheduler runs on the connection's
-          // strand. A hard failure rather than a silent loop, because state_ would otherwise never
-          // leave State::Parsed.
+          // Unreachable: this outcome needs GetCurrentWorkerId(), which only a pool worker publishes,
+          // and the ASIO scheduler runs on the connection's strand. A hard failure rather than a silent
+          // loop, since state_ would otherwise never leave State::Parsed.
           //
-          // Deliberately NOT "drain the chain here" via SyncWait(HandlePrepareCoro(...)), which an
-          // earlier version did on the strength of AcquireAccessorCoro's DMG_ASSERT firing first. That
-          // assert is compiled out under NDEBUG, so a release build could genuinely park; and SyncWait
-          // binds the Task as a TEMPORARY destroyed at end of full-expression, while Task<void>::Run()
-          // deliberately tolerates a park and returns with frames suspended -- so the destructor would
-          // handle_.destroy() a frame still registered and unclaimed in both registries, and the next
-          // wake would resume freed memory. Converting an impossible state into a use-after-free is
-          // worse than the hang it was written to avoid.
+          // Deliberately NOT "drain the chain here" via SyncWait: that binds the Task as a TEMPORARY
+          // destroyed at end of full-expression, and Run() tolerates a park, so the destructor would
+          // destroy a frame still registered and unclaimed in both registries. Turning an impossible
+          // state into a use-after-free is worse than the hang it would avoid.
           throw utils::BasicException(
               "Execute_ returned kNeedsCoroPrepare on the ASIO scheduler path, which requires a pool "
               "worker id that this thread cannot have. This is a bug in the scheduler wiring.");
@@ -424,23 +419,16 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       while (true) {
         const auto outcome = shared_this->session_.Execute();
         if (outcome == bolt::ExecuteResult::kNeedsCoroPrepare) {
-          // shared_this is forwarded down as an opaque std::function, and that closure is what keeps the
-          // session alive across the park.
-          //
-          // NB there IS a refcount cycle while parked: session -> parked_prepare_ -> frames ->
+          // There IS a refcount cycle while parked: session -> parked_prepare_ -> frames ->
           // std::function -> shared_ptr<Session>. Type erasure hides it from a reader, not from the
-          // refcount -- PrepareCoro takes the std::function by value and copies it again into
-          // AcquireAccessorCoro, so two live frames reference the session that transitively owns them.
-          // It is broken by hand, by parked_prepare_.reset() on every resume path, which is exactly why
-          // any path that drops a resume leaks the Session and its DatabaseAccess and stalls shutdown.
-          // Do not "simplify" the reset away.
+          // refcount. It is broken by hand, by parked_prepare_.reset() on every resume path -- which is
+          // why any path that DROPS a resume leaks the Session and stalls shutdown. Do not "simplify"
+          // the reset away.
           //
-          // parked_prepare_ MUST hold the Task before Resume() is called, and more generally NOTHING
-          // below may race a resume -- the `if (!Done())` check and this member are touched by both this
-          // thread and the resume closure. The delivery gate is what guarantees it: a claim taken while
-          // we are still inside Resume() cannot be DELIVERED until this pool task ends, strictly after
-          // this function returns. The resume then runs on whatever worker services the post, so the
-          // exclusion is the gate's, not the scheduler's.
+          // parked_prepare_ MUST hold the Task before Resume() is called, and NOTHING below may race a
+          // resume: the `if (!Done())` check and this member are touched by both this thread and the
+          // resume closure. The gate guarantees it -- a claim taken while we are inside Resume() cannot
+          // be DELIVERED until this pool task ends, strictly after this function returns.
           shared_this->parked_prepare_.emplace(shared_this->DrivePreparedRun([shared_this] {
             auto &parked = shared_this->parked_prepare_;
             if (!parked || !parked->Done()) {
@@ -458,14 +446,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
             auto finished = std::move(*parked);
             parked.reset();
 
-            // catch(...) as well as catch(std::exception), and the catch(...) is the load-bearing one.
-            // `Promise::unhandled_exception` stores whatever was thrown and `TakeValue()` rethrows it
-            // verbatim, so a non-std-derived exception is representable here. With only the narrow
-            // handler it did not match and escaped this closure, skipping the reset above -- and that
-            // reset is the ONLY thing breaking the cycle documented above, so the Session survived with
-            // its DatabaseAccess and Gatekeeper<Database>::count_ never returned to zero. It also
-            // escaped into the posted resume task and out through the worker's Phase 1A task body (no
-            // handler there, by design -- master's task bodies do not throw), terminating the process.
+            // The catch(...) is the load-bearing one: `TakeValue()` rethrows verbatim, so a non-std
+            // exception is representable, and with only the narrow handler it escaped this closure --
+            // skipping the reset above, leaking the Session, and terminating the process on its way out
+            // through the worker's task body (which has no handler, by design).
             try {
               finished.TakeValue();  // rethrow, if DrivePreparedRun itself somehow escaped an exception
             } catch (const std::exception &e) {
@@ -523,17 +507,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
   }
 
-  // Top-level drive coroutine. Its body is deliberately JUST the co_await -- no post-await bookkeeping
-  // may live here, because this frame is owned by `parked_prepare_`: touching, let alone resetting, that
-  // member from within this frame's own execution would destroy the coroutine currently running. The
-  // "what happens once the chain is done" logic lives in the caller-supplied `on_park_resumed` closure
-  // instead, which runs from the posted resume strictly AFTER the parked handle is resumed, i.e. outside
-  // this frame entirely.
+  // Body is deliberately JUST the co_await: no post-await bookkeeping may live here, because this frame
+  // is owned by `parked_prepare_`, so touching that member from within this frame's own execution would
+  // destroy the coroutine currently running. "What happens once the chain is done" lives in the
+  // caller-supplied `on_park_resumed` closure, which runs strictly AFTER the handle is resumed.
   //
-  // Takes `on_park_resumed` as an opaque std::function rather than a named shared_ptr<Session> purely
-  // for uniformity with every other frame in the chain -- NOT as cycle avoidance. The closure holds a
-  // shared_ptr<Session> whatever static type wraps it, so the session -> parked_prepare_ -> frame ->
-  // session cycle is real while parked; see the note at RunLoop's kNeedsCoroPrepare site.
+  // The opaque std::function is for uniformity with every other frame in the chain, NOT cycle avoidance
+  // -- the closure holds a shared_ptr<Session> whatever wraps it; see RunLoop's kNeedsCoroPrepare site.
   utils::Task<void> DrivePreparedRun(std::function<void()> on_park_resumed) {
     co_await bolt::HandlePrepareCoro(session_, std::move(on_park_resumed));
   }

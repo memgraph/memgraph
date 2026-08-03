@@ -21,19 +21,15 @@
 
 namespace memgraph::utils {
 
-/// Minimal, general-purpose LAZY coroutine task type (IP-1 §3 item 1: `utils/coro_task.hpp`).
+/// Minimal, general-purpose LAZY coroutine task type.
 ///
-/// `Task<T>` does not start running when constructed -- its body only executes once it is
-/// `co_await`ed (or driven via `SyncWait`), via `initial_suspend() == suspend_always`. Chaining
-/// `co_await`s use a symmetric-transfer `final_suspend` so a completing child jumps directly into
-/// its awaiting continuation (or `std::noop_coroutine()` if there is none) instead of returning to
-/// a generic scheduler/trampoline -- this keeps nested `Task` chains O(1) stack depth regardless of
-/// how many awaits are chained.
+/// Does not start on construction -- the body runs only once `co_await`ed or driven via `SyncWait`
+/// (`initial_suspend() == suspend_always`). `final_suspend` uses symmetric transfer so a completing
+/// child jumps straight into its continuation rather than a trampoline, keeping nested chains O(1)
+/// stack depth however many awaits are chained.
 ///
-/// This type is deliberately narrow: single-awaiter, move-only, no scheduler/executor integration.
-/// It is the foundation the parkable-Prepare coroutine work builds on (see
-/// opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md §3); scheduling-specific
-/// awaitables (e.g. an accessor-acquire await) are layered on top, not here.
+/// Deliberately narrow: single-awaiter, move-only, no scheduler integration. Scheduling-specific
+/// awaitables layer on top of this, not into it.
 template <typename T>
 class Task;
 
@@ -162,13 +158,10 @@ class [[nodiscard]] Task {
   T Run() {
     DMG_ASSERT(handle_, "Run() on an empty/moved-from Task.");
     handle_.resume();
-    // Only non-void T is unsafe here, so only non-void T is asserted. If the chain PARKED instead
-    // of completing, the promise holds neither a value nor an exception, and TakeValue() would read
-    // an uninitialised union member -- silent UB in release, which is why this is MG_ASSERT and not
-    // DMG_ASSERT. Promise<void>::TakeValue() only rethrows, so driving a Task<void> that parks is
-    // legitimate: the caller keeps the Task alive and a wake source resumes the frame later (see
-    // tests/unit/coro_accessor.cpp's park tests, which do exactly that). Callers that need a VALUE
-    // out of a chain that can suspend must use Resume() + Done() + TakeValue() instead.
+    // Only non-void T is unsafe, so only non-void T is asserted. A chain that PARKED holds neither a
+    // value nor an exception, so TakeValue() would read an uninitialised union member -- silent UB in
+    // release, hence MG_ASSERT rather than DMG_ASSERT. Promise<void>::TakeValue() only rethrows, so
+    // driving a Task<void> that parks is legitimate and deliberately still allowed.
     if constexpr (!std::is_void_v<T>) {
       MG_ASSERT(handle_.done(),
                 "Run() drove a non-void Task that suspended instead of completing -- it parked, so "
@@ -178,12 +171,9 @@ class [[nodiscard]] Task {
     return handle_.promise().TakeValue();
   }
 
-  /// Starts (if not yet started) or resumes this Task exactly once, WITHOUT assuming it runs to
-  /// completion (Session-surgery Stage B: driving a top-level Task that may genuinely park mid-body,
-  /// see communication/v2/session.hpp's DrivePreparedRun / opencode-work/resource-lock-starvation/
-  /// coro-prepare/ip1-design.md R4.2). Unlike `Run()`/`SyncWait`, the caller MUST check `Done()`
-  /// afterwards before calling `TakeValue()` -- if the resumed chain suspended (parked) instead of
-  /// completing, the promise holds neither a value nor an exception yet.
+  /// Starts or resumes this Task exactly once, WITHOUT assuming it runs to completion -- for driving a
+  /// top-level Task that may genuinely park mid-body. Unlike `Run()`/`SyncWait`, the caller MUST check
+  /// `Done()` before `TakeValue()`: a parked chain holds neither a value nor an exception yet.
   void Resume() {
     DMG_ASSERT(handle_ && !handle_.done(), "Resume() on an empty/moved-from/already-done Task.");
     handle_.resume();

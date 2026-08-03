@@ -84,18 +84,13 @@ storage::Config NoGcConfig() {
                          .transaction = {.isolation_level = storage::IsolationLevel::SNAPSHOT_ISOLATION}};
 }
 
-// Drives (via `.Run()`, inside a pool task so utils::GetCurrentWorkerId() is published)
-// AcquireAccessorCoro(...) to completion, storing its result/exception in the caller-owned
-// `result`/`eptr` and signalling `done` when finished. Returns the driver Task<void> so the
-// caller can keep its coroutine frame alive for as long as the async operation may still be
-// running (the frame must outlive any in-flight park -- see the doc comment on `driver` in each
-// test below).
+// Drives AcquireAccessorCoro to completion inside a pool task (so GetCurrentWorkerId() is published),
+// storing its result/exception and signalling `done`. Returns the driver Task so the caller can keep
+// the frame alive -- it MUST outlive any in-flight park.
 //
-// Task<void>::Run() is safe to call even when the awaited AcquireAccessorCoro() genuinely parks:
-// Promise<void>::TakeValue() (unlike the generic Promise<T>::TakeValue()) does not assert
-// completion, only rethrows a stored exception -- so Run() returning after a real suspend deep in
-// the awaited chain is completely valid; the driver's body simply resumes later, off a pool
-// worker, when the parked coroutine's on_resume eventually fires.
+// Run() is safe even when the awaited chain genuinely parks: Promise<void>::TakeValue() only rethrows,
+// it does not assert completion, so returning after a real suspend is valid and the body resumes later
+// off a pool worker.
 utils::Task<void> MakeDriver(storage::Storage &storage, storage::StorageAccessType rw,
                              std::optional<storage::IsolationLevel> resolved_iso,
                              std::chrono::steady_clock::time_point deadline, utils::PriorityThreadPool &pool,
@@ -174,19 +169,13 @@ TEST(CoroAccessor, ParkWakeAcquire) {
   ASSERT_TRUE(BoundedWaitUntil([&] { return done.load(); }, std::chrono::milliseconds(2000)))
       << "parked coroutine never woke up and completed";
 
-  // The OTHER direction of the post-resume prune, and the one ParkTimeoutLeavesNoWaiterRegistered
-  // structurally cannot cover. There, a deadline Sweep claimed the park and erased its own registry
-  // entry, leaving the wake-event twin. Here a lock-release NotifyAll claimed it and emptied
-  // `waiters_` wholesale, leaving the DEADLINE-REGISTRY twin -- so only AcquireAccessorCoro's own
-  // `park_registry().Deregister()` removes it, and a retained entry defeats Sweep's cheap
-  // "nothing parked" fast path for the rest of the pool's life (every 100ms tick takes the mutex and
-  // walks the list) while holding a fired ParkState alive.
+  // The OTHER direction of the post-resume prune, which ParkTimeoutLeavesNoWaiterRegistered
+  // structurally cannot cover: there a Sweep claimed the park and left the wake-event twin, here a
+  // NotifyAll claimed it and left the DEADLINE-REGISTRY twin, so only Deregister() removes it.
   //
-  // Asserted IMMEDIATELY after `done`, and that is load-bearing rather than tidy: Sweep lazy-prunes
-  // already-claimed entries regardless of deadline (R4.5), so the next monitor tick would clean up a
-  // missing Deregister and mask it. `done` is set by the driver after AcquireAccessorCoro returns,
-  // i.e. microseconds after the prune, against a 100ms tick -- but the margin is timing, not logic,
-  // so do not move this check further down or add waits before it.
+  // Asserted IMMEDIATELY after `done`, and that is load-bearing: Sweep lazy-prunes already-claimed
+  // entries regardless of deadline, so the next monitor tick would mask a missing Deregister. The
+  // margin (microseconds vs a 100ms tick) is timing, not logic -- do not add waits before this.
   EXPECT_EQ(pool.park_registry().Size(), 0U)
       << "a park resumed by a lock-release NotifyAll stayed registered in the deadline registry -- "
          "NotifyAll only empties its own waiter list, so nothing else would ever remove this entry";
@@ -378,23 +367,13 @@ TEST(CoroAccessor, ParkThenShutdownUnwindsPromptly) {
   held.reset();
 }
 
-// (g) A timed-out park must leave NOTHING registered behind it, on the path where nothing else
-// cleans up for it.
+// (g) A timed-out park must leave NOTHING registered behind it, on the path where nothing else cleans
+// up for it. Consequences of failing to prune: specs/parkable-prepare.md.
 //
-// WRITE is load-bearing here. Whichever wake source claims a park removes it from its OWN list only:
-// a lock-release NotifyAll empties `waiters_` wholesale, while the deadline Sweep erases its own
-// entry and leaves the `waiters_` twin. So a sweep-resumed park needs the coroutine to prune the
-// event side -- and for UNIQUE/READ_ONLY that leak is masked, because unwinding the campaign destroys
-// its PendingScope, which notifies, which triggers a NotifyAll that empties `waiters_` anyway.
-// MakePendingHandle(WRITE) engages no scope at all (inmemory/storage.hpp), so nothing notifies and
+// WRITE is load-bearing. A sweep-resumed park needs the coroutine to prune the EVENT side, and for
+// UNIQUE/READ_ONLY that leak is masked -- unwinding the campaign destroys its PendingScope, which
+// notifies, which empties `waiters_` anyway. MakePendingHandle(WRITE) engages no scope at all, so
 // nothing masks it.
-//
-// Left unpruned, the consequences compound: `waiters_pending_` stays non-zero, which permanently
-// defeats NotifyMainLockReleased's "nobody is parked" fast path, so every later admitting transition
-// on this storage takes the event mutex AND bumps the epoch -- and a bumped epoch fails concurrent
-// RegisterWaiter calls, sending other parkers back around the acquire loop with no backoff. The
-// entry also retained the ParkState's on_resume closure, which in production holds a
-// shared_ptr<Session> and through it a DatabaseAccess, stalling DROP DATABASE.
 TEST(CoroAccessor, ParkTimeoutLeavesNoWaiterRegistered) {
   ScopedCoroPrepareFlag flag_on{true};
 
@@ -436,22 +415,14 @@ TEST(CoroAccessor, ParkTimeoutLeavesNoWaiterRegistered) {
 
 // (h) STORAGE-SIDE DRAIN resumes a park that no lock release will ever wake.
 //
-// Fills a real gap rather than adding symmetry. Three drains exist for shutdown: the pool's
-// park_registry_.Drain(), Storage::DrainParkedMainLockWaiters() (called per storage from
-// memgraph.cpp), and the same event Drain() inside Storage::StopAllBackgroundTasks(). The POOL one is
-// already pinned by ParkThenShutdownUnwindsPromptly above -- it holds the accessor for the whole test
-// and uses a 600s deadline, so neither a release nor the sweep can be what resolves that park.
+// Fills a real gap, not symmetry. The POOL drain is already pinned by ParkThenShutdownUnwindsPromptly.
+// The storage-side ones could NOT be covered over Bolt -- park_shutdown.py was measured by mutation to
+// guard none of them, because session teardown releases the holder and the ordinary notify path wakes
+// the park first. A unit test owns the holder as a local, so it can build what Bolt cannot: a park with
+// its conflicting holder still held.
 //
-// The STORAGE-side ones were not covered, and could not be covered where it was tried: the e2e
-// park_shutdown.py was measured by mutation to guard NONE of the three, because over Bolt the session
-// teardown releases the holder's accessor and the ordinary notify path wakes the park before any drain
-// matters. A unit test owns the holder as a local, so it can construct the case Bolt cannot -- a park
-// with a conflicting holder still held, where nothing but the drain can ever wake it.
-//
-// The assertion is that the drain RESUMES rather than merely drops: after draining, the waiter list is
-// emptied, and the resumed coroutine loops back, re-probes, still cannot acquire (the holder is still
-// held), and RE-PARKS -- so WaitersPending() returns to 1. A drain that dropped the waiter without
-// resuming leaves it at 0 forever, which is what this discriminates against.
+// Discriminates RESUMES from merely DROPS: after the drain the resumed coroutine re-probes, still
+// cannot acquire, and RE-PARKS, so WaitersPending() returns to 1. A drop leaves it at 0 forever.
 TEST(CoroAccessor, StorageSideDrainResumesAParkNoReleaseCanWake) {
   ScopedCoroPrepareFlag flag_on{true};
 

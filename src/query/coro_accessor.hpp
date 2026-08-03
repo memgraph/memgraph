@@ -32,21 +32,10 @@ namespace memgraph::query {
 
 namespace detail {
 
-/// Awaitable behind AcquireAccessorCoro's park. One instance per park attempt, i.e. per failed
-/// TryAccessWithPending() probe inside the acquire loop.
-///
-/// `await_suspend` implements the FULL single-owner arbitration, not just "register and suspend":
-///  1. Builds a `shared_ptr<ParkState>` whose `on_resume` posts a resume of THIS handle to any
-///     available pool worker. Resuming propagates up the `Task<>` chain by symmetric transfer, so
-///     nothing here knows about session/Bolt re-drive. WHEN that resume may run is the ParkState
-///     delivery gate's job: not until this thread's pool task ends.
-///  2. `RegisterWaiter` under the captured `epoch` (register-before-recheck). A false return means the
-///     epoch moved between the caller's probe and here, so `ps` never reached a registry and nobody can
-///     race a claim -- return false (no suspend) and let the acquire loop re-probe.
-///  3. On success, also registers with the pool's deadline registry and re-probes the resource once
-///     more. If that probe acquires, this is the ABANDON PATH: proceed synchronously only if we WIN
-///     `ClaimPark`, guarding against a concurrent notify/sweep already driving a resume for this same
-///     `ps`. On a loss the redundantly-acquired accessor is released and we genuinely suspend.
+/// Awaitable behind AcquireAccessorCoro's park; one instance per park attempt. `await_suspend`
+/// implements the full single-owner arbitration, not just "register and suspend" -- register under the
+/// captured epoch, re-probe once more, and arbitrate via `ClaimPark` if that probe succeeds (the
+/// ABANDON PATH). See specs/parkable-prepare.md for why each step is shaped this way.
 struct AcquireAwaitable {
   storage::InMemoryStorage &storage;
   utils::PriorityThreadPool &pool;
@@ -76,60 +65,50 @@ struct AcquireAwaitable {
     auto ps = std::make_shared<utils::ParkState>();
     ps->deadline = deadline;
     auto *pool_ptr = &pool;
-    // resumed_cb is copied into BOTH the outer (on_resume) and inner (posted) closures, which live
-    // inside ps for the WHOLE park rather than just the invocation instant -- that is what keeps a
-    // session-lifetime shared_ptr captured inside it alive across the entire park.
+    // Copied into BOTH the outer (on_resume) and inner (posted) closures, which live inside ps for the
+    // WHOLE park rather than the invocation instant -- that is what keeps a session-lifetime
+    // shared_ptr captured inside it alive across the park.
     auto resumed_cb = on_park_resumed;
     ps->set_on_resume([pool_ptr, h, resumed_cb] {
       // Any worker, never inline on the caller's thread: on_resume runs from whichever thread claimed
-      // the park (a lock releaser, the deadline sweep, the shutdown drain, or this thread's own arm at
-      // its task boundary), and none of those may drive a coroutine frame themselves. Serialising
-      // against the parking thread is the delivery gate's job, not this posting's, which is why the
-      // resume no longer has to be pinned back onto the parking worker and wait out its backlog.
+      // the park, and none of those may drive a coroutine frame. Serialising against the parking thread
+      // is the gate's job, not this posting's.
       pool_ptr->PostResumeTask([h, resumed_cb] {
         h.resume();
-        // Strictly AFTER h.resume() returns, i.e. outside any coroutine frame's own execution: a
-        // completed frame is sitting at final_suspend, and a re-parked one is expected to be recognised
-        // as "not done yet" by resumed_cb. So this may touch caller-owned state that would be unsafe
-        // from inside the coroutine body -- e.g. destroying the very Task that owns this frame.
+        // Strictly AFTER h.resume() returns, i.e. outside any frame's own execution, so this may touch
+        // caller-owned state that would be unsafe from inside the coroutine body -- e.g. destroying the
+        // very Task that owns this frame.
         if (resumed_cb) resumed_cb();
       });
     });
 
     auto &event = storage.main_lock_resume_event();
     if (!event.RegisterWaiter(ps, epoch)) {
-      // The epoch moved, so `ps` never entered any registry and nobody can ever claim or resume it:
-      // drop it and let the loop re-probe. No claim contest needed, and `*parked_ps` stays null
-      // deliberately -- see below.
+      // The epoch moved, so `ps` never entered a registry and nobody can claim it: drop and re-probe,
+      // no claim contest, and `*parked_ps` deliberately stays null (see below).
       //
-      // Unless the event is CLOSED, a different answer to the same `false`: the storage is tearing down
-      // (process shutdown, or DROP DATABASE), so re-probing is futile and would spin to the deadline.
-      // Report it so the acquire loop bails. This is exactly why `Drain()` closes rather than bumping
-      // the epoch.
+      // Unless the event is CLOSED -- a different answer to the same `false`. The storage is tearing
+      // down, so re-probing would spin to the deadline; report it so the loop bails.
       *event_closed = event.IsClosed();
       return false;
     }
 
-    // Registered: another thread may CLAIM `ps` from here on. It may not yet DELIVER the resume -- the
-    // gate holds that until this thread's pool task ends, which is what keeps the rest of this function
-    // (and the driver we return into) safe to touch frame-resident state.
+    // Registered: another thread may CLAIM `ps` from here on, but cannot DELIVER until this thread's
+    // pool task ends -- which is what keeps the rest of this function, and the driver we return into,
+    // safe to touch frame-resident state.
     //
-    // Hand `ps` to the frame only now, after a SUCCESSFUL registration, so the caller's post-resume
-    // prune runs only for a park that really registered. Assigning earlier made the epoch-reject path
-    // above pay that prune too -- two mutexes and two O(N) scans -- on every iteration of a loop that
-    // spins without backoff, and parkers land there because of epoch churn from a long waiter list,
-    // i.e. exactly when those scans cost most.
+    // Assigned only AFTER a successful registration, so the caller's post-resume prune runs only for a
+    // park that really registered. Earlier, the epoch-reject path paid that prune too -- two mutexes
+    // and two O(N) scans -- on every iteration of a loop that spins without backoff.
     *parked_ps = ps;
 
     auto &registry = pool.park_registry();
 
-    // From here to the end of the block, `ps` is already published and therefore claimable by another
-    // thread. Both statements below allocate (Register's push_back; TryAccess constructing an Accessor
-    // and its Transaction) and so can throw -- and an exception escaping await_suspend resumes and
-    // unwinds this coroutine, destroying the very frame `ps->on_resume` captured while `ps` sits
-    // registered and unclaimed, so the next notify/sweep/drain would resume freed memory. Every other
-    // exit either self-claims or never published; this is the one that needs closing, and it is
-    // reachable exactly under memory pressure -- which is also when acquires are contended.
+    // From here on `ps` is published and claimable by another thread, and both statements below
+    // allocate and so can throw. An exception escaping await_suspend unwinds this coroutine, destroying
+    // the frame `ps->on_resume` captured while `ps` sits registered and unclaimed -- so the next wake
+    // would resume freed memory. That is what the catch below exists for; it is reachable exactly under
+    // memory pressure, which is also when acquires are contended.
     //
     // Set iff the abandon path wins ClaimPark on our own `ps`. Must outlive the try so the handler can
     // tell our claim from a foreign one.
@@ -167,10 +146,9 @@ struct AcquireAwaitable {
       auto acc = storage.TryAccess(rw_type, resolved_iso);
       if (acc) {
         if (utils::ClaimPark(*ps)) {
-          // Won: no wake source will ever deliver for this ps, so continue synchronously with the
-          // accessor in hand. Record the win -- ClaimPark is one-shot, so from here our own claim is
-          // indistinguishable from a foreign one and the handler below must not read it as "somebody
-          // will resume us".
+          // Won: nothing will ever deliver for this ps, so continue synchronously. Record the win --
+          // ClaimPark is one-shot, so from here our own claim is indistinguishable from a foreign one
+          // and the handler below must not read it as "somebody will resume us".
           self_claimed = true;
           // Discard FIRST, then prune: RemoveWaiter/Deregister each take a mutex and can throw, and a
           // throw after the Discard would leave `ps` on the pending-arm stack for an unwinding frame.
@@ -187,15 +165,14 @@ struct AcquireAwaitable {
         return true;
       }
     } catch (...) {
-      // The abandon path's single-owner arbitration, applied to the unwind: this frame may only die if
-      // nobody else can resume it.
+      // Single-owner arbitration applied to the unwind: this frame may only die if nobody else can
+      // resume it.
       //
-      // `self_claimed` is load-bearing, not defensive. ClaimPark is one-shot, so having won it above
-      // makes a second call return false -- exactly as if a wake source had taken it. Reading that as
-      // "somebody will resume us" and suspending would disarm every wake source (all of them skip a
-      // claimed ParkState) with nobody left to resume: a permanently suspended coroutine, no deadline
-      // backstop, the Bolt worker already released, and parked_prepare_ pinning the frame forever --
-      // silently unkillable, and worse than the UAF this handler exists to prevent.
+      // `self_claimed` is load-bearing, not defensive. ClaimPark is one-shot, so a second call after
+      // winning above returns false -- indistinguishable from a wake source having taken it. Reading
+      // that as "somebody will resume us" and suspending would disarm every wake source with nobody
+      // left to resume: a permanently suspended coroutine, no deadline backstop, silently unkillable,
+      // and worse than the UAF this handler prevents.
       if (self_claimed || utils::ClaimPark(*ps)) {
         // We own `ps`, so no wake source will touch it: safe to unwind and let the caller see the real
         // error. Discard before the prunes for the same reason as above -- a std::system_error from
@@ -207,38 +184,29 @@ struct AcquireAwaitable {
         registry.Deregister(ps);
         throw;
       }
-      // A wake source already claimed `ps` and WILL resume this handle, so the frame must survive:
-      // suspend rather than unwind. The swallowed exception was a transient failure of an opportunistic
-      // probe; the resumed campaign re-probes and either acquires or times out honestly, which beats
-      // resuming a destroyed frame.
+      // A wake source claimed `ps` and WILL resume this handle, so the frame must survive: suspend
+      // rather than unwind. "WILL resume" rests on `ps` being on this thread's pending-arm stack, so
+      // this task's ParkArmGuard arms it at the task boundary -- which holds only because publishing
+      // above is unconditional and infallible.
       //
-      // "WILL resume" rests on `ps` being on this thread's pending-arm stack, so this task's
-      // ParkArmGuard arms it at the task boundary and completes the rendezvous the winner's
-      // RequestResume started. That holds only because publishing above is unconditional and infallible.
-      //
-      // NOTHING ELSE MAY GO HERE -- specifically, do not "defensively" prune the registries. Both prunes
-      // take a mutex and can throw std::system_error, and per [expr.await]/5 a throw here is rethrown at
-      // the `co_await`: the frame unwinds and its Task temporary is destroyed while `ps` is still on the
-      // pending-arm stack with a foreign RequestResume recorded, so the task-boundary ParkArmGuard then
-      // resumes a destroyed frame. Worse, std::system_error is not a utils::BasicException, so
-      // PrepareCoro's handler does not match it -- the session reports an ordinary query failure and the
-      // use-after-free lands later on an unrelated worker. Silent and deferred.
-      //
-      // The prune is also unnecessary: the resume is guaranteed to fire, and the resumed coroutine
-      // prunes both registries at the bottom of the acquire loop before re-probing.
+      // NOTHING ELSE MAY GO HERE. Do not "defensively" prune the registries: both prunes take a mutex
+      // and can throw std::system_error, and per [expr.await]/5 a throw here is rethrown at the
+      // `co_await`, so the frame unwinds and its Task temporary dies while `ps` is still on the
+      // pending-arm stack with a foreign RequestResume recorded -- and the task-boundary ParkArmGuard
+      // then resumes a destroyed frame. Worse, std::system_error is not a utils::BasicException, so
+      // PrepareCoro's handler does not match: the session reports an ordinary failure and the UAF lands
+      // later on an unrelated worker. The prune is also unnecessary -- the resumed coroutine prunes both
+      // registries at the bottom of the acquire loop.
       return true;
     }
 
-    // Shutdown-race closer: PriorityThreadPool::ShutDown() drains `park_registry_` exactly ONCE before
-    // stopping the monitor and workers, so a `ps` that finished registering strictly after that drain
-    // would sit registered forever with nothing left to sweep or notify it. `IsShuttingDown()` is a
-    // one-way flag set as ShutDown()'s very first action, strictly before its drain -- so any `ps`
-    // reaching here after shutdown began observes it and self-claims like the abandon path above,
-    // instead of trusting an external wake that may never come.
+    // Shutdown-race closer: ShutDown() drains the registry exactly ONCE, so a `ps` that finished
+    // registering strictly after that drain would sit there forever with nothing left to sweep or notify
+    // it. `IsShuttingDown()` is one-way and set as ShutDown()'s first action, strictly before its drain,
+    // so any `ps` reaching here self-claims rather than trusting a wake that may never come.
     //
-    // On a win, deliberately do NOT set `abandon_result`: returning false with no accessor makes
-    // AcquireAccessorCoro's own post-co_await shutdown check throw, the same clean bail a genuine
-    // cross-thread shutdown-drain resume produces.
+    // On a win, deliberately do NOT set `abandon_result`: returning false with no accessor makes the
+    // post-co_await shutdown check throw, the same clean bail a real shutdown-drain resume produces.
     if (pool.IsShuttingDown()) {
       if (utils::ClaimPark(*ps)) {
         utils::DiscardPendingPark(ps);  // Discard before the prunes -- see the abandon path above.
@@ -293,25 +261,19 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
     return storage.Access(rw, resolved_iso, timeout);
   };
 
-  // HIGH priority never parks; DiskStorage never supports parking; flag-off keeps today's behaviour.
-  // All three take the ordinary blocking acquire, never constructing a ParkState or registering.
-  //
-  // `is_high_priority` never fires today, and that is COINCIDENCE, not structure: every query type
-  // ApproximatePreparePriority classifies as HIGH happens to leave `accessor_type_` unset, so Phase 2
-  // is never reached for them. Neighbouring types in the same visitor (DescriptionQuery, DumpQuery,
-  // ShowEnumsQuery, ShowSchemaInfoQuery) DO take accessors, so one reclassification makes it live.
+  // HIGH priority, DiskStorage and flag-off all take the ordinary blocking acquire, never constructing
+  // a ParkState. `is_high_priority` never fires today, but by COINCIDENCE not structure: every type
+  // classified HIGH happens to leave `accessor_type_` unset, so Phase 2 is not reached for them.
+  // Neighbouring types in the same visitor DO take accessors, so one reclassification makes it live.
   if (!storage.SupportsParkAcquire() || is_high_priority || !flags::run_time::CoroPrepareAccessorYieldEnabled()) {
     co_return blocking_access();
   }
 
-  // `SupportsParkAcquire() == true` implies InMemoryStorage today (the only override), but that is a
-  // documentary invariant, not a checked one -- a `static_cast` on its strength becomes UB the moment a
-  // future subclass overrides both `TryAccess` and `SupportsParkAcquire`, silently, in a path whose
-  // symptom is a corrupted wake-event registration rather than a crash.
-  //
-  // Checked instead, and deliberately not via MG_ASSERT: aborting the process is disproportionate for a
-  // subclass bug, and the blocking fallback is not a degraded guess -- it is exactly what every other
-  // non-parking storage does, so a mis-declaring subclass gets correct behaviour and a loud log.
+  // `SupportsParkAcquire()` implies InMemoryStorage today, but that is documentary, not checked -- a
+  // `static_cast` on its strength becomes UB the moment a subclass overrides both it and `TryAccess`,
+  // silently, in a path whose symptom is a corrupted registration rather than a crash. Checked instead,
+  // and deliberately not via MG_ASSERT: the blocking fallback is exactly what every other non-parking
+  // storage does, so a mis-declaring subclass gets correct behaviour plus a loud log.
   auto *mem_storage_ptr = dynamic_cast<storage::InMemoryStorage *>(&storage);
   if (!mem_storage_ptr) [[unlikely]] {
     spdlog::error(
@@ -353,17 +315,13 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
       throw storage::SharedAccessTimeout{};
     }
 
-    // Parking is only safe where something will later ARM the park, and the only thing that does is the
-    // pool's ParkArmGuard around task bodies. Off a pool worker there is no arming site, so a published
-    // park would sit at gate == kParking forever, holding its campaign PendingHandle and blocking every
-    // later acquisition on this storage.
+    // Parking is only safe where something will later ARM the park, and only the pool's ParkArmGuard
+    // does. Off a pool worker a published park would sit at kParking forever and brick the storage.
     //
-    // A RUNTIME fallback, not an assert: as a DMG_ASSERT this was compiled out under NDEBUG, i.e. absent
-    // from exactly the builds where the consequence is a permanently unusable database. The blocking
-    // acquire is always correct here -- it is what flag-off, HIGH priority and DiskStorage already do,
-    // and holding our own campaign `pending` across it changes nothing, since a scope's own count never
-    // gates its own mode (can_acquire<UNIQUE> ignores unique_pending_count; READ_ONLY registers
-    // ro_pending_count). Worst case we block a non-pool thread that parking would never have freed.
+    // A RUNTIME fallback, not an assert: as a DMG_ASSERT this was compiled out under NDEBUG -- absent
+    // from exactly the builds where the consequence is an unusable database. The blocking acquire is
+    // always correct here, and holding our own campaign `pending` across it changes nothing, since a
+    // scope's own count never gates its own mode.
     if (!utils::GetCurrentWorkerId().has_value()) [[unlikely]] {
       DMG_ASSERT(false,
                  "AcquireAccessorCoro reached its park path off a pool (LP) worker -- the caller must "
@@ -402,29 +360,19 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
       co_return std::move(*abandon_result);
     }
 
-    // Prune the ParkState we were resumed from, from BOTH registries: whichever wake source claimed it
-    // removed it from its OWN list only, and nothing else removes the twin -- a lock-release NotifyAll
-    // empties `waiters_` but leaves the deadline entry, and a deadline Sweep erases its own but leaves
-    // the `waiters_` one.
-    //
-    // The second case was a real leak on the commonest path: at the default 1s access timeout, a
-    // contended query that rides out its deadline is resumed by the SWEEP, so every timed-out park left
-    // a fired ParkState in `waiters_`. That kept `waiters_pending_` non-zero, permanently defeating the
-    // cheap "nobody is parked" gate, so every later admitting transition took the event mutex and bumped
-    // the epoch -- and a bumped epoch fails concurrent RegisterWaiter calls, sending other parkers back
-    // around this loop with no backoff. The stale entry did not merely retain memory; it turned real
-    // parkers into spinners.
-    //
-    // Both calls are best-effort and idempotent, so doing both is how we stay correct without knowing
-    // which source woke us.
+    // Prune from BOTH registries: whichever wake source claimed `ps` removed it from its OWN list only,
+    // and nothing removes the twin. Skipping this leaked on the COMMON path -- at the default 1s timeout
+    // a query that rides out its deadline is resumed by the sweep, leaving a fired ParkState in
+    // `waiters_` that kept `waiters_pending_` non-zero and turned later parkers into spinners
+    // (specs/parkable-prepare.md). Both calls are best-effort and idempotent, which is how we stay
+    // correct without knowing which source woke us.
     if (parked_ps) {
       mem_storage.main_lock_resume_event().RemoveWaiter(parked_ps);
       pool.park_registry().Deregister(parked_ps);
     }
 
-    // Genuinely resumed, on some pool worker -- which one is deliberately not ours to know post-F6
-    // (on_resume always POSTS, never resumes inline on the claiming/draining thread). A shutdown
-    // drain can be what woke us, so bail before touching storage state if the pool is tearing down.
+    // Genuinely resumed, on some pool worker -- which one is deliberately not ours to know. A shutdown
+    // drain may be what woke us, so bail before touching storage state.
     if (pool.IsShuttingDown()) {
       throw utils::BasicException("AcquireAccessorCoro: pool is shutting down, abandoning parked accessor acquire");
     }

@@ -9,37 +9,26 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# Graceful shutdown with a query PARKED, against a real process.
+# Graceful shutdown with a query PARKED, against a real process. Self-managed rather than a
+# workloads.yaml cluster because the thing under test IS the shutdown sequence, so the test must own
+# the process lifetime and time the stop.
 #
-# Why a self-managed instance rather than a workloads.yaml cluster: the thing under test IS the
-# shutdown sequence, so the test has to own the process lifetime and time the stop. That is the
-# interactive_mg_runner pattern the durability suite uses.
+# WHAT IT PINS: a graceful stop with a query parked completes in milliseconds instead of hanging. An
+# unresumed park keeps its Session, hence a DatabaseAccess, and ~Gatekeeper then waits five minutes --
+# the symptom this feature started from.
 #
-# WHAT THIS DOES AND DOES NOT PIN -- measured, not assumed.
-#
-# It pins the end-to-end property: a graceful stop with a query parked completes in milliseconds rather
-# than hanging. The failure mode is not subtle -- a parked coroutine that is never resumed keeps its
-# Session alive, that Session keeps a DatabaseAccess, and ~Gatekeeper then waits five minutes for
-# Gatekeeper<Database>::count_ to drop. That is the symptom this whole feature started from.
-#
-# It does NOT pin any of the three park drains, and I established that by mutation rather than
-# inferring it. Removing the per-storage drain in src/memgraph.cpp, the pool's park_registry_.Drain(),
-# and Storage::StopAllBackgroundTasks()'s drain -- individually AND all three together -- leaves this
-# test passing. The reason is a fourth mechanism that pre-empts all of them in this scenario: tearing
-# down the holder's session releases its WRITE accessor, and that release goes through ResourceLock's
-# admit observer and wakes the parked contender by the ordinary notify path.
-#
-# So the drains are only load-bearing for a park with NO conflicting holder left to release -- e.g. one
-# that lost a re-probe race and re-parked while the lock was already free. This test cannot construct
-# that state over Bolt, so it stays uncovered, and the drains stay justified by reasoning. Do not
-# strengthen the claims in this file without re-running those mutations.
+# WHAT IT DOES NOT PIN, established by MUTATION rather than inferred: none of the three park drains.
+# Removing the per-storage drain, the pool's park_registry_.Drain(), and StopAllBackgroundTasks()'s
+# drain -- individually AND together -- leaves this test passing, because a fourth mechanism pre-empts
+# them here: tearing down the holder's session releases its WRITE accessor, and that release wakes the
+# contender by the ordinary notify path. The drains are load-bearing only for a park with NO conflicting
+# holder left to release, which cannot be built over Bolt (tests/unit/coro_accessor.cpp covers it).
+# Do not strengthen the claims in this file without re-running those mutations.
 #
 # THE CONTENDER MUST BE A SEPARATE PROCESS. mgclient does not release the GIL while a statement is in
-# flight (pymgclient#44), so a contender on a *thread* holds the GIL for its entire parked wait and
-# freezes this process -- including the sleep meant to let it park and the stop() meant to happen while
-# it is parked. My first version of this file did exactly that: the main thread only woke when the
-# contender's access timeout expired, so shutdown began with NO park in flight and the test passed
-# while proving nothing. common.py's module docstring documents the same trap for the same reason.
+# flight (pymgclient#44), so a contender on a THREAD freezes this process for its whole parked wait --
+# including the sleep meant to let it park and the stop() meant to happen while it is parked. The first
+# version of this file did that: shutdown began with no park in flight and passed while proving nothing.
 
 import multiprocessing
 import os

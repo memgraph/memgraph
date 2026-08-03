@@ -29,49 +29,26 @@ namespace memgraph::utils {
 /// keeps this type -- and anything embedding it, e.g. `Storage` -- independent of both the pool and the
 /// coroutine machinery.
 ///
-/// TWO-SIDED WAKEUP PROTOCOL -- read before touching either side.
+/// TWO-SIDED WAKEUP PROTOCOL. The `WaitersPending()` fast path ("skip NotifyAll when nobody is
+/// parked") is sound ONLY if both sides keep this ordering; get it wrong and a release races a park so
+/// that the waiter misses the epoch bump AND the releaser misses the registration, which hangs the
+/// query indefinitely instead of surfacing its timeout. Derivation: specs/parkable-prepare.md.
 ///
-/// The "skip NotifyAll when nobody is parked" fast path (`WaitersPending()`) is sound ONLY if both
-/// sides keep a strict register-before-recheck / release-before-check ordering. Any other way, a
-/// release can race a park so that the waiter misses the epoch bump AND the releaser misses the
-/// registration -- a lost wakeup that hangs the query indefinitely rather than surfacing the ~1s
-/// `*AccessTimeout`, because the deadline sweep only fires for waiters that reached a registry.
+///   Waiter:   capture `Epoch()` BEFORE probing -> probe -> on failure `RegisterWaiter(ps, epoch)` ->
+///             RE-PROBE once more -> only then behave as parked.
+///   Releaser: transition the resource to released FIRST -> read `WaitersPending()` -> if nonzero,
+///             `NotifyAll()` unconditionally, without guessing which waiters need it.
 ///
-/// Waiter side (the coroutine about to park):
-///   1. Capture `epoch = Epoch()` BEFORE the non-blocking probe (e.g. `Storage::TryAccess`).
-///   2. Probe. If free, done -- no park needed.
-///   3. Still blocked: build a `shared_ptr<ParkState>` and `RegisterWaiter(ps, epoch)`.
-///        - false => the epoch already moved (a `NotifyAll` ran since step 1), so do NOT park; loop
-///          back and re-probe now, since whatever released may be gone by the time we parked. Use
-///          `IsClosed()` to tell "retry" from "this storage is going away, give up".
-///        - true => durably enqueued; `waiters_pending_` was incremented in the SAME critical section
-///          that pushed the waiter, so any releaser seeing a nonzero `WaitersPending()` afterwards is
-///          guaranteed to see this waiter in `waiters_` once it takes `mutex_`.
-///   4. RE-PROBE once more: registering does not close the race against a release that happened
-///      between steps 2 and 3. If this probe succeeds, `ClaimPark` our OWN `ParkState` and proceed
-///      synchronously only if we WIN -- on a loss some wake source already fired and our resumption
-///      is in flight, so we must behave as parked. `RemoveWaiter(ps)` is best-effort either way.
-///   5. Only if the second probe still blocks (or that claim is lost) do we actually park.
+/// A `false` from `RegisterWaiter` means retry, EXCEPT when `IsClosed()` -- then the storage is going
+/// away and the caller must give up rather than spin to its deadline.
 ///
-/// Releaser side:
-///   1. Transition the resource to released FIRST; this must happen-before step 2.
-///   2. `WaitersPending()` (acquire load). Any waiter that finished registering is now visible; any
-///      that registers after this load will re-probe per its own protocol and observe step 1.
-///   3. If nonzero, call `NotifyAll()` unconditionally -- do not try to guess which waiters need it.
-///
-/// Why nothing is lost: a waiter leaves `waiters_` only inside a `mutex_` critical section
-/// (`RemoveWaiter`/`NotifyAll`/`Drain`), and those move the ENTIRE vector out before releasing the
-/// lock. So a releaser seeing `WaitersPending() > 0` races at worst a `RegisterWaiter` that has not
-/// taken the lock yet -- and that waiter's own step-4 re-probe sees the released resource.
-///
-/// Two invariants this class exists to uphold:
-///   - `mutex_` is ALWAYS released before any `on_resume` is invoked. It runs arbitrary
-///     scheduler/session code and may re-enter this object to re-park, so invoking it under the lock
-///     would risk deadlock. Callers likewise must not call `NotifyAll` while still holding the
-///     resource's own lock.
+/// Two invariants this class upholds:
+///   - `mutex_` is ALWAYS released before any `on_resume`, which runs arbitrary scheduler/session code
+///     and may re-enter this object to re-park. Callers must likewise not call `NotifyAll` while still
+///     holding the resource's own lock.
 ///   - Single-owner resume holds ACROSS registries, not just within this event: every waiter is
-///     `ClaimPark`ed before delivery, and that same exchange is shared with `DeadlineParkRegistry` and
-///     any abandon-path claim on the same `ParkState`.
+///     `ClaimPark`ed before delivery, and that exchange is shared with `DeadlineParkRegistry` and any
+///     abandon-path claim on the same `ParkState`.
 class WorkerResumeEvent {
  public:
   WorkerResumeEvent() = default;
@@ -88,25 +65,17 @@ class WorkerResumeEvent {
   /// lost-wakeup race this class is designed to close.
   uint64_t Epoch() const { return epoch_.load(std::memory_order_acquire); }
 
-  /// Registers `ps` as parked, PROVIDED the epoch has not moved since the caller captured
-  /// `expected_epoch`. Returns false (and does NOT enqueue) if `epoch_` has already advanced -- the
-  /// caller must not park and should re-probe instead.
+  /// Registers `ps` as parked, PROVIDED the epoch has not moved since `expected_epoch` was captured.
+  /// A false return means do not park -- re-probe instead (or give up, if `IsClosed()`).
   ///
-  /// The epoch check reads `epoch_` with relaxed order: correctness does not come from that
-  /// atomic's own ordering but from `mutex_` itself -- every writer of `epoch_` (`NotifyAll`)
-  /// takes the same `mutex_` around its `fetch_add`, so holding `mutex_` here already establishes
-  /// happens-before against any prior epoch bump.
+  /// The epoch load is relaxed on purpose: ordering comes from `mutex_`, not the atomic. Every writer
+  /// of `epoch_` takes the same mutex around its `fetch_add`, so holding it here already establishes
+  /// happens-before against any prior bump.
   bool RegisterWaiter(std::shared_ptr<ParkState> ps, uint64_t expected_epoch) {
     std::lock_guard<std::mutex> lock(mutex_);
-    // Refuse permanently once drained. The window this closes was real: `Drain()` deliberately does not
-    // bump the epoch, so a RegisterWaiter taking `mutex_` just after Drain's critical section saw an
-    // unchanged epoch, pushed onto the just-emptied list, and parked with nobody left to wake it --
-    // rescued only by the deadline sweep, which delays the DROP by up to the access timeout.
-    //
-    // Bumping the epoch in `Drain()` would NOT fix it: the refused registration sends the acquire loop
-    // back to re-probe and re-register under the NEW epoch on the same drained event, moving the window
-    // one iteration later. Only a STICKY flag terminates it -- and that is semantically right, since
-    // every `Drain()` caller is tearing this storage down.
+    // Refuse permanently once drained. Bumping the epoch in `Drain()` would NOT do: a refused
+    // registration would just re-register under the NEW epoch on the same drained event, moving the
+    // window one iteration later. Only a STICKY flag terminates it.
     if (closed_) [[unlikely]] {
       return false;
     }
@@ -118,13 +87,11 @@ class WorkerResumeEvent {
     return true;
   }
 
-  /// Best-effort removal, used by the step-4 re-probe once it has already WON `ClaimPark` on its own
-  /// `ParkState` and so knows no wake source will deliver for it. Correctness does not depend on this
-  /// being called promptly or at all -- `NotifyAll`/`Drain` re-check `ClaimPark` themselves, so a
-  /// claimed-but-unremoved entry is pruned as a no-op next time. Purely to keep `waiters_` and
-  /// `waiters_pending_` accurate sooner.
+  /// Best-effort removal, for a re-probe that already WON `ClaimPark` on its own `ParkState`.
+  /// Correctness does not depend on it being called promptly or at all, since `NotifyAll`/`Drain`
+  /// re-check `ClaimPark` themselves.
   ///
-  /// Returns whether `ps` was found, and decrements only then: a blind decrement would let a concurrent
+  /// Decrements ONLY when `ps` was actually found: a blind decrement would let a concurrent
   /// `NotifyAll`/`Drain` -- which already counted this waiter in its bulk `fetch_sub` -- double-subtract
   /// and underflow the unsigned counter.
   bool RemoveWaiter(const std::shared_ptr<ParkState> &ps) {
@@ -144,14 +111,10 @@ class WorkerResumeEvent {
   /// `RegisterWaiter` and re-probes instead of parking.
   void NotifyAll() { ResumeAll(/*bump_epoch=*/true); }
 
-  /// Wakes every waiter and CLOSES the event: no further registration can succeed. Each resumed frame
-  /// is expected to observe `IsShuttingDown()` and bail cleanly rather than proceed into per-database
-  /// work. For teardown only -- process shutdown, and `Storage::StopAllBackgroundTasks()` on the DROP
-  /// DATABASE path.
-  ///
-  /// Unlike `NotifyAll` this does NOT bump the epoch, because closing is stronger than invalidating: an
-  /// epoch bump only makes in-flight registrations retry, and retrying against a storage that is going
-  /// away is exactly what must not happen.
+  /// Wakes every waiter and CLOSES the event: no further registration can succeed. Teardown only --
+  /// process shutdown, and `StopAllBackgroundTasks()` on the DROP DATABASE path. Deliberately does NOT
+  /// bump the epoch: closing is stronger than invalidating, and a bump would only make in-flight
+  /// registrations retry against a storage that is going away.
   void Drain() {
     {
       std::lock_guard<std::mutex> lock(mutex_);
