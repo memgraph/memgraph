@@ -1290,6 +1290,100 @@ TYPED_TEST(TestSymbolGenerator, Exists) {
   }
 }
 
+// The gate ladder: EXISTS is allowed only in the positions the planner has a splice point for, and the checks run in a
+// fixed order - so a refusal can change identity when an earlier rung moves. Every position gets a case, allowed or
+// refused, and the refused ones assert the message.
+TYPED_TEST(TestSymbolGenerator, ExistsAllowedPositions) {
+  auto exists_subquery = [this] {
+    return EXISTS_SUBQUERY(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))))));
+  };
+
+  // MATCH (n) WHERE EXISTS { ... } RETURN n
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(exists_subquery()), RETURN("n"))));
+
+  // MATCH (n) RETURN EXISTS { ... } AS h
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(exists_subquery(), AS("h")))));
+
+  // MATCH (n) WITH n, EXISTS { ... } AS h RETURN h
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))), WITH(NEXPR("n", IDENT("n")), NEXPR("h", exists_subquery())), RETURN("h"))));
+
+  // MATCH (n) WITH n WHERE EXISTS { ... } RETURN n  (issue #3385)
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n"), WHERE(exists_subquery()), RETURN("n"))));
+
+  // MATCH (n) WITH n ORDER BY EXISTS { ... } RETURN n
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", ORDER_BY(exists_subquery())), RETURN("n"))));
+
+  // MATCH (n) RETURN n ORDER BY EXISTS { ... }
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", ORDER_BY(exists_subquery())))));
+
+  // MATCH (n) RETURN collect(EXISTS { ... }) AS c - inside an aggregate argument.
+  MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COLLECT_LIST(exists_subquery(), false), AS("c")))));
+
+  // The pattern form takes the same positions.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(EXISTS(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {}, false), NODE("m", std::nullopt, false))),
+             AS("h")))));
+}
+
+TYPED_TEST(TestSymbolGenerator, ExistsRefusedPositions) {
+  auto prop = this->dba.NameToProperty("prop");
+  auto exists_subquery = [this] {
+    return EXISTS_SUBQUERY(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))))));
+  };
+  auto expect_message = [](auto *query, std::string_view message) {
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const memgraph::utils::NotYetImplemented &e) {
+      EXPECT_EQ(std::string_view{e.what()}, message);
+    }
+  };
+
+  const std::string_view generic = "Not yet implemented: Exists is not supported in this position yet!";
+
+  // SET n.prop = EXISTS { ... }. The dedicated in_set_property gate is gone: default-deny covers it, and the message
+  // identity changes to the generic one.
+  expect_message(
+      QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))), SET(PROPERTY_LOOKUP(this->dba, "n", prop), exists_subquery()), RETURN("n"))),
+      generic);
+
+  // FOREACH (i IN [1] | SET n.prop = EXISTS { ... })
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    FOREACH(NEXPR("i", LIST(LITERAL(1))),
+                                            {SET(PROPERTY_LOOKUP(this->dba, "n", prop), exists_subquery())}))),
+                 generic);
+
+  // UNWIND [EXISTS { ... }] AS h - PR 4's territory, no splice point here yet.
+  expect_message(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), UNWIND(NEXPR("h", LIST(exists_subquery()))), RETURN("h"))),
+      generic);
+
+  // RETURN n SKIP EXISTS { ... } - SKIP shares in_return with the projection but has no splice point of its own.
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", SKIP(exists_subquery())))), generic);
+
+  // reduce(...) keeps its own message, and it now fires from a RETURN too, where !in_where used to answer first.
+  expect_message(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         RETURN(REDUCE("acc", LITERAL(false), "x", LIST(LITERAL(1)), exists_subquery()), AS("h")))),
+      "Not yet implemented: Exists cannot be used within REDUCE!");
+
+  // CASE is PR 4. Its message is unchanged in a WHERE and now also fires in a RETURN.
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    WHERE(this->storage.template Create<memgraph::query::IfOperator>(
+                                        exists_subquery(), LITERAL(true), LITERAL(false))),
+                                    RETURN("n"))),
+                 "Not yet implemented: IF operator cannot be used with exists, but only during matching!");
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    RETURN(this->storage.template Create<memgraph::query::IfOperator>(
+                                               exists_subquery(), LITERAL(true), LITERAL(false)),
+                                           AS("h")))),
+                 "Not yet implemented: IF operator cannot be used with exists, but only during matching!");
+}
+
 TYPED_TEST(TestSymbolGenerator, Subqueries) {
   // MATCH (n) CALL { MATCH (n) RETURN n } RETURN n
   // Yields exception because n in subquery is referenced in outer scope
