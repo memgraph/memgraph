@@ -898,3 +898,156 @@ Feature: Pattern comprehensions
         Then the result should be:
             | n | counts |
             | 1 | [0]    |
+
+    Scenario: Pattern comprehension in a CALL YIELD WHERE after a write
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Alice'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) SET p.z = 1
+            CALL mg.procedures() YIELD name
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN DISTINCT p.name AS name
+            """
+        Then the result should be:
+            | name    |
+            | 'Alice' |
+
+    Scenario: Pattern comprehension in a CALL YIELD WHERE with no preceding write
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Alice'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            CALL mg.procedures() YIELD name
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN DISTINCT p.name AS name
+            """
+        Then the result should be:
+            | name    |
+            | 'Alice' |
+
+
+    Scenario: Variable-length pattern comprehension after a write reads the pre-write view
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A)-[:R]->(:C)-[:R2]->(:D)
+            """
+        When executing query:
+            """
+            MATCH (c:C) CREATE (:X) RETURN size([(c)-[:R2*1..2]->(z) | z]) AS n
+            """
+        Then the result should be:
+            | n |
+            | 1 |
+
+    Scenario: Pattern comprehension in a WITH projection after a write is evaluated per row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M1'}), (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (b)-[:ACTED_IN]->(:Movie {title: 'M3'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) SET p.z = 1
+            WITH p.name AS n, [(p)-[:ACTED_IN]->(m) | m] AS lst
+            RETURN n, size(lst) AS s
+            """
+        Then the result should be:
+            | n         | s |
+            | 'Alice'   | 2 |
+            | 'Bob'     | 1 |
+            | 'Carol'   | 0 |
+
+    Scenario: Pattern comprehension in a WITH WHERE after a write is evaluated per row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M1'}), (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (b)-[:ACTED_IN]->(:Movie {title: 'M3'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) SET p.z = 1
+            WITH p.name AS n WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN n
+            """
+        Then the result should be:
+            | n       |
+            | 'Alice' |
+            | 'Bob'   |
+
+    Scenario: Pattern comprehension in RETURN sees the effects of the CREATE it follows
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A)-[:R]->(:B)
+            """
+        When executing query:
+            """
+            CREATE (:A)-[:R]->(:B) RETURN size([(x:A)-[:R]->(y:B) | y]) AS s
+            """
+        Then the result should be:
+            | s |
+            | 2 |
+
+    Scenario: Uncorrelated pattern comprehension after a write reads the new data
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A)-[:R]->(:B) CREATE (t:T) SET t.c = size([(x:A)-[:R]->(y:B) | y])
+            """
+        When executing query:
+            """
+            MATCH (t:T) RETURN t.c AS c
+            """
+        Then the result should be:
+            | c |
+            | 1 |
+
+    Scenario: Pattern comprehension in a MERGE ON CREATE over an already-bound outer node
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            MERGE (q:Marker {id: 1})
+              ON CREATE SET q.cnt = size([(p)-[:ACTED_IN]->(m) | m])
+            """
+        When executing query:
+            """
+            MATCH (q:Marker) RETURN q.cnt AS cnt
+            """
+        Then the result should be:
+            | cnt |
+            | 1   |
+
+    # Kept last: a variable-length expansion cannot read the new view, so this shape is refused rather than answered.
+    # Before the shared view rule it was handed the new view and took the whole server down with it.
+    Scenario: Variable-length pattern comprehension over a node the same clause creates is refused
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A)-[:R]->(:C)-[:R2]->(:D)
+            """
+        When executing query:
+            """
+            MATCH (a:A) CREATE (a)-[:R4]->(b:C3)-[:R2]->(:D)
+            RETURN size([(b)-[:R2*1..2]->(z) | z]) AS n
+            """
+        Then an error should be raised
