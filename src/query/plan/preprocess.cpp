@@ -1299,7 +1299,13 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       // - EdgeAtom filter_lambda, weight_lambda, lower_bound, upper_bound
       PatternComprehensionCollector collector(symbol_table, storage);
       clause->Accept(collector);
-      query_part->pattern_comprehension_matchings.append_range(collector.getPatternComprehensionMatchings());
+      auto matchings = collector.getPatternComprehensionMatchings();
+      // Record which clause each comprehension came from, so a drain can tell "can this be planned yet?" from
+      // "should it be?".
+      for (auto &matching : matchings) {
+        matching.origin_clause = clause;
+      }
+      query_part->pattern_comprehension_matchings.append_range(matchings);
 
       // Handle query part boundaries
       if (utils::Downcast<With>(clause) || utils::Downcast<Unwind>(clause) ||

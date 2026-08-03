@@ -1011,3 +1011,79 @@ Feature: Pattern comprehensions
         Then the result should be:
             | c |
             | 2 |
+
+    Scenario: Pattern comprehension in a WITH projection after a write is evaluated per row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M1'}), (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (b)-[:ACTED_IN]->(:Movie {title: 'M3'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) SET p.z = 1
+            WITH p.name AS n, [(p)-[:ACTED_IN]->(m) | m] AS lst
+            RETURN n, size(lst) AS s
+            """
+        Then the result should be:
+            | n         | s |
+            | 'Alice'   | 2 |
+            | 'Bob'     | 1 |
+            | 'Carol'   | 0 |
+
+    Scenario: Pattern comprehension in a WITH WHERE after a write is evaluated per row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M1'}), (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (b)-[:ACTED_IN]->(:Movie {title: 'M3'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) SET p.z = 1
+            WITH p.name AS n WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN n
+            """
+        Then the result should be:
+            | n       |
+            | 'Alice' |
+            | 'Bob'   |
+
+    Scenario: Pattern comprehension in RETURN sees the effects of the CREATE it follows
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A)-[:R]->(:B)
+            """
+        When executing query:
+            """
+            CREATE (:A)-[:R]->(:B) RETURN size([(x:A)-[:R]->(y:B) | y]) AS s
+            """
+        Then the result should be:
+            | s |
+            | 2 |
+
+    # Does NOT discriminate: with the comprehension on the main chain it is spliced below the Merge, so the SET still
+    # reads a written slot and the value coincides. Kept as a regression guard only - the difference is plan shape,
+    # and `MergeBranchComprehensionOverOuterSymbolStaysInBranch` in tests/unit/query_plan.cpp is what pins it.
+    Scenario: Pattern comprehension in a MERGE ON CREATE over an already-bound outer node
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            MERGE (q:Marker {id: 1})
+              ON CREATE SET q.cnt = size([(p)-[:ACTED_IN]->(m) | m])
+            """
+        When executing query:
+            """
+            MATCH (q:Marker) RETURN q.cnt AS cnt
+            """
+        Then the result should be:
+            | cnt |
+            | 1   |

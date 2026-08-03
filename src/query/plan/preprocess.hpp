@@ -618,6 +618,9 @@ struct PatternComprehensionMatching : Matching {
   /// Pattern comprehension result named expression
   NamedExpression *result_expr = nullptr;
   Symbol result_symbol;
+  /// The clause whose own expressions evaluate this comprehension. A drain must not take a comprehension before its
+  /// origin clause is reached, or the RollUpApply lands below the operators that clause plans.
+  Clause *origin_clause = nullptr;
   /// Nested pattern comprehensions found in the result expression
   PatternComprehensionMatchings nested_pattern_comprehensions;
   /// External symbols that this pattern comprehension depends on.
