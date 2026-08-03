@@ -9182,6 +9182,13 @@ RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input,
   list_collection_symbol_ = list_collection_symbols[0];
 }
 
+RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&branch,
+                         Symbol result_symbol)
+    : input_(input ? std::move(input) : std::make_shared<Once>()),
+      list_collection_branch_(std::move(branch)),
+      result_symbol_(std::move(result_symbol)),
+      fold_(Fold::kBool) {}
+
 std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
   symbols.push_back(result_symbol_);
@@ -9223,20 +9230,24 @@ class RollUpApplyCursor : public Cursor {
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
-    TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
-    if (input_cursor_->Pull(frame, context) || self_.pass_input_) {
+    if (!input_cursor_->Pull(frame, context) && !self_.pass_input_) {
+      return false;
+    }
+
+    if (self_.fold_ == RollUpApply::Fold::kBool) {
+      // One pull answers it: every predicate is pushed inside the branch, so any row that emerges is a witness.
+      const bool found = list_collection_cursor_->Pull(frame, context);
+      frame_writer.Write(self_.result_symbol_, TypedValue(found, context.evaluation_context.memory));
+    } else {
+      TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
       while (list_collection_cursor_->Pull(frame, context)) {
         // collect values from the list collection branch
         result.ValueList().emplace_back(frame[self_.list_collection_symbol_]);
       }
-
       frame_writer.Write(self_.result_symbol_, result);
-      // After a successful input from the list_collection_cursor_
-      // reset state of cursor because it has to a Once at the beginning
-      list_collection_cursor_->Reset();
-    } else {
-      return false;
     }
+    // The branch starts from a Once, so it has to be rewound for the next input row.
+    list_collection_cursor_->Reset();
 
     return true;
   }
@@ -9271,7 +9282,12 @@ std::unique_ptr<LogicalOperator> RollUpApply::Clone(AstStorage *storage) const {
   object->list_collection_symbol_ = list_collection_symbol_;
   object->result_symbol_ = result_symbol_;
   object->pass_input_ = pass_input_;
+  object->fold_ = fold_;
   return object;
+}
+
+std::string RollUpApply::ToString(const DbAccessor * /*dba*/) const {
+  return fold_ == Fold::kBool ? "RollUpApply (exists)" : "RollUpApply";
 }
 
 PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency)
