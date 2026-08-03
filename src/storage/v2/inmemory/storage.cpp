@@ -682,17 +682,15 @@ InMemoryStorage::~InMemoryStorage() {
 }
 
 void InMemoryStorage::RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) {
-  MG_ASSERT(repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ == kTimestampInitialId,
-            "RebindMetricHandles can only be used on an empty database");
-  // Pause() doesn't wait for in-flight callbacks. GC is serialised via
-  // gc_lock_ below, but snapshot/TTL are not. This is safe because on a clean
-  // database these callbacks are no-ops — no snapshot to write, no TTL rows to
-  // delete — so they never read metric_handles_.
+  MG_ASSERT(repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ == kTimestampInitialId &&
+                transaction_id_ == kTransactionInitialId,
+            "RebindMetricHandles can only be used on an empty database with no active transactions");
   gc_runner_.Pause();
   snapshot_runner_.Pause();
   ttl_.Pause();
   {
     std::lock_guard const gc_guard{gc_lock_};
+    std::unique_lock const handles_guard{metric_handles_mutex_};
     metric_handles_ = new_handles;
     indices_.RebindMetricHandles(new_handles);
     constraints_.RebindMetricHandles(new_handles);
@@ -4463,6 +4461,7 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
 
   {
     auto snapshot_elapsed = std::chrono::duration<double>(timer.Elapsed());
+    std::shared_lock const handles_guard{metric_handles_mutex_};
     metric_handles_.snapshot_creation_latency_seconds.Observe(snapshot_elapsed.count());
   }
 
