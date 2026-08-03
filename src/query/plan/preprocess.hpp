@@ -679,6 +679,12 @@ struct SingleQueryPart {
   /// need to have access to other parts of the clause, such as pattern, filter clauses.
   PatternComprehensionMatchings pattern_comprehension_matchings;
 
+  /// @brief @c FilterMatching for each EXISTS found in a non-@c Match clause.
+  ///
+  /// A MATCH's WHERE keeps its EXISTS on the owning @c FilterInfo, where it becomes a deferred bool fold inside a
+  /// @c Filter. These are the ones a WITH/RETURN body evaluates, so they need a forced fold spliced onto the chain.
+  std::vector<FilterMatching> exists_matchings;
+
   /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses{};
   /// The subqueries vector are all the subqueries in this query part ordered in a list by
