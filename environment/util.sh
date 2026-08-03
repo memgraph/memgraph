@@ -186,10 +186,10 @@ function install_custom_packages() {
                 retry_install install_custom_golang "1.18.9"
                 ;;
             custom-rust)
-                retry_install install_rust "1.89"
+                retry_install install_rust "1.97.1"
                 ;;
             custom-node)
-                retry_install install_node "20"
+                retry_install install_node "24.19.0"
                 ;;
         esac
     done
