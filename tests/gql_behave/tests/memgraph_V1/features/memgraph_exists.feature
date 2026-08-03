@@ -384,17 +384,20 @@ Feature: WHERE exists
           | 10     |
           | 11     |
 
-  Scenario: Test exists does not work in WITH clauses
+  Scenario: Test exists in the WHERE of a WITH
       Given an empty graph
       And having executed:
           """
-          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          CREATE (:One {prop:1})-[:TYPE]->(:Two {prop:2})
+          CREATE (:Two {prop:3})
           """
       When executing query:
           """
-          MATCH (n:Two) WITH n WHERE exists((n)<-[:TYPE]-()) RETURN n.prop;
+          MATCH (n:Two) WITH n WHERE exists((n)<-[:TYPE]-()) RETURN n.prop AS prop;
           """
-      Then an error should be raised
+      Then the result should be:
+          | prop |
+          | 2    |
 
   Scenario: Test exists is not null
       Given an empty graph
@@ -512,17 +515,22 @@ Feature: WHERE exists
           """
       Then an error should be raised
 
-  Scenario: Test exists does not work in RETURN clauses
+  Scenario: Test exists in RETURN clauses
       Given an empty graph
       And having executed:
           """
-          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          CREATE (:One {prop:1})-[:TYPE]->(:Two {prop:2})
+          CREATE (:Three {prop:9})
           """
       When executing query:
           """
-          MATCH (n) RETURN exists((n)-[]-());
+          MATCH (n) RETURN n.prop AS prop, exists((n)-[]-()) AS h ORDER BY prop;
           """
-      Then an error should be raised
+      Then the result should be:
+          | prop | h     |
+          | 1    | true  |
+          | 2    | true  |
+          | 9    | false |
 
   Scenario: Test basic EXISTS subquery with pattern
       Given an empty graph
@@ -697,17 +705,21 @@ Feature: WHERE exists
           | name   |
           | 'John' |
 
-  Scenario: Test invalid RETURN EXISTS
+  Scenario: Test RETURN EXISTS
       Given an empty graph
       And having executed:
           """
           CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          CREATE (:Person {name: 'Bob'})
           """
       When executing query:
           """
-          MATCH (person:Person) RETURN EXISTS { (person)-[:HAS_DOG]->(:Dog) } AS has_dog;
+          MATCH (person:Person) RETURN person.name AS name, EXISTS { (person)-[:HAS_DOG]->(:Dog) } AS has_dog ORDER BY name;
           """
-      Then an error should be raised
+      Then the result should be:
+          | name   | has_dog |
+          | 'Bob'  | false   |
+          | 'John' | true    |
 
   Scenario: Test invalid SET inside EXISTS
       Given an empty graph
@@ -793,12 +805,13 @@ Feature: WHERE exists
           """
       Then an error should be raised
 
-  Scenario: Test invalid EXISTS with UNION in RETURN
+  Scenario: Test EXISTS with UNION in RETURN
       Given an empty graph
       And having executed:
           """
           CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
           CREATE (:Person {name: 'Alice'})-[:HAS_CAT]->(:Cat {name: 'Whiskers'})
+          CREATE (:Person {name: 'Bob'})
           """
       When executing query:
           """
@@ -809,9 +822,14 @@ Feature: WHERE exists
                   MATCH (person)-[:HAS_DOG]->(:Dog)
                   UNION
                   MATCH (person)-[:HAS_CAT]->(:Cat)
-              } AS hasPet;
+              } AS hasPet
+          ORDER BY name;
           """
-      Then an error should be raised
+      Then the result should be:
+          | name    | hasPet |
+          | 'Alice' | true   |
+          | 'Bob'   | false  |
+          | 'John'  | true   |
 
   Scenario: Test valid EXISTS with UNION in WHERE
       Given an empty graph
@@ -865,3 +883,193 @@ Feature: WHERE exists
           RETURN n.id as id;
           """
       Then the result should be empty
+
+  Scenario: Test EXISTS subquery in a WITH projection
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (r:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
+          CREATE (:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WITH p, EXISTS { MATCH (p)-[:ACTED_IN]->(m:Movie) WHERE m.title STARTS WITH 'J' } AS hasActed
+          RETURN p.name AS name, hasActed ORDER BY name;
+          """
+      Then the result should be:
+          | name           | hasActed |
+          | 'Bob'          | false    |
+          | 'Regina King'  | true     |
+
+  Scenario: Test EXISTS subquery in an ORDER BY
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
+          CREATE (:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WITH p ORDER BY EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) } DESC, p.name
+          RETURN p.name AS name;
+          """
+      Then the result should be, in order:
+          | name           |
+          | 'Regina King'  |
+          | 'Bob'          |
+
+  Scenario: Test EXISTS subquery alongside an aggregation
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
+          CREATE (:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, count(*) AS c, EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) } AS h
+          ORDER BY name;
+          """
+      Then the result should be:
+          | name           | c | h     |
+          | 'Bob'          | 1 | false |
+          | 'Regina King'  | 1 | true  |
+
+  Scenario: Test EXISTS subquery inside an aggregate argument
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
+          CREATE (:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WITH p ORDER BY p.name
+          RETURN collect(EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) }) AS h;
+          """
+      Then the result should be:
+          | h              |
+          | [false, true]  |
+
+  Scenario: Test EXISTS subquery on a null variable
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          OPTIONAL MATCH (p)-[:DIRECTED]->(q)
+          RETURN p.name AS name, EXISTS { MATCH (q)-[:ACTED_IN]->() } AS h;
+          """
+      Then the result should be:
+          | name           | h     |
+          | 'Regina King'  | false |
+
+  Scenario: Test EXISTS subquery in a projection after a write
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person {name: 'Bob'})
+          CREATE (p)-[:ACTED_IN]->(:Movie {title: 'Juno'})
+          WITH p, EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) } AS h
+          RETURN p.name AS name, h;
+          """
+      Then the result should be:
+          | name  | h    |
+          | 'Bob' | true |
+
+  Scenario: Test EXISTS subquery in a projection after a SET
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
+          CREATE (:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (n:Person) SET n.tag = 1
+          WITH n, EXISTS { MATCH (n)-[:ACTED_IN]->() } AS e
+          RETURN n.name AS name, e ORDER BY name;
+          """
+      Then the result should be:
+          | name           | e     |
+          | 'Bob'          | false |
+          | 'Regina King'  | true  |
+
+  Scenario: Test EXISTS subquery correlating to a non-projected variable after a write
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {k:1})-[:R]->(:Q)
+          CREATE (:P {k:2})
+          CREATE (:P {k:3})-[:R]->(:Q)
+          """
+      When executing query:
+          """
+          MATCH (n:P) SET n.t = 1
+          WITH EXISTS { MATCH (x:P) WHERE x.k = n.k + 1 } AS e
+          RETURN e ORDER BY e;
+          """
+      Then the result should be, in order:
+          | e     |
+          | false |
+          | true  |
+          | true  |
+
+  Scenario: Test exists does not work in UNWIND
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n) UNWIND [exists((n)-[]-())] AS h RETURN h;
+          """
+      Then an error should be raised
+
+  Scenario: Test exists does not work in FOREACH
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n) FOREACH (i IN [1] | SET n.prop = exists((n)-[]-()));
+          """
+      Then an error should be raised
+
+  Scenario: Test exists does not work in REDUCE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n) RETURN reduce(acc = false, x IN [1] | acc OR exists((n)-[]-())) AS h;
+          """
+      Then an error should be raised
+
+  Scenario: Test exists does not work in CASE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n) RETURN CASE WHEN exists((n)-[]-()) THEN 1 ELSE 0 END AS h;
+          """
+      Then an error should be raised

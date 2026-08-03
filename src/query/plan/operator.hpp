@@ -3127,18 +3127,27 @@ class HashJoin : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
-/// RollUpApply operator is used to execute an expression which takes as input a pattern,
-/// and returns a list with content from the matched pattern
-/// It's used for a pattern expression or pattern comprehension in a query.
+/// RollUpApply is the forced half of the apply family: for each input row it runs a correlated branch and folds the
+/// branch's rows into one frame value. The fold is a parameter, not a subclass.
+/// It's used for a pattern expression, a pattern comprehension, or an EXISTS in a projection.
 class RollUpApply : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
+  /// What the branch's rows are folded into.
+  enum class Fold : uint8_t {
+    kList,  ///< every row's collected column, in order
+    kBool,  ///< whether the branch produced a row at all
+  };
+
   RollUpApply() = default;
   RollUpApply(std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&list_collection_branch,
               const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol, bool pass_input = false);
+  /// The bool fold. It collects no column, so it takes no @p list_collection_symbols.
+  RollUpApply(std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&branch,
+              Symbol result_symbol);
 
   bool HasSingleInput() const override { return false; }
 
@@ -3150,6 +3159,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+  std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -3158,6 +3168,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   Symbol result_symbol_;
   Symbol list_collection_symbol_;
   bool pass_input_{false};
+  Fold fold_{Fold::kList};
 };
 
 class PeriodicCommit : public memgraph::query::plan::LogicalOperator {

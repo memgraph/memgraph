@@ -1607,6 +1607,7 @@ bool PlanToJsonVisitor::PreVisit(IndexedJoin &op) {
 bool PlanToJsonVisitor::PreVisit(RollUpApply &op) {
   json self;
   self["name"] = "RollUpApply";
+  self["fold"] = op.fold_ == RollUpApply::Fold::kBool ? "bool" : "list";
   self["output_symbol"] = ToJson(op.result_symbol_);
 
   op.input_->Accept(*this);

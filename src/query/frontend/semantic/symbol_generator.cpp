@@ -689,6 +689,16 @@ bool SymbolGenerator::PostVisit(ListComprehension & /*list_comprehension*/) {
   return true;
 }
 
+bool SymbolGenerator::IsSupportedExistsPosition(const Scope &scope) {
+  // A WHERE of a WITH, and a WHERE that is not part of a return body at all (MATCH, CALL ... YIELD, a pattern
+  // comprehension's filter). Both are consumed by a Filter, above any OrderBy.
+  if (scope.in_where) return true;
+  // ORDER BY of a WITH/RETURN. The value is read by the OrderBy's collection sweep.
+  if (scope.in_order_by) return true;
+  // A WITH/RETURN named expression. SKIP and LIMIT share those flags but have no splice point of their own.
+  return (scope.in_with || scope.in_return) && !scope.in_skip && !scope.in_limit;
+}
+
 bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
 
@@ -698,28 +708,17 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
         "should not happen!");
   }
 
-  if (!scope.in_where) {
-    throw utils::NotYetImplemented("Exists can only be used inside the WHERE clause!");
-  }
-
-  if (scope.in_set_property) {
-    throw utils::NotYetImplemented("Exists cannot be used within SET clause!");
-  }
-
-  if (scope.in_with) {
-    throw utils::NotYetImplemented("Exists cannot be used within WITH!");
-  }
-
-  if (scope.in_return) {
-    throw utils::NotYetImplemented("Exists cannot be used within RETURN!");
-  }
-
+  // Narrowed refusals, kept ahead of the position check because they name a specific construct rather than a position.
   if (scope.in_reduce) {
     throw utils::NotYetImplemented("Exists cannot be used within REDUCE!");
   }
 
   if (scope.num_if_operators) {
     throw utils::NotYetImplemented("IF operator cannot be used with exists, but only during matching!");
+  }
+
+  if (!IsSupportedExistsPosition(scope)) {
+    throw utils::NotYetImplemented("Exists is not supported in this position yet!");
   }
 
   const auto &symbol = CreateAnonymousSymbol();
@@ -757,16 +756,8 @@ bool SymbolGenerator::PreVisit(NamedExpression &named_expression) {
   return true;
 }
 
-bool SymbolGenerator::PreVisit(SetProperty & /*set_property*/) {
-  auto &scope = scopes_.back();
-  scope.in_set_property = true;
-
-  return true;
-}
-
 bool SymbolGenerator::PostVisit(SetProperty &set_property) {
   auto &scope = scopes_.back();
-  scope.in_set_property = false;
 
   if (set_property.property_lookup_->property_path_.size() <= 1 &&
       set_property.property_lookup_->lookup_mode_ == PropertyLookup::LookupMode::REPLACE) {
