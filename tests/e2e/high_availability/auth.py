@@ -661,6 +661,10 @@ def show_current_role(cursor):
     return sorted(name for (name,) in execute_and_fetch_all(cursor, "SHOW CURRENT ROLE"))
 
 
+def show_current_user(cursor):
+    return [name for (name,) in execute_and_fetch_all(cursor, "SHOW CURRENT USER")]
+
+
 def show_privileges(cursor, role):
     return sorted(privilege for (privilege,) in execute_and_fetch_all(cursor, f"SHOW PRIVILEGES FOR ROLE {role}"))
 
@@ -677,11 +681,15 @@ def test_basic_auth_passthrough(test_name):
     assert show_roles(no_auth_cursor) == []
     # A basic-auth passthrough session carries no roles, so SHOW CURRENT ROLE reports a single null row.
     assert show_current_role(no_auth_cursor) == [None]
+    # It authenticated no principal either, so SHOW CURRENT USER reports null rather than an empty string.
+    assert show_current_user(no_auth_cursor) == [None]
 
     # Connect with arbitrary username/password: the credentials are ignored and the session works the same.
     basic_auth_cursor = connect(host="localhost", port=leader_port, username="whoever", password="whatever").cursor()
     assert show_roles(basic_auth_cursor) == []
     assert show_current_role(basic_auth_cursor) == [None]
+    # The supplied username was never validated against anything, so it is not reported as the current user.
+    assert show_current_user(basic_auth_cursor) == [None]
     # A basic-auth session can run role management.
     execute_and_fetch_all(basic_auth_cursor, "CREATE ROLE passthrough_role")
     assert show_roles(basic_auth_cursor) == ["passthrough_role"]
@@ -1425,6 +1433,11 @@ def test_sso_privilege_revocation_applies_to_connected_session(test_name):
             # reporting a login-time claim that no longer exists. A session left with no roles reports a single null row.
             assert sorted(name for (name,) in session.run("SHOW CURRENT ROLE")) == [None]
 
+            # SHOW CURRENT USER keeps reporting the principal: the identity provider authenticated it and dropping a
+            # coordinator role doesn't retroactively change who is connected. It is self-service and session-local, so
+            # it survives losing every privilege.
+            assert [name for (name,) in session.run("SHOW CURRENT USER")] == ["oidc-user"]
+
 
 def test_sso_show_current_role(test_name):
     # SHOW CURRENT ROLE reports the role(s) the SSO session authenticated with. It is self-service (reveals only the
@@ -1443,6 +1456,30 @@ def test_sso_show_current_role(test_name):
     assert sorted(name for (name,) in sso_run(leader_port, "oidc", "architect,reader", "SHOW CURRENT ROLE")) == [
         "architect",
         "reader",
+    ]
+
+
+@pytest.mark.parametrize("scheme", SSO_SCHEMES)
+def test_sso_show_current_user(test_name, scheme):
+    # SHOW CURRENT USER reports the principal the identity provider authenticated (the username the SSO module returns),
+    # which is the only thing tying a coordinator query back to a person: coordinators authorize by role and store no
+    # users. Like SHOW CURRENT ROLE it is self-service, so a COORDINATOR_READ-only session can run it even though every
+    # other auth query on a coordinator requires COORDINATOR_WRITE.
+    def bootstrap(cursor):
+        create_role_with_privilege(cursor, "reader", grant="COORDINATOR_READ")
+
+    start_sso_cluster(test_name, bootstrap)  # bootstraps the "architect" role (COORDINATOR_WRITE) too
+    leader_port = sso_wait_for_ready_leader_port()
+
+    # The dummy module reports "<scheme>-user" as the username for every identity it authenticates.
+    expected_user = f"{scheme}-user"
+
+    # A READ-only session (denied every mutating query) still gets its own principal.
+    assert [name for (name,) in sso_run(leader_port, scheme, "reader", "SHOW CURRENT USER")] == [expected_user]
+
+    # The principal doesn't depend on how many roles the identity carries.
+    assert [name for (name,) in sso_run(leader_port, scheme, "architect,reader", "SHOW CURRENT USER")] == [
+        expected_user
     ]
 
 

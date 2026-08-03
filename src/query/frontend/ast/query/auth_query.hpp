@@ -239,16 +239,19 @@ inline bool IsCoordinatorPrivilege(AuthQuery::Privilege privilege) {
 /// Coordinators expose only a small slice of the whole auth surface:
 ///   - role management: CREATE ROLE, DROP ROLE, SHOW ROLES;
 ///   - coordinator privilege management on roles: GRANT/REVOKE COORDINATOR_READ|COORDINATOR_WRITE|ALL PRIVILEGES,
-///     SHOW PRIVILEGES FOR ROLE <role>.
+///     SHOW PRIVILEGES FOR ROLE <role>;
+///   - self-service identity: SHOW CURRENT USER, SHOW CURRENT ROLE.
 /// GRANT/REVOKE are permitted only for the coordinator privileges (COORDINATOR_READ/COORDINATOR_WRITE, or
 /// ALL PRIVILEGES which maps to both) and never target a USER; fine-grained access control (label/edge-type entity
-/// privileges) is rejected. SHOW PRIVILEGES likewise never targets a USER (coordinators have no users). Every other
+/// privileges) is rejected. SHOW PRIVILEGES likewise never targets a USER (coordinators have no users) -- SHOW CURRENT
+/// USER is the exception, as it names the principal the session authenticated as rather than a stored user. Every other
 /// auth query -- DENY in any form, GRANT DATABASE, property permissions, ... -- is rejected on a coordinator.
 inline bool IsCoordinatorPermittedAuthQuery(AuthQuery const &query) {
   switch (query.action_) {
     case AuthQuery::Action::CREATE_ROLE:
     case AuthQuery::Action::DROP_ROLE:
     case AuthQuery::Action::SHOW_ROLES:
+    case AuthQuery::Action::SHOW_CURRENT_USER:
     case AuthQuery::Action::SHOW_CURRENT_ROLE:
       return true;
     case AuthQuery::Action::GRANT_PRIVILEGE:

@@ -1115,11 +1115,12 @@ uint64_t CoordinatorPrivilegesToMask(AuthQuery const &auth_query) {
   return mask;
 }
 
-// Coordinators expose only role management (CREATE/DROP/SHOW ROLE) and coordinator privilege management on roles
-// (GRANT/REVOKE READ|WRITE, SHOW PRIVILEGES FOR <role>) out of the whole auth surface. This path is deliberately
-// separate from the data-instance Auth path: roles and their masks live in the Raft-replicated coordinator cluster
-// state, not in the auth kvstore. The interpreter gate guarantees only these actions reach here on a coordinator.
-Callback HandleCoordinatorRoleQuery(AuthQuery *auth_query, coordination::CoordinatorState &coordinator_state,
+// Coordinators expose only role management (CREATE/DROP/SHOW ROLE), coordinator privilege management on roles
+// (GRANT/REVOKE READ|WRITE, SHOW PRIVILEGES FOR <role>) and the self-service identity queries (SHOW CURRENT
+// USER|ROLE) out of the whole auth surface. This path is deliberately separate from the data-instance Auth path: roles
+// and their masks live in the Raft-replicated coordinator cluster state, not in the auth kvstore. The interpreter gate
+// guarantees only these actions reach here on a coordinator.
+Callback HandleCoordinatorAuthQuery(AuthQuery *auth_query, coordination::CoordinatorState &coordinator_state,
                                     Interpreter &interpreter) {
   Callback callback;
   auto const if_not_exists = auth_query->if_not_exists_;
@@ -1127,7 +1128,7 @@ Callback HandleCoordinatorRoleQuery(AuthQuery *auth_query, coordination::Coordin
   auto target_role = auth_query->user_or_role_;
 
   // SSO, role management, privilege grants, SHOW PRIVILEGES FOR and enforcement are enterprise features requiring a
-  // valid license. SHOW CURRENT ROLE is exempt: it is a self-service identity query (see
+  // valid license. SHOW CURRENT USER and SHOW CURRENT ROLE are exempt: they are self-service identity queries (see
   // IsCoordinatorSelfServiceAuthQuery) that must keep working on the break-glass basic-auth session.
   static constexpr std::array kLicensedActions{AuthQuery::Action::CREATE_ROLE,
                                                AuthQuery::Action::DROP_ROLE,
@@ -1170,6 +1171,19 @@ Callback HandleCoordinatorRoleQuery(AuthQuery *auth_query, coordination::Coordin
           rows.emplace_back(std::vector<TypedValue>{TypedValue(role_name)});
         }
         return rows;
+      };
+      return callback;
+    case AuthQuery::Action::SHOW_CURRENT_USER:
+      callback.header = {"user"};
+      callback.fn = [&interpreter] {
+        // The principal recorded at login: the username the SSO module reported for the authenticated identity.
+        // Coordinators authorize by Raft-replicated role and build no QueryUserOrRole, so unlike the data-instance
+        // path there is no user object to read it from. Purely session-local, so it needs no leader (a session that
+        // can't reach the leader can still tell who it is). A basic-auth passthrough session authenticated no
+        // principal at all and reports a null row, mirroring the data-instance SHOW CURRENT USER of a userless
+        // session.
+        auto const &username = interpreter.session_info_.username;
+        return std::vector<std::vector<TypedValue>>{{username.empty() ? TypedValue() : TypedValue(username)}};
       };
       return callback;
     case AuthQuery::Action::SHOW_CURRENT_ROLE:
@@ -1243,16 +1257,17 @@ Callback HandleCoordinatorRoleQuery(AuthQuery *auth_query, coordination::Coordin
       return callback;
     default:
       throw QueryRuntimeException(
-          "Coordinators only support CREATE ROLE, DROP ROLE, SHOW ROLES, SHOW CURRENT ROLE, GRANT/REVOKE "
-          "COORDINATOR_READ|COORDINATOR_WRITE and SHOW PRIVILEGES FOR ROLE <role> auth queries.");
+          "Coordinators only support CREATE ROLE, DROP ROLE, SHOW ROLES, SHOW CURRENT USER, SHOW CURRENT ROLE, "
+          "GRANT/REVOKE COORDINATOR_READ|COORDINATOR_WRITE and SHOW PRIVILEGES FOR ROLE <role> auth queries.");
   }
 }
 
 // Self-service auth queries reveal only the session's own identity and are exempt from the coordinator privilege
-// check, so even a bare-role (zero-mask) session can run them. Currently only SHOW CURRENT ROLE.
+// check, so even a bare-role (zero-mask) session can run them: SHOW CURRENT USER and SHOW CURRENT ROLE.
 bool IsCoordinatorSelfServiceAuthQuery(Query *query) {
   auto *auth_query = utils::Downcast<AuthQuery>(query);
-  return auth_query != nullptr && auth_query->action_ == AuthQuery::Action::SHOW_CURRENT_ROLE;
+  return auth_query != nullptr && (auth_query->action_ == AuthQuery::Action::SHOW_CURRENT_USER ||
+                                   auth_query->action_ == AuthQuery::Action::SHOW_CURRENT_ROLE);
 }
 
 // Classifies a coordinator-runnable query as requiring READ or WRITE. Read-only introspection needs READ; every
@@ -1334,10 +1349,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   auto newPassword = EvaluateOptionalExpression(auth_query->new_password_, evaluator);
 
 #ifdef MG_ENTERPRISE
-  // On coordinators only CREATE/DROP/SHOW ROLE are permitted (enforced by the interpreter gate) and they operate on the
-  // Raft-replicated coordinator role list rather than the auth kvstore.
+  // On coordinators only role management, coordinator privilege management and the self-service identity queries are
+  // permitted (enforced by the interpreter gate) and they operate on the Raft-replicated coordinator role list rather
+  // than the auth kvstore.
   if (interpreter_context->coordinator_state_ && interpreter_context->coordinator_state_->IsCoordinator()) {
-    return HandleCoordinatorRoleQuery(auth_query, *interpreter_context->coordinator_state_, interpreter);
+    return HandleCoordinatorAuthQuery(auth_query, *interpreter_context->coordinator_state_, interpreter);
   }
 #endif
 
@@ -10308,25 +10324,27 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // Must run before SetupDatabaseTransaction below: coordinators have no db_acc, so any query that
     // requests a storage accessor (e.g. CypherQuery) would otherwise throw a generic "Database required"
     // error instead of this clearer coordinator-specific message.
-    // Coordinators permit only role management (CREATE/DROP/SHOW ROLE) and coordinator privilege management on roles
-    // (GRANT/REVOKE READ|WRITE, SHOW PRIVILEGES FOR <role>) out of the whole auth surface; every other auth query is
-    // rejected with the coordinator-only-queries error below.
-    auto const is_coordinator_role_query = [](Query *query) {
+    // Coordinators permit only role management (CREATE/DROP/SHOW ROLE), coordinator privilege management on roles
+    // (GRANT/REVOKE READ|WRITE, SHOW PRIVILEGES FOR <role>) and the self-service identity queries (SHOW CURRENT
+    // USER|ROLE) out of the whole auth surface; every other auth query is rejected with the coordinator-only-queries
+    // error below.
+    auto const is_coordinator_auth_query = [](Query *query) {
       auto *auth_query = utils::Downcast<AuthQuery>(query);
       return auth_query != nullptr && IsCoordinatorPermittedAuthQuery(*auth_query);
     };
     if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator() &&
         !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query) &&
         !utils::Downcast<ReloadSSLQuery>(parsed_query.query) && !utils::Downcast<ShowConfigQuery>(parsed_query.query) &&
-        !utils::Downcast<SystemInfoQuery>(parsed_query.query) && !is_coordinator_role_query(parsed_query.query)) {
+        !utils::Downcast<SystemInfoQuery>(parsed_query.query) && !is_coordinator_auth_query(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only coordinator queries!");
     }
 
     // Enforce the coordinator privilege model on the (now allow-listed) query: classify it READ or WRITE and check the
     // session's effective coordinator mask (WRITE satisfies a READ requirement). A basic-auth passthrough session
     // carries full WRITE, so it runs everything; a restricted SSO session (later slice) is denied mutating queries.
-    // SHOW CURRENT ROLE is exempt: it only reveals the session's own roles, so it is self-service and needs no
-    // privilege (mirroring the data-instance auth path), letting even a bare-role session inspect its roles.
+    // SHOW CURRENT USER and SHOW CURRENT ROLE are exempt: they only reveal the session's own identity, so they are
+    // self-service and need no privilege (mirroring the data-instance auth path), letting even a bare-role session
+    // inspect who it is.
     if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator() &&
         !IsCoordinatorSelfServiceAuthQuery(parsed_query.query)) {
       auto const required = RequiredCoordinatorPermission(parsed_query.query);

@@ -439,6 +439,10 @@ void SessionHL::CoordinatorPassthroughAuthenticate() {
   interpreter_.SetCoordinatorPrivileges(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
                                         static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE));
   interpreter_.SetCoordinatorRoles({});
+  // No principal was authenticated (credentials are ignored on this path), so the session records an empty username and
+  // SHOW CURRENT USER reports null. Set unconditionally so a LOGOFF -> passthrough LOGON can't leave the previous SSO
+  // session's principal behind, in the same way the privileges above are re-established.
+  interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
 }
 
 std::optional<bool> SessionHL::CoordinatorHasWritableRole() const {
