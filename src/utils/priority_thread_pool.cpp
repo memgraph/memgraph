@@ -334,7 +334,20 @@ void PriorityThreadPool::PostResumeTask(std::function<void()> closure) {
   //   1. an LP worker arming from its tail, every worker having been stopped;
   //   2. the main shutdown thread, via Storage::StopAllBackgroundTasks() -> the wake event's Drain();
   //   3. any thread releasing main_lock_ in that window (~Accessor -> release -> the admit observer).
-  // For 2 and 3 this runs a full session chain on a thread that is not a pool worker at all.
+  // For 2 and 3 this runs a full session chain on a thread that is not a pool worker at all -- and be
+  // explicit about what that means, because naming the thread understates it. The chain reaches
+  // Session::RunLoop -> session_.Execute(), which performs a SYNCHRONOUS, UN-TIMED socket send and then
+  // arms a fresh async read. So a client with a full receive window can block a GC/TTL/replication or
+  // main-shutdown thread here for as long as it likes. Master never did session I/O off a pool or io
+  // thread; this is a genuine delta, accepted rather than unnoticed.
+  //
+  // Gating this on IsShuttingDown() would be a no-op -- reaching here already implies it (try_push
+  // refuses only on !run_, which only stop() sets, which only ShutDown() calls). And DROPPING the resume
+  // instead is strictly worse: the frame stays parked holding its campaign PendingHandle, and the
+  // eventual destruction chain would call unregister_pending() on an already-destroyed main_lock_. If
+  // this delta ever needs to go, the fix is to suppress connection I/O in the resumed hook while
+  // shutting down -- letting the frame unwind and release its handle without touching the socket -- not
+  // to gate or drop the resume.
   //
   // (Historical note, and the list above is the current truth, not this: an earlier version of this
   // comment argued case 1 away by claiming the arming side "always finds at least itself above". That

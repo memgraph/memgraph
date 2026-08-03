@@ -300,3 +300,42 @@ TEST(WorkerResumeEvent, ConcurrentRegisterAndNotifyResumesEachExactlyOnce) {
   }
   EXPECT_EQ(event.WaitersPending(), 0u);
 }
+
+// Drain() CLOSES the event: no later registration may succeed, and callers can tell that apart from an
+// epoch bump.
+//
+// The window this guards was real. Drain() deliberately does not bump the epoch, so a RegisterWaiter
+// that took the mutex just after Drain's critical section saw an unchanged epoch, pushed onto the
+// just-emptied list, and parked with nothing left to wake it -- rescued only by the deadline sweep,
+// delaying a DROP DATABASE by up to the access timeout. Bumping the epoch would NOT have closed it: the
+// refused registration simply re-probes and re-registers under the new epoch onto the same drained
+// event. Only a sticky flag terminates the sequence, which is why this is a distinct state and not an
+// epoch value.
+TEST(WorkerResumeEvent, DrainClosesTheEventAgainstLateRegistration) {
+  WorkerResumeEvent event;
+  std::atomic<int> resumed{0};
+
+  auto early = std::make_shared<ParkState>();
+  early->set_on_resume([&resumed] { resumed.fetch_add(1, std::memory_order_release); });
+  const auto epoch = event.Epoch();
+  ASSERT_TRUE(event.RegisterWaiter(early, epoch));
+  ASSERT_FALSE(event.IsClosed()) << "a fresh event must not be closed";
+
+  event.Drain();
+  EXPECT_TRUE(event.IsClosed()) << "Drain must close the event, not merely empty it";
+  EXPECT_EQ(event.WaitersPending(), 0U);
+
+  // The late waiter: same epoch Drain left in place, which is exactly what used to let it through.
+  auto late = std::make_shared<ParkState>();
+  late->set_on_resume([&resumed] { resumed.fetch_add(1, std::memory_order_release); });
+  EXPECT_FALSE(event.RegisterWaiter(late, epoch))
+      << "a registration arriving after Drain() succeeded -- it would park on a drained event with no "
+         "wake source left, and only the deadline sweep would rescue it";
+  EXPECT_EQ(event.WaitersPending(), 0U) << "a refused registration must not be counted";
+
+  // And refusal is permanent: re-reading the epoch and retrying (what the acquire loop does on an
+  // ordinary epoch bump) must not get in either, or the caller spins to its deadline.
+  EXPECT_FALSE(event.RegisterWaiter(late, event.Epoch()))
+      << "refusal must be sticky -- retrying under the current epoch got in, so the acquire loop would "
+         "re-probe and re-register forever instead of bailing";
+}

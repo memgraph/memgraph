@@ -10828,7 +10828,18 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
     auto system_transaction = std::invoke([&]() -> std::optional<memgraph::system::Transaction> {
       if (!system_queries) return std::nullopt;
 
-      // TODO: Ordering between system and data queries
+      // LOCK-ORDER NOTE, written down rather than assumed. Prepare() takes the system transaction
+      // BEFORE the storage accessor; this path takes it AFTER (the accessor came from Phase 2's
+      // co_await above). That inversion is harmless ONLY BY COINCIDENCE: every query type in
+      // `system_queries` leaves `accessor_type_` unset in QueryTransactionRequirements, so no accessor
+      // is ever held when we reach here. Reclassify one of them -- or add a query that is both a system
+      // query and accessor-taking -- and this blocks for up to kSystemTxTryMS while holding main_lock_,
+      // a lock-order inversion against every other acquirer.
+      //
+      // Two review lanes independently called this the same shape as "HIGH-priority queries never
+      // park", which was also true only by coincidence and equally unrecorded. If a system query ever
+      // takes an accessor, either restore Prepare()'s ordering here or hold the system transaction
+      // across Phase 2 deliberately.
       auto system_txn = interpreter_context_->system_->TryCreateTransaction(std::chrono::milliseconds(kSystemTxTryMS));
       if (!system_txn) {
         throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");

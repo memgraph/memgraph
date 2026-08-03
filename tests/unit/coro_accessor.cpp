@@ -514,12 +514,25 @@ TEST(CoroAccessor, StorageSideDrainResumesAParkNoReleaseCanWake) {
       << "after DrainParkedMainLockWaiters() the park was never resumed: the drain dropped the waiter "
          "instead of resuming it. In production that is a permanently suspended frame holding its "
          "Session, its DatabaseAccess, and Gatekeeper<Database>::count_ above zero";
-  EXPECT_FALSE(done.load()) << "the acquire completed even though its conflicting holder is still held";
 
-  // Teardown: the re-parked waiter is resolved by the pool drain, exactly as in the test above.
+  // ...and having been resumed, it must ABANDON rather than re-park. `Drain()` closes the wake event, so
+  // no further registration on it can succeed; a coroutine that looped back and re-registered would spin
+  // to its deadline (600s here) against a storage that is going away.
+  //
+  // This assertion used to be EXPECT_FALSE(done) -- i.e. it asserted the re-park -- and that was
+  // encoding a defect, not a requirement. Before Drain() was made sticky-closed, the resumed frame DID
+  // re-register: Drain deliberately leaves the epoch untouched, so a registration arriving after it
+  // succeeded onto a just-emptied list, and only the deadline sweep rescued it. Delaying a DROP DATABASE
+  // by a full access timeout was the observable cost.
+  ASSERT_TRUE(BoundedWaitUntil([&] { return done.load(); }, std::chrono::milliseconds(2000)))
+      << "the resumed coroutine did not finish: it re-parked on a drained (closed) wake event, where no "
+         "wake source can ever reach it again, and is now waiting out its full deadline";
+  EXPECT_FALSE(result.has_value()) << "must not hand back an accessor -- the conflicting holder is still held";
+  EXPECT_TRUE(eptr) << "expected the storage-tearing-down bail exception";
+  EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 0U) << "no waiter may be left registered";
+
   pool.ShutDown();
   pool.AwaitShutdown();
-  EXPECT_TRUE(done.load());
   held->Abort();
   held.reset();
 }

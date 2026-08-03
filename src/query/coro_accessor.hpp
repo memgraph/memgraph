@@ -70,6 +70,9 @@ struct AcquireAwaitable {
   // Set unconditionally to the ParkState this attempt built, so AcquireAccessorCoro can prune it from
   // BOTH registries after a genuine resume -- see the cleanup at the bottom of the acquire loop.
   std::shared_ptr<utils::ParkState> *parked_ps;
+  // Set true iff registration was refused because the wake event is CLOSED (storage tearing down), as
+  // opposed to refused because the epoch moved. The former must abandon the campaign, the latter retries.
+  bool *event_closed;
   // Session-surgery Stage B (IP-1 design doc REVISION 4 §R4.1/R4.2): opaque hook invoked by the
   // posted resume closure right AFTER it resumes the parked handle -- never for the synchronous
   // (never-parked) fast path, since in that case this closure is never constructed at all. This
@@ -117,6 +120,12 @@ struct AcquireAwaitable {
       // Epoch already moved (B1 waiter step 3, "register" rejected): `ps` never entered any
       // registry, so nobody can ever claim/resume it -- just drop it and re-probe on the next
       // loop iteration. No claim contest needed.
+      //
+      // Unless the event is CLOSED, which is a different answer to the same `false`: the storage is
+      // being torn down (process shutdown, or DROP DATABASE via StopAllBackgroundTasks), so re-probing
+      // is futile and would spin to the deadline. Report it so the acquire loop can bail instead. This
+      // is the whole reason `Drain()` closes rather than bumping the epoch -- see RegisterWaiter.
+      *event_closed = event.IsClosed();
       return false;
     }
 
@@ -435,8 +444,24 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
 
     std::optional<std::unique_ptr<storage::Accessor>> abandon_result;
     std::shared_ptr<utils::ParkState> parked_ps;
-    co_await detail::AcquireAwaitable{
-        mem_storage, pool, rw, resolved_iso, deadline, epoch, &abandon_result, &parked_ps, on_park_resumed};
+    bool event_closed = false;
+    co_await detail::AcquireAwaitable{mem_storage,
+                                      pool,
+                                      rw,
+                                      resolved_iso,
+                                      deadline,
+                                      epoch,
+                                      &abandon_result,
+                                      &parked_ps,
+                                      &event_closed,
+                                      on_park_resumed};
+
+    // Storage is being torn down: the wake event is closed, so no registration can ever succeed again
+    // and looping would spin to the deadline. Bail the same way the shutdown checks do.
+    if (event_closed) [[unlikely]] {
+      throw utils::BasicException(
+          "AcquireAccessorCoro: storage is shutting down (parked-waiter event closed), abandoning the acquire");
+    }
 
     if (abandon_result) {
       // R4.3 abandon-path win: the awaitable's own re-probe already acquired (and claimed) the

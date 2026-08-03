@@ -135,6 +135,21 @@ class WorkerResumeEvent {
   /// happens-before against any prior epoch bump.
   bool RegisterWaiter(std::shared_ptr<ParkState> ps, uint64_t expected_epoch) {
     std::lock_guard<std::mutex> lock(mutex_);
+    // Refuse permanently once drained. `Drain()` means "this event's storage is going away" -- either
+    // process shutdown or DROP DATABASE -- so a registration arriving after it must not succeed.
+    // Without this the window was real and not merely theoretical: `Drain()` deliberately does NOT bump
+    // the epoch, so a RegisterWaiter that took `mutex_` immediately after Drain's critical section saw
+    // an unchanged epoch, pushed onto the just-emptied list, and parked with nobody left to wake it --
+    // rescued only by the deadline sweep, which delays the DROP by up to the access timeout.
+    //
+    // Bumping the epoch in `Drain()` does NOT close this: the failed registration sends the acquire
+    // loop back around to re-probe and re-register under the NEW epoch, onto the same drained event, so
+    // the window just moves one iteration later. A sticky flag is what actually terminates it, and it is
+    // semantically right because every `Drain()` caller is a teardown of this storage. Callers
+    // distinguish "retry" from "give up" via `IsClosed()`.
+    if (closed_) [[unlikely]] {
+      return false;
+    }
     if (epoch_.load(std::memory_order_relaxed) != expected_epoch) {
       return false;
     }
@@ -183,7 +198,25 @@ class WorkerResumeEvent {
   /// frame's `on_resume` is expected to observe `IsShuttingDown()` and drive itself to a clean
   /// bail rather than proceeding into any per-database work). Does not bump `epoch_` -- shutdown is
   /// terminal, not a state transition waiters should re-probe against.
-  void Drain() { ResumeAll(/*bump_epoch=*/false); }
+  /// Wakes every waiter and CLOSES the event: no further registration can succeed (see
+  /// `RegisterWaiter`). For teardown only -- process shutdown, and `Storage::StopAllBackgroundTasks()`
+  /// on the DROP DATABASE path. Unlike `NotifyAll` it does not bump the epoch, because closing is
+  /// stronger than invalidating: an epoch bump only makes in-flight registrations retry, and retrying
+  /// against a storage that is going away is precisely what must not happen.
+  void Drain() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      closed_ = true;
+    }
+    ResumeAll(/*bump_epoch=*/false);
+  }
+
+  /// True once `Drain()` has run. Callers that get `false` from `RegisterWaiter` use this to tell
+  /// "the epoch moved, re-probe and try again" from "this storage is gone, stop trying".
+  bool IsClosed() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return closed_;
+  }
 
   /// Lock-free fast-path gate for releasers (R1 §B1 releaser step 2): if this is 0, there is
   /// nothing to wake and `NotifyAll` (and its mutex acquisition) can be skipped entirely. Sound
@@ -218,7 +251,11 @@ class WorkerResumeEvent {
     }
   }
 
-  std::mutex mutex_;
+  mutable std::mutex mutex_;  // mutable: IsClosed() is a const observer that must take the lock
+  /// Set once by `Drain()`, never cleared. Guarded by `mutex_` rather than atomic so that it is
+  /// established in the same critical section that empties `waiters_` -- an atomic set outside the lock
+  /// would reopen the very race it exists to close.
+  bool closed_{false};
   std::atomic<uint64_t> epoch_{0};
   std::atomic<size_t> waiters_pending_{0};
   std::vector<std::shared_ptr<ParkState>> waiters_;
