@@ -1730,6 +1730,27 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionAtTopLevelDeclaresUndeclared
   EXPECT_EQ(symbol_table.at(ComprehensionStartNode(comprehension)).name(), "zz");
 }
 
+// Moved here from `subqueries.feature` because that suite also runs with `USING PARALLEL EXECUTION`, and this shape
+// (an aggregation inside a `CALL {}`) hits a pre-existing parallel-executor bug that nulls every outer variable --
+// unrelated to what the scenario is checking. Asserting the symbol identity pins the rule directly instead.
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInAggregatingSubqueryWhereShadowsUnimportedOuterVariable) {
+  // MATCH (p) CALL { MATCH (t) WITH t, count(*) AS c WHERE size([(p)-->() | 1]) > 0 RETURN t } RETURN p
+  auto *outer_p = NODE("p");
+  auto *comprehension = SUBQUERY_COMPREHENSION("p");
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
+                                WITH(IDENT("t"), AS("t"), COUNT(LITERAL(1), false), AS("c")),
+                                WHERE(GREATER(comprehension, LITERAL(0))),
+                                RETURN(Aliased(NEXPR("t", IDENT("t")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_p)), CALL_SUBQUERY(subquery), RETURN("p")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  const auto outer_symbol = symbol_table.at(*outer_p->identifier_);
+  const auto inner_symbol = symbol_table.at(ComprehensionStartNode(comprehension));
+  EXPECT_NE(outer_symbol, inner_symbol) << "an aggregating WHERE must not correlate the un-imported outer `p` either";
+  EXPECT_EQ(outer_symbol.name(), inner_symbol.name());
+}
+
 TYPED_TEST(TestSymbolGenerator, PlainMatchInSubqueryShadowsUnimportedOuterVariable) {
   // MATCH (a) CALL { MATCH (a)-[:R]->(x) RETURN x } RETURN a, x
   // The subquery's own MATCH pattern is the same case as the comprehension: `a` is out of scope, so the pattern

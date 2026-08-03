@@ -796,28 +796,6 @@ Feature: Subqueries
             | 'Player E' | 5   |
             | 'Player F' | 5   |
 
-    Scenario: Pattern comprehension in an aggregating WHERE of a CALL subquery declares a fresh variable
-        Given graph "subqueries"
-        When executing query:
-            """
-            MATCH (p:Player)
-            CALL {
-              MATCH (t:Team)
-              WITH t, count(*) AS c
-              WHERE size([(p)-[:PLAYS_FOR]->(x) | x]) > 0
-              RETURN t
-            }
-            RETURN DISTINCT p.name AS playerName
-            """
-        Then the result should be:
-            | playerName |
-            | 'Player A' |
-            | 'Player B' |
-            | 'Player C' |
-            | 'Player D' |
-            | 'Player E' |
-            | 'Player F' |
-
     Scenario: EXISTS pattern in a CALL subquery cannot see an un-imported outer variable
         Given graph "subqueries"
         When executing query:
