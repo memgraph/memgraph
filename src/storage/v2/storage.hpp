@@ -14,6 +14,7 @@
 #include <atomic>
 #include <optional>
 #include <set>
+#include <shared_mutex>
 #include <string>
 
 #include "common_function_signatures.hpp"
@@ -475,6 +476,7 @@ class Storage {
   memory::ArenaPool *db_arena_pool_{nullptr};
 
   metrics::DatabaseMetricHandles metric_handles_{};
+  mutable std::shared_mutex metric_handles_mutex_;
 
   Indices indices_;
   Constraints constraints_;
