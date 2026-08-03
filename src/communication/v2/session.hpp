@@ -459,15 +459,54 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
               // nothing to do yet; a later resume will find Done() == true and take the branch below.
               return;
             }
-            try {
-              parked->TakeValue();  // rethrow, if DrivePreparedRun itself somehow escaped an exception
-            } catch (const std::exception &e) {
-              spdlog::error("Parked Prepare coroutine finished with an unexpected exception: {}", e.what());
-            }
+            // catch(...) as well as catch(std::exception), and it is the catch(...) that is
+            // load-bearing. `Promise::unhandled_exception` stores whatever was thrown
+            // (utils/coro_task.hpp) and `TakeValue()` rethrows it verbatim, so a non-std-derived
+            // exception is representable here. With only the narrow handler it did not match, control
+            // left this closure before `parked.reset()` below, and that reset is the ONLY thing that
+            // breaks the parked_prepare_ -> DrivePreparedRun frame -> on_park_resumed -> shared_this
+            // cycle documented above: the Session survived, its DatabaseAccess with it, and
+            // Gatekeeper<Database>::count_ never returned to zero. It also escaped into the posted
+            // resume task, out through the worker's Phase 1A `task.value()(...)` (which has no
+            // handler, by design -- master's task bodies do not throw), out of the thread function,
+            // and terminated the process.
+            //
+            // Same reasoning that made `ParkState::TakeAndInvokeOnResume` use catch(...) — applied at
+            // the delivery site in an earlier pass and NOT here, which is exactly the sort of
+            // asymmetry between two halves of one contract that keeps producing defects in this file.
+            // Break the cycle FIRST, before anything that can throw, and only then look at the
+            // result. Moving the Task out and resetting immediately is what makes the reset
+            // unskippable; the same shape the synchronous-completion branch below already uses.
+            //
             // Safe here (unlike inside DrivePreparedRun's own body): this closure runs OUTSIDE any
             // coroutine frame's execution, strictly after h.resume() already returned control to the
             // posted resume closure -- the frame is merely sitting at its final_suspend by now.
+            auto finished = std::move(*parked);
             parked.reset();
+
+            // catch(...) as well as catch(std::exception), and the catch(...) is load-bearing.
+            // `Promise::unhandled_exception` stores whatever was thrown (utils/coro_task.hpp) and
+            // `TakeValue()` rethrows it verbatim, so a non-std-derived exception is representable. With
+            // only the narrow handler it did not match and escaped this closure -- which used to skip
+            // the reset above, and the reset is the ONLY thing breaking the parked_prepare_ ->
+            // DrivePreparedRun frame -> on_park_resumed -> shared_this cycle documented above: the
+            // Session survived, its DatabaseAccess with it, and Gatekeeper<Database>::count_ never
+            // returned to zero. It also escaped into the posted resume task, out through the worker's
+            // Phase 1A `task.value()(...)` (no handler there, by design -- master's task bodies do not
+            // throw), out of the thread function, and terminated the process.
+            //
+            // Same reasoning that made `ParkState::TakeAndInvokeOnResume` use catch(...) -- applied at
+            // the delivery site in an earlier pass and NOT here, which is the sort of asymmetry between
+            // two halves of one contract that keeps producing defects in this file.
+            try {
+              finished.TakeValue();  // rethrow, if DrivePreparedRun itself somehow escaped an exception
+            } catch (const std::exception &e) {
+              spdlog::error("Parked Prepare coroutine finished with an unexpected exception: {}", e.what());
+            } catch (...) {
+              spdlog::error(
+                  "Parked Prepare coroutine finished with a non-standard exception. The query is abandoned; the "
+                  "session is released normally.");
+            }
             // Re-drive exactly like a fresh DoWork iteration. Priority::LOW is what a resumed pool
             // task runs at, and PostResumeTask's closure signature discards the resuming worker's own
             // ambient priority anyway, so there is nothing more accurate available to pass.

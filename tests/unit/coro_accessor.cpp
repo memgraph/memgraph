@@ -111,6 +111,26 @@ utils::Task<void> MakeDriver(storage::Storage &storage, storage::StorageAccessTy
   co_return;
 }
 
+// Same as MakeDriver, but threads an `on_park_resumed` hook through so a test can observe genuine
+// cross-thread resumes rather than inferring them from waiter counts (which cannot distinguish
+// "resumed and re-parked" from "never touched").
+utils::Task<void> MakeDriverWithResumeHook(storage::Storage &storage, storage::StorageAccessType rw,
+                                           std::chrono::steady_clock::time_point deadline,
+                                           utils::PriorityThreadPool &pool,
+                                           std::optional<std::unique_ptr<storage::Accessor>> &result,
+                                           std::exception_ptr &eptr, std::atomic<bool> &done,
+                                           std::function<void()> on_park_resumed) {
+  try {
+    result = co_await AcquireAccessorCoro(
+        storage, rw, std::nullopt, deadline, pool, /*is_high_priority=*/false, std::move(on_park_resumed));
+  } catch (...) {
+    eptr = std::current_exception();
+  }
+  done.store(true, std::memory_order_release);
+  done.notify_one();
+  co_return;
+}
+
 }  // namespace
 
 // (a) PARK -> WAKE -> ACQUIRE: a conflicting UNIQUE request parks while another UNIQUE accessor is
@@ -426,4 +446,80 @@ TEST(CoroAccessor, ParkTimeoutLeavesNoWaiterRegistered) {
 
   pool.ShutDown();
   pool.AwaitShutdown();
+}
+
+// (h) STORAGE-SIDE DRAIN resumes a park that no lock release will ever wake.
+//
+// Fills a real gap rather than adding symmetry. Three drains exist for shutdown: the pool's
+// park_registry_.Drain(), Storage::DrainParkedMainLockWaiters() (called per storage from
+// memgraph.cpp), and the same event Drain() inside Storage::StopAllBackgroundTasks(). The POOL one is
+// already pinned by ParkThenShutdownUnwindsPromptly above -- it holds the accessor for the whole test
+// and uses a 600s deadline, so neither a release nor the sweep can be what resolves that park.
+//
+// The STORAGE-side ones were not covered, and could not be covered where it was tried: the e2e
+// park_shutdown.py was measured by mutation to guard NONE of the three, because over Bolt the session
+// teardown releases the holder's accessor and the ordinary notify path wakes the park before any drain
+// matters. A unit test owns the holder as a local, so it can construct the case Bolt cannot -- a park
+// with a conflicting holder still held, where nothing but the drain can ever wake it.
+//
+// The assertion is that the drain RESUMES rather than merely drops: after draining, the waiter list is
+// emptied, and the resumed coroutine loops back, re-probes, still cannot acquire (the holder is still
+// held), and RE-PARKS -- so WaitersPending() returns to 1. A drain that dropped the waiter without
+// resuming leaves it at 0 forever, which is what this discriminates against.
+TEST(CoroAccessor, StorageSideDrainResumesAParkNoReleaseCanWake) {
+  ScopedCoroPrepareFlag flag_on{true};
+
+  storage::InMemoryStorage store{NoGcConfig()};
+  utils::PriorityThreadPool pool{2, 1};
+
+  auto held = store.UniqueAccess();
+  ASSERT_TRUE(held);
+
+  std::optional<std::unique_ptr<storage::Accessor>> result;
+  std::exception_ptr eptr;
+  std::atomic<bool> done{false};
+
+  // Far deadline on purpose: the periodic sweep must not be able to be what resolves this park, or the
+  // test would pass with the drain removed.
+  // Counts genuine cross-thread resumes: AcquireAccessorCoro threads this hook into every ParkState it
+  // builds and the posted resume closure fires it right after resuming the handle.
+  std::atomic<int> resumes{0};
+  auto driver = MakeDriverWithResumeHook(store,
+                                         storage::UNIQUE,
+                                         std::chrono::steady_clock::now() + std::chrono::seconds(600),
+                                         pool,
+                                         result,
+                                         eptr,
+                                         done,
+                                         [&resumes] { resumes.fetch_add(1, std::memory_order_release); });
+
+  pool.ScheduledAddTask([&](auto /*priority*/) { driver.Run(); }, utils::Priority::LOW);
+
+  ASSERT_TRUE(BoundedWaitUntil([&] { return store.main_lock_resume_event().WaitersPending() > 0; },
+                               std::chrono::milliseconds(1000)))
+      << "coroutine never parked, so there is nothing for the drain to resume";
+  ASSERT_FALSE(done.load());
+  ASSERT_EQ(resumes.load(), 0) << "nothing should have resumed this park yet";
+
+  // The holder is STILL HELD here and is never released in this test: no lock-release notify can
+  // happen, so the drain below is the only thing in the process that can touch this park.
+  store.DrainParkedMainLockWaiters();
+
+  // Observe the RESUME, not the waiter count. Counting waiters cannot discriminate here: the entry is
+  // already present before the drain and the re-park puts one back, so `WaitersPending() > 0` is true
+  // whether or not the drain did anything -- I wrote that assertion first and the mutation run passed
+  // 3/3 with the drain removed. The resume hook fires once per genuine cross-thread resume, so it is
+  // the only thing that separates "resumed and re-parked" from "never touched".
+  ASSERT_TRUE(BoundedWaitUntil([&] { return resumes.load() > 0; }, std::chrono::milliseconds(2000)))
+      << "after DrainParkedMainLockWaiters() the park was never resumed: the drain dropped the waiter "
+         "instead of resuming it. In production that is a permanently suspended frame holding its "
+         "Session, its DatabaseAccess, and Gatekeeper<Database>::count_ above zero";
+  EXPECT_FALSE(done.load()) << "the acquire completed even though its conflicting holder is still held";
+
+  // Teardown: the re-parked waiter is resolved by the pool drain, exactly as in the test above.
+  pool.ShutDown();
+  pool.AwaitShutdown();
+  EXPECT_TRUE(done.load());
+  held->Abort();
+  held.reset();
 }

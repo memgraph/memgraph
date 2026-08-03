@@ -74,10 +74,15 @@ bool GetStorageGcAggressive();
 
 /**
  * @brief Cheap (relaxed-atomic) read of --experimental-coro-prepare-accessor-yield. Safe to call
- * from hot release paths (e.g. Storage::NotifyMainLockReleased()) -- unlike the Settings-backed
- * getters above, this flag is NOT registered with the runtime Settings store (it is a
- * startup-only experimental flag, mirroring storage_gc_aggressive_'s cached-atomic shape but
- * without the persistence/SET machinery). Populated by RefreshCoroPrepareAccessorYieldEnabled().
+ * from hot release paths (e.g. Storage::NotifyMainLockReleased()). Unlike the Settings-backed
+ * getters above, this flag is NOT registered with the runtime Settings store: it is startup-only,
+ * with no persistence and no SET support, so the cached atomic below is populated once by
+ * RefreshCoroPrepareAccessorYieldEnabled() and never again.
+ *
+ * Deliberately NOT described as "storage_gc_aggressive_'s shape without the persistence machinery",
+ * which an earlier version of this comment said: storage_gc_aggressive_ IS Settings-registered
+ * (see the registration table in the .cpp), so that comparison pointed at the wrong half of the
+ * distinction. The cached-atomic READ shape is shared; the registration is not.
  *
  * @return bool
  */
