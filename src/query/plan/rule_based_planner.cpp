@@ -692,7 +692,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     }
     const auto &extra_bound_symbols =
         position_ == BodyPosition::kProjection ? kNoExtraBoundSymbols : post_produce_bound_symbols_;
-    auto op = pc_ctx_->planner->Plan(it->second, pc_ctx_->view, extra_bound_symbols);
+    auto op = pc_ctx_->planner->Plan(
+        it->second, PatternComprehensionView(it->second, pc_ctx_->write_occurred), extra_bound_symbols);
     auto &datas = Bucket(position_);
     datas[result_sym] = PatternComprehensionData(std::move(op), result_sym, it->second.expansion_symbols);
     pending.erase(it);
@@ -956,7 +957,7 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
     // when the subquery is fully planned later.
     std::unordered_map<Symbol, PatternComprehensionMatching> empty_pending;
     PatternComprehensionContext pc_ctx{
-        .pending_comprehensions = empty_pending, .planner = nullptr, .view = storage::View::OLD};
+        .pending_comprehensions = empty_pending, .planner = nullptr, .write_occurred = false};
     auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, pc_ctx, nullptr, false);
     return bound_symbols;
   }

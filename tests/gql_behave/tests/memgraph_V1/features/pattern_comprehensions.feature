@@ -934,3 +934,33 @@ Feature: Pattern comprehensions
         Then the result should be:
             | name    |
             | 'Alice' |
+
+
+    Scenario: Variable-length pattern comprehension after a write reads the pre-write view
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A)-[:R]->(:C)-[:R2]->(:D)
+            """
+        When executing query:
+            """
+            MATCH (c:C) CREATE (:X) RETURN size([(c)-[:R2*1..2]->(z) | z]) AS n
+            """
+        Then the result should be:
+            | n |
+            | 1 |
+
+    # Kept last: a variable-length expansion cannot read the new view, so this shape is refused rather than answered.
+    # Before the shared view rule it was handed the new view and took the whole server down with it.
+    Scenario: Variable-length pattern comprehension over a node the same clause creates is refused
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A)-[:R]->(:C)-[:R2]->(:D)
+            """
+        When executing query:
+            """
+            MATCH (a:A) CREATE (a)-[:R4]->(b:C3)-[:R2]->(:D)
+            RETURN size([(b)-[:R2*1..2]->(z) | z]) AS n
+            """
+        Then an error should be raised

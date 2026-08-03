@@ -57,11 +57,27 @@ struct PatternComprehensionPlanner {
 /// position its own clause binds, so the planning context's bound symbols are already complete.
 inline const std::unordered_set<Symbol> kNoExtraBoundSymbols{};
 
+/// ExpandVariable requires View::OLD, so a comprehension whose pattern has a variable-length edge must use it.
+/// Planning one with View::NEW kills the server.
+inline bool HasVariableLengthExpansion(const PatternComprehensionMatching &pc) {
+  return std::ranges::any_of(pc.expansions,
+                             [](const auto &expansion) { return expansion.edge && expansion.edge->IsVariable(); });
+}
+
+/// The one view rule for a comprehension branch, shared by every splice point. A clause sees the effects of the
+/// clauses before it, and within one command there is no AdvanceCommand to fold a write into View::OLD, so a
+/// comprehension planned after a write reads View::NEW - except where ExpandVariable cannot service it.
+inline storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, bool write_occurred) {
+  if (HasVariableLengthExpansion(pc)) return storage::View::OLD;
+  return write_occurred ? storage::View::NEW : storage::View::OLD;
+}
+
 /// Context for on-demand pattern comprehension planning in RETURN/WITH bodies.
 struct PatternComprehensionContext {
   std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions;
   PatternComprehensionPlanner *planner;
-  storage::View view;
+  /// Whether a write clause has already been planned in this query part; feeds @c PatternComprehensionView.
+  bool write_occurred;
 };
 
 /// @brief Context which contains variables commonly used during planning.
@@ -327,9 +343,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         for (const auto &clause : single_query_part.remaining_clauses) {
           MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
 
-          // Create context with current view for RETURN/WITH
-          auto current_view = write_occurred ? storage::View::NEW : storage::View::OLD;
-          PatternComprehensionContext pc_ctx{pending_comprehensions, this, current_view};
+          PatternComprehensionContext pc_ctx{pending_comprehensions, this, write_occurred};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
             input_op = impl::GenReturn(*ret,
@@ -1343,28 +1357,6 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     });
   }
 
-  /// ExpandVariable requires View::OLD, so a comprehension whose pattern has a variable-length edge must use it.
-  static bool HasVariableLengthExpansion(const PatternComprehensionMatching &pc) {
-    return std::ranges::any_of(pc.expansions,
-                               [](const auto &expansion) { return expansion.edge && expansion.edge->IsVariable(); });
-  }
-
-  /// True if the comprehension reads something bound outside it: either from its filter or result expression, or a
-  /// pattern symbol that is already bound, e.g. `a` in `[(a)-->(x)|x]` when `a` comes from a CREATE.
-  static bool ReferencesExternalSymbols(const PatternComprehensionMatching &pc,
-                                        const std::unordered_set<Symbol> &bound_symbols) {
-    if (!pc.external_symbols.empty()) return true;
-    return std::ranges::any_of(pc.expansion_symbols, [&](const Symbol &sym) { return bound_symbols.contains(sym); });
-  }
-
-  /// The view a comprehension must be planned with. Every site draining `pending_comprehensions` must use this: a
-  /// comprehension planned after a write, over a symbol that write bound, sees nothing under View::OLD.
-  static storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, bool write_occurred,
-                                                const std::unordered_set<Symbol> &bound_symbols) {
-    if (HasVariableLengthExpansion(pc)) return storage::View::OLD;
-    return write_occurred && ReferencesExternalSymbols(pc, bound_symbols) ? storage::View::NEW : storage::View::OLD;
-  }
-
   /// The one place a pending comprehension turns into a `RollUpApply`. Every operator chain that can evaluate one
   /// drains through here - the main clause chain, a FOREACH body, and each MERGE branch - because a comprehension
   /// must be spliced onto the chain that *reads* it, not merely the one its clause sits on. Both defects this file
@@ -1388,7 +1380,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         ++it;
         continue;
       }
-      auto pc_op = Plan(pc, PatternComprehensionView(pc, write_occurred, bound_symbols), extra_bound_symbols);
+      auto pc_op = Plan(pc, PatternComprehensionView(pc, write_occurred), extra_bound_symbols);
       auto symbols = pc_op->ModifiedSymbols(*context_->symbol_table);
       chain = std::make_unique<RollUpApply>(std::move(chain), std::move(pc_op), symbols, sym);
       it = pending_comprehensions.erase(it);
