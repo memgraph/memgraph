@@ -3275,10 +3275,26 @@ class StorageMainLockWakeHookTest : public ::testing::Test {
     memgraph::flags::run_time::RefreshCoroPrepareAccessorYieldEnabled();
   }
 
+  // Sets the flag and THEN builds the storage, in that order -- which is required, not stylistic.
+  // Storage's constructor decides whether to install the admit observer at all by reading the flag,
+  // because the flag is startup-only in production and never flips under a live storage. So a test
+  // that constructs first and flips afterwards asserts nothing: the observer is already installed (or
+  // already absent), and NotifyMainLockReleased does not re-check.
+  //
+  // Periodic GC disabled: a background GC UNIQUE-release could otherwise call
+  // NotifyMainLockReleased() on its own and make these single-threaded assertions racy/flaky.
+  auto StoreWithFlag(bool enabled) -> memgraph::storage::InMemoryStorage & {
+    SetFlag(enabled);
+    store_.emplace(memgraph::storage::Config{
+        .gc = {.type = memgraph::storage::Config::Gc::Type::NONE},
+        .transaction = {.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
+    return *store_;
+  }
+
   // Registers a recording waiter on `store`'s main_lock_resume_event() at the current epoch and
-  // returns its ParkState; `*fired` becomes true exactly when some wake source claims and invokes
-  // it.
-  auto RegisterRecordingWaiter(std::shared_ptr<bool> fired) -> std::shared_ptr<memgraph::utils::ParkState> {
+  // returns its ParkState; `*fired` becomes true exactly when some wake source claims and invokes it.
+  auto RegisterRecordingWaiter(memgraph::storage::InMemoryStorage &store, std::shared_ptr<bool> fired)
+      -> std::shared_ptr<memgraph::utils::ParkState> {
     auto &event = store.main_lock_resume_event();
     auto ps = std::make_shared<memgraph::utils::ParkState>();
     ps->set_on_resume([fired] { *fired = true; });
@@ -3294,22 +3310,17 @@ class StorageMainLockWakeHookTest : public ::testing::Test {
     return ps;
   }
 
-  // Periodic GC disabled: a background GC UNIQUE-release could otherwise call
-  // NotifyMainLockReleased() on its own and make these single-threaded assertions racy/flaky.
-  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::NONE},
-      .transaction = {.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
-
  private:
+  std::optional<memgraph::storage::InMemoryStorage> store_;
   bool saved_flag_;
 };
 
 TEST_F(StorageMainLockWakeHookTest, UniqueReleaseFiresWhenFlagOnAndWaiterParked) {
   using namespace memgraph::storage;
-  SetFlag(true);
+  auto &store = StoreWithFlag(true);
 
   auto fired = std::make_shared<bool>(false);
-  auto ps = RegisterRecordingWaiter(fired);
+  auto ps = RegisterRecordingWaiter(store, fired);
   ASSERT_EQ(store.main_lock_resume_event().WaitersPending(), 1U);
 
   {
@@ -3327,10 +3338,10 @@ TEST_F(StorageMainLockWakeHookTest, UniqueReleaseFiresWhenFlagOnAndWaiterParked)
 
 TEST_F(StorageMainLockWakeHookTest, ReadOnlyReleaseFiresWhenFlagOnAndWaiterParked) {
   using namespace memgraph::storage;
-  SetFlag(true);
+  auto &store = StoreWithFlag(true);
 
   auto fired = std::make_shared<bool>(false);
-  RegisterRecordingWaiter(fired);
+  RegisterRecordingWaiter(store, fired);
 
   {
     auto ro_acc = store.ReadOnlyAccess();
@@ -3343,10 +3354,10 @@ TEST_F(StorageMainLockWakeHookTest, ReadOnlyReleaseFiresWhenFlagOnAndWaiterParke
 
 TEST_F(StorageMainLockWakeHookTest, DoesNotFireWhenFlagOff) {
   using namespace memgraph::storage;
-  SetFlag(false);
+  auto &store = StoreWithFlag(false);
 
   auto fired = std::make_shared<bool>(false);
-  RegisterRecordingWaiter(fired);
+  RegisterRecordingWaiter(store, fired);
 
   {
     auto unique_acc = store.UniqueAccess();
@@ -3365,10 +3376,10 @@ TEST_F(StorageMainLockWakeHookTest, DoesNotFireWhenFlagOff) {
 // query behind ongoing writes slept until its deadline instead of resuming when the writes drained.)
 TEST_F(StorageMainLockWakeHookTest, WriteReleaseFiresWhenFlagOnAndWaiterParked) {
   using namespace memgraph::storage;
-  SetFlag(true);
+  auto &store = StoreWithFlag(true);
 
   auto fired = std::make_shared<bool>(false);
-  auto ps = RegisterRecordingWaiter(fired);
+  auto ps = RegisterRecordingWaiter(store, fired);
   ASSERT_EQ(store.main_lock_resume_event().WaitersPending(), 1U);
 
   {
@@ -3386,10 +3397,10 @@ TEST_F(StorageMainLockWakeHookTest, WriteReleaseFiresWhenFlagOnAndWaiterParked) 
 
 TEST_F(StorageMainLockWakeHookTest, ReadReleaseFiresWhenFlagOnAndWaiterParked) {
   using namespace memgraph::storage;
-  SetFlag(true);
+  auto &store = StoreWithFlag(true);
 
   auto fired = std::make_shared<bool>(false);
-  auto ps = RegisterRecordingWaiter(fired);
+  auto ps = RegisterRecordingWaiter(store, fired);
   ASSERT_EQ(store.main_lock_resume_event().WaitersPending(), 1U);
 
   {
@@ -3405,7 +3416,7 @@ TEST_F(StorageMainLockWakeHookTest, ReadReleaseFiresWhenFlagOnAndWaiterParked) {
 
 TEST_F(StorageMainLockWakeHookTest, NoWaitersIsACheapSafeNoOp) {
   using namespace memgraph::storage;
-  SetFlag(true);
+  auto &store = StoreWithFlag(true);
 
   ASSERT_EQ(store.main_lock_resume_event().WaitersPending(), 0U);
   EXPECT_NO_THROW(store.NotifyMainLockReleased());

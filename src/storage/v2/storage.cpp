@@ -101,16 +101,19 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
         };
         return std::make_unique<DefaultDatabaseProtector>();
       }} {
-  // Wire the park wake to main_lock_'s own admission points, once, instead of to the call sites that
-  // release it. ResourceLock is the only place that knows whether a transition actually admitted
-  // anybody (see set_admit_observer), so this is exhaustive by construction: every release, every
-  // downgrade, a pending registration dropped by a timed-out or throwing acquirer, and a guard
-  // unwound because an Accessor constructor threw all funnel through the same notify point.
-  // Enumerating those sites by hand is what previously missed five of them.
+  // Wire the park wake to main_lock_'s own admission points rather than to the call sites that
+  // release it: ResourceLock is the only place that knows whether a transition actually admitted
+  // anybody, so hooking there is exhaustive by construction (release, downgrade, a pending
+  // registration dropped by a timed-out or throwing acquirer, a guard unwound by a throwing Accessor
+  // constructor). Enumerating those sites by hand previously missed five of them.
   //
-  // `this` is safe to capture: Storage is neither copied nor moved (owned via unique_ptr), main_lock_
-  // is a member, and the observer is installed before the lock is shared with any other thread.
-  main_lock_.set_admit_observer([this] { NotifyMainLockReleased(); });
+  // Gated at INSTALL time, not per notification: the flag is startup-only (no SET support), so an
+  // uninstalled observer is the whole feature's off-switch at this level -- with it absent, no
+  // release path reaches any park code at all. `this` is safe to capture: Storage is neither copied
+  // nor moved, main_lock_ is a member, and this runs before the lock is shared with another thread.
+  if (flags::run_time::CoroPrepareAccessorYieldEnabled()) {
+    main_lock_.set_admit_observer([this] { NotifyMainLockReleased(); });
+  }
 
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
@@ -183,21 +186,21 @@ std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(
   return {};
 }
 
+void Storage::DrainParkedMainLockWaiters() {
+  // With the flag off no admit observer is installed, so nothing can ever have parked here. Gating
+  // once in this function rather than at each call site keeps the two callers (memgraph.cpp's
+  // pool-still-alive drain and StopAllBackgroundTasks' idempotent second pass) from disagreeing.
+  if (!flags::run_time::CoroPrepareAccessorYieldEnabled()) return;
+  main_lock_resume_event_.Drain();
+}
+
 void Storage::NotifyMainLockReleased() {
-  // Cost, stated exactly, because this runs on every release of this storage's main lock: ONE relaxed
-  // load with the feature off, and TWO with it on and nobody parked (the flag, then the waiter count).
-  // No mutex is touched in either case (R1 §B1/C5). An earlier version of this comment said "exactly
-  // one relaxed load" full stop, which was true only of the flag-off path -- worth being precise about
-  // now that the flag defaults ON, since the two-load path is the one every installation takes.
+  // Runs on every admission of this storage's main lock, so the cost matters: one relaxed load when
+  // nobody is parked, no mutex touched. No flag check here -- the observer that calls this is only
+  // installed when the flag is on (see the constructor), so reaching this function already implies it.
   //
-  // This is the ENTIRE cost paid by every release site that calls this function -- including plain
-  // READ/WRITE releases (F5 fix: those DO need to poke this, since releasing the last conflicting
-  // WRITE/READ holder can be exactly what unblocks a parked READ_ONLY/UNIQUE waiter, which is why
-  // this hangs off ResourceLock's own notify points rather than off enumerated release sites --
-  // see set_admit_observer).
-  if (!flags::run_time::CoroPrepareAccessorYieldEnabled()) {
-    return;
-  }
+  // Plain READ/WRITE releases must poke this too, not just READ_ONLY/UNIQUE ones: releasing the last
+  // conflicting WRITE/READ holder can be exactly what unblocks a parked READ_ONLY/UNIQUE waiter.
   if (main_lock_resume_event_.WaitersPending() > 0) {
     main_lock_resume_event_.NotifyAll();
   }

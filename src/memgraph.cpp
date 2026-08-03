@@ -1104,15 +1104,12 @@ int main(int argc, char **argv) {
     // ShutDown() sets its stop flag before draining. StopAllBackgroundTasks() further down drains
     // again as the DROP DATABASE path needs it to.
     //
-    // Deliberately NOT preceded by server.Shutdown(). An earlier version of this stopped incoming
-    // traffic first, on the reasoning that the parked population should stop growing from outside
-    // before draining. Review showed that bought nothing -- the two mechanisms above already cover
-    // every registration window, with or without new arrivals -- and cost something real: master
-    // stops the pool before the server precisely because "workers can enqueue io tasks", and
+    // Deliberately NOT preceded by server.Shutdown(). Stopping incoming traffic first buys nothing --
+    // the two mechanisms above already cover every registration window -- and costs something real:
+    // master stops the pool before the server precisely because workers can enqueue io tasks, and
     // Worker::stop() only sets a flag without joining, so a worker finishing a query after ShutDown()
     // returns still posts its Bolt response. With the io_context already stopped that response is
-    // dropped. That is a flag-independent regression, affecting installations that never enable this
-    // feature, in exchange for an ordering that was not load-bearing.
+    // dropped -- a flag-independent regression, for an ordering that is not load-bearing.
     if (dbms_handler.has_value()) {
       dbms_handler->ForEach([](memgraph::dbms::DatabaseAccess acc) {
         spdlog::trace("Draining parked storage waiters for db: {}", acc->name());

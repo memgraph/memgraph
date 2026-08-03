@@ -405,38 +405,26 @@ class Storage {
   std::expected<void, SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
   IsolationLevel GetIsolationLevel() const noexcept;
 
-  /// Per-Storage wake event for a parked (coro-prepare) waiter blocked on `main_lock_` (IP-1
-  /// design doc, opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 3
-  /// §R3.1, corrected by the F5 fix below). ALL release sites -- UNIQUE, READ_ONLY, WRITE, and
-  /// READ alike -- must poke this; see NotifyMainLockReleased().
+  /// Per-Storage wake event for a parked (coro-prepare) waiter blocked on `main_lock_`.
   utils::WorkerResumeEvent &main_lock_resume_event() { return main_lock_resume_event_; }
 
-  /// Resumes and releases every waiter parked on `main_lock_resume_event()`, so each observes
-  /// shutdown and bails instead of sleeping forever. Idempotent: Drain() moves every entry out and
-  /// only invokes a resume for one whose single-owner ClaimPark it wins, so a second pass is a
-  /// harmless prune.
+  /// Resumes and releases every parked waiter so each observes shutdown and bails instead of
+  /// sleeping forever. Idempotent -- a second pass is a harmless prune. No-op when the coro-prepare
+  /// flag is off (nothing can have parked); this is the single gate for every drain caller.
   ///
-  /// MUST be called while the worker pool is still running -- a resume is posted to a worker, and a
-  /// worker that has already exited will never execute it, leaving the coroutine parked forever and
-  /// leaking the Session it pins. See the shutdown sequence in memgraph.cpp.
-  void DrainParkedMainLockWaiters() { main_lock_resume_event_.Drain(); }
+  /// MUST be called while the worker pool is still running: a resume is posted to a worker, and one
+  /// that has already exited never executes it, leaving the coroutine parked forever and leaking the
+  /// Session it pins. See the shutdown sequence in memgraph.cpp.
+  void DrainParkedMainLockWaiters();
 
-  /// Wakes any coro-prepare waiter parked on `main_lock_resume_event()`, if the experimental flag
-  /// is on AND somebody is actually parked (R3.1/C5) -- cheap otherwise: ONE relaxed bool load with the
-  /// flag off, TWO loads with it on and nobody parked (the flag, then an ACQUIRE load of the waiter
-  /// count -- not relaxed; see NotifyMainLockReleased's own comment, which this used to contradict). Callers MUST
-  /// invoke this AFTER the guard has ACTUALLY released `main_lock_` (C3) -- never while still holding it.
+  /// Wakes any parked waiter. Callers MUST invoke this AFTER the guard has actually released
+  /// `main_lock_` -- never while still holding it.
   ///
-  /// F5 fix: call this for EVERY release mode, including plain READ/WRITE, not only UNIQUE/
-  /// READ_ONLY. main_lock_'s conflict matrix (utils::ResourceLock) is: UNIQUE excludes all;
-  /// READ_ONLY excludes WRITE (coexists with READ); READ/WRITE coexist with each other. So a
-  /// parked READ_ONLY/UNIQUE waiter is unblocked precisely when the LAST conflicting WRITE (or
-  /// READ, for UNIQUE) holder releases -- not only by another UNIQUE/READ_ONLY release. The
-  /// original "READ/WRITE never gate another acquirer" reasoning conflated "never blocks a NEW
-  /// READ/WRITE acquirer" (true) with "release can never unblock a WAITING acquirer of a different
-  /// mode" (false). The relaxed-load gate above keeps this cheap on every hot commit path
-  /// regardless of mode; only a genuinely parked waiter pays the (bounded, correctness-necessary)
-  /// extra wake-and-reprobe cost.
+  /// Every release mode must call it, including plain READ/WRITE. main_lock_'s conflict matrix is:
+  /// UNIQUE excludes all; READ_ONLY excludes WRITE (coexists with READ); READ/WRITE coexist. So a
+  /// parked READ_ONLY/UNIQUE waiter is unblocked precisely when the LAST conflicting WRITE (or READ,
+  /// for UNIQUE) holder releases -- not only by another UNIQUE/READ_ONLY release. "READ/WRITE never
+  /// gate another acquirer" is true of a NEW READ/WRITE acquirer and false of a WAITING one.
   void NotifyMainLockReleased();
 
   virtual StorageInfo GetBaseInfo() = 0;
@@ -489,55 +477,29 @@ class Storage {
 
     ttl_.Shutdown();
 
-    // Shutdown-latency/deadlock fix (IP-1 coro-prepare-accessor-yield, opencode-work/
-    // resource-lock-starvation/coro-prepare/ip1-design.md REVISION 4 §R4.4): drain any coro-prepare
-    // waiter still registered on THIS storage's main_lock_resume_event_.
+    // A genuine park dual-registers the SAME shared_ptr<ParkState> in TWO registries (see
+    // query::detail::AcquireAwaitable::await_suspend): the pool's DeadlineParkRegistry (deadline
+    // backstop, drained by PriorityThreadPool::ShutDown) and this per-Storage event (lock-release
+    // wake). Draining only the pool side leaks: the waiters_ entry keeps the ParkState alive, whose
+    // on_resume closure keeps the parked Session and its DatabaseAccess alive, which holds
+    // Gatekeeper<Database>::count_ above zero -- and ~Gatekeeper blocks 5 minutes on count_ == 0.
     //
-    // PriorityThreadPool::ShutDown() already drains its OWN DeadlineParkRegistry (priority_thread_
-    // pool.cpp), which claims+resumes every parked ParkState so the waiting connection completes or
-    // bails (observes IsShuttingDown()) almost immediately -- that part works. But a genuine park
-    // dual-registers the SAME shared_ptr<ParkState> in TWO registries (see
-    // query::detail::AcquireAwaitable::await_suspend, query/coro_accessor.hpp): the pool's
-    // DeadlineParkRegistry (deadline sweep backstop) AND this per-Storage main_lock_resume_event_
-    // (lock-release wake). Only the pool-side registry was ever drained anywhere in production code
-    // -- WorkerResumeEvent::Drain() existed (utils/worker_resume_event.hpp) but had NO caller. Left
-    // undrained, the entry in main_lock_resume_event_'s waiters_ list keeps its shared_ptr<ParkState>
-    // alive forever, and that ParkState's on_resume closure transitively keeps alive whatever it
-    // captured (the parked connection's Session, and therefore its DatabaseAccess/
-    // Gatekeeper<Database>::Accessor) -- a real leak, not just a slow path. That leaked accessor
-    // keeps Gatekeeper<Database>::count_ above zero forever, and ~Gatekeeper() blocks in
-    // cv_.wait_for(lock, 5min, count_==0) -- turning "a query was parked at some point against this
-    // database" into a process-wide shutdown hang (observed as the 17.3s+ -- in practice unbounded,
-    // only ever cut short externally -- shutdown latency this fix addresses).
-    //
-    // By the time process shutdown reaches here the real drain has already happened, earlier and
-    // deliberately: memgraph.cpp stops incoming traffic, then drains every storage's parked waiters
-    // while the worker pool is still alive, and only then stops the pool. This call is the
-    // idempotent second pass (and the only pass on the DROP DATABASE path, where the pool is not
-    // shutting down at all). Drain() moves every entry out of waiters_ and only resumes one whose
-    // ClaimPark it wins, so an already-claimed entry is pruned rather than resumed twice.
-    //
-    // Do NOT rely on this as the primary drain: a resume is posted to a worker, so draining after the
-    // pool has stopped never runs it -- the coroutine stays parked and leaks the Session it pins,
-    // holding Gatekeeper<Database>::count_ above zero and stalling ~Gatekeeper for minutes. That was
-    // the original failure this whole mechanism was added for; see DrainParkedMainLockWaiters().
-    main_lock_resume_event_.Drain();
+    // This is the IDEMPOTENT SECOND PASS, and the only pass on the DROP DATABASE path (where the pool
+    // is not shutting down at all). Do NOT make it the primary one: a resume is posted to a worker,
+    // so draining after the pool has stopped never runs it. memgraph.cpp does the real drain while
+    // the pool is still alive.
+    DrainParkedMainLockWaiters();
   }
 
   // TODO: make non-public
   ReplicationStorageState repl_storage_state_;
 
-  // Wake event for a coro-prepare waiter parked on main_lock_ (see main_lock_resume_event() /
-  // NotifyMainLockReleased() above; IP-1 design doc REVISION 3 §R3.1). Pool-agnostic by design
-  // (utils::WorkerResumeEvent has no knowledge of PriorityThreadPool/tasks/coroutines) -- each
+  // Wake event for a coro-prepare waiter parked on main_lock_. Pool-agnostic by design -- each
   // waiter's ParkState carries its own on_resume closure.
   //
-  // Declared BEFORE main_lock_ so it is destroyed AFTER it. main_lock_ holds an admit observer that
-  // calls NotifyMainLockReleased(), which touches this event, and members are destroyed in reverse
-  // declaration order -- so with the two the other way round, any main_lock_ release during teardown
-  // would reach a destroyed event. No such release is reachable today (nothing declared between them
-  // holds a guard, and ~Storage has no body), but the dependency runs one way and the declaration
-  // order should match it.
+  // INVARIANT: declared BEFORE main_lock_, so it is destroyed AFTER it. main_lock_ holds an admit
+  // observer that touches this event, and members die in reverse declaration order; the other way
+  // round, a main_lock_ release during teardown would reach a destroyed event.
   utils::WorkerResumeEvent main_lock_resume_event_;
 
   // Main storage lock.
@@ -669,21 +631,17 @@ class Accessor {
 
   Accessor(Accessor &&other) noexcept;
 
-  // `= default` in storage.cpp (out-of-line only so this polymorphic class has one key function and
-  // the vtable is emitted in a single TU).
+  // `= default` in storage.cpp -- out-of-line only so this polymorphic class has one key function and
+  // emits its vtable in a single TU.
   //
-  // It has no body on purpose. The wake for a parked waiter comes from guard_'s own implicit member
-  // destruction: ~ResourceLockGuard -> ResourceLock::release -> maybe_notify -> the admit observer
-  // Storage installs -> NotifyMainLockReleased(). That satisfies C3 (the wake must land after the hold
-  // is actually gone) because maybe_notify unlocks before invoking the observer, and it covers every
-  // release site rather than the ones an explicit dtor body happened to enumerate -- an earlier
-  // version of this dtor DID release and notify by hand, and hand-enumerating the sites is what
-  // previously missed five of them. A guard handed off via ReleaseGuard() owns nothing here, so its
-  // new owner's release notifies instead, with no branch needed on this side.
+  // Empty on purpose: the wake for a parked waiter comes from guard_'s own implicit destruction
+  // (~ResourceLockGuard -> release -> maybe_notify -> Storage's admit observer). That covers every
+  // release site instead of the ones a hand-written dtor body happens to enumerate, and it lands
+  // after the hold is actually gone because maybe_notify unlocks before invoking the observer. A
+  // guard handed off via ReleaseGuard() owns nothing here, so its new owner notifies instead.
   //
-  // Note guard_ is declared BEFORE transaction_ below, so the hold outlives the transaction and is
-  // released last. NotifyMainLockReleased() is one relaxed flag load (flag off) or two loads (flag on,
-  // the READ/WRITE hot path stays cheap.
+  // guard_ is declared BEFORE transaction_ below, so the hold outlives the transaction and is
+  // released last.
   virtual ~Accessor();
 
   StorageAccessType original_access_type() const { return original_access_type_; }
