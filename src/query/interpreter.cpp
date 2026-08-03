@@ -70,6 +70,7 @@
 #include "query/config.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
+#include "query/coro_accessor.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/dependant_symbol_visitor.hpp"
 #include "query/dump.hpp"
@@ -218,6 +219,26 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
       spdlog::error("Unknown accessor type: {}", static_cast<int>(acc_type));
       throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
   }
+  execution_db_accessor_.emplace(db_transactional_accessor_.get());
+
+  transaction_gauge_ = metrics::ScopedGauge{db_acc->metric_handles()->active_transactions.gauge};
+
+  if (db_acc->trigger_store()->HasTriggers() && could_commit) {
+    trigger_context_collector_.emplace(db_acc->trigger_store()->GetEventTypes());
+  }
+}
+
+// As SetupDatabaseTransaction above, but for an accessor acquired elsewhere (AcquireAccessorCoro), so
+// it never takes a hold and never blocks -- the caller already owns one.
+void memgraph::query::CurrentDB::SetupDatabaseTransactionWith(std::unique_ptr<storage::Accessor> accessor,
+                                                              bool could_commit) {
+  if (!db_acc_) {
+    throw DatabaseContextRequiredException("Database required for the transaction setup.");
+  }
+  auto &db_acc = *db_acc_;
+  // Scoped to this call only, never across a co_await -- the await completed before we are invoked.
+  const memory::DbArenaScope db_arena_scope{db_acc.get()};
+  db_transactional_accessor_ = std::move(accessor);
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
 
   transaction_gauge_ = metrics::ScopedGauge{db_acc->metric_handles()->active_transactions.gauge};
@@ -5980,6 +6001,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
                   "associated triggers. Drop all triggers and retry.");
             }
 
+            // A parked waiter is woken on this guard's release without this site doing anything:
+            // ResourceLock fires the admit observer from its own notify points.
             std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
             if (auto vertex_cnt_approx = in.storage()->GetBaseInfo().vertex_count; vertex_cnt_approx > 0) {
               throw utils::BasicException(
@@ -9808,6 +9831,107 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   std::optional<storage::StorageAccessType> accessor_type_;
 };
 
+// Deliberately NOT derived from Visitor<...> so it can be returned by value: Visitor user-declares a
+// virtual dtor, which deprecates the implicit copy/move ctor and -Werror then rejects the return.
+struct TransactionRequirements {
+  std::optional<storage::StorageAccessType> accessor_type_;
+  std::optional<storage::IsolationLevel> isolation_level_override_;
+  bool could_commit_ = false;
+  // True when the chosen accessor_type_ was derived from the storage mode, so a SET STORAGE MODE
+  // landing before the accessor takes its hold invalidates the choice.
+  bool mode_dependent_ = false;
+  // The mode this resolution was computed against (unlocked read), carried so both call sites can
+  // compare it against the mode the accessor actually pinned.
+  std::optional<storage::StorageMode> storage_mode_;
+};
+
+// What accessor a NEW autocommit query needs. Read-only over the AST, shared by Prepare() and
+// PrepareCoro() so the two can never disagree. Only called when !in_explicit_transaction_ -- a BEGIN'd
+// transaction already has its accessor.
+TransactionRequirements ResolveTransactionRequirements(memgraph::query::CurrentDB const &current_db,
+                                                       ParsedQuery &parsed_query) {
+  auto storage_mode = current_db.db_acc_
+                          ? std::optional<storage::StorageMode>{(*current_db.db_acc_)->storage()->GetStorageMode()}
+                          : std::nullopt;
+  // Visitor is a LOCAL only -- never returned -- so its non-trivial destructor (from Visitor<...>)
+  // never has to survive a by-value return.
+  auto visitor =
+      QueryTransactionRequirements{parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
+  parsed_query.query->Accept(visitor);
+  return TransactionRequirements{
+      .accessor_type_ = visitor.accessor_type_,
+      .isolation_level_override_ = visitor.isolation_level_override_,
+      .could_commit_ = visitor.could_commit_,
+      .mode_dependent_ = visitor.mode_dependent_,
+      .storage_mode_ = storage_mode,
+  };
+}
+
+// Fail-closed gate for databases that failed durability recovery under
+// --storage-allow-recovery-failure. Pure over `current_db`/`q`, throws on rejection, so it is safe
+// either before or after an accessor is acquired.
+void CheckBrokenDatabaseGate(memgraph::query::CurrentDB const &current_db, Query *q) {
+  if (!current_db.db_acc_ || !(*current_db.db_acc_)->storage()->IsBroken()) return;
+  // Allowlist: in the broken state only the cure query (RECOVER SNAPSHOT) and meta/admin queries that
+  // never touch the tenant graph are permitted. Everything else (Cypher, DDL, CREATE SNAPSHOT, SHOW
+  // INDEX/CONSTRAINT/NODE LABELS/EDGE TYPES/METRICS INFO, ...) is rejected until the database is
+  // recovered: those SHOW ... INFO variants read tenant-graph metadata from the empty
+  // post-recovery-failure storage and would otherwise return a misleading clean 0-row result instead
+  // of surfacing the broken health. Auth, replication, profile and other instance-level queries operate
+  // on system state rather than the tenant graph, so they remain available for remediation while a
+  // tenant is broken.
+  auto const is_allowed =
+      [q]<typename... Ts>() {
+        return (... || (utils::Downcast<Ts>(q) != nullptr));
+      }.template operator()<RecoverSnapshotQuery,
+                            SystemInfoQuery,
+                            ReplicationInfoQuery,
+                            ShowConfigQuery,
+                            ShowQueryCallableMappingsQuery,
+                            SettingQuery,
+                            VersionQuery,
+                            UseDatabaseQuery,
+                            MultiDatabaseQuery,
+                            ShowDatabaseQuery,
+                            ShowDatabasesQuery,
+                            ShowMemoryInfoQuery,
+                            SessionTraceQuery,
+                            SessionSettingQuery,
+                            AuthQuery,
+                            ReplicationQuery,
+                            UserProfileQuery,
+                            TenantProfileQuery,
+                            ParameterQuery,
+                            TransactionQueueQuery,
+                            LockPathQuery,
+                            FreeMemoryQuery,
+                            CoordinatorQuery,
+                            ReloadSSLQuery>();
+  if (!is_allowed) {
+    throw QueryException(kBrokenDatabaseError);
+  }
+}
+
+// Mirrors SessionHL::ApproximateQueryPriority's CypherQuery branch, duplicated rather than shared
+// because that lives in glue/ (which query/ does not depend on) and needs live session state.
+//
+// TRAP: PreparedQuery::priority is not populated until AFTER the acquire, so it must never be read to
+// decide whether THIS acquire may park. This AST-level classification is all that exists that early.
+utils::Priority ApproximatePreparePriority(ParsedQuery const &parsed_query) {
+  if (utils::Downcast<CypherQuery>(parsed_query.query)) [[likely]] {
+    return utils::Priority::LOW;
+  }
+  auto const high_priority =
+      utils::Downcast<ShowConfigQuery>(parsed_query.query) ||
+      utils::Downcast<ShowQueryCallableMappingsQuery>(parsed_query.query) ||
+      utils::Downcast<SettingQuery>(parsed_query.query) || utils::Downcast<VersionQuery>(parsed_query.query) ||
+      utils::Downcast<TransactionQueueQuery>(parsed_query.query) ||
+      utils::Downcast<UseDatabaseQuery>(parsed_query.query) || utils::Downcast<ShowDatabaseQuery>(parsed_query.query) ||
+      utils::Downcast<ShowDatabasesQuery>(parsed_query.query) ||
+      utils::Downcast<ReplicationInfoQuery>(parsed_query.query);
+  return high_priority ? utils::Priority::HIGH : utils::Priority::LOW;
+}
+
 Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
   std::optional<memory::DbArenaScope> db_arena_scope;
@@ -9939,59 +10063,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #endif
 
     if (!in_explicit_transaction_) {
-      auto storage_mode = current_db_.db_acc_
-                              ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
-                              : std::nullopt;
-      auto transaction_requirements = QueryTransactionRequirements{
-          parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
-      parsed_query.query->Accept(transaction_requirements);
-
-      // Fail-closed gate for broken databases (those that failed durability recovery and
-      // came up empty under --storage-allow-recovery-failure). Any query that operates on
-      // the current database's data is rejected until it is recovered via RECOVER SNAPSHOT.
-      // Meta queries (USE/SHOW DATABASES, SHOW STORAGE INFO, auth,
-      // replication, ...) do not touch the tenant graph and are allowed through.
-      if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsBroken()) {
-        auto *q = parsed_query.query;
-        // Allowlist: in the broken state only the cure query (RECOVER SNAPSHOT)
-        // and meta/admin queries that never touch the tenant graph are permitted. Everything else
-        // (Cypher, DDL, CREATE SNAPSHOT, SHOW INDEX/CONSTRAINT/NODE LABELS/EDGE TYPES/METRICS INFO, ...)
-        // is rejected until the database is recovered: those SHOW ... INFO variants read tenant-graph
-        // metadata from the empty post-recovery-failure storage and would otherwise return a misleading
-        // clean 0-row result instead of surfacing the broken health. Auth, replication, profile and
-        // other instance-level queries operate on system state rather than the tenant graph, so they
-        // remain available for remediation while a tenant is broken.
-        auto const is_allowed =
-            [q]<typename... Ts>() {
-              return (... || (utils::Downcast<Ts>(q) != nullptr));
-            }.template operator()<RecoverSnapshotQuery,
-                                  SystemInfoQuery,
-                                  ReplicationInfoQuery,
-                                  ShowConfigQuery,
-                                  ShowQueryCallableMappingsQuery,
-                                  SettingQuery,
-                                  VersionQuery,
-                                  UseDatabaseQuery,
-                                  MultiDatabaseQuery,
-                                  ShowDatabaseQuery,
-                                  ShowDatabasesQuery,
-                                  ShowMemoryInfoQuery,
-                                  SessionTraceQuery,
-                                  SessionSettingQuery,
-                                  AuthQuery,
-                                  ReplicationQuery,
-                                  UserProfileQuery,
-                                  TenantProfileQuery,
-                                  ParameterQuery,
-                                  TransactionQueueQuery,
-                                  LockPathQuery,
-                                  FreeMemoryQuery,
-                                  CoordinatorQuery,
-                                  ReloadSSLQuery>();
-        if (!is_allowed) {
-          throw QueryException(kBrokenDatabaseError);
-        }
-      }
+      auto transaction_requirements = ResolveTransactionRequirements(current_db_, parsed_query);
+      CheckBrokenDatabaseGate(current_db_, parsed_query.query);
 
       if (transaction_requirements.accessor_type_) {
         if (transaction_requirements.isolation_level_override_) {
@@ -10005,402 +10078,678 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         // replans against the pinned mode. The throw unwinds into the catch below, releasing the
         // hold.
         if (transaction_requirements.mode_dependent_ &&
-            current_db_.db_transactional_accessor_->GetPinnedStorageMode() != storage_mode) {
+            current_db_.db_transactional_accessor_->GetPinnedStorageMode() != transaction_requirements.storage_mode_) {
           throw StorageModeChangedDuringSetupException();
         }
       }
     }
 
-    if (current_db_.db_acc_) {
-      // fix parameters, enums requires storage to map to correct enum value
-      parsed_query.user_parameters = params_getter(current_db_.db_acc_->get()->storage());
-      parsed_query.parameters = PrepareQueryParameters(parsed_query.stripped_query,
-                                                       parsed_query.user_parameters,
-                                                       interpreter_context_->parameters,
-                                                       std::string{current_db_.db_acc_->get()->uuid()});
-    }
+    return PlanAndFinalize(
+        parsed_query, params_getter, query_execution, qid, parallel_execution, std::move(system_transaction));
+  } catch (const utils::BasicException &e) {
+    HandlePrepareFailure(query_execution_ptr, e, parsed_query.query_string);
+    throw;
+  }
+}
 
-    const utils::Timer planning_timer;  // TODO: Think about moving it to Parse()
-    memgraph::logging::EmitSessionTraceEvent("Query planning started!");
-    PreparedQuery prepared_query;
-    utils::MemoryResource *memory_resource = query_execution->resource();
-    frame_change_collector_.reset();
-    frame_change_collector_.emplace();
+// Shared Prepare()/PrepareCoro() tail: planning, plan cache, PreparedQuery dispatch. Called from the
+// same relative position in both, i.e. once the accessor is set up.
+Interpreter::PrepareResult Interpreter::PlanAndFinalize(
+    ParsedQuery &parsed_query, UserParameters_fn const &params_getter, std::unique_ptr<QueryExecution> &query_execution,
+    std::optional<int> qid, bool parallel_execution, std::optional<memgraph::system::Transaction> system_transaction) {
+  if (current_db_.db_acc_) {
+    // fix parameters, enums requires storage to map to correct enum value
+    parsed_query.user_parameters = params_getter(current_db_.db_acc_->get()->storage());
+    parsed_query.parameters = PrepareQueryParameters(parsed_query.stripped_query,
+                                                     parsed_query.user_parameters,
+                                                     interpreter_context_->parameters,
+                                                     std::string{current_db_.db_acc_->get()->uuid()});
+  }
 
-    auto make_stopping_context = [&]() {
-      return StoppingContext{
-          .transaction_status = &transaction_status_,
-          .is_shutting_down = &interpreter_context_->is_shutting_down,
-          .timer = current_timeout_timer_,
-          .exception_occurred = parallel_execution ? std::make_shared<std::atomic<uint8_t>>(false) : nullptr,
-      };
+  const utils::Timer planning_timer;  // TODO: Think about moving it to Parse()
+  memgraph::logging::EmitSessionTraceEvent("Query planning started!");
+  PreparedQuery prepared_query;
+  utils::MemoryResource *memory_resource = query_execution->resource();
+  frame_change_collector_.reset();
+  frame_change_collector_.emplace();
+
+  auto make_stopping_context = [&]() {
+    return StoppingContext{
+        .transaction_status = &transaction_status_,
+        .is_shutting_down = &interpreter_context_->is_shutting_down,
+        .timer = current_timeout_timer_,
+        .exception_occurred = parallel_execution ? std::make_shared<std::atomic<uint8_t>>(false) : nullptr,
     };
+  };
 
 #ifdef MG_ENTERPRISE
-    if (current_db_.execution_db_accessor_ && interpreter_context_->auth_checker && user_or_role_ && *user_or_role_) {
-      auto *dba = &*current_db_.execution_db_accessor_;
-      cached_fga_->Refresh(*interpreter_context_->auth_checker, *user_or_role_, dba, dba->DatabaseName());
-    } else {
-      cached_fga_->Reset();
-    }
+  if (current_db_.execution_db_accessor_ && interpreter_context_->auth_checker && user_or_role_ && *user_or_role_) {
+    auto *dba = &*current_db_.execution_db_accessor_;
+    cached_fga_->Refresh(*interpreter_context_->auth_checker, *user_or_role_, dba, dba->DatabaseName());
+  } else {
+    cached_fga_->Reset();
+  }
 #endif
 
-    if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query = PrepareCypherQuery(std::move(parsed_query),
-                                          &query_execution->summary,
-                                          interpreter_context_,
-                                          current_db_,
-                                          memory_resource,
-                                          &query_execution->notifications,
-                                          user_or_role_,
-                                          make_stopping_context(),
-                                          *this,
-                                          &*frame_change_collector_
+  if (utils::Downcast<CypherQuery>(parsed_query.query)) {
+    prepared_query = PrepareCypherQuery(std::move(parsed_query),
+                                        &query_execution->summary,
+                                        interpreter_context_,
+                                        current_db_,
+                                        memory_resource,
+                                        &query_execution->notifications,
+                                        user_or_role_,
+                                        make_stopping_context(),
+                                        *this,
+                                        &*frame_change_collector_
 #ifdef MG_ENTERPRISE
-                                          ,
-                                          user_resource_
+                                        ,
+                                        user_resource_
 #endif
-      );
-    } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
-      prepared_query = PrepareExplainQuery(
-          std::move(parsed_query), &query_execution->notifications, interpreter_context_, *this, current_db_);
-    } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query = PrepareProfileQuery(std::move(parsed_query),
-                                           in_explicit_transaction_,
-                                           &query_execution->summary,
-                                           &query_execution->notifications,
-                                           interpreter_context_,
-                                           *this,
-                                           current_db_,
-                                           memory_resource,
-                                           user_or_role_,
-                                           make_stopping_context(),
-                                           &*frame_change_collector_
-#ifdef MG_ENTERPRISE
-                                           ,
-                                           user_resource_
-#endif
-      );
-    } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
-      prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_, interpreter_context_, user_or_role_);
-    } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
-      prepared_query = PrepareIndexQuery(std::move(parsed_query),
+    );
+  } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
+    prepared_query = PrepareExplainQuery(
+        std::move(parsed_query), &query_execution->notifications, interpreter_context_, *this, current_db_);
+  } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
+    prepared_query = PrepareProfileQuery(std::move(parsed_query),
                                          in_explicit_transaction_,
+                                         &query_execution->summary,
                                          &query_execution->notifications,
+                                         interpreter_context_,
+                                         *this,
                                          current_db_,
-                                         make_stopping_context());
-    } else if (utils::Downcast<DropAllIndexesQuery>(parsed_query.query)) {
-      prepared_query = PrepareDropAllIndexesQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
-    } else if (utils::Downcast<DropAllConstraintsQuery>(parsed_query.query)) {
-      prepared_query = PrepareDropAllConstraintsQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
-    } else if (utils::Downcast<EdgeIndexQuery>(parsed_query.query)) {
-      prepared_query = PrepareEdgeIndexQuery(std::move(parsed_query),
-                                             in_explicit_transaction_,
-                                             &query_execution->notifications,
-                                             current_db_,
-                                             make_stopping_context());
-    } else if (utils::Downcast<PointIndexQuery>(parsed_query.query)) {
-      prepared_query = PreparePointIndexQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
-    } else if (utils::Downcast<TextIndexQuery>(parsed_query.query)) {
-      prepared_query = PrepareTextIndexQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
-    } else if (utils::Downcast<CreateTextEdgeIndexQuery>(parsed_query.query)) {
-      prepared_query = PrepareCreateTextEdgeIndexQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
-    } else if (utils::Downcast<VectorIndexQuery>(parsed_query.query)) {
-      prepared_query = PrepareVectorIndexQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
-    } else if (utils::Downcast<CreateVectorEdgeIndexQuery>(parsed_query.query)) {
-      prepared_query = PrepareCreateVectorEdgeIndexQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
-      // NOLINTNEXTLINE (bugprone-branch-clone)
-    } else if (utils::Downcast<TtlQuery>(parsed_query.query)) {
+                                         memory_resource,
+                                         user_or_role_,
+                                         make_stopping_context(),
+                                         &*frame_change_collector_
 #ifdef MG_ENTERPRISE
-      prepared_query = PrepareTtlQuery(std::move(parsed_query),
+                                         ,
+                                         user_resource_
+#endif
+    );
+  } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
+    prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_, interpreter_context_, user_or_role_);
+  } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
+    prepared_query = PrepareIndexQuery(std::move(parsed_query),
                                        in_explicit_transaction_,
                                        &query_execution->notifications,
                                        current_db_,
-                                       interpreter_context_);
-#else
-      throw EnterpriseOnlyException();
-#endif  // MG_ENTERPRISE
-    } else if (utils::Downcast<ReloadSSLQuery>(parsed_query.query)) {
-      prepared_query = PrepareReloadSSLQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, interpreter_context_);
-    } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
-      prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
-    } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
-      /// SYSTEM (Replication) PURE
-      prepared_query = PrepareAuthQuery(std::move(parsed_query),
-                                        in_explicit_transaction_,
-                                        interpreter_context_,
-                                        *this,
-                                        current_db_.db_acc_,
-                                        &query_execution->notifications);
-    } else if (utils::Downcast<DatabaseInfoQuery>(parsed_query.query)) {
-      prepared_query = PrepareDatabaseInfoQuery(
-          std::move(parsed_query), in_explicit_transaction_, current_db_, interpreter_context_);
-    } else if (utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
-      prepared_query = PrepareSystemInfoQuery(std::move(parsed_query),
-                                              in_explicit_transaction_,
-                                              current_db_,
-                                              interpreter_isolation_level,
-                                              next_transaction_isolation_level,
-                                              interpreter_context_);
-    } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
-      prepared_query = PrepareConstraintQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
-    } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
-      /// TODO: make replication DB agnostic
-      if (!current_db_.db_acc_ ||
-          current_db_.db_acc_->get()->GetStorageMode() != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-        throw QueryRuntimeException("Replication query requires IN_MEMORY_TRANSACTIONAL mode.");
-      }
-      prepared_query = PrepareReplicationQuery(std::move(parsed_query),
-                                               in_explicit_transaction_,
-                                               &query_execution->notifications,
-                                               *interpreter_context_->replication_handler_,
-                                               current_db_,
-                                               interpreter_context_->config
-#ifdef MG_ENTERPRISE
-                                               ,
-                                               interpreter_context_->coordinator_state_
-#endif
-      );
-
-    } else if (utils::Downcast<ReplicationInfoQuery>(parsed_query.query)) {
-      prepared_query = PrepareReplicationInfoQuery(
-          std::move(parsed_query), in_explicit_transaction_, *interpreter_context_->replication_handler_);
-
-    } else if (utils::Downcast<CoordinatorQuery>(parsed_query.query)) {
-#ifdef MG_ENTERPRISE
-      if (!interpreter_context_->coordinator_state_) {
-        throw QueryRuntimeException(
-            "Coordinator was not initialized as coordinator port, coordinator id or management port were not "
-            "set.");
-      }
-      prepared_query = PrepareCoordinatorQuery(std::move(parsed_query),
-                                               in_explicit_transaction_,
-                                               &query_execution->notifications,
-                                               *interpreter_context_->coordinator_state_,
-                                               interpreter_context_->config);
-#else
-      throw EnterpriseOnlyException();
-#endif
-    } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
-      prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
-    } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
-      prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
-    } else if (utils::Downcast<ShowConfigQuery>(parsed_query.query)) {
-      /// SYSTEM PURE
-      prepared_query = PrepareShowConfigQuery(std::move(parsed_query), in_explicit_transaction_);
-    } else if (utils::Downcast<ShowQueryCallableMappingsQuery>(parsed_query.query)) {
-      /// SYSTEM PURE
-      prepared_query = PrepareShowQueryCallableMappingsQuery(std::move(parsed_query), in_explicit_transaction_);
-    } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
-      prepared_query = PrepareTriggerQuery(std::move(parsed_query),
+                                       make_stopping_context());
+  } else if (utils::Downcast<DropAllIndexesQuery>(parsed_query.query)) {
+    prepared_query = PrepareDropAllIndexesQuery(
+        std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
+  } else if (utils::Downcast<DropAllConstraintsQuery>(parsed_query.query)) {
+    prepared_query = PrepareDropAllConstraintsQuery(
+        std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
+  } else if (utils::Downcast<EdgeIndexQuery>(parsed_query.query)) {
+    prepared_query = PrepareEdgeIndexQuery(std::move(parsed_query),
                                            in_explicit_transaction_,
                                            &query_execution->notifications,
                                            current_db_,
-                                           interpreter_context_,
-                                           user_or_role_);
-    } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
-      prepared_query = PrepareStreamQuery(std::move(parsed_query),
-                                          in_explicit_transaction_,
-                                          &query_execution->notifications,
-                                          current_db_,
-                                          interpreter_context_,
-                                          user_or_role_);
-    } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
-      prepared_query = PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, this);
-    } else if (utils::Downcast<CreateSnapshotQuery>(parsed_query.query)) {
-      prepared_query = PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
-    } else if (utils::Downcast<RecoverSnapshotQuery>(parsed_query.query)) {
-      auto const replication_role = interpreter_context_->repl_state->ReadLock()->GetRole();
-      prepared_query =
-          PrepareRecoverSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
-    } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
-      prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
-    } else if (utils::Downcast<ShowNextSnapshotQuery>(parsed_query.query)) {
-      prepared_query = PrepareShowNextSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
-    } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
-      /// SYSTEM PURE
-      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
-    } else if (utils::Downcast<ParameterQuery>(parsed_query.query)) {
-      /// SYSTEM PURE
-      prepared_query =
-          PrepareParameterQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, *this);
-    } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
-      /// SYSTEM PURE
-      prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
-    } else if (utils::Downcast<StorageModeQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareStorageModeQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, interpreter_context_);
-    } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
-      /// INTERPRETER
-      if (in_explicit_transaction_) {
-        throw TransactionQueueInMulticommandTxException();
-      }
-      prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), user_or_role_, interpreter_context_);
-    } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
-      if (in_explicit_transaction_) {
-        throw MultiDatabaseQueryInMulticommandTxException();
-      }
-      /// SYSTEM (Replication) + INTERPRETER
-      // DMG_ASSERT(system_guard);
-      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), interpreter_context_, *this);
-    } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
-      if (in_explicit_transaction_) {
-        throw UseDatabaseQueryInMulticommandTxException();
-      }
-      prepared_query = PrepareUseDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_);
-    } else if (utils::Downcast<ShowDatabaseQuery>(parsed_query.query)) {
-      prepared_query = PrepareShowDatabaseQuery(std::move(parsed_query), current_db_);
-    } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
-      prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, user_or_role_);
-    } else if (utils::Downcast<ShowMemoryInfoQuery>(parsed_query.query)) {
-      prepared_query = PrepareShowMemoryInfoQuery(std::move(parsed_query), interpreter_context_);
-    } else if (utils::Downcast<EdgeImportModeQuery>(parsed_query.query)) {
-      if (in_explicit_transaction_) {
-        throw EdgeImportModeModificationInMulticommandTxException();
-      }
-      prepared_query = PrepareEdgeImportModeQuery(std::move(parsed_query), current_db_);
-    } else if (utils::Downcast<DropGraphQuery>(parsed_query.query)) {
-      if (in_explicit_transaction_) {
-        throw DropGraphInMulticommandTxException();
-      }
-      prepared_query = PrepareDropGraphQuery(std::move(parsed_query), current_db_);
-    } else if (utils::Downcast<CreateEnumQuery>(parsed_query.query)) {
-      if (in_explicit_transaction_) {
-        throw EnumModificationInMulticommandTxException();
-      }
-      prepared_query = PrepareCreateEnumQuery(std::move(parsed_query), current_db_);
-    } else if (utils::Downcast<ShowEnumsQuery>(parsed_query.query)) {
-      prepared_query = PrepareShowEnumsQuery(std::move(parsed_query), current_db_);
-    } else if (utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query)) {
-      if (in_explicit_transaction_) {
-        throw EnumModificationInMulticommandTxException();
-      }
-      prepared_query = PrepareEnumAlterAddQuery(std::move(parsed_query), current_db_);
-    } else if (utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query)) {
-      if (in_explicit_transaction_) {
-        throw EnumModificationInMulticommandTxException();
-      }
-      prepared_query = PrepareEnumAlterUpdateQuery(std::move(parsed_query), current_db_);
-    } else if (utils::Downcast<AlterEnumRemoveValueQuery>(parsed_query.query)) {
-      throw utils::NotYetImplemented("Alter enum remove value");
-    } else if (utils::Downcast<DropEnumQuery>(parsed_query.query)) {
-      throw utils::NotYetImplemented("Drop enum");
-    } else if (utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query)) {
-      if (in_explicit_transaction_) {
-        throw ShowSchemaInfoInMulticommandTxException();
-      }
-      prepared_query = PrepareShowSchemaInfoQuery(parsed_query,
-                                                  current_db_
+                                           make_stopping_context());
+  } else if (utils::Downcast<PointIndexQuery>(parsed_query.query)) {
+    prepared_query = PreparePointIndexQuery(
+        std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
+  } else if (utils::Downcast<TextIndexQuery>(parsed_query.query)) {
+    prepared_query = PrepareTextIndexQuery(
+        std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
+  } else if (utils::Downcast<CreateTextEdgeIndexQuery>(parsed_query.query)) {
+    prepared_query = PrepareCreateTextEdgeIndexQuery(
+        std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
+  } else if (utils::Downcast<VectorIndexQuery>(parsed_query.query)) {
+    prepared_query = PrepareVectorIndexQuery(
+        std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
+  } else if (utils::Downcast<CreateVectorEdgeIndexQuery>(parsed_query.query)) {
+    prepared_query = PrepareCreateVectorEdgeIndexQuery(
+        std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
+    // NOLINTNEXTLINE (bugprone-branch-clone)
+  } else if (utils::Downcast<TtlQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE
-                                                  ,
-                                                  interpreter_context_,
-                                                  user_or_role_
+    prepared_query = PrepareTtlQuery(std::move(parsed_query),
+                                     in_explicit_transaction_,
+                                     &query_execution->notifications,
+                                     current_db_,
+                                     interpreter_context_);
+#else
+    throw EnterpriseOnlyException();
+#endif  // MG_ENTERPRISE
+  } else if (utils::Downcast<ReloadSSLQuery>(parsed_query.query)) {
+    prepared_query = PrepareReloadSSLQuery(
+        std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, interpreter_context_);
+  } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
+    prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+  } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
+    /// SYSTEM (Replication) PURE
+    prepared_query = PrepareAuthQuery(std::move(parsed_query),
+                                      in_explicit_transaction_,
+                                      interpreter_context_,
+                                      *this,
+                                      current_db_.db_acc_,
+                                      &query_execution->notifications);
+  } else if (utils::Downcast<DatabaseInfoQuery>(parsed_query.query)) {
+    prepared_query =
+        PrepareDatabaseInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, interpreter_context_);
+  } else if (utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
+    prepared_query = PrepareSystemInfoQuery(std::move(parsed_query),
+                                            in_explicit_transaction_,
+                                            current_db_,
+                                            interpreter_isolation_level,
+                                            next_transaction_isolation_level,
+                                            interpreter_context_);
+  } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
+    prepared_query = PrepareConstraintQuery(
+        std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
+  } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
+    /// TODO: make replication DB agnostic
+    if (!current_db_.db_acc_ ||
+        current_db_.db_acc_->get()->GetStorageMode() != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+      throw QueryRuntimeException("Replication query requires IN_MEMORY_TRANSACTIONAL mode.");
+    }
+    prepared_query = PrepareReplicationQuery(std::move(parsed_query),
+                                             in_explicit_transaction_,
+                                             &query_execution->notifications,
+                                             *interpreter_context_->replication_handler_,
+                                             current_db_,
+                                             interpreter_context_->config
+#ifdef MG_ENTERPRISE
+                                             ,
+                                             interpreter_context_->coordinator_state_
 #endif
-      );
-    } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
-      prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
-    } else if (utils::Downcast<SessionSettingQuery>(parsed_query.query)) {
-      prepared_query = PrepareSessionSettingQuery(std::move(parsed_query), this);
-    } else if (utils::Downcast<UserProfileQuery>(parsed_query.query)) {
-      prepared_query = PrepareUserProfileQuery(std::move(parsed_query), interpreter_context_, this);
-    } else if (utils::Downcast<TenantProfileQuery>(parsed_query.query)) {
-      prepared_query = PrepareTenantProfileQuery(std::move(parsed_query), interpreter_context_, this);
-    } else if (utils::Downcast<DescriptionQuery>(parsed_query.query)) {
-      prepared_query = PrepareDescriptionQuery(std::move(parsed_query), current_db_);
+    );
+
+  } else if (utils::Downcast<ReplicationInfoQuery>(parsed_query.query)) {
+    prepared_query = PrepareReplicationInfoQuery(
+        std::move(parsed_query), in_explicit_transaction_, *interpreter_context_->replication_handler_);
+
+  } else if (utils::Downcast<CoordinatorQuery>(parsed_query.query)) {
+#ifdef MG_ENTERPRISE
+    if (!interpreter_context_->coordinator_state_) {
+      throw QueryRuntimeException(
+          "Coordinator was not initialized as coordinator port, coordinator id or management port were not "
+          "set.");
+    }
+    prepared_query = PrepareCoordinatorQuery(std::move(parsed_query),
+                                             in_explicit_transaction_,
+                                             &query_execution->notifications,
+                                             *interpreter_context_->coordinator_state_,
+                                             interpreter_context_->config);
+#else
+    throw EnterpriseOnlyException();
+#endif
+  } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
+    prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+  } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
+    prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+  } else if (utils::Downcast<ShowConfigQuery>(parsed_query.query)) {
+    /// SYSTEM PURE
+    prepared_query = PrepareShowConfigQuery(std::move(parsed_query), in_explicit_transaction_);
+  } else if (utils::Downcast<ShowQueryCallableMappingsQuery>(parsed_query.query)) {
+    /// SYSTEM PURE
+    prepared_query = PrepareShowQueryCallableMappingsQuery(std::move(parsed_query), in_explicit_transaction_);
+  } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
+    prepared_query = PrepareTriggerQuery(std::move(parsed_query),
+                                         in_explicit_transaction_,
+                                         &query_execution->notifications,
+                                         current_db_,
+                                         interpreter_context_,
+                                         user_or_role_);
+  } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
+    prepared_query = PrepareStreamQuery(std::move(parsed_query),
+                                        in_explicit_transaction_,
+                                        &query_execution->notifications,
+                                        current_db_,
+                                        interpreter_context_,
+                                        user_or_role_);
+  } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
+    prepared_query = PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, this);
+  } else if (utils::Downcast<CreateSnapshotQuery>(parsed_query.query)) {
+    prepared_query = PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+  } else if (utils::Downcast<RecoverSnapshotQuery>(parsed_query.query)) {
+    auto const replication_role = interpreter_context_->repl_state->ReadLock()->GetRole();
+    prepared_query =
+        PrepareRecoverSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
+  } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
+    prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+  } else if (utils::Downcast<ShowNextSnapshotQuery>(parsed_query.query)) {
+    prepared_query = PrepareShowNextSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+  } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
+    /// SYSTEM PURE
+    prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+  } else if (utils::Downcast<ParameterQuery>(parsed_query.query)) {
+    /// SYSTEM PURE
+    prepared_query =
+        PrepareParameterQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, *this);
+  } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
+    /// SYSTEM PURE
+    prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
+  } else if (utils::Downcast<StorageModeQuery>(parsed_query.query)) {
+    prepared_query =
+        PrepareStorageModeQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, interpreter_context_);
+  } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
+    /// INTERPRETER
+    if (in_explicit_transaction_) {
+      throw TransactionQueueInMulticommandTxException();
+    }
+    prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), user_or_role_, interpreter_context_);
+  } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
+    if (in_explicit_transaction_) {
+      throw MultiDatabaseQueryInMulticommandTxException();
+    }
+    /// SYSTEM (Replication) + INTERPRETER
+    // DMG_ASSERT(system_guard);
+    prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), interpreter_context_, *this);
+  } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
+    if (in_explicit_transaction_) {
+      throw UseDatabaseQueryInMulticommandTxException();
+    }
+    prepared_query = PrepareUseDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_);
+  } else if (utils::Downcast<ShowDatabaseQuery>(parsed_query.query)) {
+    prepared_query = PrepareShowDatabaseQuery(std::move(parsed_query), current_db_);
+  } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
+    prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, user_or_role_);
+  } else if (utils::Downcast<ShowMemoryInfoQuery>(parsed_query.query)) {
+    prepared_query = PrepareShowMemoryInfoQuery(std::move(parsed_query), interpreter_context_);
+  } else if (utils::Downcast<EdgeImportModeQuery>(parsed_query.query)) {
+    if (in_explicit_transaction_) {
+      throw EdgeImportModeModificationInMulticommandTxException();
+    }
+    prepared_query = PrepareEdgeImportModeQuery(std::move(parsed_query), current_db_);
+  } else if (utils::Downcast<DropGraphQuery>(parsed_query.query)) {
+    if (in_explicit_transaction_) {
+      throw DropGraphInMulticommandTxException();
+    }
+    prepared_query = PrepareDropGraphQuery(std::move(parsed_query), current_db_);
+  } else if (utils::Downcast<CreateEnumQuery>(parsed_query.query)) {
+    if (in_explicit_transaction_) {
+      throw EnumModificationInMulticommandTxException();
+    }
+    prepared_query = PrepareCreateEnumQuery(std::move(parsed_query), current_db_);
+  } else if (utils::Downcast<ShowEnumsQuery>(parsed_query.query)) {
+    prepared_query = PrepareShowEnumsQuery(std::move(parsed_query), current_db_);
+  } else if (utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query)) {
+    if (in_explicit_transaction_) {
+      throw EnumModificationInMulticommandTxException();
+    }
+    prepared_query = PrepareEnumAlterAddQuery(std::move(parsed_query), current_db_);
+  } else if (utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query)) {
+    if (in_explicit_transaction_) {
+      throw EnumModificationInMulticommandTxException();
+    }
+    prepared_query = PrepareEnumAlterUpdateQuery(std::move(parsed_query), current_db_);
+  } else if (utils::Downcast<AlterEnumRemoveValueQuery>(parsed_query.query)) {
+    throw utils::NotYetImplemented("Alter enum remove value");
+  } else if (utils::Downcast<DropEnumQuery>(parsed_query.query)) {
+    throw utils::NotYetImplemented("Drop enum");
+  } else if (utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query)) {
+    if (in_explicit_transaction_) {
+      throw ShowSchemaInfoInMulticommandTxException();
+    }
+    prepared_query = PrepareShowSchemaInfoQuery(parsed_query,
+                                                current_db_
+#ifdef MG_ENTERPRISE
+                                                ,
+                                                interpreter_context_,
+                                                user_or_role_
+#endif
+    );
+  } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
+    prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
+  } else if (utils::Downcast<SessionSettingQuery>(parsed_query.query)) {
+    prepared_query = PrepareSessionSettingQuery(std::move(parsed_query), this);
+  } else if (utils::Downcast<UserProfileQuery>(parsed_query.query)) {
+    prepared_query = PrepareUserProfileQuery(std::move(parsed_query), interpreter_context_, this);
+  } else if (utils::Downcast<TenantProfileQuery>(parsed_query.query)) {
+    prepared_query = PrepareTenantProfileQuery(std::move(parsed_query), interpreter_context_, this);
+  } else if (utils::Downcast<DescriptionQuery>(parsed_query.query)) {
+    prepared_query = PrepareDescriptionQuery(std::move(parsed_query), current_db_);
+  } else {
+    LOG_FATAL("Should not get here -- unknown query type!");
+  }
+
+  auto planning_time = planning_timer.Elapsed().count();
+  query_execution->summary["planning_time"] = planning_time;
+  query_execution->prepared_query.emplace(std::move(prepared_query));
+  memgraph::logging::EmitSessionTraceEvent("Query planning ended.");
+  memgraph::logging::EmitSessionTraceEvent("Query planning time: {}", planning_time);
+
+  const auto rw_type = query_execution->prepared_query->rw_type;
+  query_execution->summary["type"] = plan::ReadWriteTypeChecker::TypeToString(rw_type);
+
+  // db_acc_ may be absent for queries that don't require a database (e.g. auth queries); fall back to global counter.
+  auto *const qtype_h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr;
+  switch (rw_type) {
+    case plan::ReadWriteTypeChecker::RWType::R:
+      if (qtype_h)
+        qtype_h->read_query.Increment();
+      else
+        metrics::Metrics().global.read_query->Increment();
+      break;
+    case plan::ReadWriteTypeChecker::RWType::W:
+      if (qtype_h)
+        qtype_h->write_query.Increment();
+      else
+        metrics::Metrics().global.write_query->Increment();
+      break;
+    case plan::ReadWriteTypeChecker::RWType::RW:
+      if (qtype_h)
+        qtype_h->read_write_query.Increment();
+      else
+        metrics::Metrics().global.read_write_query->Increment();
+      break;
+    default:
+      break;
+  }
+
+  bool const write_query = IsQueryWrite(rw_type);
+  if (write_query) {
+    // TODO: This is a catch all for operations that should not be allowed to run via user query on REPLICA
+    //       prefer more explicit EnsureMainInstance(interpreter_context, "XYZ operations");
+    if (interpreter_context_->repl_state->ReadLock()->IsReplica()) {
+      query_execution = nullptr;
+      throw WriteQueryOnReplicaException();
+    }
+#ifdef MG_ENTERPRISE
+    if (!interpreter_context_->repl_state->ReadLock()->IsMainWriteable()) {
+      query_execution = nullptr;
+      throw WriteQueryOnMainException();
+    }
+#endif
+  }
+
+  // Set the target db to the current db (some queries have different target from the current db)
+  if (!query_execution->prepared_query->db) {
+    if (current_db_.db_acc_) {
+      query_execution->prepared_query->db = current_db_.db_acc_->get()->name();
     } else {
-      LOG_FATAL("Should not get here -- unknown query type!");
+      query_execution->prepared_query->db = "";
+    }
+  }
+  query_execution->summary["db"] = *query_execution->prepared_query->db;
+
+  // prepare is done, move system txn guard to be owned by interpreter
+  system_transaction_ = std::move(system_transaction);
+  return {.headers = query_execution->prepared_query->header,
+          .privileges = query_execution->prepared_query->privileges,
+          .qid = qid,
+          .db = query_execution->prepared_query->db};
+}
+
+// Shared catch-block body for the utils::BasicException path. Does NOT rethrow -- each caller keeps its
+// own `catch (...) { HandlePrepareFailure(...); throw; }` so both paths log and abort identically.
+void Interpreter::HandlePrepareFailure(std::unique_ptr<QueryExecution> *query_execution_ptr,
+                                       const utils::BasicException &e, std::string_view query_text_fallback) {
+  memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
+  // query_execution holds the surviving copy of the query string, but PrepareCoro only creates it AFTER
+  // the acquire -- so every pre-acquire failure arrives here with a null pointer, including the
+  // *AccessTimeout this feature is about. Those logged query="" while the same failure flag-off logged
+  // the real text, hence the caller-supplied fallback.
+  auto const failed_query_text = (query_execution_ptr && *query_execution_ptr)
+                                     ? std::string_view{(*query_execution_ptr)->query_string}
+                                     : query_text_fallback;
+  MaybeEmitFailedQueryLog(failed_query_text, e.what());
+  // Trigger first failed query
+  metrics::FirstFailedQuery();
+  // db_acc_ may be absent if the query fails before USE DATABASE; fall back to global counter.
+  if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
+    h->failed_prepare.Increment();
+  else
+    metrics::Metrics().global.failed_prepare->Increment();
+  AbortCommand(query_execution_ptr);
+}
+
+// Coroutine variant of Prepare(), and the DEFAULT path as of the flag flip. Mirrors Prepare() phase for
+// phase, with the accessor acquire becoming a `co_await`. See specs/parkable-prepare.md.
+//
+// The phase ORDER cannot be shared with Prepare(), so it is the part that drifts -- and has, once.
+// SetupInterpreterTransaction() MUST stay in Phase 1, before the acquire; see its call site.
+utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_res, UserParameters_fn params_getter,
+                                                                 QueryExtras const &extras,
+                                                                 std::function<void()> on_park_resumed) {
+  // INVARIANT: this arena guard MUST be released before the co_await (by the `arena_scope.reset()`
+  // immediately preceding it). A TLS guard straddling the await would restore the PARKING thread's saved
+  // arena state onto whichever worker resumed us. Do not widen its scope; do not add a co_await inside
+  // it. Attribution is therefore split across the non-suspending regions: this one and Phase 3's.
+  //
+  // Opened above the TransactionQuery early return so BEGIN/COMMIT/ROLLBACK are covered as Prepare()
+  // covers them. The accessor the acquire allocates stays unattributed (see the spec).
+  std::optional<memory::DbArenaScope> arena_scope;
+  if (current_db_.db_acc_) {
+    arena_scope.emplace(current_db_.db_acc_->get());
+  }
+
+  if (std::holds_alternative<TransactionQuery>(parse_res)) {
+    // Same shape as Prepare()'s early-return branch: no accessor involved, nothing to await here.
+    const auto tx_query_enum = std::get<TransactionQuery>(parse_res);
+    if (tx_query_enum == TransactionQuery::BEGIN) {
+      ResetInterpreter();
+    }
+    auto *db_query_tracker = current_db_.db_acc_ ? current_db_.db_acc_->get()->DbQueryMemoryTracker() : nullptr;
+    auto &query_execution = query_executions_.emplace_back(QueryExecution::Create(db_query_tracker));
+    query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
+    auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
+    co_return PrepareResult{
+        query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
+  }
+
+  MG_ASSERT(std::holds_alternative<ParseInfo>(parse_res), "Unkown ParseRes type");
+
+  auto &parse_info = std::get<ParseInfo>(parse_res);
+  auto &parsed_query = parse_info.parsed_query;
+
+  // ---- PHASE 1 (sync, once, no accessor -- mirrors Prepare()'s pre-try setup verbatim) ----
+  if (in_explicit_transaction_) {
+    if (parse_info.parsed_query.using_schema_assert) {
+      throw SchemaAssertInMulticommandTxException();
     }
 
-    auto planning_time = planning_timer.Elapsed().count();
-    query_execution->summary["planning_time"] = planning_time;
-    query_execution->prepared_query.emplace(std::move(prepared_query));
-    memgraph::logging::EmitSessionTraceEvent("Query planning ended.");
-    memgraph::logging::EmitSessionTraceEvent("Query planning time: {}", planning_time);
-
-    const auto rw_type = query_execution->prepared_query->rw_type;
-    query_execution->summary["type"] = plan::ReadWriteTypeChecker::TypeToString(rw_type);
-
-    // db_acc_ may be absent for queries that don't require a database (e.g. auth queries); fall back to global counter.
-    auto *const qtype_h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr;
-    switch (rw_type) {
-      case plan::ReadWriteTypeChecker::RWType::R:
-        if (qtype_h)
-          qtype_h->read_query.Increment();
-        else
-          metrics::Metrics().global.read_query->Increment();
-        break;
-      case plan::ReadWriteTypeChecker::RWType::W:
-        if (qtype_h)
-          qtype_h->write_query.Increment();
-        else
-          metrics::Metrics().global.write_query->Increment();
-        break;
-      case plan::ReadWriteTypeChecker::RWType::RW:
-        if (qtype_h)
-          qtype_h->read_write_query.Increment();
-        else
-          metrics::Metrics().global.read_write_query->Increment();
-        break;
-      default:
-        break;
+    transaction_queries_->push_back(parsed_query.query_string);
+    AdvanceCommand();
+  } else {
+    ResetInterpreter();
+    transaction_queries_->push_back(parsed_query.query_string);
+    if (current_db_.db_transactional_accessor_ /* && !in_explicit_transaction_*/) {
+      // If we're not in an explicit transaction block and we have an open
+      // transaction, abort it since we're about to prepare a new query.
+      AbortCommand(nullptr);
     }
+    // MUST stay BEFORE the acquire -- master's position. Deferred to Phase 3, a parked query reports
+    // IDLE with no tx id, making it invisible to SHOW TRANSACTIONS, un-TERMINATE-able, and uncounted by
+    // DROP DATABASE ... FORCE. That is the exact diagnostic an operator needs during the pile-up this
+    // feature relieves. Safe on either side (no accessor dependency, and it sets current_transaction_
+    // before the release-store of ACTIVE); the diagnostics are what decide. Details in the spec.
+    SetupInterpreterTransaction(extras);
+    memgraph::logging::EmitSessionTraceEvent(
+        "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0));
+  }
 
-    bool const write_query = IsQueryWrite(rw_type);
-    if (write_query) {
-      // TODO: This is a catch all for operations that should not be allowed to run via user query on REPLICA
-      //       prefer more explicit EnsureMainInstance(interpreter_context, "XYZ operations");
-      if (interpreter_context_->repl_state->ReadLock()->IsReplica()) {
-        query_execution = nullptr;
-        throw WriteQueryOnReplicaException();
-      }
+  auto *const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+
+  // Load parquet uses thread safe allocator that's why it is being checked here
+  bool has_load_parquet{false};
+  bool parallel_execution{false};
+
+  if (cypher_query) {
+    auto clauses = cypher_query->single_query_->clauses_;
+    has_load_parquet =
+        std::ranges::any_of(clauses, [](const auto *clause) { return clause->GetTypeInfo() == LoadParquet::kType; });
+    parallel_execution = cypher_query->pre_query_directives_.parallel_execution_;
+  } else if (const auto *profile = utils::Downcast<ProfileQuery>(parsed_query.query)) {
+    parallel_execution = profile->cypher_query_->pre_query_directives_.parallel_execution_;
+  }
+
+  if (parallel_execution) {
 #ifdef MG_ENTERPRISE
-      if (!interpreter_context_->repl_state->ReadLock()->IsMainWriteable()) {
-        query_execution = nullptr;
-        throw WriteQueryOnMainException();
-      }
+    if (!license::global_license_checker.IsEnterpriseValidFast())
 #endif
-    }
+      throw QueryRuntimeException(
+          license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "PARALLEL EXECUTION"));
+  }
 
-    // Set the target db to the current db (some queries have different target from the current db)
-    if (!query_execution->prepared_query->db) {
-      if (current_db_.db_acc_) {
-        query_execution->prepared_query->db = current_db_.db_acc_->get()->name();
-      } else {
-        query_execution->prepared_query->db = "";
+  // Phase 1 continued: the accessor requirements / isolation override are resolved inside the try
+  // below (still ONCE, before any co_await, since the acquire coroutine no longer owns that call) so
+  // their throws route through HandlePrepareFailure -- see the NB1 note at the resolve site.
+  std::optional<storage::StorageAccessType> accessor_type;
+  bool could_commit = false;
+  std::optional<storage::IsolationLevel> resolved_iso;
+  // Carried out of Phase 1 so Phase 2 can re-check the mode the accessor actually pinned against
+  // the one this resolution assumed -- same guard Prepare() applies at its SetupDatabaseTransaction
+  // call site.
+  bool mode_dependent = false;
+  std::optional<storage::StorageMode> resolved_storage_mode;
+
+  std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
+  try {
+#ifdef MG_ENTERPRISE
+    // TODO(antoniofilipovic) extend to cover Lab queries
+    // Must run BEFORE the acquire: coordinators have no db_acc, so a query wanting an accessor would
+    // otherwise throw a generic "Database required" instead of this clearer message. Kept inside the try
+    // so a throw still routes through HandlePrepareFailure (which tolerates a null query_execution_ptr).
+    if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator() &&
+        !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query) &&
+        !utils::Downcast<ReloadSSLQuery>(parsed_query.query) && !utils::Downcast<ShowConfigQuery>(parsed_query.query) &&
+        !utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
+      throw QueryRuntimeException("Coordinator can run only coordinator queries!");
+    }
+#endif
+
+    // Resolve accessor requirements + broken-DB gate, ONCE, before the co_await. Inside the try so a
+    // rejection takes the same cleanup/metrics path as Prepare() (failed_prepare, [failed-query]).
+    if (!in_explicit_transaction_) {
+      auto transaction_requirements = ResolveTransactionRequirements(current_db_, parsed_query);
+      CheckBrokenDatabaseGate(current_db_, parsed_query.query);
+
+      accessor_type = transaction_requirements.accessor_type_;
+      could_commit = transaction_requirements.could_commit_;
+      mode_dependent = transaction_requirements.mode_dependent_;
+      resolved_storage_mode = transaction_requirements.storage_mode_;
+      if (accessor_type) {
+        if (transaction_requirements.isolation_level_override_) {
+          SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
+        }
+        resolved_iso = GetIsolationLevelOverride();  // read+reset ONCE, Phase 1 (design doc §R3.2)
       }
     }
-    query_execution->summary["db"] = *query_execution->prepared_query->db;
 
-    // prepare is done, move system txn guard to be owned by interpreter
-    system_transaction_ = std::move(system_transaction);
-    return {.headers = query_execution->prepared_query->header,
-            .privileges = query_execution->prepared_query->privileges,
-            .qid = qid,
-            .db = query_execution->prepared_query->db};
+    // ---- PHASE 2: suspendable acquire. Only for a new autocommit query that needs a fresh
+    // accessor (same guard as Prepare()'s SetupDatabaseTransaction call site). ----
+    if (!in_explicit_transaction_ && accessor_type) {
+      if (!current_db_.db_acc_) {
+        // Matches what CurrentDB::SetupDatabaseTransaction[With] would throw -- fail the same way,
+        // just before ever touching storage/the pool, instead of inside CurrentDB.
+        throw DatabaseContextRequiredException("Database required for the transaction setup.");
+      }
+      auto &storage = *(*current_db_.db_acc_)->storage();
+      auto const deadline = std::chrono::steady_clock::now() + memgraph::flags::run_time::GetStorageAccessTimeoutSec();
+      auto const priority = ApproximatePreparePriority(parsed_query);
+      // Reaching here implies a published worker id, so a pool exists -- but checked, not assumed,
+      // since a pool-less InterpreterContext is constructible (tests, embeddings). A throw rather than
+      // MG_ASSERT: being wrong should fail one query, not abort the process and every other session's
+      // in-flight transaction with it.
+      if (!interpreter_context_->worker_pool) [[unlikely]] {
+        throw QueryException(
+            "Parkable Prepare reached its accessor acquire with no worker pool, which the "
+            "kNeedsCoroPrepare gate should make impossible.");
+      }
+
+      // Release before suspending (see the INVARIANT at the declaration): from here to Phase 3 this
+      // coroutine may park and resume on a different worker, and no TLS guard may span that.
+      arena_scope.reset();
+
+      auto acc = co_await AcquireAccessorCoro(storage,
+                                              *accessor_type,
+                                              resolved_iso,
+                                              deadline,
+                                              *interpreter_context_->worker_pool,
+                                              priority == utils::Priority::HIGH,
+                                              on_park_resumed);
+      current_db_.SetupDatabaseTransactionWith(std::move(acc), could_commit);
+
+      // Same window Prepare() guards: SET STORAGE MODE can land between Phase 1's unlocked mode read
+      // and the accessor taking its hold, leaving the access type chosen for a mode no longer in
+      // force. The park path widens that window (the acquire can suspend and retry for up to the
+      // access timeout), so this check matters MORE here, not less. Throw unwinds into the catch
+      // below, releasing the hold; the retry replans against the pinned mode.
+      if (mode_dependent && current_db_.db_transactional_accessor_->GetPinnedStorageMode() != resolved_storage_mode) {
+        throw StorageModeChangedDuringSetupException();
+      }
+    }
+
+    // Re-installed HERE, never across the co_await -- a TLS guard straddling a park would restore the
+    // PARKING thread's saved value onto whichever worker resumed us.
+    //
+    // Needed at all because Execute_ installs this per Bolt message but RETURNED before any Prepare work
+    // ran, so the rest of Prepare executes with the TLS slot empty -- and everything session-scoped
+    // downstream is gated on it, including the [failed-query] log. Without this, flag-on silently loses
+    // diagnostics that flag-off keeps, which is backwards for a flag that exists for contended
+    // workloads. Nesting is safe: the guard saves and restores whatever was there.
+    memgraph::logging::ScopedSessionLog const post_acquire_log_guard{GetLogContext()};
+
+    // ---- PHASE 3 (sync, once, post-acquire) ----
+    // SetupInterpreterTransaction is NOT called here: it belongs in Phase 1, before the acquire, so a
+    // parked query stays visible to SHOW TRANSACTIONS and TERMINATE-able. See the long note at its
+    // call site above before moving it back.
+
+    // System-only queries can intentionally have no current DB tracker.
+    auto *db_query_tracker = current_db_.db_acc_ ? current_db_.db_acc_->get()->DbQueryMemoryTracker() : nullptr;
+    if (has_load_parquet || parallel_execution) {
+      query_executions_.emplace_back(QueryExecution::CreateThreadSafe(db_query_tracker));
+    } else {
+      query_executions_.emplace_back(QueryExecution::Create(db_query_tracker));
+    }
+    auto &query_execution = query_executions_.back();
+    query_execution_ptr = &query_execution;
+
+    std::optional<int> qid =
+        in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
+
+    query_execution->summary["parsing_time"] = parse_info.parsing_time;
+    query_execution->query_string = parse_info.parsed_query.query_string;
+    memgraph::logging::EmitSessionTraceEvent("Query parsing time: {}", parse_info.parsing_time);
+
+    // Set a default cost estimate of 0. Individual queries can overwrite this
+    // field with an improved estimate.
+    query_execution->summary["cost_estimate"] = 0.0;
+
+    // System queries require strict ordering; since there is no MVCC-like thing, we allow single queries
+    bool system_queries =
+        utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
+        utils::Downcast<ReplicationQuery>(parsed_query.query) ||
+        utils::Downcast<UserProfileQuery>(parsed_query.query) ||
+        utils::Downcast<TenantProfileQuery>(parsed_query.query) || utils::Downcast<ParameterQuery>(parsed_query.query);
+
+    // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
+    auto system_transaction = std::invoke([&]() -> std::optional<memgraph::system::Transaction> {
+      if (!system_queries) return std::nullopt;
+
+      // LOCK-ORDER INVERSION, recorded rather than assumed: Prepare() takes the system transaction
+      // BEFORE the accessor, this path takes it AFTER. Harmless ONLY BY COINCIDENCE -- every type in
+      // `system_queries` leaves `accessor_type_` unset, so no accessor is held here. Add a query that is
+      // both a system query and accessor-taking and this blocks up to kSystemTxTryMS while holding
+      // main_lock_, inverted against every other acquirer.
+      auto system_txn = interpreter_context_->system_->TryCreateTransaction(std::chrono::milliseconds(kSystemTxTryMS));
+      if (!system_txn) {
+        throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
+      }
+      return system_txn;
+    });
+
+    // Re-entered HERE, after the co_await, never across it -- the same `arena_scope` Phase 1 released,
+    // so one guard tells the whole story. Conditional because Phase 2 only releases it for a new
+    // autocommit query; otherwise the Phase 1 guard is still engaged for the same database.
+    if (current_db_.db_acc_ && !arena_scope) {
+      arena_scope.emplace(current_db_.db_acc_->get());
+    }
+
+    co_return PlanAndFinalize(
+        parsed_query, params_getter, query_execution, qid, parallel_execution, std::move(system_transaction));
   } catch (const utils::BasicException &e) {
-    memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
-    // query_execution holds the query string copy that survives Prepare* moving it out.
-    const std::string_view failed_query_text = (query_execution_ptr && *query_execution_ptr)
-                                                   ? std::string_view{(*query_execution_ptr)->query_string}
-                                                   : std::string_view{};
-    MaybeEmitFailedQueryLog(failed_query_text, e.what());
-    // Trigger first failed query
-    metrics::FirstFailedQuery();
-    // db_acc_ may be absent if the query fails before USE DATABASE; fall back to global counter.
-    if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
-      h->failed_prepare.Increment();
-    else
-      metrics::Metrics().global.failed_prepare->Increment();
-    AbortCommand(query_execution_ptr);
+    // Its own guard: the try block's locals (including post_acquire_log_guard above) are destroyed
+    // during unwinding, strictly BEFORE this handler runs, and a Phase-1 throw never reached that one
+    // in the first place. HandlePrepareFailure emits the "Failed query" trace event and the
+    // [failed-query] log, both TLS-gated, so this is the difference between the coro path reporting a
+    // failed Prepare and silently dropping it.
+    memgraph::logging::ScopedSessionLog const failure_log_guard{GetLogContext()};
+    HandlePrepareFailure(query_execution_ptr, e, parsed_query.query_string);
     throw;
   }
 }

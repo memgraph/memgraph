@@ -17,6 +17,7 @@
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
@@ -100,6 +101,20 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
         };
         return std::make_unique<DefaultDatabaseProtector>();
       }} {
+  // Wire the park wake to main_lock_'s own admission points rather than to the call sites that
+  // release it: ResourceLock is the only place that knows whether a transition actually admitted
+  // anybody, so hooking there is exhaustive by construction (release, downgrade, a pending
+  // registration dropped by a timed-out or throwing acquirer, a guard unwound by a throwing Accessor
+  // constructor). Enumerating those sites by hand previously missed five of them.
+  //
+  // Gated at INSTALL time, not per notification: the flag is startup-only (no SET support), so an
+  // uninstalled observer is the whole feature's off-switch at this level -- with it absent, no
+  // release path reaches any park code at all. `this` is safe to capture: Storage is neither copied
+  // nor moved, main_lock_ is a member, and this runs before the lock is shared with another thread.
+  if (flags::run_time::CoroPrepareAccessorYieldEnabled()) {
+    main_lock_.set_admit_observer([this] { NotifyMainLockReleased(); });
+  }
+
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 
@@ -118,6 +133,15 @@ std::unique_ptr<Accessor> Storage::ReadOnlyAccess(std::optional<IsolationLevel> 
 }
 
 std::unique_ptr<Accessor> Storage::ReadOnlyAccess() { return ReadOnlyAccess({}, std::nullopt); }
+
+// Safe no-op stub: a storage engine only gets real non-blocking access once it overrides this (see
+// InMemoryStorage::TryAccess). Never touching main_lock_ here means it is trivially correct for any
+// Storage subtype that doesn't override it (currently: DiskStorage) -- "would block" is always a
+// truthful answer for a probe that was never actually attempted.
+std::unique_ptr<Accessor> Storage::TryAccess(StorageAccessType /*rw_type*/,
+                                             std::optional<IsolationLevel> /*override_isolation_level*/) {
+  return nullptr;
+}
 
 Storage::Accessor::Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level,
                             utils::ResourceLockGuard guard)
@@ -146,6 +170,12 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   other.commit_timestamp_.reset();
 }
 
+// NOTE: defined as `Accessor::~Accessor()`, not `Storage::Accessor::~Accessor()` -- unlike the
+// constructors above, a destructor cannot be qualified through Storage::Accessor's type-alias
+// name (-Wdtor-typedef); it must use the class's own name, and we're already inside
+// `namespace memgraph::storage` here so the unqualified name resolves to the real class.
+Accessor::~Accessor() = default;
+
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
@@ -154,6 +184,26 @@ std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(
   auto const main_guard = std::unique_lock{main_lock_};
   isolation_level_ = isolation_level;
   return {};
+}
+
+void Storage::DrainParkedMainLockWaiters() {
+  // With the flag off no admit observer is installed, so nothing can ever have parked here. Gating
+  // once in this function rather than at each call site keeps the two callers (memgraph.cpp's
+  // pool-still-alive drain and StopAllBackgroundTasks' idempotent second pass) from disagreeing.
+  if (!flags::run_time::CoroPrepareAccessorYieldEnabled()) return;
+  main_lock_resume_event_.Drain();
+}
+
+void Storage::NotifyMainLockReleased() {
+  // Runs on every admission of this storage's main lock, so the cost matters: one relaxed load when
+  // nobody is parked, no mutex touched. No flag check here -- the observer that calls this is only
+  // installed when the flag is on (see the constructor), so reaching this function already implies it.
+  //
+  // Plain READ/WRITE releases must poke this too, not just READ_ONLY/UNIQUE ones: releasing the last
+  // conflicting WRITE/READ holder can be exactly what unblocks a parked READ_ONLY/UNIQUE waiter.
+  if (main_lock_resume_event_.WaitersPending() > 0) {
+    main_lock_resume_event_.NotifyAll();
+  }
 }
 
 std::vector<EdgeTypeId> Storage::ListAllPossiblyPresentEdgeTypes() const { return stored_edge_types_.vectorize(); }

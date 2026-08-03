@@ -2021,6 +2021,8 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
 
 void InMemoryStorage::InMemoryAccessor::DowngradeToReadIfValid() {
   if (guard_.owns_lock() && guard_.type() == utils::ResourceLockGuard::READ_ONLY) {
+    // Dropping ro_count to 0 admits a pending WRITE; ResourceLock's own notify point handles both
+    // audiences (cv for blocking waiters, the admit observer for parked ones).
     guard_.downgrade_to_read();
   }
 }
@@ -4675,6 +4677,41 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType 
   utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::try_to_lock};
   if (!guard.owns_lock()) return nullptr;
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
+}
+
+std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccessWithPending(
+    StorageAccessType rw_type, std::optional<IsolationLevel> override_isolation_level, PendingHandle &pending) {
+  using enum StorageAccessType;
+  if (rw_type == NO_ACCESS) {
+    LOG_FATAL("Invalid storage accessor type!");
+  }
+
+  // UNIQUE and READ_ONLY are the two modes that gate others, so they probe through the CALLER's
+  // long-lived pending scope: that registration is what keeps their writer-preference alive across
+  // the whole retry campaign. READ/WRITE gate nobody (see ResourceLock::can_acquire), so they take
+  // the same plain non-blocking probe TryAccess() uses and never consult `pending`.
+  auto guard = [&]() -> std::optional<utils::ResourceLockGuard> {
+    if (rw_type == UNIQUE) {
+      auto *scope = pending.unique_scope();
+      DMG_ASSERT(scope != nullptr,
+                 "TryAccessWithPending(UNIQUE, ...) requires a PendingHandle built via "
+                 "MakePendingHandle(StorageAccessType::UNIQUE)");
+      return scope->try_acquire();
+    }
+    if (rw_type == READ_ONLY) {
+      auto *scope = pending.read_only_scope();
+      DMG_ASSERT(scope != nullptr,
+                 "TryAccessWithPending(READ_ONLY, ...) requires a PendingHandle built via "
+                 "MakePendingHandle(StorageAccessType::READ_ONLY)");
+      return scope->try_acquire();
+    }
+    utils::ResourceLockGuard shared{main_lock_, ToGuardType(rw_type), std::try_to_lock};
+    if (!shared.owns_lock()) return std::nullopt;
+    return shared;
+  }();
+
+  if (!guard) return nullptr;
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(*guard)});
 }
 
 void InMemoryStorage::CreateSnapshotHandler(

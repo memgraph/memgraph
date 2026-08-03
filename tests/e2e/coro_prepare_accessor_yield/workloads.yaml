@@ -1,0 +1,64 @@
+bolt_port: &bolt_port "7687"
+
+# Small pool + bounded timeout so the responsiveness contrast (parking vs. blocking) is large
+# and deterministic. See common.py for the full mechanism writeup.
+coro_prepare_accessor_yield_on_cluster: &coro_prepare_accessor_yield_on_cluster
+  cluster:
+    main:
+      args:
+        [
+          "--bolt-port",
+          *bolt_port,
+          "--log-level=TRACE",
+          "--bolt-num-workers=2",
+          "--storage-access-timeout-sec=6",
+          "--log-failed-queries=true",
+          "--experimental-coro-prepare-accessor-yield=true",
+        ]
+      log_file: "coro_prepare_accessor_yield.log"
+      setup_queries: []
+      validation_queries: []
+
+# Control cluster: identical args except the flag is explicitly FALSE -- see
+# coro_prepare_accessor_yield_flag_off_control.py for why this contrast matters.
+#
+# The `=false` is load-bearing and must not be "simplified" back to omitting the flag. It used to be
+# absent, because the default was off; the default is now ON, so an absent flag would give this
+# control cluster the parking path and the test would assert high latency against a build that
+# correctly delivers low latency. It would fail while the code was right.
+coro_prepare_accessor_yield_off_cluster: &coro_prepare_accessor_yield_off_cluster
+  cluster:
+    main:
+      args:
+        [
+          "--bolt-port",
+          *bolt_port,
+          "--log-level=TRACE",
+          "--bolt-num-workers=2",
+          "--storage-access-timeout-sec=6",
+          "--log-failed-queries=true",
+          "--experimental-coro-prepare-accessor-yield=false",
+        ]
+      log_file: "coro_prepare_accessor_yield_flag_off_control.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "CoroPrepareAccessorYield"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["coro_prepare_accessor_yield/coro_prepare_accessor_yield.py"]
+    <<: *coro_prepare_accessor_yield_on_cluster
+
+  - name: "CoroPrepareAccessorYieldFlagOffControl"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["coro_prepare_accessor_yield/coro_prepare_accessor_yield_flag_off_control.py"]
+    <<: *coro_prepare_accessor_yield_off_cluster
+
+  # Manages its OWN memgraph process (interactive_mg_runner) because the thing under test is the
+  # shutdown sequence itself -- the test has to own the process lifetime and time the stop. Hence no
+  # `cluster:` key here.
+  - name: "CoroPrepareParkShutdown"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["coro_prepare_accessor_yield/park_shutdown.py"]
+    proc: "tests/e2e/coro_prepare_accessor_yield/"

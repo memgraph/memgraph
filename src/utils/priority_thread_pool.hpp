@@ -17,14 +17,29 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <thread>
 
+#include "utils/deadline_park_registry.hpp"
 #include "utils/logging.hpp"
+#include "utils/park_state.hpp"
 #include "utils/priorities.hpp"
 #include "utils/scheduler.hpp"
 
 namespace memgraph::utils {
+
+/// Thread-local worker-id publication for LP (mixed-work) workers ONLY -- HP workers must never
+/// publish, since their id space is disjoint from `workers_` and would alias an LP worker.
+///
+/// Nothing pins work to a specific worker any more, so the VALUE is unused and `has_value()` is the
+/// point: it answers "am I running as an LP pool task", which is what parking requires -- a park is
+/// only safe where something will later ARM it, and the LP run loop is what does that at every task
+/// boundary. Returns nullopt off a pool worker (or on an HP one).
+void SetCurrentWorker(size_t worker_id);
+std::optional<size_t> GetCurrentWorkerId();
+void ClearCurrentWorker();
+
 // Thread-safe mask that returns the position of first set bit
 class HotMask {
  public:
@@ -151,6 +166,33 @@ class PriorityThreadPool {
 
   uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
 
+  /// Returns true once the pool has been asked to stop (ShutDown()/dtor). Read by the park paths
+  /// (query::AcquireAccessorCoro's post-resume check, query::detail::AcquireAwaitable's shutdown
+  /// self-claim) to detect that no further forward progress will be scheduled and bail out cleanly
+  /// instead of parking forever.
+  bool IsShuttingDown() const { return pool_stop_source_.stop_requested(); }
+
+  /**
+   * Posts a parked coroutine's resume onto ANY mixed-work (LP) worker, preferring an idle one.
+   * Differs from ScheduledAddTask in the only two ways a resume needs:
+   *  - NOT refused once shutdown is requested -- a frame that never resumes is a leaked session, which
+   *    stalls the very shutdown doing the refusing;
+   *  - lands in the must-run queue, which takes precedence and is DRAINED before the worker exits
+   *    rather than dropped.
+   *
+   * WHEN it may run is the delivery gate's concern, not this function's -- which is what lets the post
+   * target an arbitrary worker at all. See specs/parkable-prepare.md.
+   */
+  void PostResumeTask(std::function<void()> closure);
+
+  /// Registry of parked waiters, swept once per tick by the existing periodic monitor (sched_mon)
+  /// so an absolute deadline is honored without a dedicated timer thread (IP-1 R1 §B2 / R2). The
+  /// registry itself is coroutine-agnostic (see utils/deadline_park_registry.hpp); callers
+  /// register a `ParkState` here when they park a waiter that must also observe a timeout.
+  /// Exposed so the later accessor-await machinery can Register/Deregister without adding a
+  /// coroutine dependency to this header.
+  DeadlineParkRegistry &park_registry() { return park_registry_; }
+
   // Single worker implementation
   class Worker {
    public:
@@ -169,7 +211,15 @@ class PriorityThreadPool {
       bool operator<(const Work &other) const { return id < other.id; }
     };
 
-    void push(TaskSignature new_task, TaskID id);
+    // must_run=false (default) is the pre-existing behavior, byte-identical: the task lands in the
+    // stealable work_ queue exactly as before. must_run=true routes to work_must_run_ instead (new,
+    // additive path — see PriorityThreadPool::PostResumeTask).
+    void push(TaskSignature new_task, TaskID id, bool must_run = false);
+
+    // push, but refuses a worker that has already been asked to stop (see PostResumeTask). Takes
+    // the task by rvalue reference and only consumes it on success, so a caller can retry another
+    // worker with the same task.
+    bool try_push(TaskSignature &&new_task, TaskID id, bool must_run = false);
 
     void stop();
 
@@ -179,11 +229,23 @@ class PriorityThreadPool {
    private:
     mutable std::mutex mtx_;
     std::condition_variable cv_;
-    std::priority_queue<Work> work_;
+    std::priority_queue<Work> work_;  // Stealable + migratable by sched_mon
+    // Parked-coroutine resumes (PostResumeTask). Serviced ahead of work_, and PREFERRED by an LP
+    // thief's steal loop — a query is blocked on each of these with its storage-access timeout
+    // running, and sched_mon does not migrate them, so stealing is what keeps one wedged worker from
+    // delaying a resume. Unlike work_, drained by this worker before it exits rather than dropped: a
+    // dropped resume leaks the parked session and stalls shutdown. Same mutex as work_.
+    std::priority_queue<Work> work_must_run_;
 
     // Stats
     std::atomic_bool has_pending_work_{false};
     std::atomic_bool working_{false};
+    // Write-ONCE, true -> false, by stop() only. Load-bearing beyond the obvious: try_push's
+    // "accepted => eventually run" promise (see PostResumeTask) is proved from the mutex ordering
+    // between try_push's read of run_ and stop()'s write of it. If run_ could ever go back to true,
+    // an accepted push could be ordered after the tail drain already broke on an empty queue, and the
+    // item -- a parked query's resume -- would be silently dropped. Nothing in the pool resets it;
+    // ShutDown() calls stop() once per worker and the destructor guards on stop_requested().
     std::atomic_bool run_{true};
     // Used by monitor to decide if worker is blocked
     std::atomic<TaskID> last_task_{0};
@@ -198,6 +260,14 @@ class PriorityThreadPool {
   std::vector<std::unique_ptr<Worker>>
       hp_workers_;       // High priority work threads | ideally tasks yield and this isn't needed
   HotMask hot_threads_;  // Mask of workers waiting for new work (but still not sleeping)
+
+  // Deadline-sweep registry for parked waiters, swept once per monitor tick.
+  //
+  // INVARIANT: declared BEFORE pool_/monitoring_ so it is destroyed AFTER them. Both workers and the
+  // monitor touch it, and Worker::stop() only clears a flag without joining -- so on a teardown that
+  // skips AwaitShutdown(), a worker still inside await_suspend would Register() on a destroyed mutex.
+  // Production joins first, making it latent there but not in tests or other embeddings.
+  DeadlineParkRegistry park_registry_;
 
   std::vector<std::jthread> pool_;  // All available threads (list so the elements are stable)
   utils::Scheduler monitoring_;     // Background task monitoring the overall throughput and rearranging

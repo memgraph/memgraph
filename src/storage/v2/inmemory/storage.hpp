@@ -101,6 +101,56 @@ struct IndexPerformanceTracker {
   bool impacts_edge_indexes_ = false;
 };
 
+/// Campaign-long pending-scope holder for IP-1's coro-prepare acquire loop (design doc REVISION 4
+/// §R4.6, opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md). Built ONCE (via
+/// InMemoryStorage::MakePendingHandle()) before the retry loop starts and held across EVERY
+/// iteration -- including every suspend/resume -- so `main_lock_`'s writer-preference counters
+/// (`unique_pending_`/`ro_pending_count`) stay registered for the WHOLE campaign, not just a
+/// single probe (this is the load-bearing detail the whole park design exists to preserve; a
+/// retry loop that tears down and rebuilds a one-shot pending scope between attempts loses
+/// writer-preference and reopens the v0 starvation hole). Engages the scope matching `rw_type` at
+/// construction; stays empty (no scope engaged, matching TryAccess()'s plain non-blocking probe)
+/// for READ/WRITE, which never register as pending in the first place (see
+/// utils::ResourceLock::can_acquire).
+///
+/// Non-copyable/non-movable (mirrors UniquePendingScope/ReadOnlyPendingScope themselves): built
+/// in place at its point of use via guaranteed copy elision (MakePendingHandle() returns a
+/// prvalue), so no move/copy is ever required.
+class PendingHandle {
+ public:
+  PendingHandle(StorageAccessType rw_type, utils::ResourceLock &lock) {
+    using enum StorageAccessType;
+    switch (rw_type) {
+      case UNIQUE:
+        unique_.emplace(lock);
+        break;
+      case READ_ONLY:
+        read_only_.emplace(lock);
+        break;
+      case WRITE:
+      case READ:
+      case NO_ACCESS:
+        break;
+    }
+  }
+
+  PendingHandle(const PendingHandle &) = delete;
+  PendingHandle &operator=(const PendingHandle &) = delete;
+  PendingHandle(PendingHandle &&) = delete;
+  PendingHandle &operator=(PendingHandle &&) = delete;
+  ~PendingHandle() = default;
+
+  /// Non-null iff this handle was built for StorageAccessType::UNIQUE.
+  utils::UniquePendingScope *unique_scope() { return unique_ ? &*unique_ : nullptr; }
+
+  /// Non-null iff this handle was built for StorageAccessType::READ_ONLY.
+  utils::ReadOnlyPendingScope *read_only_scope() { return read_only_ ? &*read_only_ : nullptr; }
+
+ private:
+  std::optional<utils::UniquePendingScope> unique_;
+  std::optional<utils::ReadOnlyPendingScope> read_only_;
+};
+
 // The storage is based on this paper:
 // https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
 // The paper implements a fully serializable storage, in our implementation we
@@ -747,21 +797,37 @@ class InMemoryStorage final : public Storage {
                                            std::optional<std::chrono::milliseconds> timeout) override;
 
   /// Acquires an accessor in mode `rw_type` if `main_lock_` admits it right now, returning nullptr
-  /// if it does not. Never blocks, never throws, and creates no transaction when it fails.
+  /// if it does not. Never blocks, never throws, and creates no transaction when it fails. See the
+  /// base declaration for the admission and priority contract.
   ///
-  /// Admission, not just "is it free": a waiting UNIQUE gates the shared modes, so this reports
-  /// failure while one is pending even though nobody holds the lock. That yields to the waiter
-  /// rather than jumping ahead of it.
-  ///
-  /// One probe, so it grants no priority of its own: a caller looping on this is an ordinary
-  /// contender each time and can be starved by a stream of compatible holders. A caller that needs
-  /// to be preferred while it retries holds a UniquePendingScope or ReadOnlyPendingScope across the
-  /// whole loop.
-  ///
-  /// InMemoryStorage's alone: DiskStorage has no probe rather than one that always fails, so a
-  /// caller polling it would spin instead of learning that it should just block.
+  /// Default arguments are not inherited through the base declaration: a call on a concrete
+  /// InMemoryStorage expression resolves to THIS declaration, so the default is repeated here.
   std::unique_ptr<Accessor> TryAccess(StorageAccessType rw_type,
-                                      std::optional<IsolationLevel> override_isolation_level = {});
+                                      std::optional<IsolationLevel> override_isolation_level = {}) override;
+
+  /// InMemoryStorage supports the coro-prepare park-acquire path (IP-1 design doc REVISION 4
+  /// §R4.6); DiskStorage does not (it never overrides TryAccess, so it inherits the base's
+  /// `false` -- see Storage::SupportsParkAcquire()'s doc comment).
+  bool SupportsParkAcquire() const override { return true; }
+
+  /// Builds the campaign-long pending-scope handle for `rw_type` (R4.6): see PendingHandle's doc
+  /// comment above. The caller (the coro-prepare acquire loop) holds the returned handle across
+  /// the WHOLE retry campaign -- every suspend/resume included -- and passes it to repeated
+  /// TryAccessWithPending() calls below, all with the SAME `rw_type`.
+  PendingHandle MakePendingHandle(StorageAccessType rw_type) { return PendingHandle{rw_type, main_lock_}; }
+
+  /// Non-blocking counterpart to Access()/UniqueAccess()/ReadOnlyAccess() that, unlike TryAccess()
+  /// above, takes the pending-scope registration from the CALLER (`pending`, built once via
+  /// MakePendingHandle(rw_type)) instead of constructing (and tearing down) a fresh one-shot scope
+  /// on every call. This is the load-bearing detail R4.6 exists for: a retry campaign that loses
+  /// its pending registration between attempts loses UNIQUE/READ_ONLY's writer-preference over a
+  /// continuous stream of shared acquirers (the v0 starvation hole). `pending` MUST have been built
+  /// via `MakePendingHandle(rw_type)` with the SAME `rw_type` passed here. READ/WRITE never
+  /// register as pending (same as TryAccess()), so `pending` is simply unused (and expected empty)
+  /// for those. Returns nullptr when the probe fails, matching TryAccess()'s convention.
+  std::unique_ptr<Accessor> TryAccessWithPending(StorageAccessType rw_type,
+                                                 std::optional<IsolationLevel> override_isolation_level,
+                                                 PendingHandle &pending);
 
   void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) override;
 

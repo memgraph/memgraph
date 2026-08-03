@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <functional>
+
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/bolt/v1/session.hpp"
@@ -17,6 +19,7 @@
 #include "communication/v2/session.hpp"
 #include "glue/SessionContext.hpp"
 #include "query/interpreter.hpp"
+#include "utils/coro_task.hpp"
 
 namespace memgraph::glue {
 using bolt_value_t = memgraph::communication::bolt::Value;
@@ -79,6 +82,24 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare();
 
+  /// Coroutine variant of InterpretPrepare() (Session-surgery Stage A). Mirrors InterpretPrepare()
+  /// exactly except it `co_await`s Interpreter::PrepareCoro() instead of calling the blocking
+  /// Interpreter::Prepare() -- see interpreter.hpp/.cpp for the accessor-acquire park mechanics.
+  ///
+  /// `parsed_res_` is moved out only INSIDE the coroutine body: since utils::Task<T> is lazily
+  /// started (it does not run until first driven/co_await'd/Run()), this means the parse result is
+  /// not actually consumed until whatever drives this Task starts doing so -- i.e. not before the
+  /// accessor acquire is genuinely under way, matching the IP-1 design doc's ip1-design.md
+  /// requirement ("moving parsed_res_ only INSIDE the coroutine").
+  ///
+  /// `on_park_resumed` (Session-surgery Stage B, IP-1 R4.2): forwarded to Interpreter::PrepareCoro ->
+  /// query::AcquireAccessorCoro. Invoked (once per genuine cross-thread resume, never for a
+  /// synchronous completion) by the posted resume closure right after it resumes the parked
+  /// handle -- see communication::v2::Session::DrivePreparedRun (the only real caller; empty/default
+  /// for tests and any other caller that never expects a park, e.g. a plain SyncWait).
+  utils::Task<std::pair<std::vector<std::string>, std::optional<int>>> InterpretPrepareCoro(
+      std::function<void()> on_park_resumed = {});
+
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
                                                                     const bolt_map_t &extra) {
     // Interpret has been split in two (Parse and Prepare)
@@ -115,7 +136,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   utils::Priority ApproximateQueryPriority() const;
 
-  inline bool Execute() { return Execute_(*this); }
+  inline communication::bolt::ExecuteResult Execute() { return Execute_(*this); }
 
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return interpreter_.GetLogContext(); }
 

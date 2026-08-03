@@ -287,6 +287,10 @@ int main(int argc, char **argv) {
     auto env_experimental = memgraph::flags::ReadExperimental(maybe_experimental);
     memgraph::flags::AppendExperimental(env_experimental);
   }
+  // Sync the cached-atomic snapshot of the standalone --experimental-coro-prepare-accessor-yield
+  // flag now that gflags::ParseCommandLineFlags has run (a static-init-time cache would instead
+  // observe the flag's default). See flags/run_time_configurable.hpp.
+  memgraph::flags::run_time::RefreshCoroPrepareAccessorYieldEnabled();
   // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
   // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
@@ -1088,8 +1092,34 @@ int main(int argc, char **argv) {
       telemetry->Stop();
     }
 
+    // Drain parked waiters while the workers that have to run their resumes are still ALIVE, i.e.
+    // strictly before worker_pool_->ShutDown(). Draining after the pool has stopped is the bug this
+    // placement exists to avoid: a resume claimed then has nowhere to run, the coroutine stays parked
+    // forever, and the Session it pins (with its DatabaseAccess) leaks, holding
+    // Gatekeeper<Database>::count_ above zero and stalling teardown for minutes.
+    //
+    // A query already dispatched to a worker can still park between here and the pool's own drain
+    // inside ShutDown(); that drain runs while the workers are still looping, so it covers the window.
+    // Anything registering after THAT is covered by await_suspend's shutdown self-claim, since
+    // ShutDown() sets its stop flag before draining. StopAllBackgroundTasks() further down drains
+    // again as the DROP DATABASE path needs it to.
+    //
+    // Deliberately NOT preceded by server.Shutdown(). Stopping incoming traffic first buys nothing --
+    // the two mechanisms above already cover every registration window -- and costs something real:
+    // master stops the pool before the server precisely because workers can enqueue io tasks, and
+    // Worker::stop() only sets a flag without joining, so a worker finishing a query after ShutDown()
+    // returns still posts its Bolt response. With the io_context already stopped that response is
+    // dropped -- a flag-independent regression, for an ordering that is not load-bearing.
+    if (dbms_handler.has_value()) {
+      dbms_handler->ForEach([](memgraph::dbms::DatabaseAccess acc) {
+        spdlog::trace("Draining parked storage waiters for db: {}", acc->name());
+        acc->storage()->DrainParkedMainLockWaiters();
+      });
+    }
+
     spdlog::info("Workers shutting down.");
-    if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
+    if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they stop first
+
     // Shutdown communication server
     server.Shutdown();
 

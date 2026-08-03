@@ -44,6 +44,7 @@
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized_metadata_store.hpp"
+#include "utils/worker_resume_event.hpp"
 
 namespace memgraph::metrics {
 struct DatabaseMetricHandles;
@@ -371,10 +372,57 @@ class Storage {
   std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level);
   std::unique_ptr<Accessor> ReadOnlyAccess();
 
+  /// Non-blocking counterpart to Access(), covering every mode including UNIQUE and READ_ONLY:
+  /// acquires an accessor in `rw_type` if main_lock_ admits it right now, returning nullptr if it
+  /// does not. Never blocks, never throws, and creates no transaction when it fails -- the caller
+  /// falls back to the blocking Access() or retries later.
+  ///
+  /// Admission, not just "is it free": a waiting UNIQUE gates the shared modes, so this reports
+  /// failure while one is pending even though nobody holds the lock. That yields to the waiter
+  /// rather than jumping ahead of it.
+  ///
+  /// One probe, so it grants no priority of its own: a caller looping on this is an ordinary
+  /// contender each time and can be starved by a stream of compatible holders. A caller that needs
+  /// to be preferred while it retries holds a utils::UniquePendingScope or ReadOnlyPendingScope
+  /// across the whole loop (see TryAccessWithPending, which the park path uses).
+  ///
+  /// Base is a safe stub returning nullptr without ever touching main_lock_, so engines with no
+  /// non-blocking probe (DiskStorage) behave correctly for free; InMemoryStorage overrides it.
+  virtual std::unique_ptr<Accessor> TryAccess(StorageAccessType rw_type,
+                                              std::optional<IsolationLevel> override_isolation_level = {});
+
+  /// Whether this storage engine supports the coro-prepare park-acquire path (IP-1 design doc,
+  /// opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 4 §R4.6): a
+  /// caller-held pending scope (see InMemoryStorage::PendingHandle/TryAccessWithPending) kept
+  /// across an entire retry campaign, plus a real (non-stub) TryAccess implementation to probe
+  /// against. Base default is false (DiskStorage never overrides TryAccess, so parking against it
+  /// would spin against the always-nullptr stub until the deadline sweep fires every single time --
+  /// the park benefit is InMemory-only for v1). Overridden `true` in InMemoryStorage.
+  virtual bool SupportsParkAcquire() const { return false; }
+
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
   std::expected<void, SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
   IsolationLevel GetIsolationLevel() const noexcept;
+
+  /// Per-Storage wake event for a parked (coro-prepare) waiter blocked on `main_lock_`.
+  utils::WorkerResumeEvent &main_lock_resume_event() { return main_lock_resume_event_; }
+
+  /// Resumes and releases every parked waiter so each observes shutdown and bails instead of
+  /// sleeping forever. Idempotent -- a second pass is a harmless prune. No-op when the coro-prepare
+  /// flag is off (nothing can have parked); this is the single gate for every drain caller.
+  ///
+  /// MUST be called while the worker pool is still running: a resume is posted to a worker, and one
+  /// that has already exited never executes it, leaving the coroutine parked forever and leaking the
+  /// Session it pins. See the shutdown sequence in memgraph.cpp.
+  void DrainParkedMainLockWaiters();
+
+  /// Wakes any parked waiter. MUST be called AFTER the guard actually released `main_lock_`.
+  ///
+  /// EVERY release mode must call it, plain READ/WRITE included: a parked READ_ONLY/UNIQUE waiter is
+  /// unblocked precisely when the LAST conflicting holder releases. "READ/WRITE never gate another
+  /// acquirer" is true of a NEW acquirer and false of a WAITING one.
+  void NotifyMainLockReleased();
 
   virtual StorageInfo GetBaseInfo() = 0;
 
@@ -425,10 +473,26 @@ class Storage {
     stop_source.request_stop();
 
     ttl_.Shutdown();
+
+    // A genuine park dual-registers in TWO registries -- the pool's deadline backstop and this
+    // per-Storage event -- and draining only the pool side leaks the Session, hence a DatabaseAccess,
+    // hence a 5-minute ~Gatekeeper wait.
+    //
+    // This is the IDEMPOTENT SECOND PASS, and the only pass on the DROP DATABASE path. Do NOT make it
+    // primary: a resume is POSTED to a worker, so draining after the pool stopped never runs it.
+    DrainParkedMainLockWaiters();
   }
 
   // TODO: make non-public
   ReplicationStorageState repl_storage_state_;
+
+  // Wake event for a coro-prepare waiter parked on main_lock_. Pool-agnostic by design -- each
+  // waiter's ParkState carries its own on_resume closure.
+  //
+  // INVARIANT: declared BEFORE main_lock_, so it is destroyed AFTER it. main_lock_ holds an admit
+  // observer that touches this event, and members die in reverse declaration order; the other way
+  // round, a main_lock_ release during teardown would reach a destroyed event.
+  utils::WorkerResumeEvent main_lock_resume_event_;
 
   // Main storage lock.
   // Accessors take a shared lock when starting, so it is possible to block
@@ -559,7 +623,13 @@ class Accessor {
 
   Accessor(Accessor &&other) noexcept;
 
-  virtual ~Accessor() = default;
+  // `= default` in storage.cpp, out-of-line only to emit the vtable in a single TU.
+  //
+  // Empty on purpose: the wake comes from guard_'s own destruction (~ResourceLockGuard -> release ->
+  // maybe_notify -> the admit observer), which covers every release site rather than the ones a
+  // hand-written body enumerates, and lands after the hold is gone. guard_ is declared BEFORE
+  // transaction_, so the hold outlives the transaction and is released last.
+  virtual ~Accessor();
 
   StorageAccessType original_access_type() const { return original_access_type_; }
 
@@ -1270,7 +1340,7 @@ class Accessor {
  protected:
   Storage *storage_;
   /// One guard for all four ways to hold main_lock_. The mode is mutable state, not a property of
-  /// this type: a READ_ONLY hold downgrades to READ, and ReleaseUniqueGuard() leaves nothing held.
+  /// this type: a READ_ONLY hold downgrades to READ, and ReleaseGuard() leaves nothing held.
   utils::ResourceLockGuard guard_;
   /// IMPORTANT: constructed after the guard, both for destruction order and so that the mode and
   /// isolation level it captures are read under that guard.

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,12 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include <utils/priority_thread_pool.hpp>
 #include "utils/synchronized.hpp"
@@ -471,5 +476,331 @@ TEST(TaskCollection, LargeTaskSet) {
   ASSERT_EQ(counter.load(), num_tasks);
 
   pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// --- Unit 3a: must-run queue / PostResumeTask / worker-id TLS / IsShuttingDown ---
+
+TEST(PriorityThreadPool, CurrentWorkerIdTLS) {
+  using namespace memgraph;
+
+  // Off any pool worker thread (e.g. the test's own thread), must be nullopt.
+  ASSERT_FALSE(utils::GetCurrentWorkerId().has_value());
+
+  memgraph::utils::PriorityThreadPool pool{2, 1};
+
+  std::atomic<bool> observed_has_value{false};
+  std::atomic<bool> done{false};
+  pool.ScheduledAddTask(
+      [&](auto) {
+        observed_has_value = utils::GetCurrentWorkerId().has_value();
+        done = true;
+        done.notify_one();
+      },
+      utils::Priority::LOW);
+  done.wait(false);
+  ASSERT_TRUE(observed_has_value.load());
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+TEST(PriorityThreadPool, PostResumeTaskRunsOnAnLpWorker) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{2, 1};
+
+  std::mutex m;
+  std::optional<size_t> observed_id;
+  std::atomic<bool> done{false};
+
+  pool.PostResumeTask([&] {
+    {
+      std::lock_guard<std::mutex> lock(m);
+      observed_id = utils::GetCurrentWorkerId();
+    }
+    done = true;
+    done.notify_one();
+  });
+
+  done.wait(false);
+  {
+    std::lock_guard<std::mutex> lock(m);
+    // WHICH worker is deliberately unspecified post-F6; that it is an LP pool worker is not, since
+    // the resumed coroutine may park again and a park requires a worker that will arm it.
+    ASSERT_TRUE(observed_id.has_value());
+    ASSERT_LT(*observed_id, pool.GetNumMixedWorkers());
+  }
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// The point of un-pinning (IP-1 F6). Pre-F6 a resume was pinned to the worker that parked, so a long
+// unrelated task on that worker delayed it arbitrarily -- which for a parked query means its
+// storage-access timeout was not enforced on time either.
+//
+// Every worker is wedged before the resume is posted, so target selection cannot fall back on a hot or
+// idle worker: the post necessarily lands on a BUSY worker's queue. Then exactly one worker is freed.
+// What this pins is the property that matters -- a resume is not hostage to the whole backlog of
+// whichever worker happened to receive it. It does not isolate WHICH mechanism delivers it (an LP
+// thief's steal, or the receiving worker reaching its own task boundary), because a test cannot choose
+// which worker PostResumeTask picks.
+TEST(PriorityThreadPool, PostResumeTaskNotBlockedByBusyWorkers) {
+  using namespace memgraph;
+  constexpr size_t kWorkers = 4;
+  memgraph::utils::PriorityThreadPool pool{kWorkers, 1};
+
+  std::vector<std::unique_ptr<std::atomic<bool>>> blocks;
+  blocks.reserve(kWorkers);
+  for (size_t i = 0; i < kWorkers; ++i) blocks.emplace_back(std::make_unique<std::atomic<bool>>(true));
+
+  std::atomic<int> occupied{0};
+  for (size_t i = 0; i < kWorkers; ++i) {
+    pool.ScheduledAddTask(
+        [&, i](auto) {
+          occupied.fetch_add(1);
+          auto &block = *blocks[i];
+          while (block.load()) {
+            block.wait(true);
+          }
+        },
+        utils::Priority::LOW);
+  }
+  while (occupied.load() != static_cast<int>(kWorkers)) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  std::atomic<bool> resumed{false};
+  pool.PostResumeTask([&] {
+    resumed = true;
+    resumed.notify_one();
+  });
+
+  // Nobody is free yet, so nothing can have run it.
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  EXPECT_FALSE(resumed.load()) << "no worker was free, so the resume cannot have run";
+
+  // Free exactly one worker.
+  *blocks[0] = false;
+  blocks[0]->notify_all();
+
+  for (int i = 0; i < 500 && !resumed.load(); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  EXPECT_TRUE(resumed.load()) << "one free worker was not enough to service a resume queued on a busy one";
+
+  for (auto &b : blocks) {
+    *b = false;
+    b->notify_all();
+  }
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// The tail drain -- the sole basis for try_push's "accepted => eventually run" promise, and for
+// PostResumeTask being allowed to ignore stop_requested(). Previously untested: the two teardown tests
+// below both post AFTER ShutDown(), by which point every worker's run_ is false, so try_push refuses
+// everywhere and the closure takes the inline fallback instead. This one posts INTO the window that
+// actually needs the drain -- accepted while the worker is alive, serviced after it was told to stop.
+TEST(PriorityThreadPool, MustRunItemAcceptedBeforeStopIsDrainedByTheWorkerTail) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{1, 1};  // one LP worker, so the target is unambiguous
+
+  std::atomic<bool> block{true};
+  std::atomic<bool> wedged{false};
+  pool.ScheduledAddTask(
+      [&](auto) {
+        wedged = true;
+        wedged.notify_one();
+        while (block.load()) {
+          block.wait(true);
+        }
+      },
+      utils::Priority::LOW);
+  wedged.wait(false);
+
+  // The worker is alive but busy, so try_push accepts into its must-run queue rather than refusing.
+  std::atomic<bool> ran{false};
+  pool.PostResumeTask([&] { ran = true; });
+  EXPECT_FALSE(ran.load()) << "the worker is still wedged; nothing should have run it yet";
+
+  // Tell the worker to stop while it is STILL inside its task, then let it finish. It leaves the run
+  // loop with run_ == false and must drain the accepted item on the way out.
+  std::thread shutdown_thread([&] { pool.ShutDown(); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  block = false;
+  block.notify_all();
+
+  shutdown_thread.join();
+  pool.AwaitShutdown();
+  EXPECT_TRUE(ran.load()) << "a must-run item accepted before stop() was dropped instead of drained -- "
+                             "that breaks 'accepted => eventually run', and each dropped item is a "
+                             "permanently parked query";
+}
+
+// The other half of the same tail branch, and the half that keeps this feature out of flag-off
+// installations' shutdown behaviour. The tail runs a leftover item only when it is a RESUME; an
+// ordinary task the worker had already dequeued when it observed run_ == false must be dropped unrun,
+// exactly as master drops it (master's loop ends right there, destroying the task).
+//
+// Without the `&& task_is_must_run` condition the branch would start ordinary QUERY work after
+// ShutDown() was requested, concurrently with the rest of the teardown handler, on every installation
+// whether or not --experimental-coro-prepare-accessor-yield is set. That is a flag-independent change
+// to shutdown semantics, so it needs a test of its own and not just a comment.
+//
+// Fully deterministic, with no window to race: the worker cannot dequeue B while it is blocked inside
+// A, and Worker::stop() only sets run_ = false and notifies -- it never joins -- so ShutDown() has
+// certainly published run_ == false by the time A is released. The worker then reaches Phase 1B,
+// dequeues B, continues to the top of `while (run_)`, and leaves the loop holding it.
+TEST(PriorityThreadPool, OrdinaryLeftoverIsDroppedAtTeardownJustLikeMaster) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{1, 1};  // one LP worker, so B's queue is unambiguous
+
+  std::atomic<bool> block{true};
+  std::atomic<bool> wedged{false};
+  pool.ScheduledAddTask(
+      [&](auto) {
+        wedged = true;
+        wedged.notify_one();
+        while (block.load()) {
+          block.wait(true);
+        }
+      },
+      utils::Priority::LOW);
+  wedged.wait(false);
+
+  // B is queued behind the wedged task while the pool is still accepting work (ScheduledAddTask
+  // refuses once shutdown is requested, so it has to be enqueued before the ShutDown below). LOW on
+  // purpose: an HP thief only ever steals HIGH items, so nothing but this worker can service it.
+  std::atomic<bool> ordinary_ran{false};
+  pool.ScheduledAddTask([&](auto) { ordinary_ran = true; }, utils::Priority::LOW);
+
+  pool.ShutDown();  // run_ = false, monitor stopped; does not join, and B stays queued
+
+  block = false;
+  block.notify_all();
+  pool.AwaitShutdown();
+
+  EXPECT_FALSE(ordinary_ran.load())
+      << "an ordinary task the worker had dequeued as it left the run loop was executed during "
+         "teardown. Master destroys it unrun; running it starts query work after ShutDown() was "
+         "requested, and this happens with the coro-prepare flag off too";
+}
+
+// Resumes jump ordinary work, but must NOT jump a queued HIGH-priority item: before the must-run queue
+// existed there was one max-heap and HP was strictly first, so demoting HP below every resume would be
+// a priority inversion introduced by a flag that defaults to off.
+TEST(PriorityThreadPool, HighPriorityWorkStillPrecedesAResume) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{1, 1};
+
+  std::atomic<bool> block{true};
+  std::atomic<bool> wedged{false};
+  pool.ScheduledAddTask(
+      [&](auto) {
+        wedged = true;
+        wedged.notify_one();
+        while (block.load()) {
+          block.wait(true);
+        }
+      },
+      utils::Priority::LOW);
+  wedged.wait(false);
+
+  // Wedge the HP worker too, with a HIGH task of its own. Without this the test is only
+  // probabilistically discriminating: an awake HP worker steals the HIGH item straight off the wedged
+  // LP worker (Phase 2A) and records "high" first regardless of pop_task's precedence, so it would pass
+  // with the fix reverted. Same for sched_mon's 100ms migration tick. Wedging it leaves pop_task as the
+  // only thing that can order these two.
+  std::atomic<bool> hp_block{true};
+  std::atomic<bool> hp_wedged{false};
+  pool.ScheduledAddTask(
+      [&](auto) {
+        hp_wedged = true;
+        hp_wedged.notify_one();
+        while (hp_block.load()) {
+          hp_block.wait(true);
+        }
+      },
+      utils::Priority::HIGH);
+  hp_wedged.wait(false);
+
+  // Both queued behind the wedged task on the same (only) LP worker.
+  std::mutex order_mutex;
+  std::vector<std::string> order;
+  auto record = [&](std::string what) {
+    std::lock_guard<std::mutex> lock(order_mutex);
+    order.push_back(std::move(what));
+  };
+
+  pool.PostResumeTask([&] { record("resume"); });
+  pool.ScheduledAddTask([&](auto) { record("high"); }, utils::Priority::HIGH);
+
+  block = false;
+  block.notify_all();
+
+  // Wait for both, then check which ran first. With both workers wedged until now, pop_task on the LP
+  // worker is the only thing that could have ordered them.
+  for (int i = 0; i < 500; ++i) {
+    {
+      std::lock_guard<std::mutex> lock(order_mutex);
+      if (order.size() == 2) break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  std::lock_guard<std::mutex> lock(order_mutex);
+  ASSERT_EQ(order.size(), 2U) << "both tasks should have run";
+  EXPECT_EQ(order.front(), "high") << "a queued HIGH-priority task was served after a parked-query "
+                                      "resume; must-run work must not preempt HP work";
+
+  hp_block = false;
+  hp_block.notify_all();
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// A resume posted after shutdown was requested must still run: dropping it leaks the parked
+// session (and its DatabaseAccess), which stalls the very shutdown that dropped it. This is the
+// window ShutDown()'s park drain posts into -- workers are stop()-ed but not yet joined.
+TEST(PriorityThreadPool, PostResumeTaskDuringShutdownStillRuns) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{2, 1};
+
+  std::atomic<bool> ran{false};
+  pool.ShutDown();
+  ASSERT_TRUE(pool.IsShuttingDown());
+  pool.PostResumeTask([&] { ran = true; });
+
+  pool.AwaitShutdown();  // joins; any accepted must-run item has been drained by now
+  EXPECT_TRUE(ran.load()) << "a resume posted during teardown must never be dropped";
+}
+
+// Same, but from the parking side: ScheduledAddTask is refused once shutdown starts, and
+// PostResumeTask deliberately is not.
+TEST(PriorityThreadPool, ScheduledAddTaskRefusedAfterShutdownButResumeIsNot) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{1, 1};
+
+  pool.ShutDown();
+
+  std::atomic<int> ordinary{0};
+  std::atomic<int> resume{0};
+  pool.ScheduledAddTask([&](auto) { ordinary.fetch_add(1); }, utils::Priority::LOW);
+  pool.PostResumeTask([&] { resume.fetch_add(1); });
+
+  pool.AwaitShutdown();
+  EXPECT_EQ(ordinary.load(), 0) << "ordinary work must not start once shutdown was requested";
+  EXPECT_EQ(resume.load(), 1) << "a resume must run regardless";
+}
+
+TEST(PriorityThreadPool, IsShuttingDownTransitions) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{1, 1};
+
+  ASSERT_FALSE(pool.IsShuttingDown());
+  pool.ShutDown();
+  ASSERT_TRUE(pool.IsShuttingDown());
+
   pool.AwaitShutdown();
 }

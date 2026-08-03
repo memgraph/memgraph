@@ -73,6 +73,25 @@ bool GetDebugQueryPlans();
 bool GetStorageGcAggressive();
 
 /**
+ * @brief Cheap (relaxed-atomic) read of --experimental-coro-prepare-accessor-yield. Unlike the
+ * Settings-backed getters above, this flag is NOT registered with the runtime Settings store: it is
+ * startup-only, with no persistence and no SET support, so the cached atomic is populated once by
+ * RefreshCoroPrepareAccessorYieldEnabled() and never again. Callers may therefore gate one-time
+ * setup on it, not just per-call behaviour.
+ *
+ * @return bool
+ */
+bool CoroPrepareAccessorYieldEnabled();
+
+/**
+ * @brief Refresh the cached snapshot of --experimental-coro-prepare-accessor-yield from the gflag.
+ * Called once at startup after gflags::ParseCommandLineFlags -- a static-init-time cache would
+ * observe the flag's default rather than its parsed command-line value. Exposed (not file-local) so
+ * tests can flip the gflag and re-sync without a process restart.
+ */
+void RefreshCoroPrepareAccessorYieldEnabled();
+
+/**
  * @brief Get the current timezone object
  *
  * @return const std::chrono::time_zone*

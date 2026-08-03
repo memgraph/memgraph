@@ -31,3 +31,13 @@ workloads:
 
   - config: workloads/hot_cold_ttl/workload.yaml
     enabled: true
+
+  # Parkable Prepare (--experimental-coro-prepare-accessor-yield). Two arms of the SAME script:
+  # parking on, then the flag-off control. The control is not redundant -- the feature's pool
+  # changes (the work_must_run_ queue, the teardown tail branch) are not flag-gated, so every
+  # installation runs them. See each workload.yaml for the full reasoning.
+  - config: workloads/coro_prepare_park/workload.yaml
+    enabled: true
+
+  - config: workloads/coro_prepare_park_flag_off/workload.yaml
+    enabled: true
