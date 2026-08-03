@@ -1588,7 +1588,7 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgePropertyRange::Clone(AstStorage *s
 ScanAllByVertexProperty::ScanAllByVertexProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                                  storage::PropertyId property, ExpressionRange expression_range,
                                                  storage::View view)
-    : ScanAll(input, output_symbol, view), property_(property), expression_range_(std::move(expression_range)) {}
+    : ScanAll(input, output_symbol, view), property_(property), expression_range_(expression_range) {}
 
 ACCEPT_WITH_INPUT(ScanAllByVertexProperty)
 
@@ -10263,9 +10263,7 @@ ScanParallelByVertexProperty::ScanParallelByVertexProperty(const std::shared_ptr
                                                            storage::View view, size_t num_threads, Symbol state_symbol,
                                                            storage::PropertyId property,
                                                            ExpressionRange expression_range)
-    : ScanParallel(input, view, num_threads, state_symbol),
-      property_(property),
-      expression_range_(std::move(expression_range)) {}
+    : ScanParallel(input, view, num_threads, state_symbol), property_(property), expression_range_(expression_range) {}
 
 ACCEPT_WITH_INPUT(ScanParallelByVertexProperty)
 

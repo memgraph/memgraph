@@ -712,7 +712,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateVertexPropertyIndicesPullChunk() {
     const auto &vertex_property = indices_info_->vertex_property;
 
     size_t local_counter = 0;
-    while (global_index < vertex_property.size() && (!n || local_counter < *n)) {
+    while (global_index < vertex_property.size() && (!n || std::cmp_less(local_counter, *n))) {
       std::ostringstream os;
       DumpVertexPropertyIndex(&os, dba_, vertex_property[global_index]);
       stream->Result({TypedValue(os.str())});

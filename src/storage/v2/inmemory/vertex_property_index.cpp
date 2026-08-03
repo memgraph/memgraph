@@ -20,7 +20,6 @@
 #include "utils/counter.hpp"
 
 namespace r = ranges;
-namespace rv = r::views;
 
 namespace memgraph::storage {
 
@@ -135,7 +134,7 @@ bool InMemoryVertexPropertyIndex::InstallIndividualIndex_(PropertyId property, s
                                                           bool register_in_all_indices) {
   return index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
     if (indices_container->indices_.contains(property)) return false;
-    utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+    utils::MemoryTracker::OutOfMemoryExceptionEnabler const oom_exception;
     auto new_container = std::make_shared<IndicesContainer>(*indices_container);
     auto [new_it, _] = new_container->indices_.emplace(property, std::move(entry));
 
@@ -274,7 +273,7 @@ void InMemoryVertexPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId 
   if (it == index_container_->indices_.end()) return;
 
   auto acc = it->second->skip_list_.access();
-  acc.insert({std::move(value), vertex, timestamp});
+  acc.insert({.value = std::move(value), .vertex = vertex, .timestamp = timestamp});
 }
 
 uint64_t InMemoryVertexPropertyIndex::ActiveIndices::ApproximateVertexCount(PropertyId property) const {
@@ -320,7 +319,7 @@ void InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64
 
   auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
 
-  for (auto &[property_id, index] : *cpy) {
+  for (auto const &[property_id, index] : *cpy) {
     if (token.stop_requested()) return;
 
     auto acc = index->skip_list_.access();
@@ -359,7 +358,7 @@ void InMemoryVertexPropertyIndex::RunGC() {
   CleanupAllIndices();
 
   auto cpy = all_indices_.ReadCopy();
-  for (auto &[_, index] : *cpy) {
+  for (auto const &[_, index] : *cpy) {
     index->skip_list_.run_gc();
   }
 }
@@ -459,7 +458,7 @@ void InMemoryVertexPropertyIndex::ActiveIndices::AbortEntries(VertexPropertyInde
 
     auto acc = it->second->skip_list_.access();
     for (auto const &[value, vertex] : vertices) {
-      acc.remove(Entry{value, vertex, start_timestamp});
+      acc.remove(Entry{.value = value, .vertex = vertex, .timestamp = start_timestamp});
     }
   }
 }

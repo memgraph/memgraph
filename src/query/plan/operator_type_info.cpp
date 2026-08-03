@@ -71,8 +71,9 @@ constexpr utils::TypeInfo query::plan::ScanAllByEdgePropertyValue::kType{
 constexpr utils::TypeInfo query::plan::ScanAllByEdgePropertyRange::kType{
     utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY_RANGE, "ScanAllByEdgePropertyRange", &query::plan::ScanAllByEdge::kType};
 
-constexpr utils::TypeInfo query::plan::ScanAllByVertexProperty::kType{
-    utils::TypeId::SCAN_ALL_BY_VERTEX_PROPERTY, "ScanAllByVertexProperty", &query::plan::ScanAll::kType};
+constexpr utils::TypeInfo query::plan::ScanAllByVertexProperty::kType{.id = utils::TypeId::SCAN_ALL_BY_VERTEX_PROPERTY,
+                                                                      .name = "ScanAllByVertexProperty",
+                                                                      .superclass = &query::plan::ScanAll::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeId::kType{
     .id = utils::TypeId::SCAN_ALL_BY_ID, .name = "ScanAllByEdgeId", .superclass = &query::plan::ScanAllByEdge::kType};
