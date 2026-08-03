@@ -55,7 +55,6 @@ class Client {
       {"PromoteToMainReq"sv, 10'000},          // coordinator sending to replica
       {"RegisterReplicaOnMainReq"sv, 10'000},  // coordinator sending to main
       {"UnregisterReplicaReq"sv, 10'000},      // coordinator sending to main
-      {"EnableWritingOnMainReq"sv, 10'000},    // coordinator to main
       {"ReplicationLagReq"sv, 5000},           // coordinator to main
       {"GetDatabaseHistoriesReq"sv, 10'000},   // coordinator to data instances
       {"StateCheckReq"sv, 5000},               // coordinator to data instances
@@ -67,7 +66,54 @@ class Client {
       {"FinalizeCommitReq"sv, 10'000},  // Waiting 10'' on a final response
       {"CurrentWalReq"sv, 30'000},      // Waiting 30'' on a progress/final response
       {"WalFilesReq"sv, 30'000},        // Waiting 30'' on a progress/final response
-      {"SnapshotReq"sv, 60'000}         // Waiting 60'' on a progress/final response
+      {"SnapshotReq"sv, 60'000},        // Waiting 60'' on a progress/final response
+      // Follower coordinator forwarding to the leader; these run on the caller's Bolt session thread, so a missing
+      // timeout would block the session forever against a reachable-but-stuck leader.
+      //
+      // The four instance ops below must outlast the leader-side work they trigger, or the follower reports failure for
+      // an operation the leader already committed to Raft. Budgets are the sum of that work plus headroom, taking the
+      // Raft commit as capped by client_req_timeout_ (3'') and each RPC to a data instance by its entry above (10''):
+      //   Demote/Unregister  3'' + one RPC to the current main             = 13''
+      //   Register           3'' + demote the new replica + register it    = 23''
+      //   SetInstanceToMain  3'' + one SwapMainUUID per other instance + promote the new main = 33'' at three
+      //                      instances; the budget below covers five. Beyond that the follower can still time out
+      //                      before the leader answers -- it grows with instance count, so no fixed value bounds it.
+      {"RegisterInstanceReq"sv, 30'000},
+      {"UnregisterInstanceReq"sv, 20'000},
+      {"SetInstanceToMainReq"sv, 60'000},
+      {"DemoteInstanceReq"sv, 20'000},
+      // Raft commit only (3''), no fan-out to data instances.
+      {"AddCoordinatorReq"sv, 10'000},
+      {"RemoveCoordinatorReq"sv, 10'000},
+      {"UpdateConfigReq"sv, 10'000},
+      // Reconciliation retries under a 1''..60'' backoff for as long as this coordinator stays leader, so the
+      // leader-side work has no upper bound at all. This budget only keeps a genuinely wedged leader from blocking the
+      // session; hitting it does not mean the reset failed, and FORCE RESET CLUSTER STATE is safe to re-run.
+      {"ForceResetReq"sv, 60'000},
+      {"GetRoutingTableReq"sv, 10'000},
+      {"CoordReplLagReq"sv, 10'000},
+      {"CreateRoleReq"sv, 10'000},
+      {"DropRoleReq"sv, 10'000},
+      {"GetRolesReq"sv, 10'000},
+      {"GrantPrivilegeReq"sv, 10'000},
+      {"RevokePrivilegeReq"sv, 10'000},
+      {"GetRolePrivilegesReq"sv, 10'000},
+      {"SetCoordinatorSettingReq"sv, 10'000},
+      {"UpdateDataInstanceConfigReq"sv, 10'000},  // coordinator to data instances
+      // Main to replica system-delta RPCs; sent while committing a system transaction, so they too must not block
+      // indefinitely (a timeout marks the replica BEHIND and defers to system recovery).
+      {"UpdateAuthDataReq"sv, 10'000},
+      {"DropAuthDataReq"sv, 10'000},
+      {"FinalizeSystemTxReq"sv, 10'000},
+      {"CreateDatabaseReq"sv, 10'000},
+      {"DropDatabaseReq"sv, 10'000},
+      {"SuspendDatabaseReq"sv, 10'000},
+      {"ResumeDatabaseReq"sv, 10'000},
+      {"RenameDatabaseReq"sv, 10'000},
+      {"TenantProfileReq"sv, 10'000},
+      {"SetParameterReq"sv, 10'000},
+      {"UnsetParameterReq"sv, 10'000},
+      {"DeleteAllParametersReq"sv, 10'000},
   };
   // Dependency injection of rpc_timeouts
   Client(io::network::Endpoint endpoint, communication::ClientContext *context,

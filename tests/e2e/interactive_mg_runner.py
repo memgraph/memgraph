@@ -153,6 +153,10 @@ def pidof(instances, instance_name):
 
 MEMGRAPH_INSTANCES = {}
 
+# Set from --context-yaml so `start` can pick up flag edits made while instances were stopped. Empty when the cluster
+# description is the in-script default, in which case there is no file to reload from.
+CONTEXT_YAML_PATH = ""
+
 ACTIONS = {
     "info": lambda instances: info(instances),
     "stop": lambda instances, name: stop(instances, name),
@@ -306,11 +310,60 @@ def kill(context, name, keep_directories=True):
         MEMGRAPH_INSTANCES.pop(name)
 
 
+def reload_context(context):
+    """
+    Re-reads the cluster description from the YAML the runner was started with and updates `context` in place, so flags
+    edited while instances were stopped take effect on the next start. The dict is mutated rather than replaced because
+    the interactive loop and the ACTIONS closures hold a reference to it. A no-op when the description came from the
+    in-script default. A file that has gone missing or stopped parsing leaves the current description untouched, so a
+    typo in the YAML doesn't tear down a live session.
+    """
+    if not CONTEXT_YAML_PATH:
+        return
+
+    try:
+        with open(CONTEXT_YAML_PATH, "r") as f:
+            reloaded = yaml.load(f, Loader=yaml.FullLoader)
+    except (OSError, yaml.YAMLError) as e:
+        log.error(f"Could not reload the cluster description from {CONTEXT_YAML_PATH}, keeping the current one: {e}")
+        return
+    if not isinstance(reloaded, dict):
+        log.error(f"{CONTEXT_YAML_PATH} does not contain a cluster description mapping, keeping the current one.")
+        return
+
+    for name, description in reloaded.items():
+        instance = MEMGRAPH_INSTANCES.get(name)
+        if instance is None or not instance.is_running():
+            continue
+        if description.get("args") != context.get(name, {}).get("args"):
+            log.warning(
+                f"Instance {name} is running with its previous args, so the reloaded ones are ignored. Stop it and "
+                "start it again to apply them."
+            )
+
+    # A running instance dropped from the YAML keeps its old description, otherwise `stop` and `info` would no longer
+    # recognize the name and the process would be left with no way to shut it down from here.
+    orphans = {name: context[name] for name in context.keys() - reloaded.keys() if name in MEMGRAPH_INSTANCES}
+    for name in orphans:
+        log.warning(
+            f"Instance {name} is no longer in {CONTEXT_YAML_PATH} but is still running, so its previous description is "
+            "kept. Stop it to drop it from the description."
+        )
+
+    context.clear()
+    context.update(reloaded)
+    context.update(orphans)
+    log.info(f"Reloaded the cluster description from {CONTEXT_YAML_PATH}.")
+
+
 def start_wrapper(instances, instance_name, procdir="", gdb_port=None):
     """
     Starts 'all' instances, a single instance or multiple comma-separated instances,
     e.g. 'coordinator_1,coordinator_2'. Multiple instances are started in parallel.
+    Picks up any edits to the cluster description YAML first.
     """
+    reload_context(instances)
+
     if instance_name == "all":
         start_all(instances, procdir, gdb_port=gdb_port, ignore_setup_failures=True)
         return
@@ -461,7 +514,9 @@ if __name__ == "__main__":
     if args.context_yaml == "":
         context = MEMGRAPH_INSTANCES_DESCRIPTION
     else:
-        with open(args.context_yaml, "r") as f:
+        # Resolved once so the reload on `start` is unaffected by any later change of working directory.
+        CONTEXT_YAML_PATH = os.path.realpath(args.context_yaml)
+        with open(CONTEXT_YAML_PATH, "r") as f:
             context = yaml.load(f, Loader=yaml.FullLoader)
 
     if args.actions != "" and context is not None:

@@ -1253,6 +1253,12 @@ void AuthQueryHandler::EditPermissions(
     std::vector<memgraph::auth::Permission> permissions;
     permissions.reserve(privileges.size());
     for (const auto &privilege : privileges) {
+      if (privilege == memgraph::query::AuthQuery::Privilege::COORDINATOR_READ ||
+          privilege == memgraph::query::AuthQuery::Privilege::COORDINATOR_WRITE) {
+        throw memgraph::query::QueryRuntimeException(
+            "COORDINATOR_READ and COORDINATOR_WRITE are coordinator-only privileges and cannot be granted, denied, or "
+            "revoked on a data instance.");
+      }
       permissions.push_back(memgraph::glue::PrivilegeToPermission(privilege));
     }
     auto locked_auth = auth_->Lock();

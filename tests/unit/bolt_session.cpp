@@ -137,6 +137,19 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     return {/* success */};
   }
 
+#ifdef MG_ENTERPRISE
+  // Rejection carries the client-facing message rather than a bolt AuthFailure: the coordinator SSO causes (bad token,
+  // unknown role, ungranted role) are specific to that path.
+  std::expected<void, std::string_view> CoordinatorSSOAuthenticate(const std::string & /*scheme*/,
+                                                                   const std::string & /*identity_provider_response*/) {
+    return {/* success */};
+  }
+
+  void CoordinatorPassthroughAuthenticate() {}
+
+  std::optional<bool> CoordinatorHasWritableRole() const { return std::nullopt; }
+#endif
+
   void LogOff() {}
 
 #ifdef MG_ENTERPRISE

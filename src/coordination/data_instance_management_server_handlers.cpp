@@ -74,14 +74,6 @@ void DataInstanceManagementServerHandlers::Register(memgraph::coordination::Data
                              slk::Builder *res_builder) -> void {
         GetReplicationLagHandler(replication_handler, request_version, req_reader, res_builder);
       });
-  server.Register<coordination::EnableWritingOnMainRpc>(
-      [&replication_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                             uint64_t const request_version,
-                             slk::Reader *req_reader,
-                             slk::Builder *res_builder) -> void {
-        EnableWritingOnMainHandler(replication_handler, request_version, req_reader, res_builder);
-      });
-
   server.Register<coordination::GetDatabaseHistoriesRpc>(
       [&replication_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
                              uint64_t const request_version,
@@ -411,30 +403,6 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
     }
   }
   spdlog::info("Replica {} successfully unregistered.", req.arg_);
-}
-
-void DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(
-    replication::ReplicationHandler &replication_handler, uint64_t const request_version, slk::Reader * /*req_reader*/,
-    slk::Builder *res_builder) {
-  auto locked_repl_state = replication_handler.GetReplState();
-
-  if (!locked_repl_state->IsMain()) {
-    spdlog::error("Enable writing on main must be performed on main!");
-    coordination::EnableWritingOnMainRes const rpc_res{false};
-    rpc::SendFinalResponse(rpc_res, request_version, res_builder);
-    return;
-  }
-
-  if (!locked_repl_state->EnableWritingOnMain()) {
-    spdlog::error("Enabling writing on main failed!");
-    coordination::EnableWritingOnMainRes const rpc_res{false};
-    rpc::SendFinalResponse(rpc_res, request_version, res_builder);
-    return;
-  }
-
-  coordination::EnableWritingOnMainRes const rpc_res{true};
-  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
-  spdlog::info("Enabled writing on main.");
 }
 
 void DataInstanceManagementServerHandlers::UpdateDataInstanceConfigHandler(

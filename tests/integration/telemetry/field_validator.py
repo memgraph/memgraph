@@ -229,8 +229,6 @@ EXPECTED_EVENT_COUNTERS = {
     "DistinctOperator",
     "EdgeUniquenessFilterOperator",
     "EmptyResultOperator",
-    "EnableWritingOnMainRpcFail",
-    "EnableWritingOnMainRpcSuccess",
     "EvaluatePatternFilterOperator",
     "ExpandOperator",
     "ExpandVariableOperator",
