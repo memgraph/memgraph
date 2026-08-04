@@ -31,13 +31,16 @@ class IdBitmap {
  public:
   void set(TId id) {
     auto const [word, bit] = Position(id);
-    if (word >= words_.size()) words_.resize(word + 1, 0);
+    if (word >= num_words_) {
+      words_.resize(word + 1, 0);
+      num_words_ = word + 1;
+    }
     words_[word] |= bit;
   }
 
   bool test(TId id) const {
     auto const [word, bit] = Position(id);
-    return word < words_.size() && (words_[word] & bit) != 0;
+    return word < num_words_ && (words_[word] & bit) != 0;
   }
 
   bool any() const {
@@ -48,8 +51,11 @@ class IdBitmap {
   void reset() { std::ranges::fill(words_, 0); }
 
   IdBitmap &operator|=(IdBitmap const &other) {
-    if (words_.size() < other.words_.size()) words_.resize(other.words_.size(), 0);
-    for (size_t i = 0; i != other.words_.size(); ++i) words_[i] |= other.words_[i];
+    if (num_words_ < other.num_words_) {
+      words_.resize(other.num_words_, 0);
+      num_words_ = other.num_words_;
+    }
+    for (size_t i = 0; i != other.num_words_; ++i) words_[i] |= other.words_[i];
     return *this;
   }
 
@@ -68,6 +74,9 @@ class IdBitmap {
   }
 
   std::vector<uint64_t> words_;
+  /// Held alongside so the bounds check costs a load rather than a subtraction, which set()
+  /// pays once per delta. Every write to words_ updates it.
+  size_t num_words_{0};
 };
 
 }  // namespace memgraph::utils
