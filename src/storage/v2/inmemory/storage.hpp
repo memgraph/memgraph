@@ -731,6 +731,15 @@ class InMemoryStorage final : public Storage {
                              IndexPerformanceTracker &impact_tracker);
     SalientConfig::Items config_;
 
+    // Vector search is the one read path that hands raw Vertex*/Edge* out of
+    // storage and lets the caller dereference them after the call returns, so
+    // its pins live here rather than in the search's own scope. Taken lazily on
+    // the first search of each kind and released with the accessor: an object a
+    // search returned stays reachable for as long as the accessors wrapping it
+    // can be used. Transactions that never search hold nothing.
+    std::optional<utils::SkipListDb<Vertex>::ConstAccessor> vector_search_vertex_pin_;
+    std::optional<EdgePin> vector_search_edge_pin_;
+
     // Bookkeeping
     durability::WalTxnDataPos wal_txn_positions_;
     bool needs_wal_update_{false};
