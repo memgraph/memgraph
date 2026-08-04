@@ -19,7 +19,10 @@ namespace memgraph::storage {
 void EdgePropertyIndexAbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property,
                                                               Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
                                                               PropertyValue value) {
-  DMG_ASSERT(IsInteresting(property), "Collecting a property no index is keyed on");
+  // A write names a property, not an index, so one with no index on it reaches here. Undoing is
+  // driven by what was collected, so anything gathered under a key no index is keyed on would be
+  // looked for in a set of indexes that does not hold it.
+  if (!IsInteresting(property)) return;
   cleanup_collection_[property].emplace_back(std::move(value), from_vertex, to_vertex, edge, edge_type);
 }
 
