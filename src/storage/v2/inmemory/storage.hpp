@@ -1072,6 +1072,12 @@ class InMemoryStorage final : public Storage {
   // producers hold that today but are not required to, and nothing here needs it.
   utils::Synchronized<IndexArming, utils::SpinLock> gc_index_cleanup_performance_;
 
+  // Where a collection cycle claims the above into, swapped rather than moved so that both this
+  // and the published one keep their allocation across cycles and the producers, which publish
+  // under a spin lock on the commit path, never allocate while holding it. Owned by the cycle,
+  // which the collection lock serializes.
+  IndexArming gc_claimed_arming_;
+
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;

@@ -3446,8 +3446,12 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // Used to determine whether the Index GC should be run for performance reasons (removing redundant entries). It
   // should be run when hinted by FastDiscardOfDeltas or by the deltas we processed this GC run.
   const utils::Timer skiplist_cleanup_timer;
-  auto sweep_arming = gc_index_cleanup_performance_.WithLock(
-      [](IndexArming &pending) { return std::exchange(pending, IndexArming{}); });
+  // Claimed by swapping the cycle's own holder in: the producers publish under a spin lock on
+  // the commit path, so the locked region must not allocate, and handing them back a holder that
+  // has already grown is what stops it.
+  auto &sweep_arming = gc_claimed_arming_;
+  sweep_arming.Clear();
+  gc_index_cleanup_performance_.WithLock([&](IndexArming &pending) { std::swap(pending, sweep_arming); });
   sweep_arming |= index_impact.arming();
   // A correctness sweep is looking for entries that point at objects about to be freed. No delta
   // names those, so it cannot be narrowed the way a performance sweep can.

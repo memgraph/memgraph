@@ -11,12 +11,9 @@
 
 #pragma once
 
-#include <algorithm>
-#include <cstdint>
-#include <vector>
-
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/index_impact.hpp"
+#include "utils/id_bitmap.hpp"
 
 namespace memgraph::storage {
 
@@ -29,56 +26,62 @@ namespace memgraph::storage {
 /// indexes stand on that label, and the set of indexes can change between the write and the
 /// cycle that acts on it. An index created in between is simply swept if its label was written.
 ///
-/// Also carries which index families are affected at all, which is the coarser question the
-/// families that do not yet consult the ids are still gated on.
+/// Grouped by index family, because the two do not arm on the same things: a vertex index turns
+/// on labels, which are mutable, while an edge index cannot turn on its edge type, which is not.
+///
+/// Also carries which index families are affected at all, the coarser question that index types
+/// not yet consulting the ids are still gated on.
 class IndexArming {
  public:
   /// Sweep every vertex index regardless of what was written. Used where entries may point at
   /// objects about to be freed: no delta names those, and leaving one behind is a dangling
-  /// pointer rather than a missed saving. Named per side so that a deleted edge, which says
-  /// nothing about any vertex index, does not cost the vertex side its narrowing.
-  void arm_every_vertex_index() { all_vertex_indexes_ = true; }
+  /// pointer rather than a missed saving. Named per family so that a deleted edge, which says
+  /// nothing about any vertex index, does not cost the vertex indexes their narrowing.
+  void arm_every_vertex_index() { vertex_.all = true; }
 
-  void note_label(LabelId label) { Set(label.AsUint()); }
+  void note_label(LabelId label) { vertex_.labels.Set(label); }
 
   /// Which families the writes could have touched at all, taken from the transaction where a
   /// delta cannot say it on its own.
   void note_families(IndexImpact impact) { families_ |= impact; }
 
-  bool armed(LabelId label) const { return all_vertex_indexes_ || Test(label.AsUint()); }
+  bool armed(LabelId label) const { return vertex_.all || vertex_.labels.Test(label); }
 
   IndexImpact const &families() const { return families_; }
 
-  bool any() const { return all_vertex_indexes_ || families_.any(); }
+  bool any() const { return vertex_.all || families_.any(); }
 
   IndexArming &operator|=(IndexArming const &other) {
-    all_vertex_indexes_ |= other.all_vertex_indexes_;
+    vertex_.Merge(other.vertex_);
     families_ |= other.families_;
-    if (labels_.size() < other.labels_.size()) labels_.resize(other.labels_.size(), 0);
-    for (size_t i = 0; i != other.labels_.size(); ++i) labels_[i] |= other.labels_[i];
     return *this;
   }
 
+  /// Empties without giving up the memory, so that a holder reused across collection cycles
+  /// keeps its allocation instead of growing back to the same size every time.
+  void Clear() {
+    vertex_.Clear();
+    families_ = {};
+  }
+
  private:
-  // Ids are dense and allocated monotonically by the name-id mapper, so a bitmap over them costs
-  // a word per sixty-four ids ever created and answers in constant time, which a per-delta hot
-  // loop needs more than it needs the space back.
-  static constexpr auto kBitsPerWord = 64U;
+  struct VertexIndexes {
+    bool all{false};
+    utils::IdBitmap<LabelId> labels{};
 
-  void Set(uint32_t id) {
-    auto const word = id / kBitsPerWord;
-    if (word >= labels_.size()) labels_.resize(word + 1, 0);
-    labels_[word] |= uint64_t{1} << (id % kBitsPerWord);
-  }
+    void Merge(VertexIndexes const &other) {
+      all |= other.all;
+      labels.Merge(other.labels);
+    }
 
-  bool Test(uint32_t id) const {
-    auto const word = id / kBitsPerWord;
-    return word < labels_.size() && (labels_[word] & (uint64_t{1} << (id % kBitsPerWord))) != 0;
-  }
+    void Clear() {
+      all = false;
+      labels.Clear();
+    }
+  };
 
-  bool all_vertex_indexes_{false};
+  VertexIndexes vertex_{};
   IndexImpact families_{};
-  std::vector<uint64_t> labels_;
 };
 
 }  // namespace memgraph::storage
