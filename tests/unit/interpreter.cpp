@@ -319,6 +319,28 @@ TYPED_TEST(InterpreterTest, AccessorFreePathHeaderParity) {
   EXPECT_EQ(header_of("CALL mg.procedures() YIELD name, is_write, path"), Headers({"name", "is_write", "path"}));
 }
 
+// SetupInterpreterTransaction runs unconditionally for every autocommit query and stamps a fresh
+// transaction id / ACTIVE status, even for accessor-free queries that open no storage transaction
+// and whose handler returns NOTHING. Commit()/Abort() dispose that tracking state; the NOTHING path
+// must too, or the session is left permanently mid-transaction -- a phantom SHOW TRANSACTIONS row
+// with a growing elapsed_ms and a false ActiveTransactionsExist(). Regression guard for BL-NEW:
+// after a fast-path query the interpreter must report no in-flight transaction. GetTransactionId()
+// returns current_transaction_, which is nullopt iff the tracking state was cleaned up.
+TYPED_TEST(InterpreterTest, AccessorFreePathClearsTransactionTracking) {
+  auto &interpreter = this->default_interpreter.interpreter;
+  for (auto const *query : {"RETURN 1",
+                            "RETURN 1 AS APP_INTERNAL_EXEC_VAR",
+                            "CALL mg.procedures() YIELD name",
+                            "CALL mg.functions() YIELD name"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    // Confirm we took the fast path (no plan), otherwise this would not be testing BL-NEW.
+    ASSERT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+    // And that the transaction-tracking state was disposed: no stale in-flight transaction id.
+    EXPECT_EQ(interpreter.GetTransactionId(), std::nullopt);
+  }
+}
+
 // The accessor-free path neither filters nor installs a memory tracker nor honours USING directives,
 // so a query carrying any of those must fall through to the normal (planned) path rather than have
 // the modifier silently dropped. Regression guard: YIELD ... WHERE used to be accepted by the
