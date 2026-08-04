@@ -656,7 +656,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
   auto const relevant_index = [&](auto &&each) {
     auto &[index_props, _] = each;
     if (!prop_ids) prop_ids = vertex_after_update->properties.ExtractPropertyIds();
-    auto vector_has_property = [&](auto &&index_prop) { return r::binary_search(*prop_ids, index_prop); };
+    auto vector_has_property = [&](PropertyId index_prop) { return r::binary_search(*prop_ids, index_prop); };
     return r::any_of(index_props[0], vector_has_property);
   };
 
@@ -691,7 +691,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId remo
   auto const relevant_index = [&](auto &&each) {
     auto &[index_props, _] = each;
     if (!prop_ids) prop_ids = vertex_before_update->properties.ExtractPropertyIds();
-    auto vector_has_property = [&](auto &&index_prop) { return r::binary_search(*prop_ids, index_prop); };
+    auto vector_has_property = [&](PropertyId index_prop) { return r::binary_search(*prop_ids, index_prop); };
     return r::any_of(index_props[0], vector_has_property);
   };
 
