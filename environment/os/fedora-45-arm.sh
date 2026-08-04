@@ -25,9 +25,9 @@ TOOLCHAIN_BUILD_DEPS=(
     curl libcurl-devel # for cmake
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
-    libedit-devel pcre-devel pcre2-devel automake bison # for swig
+    libedit-devel pcre2-devel automake bison # for swig
     file
-    openssl openssl-devel openssl-devel-engine # for pulsar
+    openssl3 openssl3-devel openssl3-devel-engine # for pulsar
     gmp-devel
     gperf
     diffutils
@@ -59,7 +59,7 @@ MEMGRAPH_BUILD_DEPS=(
     readline-devel # optional readline support (manual tests)
     python3-devel # for query modules
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
-    openssl-devel # for mgconsole (cloned + built at package time)
+    openssl3-devel # for mgconsole (cloned + built at package time)
     python3 python3-pip python3-virtualenv nmap-ncat lsof # for qa, macro_benchmark and stress tests
     #
     # IMPORTANT: python3-yaml does NOT exist on Fedora
