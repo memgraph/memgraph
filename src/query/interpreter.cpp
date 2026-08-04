@@ -4335,22 +4335,22 @@ PreparedQuery PrepareConstantReturnQuery(ParsedQuery parsed_query) {
 }
 
 // Asks the module registry -- the authority on what a procedure does -- whether `procedure_name`
-// resolves to a read procedure that declares it never touches the graph (ProcedureInfo::no_graph_access).
-// Only such a procedure may be invoked with no storage accessor open.
+// resolves to a procedure eligible for the accessor-free fast path: a read procedure declaring
+// ProcedureInfo::no_graph_access that also requires no privilege (see ProcedureIsAccessorFreeEligible).
 //
 // This is deliberately the LAST check performed by IsBuiltinIntrospectionQuery: it takes the module
 // registry's shared lock, whereas every preceding check is a pointer/size/bool test on the AST. The
 // lock is released before this returns, so it cannot deadlock against a procedure callback that takes
 // the registry lock itself (e.g. mg.procedures, which takes it exclusively).
-bool ProcedureDeclaresNoGraphAccess(std::string_view procedure_name) {
-  return procedure::ProcedureDeclaresNoGraphAccess(procedure::gModuleRegistry, procedure_name);
+bool ProcedureIsAccessorFreeEligible(std::string_view procedure_name) {
+  return procedure::ProcedureIsAccessorFreeEligible(procedure::gModuleRegistry, procedure_name);
 }
 
 // Recognizes a standalone `CALL <proc>() YIELD ...` that can run with no storage accessor: a single
 // CallProcedure clause, no arguments, a YIELD (non-empty result fields), no YIELD ... WHERE, no
 // per-call memory limit, no query-level modifiers, no trailing clauses (RETURN/...), no UNION -- and a
-// procedure that the registry says is a read procedure declaring no graph access. Covers Lab's
-// `CALL mg.procedures() YIELD *` feature-detection query and the layout-init mg.* calls.
+// procedure that the registry says is accessor-free eligible (read, no graph access, no required
+// privilege). Covers Lab's `CALL mg.procedures() YIELD *` feature-detection query.
 //
 // Checks are ordered cheapest-first so the registry lookup is a last resort, reached only by queries
 // that already look exactly like an accessor-free introspection call.
@@ -4369,7 +4369,7 @@ bool IsBuiltinIntrospectionQuery(const CypherQuery &query) {
   if (call_procedure->memory_limit_ != nullptr) return false;
   // Cheap AST-level read check: the parser stamps this from the registry at parse time.
   if (call_procedure->is_write_) return false;
-  return ProcedureDeclaresNoGraphAccess(call_procedure->procedure_name_);
+  return ProcedureIsAccessorFreeEligible(call_procedure->procedure_name_);
 }
 
 // Which accessor-free shape a CypherQuery matched, if any.

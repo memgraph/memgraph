@@ -398,17 +398,25 @@ TYPED_TEST(InterpreterTest, AccessorFreePathRejectsUnhonouredModifiers) {
   }
 }
 
-// The accessor-free path is gated on the procedure declaring ProcedureInfo::no_graph_access, not on
-// its name. All four builtin introspection procedures declare it and so must qualify.
+// The accessor-free path is gated on procedure metadata, not on the procedure name: a read procedure
+// declaring ProcedureInfo::no_graph_access AND requiring no privilege. The three graph-free, unprivileged
+// mg.* introspection procedures qualify.
 TYPED_TEST(InterpreterTest, AccessorFreePathRequiresDeclaredNoGraphAccess) {
-  for (auto const *query : {"CALL mg.procedures() YIELD name",
-                            "CALL mg.functions() YIELD name",
-                            "CALL mg.transformations() YIELD name",
-                            "CALL mg.get_module_files() YIELD path"}) {
+  for (auto const *query :
+       {"CALL mg.procedures() YIELD name", "CALL mg.functions() YIELD name", "CALL mg.transformations() YIELD name"}) {
     SCOPED_TRACE(query);
     auto stream = this->Interpret(query);
     EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
   }
+}
+
+// A procedure that declares no_graph_access but requires a privilege (mg.get_module_files needs
+// MODULE_READ) is NOT accessor-free eligible: the fast path invokes the callback during Prepare,
+// before the session's authorization check, so a privileged procedure must take the normal
+// auth-then-execute path. Guards NB-1 (privileged callback running before auth).
+TYPED_TEST(InterpreterTest, AccessorFreePathExcludesPrivilegedProcedures) {
+  auto stream = this->Interpret("CALL mg.get_module_files() YIELD path");
+  EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);  // normal path
 }
 
 TYPED_TEST(InterpreterTest, MultiplePulls) {
