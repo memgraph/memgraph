@@ -26,7 +26,6 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/ttl.hpp"
-#include "utils/on_scope_exit.hpp"
 #include "utils/rw_lock.hpp"
 
 #include <rocksdb/db.h>
@@ -53,14 +52,7 @@ class DiskStorage final : public Storage {
 
   ~DiskStorage() override;
 
-  void RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) override {
-    ttl_.Pause();
-    auto resume = utils::OnScopeExit{[&] { ttl_.Resume(); }};
-    metric_handles_ = new_handles;
-    // Disk indices don't store gauge handles, so nothing to rebind there.
-    constraints_.RebindMetricHandles(new_handles);
-    ttl_.RebindMetricHandles(new_handles.deleted_nodes, new_handles.deleted_edges);
-  }
+  void RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) override;
 
   class DiskAccessor final : public Storage::Accessor {
    private:
