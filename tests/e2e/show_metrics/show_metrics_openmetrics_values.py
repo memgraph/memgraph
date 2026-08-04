@@ -115,6 +115,7 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "write_write_conflicts_total",
     "transient_errors_total",
     "unreleased_delta_objects",
+    "gc_index_sweeps_total",
     # QueryType
     "read_queries_total",
     "write_queries_total",
