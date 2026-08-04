@@ -795,6 +795,11 @@ add_unit_test(storage_v2_gc
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_gc_index_sweep
+    SOURCES storage_v2_gc_index_sweep.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_index_arming
     SOURCES storage_v2_index_arming.cpp
     LINK_TARGETS mg::storage
