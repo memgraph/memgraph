@@ -4219,19 +4219,26 @@ PreparedQuery PrepareConstantReturnQuery(ParsedQuery parsed_query) {
       .rw_type = RWType::NONE};
 }
 
-// The builtin `mg.*` introspection procedures that read only the module registry (never the
-// graph), so `CALL mg.<name>()` can run with no storage accessor. An explicit allowlist keeps the
-// accessor-free path auditable.
-constexpr bool IsGraphFreeIntrospectionProcedure(std::string_view procedure_name) {
-  return procedure_name == "mg.procedures" || procedure_name == "mg.functions" ||
-         procedure_name == "mg.transformations" || procedure_name == "mg.get_module_files";
+// Asks the module registry -- the authority on what a procedure does -- whether `procedure_name`
+// resolves to a read procedure that declares it never touches the graph (ProcedureInfo::no_graph_access).
+// Only such a procedure may be invoked with no storage accessor open.
+//
+// This is deliberately the LAST check performed by IsBuiltinIntrospectionQuery: it takes the module
+// registry's shared lock, whereas every preceding check is a pointer/size/bool test on the AST. The
+// lock is released before this returns, so it cannot deadlock against a procedure callback that takes
+// the registry lock itself (e.g. mg.procedures, which takes it exclusively).
+bool ProcedureDeclaresNoGraphAccess(std::string_view procedure_name) {
+  return procedure::ProcedureDeclaresNoGraphAccess(procedure::gModuleRegistry, procedure_name);
 }
 
-// Recognizes a standalone `CALL mg.<introspection>() [YIELD ...]`: a single CallProcedure clause,
-// no arguments, a YIELD (non-empty result fields), no trailing clauses (RETURN/WHERE/...), no UNION.
-// Covers Lab's `CALL mg.procedures() YIELD *` feature-detection query and the layout-init mg.*
-// calls. Anything else (arguments, trailing clauses, non-allowlisted procedure) falls through to the
-// normal path.
+// Recognizes a standalone `CALL <proc>() YIELD ...` that can run with no storage accessor: a single
+// CallProcedure clause, no arguments, a YIELD (non-empty result fields), no YIELD ... WHERE, no
+// per-call memory limit, no query-level modifiers, no trailing clauses (RETURN/...), no UNION -- and a
+// procedure that the registry says is a read procedure declaring no graph access. Covers Lab's
+// `CALL mg.procedures() YIELD *` feature-detection query and the layout-init mg.* calls.
+//
+// Checks are ordered cheapest-first so the registry lookup is a last resort, reached only by queries
+// that already look exactly like an accessor-free introspection call.
 bool IsBuiltinIntrospectionQuery(const CypherQuery &query) {
   if (query.single_query_ == nullptr || !query.cypher_unions_.empty()) return false;
   if (!HasNoQueryLevelModifiers(query)) return false;
@@ -4245,15 +4252,18 @@ bool IsBuiltinIntrospectionQuery(const CypherQuery &query) {
   if (call_procedure->where_ != nullptr) return false;
   // Likewise a per-call `PROCEDURE MEMORY LIMIT`, which the accessor-free path does not install.
   if (call_procedure->memory_limit_ != nullptr) return false;
-  return IsGraphFreeIntrospectionProcedure(call_procedure->procedure_name_);
+  // Cheap AST-level read check: the parser stamps this from the registry at parse time.
+  if (call_procedure->is_write_) return false;
+  return ProcedureDeclaresNoGraphAccess(call_procedure->procedure_name_);
 }
 
 // Which accessor-free shape a CypherQuery matched, if any.
 enum class AccessorFreeQueryKind : uint8_t { kConstantReturn, kBuiltinIntrospection };
 
 // Classifies a CypherQuery once. Both the transaction-requirements visitor (which leaves the accessor
-// type unset) and the Prepare dispatch (which picks the preparer) need this answer, so it is computed
-// once and threaded through rather than recognized twice.
+// type unset) and the Prepare dispatch (which picks the preparer) need this answer, and
+// IsBuiltinIntrospectionQuery takes the module-registry lock, so it is computed once and threaded
+// through rather than recognized twice.
 std::optional<AccessorFreeQueryKind> ClassifyAccessorFreeQuery(const CypherQuery &query) {
   if (IsConstantReturnQuery(query)) return AccessorFreeQueryKind::kConstantReturn;
   if (IsBuiltinIntrospectionQuery(query)) return AccessorFreeQueryKind::kBuiltinIntrospection;
@@ -10298,8 +10308,9 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     // Accessor-free Lab introspection queries produce their result without touching the graph, so
     // they run with no storage transaction. Leaving accessor_type_ unset (NO_ACCESS) makes Prepare
     // skip SetupDatabaseTransaction entirely: constant RETURN (e.g. the connection-check `RETURN 1`)
-    // and `CALL mg.<introspection>()` (e.g. feature detection). The classification is computed once
-    // by the caller and passed in, so it is not recognized a second time here.
+    // and `CALL <proc>()` for a procedure declaring no graph access (e.g. feature detection). The
+    // classification is computed once by the caller and passed in -- recognizing it here as well
+    // would repeat the module-registry lookup.
     if (is_accessor_free_cypher_) {
       return;
     }
