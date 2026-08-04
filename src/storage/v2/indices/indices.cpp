@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/indices.hpp"
+
+#include "storage/v2/delta_container.hpp"
 #include "storage/v2/disk/edge_property_index.hpp"
 #include "storage/v2/disk/edge_type_index.hpp"
 #include "storage/v2/disk/edge_type_property_index.hpp"
@@ -224,6 +226,44 @@ void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, const P
     }
   }
   vector_.CollectOnPropertyChange(propId, old_value, vertex);
+}
+
+void Indices::AbortProcessor::CollectOnEdgePropertyChange(PropertyId property, PropertyValue const &old_value,
+                                                          Vertex *from_vertex, Edge *edge,
+                                                          delta_container const &deltas) {
+  if (!IsInterestingEdgeProperty(property)) return;
+
+  auto link = std::optional<std::pair<EdgeTypeId, Vertex *>>{};
+  for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+    if (edge_ref.ptr != edge) continue;
+    link = std::pair{edge_type, to_vertex};
+    break;
+  }
+
+  // The link is gone if the same transaction deleted the edge, so fall back to the deltas that
+  // would restore it. Both the link it removed and the one it added name the type. These deltas
+  // belong to the aborting transaction alone, unlike the source vertex's own chain, which another
+  // transaction may be writing under a lock an abort does not hold.
+  if (!link.has_value()) {
+    if (!out_edge_links_.has_value()) {
+      out_edge_links_.emplace();
+      for (auto const &delta : deltas) {
+        if (delta.action != Delta::Action::ADD_OUT_EDGE && delta.action != Delta::Action::REMOVE_OUT_EDGE) continue;
+        out_edge_links_->emplace_back(
+            delta.vertex_edge.edge.ptr, delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get());
+      }
+    }
+    for (auto const &[linked_edge, edge_type, to_vertex] : *out_edge_links_) {
+      if (linked_edge != edge) continue;
+      link = std::pair{edge_type, to_vertex};
+      break;
+    }
+  }
+  if (!link.has_value()) return;
+
+  auto const [edge_type, to_vertex] = *link;
+  CollectOnPropertyChange(edge_type, property, from_vertex, to_vertex, edge);
+  vector_edge_.CollectOnPropertyChange(edge_type, property, old_value, from_vertex, to_vertex, edge);
 }
 
 void Indices::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex,

@@ -37,6 +37,7 @@ class MemoryTracker;
 namespace memgraph::storage {
 
 class Storage;
+struct delta_container;
 
 struct Indices {
   Indices(const Config &config, StorageMode storage_mode, utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
@@ -94,10 +95,24 @@ struct Indices {
     void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);
     void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
                                  Edge *edge);
+
+    /// Undo a property written on an edge, given the transaction's own deltas to find the edge by.
+    ///
+    /// An edge's type is not held on the edge: it is on the link its source vertex holds, so
+    /// undoing an entry means finding that link. A transaction that went on to delete the edge has
+    /// already taken the link out, and the deltas that would put it back are the only remaining
+    /// record. Callers therefore hand the deltas over rather than the type, because a caller that
+    /// had to find the type itself would silently do nothing in exactly that case.
+    void CollectOnEdgePropertyChange(PropertyId property, PropertyValue const &old_value, Vertex *from_vertex,
+                                     Edge *edge, delta_container const &deltas);
+
     bool IsInterestingEdgeProperty(PropertyId property) const;
 
     void Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp,
                  NameIdMapper *name_id_mapper);
+
+    /// Built on first use, and only for an edge whose link its source vertex no longer holds.
+    std::optional<std::vector<std::tuple<Edge *, EdgeTypeId, Vertex *>>> out_edge_links_{};
   };
 
   auto GetAbortProcessor(ActiveIndices const &active_indices) const -> AbortProcessor;
