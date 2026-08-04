@@ -132,9 +132,11 @@ function retry_install() {
     echo "retry_install: installing '$*' (up to $attempts attempt(s))"
 
     while true; do
-        # `|| status=$?` also suspends `set -e` for the duration of the call, so
-        # a failing step inside the callee returns here instead of killing the
-        # whole script before we get a chance to retry.
+        # Left side of `||`, so errexit is suspended for the whole call - even
+        # inside the callee, which carries on past a failing step and returns its
+        # last command's status. Hence the `&&` chains and postcondition checks
+        # in the install_* functions: one ending in a plain `echo` always looks
+        # like a success and would never be retried.
         status=0
         "$@" || status=$?
         if [[ "$status" -eq 0 ]]; then
