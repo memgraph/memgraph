@@ -5264,3 +5264,59 @@ TYPED_TEST(IndexTest, DropVertexPropertyIndexAbortRestoresIndex) {
       [&](auto *acc) { return acc->DropGlobalVertexIndex(this->prop_id); },
       [&](auto *acc) { return acc->VertexPropertyIndexReady(this->prop_id); });
 }
+
+// The lookup an abort uses to find the index entries it must undo is derived from the set of
+// indexes and kept on the snapshot of them, rather than rebuilt for every abort. A snapshot is
+// replaced whenever that set changes, so an abort against a newer one must see the newer indexes.
+TEST(IndexAbortLookup, AnAbortSeesAnIndexCreatedAfterAnEarlierAbortBuiltTheLookup) {
+  auto storage = std::make_unique<InMemoryStorage>(Config{});
+
+  auto const create_index = [&](std::string_view property) {
+    auto acc = storage->UniqueAccess();
+    ASSERT_NO_ERROR(acc->CreateIndex(storage->NameToLabel("L"), {PropertyPath{storage->NameToProperty(property)}}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  };
+  auto const indexed_count = [&](std::string_view property) {
+    auto acc = storage->Access(READ);
+    auto const count = acc->ApproximateVertexCount(storage->NameToLabel("L"),
+                                                   std::array{PropertyPath{storage->NameToProperty(property)}});
+    acc->Abort();
+    return count;
+  };
+
+  create_index("a");
+
+  Gid gid;
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("L")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), PropertyValue{1}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  ASSERT_EQ(indexed_count("a"), 1);
+
+  // An abort against the set of indexes as it stands, which is what builds the lookup.
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), PropertyValue{2}));
+    acc->Abort();
+  }
+  EXPECT_EQ(indexed_count("a"), 1);
+
+  // Adding an index replaces that set, and an abort that can see the new one has to undo its
+  // entries too. A lookup carried over from before would not name it.
+  create_index("b");
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("b"), PropertyValue{5}));
+    acc->Abort();
+  }
+  EXPECT_EQ(indexed_count("b"), 0);
+  EXPECT_EQ(indexed_count("a"), 1);
+}
