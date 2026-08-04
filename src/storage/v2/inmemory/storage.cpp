@@ -293,7 +293,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas,
           return !(next_ts >= kTransactionInitialId && IsDeltaNonSequential(*next));
         }(),
         "downstream active non-sequential delta found during rapid cleanup");
-    impact_tracker.update(delta.action);
+    impact_tracker.update(delta);
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::NULL_PTR:
@@ -1479,9 +1479,9 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
   // STEP 4) hint to GC that indices need cleanup for performance reasons. These deltas are gone
   // by the time a collection cycle runs, so what they could have invalidated is only knowable
   // from here.
-  if (impact_tracker.impact().any()) {
+  if (impact_tracker.arming().any()) {
     mem_storage->gc_index_cleanup_performance_.WithLock(
-        [&](IndexImpact &pending) { pending |= impact_tracker.impact(); });
+        [&](IndexArming &pending) { pending |= impact_tracker.arming(); });
   }
 }
 
@@ -3311,7 +3311,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     index_impact.note_property_writes(linked_entry->property_write_impact_);
 
     for (Delta &delta : linked_entry->deltas_) {
-      index_impact.update(delta.action);
+      index_impact.update(delta);
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
@@ -3446,10 +3446,15 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // Used to determine whether the Index GC should be run for performance reasons (removing redundant entries). It
   // should be run when hinted by FastDiscardOfDeltas or by the deltas we processed this GC run.
   const utils::Timer skiplist_cleanup_timer;
-  auto const discarded_impact = gc_index_cleanup_performance_.WithLock(
-      [](IndexImpact &pending) { return std::exchange(pending, IndexImpact{}); });
-  auto index_cleanup_vertex_performance = discarded_impact.vertex_indexes || index_impact.impacts_vertex_indexes();
-  auto index_cleanup_edge_performance = discarded_impact.edge_indexes || index_impact.impacts_edge_indexes();
+  auto sweep_arming = gc_index_cleanup_performance_.WithLock(
+      [](IndexArming &pending) { return std::exchange(pending, IndexArming{}); });
+  sweep_arming |= index_impact.arming();
+  // A correctness sweep is looking for entries that point at objects about to be freed. No delta
+  // names those, so it cannot be narrowed the way a performance sweep can.
+  if (index_cleanup_vertex_needed) sweep_arming.arm_every_vertex_index();
+
+  auto index_cleanup_vertex_performance = sweep_arming.families().vertex_indexes;
+  auto index_cleanup_edge_performance = sweep_arming.families().edge_indexes;
 
   // After unlinking deltas from vertices, we refresh the indices. That way
   // we're sure that none of the vertices from `current_deleted_vertices`
@@ -3461,7 +3466,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   if (auto token = stop_source.get_token(); !token.stop_requested()) {
     uint64_t swept = 0;
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
-      swept += indices_.RemoveObsoleteVertexEntries(this, oldest_active_start_timestamp, token);
+      swept += indices_.RemoveObsoleteVertexEntries(this, oldest_active_start_timestamp, token, sweep_arming);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
       swept += mem_unique_constraints->RemoveObsoleteEntries(this, oldest_active_start_timestamp, token);
     }

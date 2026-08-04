@@ -272,7 +272,7 @@ std::vector<LabelId> InMemoryLabelIndex::ActiveIndices::ListIndices(uint64_t sta
 }
 
 uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                                   std::stop_token token) {
+                                                   std::stop_token token, IndexArming const &arming) {
   CleanupAllIndices();
   auto maybe_stop = utils::ResettableCounter(2048);
   auto index_container = all_indices_.ReadCopy();
@@ -285,6 +285,9 @@ uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t ol
   for (auto &[index, label] : *index_container) {
     // before starting index, check if stop_requested
     if (token.stop_requested()) return swept;
+    // Nothing written since the last sweep can have left an entry here to collect, and a sweep
+    // costs the whole index to walk whether or not it finds anything.
+    if (!arming.armed(label)) continue;
     ++swept;
 
     auto vertices_acc = index->skiplist.access();

@@ -14,6 +14,7 @@
 #include <memory>
 #include "metrics/prometheus_metrics.hpp"
 
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
@@ -54,9 +55,10 @@ struct Indices {
   /// This function should be called from garbage collection to clean up the
   /// vertex indices.
   /// TODO: unused in disk indices
+  /// Sweeps only the indexes `arming` names, where the index type consults it.
   /// @return how many individual indexes were swept.
-  uint64_t RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                       std::stop_token token) const;
+  uint64_t RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                       IndexArming const &arming) const;
 
   /// This function should be called from garbage collection to clean up the
   /// edge indices.

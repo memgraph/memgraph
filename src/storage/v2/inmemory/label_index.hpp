@@ -20,6 +20,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/errors.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/label_index.hpp"
@@ -76,8 +77,10 @@ class InMemoryLabelIndex : public LabelIndex {
   [[nodiscard]] auto DropIndex(LabelId label, ActiveIndicesUpdater const &updater) -> std::shared_ptr<IndividualIndex>;
   void RestoreIndex(LabelId label, std::shared_ptr<IndividualIndex> evicted, ActiveIndicesUpdater const &updater);
 
+  /// Sweeps only the indexes whose label `arming` names, leaving the rest untouched.
   /// @return how many individual indexes were swept.
-  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token);
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                 IndexArming const &arming);
 
   class Iterable {
    public:

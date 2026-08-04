@@ -313,7 +313,7 @@ TEST_F(StorageV2GcIndexSweepCountTest, IdleDatabaseSweepsNothing) {
   EXPECT_EQ(SweptByOnePass(), 0);
 }
 
-TEST_F(StorageV2GcIndexSweepCountTest, OneLabelWriteSweepsEveryVertexIndex) {
+TEST_F(StorageV2GcIndexSweepCountTest, OnlyTheWrittenLabelsIndexIsSwept) {
   CreateLabelIndex("A");
   CreateLabelIndex("B");
 
@@ -327,8 +327,8 @@ TEST_F(StorageV2GcIndexSweepCountTest, OneLabelWriteSweepsEveryVertexIndex) {
   }
   ASSERT_GT(SweptByOnePass(), 0);
 
-  // A write naming one label only. Both indexes are swept regardless, because a cycle decides
-  // per index family rather than per index, and the index on B has nothing to collect.
+  // A write naming one label only. The index on the other label cannot have gained anything to
+  // collect, and walking it would cost its whole size to find that out.
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
@@ -336,7 +336,77 @@ TEST_F(StorageV2GcIndexSweepCountTest, OneLabelWriteSweepsEveryVertexIndex) {
     ASSERT_TRUE(*vertex->AddLabel(acc->NameToLabel("B")));
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
+  EXPECT_EQ(SweptByOnePass(), 1);
+}
+
+// A deleted vertex leaves index entries pointing at memory about to be freed, and no delta says
+// which indexes hold them. Narrowing must not reach this case.
+TEST_F(StorageV2GcIndexSweepCountTest, ADeletedVertexSweepsEveryVertexIndex) {
+  CreateLabelIndex("A");
+  CreateLabelIndex("B");
+
+  memgraph::storage::Gid gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("A")));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(acc->DeleteVertex(&*vertex).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
   EXPECT_EQ(SweptByOnePass(), 2);
+}
+
+// The saving must not come at the cost of leaving entries behind: an index whose label was
+// written is swept, and what it holds afterwards is what it would have held before this change.
+TEST_F(StorageV2GcIndexSweepCountTest, TheSweptIndexStillCollectsItsStaleEntries) {
+  CreateLabelIndex("A");
+  CreateLabelIndex("B");
+
+  constexpr int kVertices = 100;
+  std::vector<memgraph::storage::Gid> gids;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    for (int i = 0; i != kVertices; ++i) {
+      auto vertex = acc->CreateVertex();
+      gids.push_back(vertex.Gid());
+      ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("A")));
+      ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("B")));
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  auto const indexed_count = [&](std::string_view name) {
+    auto acc = storage->Access(memgraph::storage::READ);
+    auto const count = acc->ApproximateVertexCount(storage->NameToLabel(name));
+    acc->Abort();
+    return count;
+  };
+  ASSERT_EQ(indexed_count("A"), kVertices);
+  ASSERT_EQ(indexed_count("B"), kVertices);
+
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    for (auto const gid : gids) {
+      auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_TRUE(*vertex->RemoveLabel(acc->NameToLabel("A")));
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  EXPECT_EQ(SweptByOnePass(), 1);
+  EXPECT_EQ(indexed_count("A"), 0);
+  EXPECT_EQ(indexed_count("B"), kVertices);
 }
 
 TEST(StorageV2Gc, Indices) {

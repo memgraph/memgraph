@@ -22,6 +22,7 @@
 #include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/gc_status.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -63,8 +64,12 @@ namespace memgraph::storage {
 using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
 
 struct IndexPerformanceTracker {
-  void update(Delta::Action action) {
-    switch (action) {
+  // Takes the whole delta rather than its action: the action says an index family may hold
+  // something to collect, the payload says which index within it. A delta holds the inverse of
+  // the write that made it, so the action here is the opposite of what the writer called, but
+  // the id is the same either way.
+  void update(Delta const &delta) {
+    switch (delta.action) {
       using enum Delta::Action;
       case DELETE_DESERIALIZED_OBJECT:
       case DELETE_OBJECT:
@@ -81,14 +86,15 @@ struct IndexPerformanceTracker {
       }
       case ADD_LABEL:
       case REMOVE_LABEL: {
-        impact_.vertex_indexes = true;
+        arming_.note_families({.vertex_indexes = true});
+        arming_.note_label(delta.label.value);
         return;
       }
       case ADD_IN_EDGE:
       case ADD_OUT_EDGE:
       case REMOVE_IN_EDGE:
       case REMOVE_OUT_EDGE: {
-        impact_.edge_indexes = true;
+        arming_.note_families({.edge_indexes = true});
         return;
       }
     }
@@ -96,16 +102,16 @@ struct IndexPerformanceTracker {
 
   // What the property writes of a whole transaction could have invalidated, taken from the
   // transaction rather than from its individual deltas.
-  void note_property_writes(IndexImpact impact) { impact_ |= impact; }
+  void note_property_writes(IndexImpact impact) { arming_.note_families(impact); }
 
-  IndexImpact const &impact() const { return impact_; }
+  IndexArming const &arming() const { return arming_; }
 
-  bool impacts_vertex_indexes() const { return impact_.vertex_indexes; }
+  bool impacts_vertex_indexes() const { return arming_.families().vertex_indexes; }
 
-  bool impacts_edge_indexes() const { return impact_.edge_indexes; }
+  bool impacts_edge_indexes() const { return arming_.families().edge_indexes; }
 
  private:
-  IndexImpact impact_{};
+  IndexArming arming_{};
 };
 
 // The storage is based on this paper:
@@ -1064,7 +1070,7 @@ class InMemoryStorage final : public Storage {
   // family because it is due to grow into a description of which indexes were affected, which a
   // set of independent atomics cannot carry. Its own lock rather than the collection lock: the
   // producers hold that today but are not required to, and nothing here needs it.
-  utils::Synchronized<IndexImpact, utils::SpinLock> gc_index_cleanup_performance_;
+  utils::Synchronized<IndexArming, utils::SpinLock> gc_index_cleanup_performance_;
 
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;

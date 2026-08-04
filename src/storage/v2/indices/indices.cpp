@@ -30,9 +30,9 @@
 namespace memgraph::storage {
 
 uint64_t Indices::RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                              std::stop_token token) const {
+                                              std::stop_token token, IndexArming const &arming) const {
   auto swept = static_cast<InMemoryLabelIndex *>(label_index_.get())
-                   ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
+                   ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token, arming);
   swept += static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
                ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
   swept += static_cast<InMemoryVertexPropertyIndex *>(vertex_property_index_.get())
