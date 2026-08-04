@@ -1306,6 +1306,7 @@ auth::Permission RequiredCoordinatorPermission(Query *query) {
       case CoordinatorQuery::Action::SHOW_INSTANCES:
       case CoordinatorQuery::Action::SHOW_COORDINATOR_SETTINGS:
       case CoordinatorQuery::Action::SHOW_REPLICATION_LAG:
+      case CoordinatorQuery::Action::SHOW_ROUTING_TABLE:
         return auth::Permission::COORDINATOR_READ;
       default:
         return auth::Permission::COORDINATOR_WRITE;

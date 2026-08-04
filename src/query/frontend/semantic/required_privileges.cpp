@@ -191,6 +191,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       case CoordinatorQuery::Action::SHOW_INSTANCES:
       case CoordinatorQuery::Action::SHOW_COORDINATOR_SETTINGS:
       case CoordinatorQuery::Action::SHOW_REPLICATION_LAG:
+      case CoordinatorQuery::Action::SHOW_ROUTING_TABLE:
         AddPrivilege(AuthQuery::Privilege::COORDINATOR_READ);
         break;
       case CoordinatorQuery::Action::REGISTER_INSTANCE:
