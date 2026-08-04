@@ -286,6 +286,39 @@ TYPED_TEST(InterpreterTest, BuiltinIntrospectionMatchesNormalPath) {
   EXPECT_EQ(sorted_names(fast), sorted_names(normal));
 }
 
+// The column headers the accessor-free path emits must be byte-identical to what the normal, planned
+// path would produce -- clients rely on stable column names. The two paths derive headers
+// differently (the fast path reads named-expression / yield-identifier names off the AST; the normal
+// path reads output-symbol names), so this pins the cases where they could drift. Every header below
+// was verified equal to master's normal-path output for the same query.
+TYPED_TEST(InterpreterTest, AccessorFreePathHeaderParity) {
+  using Headers = std::vector<std::string>;
+  auto header_of = [this](const std::string &query,
+                          const memgraph::storage::ExternalPropertyValue::map_t &params = {}) {
+    auto stream = this->Interpret(query, params);
+    // Guard that we actually exercised the accessor-free path, so this stays a fast-path parity test.
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U) << query;
+    return stream.GetHeader();
+  };
+  // Constant RETURN: unaliased literal keeps its stripped-query spelling; aliases and $param too.
+  EXPECT_EQ(header_of("RETURN 1"), Headers({"1"}));
+  EXPECT_EQ(header_of("RETURN 1 AS APP_INTERNAL_EXEC_VAR"), Headers({"APP_INTERNAL_EXEC_VAR"}));
+  EXPECT_EQ(header_of("RETURN 1, 'x' AS s, true AS b"), Headers({"1", "s", "b"}));
+  EXPECT_EQ(header_of("RETURN [1, 2] AS l, {a: 1} AS m"), Headers({"l", "m"}));
+  {
+    memgraph::storage::ExternalPropertyValue::map_t params;
+    params.emplace("p", memgraph::storage::ExternalPropertyValue(int64_t{7}));
+    EXPECT_EQ(header_of("RETURN $p", params), Headers({"$p"}));
+  }
+  // Introspection: YIELD * exposes the fields in the procedure's map order; explicit and aliased
+  // YIELD use the yielded names / aliases, in order.
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD *"),
+            Headers({"is_editable", "is_write", "name", "path", "signature"}));
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD name"), Headers({"name"}));
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD name AS n"), Headers({"n"}));
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD name, is_write, path"), Headers({"name", "is_write", "path"}));
+}
+
 // The accessor-free path neither filters nor installs a memory tracker nor honours USING directives,
 // so a query carrying any of those must fall through to the normal (planned) path rather than have
 // the modifier silently dropped. Regression guard: YIELD ... WHERE used to be accepted by the
