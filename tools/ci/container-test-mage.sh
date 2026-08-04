@@ -58,7 +58,7 @@ trap exit_handler ERR EXIT
 echo -e "${GREEN_BOLD}Running tests in container: $CONTAINER_NAME${RESET}"
 
 echo -e "${GREEN_BOLD}Installing Rust${RESET}"
-docker exec -i -u mg $CONTAINER_NAME bash -c "source \$HOME/memgraph/environment/util.sh && install_rust $RUST_VERSION"
+docker exec -i -u mg $CONTAINER_NAME bash -c "source \$HOME/memgraph/environment/util.sh && retry_install install_rust $RUST_VERSION"
 
 echo -e "${GREEN_BOLD}Running Rust tests${RESET}"
 docker exec -i -u mg $CONTAINER_NAME bash -c "source /opt/toolchain-v7/activate && source \$HOME/.cargo/env && cd \$HOME/memgraph/src/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"

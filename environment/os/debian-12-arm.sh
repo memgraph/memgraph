@@ -199,7 +199,7 @@ install() {
     for pkg in "${custom_packages[@]}"; do
         case "$pkg" in
             dotnet-sdk-8.0)
-                install_dotnet_sdk "8.0"
+                retry_install install_dotnet_sdk "8.0"
                 ;;
             *)
                 # Skip packages that don't need special handling

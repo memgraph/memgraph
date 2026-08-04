@@ -708,7 +708,7 @@ build_memgraph () {
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
   echo "Installing Rust $DEFAULT_RUST_VERSION..."
-  docker exec -u mg "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && install_rust $DEFAULT_RUST_VERSION"
+  docker exec -u mg "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && retry_install install_rust $DEFAULT_RUST_VERSION"
 
   # Install the requested build-time Python (--python-build-version) from deadsnakes
   # and point libpython3.so at it, so the build links against exactly that
@@ -2418,7 +2418,7 @@ test_mage() {
       echo -e "${GREEN_BOLD}Running tests in container: $build_container${RESET}"
 
       echo -e "${GREEN_BOLD}Installing Rust $DEFAULT_RUST_VERSION${RESET}"
-      docker exec -i -u mg $build_container bash -c "source \$HOME/memgraph/environment/util.sh && install_rust $DEFAULT_RUST_VERSION"
+      docker exec -i -u mg $build_container bash -c "source \$HOME/memgraph/environment/util.sh && retry_install install_rust $DEFAULT_RUST_VERSION"
 
       echo -e "${GREEN_BOLD}Running Rust tests${RESET}"
       docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && source \$HOME/.cargo/env && cd \$HOME/memgraph/src/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
