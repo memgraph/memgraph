@@ -1084,7 +1084,7 @@ uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uin
       auto const &property_paths = all_entry.properties_;
       // Nothing written since the last sweep can have left an entry here to collect, and a sweep
       // costs the whole index to walk whether or not it finds anything.
-      if (!arming.armed(label_id, property_paths)) continue;
+      if (!arming.arms_index_on(label_id, property_paths)) continue;
       ++swept;
 
       bool const stop = WithIndex(all_entry.index_, [&](auto &index) -> bool {

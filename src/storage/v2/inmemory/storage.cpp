@@ -283,7 +283,7 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
 void UnlinkAndRemoveDeltas(delta_container &deltas,
                            std::list<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
                            std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
-                           IndexPerformanceTracker::TransactionScope const &impact_scope) {
+                           IndexArming::TransactionScope const &arming_scope) {
   for (auto &delta : deltas) {
     DMG_ASSERT(
         [&delta]() {
@@ -293,7 +293,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas,
           return !(next_ts >= kTransactionInitialId && IsDeltaNonSequential(*next));
         }(),
         "downstream active non-sequential delta found during rapid cleanup");
-    impact_scope.update(delta);
+    arming_scope.note(delta);
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::NULL_PTR:
@@ -1422,7 +1422,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(
     std::list<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
-    std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker) {
+    std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices, IndexArming &arming) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // STEP 1) ensure everything in GC is gone
@@ -1443,13 +1443,13 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(
   //        under its own account of what its property writes could have touched rather than this
   //        transaction's, which says nothing about them.
   for (auto &gc_deltas : linked_undo_buffers) {
-    auto const impact_scope = impact_tracker.for_transaction(gc_deltas.property_write_impact_);
-    UnlinkAndRemoveDeltas(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, impact_scope);
+    auto const arming_scope = arming.for_transaction(gc_deltas.property_write_impact_);
+    UnlinkAndRemoveDeltas(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, arming_scope);
   }
 
   // STEP 2) this transaction's deltas
-  auto const impact_scope = impact_tracker.for_transaction(transaction_.property_write_impact);
-  UnlinkAndRemoveDeltas(transaction_.deltas, current_deleted_edges, current_deleted_vertices, impact_scope);
+  auto const arming_scope = arming.for_transaction(transaction_.property_write_impact);
+  UnlinkAndRemoveDeltas(transaction_.deltas, current_deleted_edges, current_deleted_vertices, arming_scope);
 
   // STEP 3) clear all deltas after unlinking is complete
   linked_undo_buffers.clear();
@@ -1461,10 +1461,10 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
 
   std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_vertices;
   std::list<Edge *, memory::DbAwareAllocator<Edge *>> current_deleted_edges;
-  auto impact_tracker = IndexPerformanceTracker{};
+  auto arming = IndexArming{};
 
   // STEP 1 + STEP 2 - delta cleanup
-  GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
+  GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, arming);
 
   // STEP 3) hand over the deleted vertices and edges to the GC
   if (!current_deleted_vertices.empty()) {
@@ -1482,9 +1482,8 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
   // STEP 4) hint to GC that indices need cleanup for performance reasons. These deltas are gone
   // by the time a collection cycle runs, so what they could have invalidated is only knowable
   // from here.
-  if (impact_tracker.arming().any()) {
-    mem_storage->gc_index_cleanup_performance_.WithLock(
-        [&](IndexArming &pending) { pending |= impact_tracker.arming(); });
+  if (arming.arms_anything()) {
+    mem_storage->pending_index_arming_.WithLock([&](IndexArming &pending) { pending |= arming; });
   }
 }
 
@@ -3265,7 +3264,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
 
   // This is to track if any of the unlinked deltas would have an impact on index performance, i.e. do they hint that
   // there are possible stale/duplicate entries that can be removed
-  auto index_impact = IndexPerformanceTracker{};
+  auto cycle_arming = IndexArming{};
 
   auto const end_linked_undo_buffers = linked_undo_buffers.end();
   for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
@@ -3311,10 +3310,10 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     // chain in a broken state.
     // The chain can be only read without taking any locks.
 
-    auto const impact_scope = index_impact.for_transaction(linked_entry->property_write_impact_);
+    auto const arming_scope = cycle_arming.for_transaction(linked_entry->property_write_impact_);
 
     for (Delta &delta : linked_entry->deltas_) {
-      impact_scope.update(delta);
+      arming_scope.note(delta);
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
@@ -3452,16 +3451,16 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // Claimed by swapping the cycle's own holder in: the producers publish under a spin lock on
   // the commit path, so the locked region must not allocate, and handing them back a holder that
   // has already grown is what stops it.
-  auto &sweep_arming = gc_claimed_arming_;
-  sweep_arming.Clear();
-  gc_index_cleanup_performance_.WithLock([&](IndexArming &pending) { std::swap(pending, sweep_arming); });
-  sweep_arming |= index_impact.arming();
+  auto &sweep_arming = claimed_index_arming_;
+  sweep_arming.reset();
+  pending_index_arming_.WithLock([&](IndexArming &pending) { std::swap(pending, sweep_arming); });
+  sweep_arming |= cycle_arming;
   // A correctness sweep is looking for entries that point at objects about to be freed. No delta
   // names those, so it cannot be narrowed the way a performance sweep can.
-  if (index_cleanup_vertex_needed) sweep_arming.arm_every_vertex_index();
+  if (index_cleanup_vertex_needed) sweep_arming.arm_all_vertex_indexes();
 
-  auto index_cleanup_vertex_performance = sweep_arming.families().vertex_indexes;
-  auto index_cleanup_edge_performance = sweep_arming.families().edge_indexes;
+  auto index_cleanup_vertex_performance = sweep_arming.arms_vertex_indexes();
+  auto index_cleanup_edge_performance = sweep_arming.arms_edge_indexes();
 
   // After unlinking deltas from vertices, we refresh the indices. That way
   // we're sure that none of the vertices from `current_deleted_vertices`

@@ -63,72 +63,6 @@ namespace memgraph::storage {
 
 using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
 
-struct IndexPerformanceTracker {
-  /// One transaction's worth of deltas. A property delta records the property but not whether it
-  /// belonged to a vertex or an edge, and only the transaction knows that, so it is resolved once
-  /// here rather than asked again for every delta. Opening the scope is also what makes recording
-  /// a delta outside a transaction impossible to write.
-  class TransactionScope {
-   public:
-    // Takes the whole delta rather than its action: the action says an index family may hold
-    // something to collect, the payload says which index within it. A delta holds the inverse of
-    // the write that made it, so the action here is the opposite of what the writer called, but
-    // the id is the same either way.
-    void update(Delta const &delta) const {
-      switch (delta.action) {
-        using enum Delta::Action;
-        case DELETE_DESERIALIZED_OBJECT:
-        case DELETE_OBJECT:
-        case RECREATE_OBJECT: {
-          // can impact correctness, but does not matter for performance
-          return;
-        }
-        case SET_PROPERTY: {
-          if (writes_vertex_properties_) arming_->note_vertex_property(delta.property.key);
-          return;
-        }
-        case ADD_LABEL:
-        case REMOVE_LABEL: {
-          arming_->note_families({.vertex_indexes = true});
-          arming_->note_label(delta.label.value);
-          return;
-        }
-        case ADD_IN_EDGE:
-        case ADD_OUT_EDGE:
-        case REMOVE_IN_EDGE:
-        case REMOVE_OUT_EDGE: {
-          arming_->note_families({.edge_indexes = true});
-          return;
-        }
-      }
-    }
-
-   private:
-    friend struct IndexPerformanceTracker;
-
-    TransactionScope(IndexArming &arming, IndexImpact property_writes)
-        : arming_{&arming}, writes_vertex_properties_{property_writes.vertex_indexes} {
-      arming.note_families(property_writes);
-    }
-
-    IndexArming *arming_;
-    bool writes_vertex_properties_;
-  };
-
-  /// @param property_writes which index families this transaction's property writes could have
-  ///                        left something to collect in, which its deltas cannot say alone.
-  TransactionScope for_transaction(IndexImpact property_writes) { return {arming_, property_writes}; }
-
-  IndexArming const &arming() const { return arming_; }
-
-  bool impacts_vertex_indexes() const { return arming_.families().vertex_indexes; }
-
-  bool impacts_edge_indexes() const { return arming_.families().edge_indexes; }
-
- private:
-  IndexArming arming_{};
-};
-
 // The storage is based on this paper:
 // https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
 // The paper implements a fully serializable storage, in our implementation we
@@ -801,7 +735,7 @@ class InMemoryStorage final : public Storage {
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
     void GCRapidDeltaCleanup(std::list<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
                              std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
-                             IndexPerformanceTracker &impact_tracker);
+                             IndexArming &arming);
     SalientConfig::Items config_;
 
     // Bookkeeping
@@ -1085,13 +1019,13 @@ class InMemoryStorage final : public Storage {
   // family because it is due to grow into a description of which indexes were affected, which a
   // set of independent atomics cannot carry. Its own lock rather than the collection lock: the
   // producers hold that today but are not required to, and nothing here needs it.
-  utils::Synchronized<IndexArming, utils::SpinLock> gc_index_cleanup_performance_;
+  utils::Synchronized<IndexArming, utils::SpinLock> pending_index_arming_;
 
   // Where a collection cycle claims the above into, swapped rather than moved so that both this
   // and the published one keep their allocation across cycles and the producers, which publish
   // under a spin lock on the commit path, never allocate while holding it. Owned by the cycle,
   // which the collection lock serializes.
-  IndexArming gc_claimed_arming_;
+  IndexArming claimed_index_arming_;
 
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;

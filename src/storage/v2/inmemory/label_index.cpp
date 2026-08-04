@@ -287,7 +287,7 @@ uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t ol
     if (token.stop_requested()) return swept;
     // Nothing written since the last sweep can have left an entry here to collect, and a sweep
     // costs the whole index to walk whether or not it finds anything.
-    if (!arming.armed(label)) continue;
+    if (!arming.arms_index_on(label)) continue;
     ++swept;
 
     auto vertices_acc = index->skiplist.access();

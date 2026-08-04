@@ -13,6 +13,7 @@
 
 #include <algorithm>
 
+#include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/index_impact.hpp"
 #include "storage/v2/indices/property_path.hpp"
@@ -31,74 +32,148 @@ namespace memgraph::storage {
 ///
 /// Grouped by index family, because the two do not arm on the same things: a vertex index turns
 /// on labels, which are mutable, while an edge index cannot turn on its edge type, which is not.
-///
-/// Also carries which index families are affected at all, the coarser question that index types
-/// not yet consulting the ids are still gated on.
 class IndexArming {
  public:
+  /// One transaction's worth of deltas. A property delta records the property but not whether it
+  /// belonged to a vertex or an edge, and only the transaction knows that, so it is resolved once
+  /// here rather than asked again for every delta. Opening the scope is also what makes recording
+  /// a delta outside a transaction impossible to write.
+  class TransactionScope {
+   public:
+    // Takes the whole delta rather than its action: the action says an index family may hold
+    // something to collect, the payload says which index within it. A delta holds the inverse of
+    // the write that made it, so the action here is the opposite of what the writer called, but
+    // the id is the same either way.
+    void note(Delta const &delta) const {
+      switch (delta.action) {
+        using enum Delta::Action;
+        case DELETE_DESERIALIZED_OBJECT:
+        case DELETE_OBJECT:
+        case RECREATE_OBJECT: {
+          // can impact correctness, but does not matter for performance
+          return;
+        }
+        case SET_PROPERTY: {
+          if (writes_vertex_properties_) arming_->note_vertex_property(delta.property.key);
+          return;
+        }
+        case ADD_LABEL:
+        case REMOVE_LABEL: {
+          arming_->note_label(delta.label.value);
+          return;
+        }
+        case ADD_IN_EDGE:
+        case ADD_OUT_EDGE:
+        case REMOVE_IN_EDGE:
+        case REMOVE_OUT_EDGE: {
+          arming_->note_edge_indexes();
+          return;
+        }
+      }
+    }
+
+   private:
+    friend class IndexArming;
+
+    // The vertex side is not noted here. A transaction reports having written a vertex property
+    // only because it created a delta saying so, and that delta is in the buffer about to be
+    // read, where it names the property. The edge side has no ids to name yet, so it is.
+    TransactionScope(IndexArming &arming, IndexImpact property_writes)
+        : arming_{&arming}, writes_vertex_properties_{property_writes.vertex_indexes} {
+      if (property_writes.edge_indexes) arming.note_edge_indexes();
+    }
+
+    IndexArming *arming_;
+    bool writes_vertex_properties_;
+  };
+
+  /// @param property_writes which index families this transaction's property writes could have
+  ///                        left something to collect in, which its deltas cannot say alone.
+  TransactionScope for_transaction(IndexImpact property_writes) { return {*this, property_writes}; }
+
   /// Sweep every vertex index regardless of what was written. Used where entries may point at
   /// objects about to be freed: no delta names those, and leaving one behind is a dangling
   /// pointer rather than a missed saving. Named per family so that a deleted edge, which says
   /// nothing about any vertex index, does not cost the vertex indexes their narrowing.
-  void arm_every_vertex_index() { vertex_.all = true; }
+  void arm_all_vertex_indexes() { vertex_.armed_all = true; }
 
-  void note_label(LabelId label) { vertex_.labels.Set(label); }
+  void note_label(LabelId label) { vertex_.labels.set(label); }
 
-  void note_vertex_property(PropertyId property) { vertex_.properties.Set(property); }
+  void note_vertex_property(PropertyId property) { vertex_.properties.set(property); }
 
-  /// Which families the writes could have touched at all, taken from the transaction where a
-  /// delta cannot say it on its own.
-  void note_families(IndexImpact impact) { families_ |= impact; }
+  void note_edge_indexes() { edge_.armed = true; }
 
-  bool armed(LabelId label) const { return vertex_.all || vertex_.labels.Test(label); }
+  bool arms_vertex_indexes() const { return vertex_.armed(); }
+
+  bool arms_edge_indexes() const { return edge_.armed; }
+
+  bool arms_anything() const { return arms_vertex_indexes() || arms_edge_indexes(); }
+
+  bool arms_index_on(LabelId label) const { return vertex_.armed_all || vertex_.labels.test(label); }
 
   /// An index on a label and a set of properties goes stale when the label is taken off a vertex
   /// it covers or when one of the properties is written, so either arms it. A path names a
   /// property reached through others, and a write names the one it starts from.
-  bool armed(LabelId label, PropertiesPaths const &properties) const {
-    return armed(label) || std::ranges::any_of(properties, [this](PropertyPath const &path) {
-             return !path.empty() && vertex_.properties.Test(path[0]);
+  bool arms_index_on(LabelId label, PropertiesPaths const &properties) const {
+    return arms_index_on(label) || std::ranges::any_of(properties, [this](PropertyPath const &path) {
+             return !path.empty() && vertex_.properties.test(path[0]);
            });
   }
 
-  IndexImpact const &families() const { return families_; }
-
-  bool any() const { return vertex_.all || families_.any(); }
-
   IndexArming &operator|=(IndexArming const &other) {
-    vertex_.Merge(other.vertex_);
-    families_ |= other.families_;
+    vertex_ |= other.vertex_;
+    edge_ |= other.edge_;
     return *this;
   }
 
   /// Empties without giving up the memory, so that a holder reused across collection cycles
   /// keeps its allocation instead of growing back to the same size every time.
-  void Clear() {
-    vertex_.Clear();
-    families_ = {};
+  void reset() {
+    vertex_.reset();
+    edge_.reset();
   }
 
  private:
   struct VertexIndexes {
-    bool all{false};
+    /// Which of them is not known, so every one is swept.
+    bool armed_all{false};
     utils::IdBitmap<LabelId> labels{};
     utils::IdBitmap<PropertyId> properties{};
 
-    void Merge(VertexIndexes const &other) {
-      all |= other.all;
-      labels.Merge(other.labels);
-      properties.Merge(other.properties);
+    /// Whether any vertex index may hold something to collect. Read once per collection cycle
+    /// and derived rather than carried, because what would carry it is a store on every write's
+    /// delta, which is the side that runs often.
+    bool armed() const { return armed_all || labels.any() || properties.any(); }
+
+    VertexIndexes &operator|=(VertexIndexes const &other) {
+      armed_all |= other.armed_all;
+      labels |= other.labels;
+      properties |= other.properties;
+      return *this;
     }
 
-    void Clear() {
-      all = false;
-      labels.Clear();
-      properties.Clear();
+    void reset() {
+      armed_all = false;
+      labels.reset();
+      properties.reset();
     }
   };
 
+  struct EdgeIndexes {
+    /// Some edge index may hold something to collect. No ids here yet: an edge index turns on its
+    /// edge type, which cannot change, so what narrows it is not what narrows the vertex side.
+    bool armed{false};
+
+    EdgeIndexes &operator|=(EdgeIndexes const &other) {
+      armed |= other.armed;
+      return *this;
+    }
+
+    void reset() { armed = false; }
+  };
+
   VertexIndexes vertex_{};
-  IndexImpact families_{};
+  EdgeIndexes edge_{};
 };
 
 }  // namespace memgraph::storage

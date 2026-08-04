@@ -28,29 +28,34 @@ concept DenseId = requires(TId const id) {
 /// constant time with no hashing, which is what a caller adding ids in a hot loop needs.
 ///
 /// Typed on the id so that two bitmaps over different kinds of id cannot be confused for each
-/// other.
+/// other. Named after std::bitset, which it is the growable counterpart of.
 template <DenseId TId>
 class IdBitmap {
  public:
-  void Set(TId id) {
+  void set(TId id) {
     auto const [word, bit] = Position(id);
     if (word >= words_.size()) words_.resize(word + 1, 0);
     words_[word] |= bit;
   }
 
-  bool Test(TId id) const {
+  bool test(TId id) const {
     auto const [word, bit] = Position(id);
     return word < words_.size() && (words_[word] & bit) != 0;
   }
 
-  void Merge(IdBitmap const &other) {
-    if (words_.size() < other.words_.size()) words_.resize(other.words_.size(), 0);
-    for (size_t i = 0; i != other.words_.size(); ++i) words_[i] |= other.words_[i];
+  bool any() const {
+    return std::ranges::any_of(words_, [](uint64_t const word) { return word != 0; });
   }
 
   /// Empties the set without giving up the memory. The same ids tend to recur, so a caller that
   /// empties and refills repeatedly would otherwise pay to grow back to the same size each time.
-  void Clear() { std::ranges::fill(words_, 0); }
+  void reset() { std::ranges::fill(words_, 0); }
+
+  IdBitmap &operator|=(IdBitmap const &other) {
+    if (words_.size() < other.words_.size()) words_.resize(other.words_.size(), 0);
+    for (size_t i = 0; i != other.words_.size(); ++i) words_[i] |= other.words_[i];
+    return *this;
+  }
 
  private:
   static constexpr auto kBitsPerWord = 64U;
