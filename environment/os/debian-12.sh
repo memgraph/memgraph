@@ -63,6 +63,7 @@ MEMGRAPH_BUILD_DEPS=(
     lsof # e2e test runners
     python3 virtualenv python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
+    custom-rust
     zip unzip default-jdk-headless custom-maven # for driver tests
     dotnet-sdk-8.0 golang custom-golang nodejs npm # for driver tests
     autoconf # for jemalloc code generation

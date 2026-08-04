@@ -64,6 +64,7 @@ MEMGRAPH_BUILD_DEPS=(
     iptables # for stress tests that simulate network failures
     python3 python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
+    custom-rust
     zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven # for driver tests (JDK 17 required)
     dotnet-sdk-6.0 golang custom-golang custom-node # for driver tests
     autoconf # for jemalloc code generation
