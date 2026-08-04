@@ -246,10 +246,7 @@ class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::util
   explicit PeriodicSnapshotObserver(memgraph::utils::Scheduler &scheduler) : scheduler_{&scheduler} {}
 
   // String HAS to be a valid cron expr
-  void Update(const memgraph::utils::SchedulerInterval &in) override {
-    scheduler_->SetInterval(in);
-    scheduler_->SpinOnce();
-  }
+  void Update(const memgraph::utils::SchedulerInterval &in) override { scheduler_->SetIntervalAndWake(in); }
 
  private:
   memgraph::utils::Scheduler *scheduler_;

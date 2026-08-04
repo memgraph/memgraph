@@ -157,7 +157,9 @@ void TTL::SetInterval(std::optional<std::chrono::microseconds> period,
   info_.period = actual_period;
   info_.start_time = start_time;
 
-  ttl_.SetInterval(actual_period, start_time);
+  // Wake the worker: TTL sets its schedule after the scheduler thread starts, and a plain SetInterval won't
+  // wake a thread already parked on the default (infinite) wait, so without this it could silently never fire.
+  ttl_.SetIntervalAndWake(actual_period, start_time);
 }
 
 void TTL::Configure(bool should_run_edge_ttl) {

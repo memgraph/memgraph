@@ -111,6 +111,15 @@ bool WaitForVertexCount(DbAccess &db, size_t expected_count,
   return WaitForCondition([&]() { return CountVisibleVertices(db) == expected_count; }, timeout);
 }
 
+// Wait until the visible vertex count drops to at most `expected_count`. Under TTL the count is monotone
+// non-increasing, so don't poll for exact equality with a transient value: two vertices can expire close
+// together and a single batch takes the count straight past the intermediate, which == would miss.
+template <typename DbAccess>
+bool WaitForVertexCountAtMost(DbAccess &db, size_t expected_count,
+                              std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+  return WaitForCondition([&]() { return CountVisibleVertices(db) <= expected_count; }, timeout);
+}
+
 // Helper function to wait for specific vertex and edge counts
 template <typename DbAccess>
 bool WaitForVertexAndEdgeCount(DbAccess &db, size_t expected_vertices, size_t expected_edges,
@@ -403,12 +412,15 @@ TYPED_TEST(TTLFixture, StartTime) {
       << "TTL ran before the configured start time (expected to wait 3 seconds)";
 
   // After 3 seconds, TTL should start running (interval is 100ms)
-  // Wait for first deletion
-  ASSERT_TRUE(WaitForVertexCount(this->db_, 5, std::chrono::milliseconds(1500)))
+  // Wait for first deletion. Use <= because v5 (already expired) and v6 (expires ~1s later) can both be
+  // reaped by a single batch if the scheduler starts late, taking the count 6 -> 4 without pausing at 5.
+  ASSERT_TRUE(WaitForVertexCountAtMost(this->db_, 5, std::chrono::milliseconds(1500)))
       << "Failed to observe first TTL deletion after start time";
 
-  // Wait for second deletion (newer timestamp is 4s in future from test start)
-  ASSERT_TRUE(WaitForVertexCount(this->db_, 4, std::chrono::seconds(2))) << "Failed to observe second TTL deletion";
+  // Wait for second deletion (newer timestamp is 4s in future from test start). 4 is the terminal steady
+  // state (v1-v4 are never eligible), so <= 4 is exact here.
+  ASSERT_TRUE(WaitForVertexCountAtMost(this->db_, 4, std::chrono::seconds(2)))
+      << "Failed to observe second TTL deletion";
 }
 
 TYPED_TEST(TTLFixture, Edge) {

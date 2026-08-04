@@ -77,6 +77,20 @@ class Scheduler {
 
   void SetInterval(std::string cron_expr) { SetInterval(SchedulerInterval{cron_expr}); }
 
+  // Reconfigure the schedule and wake a running worker so the new interval applies immediately. Plain
+  // SetInterval does not wake a parked worker (contract pinned by Scheduler.SetupAndSpinOnce), so callers
+  // reconfiguring an already-running scheduler use this.
+  void SetIntervalAndWake(const SchedulerInterval &setup) {
+    SetInterval(setup);
+    SpinOnce();
+  }
+
+  template <typename TRep, typename TPeriod>
+  void SetIntervalAndWake(const std::chrono::duration<TRep, TPeriod> &period,
+                          std::optional<std::chrono::system_clock::time_point> start_time = {}) {
+    SetIntervalAndWake(SchedulerInterval{period, start_time});
+  }
+
   void Resume();
 
   void Pause();
