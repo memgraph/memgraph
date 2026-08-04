@@ -11397,6 +11397,31 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metadata_ = GenOptional(extras.metadata_pv);
 }
 
+void Interpreter::FinishAutocommitNothing() {
+  // Inverse of SetupInterpreterTransaction for an autocommit query that opened no storage
+  // transaction (handler returned NOTHING). Mirrors the tail of Abort()'s clean_status: CAS the
+  // status to IDLE -- spin-waiting out a concurrent ShowTransactions/TerminateTransactions that has
+  // CAS'd us to VERIFYING -- before clearing the non-atomic fields, so no verifier ever reads a
+  // half-cleared row. Never an unconditional store while ACTIVE, which could race that VERIFYING
+  // CAS.
+  auto expected = TransactionStatus::ACTIVE;
+  while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+    if (expected == TransactionStatus::VERIFYING) {
+      expected = TransactionStatus::ACTIVE;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      continue;
+    }
+    // TERMINATED, or already IDLE because a concurrent kill finished the job: force IDLE to complete
+    // disposal without spinning, exactly as Abort()/Commit() do on an unexpected state.
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+    break;
+  }
+  // Status is now IDLE -- no concurrent ShowTransactions reader will access these fields.
+  current_transaction_.reset();
+  metadata_ = std::nullopt;
+  session_log_ctx_.ClearTxId();
+}
+
 std::vector<TypedValue> Interpreter::GetQueries() {
   auto typed_queries = std::vector<TypedValue>();
   transaction_queries_.WithLock([&typed_queries](const auto &transaction_queries) {
