@@ -11,6 +11,8 @@
 
 #include "storage/v2/disk/storage.hpp"
 
+#include "utils/on_scope_exit.hpp"
+
 #include <atomic>
 #include <cstdint>
 #include <limits>
@@ -285,6 +287,15 @@ DiskStorage::~DiskStorage() {
   }
   delete kvstore_->options_.comparator;
   kvstore_->options_.comparator = nullptr;
+}
+
+void DiskStorage::RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) {
+  ttl_.Pause();
+  auto resume = utils::OnScopeExit{[&] { ttl_.Resume(); }};
+  metric_handles_ = new_handles;
+  // Disk indices don't store gauge handles, so nothing to rebind there.
+  constraints_.RebindMetricHandles(new_handles);
+  ttl_.RebindMetricHandles(new_handles.deleted_nodes, new_handles.deleted_edges);
 }
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, std::optional<IsolationLevel> override_isolation_level,
