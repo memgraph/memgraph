@@ -25,14 +25,21 @@ if (READLINE_LIBRARY AND READLINE_INCLUDE_DIR)
   # `-lreadline` the sysroot-pinned linker cannot resolve.
   if (NOT TARGET readline)
     add_library(readline SHARED IMPORTED)
-    # CMake suppresses `-isystem /usr/include` from generated command lines,
-    # and under the toolchain sysroot that directory is NOT searched
-    # implicitly either — the headers silently go missing (Debian builds only
-    # survived via Python3::Python's -idirafter side door). Propagate it as
-    # -idirafter: appended after the sysroot search paths, so toolchain
-    # headers keep priority.
+    # CMake suppresses `/usr/include` from generated command lines, and under
+    # the toolchain sysroot it is not searched implicitly either — the headers
+    # silently go missing. Exposing ALL of host /usr/include (e.g. via
+    # -idirafter) is not safe: it changes libstdc++'s glibc feature detection
+    # (__has_include(<sys/single_threaded.h>) finds the HOST glibc's header
+    # and emits __libc_single_threaded references the sysroot glibc cannot
+    # satisfy at link time). Instead expose ONLY the readline headers through
+    # a shim directory holding a single `readline` symlink.
     if (READLINE_INCLUDE_DIR STREQUAL "/usr/include")
-      set_property(TARGET readline PROPERTY INTERFACE_COMPILE_OPTIONS "-idirafter" "/usr/include")
+      set(_readline_shim "${CMAKE_BINARY_DIR}/readline-include-shim")
+      file(MAKE_DIRECTORY "${_readline_shim}")
+      if (NOT EXISTS "${_readline_shim}/readline")
+        file(CREATE_LINK "${READLINE_INCLUDE_DIR}/readline" "${_readline_shim}/readline" SYMBOLIC)
+      endif()
+      set_property(TARGET readline PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${_readline_shim}")
     else()
       set_property(TARGET readline PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${READLINE_INCLUDE_DIR})
     endif()
