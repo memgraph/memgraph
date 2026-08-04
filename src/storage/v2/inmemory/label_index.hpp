@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <mutex>
 #include <span>
 
 #include "memory/db_arena_fwd.hpp"
@@ -217,7 +218,13 @@ class InMemoryLabelIndex : public LabelIndex {
     auto GetAbortProcessor() const -> AbortProcessor override;
 
    private:
+    auto BuildIndexedLabels() const -> std::vector<LabelId>;
+
     std::shared_ptr<IndexContainer const> index_container_;
+    // Derived from index_container_ on first use and shared from then on; several transactions
+    // can abort against this snapshot at once, so the build has to happen exactly once.
+    mutable std::once_flag indexed_labels_built_;
+    mutable std::vector<LabelId> indexed_labels_;
   };
 
   auto GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> override;

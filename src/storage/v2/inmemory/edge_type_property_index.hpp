@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <mutex>
+
 #include <cstdint>
 #include <map>
 #include <utility>
@@ -248,6 +250,10 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
    private:
     std::shared_ptr<IndexContainer const> index_container_;
+    // Derived from index_container_ on first use and shared from then on; several transactions
+    // can abort against this snapshot at once, so the build has to happen exactly once.
+    mutable std::once_flag indexed_built_;
+    mutable EdgeTypePropertyIndexed indexed_;
   };
 
   /// @throw std::bad_alloc

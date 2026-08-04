@@ -5320,3 +5320,54 @@ TEST(IndexAbortLookup, AnAbortSeesAnIndexCreatedAfterAnEarlierAbortBuiltTheLooku
   EXPECT_EQ(indexed_count("b"), 0);
   EXPECT_EQ(indexed_count("a"), 1);
 }
+
+// The same for a plain label index, whose abort processor borrows a view of the indexed labels
+// rather than a copy: the view has to name the labels of the snapshot it was made against.
+TEST(IndexAbortLookup, AnAbortSeesALabelIndexCreatedAfterAnEarlierAbortBuiltTheLookup) {
+  auto storage = std::make_unique<InMemoryStorage>(Config{});
+
+  auto const create_index = [&](std::string_view label) {
+    auto acc = storage->UniqueAccess();
+    ASSERT_NO_ERROR(acc->CreateIndex(storage->NameToLabel(label)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  };
+  auto const indexed_count = [&](std::string_view label) {
+    auto acc = storage->Access(READ);
+    auto const count = acc->ApproximateVertexCount(storage->NameToLabel(label));
+    acc->Abort();
+    return count;
+  };
+
+  create_index("A");
+
+  Gid gid;
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("A")));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  ASSERT_EQ(indexed_count("A"), 1);
+
+  // An abort against the set of indexes as it stands, which is what builds the view.
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(*vertex->RemoveLabel(acc->NameToLabel("A")));
+    acc->Abort();
+  }
+  EXPECT_EQ(indexed_count("A"), 1);
+
+  create_index("B");
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(*vertex->AddLabel(acc->NameToLabel("B")));
+    acc->Abort();
+  }
+  EXPECT_EQ(indexed_count("B"), 0);
+  EXPECT_EQ(indexed_count("A"), 1);
+}

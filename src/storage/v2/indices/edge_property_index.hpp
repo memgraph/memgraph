@@ -56,7 +56,12 @@ class EdgePropertyIndex {
 };
 
 struct EdgePropertyIndexAbortProcessor {
-  explicit EdgePropertyIndexAbortProcessor(std::span<PropertyId const> properties);
+  EdgePropertyIndexAbortProcessor() = default;
+
+  explicit EdgePropertyIndexAbortProcessor(std::span<PropertyId const> indexed) : indexed_{indexed} {}
+
+  /// Borrowed; see EdgeTypeIndexAbortProcessor::indexed_.
+  std::span<PropertyId const> indexed_;
 
   void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
                                Edge *edge, PropertyValue value);

@@ -545,8 +545,11 @@ InMemoryEdgePropertyIndex::ChunkedIterable InMemoryEdgePropertyIndex::ActiveIndi
 }
 
 EdgePropertyIndex::AbortProcessor InMemoryEdgePropertyIndex::ActiveIndices::GetAbortProcessor() const {
-  auto property_ids_filter = index_container_->indices_ | std::views::keys | ranges::to_vector;
-  return AbortProcessor{property_ids_filter};
+  // Built from the indexes and nothing else, and they do not change while this snapshot of them
+  // is in use, so every abort running against the same snapshot shares one.
+  std::call_once(indexed_built_,
+                 [this] { indexed_ = index_container_->indices_ | std::views::keys | ranges::to_vector; });
+  return AbortProcessor{indexed_};
 }
 
 void InMemoryEdgePropertyIndex::ActiveIndices::AbortEntries(EdgePropertyIndex::AbortableInfo const &info,

@@ -11,33 +11,23 @@
 
 #include "storage/v2/indices/edge_type_property_index.hpp"
 
+#include <algorithm>
+
 #include "storage/v2/edge.hpp"
 
 namespace memgraph::storage {
 void EdgeTypePropertyIndexAbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property,
                                                                   Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
                                                                   PropertyValue value) {
-  auto it = cleanup_collection_.find({edge_type, property});
-  if (it == cleanup_collection_.end()) {
-    DMG_ASSERT(false, "Should not be possible");
-    return;
-  }
-  it->second.emplace_back(from_vertex, to_vertex, edge, std::move(value));
-}
-
-EdgeTypePropertyIndexAbortProcessor::EdgeTypePropertyIndexAbortProcessor(
-    std::span<std::pair<EdgeTypeId, PropertyId> const> keys) {
-  for (auto const &key : keys) {
-    cleanup_collection_.insert({key, {}});
-    interesting_properties_.insert(key.second);
-  }
+  DMG_ASSERT(IsInteresting(edge_type, property), "Collecting a key no index is keyed on");
+  cleanup_collection_[{edge_type, property}].emplace_back(from_vertex, to_vertex, edge, std::move(value));
 }
 
 bool EdgeTypePropertyIndexAbortProcessor::IsInteresting(PropertyId id) const {
-  return interesting_properties_.contains(id);
+  return indexed_ != nullptr && std::ranges::binary_search(indexed_->properties, id);
 }
 
 bool EdgeTypePropertyIndexAbortProcessor::IsInteresting(EdgeTypeId edge_type, PropertyId property) const {
-  return cleanup_collection_.contains({edge_type, property});
+  return indexed_ != nullptr && std::ranges::binary_search(indexed_->keys, std::pair{edge_type, property});
 }
 }  // namespace memgraph::storage
