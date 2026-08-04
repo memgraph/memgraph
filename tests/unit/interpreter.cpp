@@ -343,6 +343,19 @@ TYPED_TEST(InterpreterTest, AccessorFreePathRejectsUnhonouredModifiers) {
   }
 }
 
+// The accessor-free path is gated on the procedure declaring ProcedureInfo::no_graph_access, not on
+// its name. All four builtin introspection procedures declare it and so must qualify.
+TYPED_TEST(InterpreterTest, AccessorFreePathRequiresDeclaredNoGraphAccess) {
+  for (auto const *query : {"CALL mg.procedures() YIELD name",
+                            "CALL mg.functions() YIELD name",
+                            "CALL mg.transformations() YIELD name",
+                            "CALL mg.get_module_files() YIELD path"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+}
+
 TYPED_TEST(InterpreterTest, MultiplePulls) {
   {
     auto [stream, qid] = this->Prepare("UNWIND [1,2,3,4,5] as n RETURN n");

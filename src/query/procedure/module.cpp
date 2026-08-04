@@ -259,7 +259,9 @@ void RegisterMgProcedures(std::map<std::string, std::shared_ptr<Module>, std::le
       }
     }
   };
-  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource());
+  // procedures_cb reads only the module registry; its `mgp_graph *` parameter is unused, so this may
+  // run with no storage accessor open.
+  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource(), {.no_graph_access = true});
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "signature", Call<mgp_type *>(mgp_type_string)) ==
@@ -328,7 +330,8 @@ void RegisterMgTransformations(std::map<std::string, std::shared_ptr<Module>, st
       }
     }
   };
-  mgp_proc procedures("transformations", transformations_cb, utils::NewDeleteResource());
+  // transformations_cb reads only the module registry; its `mgp_graph *` parameter is unused.
+  mgp_proc procedures("transformations", transformations_cb, utils::NewDeleteResource(), {.no_graph_access = true});
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "path", Call<mgp_type *>(mgp_type_string)) ==
@@ -405,7 +408,8 @@ void RegisterMgFunctions(std::map<std::string, std::shared_ptr<Module>, std::les
       }
     }
   };
-  mgp_proc functions("functions", functions_cb, utils::NewDeleteResource());
+  // functions_cb reads only the module registry; its `mgp_graph *` parameter is unused.
+  mgp_proc functions("functions", functions_cb, utils::NewDeleteResource(), {.no_graph_access = true});
   MG_ASSERT(mgp_proc_add_result(&functions, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&functions, "signature", Call<mgp_type *>(mgp_type_string)) ==
@@ -504,10 +508,12 @@ void RegisterMgGetModuleFiles(ModuleRegistry *module_registry, BuiltinModule *mo
     }
   };
 
+  // get_module_files_cb reads the module registry and the filesystem; its `mgp_graph *` parameter is
+  // unused.
   mgp_proc get_module_files("get_module_files",
                             get_module_files_cb,
                             utils::NewDeleteResource(),
-                            {.required_privilege = AuthQuery::Privilege::MODULE_READ});
+                            {.required_privilege = AuthQuery::Privilege::MODULE_READ, .no_graph_access = true});
   MG_ASSERT(mgp_proc_add_result(&get_module_files, "path", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&get_module_files, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
@@ -1569,6 +1575,14 @@ auto MakePairIfPropFound(const ModuleRegistry &module_registry, std::string_view
 auto FindProcedure(const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name)
     -> find_result<mgp_proc> {
   return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name);
+}
+
+bool ProcedureDeclaresNoGraphAccess(const ModuleRegistry &module_registry,
+                                    std::string_view fully_qualified_procedure_name) {
+  auto maybe_found = FindProcedure(module_registry, fully_qualified_procedure_name);
+  if (!maybe_found) return false;
+  auto const *proc = maybe_found->second;
+  return !proc->info.is_write && proc->info.no_graph_access;
 }
 
 auto FindTransformation(const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name)

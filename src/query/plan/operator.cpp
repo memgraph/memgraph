@@ -8563,6 +8563,12 @@ std::vector<std::vector<TypedValue>> CallNoGraphReadProcedure(std::string_view p
   if (proc->info.is_write) {
     throw QueryRuntimeException("The procedure named '{}' is a write procedure.", procedure_name);
   }
+  // Re-validate at execution time rather than trusting the interpreter's classification: the module
+  // could have been reloaded between Prepare and Pull. Without a graph accessor a procedure that
+  // touches the graph would null-dereference, so fail loudly instead.
+  if (!proc->info.no_graph_access) {
+    throw QueryRuntimeException("The procedure named '{}' requires graph access.", procedure_name);
+  }
 
   mgp_result result{memory};
   BuildProcedureResultSignature(result, *proc, result_fields, procedure_name);
