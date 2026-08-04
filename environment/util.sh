@@ -129,6 +129,8 @@ function retry_install() {
     local attempt=1
     local status
 
+    echo "retry_install: installing '$*' (up to $attempts attempt(s))"
+
     while true; do
         # `|| status=$?` also suspends `set -e` for the duration of the call, so
         # a failing step inside the callee returns here instead of killing the
