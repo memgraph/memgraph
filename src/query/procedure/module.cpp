@@ -1577,12 +1577,15 @@ auto FindProcedure(const ModuleRegistry &module_registry, std::string_view fully
   return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name);
 }
 
-bool ProcedureDeclaresNoGraphAccess(const ModuleRegistry &module_registry,
-                                    std::string_view fully_qualified_procedure_name) {
+bool ProcedureIsAccessorFreeEligible(const ModuleRegistry &module_registry,
+                                     std::string_view fully_qualified_procedure_name) {
   auto maybe_found = FindProcedure(module_registry, fully_qualified_procedure_name);
   if (!maybe_found) return false;
   auto const *proc = maybe_found->second;
-  return !proc->info.is_write && proc->info.no_graph_access;
+  // No graph access and no writes (the callback is safe to run with a graph-less stub), and no
+  // required privilege (the callback runs before the session's CheckAuthorized, so a privileged
+  // procedure must take the normal auth-then-execute path).
+  return !proc->info.is_write && proc->info.no_graph_access && !proc->info.required_privilege.has_value();
 }
 
 auto FindTransformation(const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name)
