@@ -198,7 +198,7 @@ install() {
             dotnet-sdk-8.0)
                 if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
                     # update once 26.04 properly released
-                    wget -nv https://packages.microsoft.com/config/ubuntu/25.10/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+                    wget -nv https://packages.microsoft.com/config/ubuntu/26.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
                     dpkg -i packages-microsoft-prod.deb
                     apt-get update
                     apt-get install -y apt-transport-https dotnet-sdk-8.0
