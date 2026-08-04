@@ -31,10 +31,10 @@ declare -A OS_DOCKER_IMAGE_MAP=(
     [fedora-42-arm]="fedora:42"
     [fedora-43]="fedora:43"
     [fedora-43-arm]="fedora:43"
-    [fedora-43]="fedora:44"
-    [fedora-43-arm]="fedora:44"
-    [fedora-43]="fedora:45"
-    [fedora-43-arm]="fedora:45"
+    [fedora-44]="fedora:44"
+    [fedora-44-arm]="fedora:44"
+    [fedora-45]="fedora:45"
+    [fedora-45-arm]="fedora:45"
     [rocky-10]="rockylinux/rockylinux:10"
     [ubuntu-22.04]="ubuntu:22.04"
     [ubuntu-22.04-arm]="ubuntu:22.04"
@@ -60,8 +60,14 @@ PACKAGE_GROUPS=(
     "MEMGRAPH_RUN_DEPS"
 )
 
-if [[ ! " ${PACKAGE_GROUPS[@]} " =~ " ${PACKAGE_GROUP} " ]]; then
-    echo "Error: Invalid package group: ${PACKAGE_GROUP}"
+# "ALL" tests every package group, in the PACKAGE_GROUPS order above, inside
+# one container.
+if [[ "${PACKAGE_GROUP}" == "ALL" ]]; then
+    GROUPS_TO_TEST=("${PACKAGE_GROUPS[@]}")
+elif [[ " ${PACKAGE_GROUPS[*]} " =~ " ${PACKAGE_GROUP} " ]]; then
+    GROUPS_TO_TEST=("${PACKAGE_GROUP}")
+else
+    echo "Error: Invalid package group: ${PACKAGE_GROUP} (valid: ${PACKAGE_GROUPS[*]} or ALL)"
     exit 1
 fi
 
@@ -76,7 +82,7 @@ trap cleanup EXIT ERR
 
 
 
-echo -e "${GREEN}Testing ${PACKAGE_GROUP} for ${OS}...${RESET}"
+echo -e "${GREEN}Testing ${GROUPS_TO_TEST[*]} for ${OS}...${RESET}"
 
 echo -e "${YELLOW}Pulling docker image ${DOCKER_IMAGE}...${RESET}"
 docker pull ${DOCKER_IMAGE}
@@ -101,13 +107,13 @@ if [[ $status -ne 0 ]]; then
     exit $status
 fi
 
-echo -e "${YELLOW}Installing dependencies in the container...${RESET}"
-docker exec -it ${CONTAINER_NAME} bash -c "cd /memgraph && ./environment/os/install_deps.sh install ${PACKAGE_GROUP}"
+for group in "${GROUPS_TO_TEST[@]}"; do
+    echo -e "${YELLOW}Installing ${group} in the container...${RESET}"
+    if ! docker exec -it ${CONTAINER_NAME} bash -c "cd /memgraph && ./environment/os/install_deps.sh install ${group}"; then
+        echo -e "${RED}Failed to install ${group} in the container...${RESET}"
+        exit 1
+    fi
+    echo -e "${GREEN}${group} installed successfully...${RESET}"
+done
 
-status=$?
-if [[ $status -ne 0 ]]; then
-    echo -e "${RED}Failed to install dependencies in the container...${RESET}"
-    exit $status
-fi
-
-echo -e "${GREEN}Testing ${PACKAGE_GROUP} for ${OS} COMPLETED SUCCESSFULLY...${RESET}"
+echo -e "${GREEN}Testing ${GROUPS_TO_TEST[*]} for ${OS} COMPLETED SUCCESSFULLY...${RESET}"

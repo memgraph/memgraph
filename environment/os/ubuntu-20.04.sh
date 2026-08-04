@@ -65,7 +65,7 @@ MEMGRAPH_BUILD_DEPS=(
     libkrb5-dev # for building python gssapi (kerberos auth module)
 )
 
-MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
+MEMGRAPH_TEST_DEPS=("${MEMGRAPH_BUILD_DEPS[@]}")
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp2
