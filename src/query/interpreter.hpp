@@ -669,6 +669,15 @@ class Interpreter final {
 
   PreparedQuery PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum, QueryExtras const &extras = {});
   void Commit();
+  // Disposes the transaction-tracking state of an autocommit query whose handler returned NOTHING
+  // (a query that opened no storage transaction: constant RETURN, accessor-free introspection, and
+  // the pre-existing metadata/SHOW handlers). SetupInterpreterTransaction runs unconditionally for
+  // every autocommit query and leaves transaction_status_ = ACTIVE; Commit()/Abort() reset it on
+  // their way out, but the NOTHING path otherwise would not, leaking a permanently ACTIVE status
+  // and a stale current_transaction_. Clears the status (CAS ACTIVE->IDLE with a VERIFYING
+  // spin-wait, mirroring Abort()'s clean_status) plus current_transaction_, metadata_, and the
+  // session-log tx id. Non-template so the concurrency logic lives in the .cpp beside Abort/Commit.
+  void FinishAutocommitNothing();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
@@ -780,10 +789,14 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
             Abort();
             break;
           case QueryHandlerResult::NOTHING: {
-            // The only cases in which we have nothing to do are those where
-            // we're either in an explicit transaction or the query is such that
-            // a transaction wasn't started on a call to `Prepare()`.
+            // NOTHING means no storage transaction was opened on `Prepare()` (this switch only runs
+            // for autocommit queries -- it is inside `if (!in_explicit_transaction_)`).
             MG_ASSERT(!current_db_.db_transactional_accessor_);
+            // But SetupInterpreterTransaction still ran unconditionally and left the tx-tracking
+            // state ACTIVE. Unlike COMMIT/ABORT, nothing here disposes it, so clear it now -- else
+            // the session stays permanently ACTIVE (phantom SHOW TRANSACTIONS row, false
+            // ActiveTransactionsExist()). Steady-state for Lab, which fires the fast path every ~2s.
+            FinishAutocommitNothing();
             break;
           }
         }
