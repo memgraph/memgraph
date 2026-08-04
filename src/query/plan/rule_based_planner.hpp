@@ -1329,7 +1329,9 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   }
 
   /// True once every symbol the comprehension references that this query part binds elsewhere is bound. Symbols from
-  /// an earlier query part are not waited for. Every site draining `pending_comprehensions` must use this.
+  /// an earlier query part are not waited for. Every *early* drain must use this - the on-demand path in
+  /// `ReturnBodyContext` needs no check, because a WITH/RETURN is the last clause of its query part, so a
+  /// comprehension reaching there is already at the clause that owns it.
   static bool DepsSatisfied(const PatternComprehensionMatching &pc,
                             const std::unordered_set<Symbol> &symbols_bound_by_query_part,
                             const std::unordered_set<Symbol> &bound_symbols) {
@@ -1360,18 +1362,28 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     return std::ranges::any_of(pc.expansion_symbols, [&](const Symbol &sym) { return bound_symbols.contains(sym); });
   }
 
-  /// The view a comprehension must be planned with. Every site draining `pending_comprehensions` must use this: a
-  /// comprehension planned after a write, over a symbol that write bound, sees nothing under View::OLD.
+  /// The view a comprehension must be planned with: one planned after a write, over a symbol that write bound, sees
+  /// nothing under View::OLD.
+  ///
+  /// Not every site draining `pending_comprehensions` uses this. The on-demand path in `ReturnBodyContext` passes
+  /// `PatternComprehensionContext::view` straight through, and `HasVariableLengthExpansion` inspects only the
+  /// top-level expansions although the view propagates into nested comprehensions - so a variable-length comprehension
+  /// can still reach `ExpandVariable` with View::NEW, which it cannot service. That is rejected there rather than
+  /// silently mis-planned; the rejection is the backstop, not the routing.
   static storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, bool write_occurred,
                                                 const std::unordered_set<Symbol> &bound_symbols) {
     if (HasVariableLengthExpansion(pc)) return storage::View::OLD;
     return write_occurred && ReferencesExternalSymbols(pc, bound_symbols) ? storage::View::NEW : storage::View::OLD;
   }
 
-  /// The one place a pending comprehension turns into a `RollUpApply`. Every operator chain that can evaluate one
-  /// drains through here - the main clause chain, a FOREACH body, and each MERGE branch - because a comprehension
-  /// must be spliced onto the chain that *reads* it, not merely the one its clause sits on. Both defects this file
-  /// has had came from that: a drain site whose dependency check had drifted, and a chain with no drain site at all.
+  /// The one place a pending comprehension turns into a `RollUpApply`, because a comprehension must be spliced onto
+  /// the chain that *reads* it, not merely the one its clause sits on. Both defects this file has had came from that:
+  /// a drain site whose dependency check had drifted, and a chain with no drain site at all.
+  ///
+  /// Four chains can evaluate a comprehension. Three drain through here - the main clause chain, a FOREACH body, and
+  /// each MERGE branch. The fourth, `CALL ... YIELD ... WHERE`, has no drain at all: `CallProcedure` is a query-part
+  /// boundary, so nothing downstream can drain it either and the matching is collected then abandoned. Known gap -
+  /// which is also why `pending_comprehensions` cannot yet be asserted empty at the end of a query part.
   ///
   /// @param bound_symbols what is bound on @p chain, used for the dependency check and the view.
   /// @param only when non-null, restricts the drain to these result symbols - a MERGE branch takes only what its own
