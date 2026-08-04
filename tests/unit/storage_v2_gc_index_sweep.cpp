@@ -47,10 +47,10 @@ class StorageV2GcIndexSweepCountTest : public StorageV2GcMetricsTest {
   // The pass adopts a hold it is handed, so it runs on this thread rather than the collection
   // thread and the count belongs to a known set of writes.
   //
-  // Counted over the six families the sweep covers: label, label-property, edge-type,
-  // edge-type-property and edge-property indexes, plus unique constraints. A seventh family
-  // joining the sweep without arming support breaks every expectation below, which is the
-  // intent: it should not be possible to add one silently.
+  // Counted over the seven families the sweep covers: label, label-property, global vertex
+  // property, edge-type, edge-type-property and edge-property indexes, plus unique constraints. An
+  // eighth family joining the sweep without arming support breaks every expectation below, which
+  // is the intent: it should not be possible to add one silently.
   uint64_t SweptByOnePass() {
     auto const before = handles_.gc_index_sweeps.Value();
     auto *mem_storage = static_cast<ms::InMemoryStorage *>(storage.get());
@@ -85,6 +85,12 @@ class StorageV2GcIndexSweepCountTest : public StorageV2GcMetricsTest {
     ASSERT_TRUE(TryCommit(acc));
   }
 
+  void CreateGlobalVertexIndex(std::string_view property) {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_NO_ERROR(acc->CreateGlobalVertexIndex(storage->NameToProperty(property)));
+    ASSERT_TRUE(TryCommit(acc));
+  }
+
   void CreateEdgeTypePropertyIndex(std::string_view edge_type, std::string_view property) {
     auto acc = storage->ReadOnlyAccess();
     ASSERT_NO_ERROR(acc->CreateIndex(storage->NameToEdgeType(edge_type), storage->NameToProperty(property)));
@@ -103,6 +109,13 @@ class StorageV2GcIndexSweepCountTest : public StorageV2GcMetricsTest {
   uint64_t IndexedCount(std::string_view label) {
     auto acc = storage->Access(ms::READ);
     auto const count = acc->ApproximateVertexCount(storage->NameToLabel(label));
+    acc->Abort();
+    return count;
+  }
+
+  uint64_t GlobalIndexedCount(std::string_view property) {
+    auto acc = storage->Access(ms::READ);
+    auto const count = acc->ApproximateVertexCount(storage->NameToProperty(property));
     acc->Abort();
     return count;
   }
@@ -203,6 +216,59 @@ TEST_F(StorageV2GcIndexSweepCountTest, OnlyTheWrittenPropertysConstraintIsSwept)
   }
 }
 
+// An index keyed on a property alone is swept by a callee of its own, and is armed by that
+// property being written rather than by anything the vertex is labelled with.
+TEST_F(StorageV2GcIndexSweepCountTest, OnlyTheWrittenPropertysGlobalVertexIndexIsSwept) {
+  ASSERT_NO_FATAL_FAILURE(CreateGlobalVertexIndex("a"));
+  ASSERT_NO_FATAL_FAILURE(CreateGlobalVertexIndex("b"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{2}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  EXPECT_EQ(SweptByOnePass(), 1);
+}
+
+// Such an index holds an entry for a vertex whatever it is labelled with, and no entry of it is
+// touched when a label comes or goes, so a workload writing only labels must not walk it.
+TEST_F(StorageV2GcIndexSweepCountTest, ALabelWriteSweepsNoGlobalVertexIndex) {
+  ASSERT_NO_FATAL_FAILURE(CreateLabelIndex("A"));
+  ASSERT_NO_FATAL_FAILURE(CreateGlobalVertexIndex("a"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(*vertex->AddLabel(acc->NameToLabel("A")));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  EXPECT_EQ(SweptByOnePass(), 1);
+}
+
 TEST_F(StorageV2GcIndexSweepCountTest, OnlyTheWrittenPropertysEdgeIndexIsSwept) {
   ASSERT_NO_FATAL_FAILURE(CreateEdgeTypePropertyIndex("E", "a"));
   ASSERT_NO_FATAL_FAILURE(CreateEdgeTypePropertyIndex("E", "b"));
@@ -299,6 +365,33 @@ TEST_F(StorageV2GcIndexSweepCountTest, ADeletedVertexSweepsEveryVertexIndex) {
     ASSERT_NO_FATAL_FAILURE(Commit(acc));
   }
   EXPECT_EQ(SweptByOnePass(), kIndexes);
+}
+
+// The same holds for an index keyed on a property alone: its entries point at the vertex too, and
+// the delete names no property to arm it with.
+TEST_F(StorageV2GcIndexSweepCountTest, ADeletedVertexSweepsEveryGlobalVertexIndex) {
+  ASSERT_NO_FATAL_FAILURE(CreateGlobalVertexIndex("a"));
+  ASSERT_NO_FATAL_FAILURE(CreateGlobalVertexIndex("b"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(acc->DeleteVertex(&*vertex));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  EXPECT_EQ(SweptByOnePass(), kIndexes);
+  EXPECT_EQ(GlobalIndexedCount("a"), 0);
 }
 
 // The edge counterpart. An edge's delta carries its type rather than any property an index is
@@ -407,6 +500,43 @@ TEST_F(StorageV2GcIndexSweepCountTest, APropertyWriteStillCollectsTheEntriesItSt
   EXPECT_EQ(SweptByOnePass(), 1);
   EXPECT_EQ(IndexedCount("L", "a"), kVertices);
   EXPECT_EQ(IndexedCount("L", "b"), kVertices);
+}
+
+// The same write reaches an index keyed on that property alone, and the entry it leaves there has
+// to be collected by the pass the same property armed.
+TEST_F(StorageV2GcIndexSweepCountTest, APropertyWriteStillCollectsWhatItStaledGlobally) {
+  ASSERT_NO_FATAL_FAILURE(CreateGlobalVertexIndex("a"));
+  ASSERT_NO_FATAL_FAILURE(CreateGlobalVertexIndex("b"));
+
+  constexpr int kVertices = 100;
+  std::vector<ms::Gid> gids;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    for (int i = 0; i != kVertices; ++i) {
+      auto vertex = acc->CreateVertex();
+      gids.push_back(vertex.Gid());
+      ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{i}));
+      ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("b"), ms::PropertyValue{i}));
+    }
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+  ASSERT_EQ(GlobalIndexedCount("a"), kVertices);
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    for (auto const gid : gids) {
+      auto vertex = acc->FindVertex(gid, ms::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), ms::PropertyValue{-1}));
+    }
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_EQ(GlobalIndexedCount("a"), 2 * kVertices);
+
+  EXPECT_EQ(SweptByOnePass(), 1);
+  EXPECT_EQ(GlobalIndexedCount("a"), kVertices);
+  EXPECT_EQ(GlobalIndexedCount("b"), kVertices);
 }
 
 ///// AN ENTRY NOTHING IS LEFT TO COLLECT

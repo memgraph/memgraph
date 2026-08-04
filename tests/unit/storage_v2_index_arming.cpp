@@ -54,6 +54,7 @@ TEST(IndexArming, AFreshArmingArmsNothing) {
   EXPECT_FALSE(arming.arms_edge_indexes());
   EXPECT_FALSE(arming.arms_vertex_index_on(Label(1)));
   EXPECT_FALSE(arming.arms_vertex_index_on(Label(1), PropertiesPaths{PropertyPath{Property(1)}}));
+  EXPECT_FALSE(arming.arms_vertex_property_index_on(Property(1)));
   EXPECT_FALSE(arming.arms_edge_index_on(Property(1)));
   EXPECT_FALSE(arming.arms_edge_type_index());
 }
@@ -151,6 +152,24 @@ TEST(IndexArming, AConstraintArmsOnEitherHalfOfItsKey) {
   EXPECT_FALSE(on_neither.arms_vertex_index_on(Label(1), key));
 }
 
+// An index keyed on a property alone holds an entry per vertex carrying it, whatever labels that
+// vertex has, so only writing the property can stale one.
+TEST(IndexArming, AGlobalVertexIndexArmsOnItsPropertyAlone) {
+  auto on_property = IndexArming{};
+  on_property.note_vertex_property(Property(10));
+  EXPECT_TRUE(on_property.arms_vertex_property_index_on(Property(10)));
+  EXPECT_FALSE(on_property.arms_vertex_property_index_on(Property(11)));
+}
+
+// Such an index is not scoped to a label, and no entry of it is touched when one comes or goes,
+// so a workload writing only labels must not pay to walk it.
+TEST(IndexArming, ALabelWriteArmsNoGlobalVertexIndex) {
+  auto arming = IndexArming{};
+  arming.note_label(Label(1));
+
+  EXPECT_FALSE(arming.arms_vertex_property_index_on(Property(10)));
+}
+
 TEST(IndexArming, AVertexPropertyWriteArmsNoEdgeIndex) {
   auto arming = IndexArming{};
   arming.note_vertex_property(Property(10));
@@ -203,6 +222,7 @@ TEST(IndexArming, ArmingAllVertexIndexesArmsEveryVertexKey) {
   EXPECT_TRUE(arming.arms_vertex_index_on(Label(1)));
   EXPECT_TRUE(arming.arms_vertex_index_on(Label(999), PropertiesPaths{PropertyPath{Property(999)}}));
   EXPECT_TRUE(arming.arms_vertex_index_on(Label(999), std::set<PropertyId>{Property(999)}));
+  EXPECT_TRUE(arming.arms_vertex_property_index_on(Property(999)));
 }
 
 // Named per family so that a deleted edge, which says nothing about any vertex index, does not
@@ -219,6 +239,7 @@ TEST(IndexArming, ArmingAllOfOneFamilyLeavesTheOtherNarrowed) {
   EXPECT_TRUE(edges.arms_edge_type_index());
   EXPECT_FALSE(edges.arms_vertex_indexes());
   EXPECT_FALSE(edges.arms_vertex_index_on(Label(1)));
+  EXPECT_FALSE(edges.arms_vertex_property_index_on(Property(1)));
 }
 
 ///// MERGING AND REUSE

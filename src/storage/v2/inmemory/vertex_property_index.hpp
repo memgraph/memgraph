@@ -21,6 +21,7 @@
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/errors.hpp"
 #include "storage/v2/indices/vertex_property_index.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
@@ -256,8 +257,9 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
       -> std::shared_ptr<IndividualIndex>;
   void RestoreIndex(PropertyId property, std::shared_ptr<IndividualIndex> evicted, ActiveIndicesUpdater const &updater);
 
-  /// @return how many individual indexes were swept.
-  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token);
+  /// Sweeps only the indexes whose property `arming` names, and returns how many that was.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                 IndexArming const &arming);
 
   void DropGraphClearIndices() override;
 

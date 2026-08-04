@@ -309,7 +309,7 @@ uint64_t InMemoryVertexPropertyIndex::ActiveIndices::ApproximateVertexCount(
 }
 
 uint64_t InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                                            std::stop_token token) {
+                                                            std::stop_token token, IndexArming const &arming) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
   CleanupAllIndices();
@@ -322,6 +322,8 @@ uint64_t InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, ui
   uint64_t swept = 0;
   for (auto const &[property_id, index] : *cpy) {
     if (token.stop_requested()) return swept;
+    // A sweep walks the whole index whether or not it has anything to collect.
+    if (!arming.arms_vertex_property_index_on(property_id)) continue;
     ++swept;
 
     auto acc = index->skip_list_.access();

@@ -129,6 +129,14 @@ class IndexArming {
            });
   }
 
+  /// An index keyed on a property alone holds an entry per vertex carrying that property,
+  /// whatever labels the vertex has, so only writing the property can stale one. A label is not
+  /// part of the key and no entry is touched when one comes or goes, which is why this asks
+  /// something narrower than the label-property version above.
+  bool arms_vertex_property_index_on(PropertyId property) const {
+    return vertex_.armed_all || vertex_.properties.test(property);
+  }
+
   /// Such an index can only go stale by the property being written, or by the edge itself being
   /// removed. The edge type never arms it, because an edge's type cannot change, and a removed
   /// edge sweeps every edge index anyway.
