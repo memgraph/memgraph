@@ -118,13 +118,6 @@ function check_custom_package() {
 # RETRY_INSTALL_DELAY seconds (default 5) after a failure and doubling the delay
 # on each subsequent one. Returns the exit status of the last attempt, so a
 # caller running under `set -e` still aborts once the retries are exhausted.
-#
-# NOTE: the command runs in the CURRENT shell, not a subshell, because
-# install_rust/install_node source their environment (`. $HOME/.cargo/env`,
-# `. ~/.nvm/nvm.sh`) and callers rely on those changes surviving. Re-running a
-# partially completed install is safe: every install_* function here is
-# idempotent (rustup-init/nvm's installer both no-op on an existing install, and
-# the maven/golang/dotnet helpers are guarded by a binary existence check).
 function retry_install() {
     if [ "$#" -eq 0 ]; then
         echo "retry_install: no command given" >&2
@@ -236,9 +229,6 @@ function install_custom_golang() {
         && mkdir -p "$GOINSTALLDIR" \
         && tar -C "$GOINSTALLDIR" -xzf go$GOVERSION.linux-$GOARCH.tar.gz
     fi
-    # NOTE: check the postcondition rather than falling through to the echo
-    # below. retry_install suspends `set -e` inside this function, so a swallowed
-    # download/extract failure would otherwise be reported as a success.
     if [ ! -f "$GOROOT/bin/go" ]; then
       echo "go $GOVERSION installation failed, $GOROOT/bin/go is missing" >&2
       return 1
@@ -255,8 +245,6 @@ function install_custom_maven() {
     curl -LO "$MVNURL" \
       && tar -C "/opt" -xzf "apache-maven-$MVNVERSION-bin.tar.gz"
   fi
-  # NOTE: see the comment in install_custom_golang - the postcondition has to be
-  # checked explicitly so retry_install can tell a failed install from a good one.
   if [ ! -f "$MVNINSTALLDIR/bin/mvn" ]; then
     echo "maven $MVNVERSION installation failed, $MVNINSTALLDIR/bin/mvn is missing" >&2
     return 1
@@ -278,11 +266,6 @@ function install_dotnet_sdk ()
       && rm dotnet-install.sh \
       && ln -sf $DOTNETSDKINSTALLDIR/dotnet /usr/bin/dotnet
   fi
-  # NOTE: see the comment in install_custom_golang - the postcondition has to be
-  # checked explicitly so retry_install can tell a failed install from a good one.
-  # This checks $DOTNETSDKINSTALLDIR/dotnet, which is where dotnet-install.sh
-  # actually puts the binary (and what the symlink above points at), not the
-  # .dotnet/dotnet path the guard above uses.
   if [ ! -f "$DOTNETSDKINSTALLDIR/dotnet" ]; then
     echo "dotnet sdk $DOTNETSDKVERSION installation failed, $DOTNETSDKINSTALLDIR/dotnet is missing" >&2
     return 1
