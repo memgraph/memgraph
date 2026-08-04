@@ -21,6 +21,7 @@
 #include <optional>
 #include <system_error>
 #include <unordered_set>
+#include <utility>
 
 #include "ctre.hpp"
 #include "dbms/constants.hpp"
@@ -1475,12 +1476,12 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
         [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), current_deleted_edges); });
   }
 
-  // STEP 4) hint to GC that indices need cleanup for performance reasons
-  if (impact_tracker.impacts_vertex_indexes()) {
-    mem_storage->gc_index_cleanup_vertex_performance_.store(true, std::memory_order_release);
-  }
-  if (impact_tracker.impacts_edge_indexes()) {
-    mem_storage->gc_index_cleanup_edge_performance_.store(true, std::memory_order_release);
+  // STEP 4) hint to GC that indices need cleanup for performance reasons. These deltas are gone
+  // by the time a collection cycle runs, so what they could have invalidated is only knowable
+  // from here.
+  if (impact_tracker.impact().any()) {
+    mem_storage->gc_index_cleanup_performance_.WithLock(
+        [&](IndexImpact &pending) { pending |= impact_tracker.impact(); });
   }
 }
 
@@ -3445,11 +3446,10 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // Used to determine whether the Index GC should be run for performance reasons (removing redundant entries). It
   // should be run when hinted by FastDiscardOfDeltas or by the deltas we processed this GC run.
   const utils::Timer skiplist_cleanup_timer;
-  auto index_cleanup_vertex_performance =
-      gc_index_cleanup_vertex_performance_.exchange(false, std::memory_order_acq_rel) ||
-      index_impact.impacts_vertex_indexes();
-  auto index_cleanup_edge_performance = gc_index_cleanup_edge_performance_.exchange(false, std::memory_order_acq_rel) ||
-                                        index_impact.impacts_edge_indexes();
+  auto const discarded_impact = gc_index_cleanup_performance_.WithLock(
+      [](IndexImpact &pending) { return std::exchange(pending, IndexImpact{}); });
+  auto index_cleanup_vertex_performance = discarded_impact.vertex_indexes || index_impact.impacts_vertex_indexes();
+  auto index_cleanup_edge_performance = discarded_impact.edge_indexes || index_impact.impacts_edge_indexes();
 
   // After unlinking deltas from vertices, we refresh the indices. That way
   // we're sure that none of the vertices from `current_deleted_vertices`

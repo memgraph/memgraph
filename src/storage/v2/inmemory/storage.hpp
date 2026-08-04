@@ -45,6 +45,7 @@
 #include "storage/v2/transaction.hpp"
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 import memgraph.utils.aws;
@@ -97,9 +98,11 @@ struct IndexPerformanceTracker {
   // transaction rather than from its individual deltas.
   void note_property_writes(IndexImpact impact) { impact_ |= impact; }
 
-  bool impacts_vertex_indexes() { return impact_.vertex_indexes; }
+  IndexImpact const &impact() const { return impact_; }
 
-  bool impacts_edge_indexes() { return impact_.edge_indexes; }
+  bool impacts_vertex_indexes() const { return impact_.vertex_indexes; }
+
+  bool impacts_edge_indexes() const { return impact_.edge_indexes; }
 
  private:
   IndexImpact impact_{};
@@ -1056,8 +1059,12 @@ class InMemoryStorage final : public Storage {
                       utils::SpinLock>
       light_edge_graveyard_;
 
-  std::atomic<bool> gc_index_cleanup_vertex_performance_ = false;
-  std::atomic<bool> gc_index_cleanup_edge_performance_ = false;
+  // What writes whose deltas were discarded outside a collection cycle could have left stale in
+  // the indexes, for the next cycle to act on. Held as one value rather than a flag per index
+  // family because it is due to grow into a description of which indexes were affected, which a
+  // set of independent atomics cannot carry. Its own lock rather than the collection lock: the
+  // producers hold that today but are not required to, and nothing here needs it.
+  utils::Synchronized<IndexImpact, utils::SpinLock> gc_index_cleanup_performance_;
 
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;

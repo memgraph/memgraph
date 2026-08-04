@@ -377,7 +377,7 @@ int main(int argc, char *argv[]) {
   auto const index_entries = static_cast<uint64_t>(FLAGS_num_indexes) * static_cast<uint64_t>(FLAGS_num_vertices);
 
   // --- Establish the sweep cost against the GC interval ----------------------------
-  // The sweep is armed by delta actions (gc_index_cleanup_vertex_performance_), so an
+  // The sweep is armed by the delta actions a cycle sees, so an
   // unarmed pass skips it entirely and times nothing. Drain the build's garbage first,
   // then arm and time a pass whose cost is the scan itself.
   // The build wrote edge properties, so this pass is armed for the edge side as well as the
