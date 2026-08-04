@@ -263,24 +263,29 @@ std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ActiveIndices::ListIndices(uint64
   return ret;
 }
 
-void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                                  std::stop_token token) {
+uint64_t InMemoryEdgeTypeIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                                      std::stop_token token, IndexArming const &arming) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
   CleanupAllIndices();
 
   auto cpy = all_indices_.ReadCopy();
-  if (cpy->empty()) return;
+  if (cpy->empty()) return 0;
+  // No edge was created or removed, so nothing here can have gone stale, and finding that out by
+  // sweeping would cost every index its whole size to walk.
+  if (!arming.arms_edge_type_index()) return 0;
 
   // Pin the edge store while sweeping: the loop dereferences raw Edge* the epoch GC could free.
   auto const edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
 
+  uint64_t swept = 0;
   for (auto &et_index : *cpy) {
-    if (token.stop_requested()) return;
+    if (token.stop_requested()) return swept;
+    ++swept;
 
     auto edges_acc = et_index->skip_list_.access();
     for (auto it = edges_acc.begin(); it != edges_acc.end();) {
-      if (maybe_stop() && token.stop_requested()) return;
+      if (maybe_stop() && token.stop_requested()) return swept;
 
       auto next_it = it;
       ++next_it;
@@ -305,6 +310,7 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(Storage *storage, uint64_t old
       it = next_it;
     }
   }
+  return swept;
 }
 
 uint64_t InMemoryEdgeTypeIndex::ActiveIndices::ApproximateEdgeCount(EdgeTypeId edge_type) const {
@@ -435,8 +441,9 @@ InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::Chu
 }
 
 EdgeTypeIndex::AbortProcessor InMemoryEdgeTypeIndex::ActiveIndices::GetAbortProcessor() const {
-  auto edge_type_filter = index_container_->indices_ | std::views::keys | ranges::to_vector;
-  return AbortProcessor{edge_type_filter};
+  std::call_once(indexed_built_,
+                 [this] { indexed_ = index_container_->indices_ | std::views::keys | ranges::to_vector; });
+  return AbortProcessor{indexed_};
 }
 
 auto InMemoryEdgeTypeIndex::GetActiveIndices() const -> std::shared_ptr<EdgeTypeIndex::ActiveIndices> {

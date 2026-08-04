@@ -266,6 +266,9 @@ struct DatabaseMetricHandles {
   HistogramHandle snapshot_recovery_latency_seconds;
   HistogramHandle gc_latency_seconds;
   HistogramHandle gc_skiplist_cleanup_latency_seconds;
+  // Counts individual indexes swept, not collection cycles, because what a cycle costs depends on
+  // how many indexes it had any reason to look through.
+  CounterHandle gc_index_sweeps;
 };
 
 struct GlobalMetricHandles {
@@ -640,6 +643,7 @@ class PrometheusMetrics {
   // Per-database metric families — GC histograms
   prometheus::Family<prometheus::Histogram> &gc_latency_family_;
   prometheus::Family<prometheus::Histogram> &gc_skiplist_cleanup_latency_family_;
+  prometheus::Family<prometheus::Counter> &gc_index_sweeps_family_;
 
   // Global metric family — per-instance snapshot throughput (bytes/s)
   prometheus::Family<prometheus::Histogram> &snapshot_throughput_family_;

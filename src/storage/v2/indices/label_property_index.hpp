@@ -317,11 +317,20 @@ class LabelPropertyIndex {
   virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
 };
 
-struct LabelPropertyIndexAbortProcessor {
-  // TODO: this is a filter for only relevant indicies? If so it should be based off the ActiveIndices
-  //       + via constructor
+/// Which indexes a label or a property appears in, so that an aborting transaction can find the
+/// entries it has to undo without looking through every index. It points into the set of indexes
+/// it was built from and is owned by that set, so it is built once and shared by every abort that
+/// runs against the same set.
+struct LabelPropertyIndexAbortLookup {
   std::map<LabelId, std::map<PropertyId, std::vector<LabelPropertyIndex::IndexInfo>>> l2p;
   std::map<PropertyId, std::map<LabelId, std::vector<LabelPropertyIndex::IndexInfo>>> p2l;
+};
+
+struct LabelPropertyIndexAbortProcessor {
+  /// Borrowed from the set of indexes the aborting transaction holds for its whole life. A raw
+  /// pointer rather than a shared_ptr, because a reference count touched by every abort would be
+  /// contention in place of the work this saves.
+  LabelPropertyIndexAbortLookup const *lookup{nullptr};
 
   void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
   void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);

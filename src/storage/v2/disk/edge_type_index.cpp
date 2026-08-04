@@ -51,7 +51,7 @@ void DiskEdgeTypeIndex::ActiveIndices::UpdateOnEdgeCreation(Vertex * /*from*/, V
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 
-EdgeTypeIndex::AbortProcessor DiskEdgeTypeIndex::ActiveIndices::GetAbortProcessor() const { return AbortProcessor({}); }
+EdgeTypeIndex::AbortProcessor DiskEdgeTypeIndex::ActiveIndices::GetAbortProcessor() const { return AbortProcessor{}; }
 
 void DiskEdgeTypeIndex::DropGraphClearIndices() {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");

@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <mutex>
+
 #include <cstdint>
 #include <map>
 #include <utility>
@@ -21,6 +23,7 @@
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/errors.hpp"
 #include "storage/v2/indices/vertex_property_index.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
@@ -236,6 +239,10 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
 
    private:
     std::shared_ptr<IndicesContainer const> index_container_;
+    // Derived from index_container_ on first use and shared from then on; several transactions
+    // can abort against this snapshot at once, so the build has to happen exactly once.
+    mutable std::once_flag indexed_built_;
+    mutable std::vector<PropertyId> indexed_;
   };
 
   bool CreateIndexOnePass(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
@@ -256,7 +263,9 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
       -> std::shared_ptr<IndividualIndex>;
   void RestoreIndex(PropertyId property, std::shared_ptr<IndividualIndex> evicted, ActiveIndicesUpdater const &updater);
 
-  void RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token);
+  /// Sweeps only the indexes whose property `arming` names, and returns how many that was.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                 IndexArming const &arming);
 
   void DropGraphClearIndices() override;
 

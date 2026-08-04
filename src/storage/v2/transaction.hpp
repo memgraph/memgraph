@@ -22,6 +22,7 @@
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/property_write_targets.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/memory.hpp"
 #include "utils/query_memory_tracker.hpp"
@@ -235,6 +236,10 @@ struct Transaction {
   utils::pmr::list<MetadataDelta> md_deltas;
   bool has_serialization_error{};
   bool has_non_sequential_deltas{};
+  // A property delta does not say whether it was on a vertex or an edge. That is known where the
+  // delta is created, so it is recorded here rather than worked out later by following the delta
+  // chain back to whatever it belongs to.
+  PropertyWriteTargets wrote_properties_on{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};
   bool edge_import_mode_active{false};

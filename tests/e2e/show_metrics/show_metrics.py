@@ -148,6 +148,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ActiveVectorIndices", "type": "Index", "metric type": "Gauge"},
         {"name": "ActiveVertexPropertyIndices", "type": "Index", "metric type": "Gauge"},
         # Memory (sorted by type, metric_type, name)
+        {"name": "GCIndexSweeps", "type": "Memory", "metric type": "Counter"},
         {"name": "DbEmbeddingMemoryTracked", "type": "Memory", "metric type": "Gauge"},
         {"name": "DbMemoryTracked", "type": "Memory", "metric type": "Gauge"},
         {"name": "DbPeakMemoryTracked", "type": "Memory", "metric type": "Gauge"},

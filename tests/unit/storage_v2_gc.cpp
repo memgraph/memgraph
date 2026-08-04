@@ -23,71 +23,12 @@
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/gc_status.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage_v2_gc_metrics_fixture.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
 using testing::UnorderedElementsAre;
 
 namespace ms = memgraph::storage;
-
-// Forces a synchronous GC pass by handing FreeMemory a hold it must adopt rather than acquire.
-inline auto UniqueGuard(memgraph::utils::ResourceLock &lock) {
-  return memgraph::utils::ResourceLockGuard{lock, memgraph::utils::ResourceLockGuard::UNIQUE};
-}
-
-class StorageV2GcMetricsTest : public testing::Test {
- protected:
-  void SetUp() override {
-    FLAGS_metrics_format = "OpenMetrics";
-    db_name_ = testing::UnitTest::GetInstance()->current_test_info()->name();
-    InitStorage(std::chrono::seconds(3600));
-  }
-
-  void TearDown() override {
-    memgraph::metrics::Metrics().SetStorageSnapshotResolver({});
-    storage.reset();
-    memgraph::metrics::Metrics().RemoveDatabase(uuid_);
-    handles_ = {};
-    uuid_ = {};
-    registered_ = false;
-  }
-
-  void InitStorage(std::chrono::milliseconds interval) {
-    if (registered_) {
-      memgraph::metrics::Metrics().SetStorageSnapshotResolver({});
-      storage.reset();
-      memgraph::metrics::Metrics().RemoveDatabase(uuid_);
-      handles_ = {};
-      uuid_ = {};
-      registered_ = false;
-    }
-    memgraph::storage::Config config;
-    config.salient.name = db_name_;
-    config.gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = interval};
-    uuid_ = memgraph::utils::UUID{};
-    handles_ = memgraph::metrics::Metrics().AddDatabase(uuid_, db_name_);
-    registered_ = true;
-    storage = std::make_unique<memgraph::storage::InMemoryStorage>(
-        config, std::nullopt, std::make_unique<memgraph::storage::PlanInvalidatorDefault>(), handles_);
-    memgraph::metrics::Metrics().SetStorageSnapshotResolver(
-        [this](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
-          if (uuid != uuid_ || !storage) return std::nullopt;
-          auto const info = storage->GetBaseInfo();
-          return memgraph::metrics::StorageSnapshot{
-              .vertex_count = info.vertex_count,
-              .edge_count = info.edge_count,
-              .disk_usage = info.disk_usage,
-          };
-        });
-  }
-
-  std::unique_ptr<memgraph::storage::Storage> storage;
-  memgraph::metrics::DatabaseMetricHandles handles_{};
-  memgraph::utils::UUID uuid_{};
-  bool registered_{false};
-
- private:
-  std::string db_name_;
-};
 
 TEST(StorageV2GcStatus, PhaseToString) {
   using ms::GcPhase;

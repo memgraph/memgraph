@@ -138,8 +138,8 @@ size_t PropertyValueRange::hash() const noexcept {
 }
 
 void LabelPropertyIndexAbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex *vertex) {
-  const auto &it = p2l.find(propId);
-  if (it == p2l.end()) return;
+  const auto &it = lookup->p2l.find(propId);
+  if (it == lookup->p2l.end()) return;
 
   for (auto const &[label, index_info] : it->second) {
     if (!std::ranges::contains(vertex->labels, label)) continue;
@@ -155,8 +155,8 @@ void LabelPropertyIndexAbortProcessor::CollectOnPropertyChange(PropertyId propId
 }
 
 void LabelPropertyIndexAbortProcessor::CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
-  const auto &it = l2p.find(label);
-  if (it == l2p.end()) return;
+  const auto &it = lookup->l2p.find(label);
+  if (it == lookup->l2p.end()) return;
 
   auto dedup = std::set<LabelPropertyIndex::IndexInfo>{};
   for (const auto &[property, index_info] : it->second) {

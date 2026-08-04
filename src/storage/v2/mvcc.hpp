@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <optional>
+#include <type_traits>
 
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/transaction_constants.hpp"
@@ -319,6 +320,19 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   transaction->EnsureCommitInfoExists();
   auto delta = &transaction->deltas.emplace(
       std::forward<Args>(args)..., transaction->commit_info.get(), transaction->command_id);
+
+  // Every property delta passes through here, edges included. Recorded at this single point
+  // because if it were recorded at each write instead, a write that forgot to would silently stop
+  // garbage collection from cleaning up the stale index entries it left behind.
+  if (delta->action == Delta::Action::SET_PROPERTY) {
+    static_assert(std::is_same_v<TObj, Vertex> || std::is_same_v<TObj, Edge>,
+                  "a third object kind needs its own index-sweep side before it can set properties");
+    if constexpr (std::is_same_v<TObj, Vertex>) {
+      transaction->wrote_properties_on.vertices = true;
+    } else {
+      transaction->wrote_properties_on.edges = true;
+    }
+  }
 
   // The operations are written in such order so that both `next` and `prev`
   // chains are valid at all times. The chains must be valid at all times

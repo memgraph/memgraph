@@ -9,16 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/indices/edge_type_index.hpp"
-
-#include <algorithm>
-
-#include <utility>
+#pragma once
 
 namespace memgraph::storage {
-void EdgeTypeIndexAbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
-                                                       EdgeRef edge) {
-  if (!std::ranges::binary_search(indexed_, edge_type)) return;
-  cleanup_collection_[edge_type].emplace_back(from_vertex, to_vertex, edge);
-}
+
+/// Which kinds of object a transaction set properties on. A property delta records which property
+/// was written but not what it was written on, and only the code creating the delta knows that.
+/// Whoever reads the deltas later needs it: a property written on a vertex can only leave a vertex
+/// index needing cleanup, and one written on an edge only an edge index.
+struct PropertyWriteTargets {
+  bool vertices{false};
+  bool edges{false};
+};
+
 }  // namespace memgraph::storage

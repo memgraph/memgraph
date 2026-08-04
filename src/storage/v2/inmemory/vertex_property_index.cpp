@@ -308,23 +308,27 @@ uint64_t InMemoryVertexPropertyIndex::ActiveIndices::ApproximateVertexCount(
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
 }
 
-void InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                                        std::stop_token token) {
+uint64_t InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                                            std::stop_token token, IndexArming const &arming) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
   CleanupAllIndices();
 
   auto cpy = all_indices_.ReadCopy();
-  if (cpy->empty()) return;
+  if (cpy->empty()) return 0;
 
   auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
 
+  uint64_t swept = 0;
   for (auto const &[property_id, index] : *cpy) {
-    if (token.stop_requested()) return;
+    if (token.stop_requested()) return swept;
+    // A sweep walks the whole index whether or not it has anything to collect.
+    if (!arming.arms_vertex_property_index_on(property_id)) continue;
+    ++swept;
 
     auto acc = index->skip_list_.access();
     for (auto it = acc.begin(); it != acc.end();) {
-      if (maybe_stop() && token.stop_requested()) return;
+      if (maybe_stop() && token.stop_requested()) return swept;
 
       auto next_it = it;
       ++next_it;
@@ -345,6 +349,7 @@ void InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64
       it = next_it;
     }
   }
+  return swept;
 }
 
 void InMemoryVertexPropertyIndex::DropGraphClearIndices() {
@@ -446,8 +451,11 @@ InMemoryVertexPropertyIndex::ChunkedIterable InMemoryVertexPropertyIndex::Active
 }
 
 VertexPropertyIndex::AbortProcessor InMemoryVertexPropertyIndex::ActiveIndices::GetAbortProcessor() const {
-  auto property_ids_filter = index_container_->indices_ | std::views::keys | ranges::to_vector;
-  return AbortProcessor{property_ids_filter};
+  // Built from the indexes and nothing else, and they do not change while this snapshot of them
+  // is in use, so every abort running against the same snapshot shares one.
+  std::call_once(indexed_built_,
+                 [this] { indexed_ = index_container_->indices_ | std::views::keys | ranges::to_vector; });
+  return AbortProcessor{indexed_};
 }
 
 void InMemoryVertexPropertyIndex::ActiveIndices::AbortEntries(VertexPropertyIndex::AbortableInfo const &info,

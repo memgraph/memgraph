@@ -14,6 +14,7 @@
 #include <memory>
 #include "metrics/prometheus_metrics.hpp"
 
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
@@ -36,6 +37,7 @@ class MemoryTracker;
 namespace memgraph::storage {
 
 class Storage;
+struct delta_container;
 
 struct Indices {
   Indices(const Config &config, StorageMode storage_mode, utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
@@ -54,13 +56,16 @@ struct Indices {
   /// This function should be called from garbage collection to clean up the
   /// vertex indices.
   /// TODO: unused in disk indices
-  void RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                   std::stop_token token) const;
+  /// Sweeps only the indexes `arming` names; returns how many that was.
+  uint64_t RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                       IndexArming const &arming) const;
 
   /// This function should be called from garbage collection to clean up the
   /// edge indices.
   /// TODO: unused in disk indices
-  void RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token) const;
+  /// Returns how many individual indexes were swept.
+  uint64_t RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                     IndexArming const &arming) const;
 
   void DropGraphClearIndices();
 
@@ -90,10 +95,27 @@ struct Indices {
     void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);
     void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
                                  Edge *edge);
+
+    /// Undo a property written on an edge, given the transaction's own deltas to find the edge by.
+    ///
+    /// An edge's type is not held on the edge: it is on the link its source vertex holds, so
+    /// undoing an entry means finding that link. A transaction that went on to delete the edge has
+    /// already taken the link out, and the deltas that would put it back are the only remaining
+    /// record. Callers therefore hand the deltas over rather than the type, because a caller that
+    /// had to find the type itself would silently do nothing in exactly that case.
+    void CollectOnEdgePropertyChange(PropertyId property, PropertyValue const &old_value, Vertex *from_vertex,
+                                     Edge *edge, delta_container const &deltas);
+
     bool IsInterestingEdgeProperty(PropertyId property) const;
 
     void Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp,
                  NameIdMapper *name_id_mapper);
+
+    /// Reached only for an edge whose link its source vertex no longer holds. The first few are
+    /// answered by scanning the deltas; past that the scanning is what costs, so they are indexed.
+    static constexpr auto kMissesBeforeIndexing = 8;
+    unsigned misses_{0};
+    std::optional<std::vector<std::tuple<Edge *, EdgeTypeId, Vertex *>>> out_edge_links_{};
   };
 
   auto GetAbortProcessor(ActiveIndices const &active_indices) const -> AbortProcessor;

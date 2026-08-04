@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <mutex>
 #include <span>
 
 #include "memory/db_arena_fwd.hpp"
@@ -20,6 +21,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/errors.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/label_index.hpp"
@@ -76,7 +78,9 @@ class InMemoryLabelIndex : public LabelIndex {
   [[nodiscard]] auto DropIndex(LabelId label, ActiveIndicesUpdater const &updater) -> std::shared_ptr<IndividualIndex>;
   void RestoreIndex(LabelId label, std::shared_ptr<IndividualIndex> evicted, ActiveIndicesUpdater const &updater);
 
-  void RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token);
+  /// Sweeps only the indexes whose label `arming` names, and returns how many that was.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                 IndexArming const &arming);
 
   class Iterable {
    public:
@@ -213,7 +217,12 @@ class InMemoryLabelIndex : public LabelIndex {
     auto GetAbortProcessor() const -> AbortProcessor override;
 
    private:
+    auto BuildIndexedLabels() const -> std::vector<LabelId>;
+
     std::shared_ptr<IndexContainer const> index_container_;
+    // Built from index_container_, which never changes here, so concurrent aborts share one build.
+    mutable std::once_flag indexed_labels_built_;
+    mutable std::vector<LabelId> indexed_labels_;
   };
 
   auto GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> override;

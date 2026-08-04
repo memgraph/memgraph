@@ -582,6 +582,11 @@ add_unit_test(small_vector
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_id_bitmap
+    SOURCES utils_id_bitmap.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(skip_list_range_chunking
     SOURCES skip_list_range_chunking.cpp
     LINK_TARGETS mg-utils
@@ -787,6 +792,16 @@ add_unit_test(storage_v2_edge_ondisk
 
 add_unit_test(storage_v2_gc
     SOURCES storage_v2_gc.cpp
+    LINK_TARGETS mg::storage
+)
+
+add_unit_test(storage_v2_gc_index_sweep
+    SOURCES storage_v2_gc_index_sweep.cpp
+    LINK_TARGETS mg::storage
+)
+
+add_unit_test(storage_v2_index_arming
+    SOURCES storage_v2_index_arming.cpp
     LINK_TARGETS mg::storage
 )
 

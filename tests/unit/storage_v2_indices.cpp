@@ -4642,8 +4642,11 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRemoveObsoleteEntriesWithActiveTransactio
   // because it's still visible to the old transaction
   {
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
+    // Armed for everything: this asserts what a sweep leaves behind, not what it visits.
+    auto arming = IndexArming{};
+    arming.arm_all_edge_indexes();
     mem_storage->indices_.RemoveObsoleteEdgeEntries(
-        mem_storage, acc_old_transaction->GetTransaction()->start_timestamp, std::stop_token());
+        mem_storage, acc_old_transaction->GetTransaction()->start_timestamp, std::stop_token(), arming);
   }
 
   // The old transaction should still be able to see the edge
@@ -4702,8 +4705,11 @@ TYPED_TEST(IndexTest, EdgeTypeIndexRemoveObsoleteEntriesWithActiveTransaction) {
   // Call RemoveObsoleteEntries - this should NOT remove the edge from the index
   {
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
+    // Armed for everything: this asserts what a sweep leaves behind, not what it visits.
+    auto arming = IndexArming{};
+    arming.arm_all_edge_indexes();
     mem_storage->indices_.RemoveObsoleteEdgeEntries(
-        mem_storage, acc_old_transaction->GetTransaction()->start_timestamp, std::stop_token());
+        mem_storage, acc_old_transaction->GetTransaction()->start_timestamp, std::stop_token(), arming);
   }
 
   // The old transaction should still be able to see the edge
@@ -4763,8 +4769,11 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRemoveObsoleteEntriesWithActiveTransa
   // Call RemoveObsoleteEntries - this should NOT remove the edge from the index
   {
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
+    // Armed for everything: this asserts what a sweep leaves behind, not what it visits.
+    auto arming = IndexArming{};
+    arming.arm_all_edge_indexes();
     mem_storage->indices_.RemoveObsoleteEdgeEntries(
-        mem_storage, acc_old_transaction->GetTransaction()->start_timestamp, std::stop_token());
+        mem_storage, acc_old_transaction->GetTransaction()->start_timestamp, std::stop_token(), arming);
   }
 
   // The old transaction should still be able to see the edge
@@ -5251,4 +5260,239 @@ TYPED_TEST(IndexTest, DropVertexPropertyIndexAbortRestoresIndex) {
       [&](auto *acc) { return acc->CreateGlobalVertexIndex(this->prop_id); },
       [&](auto *acc) { return acc->DropGlobalVertexIndex(this->prop_id); },
       [&](auto *acc) { return acc->VertexPropertyIndexReady(this->prop_id); });
+}
+
+// The lookup an abort uses to find the index entries it must undo is derived from the set of
+// indexes and kept on the snapshot of them, rather than rebuilt for every abort. A snapshot is
+// replaced whenever that set changes, so an abort against a newer one must see the newer indexes.
+TEST(IndexAbortLookup, AnAbortSeesAnIndexCreatedAfterAnEarlierAbortBuiltTheLookup) {
+  auto storage = std::make_unique<InMemoryStorage>(Config{});
+
+  auto const create_index = [&](std::string_view property) {
+    auto acc = storage->UniqueAccess();
+    ASSERT_NO_ERROR(acc->CreateIndex(storage->NameToLabel("L"), {PropertyPath{storage->NameToProperty(property)}}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  };
+  auto const indexed_count = [&](std::string_view property) {
+    auto acc = storage->Access(READ);
+    auto const count = acc->ApproximateVertexCount(storage->NameToLabel("L"),
+                                                   std::array{PropertyPath{storage->NameToProperty(property)}});
+    acc->Abort();
+    return count;
+  };
+
+  create_index("a");
+
+  Gid gid;
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("L")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), PropertyValue{1}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  ASSERT_EQ(indexed_count("a"), 1);
+
+  // An abort against the set of indexes as it stands, which is what builds the lookup.
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), PropertyValue{2}));
+    acc->Abort();
+  }
+  EXPECT_EQ(indexed_count("a"), 1);
+
+  // Adding an index replaces that set, and an abort that can see the new one has to undo its
+  // entries too. A lookup carried over from before would not name it.
+  create_index("b");
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("b"), PropertyValue{5}));
+    acc->Abort();
+  }
+  EXPECT_EQ(indexed_count("b"), 0);
+  EXPECT_EQ(indexed_count("a"), 1);
+}
+
+// The same for a plain label index, whose abort processor borrows a view of the indexed labels
+// rather than a copy: the view has to name the labels of the snapshot it was made against.
+TEST(IndexAbortLookup, AnAbortSeesALabelIndexCreatedAfterAnEarlierAbortBuiltTheLookup) {
+  auto storage = std::make_unique<InMemoryStorage>(Config{});
+
+  auto const create_index = [&](std::string_view label) {
+    auto acc = storage->UniqueAccess();
+    ASSERT_NO_ERROR(acc->CreateIndex(storage->NameToLabel(label)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  };
+  auto const indexed_count = [&](std::string_view label) {
+    auto acc = storage->Access(READ);
+    auto const count = acc->ApproximateVertexCount(storage->NameToLabel(label));
+    acc->Abort();
+    return count;
+  };
+
+  create_index("A");
+
+  Gid gid;
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("A")));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  ASSERT_EQ(indexed_count("A"), 1);
+
+  // An abort against the set of indexes as it stands, which is what builds the view.
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(*vertex->RemoveLabel(acc->NameToLabel("A")));
+    acc->Abort();
+  }
+  EXPECT_EQ(indexed_count("A"), 1);
+
+  create_index("B");
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(*vertex->AddLabel(acc->NameToLabel("B")));
+    acc->Abort();
+  }
+  EXPECT_EQ(indexed_count("B"), 0);
+  EXPECT_EQ(indexed_count("A"), 1);
+}
+
+// The same for an index keyed on a property alone, whose abort processor borrows a view of the
+// indexed properties rather than a copy: the view has to name the properties of the snapshot it
+// was made against.
+TEST(IndexAbortLookup, AnAbortSeesAGlobalVertexIndexCreatedAfterAnEarlierAbortBuiltTheLookup) {
+  auto storage = std::make_unique<InMemoryStorage>(Config{});
+
+  auto const create_index = [&](std::string_view property) {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_NO_ERROR(acc->CreateGlobalVertexIndex(storage->NameToProperty(property)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  };
+  auto const indexed_count = [&](std::string_view property) {
+    auto acc = storage->Access(READ);
+    auto const count = acc->ApproximateVertexCount(storage->NameToProperty(property));
+    acc->Abort();
+    return count;
+  };
+
+  create_index("a");
+
+  Gid gid;
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), PropertyValue{1}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  ASSERT_EQ(indexed_count("a"), 1);
+
+  // An abort against the set of indexes as it stands, which is what builds the view.
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), PropertyValue{2}));
+    acc->Abort();
+  }
+  EXPECT_EQ(indexed_count("a"), 1);
+
+  create_index("b");
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("b"), PropertyValue{5}));
+    acc->Abort();
+  }
+  EXPECT_EQ(indexed_count("b"), 0);
+  EXPECT_EQ(indexed_count("a"), 1);
+}
+
+// The edge counterpart, covering the three remaining caches in one test. Edge-property,
+// edge-type and edge-type-property all had their abort lookup moved onto the index-set snapshot
+// by the same change, so they share one hazard and one claim. The assertions stay separate so a
+// failure still names which of the three went stale.
+TEST(IndexAbortLookup, AnAbortSeesEdgeIndexesCreatedAfterAnEarlierAbortBuiltTheLookup) {
+  Config config{};
+  config.salient.items.properties_on_edges = true;
+  auto storage = std::make_unique<InMemoryStorage>(config);
+
+  auto const create_edge_type_index = [&](std::string_view edge_type) {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_NO_ERROR(acc->CreateIndex(storage->NameToEdgeType(edge_type)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  };
+  auto const create_edge_type_property_index = [&](std::string_view edge_type, std::string_view property) {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_NO_ERROR(acc->CreateIndex(storage->NameToEdgeType(edge_type), storage->NameToProperty(property)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  };
+  auto const create_edge_property_index = [&](std::string_view property) {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_NO_ERROR(acc->CreateGlobalEdgeIndex(storage->NameToProperty(property)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  };
+
+  // An aborted edge, indexed every way an edge can be, then rolled back. The entries are checked
+  // in before the abort: an index that never held the edge would make the assertions after the
+  // abort pass whatever the lookup did, and prove nothing.
+  auto const create_and_abort_edge =
+      [&](std::string_view edge_type, std::string_view property, std::string_view global_property) {
+        auto acc = storage->Access(WRITE);
+        auto from = acc->CreateVertex();
+        auto to = acc->CreateVertex();
+        auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType(edge_type));
+        ASSERT_TRUE(edge.has_value());
+        ASSERT_NO_ERROR(edge->SetProperty(acc->NameToProperty(property), PropertyValue{1}));
+        ASSERT_NO_ERROR(edge->SetProperty(acc->NameToProperty(global_property), PropertyValue{2}));
+
+        ASSERT_EQ(acc->ApproximateEdgeCount(acc->NameToEdgeType(edge_type)), 1);
+        ASSERT_EQ(acc->ApproximateEdgeCount(acc->NameToEdgeType(edge_type), acc->NameToProperty(property)), 1);
+        ASSERT_EQ(acc->ApproximateEdgeCount(acc->NameToProperty(global_property)), 1);
+
+        acc->Abort();
+      };
+
+  create_edge_type_index("E1");
+  create_edge_type_property_index("E1", "a");
+  create_edge_property_index("p");
+
+  // An abort against the set of indexes as it stands, which is what builds the three lookups.
+  create_and_abort_edge("E1", "a", "p");
+  {
+    auto acc = storage->Access(READ);
+    EXPECT_EQ(acc->ApproximateEdgeCount(acc->NameToEdgeType("E1")), 0);
+    EXPECT_EQ(acc->ApproximateEdgeCount(acc->NameToEdgeType("E1"), acc->NameToProperty("a")), 0);
+    EXPECT_EQ(acc->ApproximateEdgeCount(acc->NameToProperty("p")), 0);
+    acc->Abort();
+  }
+
+  // Adding indexes replaces that set. A lookup carried over from before would not name them, and
+  // the entries this aborted edge adds would be left behind live rather than stale, so no later
+  // sweep would collect them either.
+  create_edge_type_index("E2");
+  create_edge_type_property_index("E2", "b");
+  create_edge_property_index("q");
+
+  create_and_abort_edge("E2", "b", "q");
+  {
+    auto acc = storage->Access(READ);
+    EXPECT_EQ(acc->ApproximateEdgeCount(acc->NameToEdgeType("E2")), 0);
+    EXPECT_EQ(acc->ApproximateEdgeCount(acc->NameToEdgeType("E2"), acc->NameToProperty("b")), 0);
+    EXPECT_EQ(acc->ApproximateEdgeCount(acc->NameToProperty("q")), 0);
+    acc->Abort();
+  }
 }

@@ -22,6 +22,7 @@
 #include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/gc_status.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -45,6 +46,7 @@
 #include "storage/v2/transaction.hpp"
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 import memgraph.utils.aws;
@@ -60,46 +62,6 @@ struct ReplicationHandler;
 namespace memgraph::storage {
 
 using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
-
-struct IndexPerformanceTracker {
-  void update(Delta::Action action) {
-    switch (action) {
-      using enum Delta::Action;
-      case DELETE_DESERIALIZED_OBJECT:
-      case DELETE_OBJECT:
-      case RECREATE_OBJECT: {
-        // can impact correctness, but does not matter for performance
-        return;
-      }
-      case SET_PROPERTY: {
-        // without following the deltas parents to the object we do not know which vertex/edge this delta is for
-        impacts_vertex_indexes_ = true;
-        impacts_edge_indexes_ = true;
-        return;
-      }
-      case ADD_LABEL:
-      case REMOVE_LABEL: {
-        impacts_vertex_indexes_ = true;
-        return;
-      }
-      case ADD_IN_EDGE:
-      case ADD_OUT_EDGE:
-      case REMOVE_IN_EDGE:
-      case REMOVE_OUT_EDGE: {
-        impacts_edge_indexes_ = true;
-        return;
-      }
-    }
-  }
-
-  bool impacts_vertex_indexes() { return impacts_vertex_indexes_; }
-
-  bool impacts_edge_indexes() { return impacts_edge_indexes_; }
-
- private:
-  bool impacts_vertex_indexes_ = false;
-  bool impacts_edge_indexes_ = false;
-};
 
 // The storage is based on this paper:
 // https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
@@ -773,7 +735,7 @@ class InMemoryStorage final : public Storage {
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
     void GCRapidDeltaCleanup(std::list<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
                              std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
-                             IndexPerformanceTracker &impact_tracker);
+                             IndexArming &arming);
     SalientConfig::Items config_;
 
     // Bookkeeping
@@ -1009,21 +971,23 @@ class InMemoryStorage final : public Storage {
 
   struct GCDeltas {
     GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<CommitInfo> commit_info,
-             uint64_t transaction_id)
+             uint64_t transaction_id, PropertyWriteTargets wrote_properties_on)
         : mark_timestamp_{mark_timestamp},
           deltas_{std::move(deltas)},
           commit_info_{std::move(commit_info)},
           unlinkable_timestamp_{commit_info_ ? commit_info_->timestamp.load(std::memory_order_acquire) : 0},
-          transaction_id_{transaction_id} {}
+          transaction_id_{transaction_id},
+          wrote_properties_on_{wrote_properties_on} {}
 
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
 
-    uint64_t mark_timestamp_{};                  //!< a timestamp no active transaction currently has
-    delta_container deltas_;                     //!< the deltas that need cleaning
-    std::unique_ptr<CommitInfo> commit_info_{};  //!< the commit info the deltas are pointing at
-    uint64_t unlinkable_timestamp_{};            //!< earliest timestamp when these deltas can be safely unlinked
-    uint64_t transaction_id_{};                  //!< the transaction ID that created these deltas
+    uint64_t mark_timestamp_{};                   //!< a timestamp no active transaction currently has
+    delta_container deltas_;                      //!< the deltas that need cleaning
+    std::unique_ptr<CommitInfo> commit_info_{};   //!< the commit info the deltas are pointing at
+    uint64_t unlinkable_timestamp_{};             //!< earliest timestamp when these deltas can be safely unlinked
+    uint64_t transaction_id_{};                   //!< the transaction ID that created these deltas
+    PropertyWriteTargets wrote_properties_on_{};  //!< what this transaction set properties on
   };
 
   utils::Synchronized<std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>, utils::SpinLock>
@@ -1050,8 +1014,21 @@ class InMemoryStorage final : public Storage {
                       utils::SpinLock>
       light_edge_graveyard_;
 
-  std::atomic<bool> gc_index_cleanup_vertex_performance_ = false;
-  std::atomic<bool> gc_index_cleanup_edge_performance_ = false;
+  // What writes whose deltas were discarded outside a collection cycle could have left stale in
+  // the indexes, for the next cycle to act on. Has its own lock rather than using the collection
+  // lock: the code publishing here happens to hold that one today, but is not required to.
+  utils::Synchronized<IndexArming, utils::SpinLock> pending_index_arming_;
+
+  // Where a collection cycle takes the above, by swapping this empty one in rather than moving,
+  // so that both keep the memory they have already allocated: writers publish into the one above
+  // while holding a spin lock on the commit path, and must not allocate there. Only ever touched
+  // by a collection cycle, which the collection lock serializes.
+  IndexArming claimed_index_arming_;
+
+  // What the deltas a cycle unlinks say about the indexes, merged into the above once the walk
+  // is done. Held here rather than built on the stack for the same reason: reset keeps the words
+  // it has grown, so a cycle does not pay to grow them again. Serialized the same way.
+  IndexArming cycle_index_arming_;
 
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
