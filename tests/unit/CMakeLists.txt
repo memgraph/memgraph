@@ -582,6 +582,11 @@ add_unit_test(small_vector
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_id_bitmap
+    SOURCES utils_id_bitmap.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(skip_list_range_chunking
     SOURCES skip_list_range_chunking.cpp
     LINK_TARGETS mg-utils
