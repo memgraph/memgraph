@@ -225,7 +225,8 @@ function install_custom_golang() {
     GOINSTALLDIR="/opt/go$GOVERSION"
     GOROOT="$GOINSTALLDIR/go" # GOPATH=$HOME/go
     if [ ! -f "$GOROOT/bin/go" ]; then
-      curl -LO https://go.dev/dl/go$GOVERSION.linux-$GOARCH.tar.gz \
+      curl -fLO --proto '=https' --proto-redir '=https' \
+      https://go.dev/dl/go$GOVERSION.linux-$GOARCH.tar.gz \
         && mkdir -p "$GOINSTALLDIR" \
         && tar -C "$GOINSTALLDIR" -xzf go$GOVERSION.linux-$GOARCH.tar.gz
     fi
@@ -242,7 +243,7 @@ function install_custom_maven() {
   MVNURL="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/maven/apache-maven-$MVNVERSION-bin.tar.gz"
   if [ ! -f "$MVNINSTALLDIR/bin/mvn" ]; then
     echo "Downloading maven from $MVNURL"
-    curl -LO "$MVNURL" \
+    curl -fLO --proto '=https' --proto-redir '=https' "$MVNURL" \
       && tar -C "/opt" -xzf "apache-maven-$MVNVERSION-bin.tar.gz"
   fi
   if [ ! -f "$MVNINSTALLDIR/bin/mvn" ]; then
@@ -282,7 +283,7 @@ function install_rust () {
 
 function install_node () {
   NODE_VERSION="$1"
-  curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
+  curl -f --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
       && . ~/.nvm/nvm.sh \
       && nvm install ${NODE_VERSION} \
       && nvm use ${NODE_VERSION}
