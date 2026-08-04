@@ -3474,7 +3474,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
       swept += indices_.RemoveObsoleteVertexEntries(this, oldest_active_start_timestamp, token, sweep_arming);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-      swept += mem_unique_constraints->RemoveObsoleteEntries(this, oldest_active_start_timestamp, token);
+      swept += mem_unique_constraints->RemoveObsoleteEntries(this, oldest_active_start_timestamp, token, sweep_arming);
     }
     if (index_cleanup_edge_needed || index_cleanup_edge_performance) {
       swept += indices_.RemoveObsoleteEdgeEntries(this, oldest_active_start_timestamp, token);

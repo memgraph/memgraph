@@ -491,6 +491,49 @@ TEST_F(StorageV2GcIndexSweepCountTest, APropertyWriteStillCollectsTheEntriesItSt
   EXPECT_EQ(indexed_count("b"), kVertices);
 }
 
+// A unique constraint keeps a skiplist keyed the way an index is and is swept the same way, so a
+// write that cannot have staled it should not cost its whole size to walk either.
+TEST_F(StorageV2GcIndexSweepCountTest, OnlyTheWrittenPropertysConstraintIsSwept) {
+  auto const create_constraint = [&](std::string_view property) {
+    auto acc = storage->UniqueAccess();
+    auto const result = acc->CreateUniqueConstraint(storage->NameToLabel("L"), {storage->NameToProperty(property)});
+    ASSERT_TRUE(result.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+  create_constraint("a");
+  create_constraint("b");
+
+  memgraph::storage::Gid gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("L")));
+    ASSERT_TRUE(vertex.SetProperty(acc->NameToProperty("a"), memgraph::storage::PropertyValue{1}).has_value());
+    ASSERT_TRUE(vertex.SetProperty(acc->NameToProperty("b"), memgraph::storage::PropertyValue{1}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(vertex->SetProperty(acc->NameToProperty("a"), memgraph::storage::PropertyValue{2}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  EXPECT_EQ(SweptByOnePass(), 1);
+
+  // The constraint left unswept still holds: its entries were never stale, only unvisited.
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto other = acc->CreateVertex();
+    ASSERT_TRUE(*other.AddLabel(acc->NameToLabel("L")));
+    ASSERT_TRUE(other.SetProperty(acc->NameToProperty("b"), memgraph::storage::PropertyValue{1}).has_value());
+    EXPECT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
 TEST(StorageV2Gc, Indices) {
   std::unique_ptr<memgraph::storage::Storage> storage(
       std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{

@@ -642,7 +642,7 @@ auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *
 
 uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
                                                           uint64_t const oldest_active_start_timestamp,
-                                                          const std::stop_token &token) {
+                                                          const std::stop_token &token, IndexArming const &arming) {
   auto container = container_.ReadCopy();
   if (container->empty()) return 0;
   auto maybe_stop = utils::ResettableCounter(2048);
@@ -655,6 +655,9 @@ uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
     for (const auto &[properties, individual_constraint] : map) {
       // before starting constraint, check if stop_requested
       if (token.stop_requested()) return swept;
+      // Nothing written since the last sweep can have left an entry here to collect, and a sweep
+      // costs the whole constraint to walk whether or not it finds anything.
+      if (!arming.arms_index_on(label, properties)) continue;
       ++swept;
 
       auto acc = individual_constraint->skiplist.access();

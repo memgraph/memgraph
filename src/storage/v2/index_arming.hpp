@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <set>
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
@@ -117,6 +118,15 @@ class IndexArming {
   bool arms_index_on(LabelId label, PropertiesPaths const &properties) const {
     return arms_index_on(label) || std::ranges::any_of(properties, [this](PropertyPath const &path) {
              return !path.empty() && vertex_.properties.test(path[0]);
+           });
+  }
+
+  /// A unique constraint keeps a skiplist keyed the same way an index does, and it goes stale on
+  /// the same conditions, so the same question answers for it. Its key is a set of properties
+  /// rather than paths into them.
+  bool arms_index_on(LabelId label, std::set<PropertyId> const &properties) const {
+    return arms_index_on(label) || std::ranges::any_of(properties, [this](PropertyId const property) {
+             return vertex_.properties.test(property);
            });
   }
 
