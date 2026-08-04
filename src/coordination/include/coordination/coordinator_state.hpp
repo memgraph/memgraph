@@ -82,7 +82,7 @@ class CoordinatorState {
   // Both return nullopt if the leader couldn't be reached.
   auto ShowCoordinatorSettings() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
 
-  auto ShowReplicationLag() const -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
+  auto ShowReplicationLag() const -> std::optional<ReplicationLagResult>;
 
   [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 

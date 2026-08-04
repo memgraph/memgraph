@@ -197,7 +197,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
           slk::Reader *req_reader,
           slk::Builder *res_builder) -> void {
         CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<CoordReplicationLagRpc>(
-            [&coordinator_instance]() -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
+            [&coordinator_instance]() -> ReplicationLagResult {
               return coordinator_instance.ShowReplicationLagAsLeader();
             },
             request_version,

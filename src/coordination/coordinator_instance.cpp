@@ -1823,11 +1823,10 @@ auto CoordinatorInstance::ShowCoordinatorSettingsAsLeader() const
   return settings;
 }
 
-auto CoordinatorInstance::ShowReplicationLagAsLeader() const
-    -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
+auto CoordinatorInstance::ShowReplicationLagAsLeader() const -> ReplicationLagResult {
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     spdlog::trace("Leader is not ready, no replication lag to report.");
-    return {};
+    return ReplicationLagResult::Failure(ReplicationLagStatus::LEADER_NOT_READY);
   }
 
   // The lock is held across the lag RPC because repl_instances_ may be cleared or erased concurrently by the
@@ -1841,8 +1840,8 @@ auto CoordinatorInstance::ShowReplicationLagAsLeader() const
     }
 
     auto maybe_repl_lag_res = repl_instance.GetClient().SendGetReplicationLagRpc();
-    if (!maybe_repl_lag_res) {
-      return {};
+    if (!maybe_repl_lag_res.has_value()) {
+      return ReplicationLagResult::Failure(maybe_repl_lag_res.error());
     }
     auto &replicas_res = maybe_repl_lag_res->replicas_info_;
 
@@ -1856,19 +1855,19 @@ auto CoordinatorInstance::ShowReplicationLagAsLeader() const
                      ranges::to<std::map<std::string, ReplicaDBLagData>>();
 
     replicas_res.emplace(instance_name, std::move(main_data));
-    return replicas_res;
+    return ReplicationLagResult::Success(std::move(replicas_res));
   }
   spdlog::error("No instance is annotated as main in Raft logs");
-  return {};
+  return ReplicationLagResult::Failure(ReplicationLagStatus::NO_CURRENT_MAIN);
 }
 
-auto CoordinatorInstance::ShowReplicationLag() const
-    -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>> {
+auto CoordinatorInstance::ShowReplicationLag() const -> std::optional<ReplicationLagResult> {
   if (AmReadyLeader()) {
     return ShowReplicationLagAsLeader();
   }
 
-  // nullopt only if the leader couldn't be reached; an empty map is the leader's answer that there is no lag to report.
+  // nullopt only if the leader couldn't be reached; otherwise the leader's own verdict, which names the reason when it
+  // has no data.
   return SendReadToLeader<CoordReplicationLagRpc>();
 }
 

@@ -203,8 +203,7 @@ class CoordinatorQueryHandler {
   /// @throw QueryRuntimeException if an error occurred. Returns the role's coordinator permission mask.
   virtual uint64_t ShowRolePrivileges(std::string_view role_name) = 0;
 
-  virtual std::optional<std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>>>
-  ShowReplicationLag() = 0;
+  virtual std::optional<coordination::ReplicationLagResult> ShowReplicationLag() = 0;
 };
 #endif
 

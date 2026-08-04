@@ -94,7 +94,6 @@ class Client {
       // session; hitting it does not mean the reset failed, and FORCE RESET CLUSTER STATE is safe to re-run.
       {"ForceResetReq"sv, 60'000},
       {"GetRoutingTableReq"sv, 10'000},
-      {"CoordReplLagReq"sv, 10'000},
       {"CreateRoleReq"sv, 10'000},
       {"DropRoleReq"sv, 10'000},
       {"GetRolesReq"sv, 10'000},

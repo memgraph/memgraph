@@ -768,8 +768,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     return privileges->second;
   }
 
-  std::optional<std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>>> ShowReplicationLag()
-      override {
+  std::optional<coordination::ReplicationLagResult> ShowReplicationLag() override {
     return coordinator_handler_.ShowReplicationLag();
   }
 
@@ -2482,6 +2481,27 @@ int32_t EvaluateCoordinatorId(ExpressionVisitor<TypedValue> &eval, Expression *c
   return static_cast<int32_t>(value);
 }
 
+// SHOW REPLICATION LAG returns no rows whenever the leader has no data. Each reason gets its own message so the user
+// isn't told to retry a query that would keep failing for the same reason.
+constexpr std::string_view ReplicationLagUnavailableMessage(coordination::ReplicationLagStatus const status) {
+  switch (status) {
+    case coordination::ReplicationLagStatus::LEADER_NOT_READY:
+      return "The leader coordinator hasn't finished taking over the cluster, so the replication lag is unknown. "
+             "Please retry the query.";
+    case coordination::ReplicationLagStatus::NO_CURRENT_MAIN:
+      return "No instance is currently main, so there is no replication lag to report.";
+    case coordination::ReplicationLagStatus::MAIN_UNRESPONSIVE:
+      return "The current main didn't respond, so the replication lag is unknown. Check whether the main is up.";
+    case coordination::ReplicationLagStatus::MAIN_IS_REPLICA:
+      return "The instance the leader considers main reports that it is a replica, so the replication lag is unknown. "
+             "Please retry the query once the cluster state is reconciled.";
+    case coordination::ReplicationLagStatus::SUCCESS:
+    case coordination::ReplicationLagStatus::N:
+      break;
+  }
+  return "The replication lag is unknown.";
+}
+
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
                                 std::vector<Notification> *notifications) {
@@ -2872,17 +2892,23 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       }
       callback.header = {"instance_name", "data_info"};
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, notifications]() mutable {
-        auto const lag_info = handler.ShowReplicationLag();
-        if (!lag_info.has_value()) {
+        auto const lag_result = handler.ShowReplicationLag();
+        if (!lag_result.has_value()) {
           notifications->emplace_back(SeverityLevel::WARNING,
                                       NotificationCode::LEADER_NOT_REACHABLE,
                                       "Couldn't reach the leader coordinator, so the replication lag is unknown. "
                                       "Please retry the query.");
           return std::vector<std::vector<TypedValue>>{};
         }
+        if (lag_result->status_ != coordination::ReplicationLagStatus::SUCCESS) {
+          notifications->emplace_back(SeverityLevel::WARNING,
+                                      NotificationCode::REPLICATION_LAG_UNAVAILABLE,
+                                      std::string{ReplicationLagUnavailableMessage(lag_result->status_)});
+          return std::vector<std::vector<TypedValue>>{};
+        }
 
         std::vector<std::vector<TypedValue>> results;
-        results.reserve(lag_info->size());
+        results.reserve(lag_result->data_.size());
 
         auto const db_lag_data_to_tv = [](coordination::ReplicaDBLagData orig) {
           auto info = std::map<std::string, TypedValue>{};
@@ -2901,7 +2927,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
           return info;
         };
 
-        for (auto const &[instance_name, data_info] : *lag_info) {
+        for (auto const &[instance_name, data_info] : lag_result->data_) {
           std::vector<TypedValue> instance_out_info;
           instance_out_info.reserve(2);
           instance_out_info.emplace_back(instance_name);

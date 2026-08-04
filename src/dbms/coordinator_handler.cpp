@@ -91,8 +91,7 @@ auto CoordinatorHandler::ShowCoordinatorSettings() const
   return coordinator_state_.ShowCoordinatorSettings();
 }
 
-auto CoordinatorHandler::ShowReplicationLag() const
-    -> std::optional<std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>>> {
+auto CoordinatorHandler::ShowReplicationLag() const -> std::optional<coordination::ReplicationLagResult> {
   return coordinator_state_.ShowReplicationLag();
 }
 

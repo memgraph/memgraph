@@ -77,8 +77,7 @@ class CoordinatorHandler {
   auto GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData>;
 
   // nullopt if the leader couldn't be reached.
-  auto ShowReplicationLag() const
-      -> std::optional<std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>>>;
+  auto ShowReplicationLag() const -> std::optional<coordination::ReplicationLagResult>;
 
  private:
   // NOLINTNEXTLINE

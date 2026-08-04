@@ -145,11 +145,12 @@ class CoordinatorInstance {
 
   // Both return nullopt if the leader couldn't be reached.
   auto ShowCoordinatorSettings() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
-  auto ShowReplicationLag() const -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
+  auto ShowReplicationLag() const -> std::optional<ReplicationLagResult>;
 
   // nullopt if this coordinator isn't a ready leader.
   auto ShowCoordinatorSettingsAsLeader() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
-  auto ShowReplicationLagAsLeader() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
+  // Carries the reason instead of nullopt so a forwarding follower can report why the leader has no lag data.
+  auto ShowReplicationLagAsLeader() const -> ReplicationLagResult;
 
   auto GetTelemetryJson() const -> nlohmann::json;
 
@@ -199,7 +200,7 @@ class CoordinatorInstance {
     // The shared owner is held for the whole (blocking) call, so a concurrent config change can't destroy it mid-RPC.
     if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
       return leader->SendRpc<Rpc>(std::forward<Args>(args)...).value_or(false) ? StatusEnum::SUCCESS
-                                                                              : StatusEnum::LEADER_FAILED;
+                                                                               : StatusEnum::LEADER_FAILED;
     }
     return StatusEnum::LEADER_NOT_FOUND;
   }

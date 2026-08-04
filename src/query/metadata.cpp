@@ -83,6 +83,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "YieldLeadership"sv;
     case NotificationCode::LEADER_NOT_REACHABLE:
       return "LeaderNotReachable"sv;
+    case NotificationCode::REPLICATION_LAG_UNAVAILABLE:
+      return "ReplicationLagUnavailable"sv;
 #endif
     case NotificationCode::REPLICA_PORT_WARNING:
       return "ReplicaPortWarning"sv;

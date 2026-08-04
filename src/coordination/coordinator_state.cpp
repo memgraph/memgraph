@@ -210,8 +210,7 @@ auto CoordinatorState::ShowCoordinatorSettings() const
   return std::get<CoordinatorInstance>(data_).ShowCoordinatorSettings();
 }
 
-auto CoordinatorState::ShowReplicationLag() const
-    -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>> {
+auto CoordinatorState::ShowReplicationLag() const -> std::optional<ReplicationLagResult> {
   return std::get<CoordinatorInstance>(data_).ShowReplicationLag();
 }
 
