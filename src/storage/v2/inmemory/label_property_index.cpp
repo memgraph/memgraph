@@ -1441,7 +1441,14 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const -> LabelPropertyIndex::AbortProcessor {
-  AbortProcessor res{};
+  // Built from the indexes and nothing else, and they do not change while this snapshot of them
+  // is in use, so every abort running against the same snapshot shares one.
+  std::call_once(abort_lookup_built_, [this] { abort_lookup_ = BuildAbortLookup(); });
+  return LabelPropertyIndex::AbortProcessor{.lookup = &abort_lookup_};
+}
+
+auto InMemoryLabelPropertyIndex::ActiveIndices::BuildAbortLookup() const -> LabelPropertyIndexAbortLookup {
+  auto res = LabelPropertyIndexAbortLookup{};
 
   auto const collect_from = [&](auto &indices_map) {
     for (const auto &[label, per_properties] : indices_map) {

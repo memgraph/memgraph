@@ -14,6 +14,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <span>
 #include <tuple>
 #include <variant>
@@ -497,7 +498,13 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       return index_container_->Indices<EntryT::kOrder>();
     }
 
+    auto BuildAbortLookup() const -> LabelPropertyIndexAbortLookup;
+
     std::shared_ptr<IndexContainer const> index_container_;
+    // Derived from index_container_ on first use and shared from then on; several transactions
+    // can abort against this snapshot at once, so the build has to happen exactly once.
+    mutable std::once_flag abort_lookup_built_;
+    mutable LabelPropertyIndexAbortLookup abort_lookup_;
   };
 
   auto GetActiveIndices() const -> std::shared_ptr<LabelPropertyIndex::ActiveIndices> override;
