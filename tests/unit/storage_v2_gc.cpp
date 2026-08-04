@@ -601,6 +601,56 @@ TEST_F(StorageV2GcIndexSweepCountTest, ARemovedEdgeSweepsEveryEdgeIndex) {
   EXPECT_EQ(SweptByOnePass(), 2);
 }
 
+// An index on an edge type alone cannot be staled by writing a property: the entry holds no
+// property, and the type it does hold cannot change.
+TEST_F(StorageV2GcIndexSweepCountTest, AnEdgePropertyWriteSweepsNoEdgeTypeIndex) {
+  auto const create_edge_type_index = [&](std::string_view edge_type) {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_TRUE(acc->CreateIndex(storage->NameToEdgeType(edge_type)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+  create_edge_type_index("E");
+  create_edge_type_index("F");
+
+  memgraph::storage::Gid from_gid, to_gid, edge_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    from_gid = from.Gid();
+    to_gid = to.Gid();
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("E"));
+    ASSERT_TRUE(edge.has_value());
+    edge_gid = edge->Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Creating the edge is a structural change, so both edge-type indexes are swept.
+  EXPECT_EQ(SweptByOnePass(), 2);
+
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto edge = acc->FindEdge(edge_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(edge->SetProperty(acc->NameToProperty("a"), memgraph::storage::PropertyValue{1}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  EXPECT_EQ(SweptByOnePass(), 0);
+
+  // Removing the edge does stale them, and they are swept.
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto edge = acc->FindEdge(edge_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->DeleteEdge(&*edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  EXPECT_EQ(SweptByOnePass(), 2);
+
+  auto acc = storage->Access(memgraph::storage::READ);
+  EXPECT_EQ(acc->ApproximateEdgeCount(acc->NameToEdgeType("E")), 0);
+  acc->Abort();
+}
+
 TEST(StorageV2Gc, Indices) {
   std::unique_ptr<memgraph::storage::Storage> storage(
       std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{

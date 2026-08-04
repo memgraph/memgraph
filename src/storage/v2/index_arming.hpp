@@ -136,6 +136,11 @@ class IndexArming {
   /// edge being removed, which sweeps every edge index for correctness anyway.
   bool arms_edge_index_on(PropertyId property) const { return edge_.armed_all || edge_.properties.test(property); }
 
+  /// An index keyed on an edge type alone holds an entry per edge of that type, so the only way
+  /// one goes stale is the edge being removed. An edge cannot change type, and a property write
+  /// cannot invalidate an entry that no property is part of.
+  bool arms_edge_type_index() const { return edge_.armed_all || edge_.structural; }
+
   /// A unique constraint keeps a skiplist keyed the same way an index does, and it goes stale on
   /// the same conditions, so the same question answers for it. Its key is a set of properties
   /// rather than paths into them.
