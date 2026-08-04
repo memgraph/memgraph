@@ -3263,7 +3263,8 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
 
   // This is to track if any of the unlinked deltas would have an impact on index performance, i.e. do they hint that
   // there are possible stale/duplicate entries that can be removed
-  auto cycle_arming = IndexArming{};
+  auto &cycle_arming = cycle_index_arming_;
+  cycle_arming.reset();
 
   auto const end_linked_undo_buffers = linked_undo_buffers.end();
   for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {

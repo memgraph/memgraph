@@ -1025,6 +1025,11 @@ class InMemoryStorage final : public Storage {
   // by a collection cycle, which the collection lock serializes.
   IndexArming claimed_index_arming_;
 
+  // What the deltas a cycle unlinks say about the indexes, merged into the above once the walk
+  // is done. Held here rather than built on the stack for the same reason: reset keeps the words
+  // it has grown, so a cycle does not pay to grow them again. Serialized the same way.
+  IndexArming cycle_index_arming_;
+
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
