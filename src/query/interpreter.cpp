@@ -4141,12 +4141,25 @@ bool IsConstantExpression(Expression *expression) {
   return false;
 }
 
+// Besides its clauses, a CypherQuery carries query-level modifiers: a memory limit
+// (`... QUERY MEMORY LIMIT n KB`) and the `USING` pre-query directives (index hints, hops limit,
+// commit frequency, parallel execution). None of them are honoured by the accessor-free preparers,
+// which neither plan nor install a memory tracker, so a query that sets any of them must take the
+// normal path instead of having the modifier silently dropped.
+bool HasNoQueryLevelModifiers(const CypherQuery &query) {
+  auto const &directives = query.pre_query_directives_;
+  return query.memory_limit_ == nullptr && directives.index_hints_.empty() && directives.hops_limit_ == nullptr &&
+         directives.commit_frequency_ == nullptr && !directives.parallel_execution_ &&
+         directives.num_threads_ == nullptr;
+}
+
 // Recognizes `RETURN <constant expressions>`: a single RETURN clause with no
 // DISTINCT/ORDER BY/SKIP/LIMIT/`*` and no UNION. Covers Lab's `RETURN 1 AS APP_INTERNAL_EXEC_VAR`
 // connection check and the every-2s `RETURN 1` quick-connect probe. Strict by design: anything
 // else falls through to the normal READ path.
 bool IsConstantReturnQuery(const CypherQuery &query) {
   if (query.single_query_ == nullptr || !query.cypher_unions_.empty()) return false;
+  if (!HasNoQueryLevelModifiers(query)) return false;
   auto const &clauses = query.single_query_->clauses_;
   if (clauses.size() != 1) return false;
   auto *return_clause = utils::Downcast<Return>(clauses.front());
@@ -4221,12 +4234,18 @@ constexpr bool IsGraphFreeIntrospectionProcedure(std::string_view procedure_name
 // normal path.
 bool IsBuiltinIntrospectionQuery(const CypherQuery &query) {
   if (query.single_query_ == nullptr || !query.cypher_unions_.empty()) return false;
+  if (!HasNoQueryLevelModifiers(query)) return false;
   auto const &clauses = query.single_query_->clauses_;
   if (clauses.size() != 1) return false;
   auto *call_procedure = utils::Downcast<CallProcedure>(clauses.front());
   if (call_procedure == nullptr) return false;
-  return call_procedure->arguments_.empty() && !call_procedure->result_fields_.empty() &&
-         IsGraphFreeIntrospectionProcedure(call_procedure->procedure_name_);
+  if (!call_procedure->arguments_.empty() || call_procedure->result_fields_.empty()) return false;
+  // A YIELD ... WHERE is held on the CallProcedure clause itself (the clause count stays 1), and the
+  // accessor-free preparer does not filter, so accepting one here would silently drop the predicate.
+  if (call_procedure->where_ != nullptr) return false;
+  // Likewise a per-call `PROCEDURE MEMORY LIMIT`, which the accessor-free path does not install.
+  if (call_procedure->memory_limit_ != nullptr) return false;
+  return IsGraphFreeIntrospectionProcedure(call_procedure->procedure_name_);
 }
 
 // Prepares a `CALL mg.<introspection>()` query with no storage accessor: invokes the procedure via
