@@ -408,3 +408,87 @@ TEST_F(StorageV2GcIndexSweepCountTest, APropertyWriteStillCollectsTheEntriesItSt
   EXPECT_EQ(IndexedCount("L", "a"), kVertices);
   EXPECT_EQ(IndexedCount("L", "b"), kVertices);
 }
+
+///// AN ENTRY NOTHING IS LEFT TO COLLECT
+
+// An abort undoes the index entries its writes made. It finds an edge's type by scanning
+// from_vertex->out_edges, which no longer holds an edge the same transaction deleted, so the entry
+// for it is never collected. Nothing else collects it either: no delta names the property, so the
+// sweep is not armed for that index, and the edge itself is freed by the skiplist GC, leaving the
+// entry pointing at freed memory for the next armed sweep to lock.
+TEST_F(StorageV2GcIndexSweepCountTest, AnAbortLeavesNoEntryForAnEdgeItAlsoDeleted) {
+  ASSERT_NO_FATAL_FAILURE(CreateEdgeTypePropertyIndex("E", "p"));
+
+  // Raw skiplist size, so an entry left behind for a deleted edge still counts.
+  auto const indexed = [&] {
+    auto acc = storage->Access(ms::READ);
+    auto const count = acc->ApproximateEdgeCount(storage->NameToEdgeType("E"), storage->NameToProperty("p"));
+    acc->Abort();
+    return count;
+  };
+  ASSERT_EQ(indexed(), 0);
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("E"));
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_NO_ERROR(edge->SetProperty(acc->NameToProperty("p"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(acc->DeleteEdge(&*edge));
+    acc->Abort();
+  }
+  // Whether the abort undoes the entry itself or arms the sweep to do it is a design choice; what
+  // must hold either way is that no entry for an edge that no longer exists outlives the collection
+  // cycles that follow, because the edge is freed by then.
+  for (int i = 0; i < 3; ++i) SweptByOnePass();
+  EXPECT_EQ(indexed(), 0) << "an entry for an edge deleted by an aborted transaction was never reclaimed";
+}
+
+// The same edge, against each kind of index that holds a property of it, and with the endpoints
+// committed beforehand so the aborting transaction's deltas are laid out differently. Undoing the
+// entry needs the edge's type, which is recorded only on the link the same transaction removed, so
+// the lookup has to survive both delta layouts and reach every index keyed on that property.
+TEST_F(StorageV2GcIndexSweepCountTest, AnAbortLeavesNoEntryInAnyEdgeIndexForAnEdgeItAlsoDeleted) {
+  ASSERT_NO_FATAL_FAILURE(CreateEdgeTypePropertyIndex("E", "p"));
+  ASSERT_NO_FATAL_FAILURE(CreateEdgeTypeIndex("E"));
+  {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_NO_ERROR(acc->CreateGlobalEdgeIndex(storage->NameToProperty("p")));
+    ASSERT_TRUE(TryCommit(acc));
+  }
+
+  // Endpoints committed first, so the aborting transaction below owns only the edge's deltas.
+  ms::Gid from_gid, to_gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    from_gid = from.Gid();
+    to_gid = to.Gid();
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto from = acc->FindVertex(from_gid, ms::View::OLD);
+    auto to = acc->FindVertex(to_gid, ms::View::OLD);
+    ASSERT_TRUE(from.has_value() && to.has_value());
+    auto edge = acc->CreateEdge(&*from, &*to, acc->NameToEdgeType("E"));
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_NO_ERROR(edge->SetProperty(acc->NameToProperty("p"), ms::PropertyValue{1}));
+    ASSERT_NO_ERROR(acc->DeleteEdge(&*edge));
+    acc->Abort();
+  }
+
+  for (int i = 0; i != 3; ++i) SweptByOnePass();
+
+  auto acc = storage->Access(ms::READ);
+  EXPECT_EQ(acc->ApproximateEdgeCount(acc->NameToEdgeType("E"), acc->NameToProperty("p")), 0)
+      << "edge-type-property index kept an entry for an edge that never existed";
+  EXPECT_EQ(acc->ApproximateEdgeCount(acc->NameToProperty("p")), 0)
+      << "edge-property index kept an entry for an edge that never existed";
+  EXPECT_EQ(acc->ApproximateEdgeCount(acc->NameToEdgeType("E")), 0)
+      << "edge-type index kept an entry for an edge that never existed";
+  acc->Abort();
+}

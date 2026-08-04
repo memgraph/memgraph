@@ -80,6 +80,25 @@ namespace rv = r::views;
 namespace memgraph::storage {
 namespace {
 
+/// The type and destination of every edge this transaction linked or unlinked, taken from its own
+/// delta buffer.
+///
+/// An edge's type is recorded only on the link held by the vertex it leaves, so undoing an index
+/// entry for one means finding that link, and a transaction that deleted the edge has already
+/// taken the link out. The vertex's own delta chain still names it, but reaching it means reading
+/// the vertex's delta pointer, which is not atomic and which another transaction may write while
+/// holding a lock the abort does not take. That read is safe only by the argument that a writer
+/// finding this transaction's delta at the head backs off. These deltas need no such argument:
+/// they belong to the aborting transaction alone.
+auto CollectOutEdgeLinks(Transaction const &transaction) {
+  auto links = std::vector<std::tuple<Edge *, EdgeTypeId, Vertex *>>{};
+  for (auto const &delta : transaction.deltas) {
+    if (delta.action != Delta::Action::ADD_OUT_EDGE && delta.action != Delta::Action::REMOVE_OUT_EDGE) continue;
+    links.emplace_back(delta.vertex_edge.edge.ptr, delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get());
+  }
+  return links;
+}
+
 constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> durability::StorageMetadataOperation {
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define add_case(E)              \
@@ -1529,6 +1548,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // To track which edge type indexes need cleaning up, we need the edge type which is held in vertices in/out edges
     // Hence need to first once to modify edges, so it can read vectices information intact.
 
+    // Built on demand, and only by the edges pass below: an edge still linked to its vertex is
+    // found there directly, so this is reached only for one this transaction also deleted.
+    auto out_edge_links = std::optional<std::vector<std::tuple<Edge *, EdgeTypeId, Vertex *>>>{};
+
     // Edges pass. Because edges cannot have non-sequential deltas, we needn't
     // concern ourselves with them here. We guarantee that any of our deltas
     // with an edge as the upstream object are a monolithic block of deltas
@@ -1553,12 +1576,26 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
                 auto processor_prop_is_interesting = index_abort_processor.IsInterestingEdgeProperty(prop_id);
                 if (processor_prop_is_interesting) {
-                  // TODO: MVCC collect out_edges (including ones deleted this txn)
-                  //       from_vertex->out_edges would be missing any edge that was deleted during this transaction
-                  //       ATM we don't handle that corner case. Setting a property on an edge that would then be
-                  //       removed
+                  auto link = std::optional<std::pair<EdgeTypeId, Vertex *>>{};
                   for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
                     if (edge_ref.ptr != edge) continue;
+                    link = std::pair{edge_type, to_vertex};
+                    break;
+                  }
+                  // An edge this same transaction went on to delete is no longer linked, so its
+                  // type has to come from the deltas that would put the link back. Missing it
+                  // leaves an index entry for an edge that is about to be freed, and no delta
+                  // names the property afterwards, so nothing later is obliged to collect it.
+                  if (!link.has_value()) {
+                    if (!out_edge_links.has_value()) out_edge_links = CollectOutEdgeLinks(transaction_);
+                    for (auto const &[linked_edge, edge_type, to_vertex] : *out_edge_links) {
+                      if (linked_edge != edge) continue;
+                      link = std::pair{edge_type, to_vertex};
+                      break;
+                    }
+                  }
+                  if (link.has_value()) {
+                    auto const [edge_type, to_vertex] = *link;
                     index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
                     index_abort_processor.vector_edge_.CollectOnPropertyChange(
                         edge_type, prop_id, *current->property.value, from_vertex, to_vertex, edge);
