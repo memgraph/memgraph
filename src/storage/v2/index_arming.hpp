@@ -90,8 +90,8 @@ class IndexArming {
     bool writes_edge_properties_;
   };
 
-  /// @param property_writes what this transaction's property writes belonged to, which its
-  ///                        deltas cannot say on their own.
+  /// Opens a scope for one transaction's deltas, told what its property writes belonged to,
+  /// which the deltas cannot say on their own.
   TransactionScope for_transaction(PropertyWrites property_writes) { return {*this, property_writes}; }
 
   /// Sweep every vertex index regardless of what was written. Used where entries may point at

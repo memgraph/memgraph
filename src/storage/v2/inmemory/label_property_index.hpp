@@ -509,8 +509,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   auto GetActiveIndices() const -> std::shared_ptr<LabelPropertyIndex::ActiveIndices> override;
 
-  /// Sweeps only the indexes whose label or one of whose properties `arming` names.
-  /// @return how many individual indexes were swept.
+  /// Sweeps only the indexes whose label or one of whose properties `arming` names, and
+  /// answers with how many that was.
   uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
                                  IndexArming const &arming);
 

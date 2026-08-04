@@ -78,8 +78,7 @@ class InMemoryLabelIndex : public LabelIndex {
   [[nodiscard]] auto DropIndex(LabelId label, ActiveIndicesUpdater const &updater) -> std::shared_ptr<IndividualIndex>;
   void RestoreIndex(LabelId label, std::shared_ptr<IndividualIndex> evicted, ActiveIndicesUpdater const &updater);
 
-  /// Sweeps only the indexes whose label `arming` names, leaving the rest untouched.
-  /// @return how many individual indexes were swept.
+  /// Sweeps only the indexes whose label `arming` names, and answers with how many that was.
   uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
                                  IndexArming const &arming);
 

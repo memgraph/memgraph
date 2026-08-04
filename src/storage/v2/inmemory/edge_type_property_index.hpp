@@ -269,8 +269,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   void RestoreIndex(EdgeTypeId edge_type, PropertyId property, std::shared_ptr<IndividualIndex> evicted,
                     ActiveIndicesUpdater const &updater);
 
-  /// Sweeps only the indexes whose property `arming` names.
-  /// @return how many individual indexes were swept.
+  /// Sweeps only the indexes whose property `arming` names, and answers with how many that was.
   uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
                                  IndexArming const &arming);
 

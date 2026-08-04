@@ -55,15 +55,15 @@ struct Indices {
   /// This function should be called from garbage collection to clean up the
   /// vertex indices.
   /// TODO: unused in disk indices
-  /// Sweeps only the indexes `arming` names, where the index type consults it.
-  /// @return how many individual indexes were swept.
+  /// Sweeps only the indexes `arming` names, where the index type consults it, and answers
+  /// with how many that was.
   uint64_t RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
                                        IndexArming const &arming) const;
 
   /// This function should be called from garbage collection to clean up the
   /// edge indices.
   /// TODO: unused in disk indices
-  /// @return how many individual indexes were swept.
+  /// Answers with how many individual indexes were swept.
   uint64_t RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
                                      IndexArming const &arming) const;
 
