@@ -97,7 +97,7 @@ auto InMemoryLabelIndex::PublishIndex(LabelId label, uint64_t commit_timestamp) 
 
 void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = metrics::ScopedGauge{gauge.ref};
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&index_accessor,

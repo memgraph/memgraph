@@ -14,6 +14,7 @@
 #include <atomic>
 #include <optional>
 #include <set>
+#include <shared_mutex>
 #include <string>
 
 #include "common_function_signatures.hpp"
@@ -295,9 +296,9 @@ class Storage {
   virtual ~Storage() = default;
 
   /// Replace all stored metric handles (metric_handles_, indices, constraints,
-  /// TTL) with @p new_handles. Safe even with in-flight transactions: old
-  /// handles use MetricPtr control blocks that remain valid until all
-  /// consumers release their shared_ptr copies.
+  /// TTL) with @p new_handles. Only safe on a clean storage with zero committed
+  /// transactions — no in-flight transactions exist that may hold copies of the
+  /// old handles.
   virtual void RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) = 0;
 
   std::string name() const { return config_.salient.name.str(); }
@@ -475,6 +476,7 @@ class Storage {
   memory::ArenaPool *db_arena_pool_{nullptr};
 
   metrics::DatabaseMetricHandles metric_handles_{};
+  mutable std::shared_mutex metric_handles_mutex_;
 
   Indices indices_;
   Constraints constraints_;
