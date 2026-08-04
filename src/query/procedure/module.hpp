@@ -151,15 +151,22 @@ using find_result = std::optional<std::pair<std::shared_ptr<Module>, const T *>>
 find_result<mgp_proc> FindProcedure(const ModuleRegistry &module_registry,
                                     std::string_view fully_qualified_procedure_name);
 
-/// True iff `fully_qualified_procedure_name` resolves to a read procedure that declares
-/// `ProcedureInfo::no_graph_access`, i.e. one that may be invoked with no storage accessor open.
-/// False if the procedure does not resolve, is a write procedure, or does not declare the capability
-/// -- so an unknown or undeclared procedure always takes the normal, accessor-backed path.
+/// True iff `fully_qualified_procedure_name` resolves to a procedure that may run on the interpreter's
+/// accessor-free fast path: a read procedure (`!is_write`) that declares `ProcedureInfo::no_graph_access`
+/// AND requires no privilege (`!required_privilege`). False if the procedure does not resolve or fails
+/// any of these -- so an unknown, undeclared, write, or privileged procedure always takes the normal,
+/// accessor-backed path.
+///
+/// The privilege condition matters because the fast path invokes the procedure callback during
+/// `Prepare`, before the session performs its `CheckAuthorized`. A procedure that gates on a privilege
+/// (e.g. `mg.get_module_files` needs MODULE_READ) must therefore run on the normal path, where
+/// authorization precedes execution -- otherwise an unauthorized caller's callback would run (e.g. a
+/// filesystem walk) before being denied.
 ///
 /// Lives here rather than in the interpreter because the registry is the authority on what a
 /// procedure does, and because `mgp_proc` is an incomplete type outside the procedure layer.
-bool ProcedureDeclaresNoGraphAccess(const ModuleRegistry &module_registry,
-                                    std::string_view fully_qualified_procedure_name);
+bool ProcedureIsAccessorFreeEligible(const ModuleRegistry &module_registry,
+                                     std::string_view fully_qualified_procedure_name);
 
 /// Return the ModulePtr and `mgp_trans *` of the found transformation after resolving
 /// `fully_qualified_transformation_name`. `memory` is used for temporary allocations
