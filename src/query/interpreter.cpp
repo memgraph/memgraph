@@ -4389,6 +4389,14 @@ std::optional<AccessorFreeQueryKind> ClassifyAccessorFreeQuery(const CypherQuery
 // CallNoGraphReadProcedure (graph-less) and streams the rows. Header derivation matches the normal
 // path (yielded identifier names, in order); results are byte-identical because the same procedure
 // callback and signature construction are reused.
+//
+// Deliberately does NOT increment the CallProcedure operator metric or the per-procedure telemetry
+// counter (CallProcedure::IncrementCounter): those are driven by the CallProcedureCursor, which this
+// path bypasses. Keeping Memgraph Lab's constant introspection polling out of procedure-call
+// telemetry is consistent with the intent of the accessor-free path -- these calls are not user
+// workload and should not register as activity. The row work also happens here in Prepare rather than
+// on first Pull, so a procedure error surfaces in the Bolt RUN phase; harmless for these fast,
+// deterministic introspection procedures.
 PreparedQuery PrepareBuiltinIntrospectionQuery(ParsedQuery parsed_query) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
   MG_ASSERT(cypher_query && cypher_query->single_query_, "Introspection query expects a cypher single query");
