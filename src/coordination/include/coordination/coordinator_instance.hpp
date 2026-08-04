@@ -117,8 +117,9 @@ class CoordinatorInstance {
   auto GetRolePrivilegesAsLeader(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
 
   auto GetRoutingTable(std::string_view db_name) const -> RoutingTable;
+
+  // Leader-local read backing the GetRoutingTable forwarding RPC.
   auto GetRoutingTableAsLeader(std::string_view db_name) const -> RoutingTable;
-  auto GetRoutingTableAsFollower(auto leader_id, std::string_view db_name) const -> RoutingTable;
 
   auto GetInstanceForFailover() const -> std::optional<std::string>;
 

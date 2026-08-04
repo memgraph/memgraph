@@ -1670,36 +1670,18 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
 }
 
 auto CoordinatorInstance::GetRoutingTable(std::string_view const db_name) const -> RoutingTable {
-  auto const leader_id = raft_state_->GetLeaderId();
-
-  if (auto const my_id = raft_state_->GetMyCoordinatorId(); my_id == leader_id) {
+  // Unlike the other reads, a leader which isn't yet ready still answers from its own Raft state: routing clients need
+  // an answer during the leadership transition, and the state machine is already caught up at that point.
+  if (raft_state_->GetMyCoordinatorId() == raft_state_->GetLeaderId()) {
     return GetRoutingTableAsLeader(db_name);
   }
-  return GetRoutingTableAsFollower(leader_id, db_name);
+
+  // An unreachable leader means we have no routing table to report.
+  return SendReadToLeader<GetRoutingTableRpc>(std::string{db_name}).value_or(RoutingTable{});
 }
 
 auto CoordinatorInstance::GetRoutingTableAsLeader(std::string_view const db_name) const -> RoutingTable {
   return raft_state_->GetRoutingTable(db_name, replicas_num_txns_cache_);
-}
-
-auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::string_view const db_name) const
-    -> RoutingTable {
-  // Spelled out rather than auto: leader_id is a deduced parameter, so an auto here would make the type dependent and
-  // force a `template` keyword on the SendRpc call below.
-  std::shared_ptr<CoordinatorInstanceConnector> const leader = FindClientConnector(leader_id);
-
-  if (leader == nullptr) {
-    spdlog::trace(
-        "Connection to leader was not found when routing table was requested. Returning empty routing table.");
-    return RoutingTable{};
-  }
-
-  auto res = leader->SendRpc<GetRoutingTableRpc>(std::string{db_name});
-  if (!res.has_value()) {
-    spdlog::trace("Couldn't get routing table from leader {}. Returning empty routing table.", leader_id);
-    return RoutingTable{};
-  }
-  return std::move(*res);
 }
 
 auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::string> {

@@ -184,7 +184,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
           slk::Builder *res_builder) -> void {
         CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<GetRoutingTableRpc>(
             [&coordinator_instance](std::string_view const db_name) -> RoutingTable {
-              return coordinator_instance.GetRoutingTable(db_name);
+              return coordinator_instance.GetRoutingTableAsLeader(db_name);
             },
             request_version,
             req_reader,
