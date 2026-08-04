@@ -328,22 +328,24 @@ std::vector<std::pair<EdgeTypeId, PropertyId>> InMemoryEdgeTypePropertyIndex::Ac
   return ret;
 }
 
-void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                                          std::stop_token token) {
+uint64_t InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                                              std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter(2048);
   CleanupAllIndices();
   auto all_indices = all_indices_.ReadCopy();
-  if (all_indices->empty()) return;
+  if (all_indices->empty()) return 0;
 
   // Pin the edge store while sweeping: the loop dereferences raw Edge* the epoch GC could free.
   auto const edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
 
+  uint64_t swept = 0;
   for (auto &[index, property] : *all_indices) {
-    if (token.stop_requested()) return;
+    if (token.stop_requested()) return swept;
+    ++swept;
 
     auto edges_acc = index->skiplist.access();
     for (auto it = edges_acc.begin(); it != edges_acc.end();) {
-      if (maybe_stop() && token.stop_requested()) return;
+      if (maybe_stop() && token.stop_requested()) return swept;
 
       auto next_it = it;
       ++next_it;
@@ -370,6 +372,7 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint
       it = next_it;
     }
   }
+  return swept;
 }
 
 void InMemoryEdgeTypePropertyIndex::ActiveIndices::AbortEntries(

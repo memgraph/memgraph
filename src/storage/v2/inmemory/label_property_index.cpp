@@ -1070,15 +1070,17 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndicesImpl(uint64_t start_t
   return ret;
 }
 
-void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                                       std::stop_token token) {
+uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                                           std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
   CleanupAllIndices();
 
+  uint64_t swept = 0;
   auto const remove_from = [&](auto const &all_indexes) {
     for (auto &all_entry : *all_indexes) {
       if (token.stop_requested()) return;
+      ++swept;
       auto const &label_id = all_entry.label_;
       auto const &property_paths = all_entry.properties_;
 
@@ -1116,12 +1118,13 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_
   };
 
   auto data = all_indices_.ReadCopy();
-  if (data.asc->empty() && data.desc->empty()) return;
+  if (data.asc->empty() && data.desc->empty()) return 0;
 
   // Pin vertices_ while sweeping: the loop dereferences raw Vertex* the epoch GC could free.
   auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
 
   data.ForEach(remove_from);
+  return swept;
 }
 
 template <typename EntryT>

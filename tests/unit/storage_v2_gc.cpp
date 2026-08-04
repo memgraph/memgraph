@@ -274,6 +274,71 @@ TEST(StorageV2Gc, Sanity) {
 // 4. Wait for GC. GC shouldn't remove the vertices from index because
 //    transaction 1 can still see them with that label.
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+// The index-cleanup sweep visits every entry of an index rather than only the stale ones, so
+// what a collection cycle costs is governed by how many indexes it visits. Nothing else reports
+// that: the sweep latency says how long it took, not how much of it was worth doing.
+class StorageV2GcIndexSweepCountTest : public StorageV2GcMetricsTest {
+ protected:
+  // A pass that adopts a hold it is handed, so it runs here rather than on the collection
+  // thread, and the count it produces belongs to a known set of writes.
+  uint64_t SweptByOnePass() {
+    auto const before = handles_.gc_index_sweeps.Value();
+    auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
+    mem_storage->FreeMemory(UniqueGuard(storage->main_lock_), false);
+    return static_cast<uint64_t>(handles_.gc_index_sweeps.Value() - before);
+  }
+
+  void CreateLabelIndex(std::string_view name) {
+    auto acc = storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreateIndex(storage->NameToLabel(name)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+};
+
+TEST_F(StorageV2GcIndexSweepCountTest, IdleDatabaseSweepsNothing) {
+  CreateLabelIndex("A");
+  CreateLabelIndex("B");
+
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("A")));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // The write above says the vertex indexes may hold something to collect, so this pass sweeps.
+  EXPECT_GT(SweptByOnePass(), 0);
+
+  // Nothing has been written since, so there is nothing to look for.
+  EXPECT_EQ(SweptByOnePass(), 0);
+}
+
+TEST_F(StorageV2GcIndexSweepCountTest, OneLabelWriteSweepsEveryVertexIndex) {
+  CreateLabelIndex("A");
+  CreateLabelIndex("B");
+
+  memgraph::storage::Gid gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("A")));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  // A write naming one label only. Both indexes are swept regardless, because a cycle decides
+  // per index family rather than per index, and the index on B has nothing to collect.
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(*vertex->AddLabel(acc->NameToLabel("B")));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  EXPECT_EQ(SweptByOnePass(), 2);
+}
+
 TEST(StorageV2Gc, Indices) {
   std::unique_ptr<memgraph::storage::Storage> storage(
       std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{

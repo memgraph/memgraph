@@ -164,7 +164,9 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
                 uint64_t commit_timestamp) const -> std::expected<void, ConstraintViolation>;
 
   /// GC method that removes outdated entries from constraints' storages.
-  void RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, const std::stop_token &token);
+  /// @return how many individual constraints were swept.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                 const std::stop_token &token);
 
   void Clear() override;
 

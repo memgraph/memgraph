@@ -54,13 +54,16 @@ struct Indices {
   /// This function should be called from garbage collection to clean up the
   /// vertex indices.
   /// TODO: unused in disk indices
-  void RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                   std::stop_token token) const;
+  /// @return how many individual indexes were swept.
+  uint64_t RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                       std::stop_token token) const;
 
   /// This function should be called from garbage collection to clean up the
   /// edge indices.
   /// TODO: unused in disk indices
-  void RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token) const;
+  /// @return how many individual indexes were swept.
+  uint64_t RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                     std::stop_token token) const;
 
   void DropGraphClearIndices();
 

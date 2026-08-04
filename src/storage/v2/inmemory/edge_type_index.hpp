@@ -244,7 +244,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   void RestoreIndex(EdgeTypeId edge_type, std::shared_ptr<IndividualIndex> evicted,
                     ActiveIndicesUpdater const &updater);
 
-  void RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token);
+  /// @return how many individual indexes were swept.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token);
 
   void DropGraphClearIndices() override;
 

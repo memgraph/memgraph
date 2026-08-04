@@ -331,24 +331,26 @@ std::vector<PropertyId> InMemoryEdgePropertyIndex::ActiveIndices::ListIndices(ui
   return ret;
 }
 
-void InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                                      std::stop_token token) {
+uint64_t InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                                          std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
   CleanupAllIndicies();
 
   auto cpy = all_indices_.ReadCopy();
-  if (cpy->empty()) return;
+  if (cpy->empty()) return 0;
 
   // Pin the edge store while sweeping: the loop dereferences raw Edge* the epoch GC could free.
   auto const edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
 
+  uint64_t swept = 0;
   for (auto &[property_id, index] : *cpy) {
-    if (token.stop_requested()) return;
+    if (token.stop_requested()) return swept;
+    ++swept;
 
     auto edges_acc = index->skip_list_.access();
     for (auto it = edges_acc.begin(); it != edges_acc.end();) {
-      if (maybe_stop() && token.stop_requested()) return;
+      if (maybe_stop() && token.stop_requested()) return swept;
 
       auto next_it = it;
       ++next_it;
@@ -375,6 +377,7 @@ void InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t
       it = next_it;
     }
   }
+  return swept;
 }
 
 void InMemoryEdgePropertyIndex::ActiveIndices::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge,

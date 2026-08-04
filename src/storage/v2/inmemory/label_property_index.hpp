@@ -501,7 +501,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   auto GetActiveIndices() const -> std::shared_ptr<LabelPropertyIndex::ActiveIndices> override;
 
-  void RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token);
+  /// @return how many individual indexes were swept.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token);
 
   // Captures the evicted asc/desc IndividualIndex shared_ptrs so the caller can
   // re-insert them on abort. Pair with RestoreIndex. The captured shared_ptrs

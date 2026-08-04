@@ -3459,14 +3459,16 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // in every index every time.
   gc_progress_.SetPhase(GcPhase::INDEX_CLEANUP);
   if (auto token = stop_source.get_token(); !token.stop_requested()) {
+    uint64_t swept = 0;
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
-      indices_.RemoveObsoleteVertexEntries(this, oldest_active_start_timestamp, token);
+      swept += indices_.RemoveObsoleteVertexEntries(this, oldest_active_start_timestamp, token);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-      mem_unique_constraints->RemoveObsoleteEntries(this, oldest_active_start_timestamp, token);
+      swept += mem_unique_constraints->RemoveObsoleteEntries(this, oldest_active_start_timestamp, token);
     }
     if (index_cleanup_edge_needed || index_cleanup_edge_performance) {
-      indices_.RemoveObsoleteEdgeEntries(this, oldest_active_start_timestamp, token);
+      swept += indices_.RemoveObsoleteEdgeEntries(this, oldest_active_start_timestamp, token);
     }
+    metric_handles_.gc_index_sweeps.Increment(static_cast<double>(swept));
   }
   {
     auto skiplist_elapsed = std::chrono::duration<double>(skiplist_cleanup_timer.Elapsed());

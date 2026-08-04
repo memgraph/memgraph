@@ -308,23 +308,25 @@ uint64_t InMemoryVertexPropertyIndex::ActiveIndices::ApproximateVertexCount(
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
 }
 
-void InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                                        std::stop_token token) {
+uint64_t InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                                            std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
   CleanupAllIndices();
 
   auto cpy = all_indices_.ReadCopy();
-  if (cpy->empty()) return;
+  if (cpy->empty()) return 0;
 
   auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
 
+  uint64_t swept = 0;
   for (auto const &[property_id, index] : *cpy) {
-    if (token.stop_requested()) return;
+    if (token.stop_requested()) return swept;
+    ++swept;
 
     auto acc = index->skip_list_.access();
     for (auto it = acc.begin(); it != acc.end();) {
-      if (maybe_stop() && token.stop_requested()) return;
+      if (maybe_stop() && token.stop_requested()) return swept;
 
       auto next_it = it;
       ++next_it;
@@ -345,6 +347,7 @@ void InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64
       it = next_it;
     }
   }
+  return swept;
 }
 
 void InMemoryVertexPropertyIndex::DropGraphClearIndices() {

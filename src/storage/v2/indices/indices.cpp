@@ -29,24 +29,26 @@
 
 namespace memgraph::storage {
 
-void Indices::RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                          std::stop_token token) const {
-  static_cast<InMemoryLabelIndex *>(label_index_.get())
-      ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
-  static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
-      ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
-  static_cast<InMemoryVertexPropertyIndex *>(vertex_property_index_.get())
-      ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
+uint64_t Indices::RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                              std::stop_token token) const {
+  auto swept = static_cast<InMemoryLabelIndex *>(label_index_.get())
+                   ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
+  swept += static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
+               ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
+  swept += static_cast<InMemoryVertexPropertyIndex *>(vertex_property_index_.get())
+               ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
+  return swept;
 }
 
-void Indices::RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                        std::stop_token token) const {
-  static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())
-      ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
-  static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())
-      ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
-  static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())
-      ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
+uint64_t Indices::RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                            std::stop_token token) const {
+  auto swept = static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())
+                   ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
+  swept += static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())
+               ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
+  swept += static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())
+               ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
+  return swept;
 }
 
 void Indices::RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &vertices_to_remove) const {

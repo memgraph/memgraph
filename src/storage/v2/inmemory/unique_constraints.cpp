@@ -640,24 +640,27 @@ auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *
   return {};
 }
 
-void InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage, uint64_t const oldest_active_start_timestamp,
-                                                      const std::stop_token &token) {
+uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
+                                                          uint64_t const oldest_active_start_timestamp,
+                                                          const std::stop_token &token) {
   auto container = container_.ReadCopy();
-  if (container->empty()) return;
+  if (container->empty()) return 0;
   auto maybe_stop = utils::ResettableCounter(2048);
 
   // Pin vertices_ while sweeping: the loop dereferences raw Vertex* the epoch GC could free.
   auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
 
+  uint64_t swept = 0;
   for (const auto &[label, map] : *container) {
     for (const auto &[properties, individual_constraint] : map) {
       // before starting constraint, check if stop_requested
-      if (token.stop_requested()) return;
+      if (token.stop_requested()) return swept;
+      ++swept;
 
       auto acc = individual_constraint->skiplist.access();
       for (auto it = acc.begin(); it != acc.end();) {
         // Hot loop, don't check stop_requested every time
-        if (maybe_stop() && token.stop_requested()) return;
+        if (maybe_stop() && token.stop_requested()) return swept;
 
         auto next_it = it;
         ++next_it;
@@ -676,6 +679,7 @@ void InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage, uint64_t
       }
     }
   }
+  return swept;
 }
 
 void InMemoryUniqueConstraints::Clear() {

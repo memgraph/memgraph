@@ -792,6 +792,10 @@ PrometheusMetrics::PrometheusMetrics()
                                               .Name("memgraph_gc_skiplist_cleanup_latency_seconds")
                                               .Help("GC skiplist cleanup latency in seconds")
                                               .Register(registry_)},
+      gc_index_sweeps_family_{prometheus::BuildCounter()
+                                  .Name("memgraph_gc_index_sweeps_total")
+                                  .Help("Individual indexes swept by GC index cleanup")
+                                  .Register(registry_)},
       snapshot_throughput_family_{prometheus::BuildHistogram()
                                       .Name("memgraph_snapshot_throughput_bytes_per_second")
                                       .Help("Throughput of snapshot sent to each replica during recovery, in bytes/s")
@@ -1052,6 +1056,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .gc_latency_seconds = {&gc_latency_family_.Add(labels, kLatencyBuckets)},
                   .gc_skiplist_cleanup_latency_seconds = {&gc_skiplist_cleanup_latency_family_.Add(labels,
                                                                                                    kLatencyBuckets)},
+                  .gc_index_sweeps = {&gc_index_sweeps_family_.Add(labels)},
               },
       });
   return databases_.entries.back().handles;
@@ -1164,6 +1169,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   snapshot_recovery_latency_family_.Remove(h.snapshot_recovery_latency_seconds.get());
   gc_latency_family_.Remove(h.gc_latency_seconds.get());
   gc_skiplist_cleanup_latency_family_.Remove(h.gc_skiplist_cleanup_latency_seconds.get());
+  gc_index_sweeps_family_.Remove(h.gc_index_sweeps.get());
   if (default_db_uuid_ && *default_db_uuid_ == uuid) {
     default_db_uuid_.reset();
   }
@@ -1421,6 +1427,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
       {"UnreleasedDeltaObjects", "Memory", "Gauge", static_cast<int64_t>(h.unreleased_delta_objects.Value())});
   AppendHistogramPercentiles(out, "GCLatency", "Memory", *h.gc_latency_seconds.get());
   AppendHistogramPercentiles(out, "GCSkiplistCleanupLatency", "Memory", *h.gc_skiplist_cleanup_latency_seconds.get());
+  out.push_back({"GCIndexSweeps", "Memory", "Counter", static_cast<int64_t>(h.gc_index_sweeps.Value())});
 
   // Operator
   out.push_back({"OnceOperator", "Operator", "Counter", static_cast<int64_t>(h.once_operator.Value())});
