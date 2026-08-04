@@ -51,6 +51,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/isolation_level.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/uuid.hpp"
 
@@ -244,8 +245,8 @@ class DbmsHandler {
     spdlog::debug("Different UUIDs");
 
     // The default DB cannot be deleted and recreated (its storage directory is the root data
-    // directory), so we mutate the UUID in place. Suspend first to drain all in-flight sessions
-    // — without this, a concurrent transaction could commit after the UUID swap, writing data
+    // directory), so we mutate the UUID in place. Suspend first to drain all in-flight sessions;
+    // without this, a concurrent transaction could commit after the UUID swap, writing data
     // under the wrong identity that will never be replicated.
     if (*name_view == kDefaultDB) {
       auto *gk = db_handler_.GetGatekeeper(kDefaultDB);
@@ -253,9 +254,18 @@ class DbmsHandler {
         spdlog::debug("Cannot suspend default DB for UUID update, will retry...");
         return std::unexpected{NewError::GENERIC};
       }
+      auto rollback = utils::OnScopeExit{[&] { gk->abort_suspend(); }};
 
       const memory::DbArenaScope db_arena_scope{db.get()};
       auto *storage = db->storage();
+      // After demotion + suspend, no active transactions remain. If the storage has already
+      // committed data, the instance was used as MAIN before joining; the coordinator should
+      // not be sending a UUID change for a non-clean replica.
+      if (storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ !=
+          storage::kTimestampInitialId) [[unlikely]] {
+        spdlog::debug("Default storage is not clean, cannot update UUID...");
+        return std::unexpected{NewError::GENERIC};
+      }
       storage->config_.salient.uuid = config.uuid;
       if (storage->config_.register_metrics) {
         storage->RebindMetricHandles({});
@@ -265,7 +275,6 @@ class DbmsHandler {
       }
       UpdateDurability(storage->config_, ".");
 
-      gk->abort_suspend();
       return db;
     }
 

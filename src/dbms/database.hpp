@@ -260,7 +260,7 @@ class Database {
   // global PrometheusMetrics registry on destruction.
   class DatabaseMetricsRegistration {
    public:
-    DatabaseMetricsRegistration(utils::UUID uuid, metrics::DatabaseMetricHandles handles)
+    DatabaseMetricsRegistration(utils::UUID uuid, metrics::DatabaseMetricHandles const &handles)
         : uuid_(uuid), handles_(handles) {}
 
     ~DatabaseMetricsRegistration();
