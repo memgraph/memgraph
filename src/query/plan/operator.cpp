@@ -8124,6 +8124,14 @@ std::vector<std::vector<TypedValue>> CallNoGraphReadProcedure(std::string_view p
   if (!proc->info.no_graph_access) {
     throw QueryRuntimeException("The procedure named '{}' requires graph access.", procedure_name);
   }
+  // This accessor-free path invokes `cb` exactly once and drives none of the batch lifecycle. The
+  // CallProcedureCursor loop that re-enters `cb` per batch and runs the initializer/cleanup hooks is
+  // bypassed entirely, so a batched procedure would silently yield only its first batch and skip its
+  // hooks. No builtin introspection procedure is batched, but nothing else enforces that, so reject it
+  // loudly rather than mis-execute it if the two ever combine.
+  if (proc->info.is_batched || proc->initializer || proc->cleanup) {
+    throw QueryRuntimeException("The procedure named '{}' cannot run without graph access.", procedure_name);
+  }
 
   mgp_result result{memory};
   BuildProcedureResultSignature(result, *proc, result_fields, procedure_name);
@@ -8144,7 +8152,10 @@ std::vector<std::vector<TypedValue>> CallNoGraphReadProcedure(std::string_view p
     throw QueryRuntimeException("{}: {}", procedure_name, *result.error_msg);
   }
 
-  // Project each row onto the yielded fields (indices 0..k-1, in YIELD order).
+  // Project each row onto the yielded fields (indices 0..k-1, in YIELD order). Unlike
+  // CallProcedureCursor this does not skip rows with deleted values: a procedure that cannot access
+  // the graph cannot produce graph elements, so no result value can ever be a deleted vertex/edge and
+  // `has_deleted_values` is never set. This holds only because no_graph_access was enforced above.
   std::vector<std::vector<TypedValue>> rows;
   rows.reserve(result.rows.size());
   for (auto &record : result.rows) {
