@@ -656,6 +656,10 @@ class ExpectScanAllByEdgeTypePropertyRange : public OpChecker<ScanAllByEdgeTypeP
                                        std::optional<ScanAllByEdgeTypePropertyRange::Bound> upper_bound)
       : edge_type_(edge_type), property_(property), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
 
+  ExpectScanAllByEdgeTypePropertyRange(memgraph::storage::EdgeTypeId edge_type, memgraph::storage::PropertyId property,
+                                       ExpressionRange expression_range)
+      : edge_type_(edge_type), property_(property), expression_range_(std::move(expression_range)) {}
+
   void ExpectOp(ScanAllByEdgeTypePropertyRange &scan_all, const SymbolTable &) override {
     EXPECT_EQ(scan_all.common_.edge_types[0], edge_type_);
     EXPECT_EQ(scan_all.property_, property_);
@@ -671,6 +675,10 @@ class ExpectScanAllByEdgeTypePropertyRange : public OpChecker<ScanAllByEdgeTypeP
       EXPECT_EQ(typeid(scan_all.upper_bound_->value()).hash_code(), typeid(upper_bound_->value()).hash_code());
       EXPECT_EQ(scan_all.upper_bound_->type(), upper_bound_->type());
     }
+    if (expression_range_) {
+      ASSERT_TRUE(scan_all.expression_range_);
+      EXPECT_EQ(scan_all.expression_range_->type_, expression_range_->type_);
+    }
   }
 
  private:
@@ -678,6 +686,7 @@ class ExpectScanAllByEdgeTypePropertyRange : public OpChecker<ScanAllByEdgeTypeP
   memgraph::storage::PropertyId property_;
   std::optional<ScanAllByEdgeTypePropertyRange::Bound> lower_bound_;
   std::optional<ScanAllByEdgeTypePropertyRange::Bound> upper_bound_;
+  std::optional<ExpressionRange> expression_range_;
 };
 
 class ExpectScanAllByEdgeTypeProperty : public OpChecker<ScanAllByEdgeTypeProperty> {

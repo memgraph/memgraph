@@ -1067,6 +1067,18 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                                 std::nullopt,
                                                                 view);
       }
+      if (prop_filter.type_ == PropertyFilter::Type::PREFIX) {
+        // STARTS WITH: prefix seek [value, PrefixSuccessor(value)); filter already dropped above.
+        return std::make_unique<ScanAllByEdgeTypePropertyRange>(input,
+                                                                common.edge_symbol,
+                                                                common.node1_symbol,
+                                                                common.node2_symbol,
+                                                                common.direction,
+                                                                GetEdgeType(found_index.value()),
+                                                                GetProperty(prop_filter.property_ids_.path[0]),
+                                                                ExpressionRange::Prefix(prop_filter.value_),
+                                                                view);
+      }
       if (prop_filter.type_ == PropertyFilter::Type::IN) {
         // TODO(buda): ScanAllByLabelProperties + Filter should be considered
         // here once the operator and the right cardinality estimation exist.
@@ -1171,6 +1183,17 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                             GetProperty(prop_filter.property_ids_.path[0]),
                                                             std::make_optional(lower_bound),
                                                             std::nullopt,
+                                                            view);
+      }
+      if (prop_filter.type_ == PropertyFilter::Type::PREFIX) {
+        // STARTS WITH: prefix seek [value, PrefixSuccessor(value)); filter already dropped above.
+        return std::make_shared<ScanAllByEdgePropertyRange>(input,
+                                                            common.edge_symbol,
+                                                            common.node1_symbol,
+                                                            common.node2_symbol,
+                                                            common.direction,
+                                                            GetProperty(prop_filter.property_ids_.path[0]),
+                                                            ExpressionRange::Prefix(prop_filter.value_),
                                                             view);
       }
       if (prop_filter.type_ == PropertyFilter::Type::IN) {

@@ -1189,8 +1189,13 @@ TypedValue Rand(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 
 template <class TPredicate>
 TypedValue StringMatchOperator(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String>, Or<Null, String>>(TPredicate::name, args, nargs);
-  if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
+  if (nargs != 2) {
+    throw QueryRuntimeException("'{}' requires exactly 2 arguments.", TPredicate::name);
+  }
+  // A null or non-string operand (either side) is a non-match (Null), not an error.
+  if (args[0].type() != TypedValue::Type::String || args[1].type() != TypedValue::Type::String) {
+    return TypedValue(ctx.memory);
+  }
   const auto &s1 = args[0].ValueString();
   const auto &s2 = args[1].ValueString();
   return TypedValue(TPredicate{}(s1, s2), ctx.memory);

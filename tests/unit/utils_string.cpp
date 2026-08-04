@@ -219,3 +219,25 @@ TEST(String, StringToUint32) {
   EXPECT_THROW(ParseStringToUint<uint32_t>("10 "), ParseException);
   EXPECT_THROW(ParseStringToUint<uint32_t>(""), ParseException);
 }
+
+TEST(String, PrefixSuccessor) {
+  // Ordinary prefix: increment the last byte.
+  EXPECT_EQ(PrefixSuccessor("abc"), "abd");
+  EXPECT_EQ(PrefixSuccessor("a"), "b");
+  // Empty prefix has no successor (range unbounded above).
+  EXPECT_EQ(PrefixSuccessor(""), std::nullopt);
+  // Trailing 0xFF bytes are dropped, then the previous byte is incremented.
+  EXPECT_EQ(PrefixSuccessor(std::string("a\xFF")), std::string("b"));
+  EXPECT_EQ(PrefixSuccessor(std::string("a\xFF\xFF")), std::string("b"));
+  EXPECT_EQ(PrefixSuccessor(std::string("ab\xFF")), std::string("ac"));
+  // All-0xFF prefix has no successor.
+  EXPECT_EQ(PrefixSuccessor(std::string("\xFF")), std::nullopt);
+  EXPECT_EQ(PrefixSuccessor(std::string("\xFF\xFF")), std::nullopt);
+  // The successor is a strict upper bound: every string with the prefix is < successor,
+  // and the shortest non-prefixed string is >= successor.
+  auto succ = PrefixSuccessor("abc");
+  ASSERT_TRUE(succ.has_value());
+  EXPECT_LT(std::string("abc"), *succ);
+  EXPECT_LT(std::string("abcZZZ"), *succ);
+  EXPECT_FALSE(std::string("abd") < *succ);
+}
