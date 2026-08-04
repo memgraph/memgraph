@@ -15,8 +15,8 @@
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/index_impact.hpp"
 #include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/property_writes.hpp"
 #include "utils/id_bitmap.hpp"
 
 namespace memgraph::storage {
@@ -78,18 +78,18 @@ class IndexArming {
     // The vertex side is not noted here. A transaction reports having written a vertex property
     // only because it created a delta saying so, and that delta is in the buffer about to be
     // read, where it names the property. The edge side has no ids to name yet, so it is.
-    TransactionScope(IndexArming &arming, IndexImpact property_writes)
-        : arming_{&arming}, writes_vertex_properties_{property_writes.vertex_indexes} {
-      if (property_writes.edge_indexes) arming.note_edge_indexes();
+    TransactionScope(IndexArming &arming, PropertyWrites property_writes)
+        : arming_{&arming}, writes_vertex_properties_{property_writes.on_vertices} {
+      if (property_writes.on_edges) arming.note_edge_indexes();
     }
 
     IndexArming *arming_;
     bool writes_vertex_properties_;
   };
 
-  /// @param property_writes which index families this transaction's property writes could have
-  ///                        left something to collect in, which its deltas cannot say alone.
-  TransactionScope for_transaction(IndexImpact property_writes) { return {*this, property_writes}; }
+  /// @param property_writes what this transaction's property writes belonged to, which its
+  ///                        deltas cannot say on their own.
+  TransactionScope for_transaction(PropertyWrites property_writes) { return {*this, property_writes}; }
 
   /// Sweep every vertex index regardless of what was written. Used where entries may point at
   /// objects about to be freed: no delta names those, and leaving one behind is a dangling

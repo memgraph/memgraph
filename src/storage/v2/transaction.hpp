@@ -21,8 +21,8 @@
 #include <spdlog/spdlog.h>
 
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/index_impact.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/property_writes.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/memory.hpp"
 #include "utils/query_memory_tracker.hpp"
@@ -239,7 +239,7 @@ struct Transaction {
   // A SET_PROPERTY delta does not say whether it belongs to a vertex or an edge. The object kind
   // is a template parameter where the delta is created, so it is recorded here rather than
   // reconstructed later by walking a chain to its owner.
-  IndexImpact property_write_impact{};
+  PropertyWrites property_writes{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};
   bool edge_import_mode_active{false};

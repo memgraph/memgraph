@@ -971,13 +971,13 @@ class InMemoryStorage final : public Storage {
 
   struct GCDeltas {
     GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<CommitInfo> commit_info,
-             uint64_t transaction_id, IndexImpact property_write_impact)
+             uint64_t transaction_id, PropertyWrites property_writes)
         : mark_timestamp_{mark_timestamp},
           deltas_{std::move(deltas)},
           commit_info_{std::move(commit_info)},
           unlinkable_timestamp_{commit_info_ ? commit_info_->timestamp.load(std::memory_order_acquire) : 0},
           transaction_id_{transaction_id},
-          property_write_impact_{property_write_impact} {}
+          property_writes_{property_writes} {}
 
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
@@ -987,7 +987,7 @@ class InMemoryStorage final : public Storage {
     std::unique_ptr<CommitInfo> commit_info_{};  //!< the commit info the deltas are pointing at
     uint64_t unlinkable_timestamp_{};            //!< earliest timestamp when these deltas can be safely unlinked
     uint64_t transaction_id_{};                  //!< the transaction ID that created these deltas
-    IndexImpact property_write_impact_{};        //!< which index families these property writes could stale
+    PropertyWrites property_writes_{};           //!< what this transaction's property writes belonged to
   };
 
   utils::Synchronized<std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>, utils::SpinLock>
