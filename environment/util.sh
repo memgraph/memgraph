@@ -112,7 +112,7 @@ function check_custom_package() {
 # Retry wrapper for the network-dependent install_* functions below.
 #
 # Usage: retry_install <command> [args...]
-#   e.g. retry_install install_rust "1.85"
+#   e.g. retry_install install_rust "1.89"
 #
 # Retries up to RETRY_INSTALL_ATTEMPTS times (default 3), sleeping
 # RETRY_INSTALL_DELAY seconds (default 10) after a failure and doubling the delay
@@ -260,7 +260,7 @@ function install_dotnet_sdk ()
   if [ ! -d $DOTNETSDKINSTALLDIR ]; then
     mkdir -p $DOTNETSDKINSTALLDIR
   fi
-  if [ ! -f "$DOTNETSDKINSTALLDIR/.dotnet/dotnet" ]; then
+  if [ ! -f "$DOTNETSDKINSTALLDIR/dotnet" ]; then
     wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh \
       && chmod +x ./dotnet-install.sh \
       && ./dotnet-install.sh --channel 8.0 --install-dir $DOTNETSDKINSTALLDIR \
