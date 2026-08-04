@@ -17,7 +17,9 @@ namespace memgraph::storage {
 
 void VertexPropertyIndexAbortProcessor::CollectOnPropertyChange(PropertyId property, Vertex *vertex,
                                                                 PropertyValue value) {
-  DMG_ASSERT(IsInteresting(property), "Collecting a property no index is keyed on");
+  // See EdgePropertyIndexAbortProcessor::CollectOnPropertyChange: a write names a property, not an
+  // index, so a property no index is keyed on reaches here and must not be gathered.
+  if (!IsInteresting(property)) return;
   cleanup_collection_[property].emplace_back(std::move(value), vertex);
 }
 
