@@ -13,49 +13,38 @@
 
 #include <prometheus/gauge.h>
 
-#include "metrics/metric_ptr.hpp"
-
 namespace memgraph::metrics {
 
-/// RAII wrapper that increments a prometheus::Gauge on construction and
-/// decrements on destruction. Holds a shared reference to the gauge's
-/// control block (MetricPtr), so the gauge pointer can be atomically
-/// invalidated during metric rebind — the destructor becomes a safe no-op.
+/// Non-owning RAII wrapper over a prometheus::Gauge. The gauge is incremented
+/// on construction and decremented when the wrapper is destructed.
 class ScopedGauge {
  public:
   ScopedGauge() = default;
 
-  /// For per-database gauges (rebind-safe via shared control block).
-  explicit ScopedGauge(MetricPtr<prometheus::Gauge> ref) : ref_(std::move(ref)) {
-    if (auto *g = Load()) g->Increment();
-  }
-
-  /// For global gauges (process-lifetime, never rebound).
-  explicit ScopedGauge(prometheus::Gauge *gauge) : ref_(gauge ? MakeMetricPtr(gauge) : nullptr) {
-    if (gauge) gauge->Increment();
+  explicit ScopedGauge(prometheus::Gauge *gauge) : gauge_(gauge) {
+    if (gauge_) gauge_->Increment();
   }
 
   ~ScopedGauge() {
-    if (auto *g = Load()) g->Decrement();
+    if (gauge_) gauge_->Decrement();
   }
 
   ScopedGauge(ScopedGauge const &) = delete;
   ScopedGauge &operator=(ScopedGauge const &) = delete;
 
-  ScopedGauge(ScopedGauge &&other) noexcept : ref_(std::move(other.ref_)) {}
+  ScopedGauge(ScopedGauge &&other) noexcept : gauge_(other.gauge_) { other.gauge_ = nullptr; }
 
   ScopedGauge &operator=(ScopedGauge &&other) noexcept {
     if (this != &other) {
-      if (auto *g = Load()) g->Decrement();
-      ref_ = std::move(other.ref_);
+      if (gauge_) gauge_->Decrement();
+      gauge_ = other.gauge_;
+      other.gauge_ = nullptr;
     }
     return *this;
   }
 
  private:
-  prometheus::Gauge *Load() const noexcept { return ref_ ? ref_->load(std::memory_order_acquire) : nullptr; }
-
-  MetricPtr<prometheus::Gauge> ref_;
+  prometheus::Gauge *gauge_{nullptr};
 };
 
 }  // namespace memgraph::metrics

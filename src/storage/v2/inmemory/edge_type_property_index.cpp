@@ -219,7 +219,7 @@ bool InMemoryEdgeTypePropertyIndex::PublishIndex(EdgeTypeId edge_type, PropertyI
 
 void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = metrics::ScopedGauge{gauge.ref};
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property,

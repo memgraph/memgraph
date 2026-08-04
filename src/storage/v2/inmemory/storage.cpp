@@ -683,15 +683,23 @@ InMemoryStorage::~InMemoryStorage() {
 }
 
 void InMemoryStorage::RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) {
-  // Safe without pausing schedulers or locking: the old handles' MetricPtr
-  // control blocks remain alive (held by in-flight ScopedGauge instances)
-  // and their atomics have already been nulled by Detach/Invalidate before
-  // the prometheus objects were destroyed. Any concurrent read of an old
-  // handle is a no-op.
-  metric_handles_ = new_handles;
-  indices_.RebindMetricHandles(new_handles);
-  constraints_.RebindMetricHandles(new_handles);
-  ttl_.RebindMetricHandles(new_handles.deleted_nodes, new_handles.deleted_edges);
+  MG_ASSERT(repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ == kTimestampInitialId &&
+                transaction_id_ == kTransactionInitialId,
+            "RebindMetricHandles can only be used on an empty database with no active transactions");
+  gc_runner_.Pause();
+  snapshot_runner_.Pause();
+  ttl_.Pause();
+  {
+    std::lock_guard const gc_guard{gc_lock_};
+    std::unique_lock const handles_guard{metric_handles_mutex_};
+    metric_handles_ = new_handles;
+    indices_.RebindMetricHandles(new_handles);
+    constraints_.RebindMetricHandles(new_handles);
+    ttl_.RebindMetricHandles(new_handles.deleted_nodes, new_handles.deleted_edges);
+  }
+  ttl_.Resume();
+  snapshot_runner_.Resume();
+  gc_runner_.Resume();
 }
 
 void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change) {
@@ -4584,7 +4592,11 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
     last_snapshot_digest_ = std::move(current_digest);
   }
 
-  metric_handles_.snapshot_creation_latency_seconds.Observe(std::chrono::duration<double>(timer.Elapsed()).count());
+  {
+    auto snapshot_elapsed = std::chrono::duration<double>(timer.Elapsed());
+    std::shared_lock const handles_guard{metric_handles_mutex_};
+    metric_handles_.snapshot_creation_latency_seconds.Observe(snapshot_elapsed.count());
+  }
 
   return *snapshot_path;
 }

@@ -222,7 +222,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   }
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
 
-  transaction_gauge_ = metrics::ScopedGauge{db_acc->metric_handles()->active_transactions.ref};
+  transaction_gauge_ = metrics::ScopedGauge{db_acc->metric_handles()->active_transactions.gauge};
 
   if (db_acc->trigger_store()->HasTriggers() && could_commit) {
     trigger_context_collector_.emplace(db_acc->trigger_store()->GetEventTypes());
