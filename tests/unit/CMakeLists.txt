@@ -795,6 +795,11 @@ add_unit_test(storage_v2_gc
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_index_arming
+    SOURCES storage_v2_index_arming.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_non_sequential_isolation
     SOURCES storage_v2_non_sequential_isolation.cpp
     LINK_TARGETS mg::storage
