@@ -335,6 +335,8 @@ TEST(IndexArming, APropertyDeltaArmsNothingWhenTheTransactionWroteNoProperties) 
   EXPECT_FALSE(arming.arms_anything());
 }
 
+// Stands for all four edge actions: added or removed, in or out, they collapse to the same
+// structural note, so there is one rule here rather than four.
 TEST(IndexArming, AnEdgeDeltaArmsTheEdgeTypeIndex) {
   auto deltas = delta_container{};
   auto const &delta =
@@ -348,7 +350,8 @@ TEST(IndexArming, AnEdgeDeltaArmsTheEdgeTypeIndex) {
 }
 
 // A deleted object matters for correctness, but no id narrows which indexes hold its entries, so
-// the delta saying so arms nothing: the cycle arms every index of the family instead.
+// the delta saying so arms nothing: the cycle arms every index of the family instead. Stands for
+// all three object actions, which return without noting anything.
 TEST(IndexArming, AnObjectDeletionDeltaArmsNothingByItself) {
   auto deltas = delta_container{};
   auto const &delta = deltas.emplace(Delta::DeleteObjectTag{}, nullptr, 0);
