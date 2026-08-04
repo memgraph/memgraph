@@ -4248,6 +4248,18 @@ bool IsBuiltinIntrospectionQuery(const CypherQuery &query) {
   return IsGraphFreeIntrospectionProcedure(call_procedure->procedure_name_);
 }
 
+// Which accessor-free shape a CypherQuery matched, if any.
+enum class AccessorFreeQueryKind : uint8_t { kConstantReturn, kBuiltinIntrospection };
+
+// Classifies a CypherQuery once. Both the transaction-requirements visitor (which leaves the accessor
+// type unset) and the Prepare dispatch (which picks the preparer) need this answer, so it is computed
+// once and threaded through rather than recognized twice.
+std::optional<AccessorFreeQueryKind> ClassifyAccessorFreeQuery(const CypherQuery &query) {
+  if (IsConstantReturnQuery(query)) return AccessorFreeQueryKind::kConstantReturn;
+  if (IsBuiltinIntrospectionQuery(query)) return AccessorFreeQueryKind::kBuiltinIntrospection;
+  return std::nullopt;
+}
+
 // Prepares a `CALL mg.<introspection>()` query with no storage accessor: invokes the procedure via
 // CallNoGraphReadProcedure (graph-less) and streams the rows. Header derivation matches the normal
 // path (yielded identifier names, in order); results are byte-identical because the same procedure
@@ -10149,8 +10161,11 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   using QueryVisitor<void>::Visit;
 
   QueryTransactionRequirements(bool is_schema_assert_query, bool is_cypher_read,
-                               std::optional<storage::StorageMode> storage_mode)
-      : is_schema_assert_query_(is_schema_assert_query), is_cypher_read_(is_cypher_read), storage_mode_(storage_mode) {}
+                               std::optional<storage::StorageMode> storage_mode, bool is_accessor_free_cypher)
+      : is_schema_assert_query_(is_schema_assert_query),
+        is_cypher_read_(is_cypher_read),
+        storage_mode_(storage_mode),
+        is_accessor_free_cypher_(is_accessor_free_cypher) {}
 
   // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
   // case for use database which overwrites the current database)
@@ -10279,12 +10294,13 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(ShowSchemaInfoQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
 
   // Write access required
-  void Visit(CypherQuery &cypher_query) override {
+  void Visit(CypherQuery & /*unused*/) override {
     // Accessor-free Lab introspection queries produce their result without touching the graph, so
     // they run with no storage transaction. Leaving accessor_type_ unset (NO_ACCESS) makes Prepare
     // skip SetupDatabaseTransaction entirely: constant RETURN (e.g. the connection-check `RETURN 1`)
-    // and `CALL mg.<introspection>()` (e.g. feature detection).
-    if (IsConstantReturnQuery(cypher_query) || IsBuiltinIntrospectionQuery(cypher_query)) {
+    // and `CALL mg.<introspection>()` (e.g. feature detection). The classification is computed once
+    // by the caller and passed in, so it is not recognized a second time here.
+    if (is_accessor_free_cypher_) {
       return;
     }
     could_commit_ = true;
@@ -10355,6 +10371,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   bool const is_schema_assert_query_;
   bool const is_cypher_read_;
   std::optional<storage::StorageMode> storage_mode_;
+  // Precomputed by the caller: this CypherQuery can run with no storage accessor at all.
+  bool const is_accessor_free_cypher_;
 
   bool could_commit_ = false;
   // Whether storage_mode_ fed accessor_type_ or isolation_level_override_. Only then does the
@@ -10524,12 +10542,23 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 #endif
 
+    // Classified once here and reused by the dispatch below. Only implicit transactions are eligible:
+    // inside BEGIN...COMMIT the accessor is already open, so the query must take the normal path.
+    std::optional<AccessorFreeQueryKind> accessor_free_kind;
+    if (!in_explicit_transaction_) {
+      if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
+        accessor_free_kind = ClassifyAccessorFreeQuery(*cypher_query);
+      }
+    }
+
     if (!in_explicit_transaction_) {
       auto storage_mode = current_db_.db_acc_
                               ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
                               : std::nullopt;
-      auto transaction_requirements = QueryTransactionRequirements{
-          parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
+      auto transaction_requirements = QueryTransactionRequirements{parse_info.parsed_query.using_schema_assert,
+                                                                   parsed_query.is_cypher_read,
+                                                                   storage_mode,
+                                                                   accessor_free_kind.has_value()};
       parsed_query.query->Accept(transaction_requirements);
 
       // Fail-closed gate for broken databases (those that failed durability recovery and
@@ -10631,15 +10660,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 #endif
 
-    if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
-      // Accessor-free Lab introspection queries run with no storage transaction (see the
-      // QueryTransactionRequirements visitor, which left accessor_type_ unset for them). They must
-      // not reach PrepareCypherQuery, which asserts a current DB transaction. Only applies to
-      // implicit transactions; inside BEGIN...COMMIT the accessor is pre-opened and the query takes
-      // the normal path.
-      if (!in_explicit_transaction_ && IsConstantReturnQuery(*cypher_query)) {
+    if (utils::Downcast<CypherQuery>(parsed_query.query)) {
+      // Accessor-free queries run with no storage transaction (see the QueryTransactionRequirements
+      // visitor, which was told to leave accessor_type_ unset for them). They must not reach
+      // PrepareCypherQuery, which asserts a current DB transaction. accessor_free_kind is only ever
+      // set for implicit transactions.
+      if (accessor_free_kind == AccessorFreeQueryKind::kConstantReturn) {
         prepared_query = PrepareConstantReturnQuery(std::move(parsed_query));
-      } else if (!in_explicit_transaction_ && IsBuiltinIntrospectionQuery(*cypher_query)) {
+      } else if (accessor_free_kind == AccessorFreeQueryKind::kBuiltinIntrospection) {
         prepared_query = PrepareBuiltinIntrospectionQuery(std::move(parsed_query));
       } else {
         prepared_query = PrepareCypherQuery(std::move(parsed_query),
