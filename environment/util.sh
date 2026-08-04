@@ -109,22 +109,67 @@ function check_custom_package() {
     return 0
 }
 
+# Retry wrapper for the network-dependent install_* functions below.
+#
+# Usage: retry_install <command> [args...]
+#   e.g. retry_install install_rust "1.89"
+#
+# Retries up to RETRY_INSTALL_ATTEMPTS times (default 3), sleeping
+# RETRY_INSTALL_DELAY seconds (default 10) after a failure and doubling the delay
+# on each subsequent one. Returns the exit status of the last attempt, so a
+# caller running under `set -e` still aborts once the retries are exhausted.
+function retry_install() {
+    if [ "$#" -eq 0 ]; then
+        echo "retry_install: no command given" >&2
+        return 2
+    fi
+
+    local attempts="${RETRY_INSTALL_ATTEMPTS:-3}"
+    local delay="${RETRY_INSTALL_DELAY:-10}"
+    local attempt=1
+    local status
+
+    echo "retry_install: installing '$*' (up to $attempts attempt(s))"
+
+    while true; do
+        # Left side of `||`, so errexit is suspended for the whole call - even
+        # inside the callee, which carries on past a failing step and returns its
+        # last command's status. Hence the `&&` chains and postcondition checks
+        # in the install_* functions: one ending in a plain `echo` always looks
+        # like a success and would never be retried.
+        status=0
+        "$@" || status=$?
+        if [[ "$status" -eq 0 ]]; then
+            echo "retry_install: '$*' succeeded on attempt $attempt/$attempts"
+            return 0
+        fi
+        if [[ "$attempt" -ge "$attempts" ]]; then
+            echo "retry_install: '$*' failed after $attempts attempt(s), last exit status $status" >&2
+            return "$status"
+        fi
+        echo "retry_install: '$*' failed with exit status $status, retrying in ${delay}s (attempt $((attempt + 1))/$attempts)" >&2
+        sleep "$delay"
+        attempt=$((attempt + 1))
+        delay=$((delay * 2))
+    done
+}
+
 function install_custom_packages() {
     local packages=("$@")
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
             custom-maven*)
-                install_custom_maven "3.9.3"
+                retry_install install_custom_maven "3.9.3"
                 ;;
             custom-golang*)
-                install_custom_golang "1.18.9"
+                retry_install install_custom_golang "1.18.9"
                 ;;
             custom-rust)
-                install_rust "1.85"
+                retry_install install_rust "1.89"
                 ;;
             custom-node)
-                install_node "20"
+                retry_install install_node "20"
                 ;;
         esac
     done
@@ -182,9 +227,14 @@ function install_custom_golang() {
     GOINSTALLDIR="/opt/go$GOVERSION"
     GOROOT="$GOINSTALLDIR/go" # GOPATH=$HOME/go
     if [ ! -f "$GOROOT/bin/go" ]; then
-      curl -LO https://go.dev/dl/go$GOVERSION.linux-$GOARCH.tar.gz
-      mkdir -p "$GOINSTALLDIR"
-      tar -C "$GOINSTALLDIR" -xzf go$GOVERSION.linux-$GOARCH.tar.gz
+      curl -fLO --proto '=https' --proto-redir '=https' \
+      https://go.dev/dl/go$GOVERSION.linux-$GOARCH.tar.gz \
+        && mkdir -p "$GOINSTALLDIR" \
+        && tar -C "$GOINSTALLDIR" -xzf go$GOVERSION.linux-$GOARCH.tar.gz
+    fi
+    if [ ! -f "$GOROOT/bin/go" ]; then
+      echo "go $GOVERSION installation failed, $GOROOT/bin/go is missing" >&2
+      return 1
     fi
     echo "go $GOVERSION installed under $GOROOT"
 }
@@ -195,8 +245,12 @@ function install_custom_maven() {
   MVNURL="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/maven/apache-maven-$MVNVERSION-bin.tar.gz"
   if [ ! -f "$MVNINSTALLDIR/bin/mvn" ]; then
     echo "Downloading maven from $MVNURL"
-    curl -LO "$MVNURL"
-    tar -C "/opt" -xzf "apache-maven-$MVNVERSION-bin.tar.gz"
+    curl -fLO --proto '=https' --proto-redir '=https' "$MVNURL" \
+      && tar -C "/opt" -xzf "apache-maven-$MVNVERSION-bin.tar.gz"
+  fi
+  if [ ! -f "$MVNINSTALLDIR/bin/mvn" ]; then
+    echo "maven $MVNVERSION installation failed, $MVNINSTALLDIR/bin/mvn is missing" >&2
+    return 1
   fi
   echo "maven $MVNVERSION installed under $MVNINSTALLDIR"
 }
@@ -208,12 +262,16 @@ function install_dotnet_sdk ()
   if [ ! -d $DOTNETSDKINSTALLDIR ]; then
     mkdir -p $DOTNETSDKINSTALLDIR
   fi
-  if [ ! -f "$DOTNETSDKINSTALLDIR/.dotnet/dotnet" ]; then
-    wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
-    chmod +x ./dotnet-install.sh
-    ./dotnet-install.sh --channel 8.0 --install-dir $DOTNETSDKINSTALLDIR
-    rm dotnet-install.sh
-    ln -sf $DOTNETSDKINSTALLDIR/dotnet /usr/bin/dotnet
+  if [ ! -f "$DOTNETSDKINSTALLDIR/dotnet" ]; then
+    wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh \
+      && chmod +x ./dotnet-install.sh \
+      && ./dotnet-install.sh --channel 8.0 --install-dir $DOTNETSDKINSTALLDIR \
+      && rm dotnet-install.sh \
+      && ln -sf $DOTNETSDKINSTALLDIR/dotnet /usr/bin/dotnet
+  fi
+  if [ ! -f "$DOTNETSDKINSTALLDIR/dotnet" ]; then
+    echo "dotnet sdk $DOTNETSDKVERSION installation failed, $DOTNETSDKINSTALLDIR/dotnet is missing" >&2
+    return 1
   fi
   echo "dotnet sdk $DOTNETSDKVERSION installed under $DOTNETSDKINSTALLDIR"
 }
@@ -227,7 +285,7 @@ function install_rust () {
 
 function install_node () {
   NODE_VERSION="$1"
-  curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
+  curl -f --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
       && . ~/.nvm/nvm.sh \
       && nvm install ${NODE_VERSION} \
       && nvm use ${NODE_VERSION}
