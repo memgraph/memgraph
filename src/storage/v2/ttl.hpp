@@ -16,7 +16,7 @@
 #include <optional>
 #include <string>
 
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 
 #ifdef MG_ENTERPRISE
 

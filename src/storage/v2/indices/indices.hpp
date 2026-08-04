@@ -12,7 +12,7 @@
 #pragma once
 
 #include <memory>
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 
 #include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/active_indices.hpp"
