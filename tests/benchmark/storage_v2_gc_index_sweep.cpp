@@ -78,6 +78,14 @@ DEFINE_int32(num_churn_properties, 0,
              "property, so no index is dirtied. Set it equal to the index count to reproduce the "
              "whole-family sweep -- that configuration is the control: a saving measured at a low "
              "value only means something if the high value still costs what it costs today");
+DEFINE_int32(num_label_indexes, 0,
+             "plain label indexes, over the labels the writers churn. Separate from num_indexes "
+             "because a label index turns on a label alone, so it is the one an --churn=label "
+             "workload can leave with nothing to collect");
+DEFINE_int32(num_churn_labels, 64,
+             "how many distinct labels the writers toggle. Below num_label_indexes it is the "
+             "fraction of label indexes a sweep has any reason to visit, the same dial "
+             "num_churn_properties gives on the property side");
 DEFINE_int32(num_writers, 4, "number of threads writing labels continuously");
 DEFINE_int32(duration_seconds, 30, "how long to run the write traffic");
 DEFINE_int32(gc_interval_ms, 100, "periodic GC interval");
@@ -102,11 +110,6 @@ DEFINE_int32(num_readers, 2, "threads doing point lookups, to measure how long a
 namespace ms = memgraph::storage;
 
 namespace {
-
-// Labels the writers churn. Disjoint from the indexed label so the traffic arms the
-// vertex sweep (via the RemoveLabelTag the delta carries) without changing which
-// vertices the indexes cover -- the sweep cost must stay constant across the run.
-constexpr int kChurnLabels = 64;
 
 struct LatencyStats {
   std::atomic<uint64_t> ops{0};
@@ -135,7 +138,7 @@ void WriterFunc(int thread_id, ms::Storage *storage, std::vector<ms::Gid> const 
                 std::atomic<uint64_t> &commits, std::atomic<uint64_t> &conflicts, LatencyStats &stats) {
   std::mt19937 gen(thread_id);
   std::uniform_int_distribution<uint64_t> vertex_dist(0, vertices.size() - 1);
-  std::uniform_int_distribution<uint64_t> label_dist(0, churn_labels.size() - 1);
+  std::uniform_int_distribution<uint64_t> label_dist(0, FLAGS_num_churn_labels - 1);
   std::uniform_int_distribution<uint64_t> property_dist(0, churn_properties.size() - 1);
 
   while (!stop.load(std::memory_order_relaxed)) {
@@ -259,6 +262,7 @@ int main(int argc, char *argv[]) {
   MG_ASSERT(FLAGS_churn == "label" || FLAGS_churn == "property" || FLAGS_churn == "edge_property",
             "--churn must be label, property or edge_property");
   MG_ASSERT(FLAGS_num_churn_properties >= 0, "--num_churn_properties cannot be negative");
+  MG_ASSERT(FLAGS_num_churn_labels > 0, "the writers need at least one label to toggle");
   // Asserted rather than ignored: a run that asked for a churn fraction and silently got none
   // would report the unarmed cost under the name of the armed one.
   MG_ASSERT(FLAGS_churn != "label" || FLAGS_num_churn_properties == 0,
@@ -305,8 +309,9 @@ int main(int argc, char *argv[]) {
     } else {
       churn_properties.push_back(acc->NameToProperty("churn"));
     }
-    churn_labels.reserve(kChurnLabels);
-    for (int i = 0; i < kChurnLabels; ++i) {
+    auto const label_pool = std::max(FLAGS_num_churn_labels, FLAGS_num_label_indexes);
+    churn_labels.reserve(label_pool);
+    for (int i = 0; i < label_pool; ++i) {
       churn_labels.push_back(acc->NameToLabel("Churn" + std::to_string(i)));
     }
     acc->Abort();
@@ -321,6 +326,11 @@ int main(int argc, char *argv[]) {
       for (int i = base; i < batch_end; ++i) {
         auto vertex = acc->CreateVertex();
         MG_ASSERT(vertex.AddLabel(indexed_label).has_value());
+        // The label indexes are built over these, so every vertex has to carry them or the
+        // indexes stand empty and a sweep of them measures nothing.
+        for (int l = 0; l < FLAGS_num_label_indexes; ++l) {
+          MG_ASSERT(vertex.AddLabel(churn_labels[l]).has_value());
+        }
         for (int p = 0; p < num_properties; ++p) {
           MG_ASSERT(vertex.SetProperty(properties[p], ms::PropertyValue{static_cast<int64_t>(i)}).has_value());
         }
@@ -364,6 +374,16 @@ int main(int argc, char *argv[]) {
               << " edges in " << timer.Elapsed().count() << "s\n";
   }
 
+  if (FLAGS_num_label_indexes > 0) {
+    memgraph::utils::Timer timer;
+    for (int i = 0; i < FLAGS_num_label_indexes; ++i) {
+      auto acc = storage->ReadOnlyAccess();
+      MG_ASSERT(acc->CreateIndex(churn_labels[i]).has_value());
+      MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    std::cout << "created " << FLAGS_num_label_indexes << " label indexes in " << timer.Elapsed().count() << "s\n";
+  }
+
   {
     memgraph::utils::Timer timer;
     for (int i = 0; i < FLAGS_num_indexes; ++i) {
@@ -387,14 +407,26 @@ int main(int argc, char *argv[]) {
     auto acc = storage->Access(ms::StorageAccessType::WRITE);
     auto vertex = acc->FindVertex(vertices.front(), ms::View::OLD);
     MG_ASSERT(vertex.has_value());
+    // Touch everything the writers touch, not one of them: the pass being timed should be armed
+    // the way a pass during the run is, and arming is per index.
     if (FLAGS_churn == "edge_property") {
       auto edge = acc->FindEdge(edges.front(), ms::View::OLD);
       MG_ASSERT(edge.has_value());
-      MG_ASSERT(edge->SetProperty(churn_properties.front(), ms::PropertyValue{int64_t{1}}).has_value());
+      for (auto const property : churn_properties) {
+        MG_ASSERT(edge->SetProperty(property, ms::PropertyValue{int64_t{1}}).has_value());
+      }
     } else if (FLAGS_churn == "property") {
-      MG_ASSERT(vertex->SetProperty(churn_properties.front(), ms::PropertyValue{int64_t{1}}).has_value());
+      for (auto const property : churn_properties) {
+        MG_ASSERT(vertex->SetProperty(property, ms::PropertyValue{int64_t{1}}).has_value());
+      }
     } else {
-      MG_ASSERT(vertex->AddLabel(churn_labels.front()).has_value());
+      // Toggle, as the writers do: with the label indexes built over labels every vertex already
+      // carries, an AddLabel that finds one present produces no delta and arms nothing.
+      for (int l = 0; l < FLAGS_num_churn_labels; ++l) {
+        auto const added = vertex->AddLabel(churn_labels[l]);
+        MG_ASSERT(added.has_value());
+        if (!*added) MG_ASSERT(vertex->RemoveLabel(churn_labels[l]).has_value());
+      }
     }
     MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -402,6 +434,10 @@ int main(int argc, char *argv[]) {
   auto const interval_seconds = std::chrono::duration<double>(gc_interval).count();
 
   auto const armed_indexes = FLAGS_churn == "edge_property" ? FLAGS_num_edge_indexes : FLAGS_num_indexes;
+  if (FLAGS_num_label_indexes > 0) {
+    std::cout << "\nlabel indexes:   " << FLAGS_num_label_indexes
+              << ", of which churned: " << std::min(FLAGS_num_churn_labels, FLAGS_num_label_indexes) << "\n";
+  }
   std::cout << "\nindex entries:   " << index_entries << "\n"
             << "indexes dirtied: " << FLAGS_num_churn_properties << " of " << armed_indexes << "\n"
             << "drain pass:      " << drain_seconds << "s\n"
