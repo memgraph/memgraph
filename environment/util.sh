@@ -115,7 +115,7 @@ function check_custom_package() {
 #   e.g. retry_install install_rust "1.85"
 #
 # Retries up to RETRY_INSTALL_ATTEMPTS times (default 3), sleeping
-# RETRY_INSTALL_DELAY seconds (default 5) after a failure and doubling the delay
+# RETRY_INSTALL_DELAY seconds (default 10) after a failure and doubling the delay
 # on each subsequent one. Returns the exit status of the last attempt, so a
 # caller running under `set -e` still aborts once the retries are exhausted.
 function retry_install() {
@@ -125,7 +125,7 @@ function retry_install() {
     fi
 
     local attempts="${RETRY_INSTALL_ATTEMPTS:-3}"
-    local delay="${RETRY_INSTALL_DELAY:-5}"
+    local delay="${RETRY_INSTALL_DELAY:-10}"
     local attempt=1
     local status
 
@@ -137,13 +137,11 @@ function retry_install() {
         # whole script before we get a chance to retry.
         status=0
         "$@" || status=$?
-        if [ "$status" -eq 0 ]; then
-            if [ "$attempt" -gt 1 ]; then
-                echo "retry_install: '$*' succeeded on attempt $attempt/$attempts"
-            fi
+        if [[ "$status" -eq 0 ]]; then
+            echo "retry_install: '$*' succeeded on attempt $attempt/$attempts"
             return 0
         fi
-        if [ "$attempt" -ge "$attempts" ]; then
+        if [[ "$attempt" -ge "$attempts" ]]; then
             echo "retry_install: '$*' failed after $attempts attempt(s), last exit status $status" >&2
             return "$status"
         fi
