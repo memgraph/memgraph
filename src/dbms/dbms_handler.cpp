@@ -1229,17 +1229,8 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // The COLD shell stays in db_handler_ so a later resume can move-assign a fresh gatekeeper.
   gk->finish_suspend();
 
-  // ~Database above tears down the tenant's in-memory storage and force-purges its dedicated
-  // per-DB arenas (ArenaPool::~ArenaPool). But a large fraction of the tenant's freed pages lives
-  // in the SHARED/percpu arenas (query-execution allocations are not all routed to the DB arena),
-  // which the per-DB purge does not touch. Those pages are freed but only returned to the
-  // MemoryTracker asynchronously by jemalloc's decay (dirty->muzzy->clean, ~muzzy_decay_ms +
-  // dirty_decay_ms). Until decay lands, total_memory_tracker still counts them, so the memory
-  // ceiling that SUSPEND is meant to relieve stays elevated for several seconds. Force a global
-  // purge here so the reclaim is synchronous and observable the instant SUSPEND returns -- the
-  // contract callers rely on ("suspending a tenant returns its resident memory"). This is the same
-  // reclaim FREE MEMORY performs; SUSPEND is a rare, explicit give-back-memory operation, so the
-  // one-off cost of purging all arenas is acceptable.
+  // The database teardown frees its own arena, but many allocations remain in shared jemalloc arenas.
+  // Force a global purge so SUSPEND returns only after the tenant's memory has been reclaimed.
   memory::PurgeUnusedMemory();
 
   // The suspend is committed (tenant is COLD, in-memory storage and stream consumers dropped;
