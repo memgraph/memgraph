@@ -30,6 +30,7 @@
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/observer.hpp"
@@ -125,16 +126,18 @@ class SnapshotRpcProgressTest : public ::testing::Test {
 
   void InitActiveIndicesStore() {
     active_indices_store_.WithLock([](ActiveIndicesPtr &ai) {
-      ai = std::make_shared<ActiveIndices>(std::make_shared<InMemoryLabelIndex::ActiveIndices>(),
-                                           std::make_shared<InMemoryLabelPropertyIndex::ActiveIndices>(),
-                                           std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
-                                           std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
-                                           std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>(),
-                                           std::make_shared<memgraph::storage::TextIndex::ActiveIndices>(),
-                                           std::make_shared<memgraph::storage::TextEdgeIndex::ActiveIndices>(),
-                                           std::make_shared<memgraph::storage::PointIndexStorage::ActiveIndices>(),
-                                           std::make_shared<memgraph::storage::VectorIndex::ActiveIndices>(),
-                                           std::make_shared<memgraph::storage::VectorEdgeIndex::ActiveIndices>());
+      ai = std::make_shared<ActiveIndices>(
+          std::make_shared<InMemoryLabelIndex::ActiveIndices>(),
+          std::make_shared<InMemoryLabelPropertyIndex::ActiveIndices>(),
+          std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
+          std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
+          std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>(),
+          std::make_shared<memgraph::storage::InMemoryVertexPropertyIndex::ActiveIndices>(),
+          std::make_shared<memgraph::storage::TextIndex::ActiveIndices>(),
+          std::make_shared<memgraph::storage::TextEdgeIndex::ActiveIndices>(),
+          std::make_shared<memgraph::storage::PointIndexStorage::ActiveIndices>(),
+          std::make_shared<memgraph::storage::VectorIndex::ActiveIndices>(),
+          std::make_shared<memgraph::storage::VectorEdgeIndex::ActiveIndices>());
     });
   }
 };

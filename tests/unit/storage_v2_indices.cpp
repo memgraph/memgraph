@@ -170,9 +170,14 @@ class IndexTest : public testing::Test {
 
   template <class TIterable>
   std::vector<int64_t> GetIds(TIterable iterable, View view = View::OLD) {
+    return GetIds(std::move(iterable), this->prop_id, view);
+  }
+
+  template <class TIterable>
+  std::vector<int64_t> GetIds(TIterable iterable, PropertyId prop, View view) {
     std::vector<int64_t> ret;
     for (auto item : iterable) {
-      ret.push_back(item.GetProperty(this->prop_id, view)->ValueInt());
+      ret.push_back(item.GetProperty(prop, view)->ValueInt());
     }
     return ret;
   }
@@ -4969,4 +4974,281 @@ TYPED_TEST(IndexTest, DropEdgePropertyIndexAbortRestoresIndex) {
       [&](auto *acc) { return acc->CreateGlobalEdgeIndex(this->edge_prop_id1); },
       [&](auto *acc) { return acc->DropGlobalEdgeIndex(this->edge_prop_id1); },
       [&](auto *acc) { return acc->EdgePropertyIndexReady(this->edge_prop_id1); });
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, VertexPropertyIndexCreate) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_FALSE(acc->VertexPropertyIndexReady(this->prop_id));
+    EXPECT_EQ(acc->ListAllIndices().vertex_property.size(), 0);
+    EXPECT_EQ(acc->ApproximateVertexCount(this->prop_id), 0);
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < 10; ++i) {
+      this->CreateVertex(acc.get());
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    EXPECT_EQ(acc->ApproximateVertexCount(this->prop_id), 0);
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateGlobalVertexIndex(this->prop_id).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ApproximateVertexCount(this->prop_id), 10);
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::OLD), View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::NEW), View::NEW),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+  }
+
+  // Add more vertices, check visibility, then abort — count should revert.
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 10; i < 20; ++i) {
+      this->CreateVertex(acc.get());
+    }
+
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::OLD), View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::NEW), View::NEW),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19));
+
+    acc->AdvanceCommand();
+
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::OLD), View::NEW),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19));
+
+    EXPECT_EQ(acc->ApproximateVertexCount(this->prop_id), 20);
+    acc->Abort();
+    EXPECT_EQ(acc->ApproximateVertexCount(this->prop_id), 10);
+  }
+
+  // Add more vertices and commit — they should persist.
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 10; i < 20; ++i) {
+      this->CreateVertex(acc.get());
+    }
+
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::OLD), View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::NEW), View::NEW),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29));
+
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    EXPECT_EQ(acc->ApproximateVertexCount(this->prop_id), 20);
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::OLD), View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29));
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, VertexPropertyIndexDrop) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_FALSE(acc->VertexPropertyIndexReady(this->prop_id));
+    EXPECT_EQ(acc->ListAllIndices().vertex_property.size(), 0);
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < 10; ++i) {
+      this->CreateVertex(acc.get());
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateGlobalVertexIndex(this->prop_id).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::OLD), View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+  }
+
+  {
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(!acc->DropGlobalVertexIndex(this->prop_id).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_FALSE(acc->VertexPropertyIndexReady(this->prop_id));
+    EXPECT_EQ(acc->ListAllIndices().vertex_property.size(), 0);
+  }
+
+  // Dropping again should fail.
+  {
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(!acc->DropGlobalVertexIndex(this->prop_id).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Re-create and verify it picks up all existing vertices.
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 10; i < 20; ++i) {
+      this->CreateVertex(acc.get());
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateGlobalVertexIndex(this->prop_id).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_TRUE(acc->VertexPropertyIndexReady(this->prop_id));
+    EXPECT_THAT(acc->ListAllIndices().vertex_property, UnorderedElementsAre(this->prop_id));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::OLD), View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19));
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, VertexPropertyIndexBasic) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateGlobalVertexIndex(this->prop_id).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateGlobalVertexIndex(this->prop_val).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  EXPECT_THAT(acc->ListAllIndices().vertex_property, UnorderedElementsAre(this->prop_id, this->prop_val));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_val, View::OLD), this->prop_val, View::OLD), IsEmpty());
+
+  // Create 10 vertices; odd ones get prop_id, even ones get prop_val.
+  for (int i = 0; i < 10; ++i) {
+    auto vertex = acc->CreateVertex();
+    if (i % 2) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_id, memgraph::storage::PropertyValue(i)));
+    } else {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, memgraph::storage::PropertyValue(i)));
+    }
+  }
+
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_val, View::OLD), this->prop_val, View::OLD), IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_val, View::NEW), this->prop_val, View::NEW),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
+
+  acc->AdvanceCommand();
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_val, View::OLD), this->prop_val, View::OLD),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
+
+  // Delete even-numbered vertices (those with prop_val).
+  for (auto vertex : acc->Vertices(this->prop_val, View::OLD)) {
+    ASSERT_NO_ERROR(acc->DeleteVertex(&vertex));
+  }
+
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_val, View::OLD), this->prop_val, View::OLD),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_val, View::NEW), this->prop_val, View::NEW), IsEmpty());
+
+  acc->AdvanceCommand();
+
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_val, View::OLD), this->prop_val, View::OLD), IsEmpty());
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, VertexPropertyIndexBoundedScan) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateGlobalVertexIndex(this->prop_id).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  for (int i = 0; i < 20; ++i) {
+    this->CreateVertex(acc.get());
+  }
+  acc->AdvanceCommand();
+
+  // Equality: only the exact value.
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id, memgraph::storage::PropertyValue(12), View::OLD)),
+              UnorderedElementsAre(12));
+
+  // Inclusive bounds.
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id,
+                                         memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(5)),
+                                         memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(10)),
+                                         View::OLD)),
+              UnorderedElementsAre(5, 6, 7, 8, 9, 10));
+
+  // Exclusive bounds.
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id,
+                                         memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(5)),
+                                         memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(10)),
+                                         View::OLD)),
+              UnorderedElementsAre(6, 7, 8, 9));
+
+  // Lower bound only.
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id,
+                                         memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(17)),
+                                         std::nullopt,
+                                         View::OLD)),
+              UnorderedElementsAre(17, 18, 19));
+
+  // Upper bound only.
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->prop_id,
+                                         std::nullopt,
+                                         memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(3)),
+                                         View::OLD)),
+              UnorderedElementsAre(0, 1, 2));
+}
+
+TYPED_TEST(IndexTest, DropVertexPropertyIndexAbortRestoresIndex) {
+  SKIP_IF_NOT_IN_MEMORY();
+  ExpectDropAbortRestoresIndex(
+      this,
+      IndexAcc,
+      DropAcc,
+      [&](auto *acc) { return acc->CreateGlobalVertexIndex(this->prop_id); },
+      [&](auto *acc) { return acc->DropGlobalVertexIndex(this->prop_id); },
+      [&](auto *acc) { return acc->VertexPropertyIndexReady(this->prop_id); });
 }

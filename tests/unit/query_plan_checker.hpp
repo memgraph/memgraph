@@ -123,6 +123,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByEdgePropertyValue);
   PRE_VISIT(ScanAllByEdgePropertyRange);
   PRE_VISIT(ScanAllByEdgeId);
+  PRE_VISIT(ScanAllByVertexProperty);
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
@@ -226,6 +227,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanParallelByEdgeProperty);
   PRE_VISIT(ScanParallelByEdgePropertyValue);
   PRE_VISIT(ScanParallelByEdgePropertyRange);
+  PRE_VISIT(ScanParallelByVertexProperty);
   PRE_VISIT(ScanChunk);
   PRE_VISIT(ScanChunkByEdge);
 
@@ -327,6 +329,7 @@ using ExpectScanParallelByEdgeTypePropertyRange = OpChecker<ScanParallelByEdgeTy
 using ExpectScanParallelByEdgeProperty = OpChecker<ScanParallelByEdgeProperty>;
 using ExpectScanParallelByEdgePropertyValue = OpChecker<ScanParallelByEdgePropertyValue>;
 using ExpectScanParallelByEdgePropertyRange = OpChecker<ScanParallelByEdgePropertyRange>;
+using ExpectScanParallelByVertexProperty = OpChecker<ScanParallelByVertexProperty>;
 using ExpectScanChunk = OpChecker<ScanChunk>;
 using ExpectScanChunkByEdge = OpChecker<ScanChunkByEdge>;
 
@@ -713,6 +716,47 @@ class ExpectScanAllByEdgePropertyValue : public OpChecker<ScanAllByEdgePropertyV
   memgraph::query::Expression *expression_;
 };
 
+class ExpectScanAllByVertexProperty : public OpChecker<ScanAllByVertexProperty> {
+ public:
+  explicit ExpectScanAllByVertexProperty(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+  }
+
+ private:
+  memgraph::storage::PropertyId property_;
+};
+
+class ExpectScanAllByVertexPropertyValue : public OpChecker<ScanAllByVertexProperty> {
+ public:
+  explicit ExpectScanAllByVertexPropertyValue(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+    EXPECT_EQ(scan_all.expression_range_.type_, memgraph::query::plan::ExpressionRange::Type::EQUAL);
+  }
+
+ private:
+  memgraph::storage::PropertyId property_;
+};
+
+class ExpectScanAllByVertexPropertyRange : public OpChecker<ScanAllByVertexProperty> {
+ public:
+  explicit ExpectScanAllByVertexPropertyRange(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+    EXPECT_EQ(scan_all.expression_range_.type_, memgraph::query::plan::ExpressionRange::Type::RANGE);
+  }
+
+ private:
+  memgraph::storage::PropertyId property_;
+};
+
 class ExpectCartesian : public OpChecker<Cartesian> {
  public:
   ExpectCartesian(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
@@ -1009,6 +1053,28 @@ class FakeDbAccessor {
     return edge_property_index_.find(property) != edge_property_index_.end();
   }
 
+  bool VertexPropertyIndexReady(memgraph::storage::PropertyId property) const {
+    return vertex_property_index_.contains(property);
+  }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId property) const {
+    auto found = vertex_property_index_.find(property);
+    if (found != vertex_property_index_.end()) return found->second;
+    return 0;
+  }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId /*property*/,
+                        const memgraph::storage::PropertyValue & /*value*/) const {
+    return 0;
+  }
+
+  int64_t VerticesCount(
+      memgraph::storage::PropertyId /*property*/,
+      const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> & /*lower*/,
+      const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> & /*upper*/) const {
+    return 0;
+  }
+
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties) const {
     return memgraph::storage::LabelPropertyIndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
@@ -1059,6 +1125,10 @@ class FakeDbAccessor {
   }
 
   void SetIndexCount(memgraph::storage::PropertyId property, int64_t count) { edge_property_index_[property] = count; }
+
+  void SetVertexPropertyIndexCount(memgraph::storage::PropertyId property, int64_t count) {
+    vertex_property_index_[property] = count;
+  }
 
   memgraph::storage::LabelId NameToLabel(const std::string &name) {
     auto found = labels_.find(name);
@@ -1133,6 +1203,7 @@ class FakeDbAccessor {
   std::vector<std::tuple<memgraph::storage::EdgeTypeId, memgraph::storage::PropertyId, int64_t>>
       edge_type_property_index_;
   std::unordered_map<memgraph::storage::PropertyId, int64_t> edge_property_index_;
+  std::unordered_map<memgraph::storage::PropertyId, int64_t> vertex_property_index_;
 };
 
 }  // namespace memgraph::query::plan

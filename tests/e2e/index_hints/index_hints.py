@@ -609,5 +609,47 @@ def test_index_hint_on_expand(memgraph):
     assert explain_without_hint == expected_explain_without_hint and explain_with_hint == expected_explain_with_hint
 
 
+def test_vertex_property_index_hint_forces_scan(memgraph):
+    """USING INDEX :(prop) forces vertex-property scan over label+property scan."""
+    memgraph.execute("FOREACH (i IN range(1, 100) | CREATE (n:Label {val: i}));")
+    memgraph.execute("CREATE INDEX ON :Label(val);")
+    memgraph.execute("CREATE GLOBAL INDEX ON :(val);")
+
+    plan_no_hint = [
+        row["QUERY PLAN"] for row in memgraph.execute_and_fetch("EXPLAIN MATCH (n:Label) WHERE n.val = 1 RETURN n;")
+    ]
+    plan_with_hint = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch("EXPLAIN USING INDEX :(val) MATCH (n:Label) WHERE n.val = 1 RETURN n;")
+    ]
+
+    # Without hint, planner picks label+property index
+    assert any("ScanAllByLabelProperties" in step for step in plan_no_hint)
+    # With hint, planner picks vertex-property index
+    assert any("ScanAllByVertexProperty" in step for step in plan_with_hint)
+
+
+def test_vertex_property_index_hint_nonexistent_ignored(memgraph):
+    """USING INDEX on a non-existent vertex-property index is silently ignored."""
+    memgraph.execute("CREATE (:Node {x: 1});")
+
+    # Should not crash — hint is ignored, planner falls back to ScanAll
+    plan = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch("EXPLAIN USING INDEX :(x) MATCH (n) WHERE n.x = 1 RETURN n;")
+    ]
+    assert any("ScanAll" in step for step in plan)
+
+
+def test_vertex_property_index_hint_correctness(memgraph):
+    """Query with vertex-property index hint returns correct results."""
+    memgraph.execute("FOREACH (i IN range(1, 5) | CREATE (n:Label {val: i}));")
+    memgraph.execute("CREATE GLOBAL INDEX ON :(val);")
+
+    results = list(memgraph.execute_and_fetch("USING INDEX :(val) MATCH (n) WHERE n.val = 3 RETURN n.val AS v;"))
+    assert len(results) == 1
+    assert results[0]["v"] == 3
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

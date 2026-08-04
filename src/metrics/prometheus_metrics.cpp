@@ -234,6 +234,11 @@ PrometheusMetrics::PrometheusMetrics()
                                                .Name("memgraph_scan_all_by_edge_id_operator_total")
                                                .Help("Number of times ScanAllByEdgeId operator was used")
                                                .Register(registry_)},
+      scan_all_by_vertex_property_operator_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_scan_all_by_vertex_property_operator_total")
+              .Help("Number of times ScanAllByVertexProperty operator was used")
+              .Register(registry_)},
       scan_all_by_point_distance_operator_family_{prometheus::BuildCounter()
                                                       .Name("memgraph_scan_all_by_point_distance_operator_total")
                                                       .Help("Number of times ScanAllByPointDistance operator was used")
@@ -404,6 +409,10 @@ PrometheusMetrics::PrometheusMetrics()
                                                .Name("memgraph_active_edge_property_indices")
                                                .Help("Number of active edge property indices")
                                                .Register(registry_)},
+      active_vertex_property_indices_family_{prometheus::BuildGauge()
+                                                 .Name("memgraph_active_vertex_property_indices")
+                                                 .Help("Number of active vertex property indices")
+                                                 .Register(registry_)},
       active_point_indices_family_{prometheus::BuildGauge()
                                        .Name("memgraph_active_point_indices")
                                        .Help("Number of active point indices")
@@ -962,6 +971,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .scan_all_by_edge_property_range_operator = {&scan_all_by_edge_property_range_operator_family_.Add(
                       labels)},
                   .scan_all_by_edge_id_operator = {&scan_all_by_edge_id_operator_family_.Add(labels)},
+                  .scan_all_by_vertex_property_operator = {&scan_all_by_vertex_property_operator_family_.Add(labels)},
                   .scan_all_by_point_distance_operator = {&scan_all_by_point_distance_operator_family_.Add(labels)},
                   .scan_all_by_point_withinbbox_operator = {&scan_all_by_point_withinbbox_operator_family_.Add(labels)},
                   .expand_operator = {&expand_operator_family_.Add(labels)},
@@ -1004,6 +1014,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .active_edge_type_indices = {&active_edge_type_indices_family_.Add(labels)},
                   .active_edge_type_property_indices = {&active_edge_type_property_indices_family_.Add(labels)},
                   .active_edge_property_indices = {&active_edge_property_indices_family_.Add(labels)},
+                  .active_vertex_property_indices = {&active_vertex_property_indices_family_.Add(labels)},
                   .active_point_indices = {&active_point_indices_family_.Add(labels)},
                   .active_text_indices = {&active_text_indices_family_.Add(labels)},
                   .active_text_edge_indices = {&active_text_edge_indices_family_.Add(labels)},
@@ -1075,6 +1086,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   scan_all_by_edge_property_value_operator_family_.Remove(h.scan_all_by_edge_property_value_operator.get());
   scan_all_by_edge_property_range_operator_family_.Remove(h.scan_all_by_edge_property_range_operator.get());
   scan_all_by_edge_id_operator_family_.Remove(h.scan_all_by_edge_id_operator.get());
+  scan_all_by_vertex_property_operator_family_.Remove(h.scan_all_by_vertex_property_operator.get());
   scan_all_by_point_distance_operator_family_.Remove(h.scan_all_by_point_distance_operator.get());
   scan_all_by_point_withinbbox_operator_family_.Remove(h.scan_all_by_point_withinbbox_operator.get());
   expand_operator_family_.Remove(h.expand_operator.get());
@@ -1117,6 +1129,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   active_edge_type_indices_family_.Remove(h.active_edge_type_indices.get());
   active_edge_type_property_indices_family_.Remove(h.active_edge_type_property_indices.get());
   active_edge_property_indices_family_.Remove(h.active_edge_property_indices.get());
+  active_vertex_property_indices_family_.Remove(h.active_vertex_property_indices.get());
   active_point_indices_family_.Remove(h.active_point_indices.get());
   active_text_indices_family_.Remove(h.active_text_indices.get());
   active_text_edge_indices_family_.Remove(h.active_text_edge_indices.get());
@@ -1455,6 +1468,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
                  static_cast<int64_t>(h.scan_all_by_edge_property_range_operator.Value())});
   out.push_back(
       {"ScanAllByEdgeIdOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_by_edge_id_operator.Value())});
+  out.push_back({"ScanAllByVertexPropertyOperator",
+                 "Operator",
+                 "Counter",
+                 static_cast<int64_t>(h.scan_all_by_vertex_property_operator.Value())});
   out.push_back({"ScanAllByPointDistanceOperator",
                  "Operator",
                  "Counter",
@@ -1532,6 +1549,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
                  static_cast<int64_t>(h.active_edge_type_property_indices.Value())});
   out.push_back(
       {"ActiveEdgePropertyIndices", "Index", "Gauge", static_cast<int64_t>(h.active_edge_property_indices.Value())});
+  out.push_back({"ActiveVertexPropertyIndices",
+                 "Index",
+                 "Gauge",
+                 static_cast<int64_t>(h.active_vertex_property_indices.Value())});
   out.push_back({"ActivePointIndices", "Index", "Gauge", static_cast<int64_t>(h.active_point_indices.Value())});
   out.push_back({"ActiveTextIndices", "Index", "Gauge", static_cast<int64_t>(h.active_text_indices.Value())});
   out.push_back({"ActiveTextEdgeIndices", "Index", "Gauge", static_cast<int64_t>(h.active_text_edge_indices.Value())});

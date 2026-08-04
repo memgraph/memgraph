@@ -447,6 +447,20 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view, order));
   }
 
+  VerticesIterable Vertices(storage::View view, storage::PropertyId property) {
+    return VerticesIterable(accessor_->Vertices(property, view));
+  }
+
+  VerticesIterable Vertices(storage::View view, storage::PropertyId property, storage::PropertyValue const &value) {
+    return VerticesIterable(accessor_->Vertices(property, value, view));
+  }
+
+  VerticesIterable Vertices(storage::View view, storage::PropertyId property,
+                            std::optional<utils::Bound<storage::PropertyValue>> const &lower,
+                            std::optional<utils::Bound<storage::PropertyValue>> const &upper) {
+    return VerticesIterable(accessor_->Vertices(property, lower, upper, view));
+  }
+
   VerticesChunkedIterable ChunkedVertices(storage::View view, size_t num_chunks) {
     return VerticesChunkedIterable{accessor_->ChunkedVertices(view, num_chunks)};
   }
@@ -461,6 +475,22 @@ class DbAccessor final {
                                           size_t num_chunks, storage::IndexOrder order = storage::IndexOrder::ASC) {
     return VerticesChunkedIterable{
         accessor_->ChunkedVertices(label, properties, property_ranges, view, num_chunks, order)};
+  }
+
+  VerticesChunkedIterable ChunkedVertices(storage::View view, storage::PropertyId property, size_t num_chunks) {
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(property, view, num_chunks)};
+  }
+
+  VerticesChunkedIterable ChunkedVertices(storage::View view, storage::PropertyId property,
+                                          const storage::PropertyValue &value, size_t num_chunks) {
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(property, value, view, num_chunks)};
+  }
+
+  VerticesChunkedIterable ChunkedVertices(storage::View view, storage::PropertyId property,
+                                          const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
+                                          const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
+                                          size_t num_chunks) {
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(property, lower_bound, upper_bound, view, num_chunks)};
   }
 
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, size_t num_chunks) {
@@ -700,6 +730,10 @@ class DbAccessor final {
     return accessor_->EdgePropertyIndexReady(property);
   }
 
+  bool VertexPropertyIndexReady(storage::PropertyId property) const {
+    return accessor_->VertexPropertyIndexReady(property);
+  }
+
   bool TextIndexExists(const std::string &index_name) const;
 
   std::vector<storage::TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
@@ -771,6 +805,17 @@ class DbAccessor final {
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
                         std::span<storage::PropertyValueRange const> bounds) const {
     return accessor_->ApproximateVertexCount(label, properties, bounds);
+  }
+
+  int64_t VerticesCount(storage::PropertyId property) const { return accessor_->ApproximateVertexCount(property); }
+
+  int64_t VerticesCount(storage::PropertyId property, storage::PropertyValue const &value) const {
+    return accessor_->ApproximateVertexCount(property, value);
+  }
+
+  int64_t VerticesCount(storage::PropertyId property, std::optional<utils::Bound<storage::PropertyValue>> const &lower,
+                        std::optional<utils::Bound<storage::PropertyValue>> const &upper) const {
+    return accessor_->ApproximateVertexCount(property, lower, upper);
   }
 
   std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
@@ -880,6 +925,15 @@ class DbAccessor final {
 
   std::expected<void, storage::StorageIndexDefinitionError> DropGlobalEdgeIndex(storage::PropertyId property) {
     return accessor_->DropGlobalEdgeIndex(property);
+  }
+
+  std::expected<void, storage::StorageIndexDefinitionError> CreateGlobalVertexIndex(
+      storage::PropertyId property, storage::CheckCancelFunction cancel_check = storage::neverCancel) {
+    return accessor_->CreateGlobalVertexIndex(property, std::move(cancel_check));
+  }
+
+  std::expected<void, storage::StorageIndexDefinitionError> DropGlobalVertexIndex(storage::PropertyId property) {
+    return accessor_->DropGlobalVertexIndex(property);
   }
 
   std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,

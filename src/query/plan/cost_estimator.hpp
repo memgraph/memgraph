@@ -231,6 +231,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(ScanAllByVertexProperty &op) override {
+    cardinality_ *= EstimateVertexPropertyCardinality(op.property_, op.expression_range_);
+    IncrementCost(CostParam::kScanAllByVertexProperty);
+    return true;
+  }
+
   bool PostVisit(OrderBy & /*op*/) override {
     // OrderBy doesn't change cardinality; cardinality_ here is the sort input size
     IncrementOrderByCost();
@@ -346,6 +352,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanParallelByEdgePropertyRange &op) override {
     cardinality_ *= EstimateEdgePropertyRangeCardinality(op.property_, op.lower_bound_, op.upper_bound_);
     IncrementCost(CostParam::kScanAllByEdgePropertyRange);
+    num_threads_ = 1;  // End of parallel section
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByVertexProperty &op) override {
+    cardinality_ *= EstimateVertexPropertyCardinality(op.property_, op.expression_range_);
+    IncrementCost(CostParam::kScanAllByVertexProperty);
     num_threads_ = 1;  // End of parallel section
     return true;
   }
@@ -692,6 +705,46 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     }
 
     return factor;
+  }
+
+  double EstimateVertexPropertyRangeCardinality(storage::PropertyId property,
+                                                std::optional<utils::Bound<Expression *>> lower_bound,
+                                                std::optional<utils::Bound<Expression *>> upper_bound) {
+    auto lower = BoundToPropertyValue(lower_bound);
+    auto upper = BoundToPropertyValue(upper_bound);
+
+    double factor = 1.0;
+    if (upper || lower) {
+      factor = db_accessor_->VerticesCount(property, lower, upper);
+    } else {
+      factor = db_accessor_->VerticesCount(property);
+    }
+
+    if ((upper_bound && !upper) || (lower_bound && !lower)) {
+      factor *= CardParam::kFilter;
+    }
+
+    return factor;
+  }
+
+  double EstimateVertexPropertyCardinality(storage::PropertyId property, ExpressionRange const &range) {
+    using Type = ExpressionRange::Type;
+    switch (range.type_) {
+      case Type::IS_NOT_NULL:
+        return db_accessor_->VerticesCount(property);
+      case Type::EQUAL:
+      case Type::IN: {  // IN is lowered to EQUAL + Unwind at plan-build time, so fallthrough here is defensive
+        if (auto val = ConstPropertyValue(range.lower_->value())) {
+          return db_accessor_->VerticesCount(
+              property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
+        return db_accessor_->VerticesCount(property) * CardParam::kFilter;
+      }
+      case Type::RANGE:
+      case Type::REGEX_MATCH:
+        return EstimateVertexPropertyRangeCardinality(property, range.lower_, range.upper_);
+    }
+    std::unreachable();
   }
 
   // Helper function to estimate cardinality for label properties queries.

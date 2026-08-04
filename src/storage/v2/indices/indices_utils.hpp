@@ -162,17 +162,18 @@ inline bool AnyVersionIsVisible(Edge *edge, uint64_t timestamp) {
 
 /// Helper function for edgetype-property index garbage collection. Returns true if
 /// there's a reachable version of the edge that has the given property value.
-inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const PropertyValue &value, uint64_t timestamp) {
+template <typename TEntity>
+inline bool AnyVersionHasProperty(TEntity const &entity, PropertyId key, PropertyValue const &value,
+                                  uint64_t timestamp) {
   Delta const *delta;
   bool deleted;
   bool current_value_equal_to_value;
   {
-    auto guard = std::shared_lock{edge.lock};
-    delta = edge.delta();
-    deleted = edge.deleted();
-    // Avoid IsPropertyEqual if already not possible
+    auto guard = std::shared_lock{entity.lock};
+    delta = entity.delta();
+    deleted = entity.deleted();
     if (delta == nullptr && deleted) return false;
-    current_value_equal_to_value = edge.properties.IsPropertyEqual(key, value);
+    current_value_equal_to_value = entity.properties.IsPropertyEqual(key, value);
   }
 
   if (!deleted && current_value_equal_to_value) {
@@ -184,7 +185,7 @@ inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const Proper
                                                   Delta::Action::DELETE_DESERIALIZED_OBJECT,
                                                   Delta::Action::DELETE_OBJECT>{};
   return details::AnyVersionSatisfiesPredicate<interesting>(
-      timestamp, delta, [&current_value_equal_to_value, &deleted, key, &value](const Delta &delta) {
+      timestamp, delta, [&current_value_equal_to_value, &deleted, key, &value](Delta const &delta) {
         switch (delta.action) {
           case Delta::Action::SET_PROPERTY:
             if (delta.property.key == key) {
@@ -214,31 +215,27 @@ inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const Proper
       });
 }
 
-// Helper function for iterating through label-property index. Returns true if
-// this transaction can see the given vertex, and the visible version has the
-// given label and property.
-inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, const PropertyValue &value,
-                                          Transaction *transaction, View view) {
+template <typename TEntity>
+inline bool CurrentVersionHasProperty(TEntity const &entity, PropertyId key, PropertyValue const &value,
+                                      Transaction *transaction, View view) {
   bool exists = true;
   bool deleted = false;
   bool current_value_equal_to_value = value.IsNull();
-  const Delta *delta = nullptr;
+  Delta const *delta = nullptr;
   {
-    auto guard = std::shared_lock{edge.lock};
-    deleted = edge.deleted();
-    current_value_equal_to_value = edge.properties.IsPropertyEqual(key, value);
-    delta = edge.delta();
+    auto guard = std::shared_lock{entity.lock};
+    deleted = entity.deleted();
+    current_value_equal_to_value = entity.properties.IsPropertyEqual(key, value);
+    delta = entity.delta();
   }
 
-  // Checking cache has a cost, only do it if we have any deltas
-  // if we have no deltas then what we already have from the vertex is correct.
   if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
-    ApplyDeltasForRead(transaction, delta, view, [&, key](const Delta &delta) {
+    ApplyDeltasForRead(transaction, delta, view, [&, key](Delta const &delta) {
       // clang-format off
       DeltaDispatch(delta, utils::ChainedOverloaded{
         Deleted_ActionMethod(deleted),
         Exists_ActionMethod(exists),
-        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key,value)
+        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key, value)
       });
       // clang-format on
     });
