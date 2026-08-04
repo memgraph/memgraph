@@ -33,13 +33,13 @@ TOOLCHAIN_BUILD_DEPS=(
     libgmp-dev # for gdb
     gperf # for proxygen
     libssl-dev
-    libedit-dev libpcre2-dev libpcre3-dev automake bison # for swig
+    libedit-dev libpcre2-dev automake bison # for swig
     custom-rust
     libtool # for protobuf
     libssl-dev pkg-config # for pulsar
     libsasl2-dev # for librdkafka
     gdb lcov libbz2-dev libgdbm-dev libgdbm-compat-dev libncurses-dev # for building python
-    libreadline-dev libsqlite3-dev lzma lzma-dev tk-dev uuid-dev # for building python
+    libreadline-dev libsqlite3-dev lzma tk-dev uuid-dev # for building python
     python3-pip # for conan
 )
 
@@ -202,9 +202,7 @@ install() {
         case "$pkg" in
             dotnet-sdk-8.0)
                 if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
-                    # update once 26.04 properly released
-                    wget -nv https://packages.microsoft.com/config/ubuntu/26.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-                    dpkg -i packages-microsoft-prod.deb
+                    add-apt-repository ppa:dotnet/backports
                     apt-get update
                     apt-get install -y apt-transport-https dotnet-sdk-8.0
                 fi
