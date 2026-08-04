@@ -108,6 +108,7 @@ enum class AddCoordinatorInstanceStatus : uint8_t {
   MGMT_ENDPOINT_ALREADY_EXISTS,
   COORDINATOR_ENDPOINT_ALREADY_EXISTS,
   RAFT_LOG_ERROR,
+  NOT_LEADER,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
   LOCAL_TIMEOUT,
@@ -130,6 +131,7 @@ enum class AddCoordinatorInstanceStatus : uint8_t {
 enum class RemoveCoordinatorInstanceStatus : uint8_t {
   SUCCESS = 0,
   NO_SUCH_ID,
+  NOT_LEADER,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
   LOCAL_TIMEOUT,
@@ -153,6 +155,7 @@ enum class UpdateConfigStatus : uint8_t {
   NO_SUCH_COORD,
   NO_SUCH_REPL_INSTANCE,
   RAFT_FAILURE,
+  NOT_LEADER,
   LEADER_FAILED,
   LEADER_NOT_FOUND,
 };

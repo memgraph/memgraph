@@ -208,15 +208,11 @@ auto CoordinatorInstance::YieldLeadershipAsLeader() const -> YieldLeadershipStat
 }
 
 auto CoordinatorInstance::YieldLeadership() const -> YieldLeadershipStatus {
-  if (raft_state_->IsLeader()) {
-    return YieldLeadershipAsLeader();
-  }
-
   if (auto const res = ForwardToLeader<YieldLeadershipRpc, YieldLeadershipStatus>(); res.has_value()) {
     return *res;
   }
 
-  return YieldLeadershipStatus::NOT_LEADER;
+  return YieldLeadershipAsLeader();
 }
 
 void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
@@ -585,14 +581,10 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     -> SetInstanceToMainCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
 
-  // Forwarding only recognizes a ready leader as self, so a Raft leader which isn't ready yet has to be served locally.
-  // Otherwise the LEADER_NOT_READY escape hatch below would be unreachable.
-  if (!raft_state_->IsLeader()) {
-    if (auto const res =
-            ForwardToLeader<SetInstanceToMainRpc, SetInstanceToMainCoordinatorStatus>(std::string{new_main_name});
-        res.has_value()) {
-      return *res;
-    }
+  if (auto const res =
+          ForwardToLeader<SetInstanceToMainRpc, SetInstanceToMainCoordinatorStatus>(std::string{new_main_name});
+      res.has_value()) {
+    return *res;
   }
 
   // The coordinator could be in LEADER_NOT_READY state because it restarted and before the restart user called
@@ -910,6 +902,10 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
     return *res;
   }
 
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return RemoveCoordinatorInstanceStatus::NOT_LEADER;
+  }
+
   auto lock = std::lock_guard{coord_instance_lock_};
 
   auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
@@ -956,6 +952,10 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
     -> AddCoordinatorInstanceStatus {
   if (auto const res = ForwardToLeader<AddCoordinatorRpc, AddCoordinatorInstanceStatus>(config); res.has_value()) {
     return *res;
+  }
+
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return AddCoordinatorInstanceStatus::NOT_LEADER;
   }
 
   auto lock = std::lock_guard{coord_instance_lock_};
@@ -1865,6 +1865,10 @@ auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {
 auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> UpdateConfigStatus {
   if (auto const res = ForwardToLeader<UpdateConfigRpc, UpdateConfigStatus>(config); res.has_value()) {
     return *res;
+  }
+
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return UpdateConfigStatus::NOT_LEADER;
   }
 
   if (std::holds_alternative<int32_t>(config.data)) {

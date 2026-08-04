@@ -857,6 +857,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                     std::get<std::string>(instance));
       case RAFT_FAILURE:
         throw QueryRuntimeException("Couldn't update config because appending to Raft log failed.");
+      case NOT_LEADER:
+        throw QueryRuntimeException(
+            "Couldn't update config since coordinator is not a leader! Try contacting other coordinators as there "
+            "might be leader election happening or other coordinators are down.");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -876,6 +880,11 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case NO_SUCH_ID:
         throw QueryRuntimeException(
             "Couldn't remove coordinator instance because coordinator with id {} doesn't exist!", coordinator_id);
+      case NOT_LEADER:
+        throw QueryRuntimeException(
+            "Couldn't remove coordinator {} since coordinator is not a leader! Try contacting other coordinators as "
+            "there might be leader election happening or other coordinators are down.",
+            coordinator_id);
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -964,6 +973,11 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't add coordinator since instance with such coordinator server already exists!");
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+      case NOT_LEADER:
+        throw QueryRuntimeException(
+            "Couldn't add coordinator {} since coordinator is not a leader! Try contacting other coordinators as there "
+            "might be leader election happening or other coordinators are down.",
+            coordinator_id);
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");

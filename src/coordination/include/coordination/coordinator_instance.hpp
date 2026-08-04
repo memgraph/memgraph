@@ -191,10 +191,14 @@ class CoordinatorInstance {
            status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY;
   }
 
-  // nullopt if I am the leader, otherwise StatusMessage
+  // nullopt means "serve this locally", otherwise the status to report.
+  // A Raft leader is served locally even when it isn't ready yet: it has no connector to itself, so forwarding would
+  // report a misleading LEADER_NOT_FOUND instead of the caller's own NOT_LEADER. Every caller must therefore follow
+  // this with a readiness check (or deliberately allow a not-ready leader through, as the leadership escape hatches
+  // do).
   template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
   auto ForwardToLeader(Args &&...args) const -> std::optional<StatusEnum> {
-    if (AmReadyLeader()) {
+    if (raft_state_->IsLeader()) {
       return std::nullopt;
     }
     auto const leader_id = raft_state_->GetLeaderId();
@@ -208,14 +212,13 @@ class CoordinatorInstance {
 
   // Like ForwardToLeader, but for RPCs whose response carries the leader's exact status (as std::optional<StatusEnum>)
   // instead of a bool success flag, so the follower can act on statuses like ROLE_ALREADY_EXISTS. An empty response
-  // (the RPC itself failed) maps to LEADER_FAILED.
+  // (the RPC itself failed) maps to LEADER_FAILED. Same local-vs-forward rule as ForwardToLeader.
   template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
   auto ForwardStatusToLeader(Args &&...args) const -> std::optional<StatusEnum> {
-    auto const leader_id = raft_state_->GetLeaderId();
-    if (leader_id == raft_state_->GetMyCoordinatorId() &&
-        status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
+    if (raft_state_->IsLeader()) {
       return std::nullopt;
     }
+    auto const leader_id = raft_state_->GetLeaderId();
     if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
       // Outer optional: the RPC itself succeeded. Inner: the leader actually reported a status. Both must hold, or we
       // would return nullopt here and the caller would misread it as "I am the leader".
