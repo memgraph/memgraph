@@ -686,16 +686,16 @@ void InMemoryStorage::RebindMetricHandles(metrics::DatabaseMetricHandles const &
   gc_runner_.Pause();
   snapshot_runner_.Pause();
   ttl_.Pause();
-  {
-    std::lock_guard const gc_guard{gc_lock_};
-    metric_handles_ = new_handles;
-    indices_.RebindMetricHandles(new_handles);
-    constraints_.RebindMetricHandles(new_handles);
-    ttl_.RebindMetricHandles(new_handles.deleted_nodes, new_handles.deleted_edges);
-  }
-  ttl_.Resume();
-  snapshot_runner_.Resume();
-  gc_runner_.Resume();
+  auto resume = utils::OnScopeExit{[&] {
+    ttl_.Resume();
+    snapshot_runner_.Resume();
+    gc_runner_.Resume();
+  }};
+  std::lock_guard const gc_guard{gc_lock_};
+  metric_handles_ = new_handles;
+  indices_.RebindMetricHandles(new_handles);
+  constraints_.RebindMetricHandles(new_handles);
+  ttl_.RebindMetricHandles(new_handles.deleted_nodes, new_handles.deleted_edges);
 }
 
 void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change) {
