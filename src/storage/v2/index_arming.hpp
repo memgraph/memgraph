@@ -56,6 +56,7 @@ class IndexArming {
         }
         case SET_PROPERTY: {
           if (writes_vertex_properties_) arming_->note_vertex_property(delta.property.key);
+          if (writes_edge_properties_) arming_->note_edge_property(delta.property.key);
           return;
         }
         case ADD_LABEL:
@@ -67,7 +68,7 @@ class IndexArming {
         case ADD_OUT_EDGE:
         case REMOVE_IN_EDGE:
         case REMOVE_OUT_EDGE: {
-          arming_->note_edge_indexes();
+          arming_->note_edge_structure();
           return;
         }
       }
@@ -76,16 +77,17 @@ class IndexArming {
    private:
     friend class IndexArming;
 
-    // The vertex side is not noted here. A transaction reports having written a vertex property
-    // only because it created a delta saying so, and that delta is in the buffer about to be
-    // read, where it names the property. The edge side has no ids to name yet, so it is.
+    // Neither side is noted here. A transaction reports having written a property on one only
+    // because it created a delta saying so, and that delta is in the buffer about to be read,
+    // where it names the property.
     TransactionScope(IndexArming &arming, PropertyWrites property_writes)
-        : arming_{&arming}, writes_vertex_properties_{property_writes.on_vertices} {
-      if (property_writes.on_edges) arming.note_edge_indexes();
-    }
+        : arming_{&arming},
+          writes_vertex_properties_{property_writes.on_vertices},
+          writes_edge_properties_{property_writes.on_edges} {}
 
     IndexArming *arming_;
     bool writes_vertex_properties_;
+    bool writes_edge_properties_;
   };
 
   /// @param property_writes what this transaction's property writes belonged to, which its
@@ -98,34 +100,47 @@ class IndexArming {
   /// nothing about any vertex index, does not cost the vertex indexes their narrowing.
   void arm_all_vertex_indexes() { vertex_.armed_all = true; }
 
+  /// The edge counterpart; see above.
+  void arm_all_edge_indexes() { edge_.armed_all = true; }
+
   void note_label(LabelId label) { vertex_.labels.set(label); }
 
   void note_vertex_property(PropertyId property) { vertex_.properties.set(property); }
 
-  void note_edge_indexes() { edge_.armed = true; }
+  void note_edge_property(PropertyId property) { edge_.properties.set(property); }
+
+  /// An edge was created or removed. Unlike a write to a vertex, this names no index: an edge
+  /// index turns on its edge type, and the delta that carries the type cannot say which of the
+  /// indexes on it hold the edge.
+  void note_edge_structure() { edge_.structural = true; }
 
   bool arms_vertex_indexes() const { return vertex_.armed(); }
 
-  bool arms_edge_indexes() const { return edge_.armed; }
+  bool arms_edge_indexes() const { return edge_.armed(); }
 
   bool arms_anything() const { return arms_vertex_indexes() || arms_edge_indexes(); }
 
-  bool arms_index_on(LabelId label) const { return vertex_.armed_all || vertex_.labels.test(label); }
+  bool arms_vertex_index_on(LabelId label) const { return vertex_.armed_all || vertex_.labels.test(label); }
 
   /// An index on a label and a set of properties goes stale when the label is taken off a vertex
   /// it covers or when one of the properties is written, so either arms it. A path names a
   /// property reached through others, and a write names the one it starts from.
-  bool arms_index_on(LabelId label, PropertiesPaths const &properties) const {
-    return arms_index_on(label) || std::ranges::any_of(properties, [this](PropertyPath const &path) {
+  bool arms_vertex_index_on(LabelId label, PropertiesPaths const &properties) const {
+    return arms_vertex_index_on(label) || std::ranges::any_of(properties, [this](PropertyPath const &path) {
              return !path.empty() && vertex_.properties.test(path[0]);
            });
   }
 
+  /// An edge index keyed on a property goes stale when that property is written. Its edge type
+  /// arms nothing: an edge cannot change type, so the only way such an entry goes stale is the
+  /// edge being removed, which sweeps every edge index for correctness anyway.
+  bool arms_edge_index_on(PropertyId property) const { return edge_.armed_all || edge_.properties.test(property); }
+
   /// A unique constraint keeps a skiplist keyed the same way an index does, and it goes stale on
   /// the same conditions, so the same question answers for it. Its key is a set of properties
   /// rather than paths into them.
-  bool arms_index_on(LabelId label, std::set<PropertyId> const &properties) const {
-    return arms_index_on(label) || std::ranges::any_of(properties, [this](PropertyId const property) {
+  bool arms_vertex_index_on(LabelId label, std::set<PropertyId> const &properties) const {
+    return arms_vertex_index_on(label) || std::ranges::any_of(properties, [this](PropertyId const property) {
              return vertex_.properties.test(property);
            });
   }
@@ -170,16 +185,27 @@ class IndexArming {
   };
 
   struct EdgeIndexes {
-    /// Some edge index may hold something to collect. No ids here yet: an edge index turns on its
-    /// edge type, which cannot change, so what narrows it is not what narrows the vertex side.
-    bool armed{false};
+    /// Which of them is not known, so every one is swept.
+    bool armed_all{false};
+    /// An edge was created or removed, which no id narrows; see note_edge_structure.
+    bool structural{false};
+    utils::IdBitmap<PropertyId> properties{};
+
+    /// See VertexIndexes::armed for why this is derived rather than carried.
+    bool armed() const { return armed_all || structural || properties.any(); }
 
     EdgeIndexes &operator|=(EdgeIndexes const &other) {
-      armed |= other.armed;
+      armed_all |= other.armed_all;
+      structural |= other.structural;
+      properties |= other.properties;
       return *this;
     }
 
-    void reset() { armed = false; }
+    void reset() {
+      armed_all = false;
+      structural = false;
+      properties.reset();
+    }
   };
 
   VertexIndexes vertex_{};

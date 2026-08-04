@@ -534,6 +534,73 @@ TEST_F(StorageV2GcIndexSweepCountTest, OnlyTheWrittenPropertysConstraintIsSwept)
   }
 }
 
+TEST_F(StorageV2GcIndexSweepCountTest, OnlyTheWrittenPropertysEdgeIndexIsSwept) {
+  auto const create_edge_index = [&](std::string_view property) {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_TRUE(acc->CreateIndex(storage->NameToEdgeType("E"), storage->NameToProperty(property)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+  create_edge_index("a");
+  create_edge_index("b");
+
+  memgraph::storage::Gid edge_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("E"));
+    ASSERT_TRUE(edge.has_value());
+    edge_gid = edge->Gid();
+    ASSERT_TRUE(edge->SetProperty(acc->NameToProperty("a"), memgraph::storage::PropertyValue{1}).has_value());
+    ASSERT_TRUE(edge->SetProperty(acc->NameToProperty("b"), memgraph::storage::PropertyValue{1}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto edge = acc->FindEdge(edge_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(edge->SetProperty(acc->NameToProperty("a"), memgraph::storage::PropertyValue{2}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  EXPECT_EQ(SweptByOnePass(), 1);
+}
+
+// A removed edge leaves entries pointing at memory about to be freed, and its delta carries the
+// edge type rather than the property any index is keyed on, so nothing names them.
+TEST_F(StorageV2GcIndexSweepCountTest, ARemovedEdgeSweepsEveryEdgeIndex) {
+  auto const create_edge_index = [&](std::string_view property) {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_TRUE(acc->CreateIndex(storage->NameToEdgeType("E"), storage->NameToProperty(property)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+  create_edge_index("a");
+  create_edge_index("b");
+
+  memgraph::storage::Gid edge_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("E"));
+    ASSERT_TRUE(edge.has_value());
+    edge_gid = edge->Gid();
+    ASSERT_TRUE(edge->SetProperty(acc->NameToProperty("a"), memgraph::storage::PropertyValue{1}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto edge = acc->FindEdge(edge_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->DeleteEdge(&*edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  EXPECT_EQ(SweptByOnePass(), 2);
+}
+
 TEST(StorageV2Gc, Indices) {
   std::unique_ptr<memgraph::storage::Storage> storage(
       std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{

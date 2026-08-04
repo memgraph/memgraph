@@ -64,8 +64,8 @@ struct Indices {
   /// edge indices.
   /// TODO: unused in disk indices
   /// @return how many individual indexes were swept.
-  uint64_t RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                     std::stop_token token) const;
+  uint64_t RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                     IndexArming const &arming) const;
 
   void DropGraphClearIndices();
 

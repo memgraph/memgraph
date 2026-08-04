@@ -332,7 +332,7 @@ std::vector<PropertyId> InMemoryEdgePropertyIndex::ActiveIndices::ListIndices(ui
 }
 
 uint64_t InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                                          std::stop_token token) {
+                                                          std::stop_token token, IndexArming const &arming) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
   CleanupAllIndicies();
@@ -346,6 +346,9 @@ uint64_t InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint
   uint64_t swept = 0;
   for (auto &[property_id, index] : *cpy) {
     if (token.stop_requested()) return swept;
+    // Nothing written since the last sweep can have left an entry here to collect, and a sweep
+    // costs the whole index to walk whether or not it finds anything.
+    if (!arming.arms_edge_index_on(property_id)) continue;
     ++swept;
 
     auto edges_acc = index->skip_list_.access();

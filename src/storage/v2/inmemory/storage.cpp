@@ -3458,6 +3458,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // A correctness sweep is looking for entries that point at objects about to be freed. No delta
   // names those, so it cannot be narrowed the way a performance sweep can.
   if (index_cleanup_vertex_needed) sweep_arming.arm_all_vertex_indexes();
+  if (index_cleanup_edge_needed) sweep_arming.arm_all_edge_indexes();
 
   auto index_cleanup_vertex_performance = sweep_arming.arms_vertex_indexes();
   auto index_cleanup_edge_performance = sweep_arming.arms_edge_indexes();
@@ -3477,7 +3478,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
       swept += mem_unique_constraints->RemoveObsoleteEntries(this, oldest_active_start_timestamp, token, sweep_arming);
     }
     if (index_cleanup_edge_needed || index_cleanup_edge_performance) {
-      swept += indices_.RemoveObsoleteEdgeEntries(this, oldest_active_start_timestamp, token);
+      swept += indices_.RemoveObsoleteEdgeEntries(this, oldest_active_start_timestamp, token, sweep_arming);
     }
     metric_handles_.gc_index_sweeps.Increment(static_cast<double>(swept));
   }

@@ -41,13 +41,13 @@ uint64_t Indices::RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_
 }
 
 uint64_t Indices::RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                            std::stop_token token) const {
+                                            std::stop_token token, IndexArming const &arming) const {
   auto swept = static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())
                    ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
   swept += static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())
-               ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
+               ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token, arming);
   swept += static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())
-               ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
+               ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token, arming);
   return swept;
 }
 
