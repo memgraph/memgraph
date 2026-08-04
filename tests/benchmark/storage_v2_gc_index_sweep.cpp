@@ -25,18 +25,14 @@
 // Reading the output: `sweep/interval` well above 1 is the precondition. The signal is
 // the standing backlog in `unreleased_delta_objects` once it reaches steady state.
 //
-// `--num_churn_properties=K` sets how many of the indexes the traffic actually dirties, which
-// is the fraction a sweep has any reason to visit. It exists because the sweep is armed per
-// index family rather than per index, so today the cost is the same at every K; a run at a low
-// K next to one at K = index count is what shows whether that is still true. K=0 keeps the
-// writers on a property no index covers.
+// `--num_churn_properties=K` sets how many of the indexes the traffic dirties, which is the
+// fraction a sweep has any reason to visit. Comparing a low K against K = index count is what
+// shows that skipping the rest works. K=0 keeps the writers on a property no index covers.
 //
-// MEMORY: run this under a hard cgroup cap. A transaction allocates a page slab for its
-// deltas whatever it puts in it, and these writers commit one delta per transaction, so a
-// starved GC parks a whole slab per outstanding transaction and resident memory is
-// governed by transaction count rather than by delta size. At the configurations that
-// demonstrate the starvation this consumes system memory, and without a cap that is an
-// OS-level OOM kill rather than a test failure:
+// MEMORY: run this under a hard cgroup cap. A transaction allocates a page slab for its deltas
+// whatever it puts in it, so a starved GC parks a slab per outstanding transaction and resident
+// memory is governed by transaction count rather than delta size. At the configurations that
+// demonstrate the starvation, without a cap that is an OS-level OOM kill rather than a failure:
 //   systemd-run --user --scope -q -p MemoryMax=<limit> -p MemorySwapMax=0 -- <this binary>
 
 #include <algorithm>
@@ -414,11 +410,9 @@ int main(int argc, char *argv[]) {
   auto const index_entries = static_cast<uint64_t>(FLAGS_num_indexes) * static_cast<uint64_t>(FLAGS_num_vertices);
 
   // --- Establish the sweep cost against the GC interval ----------------------------
-  // The sweep is armed by the delta actions a cycle sees, so an
-  // unarmed pass skips it entirely and times nothing. Drain the build's garbage first,
-  // then arm and time a pass whose cost is the scan itself.
-  // The build wrote edge properties, so this pass is armed for the edge side as well as the
-  // vertex side; the timed pass below is armed only by whatever --churn writes.
+  // An unarmed pass skips the sweep and times nothing, so drain the build's garbage first, then
+  // arm and time a pass whose cost is the scan itself. The build wrote edge properties, so this
+  // pass is armed for both sides; the timed pass below is armed only by whatever --churn writes.
   auto const drain_seconds = TimeSynchronousGcPass(storage.get());
   {
     auto acc = storage->Access(ms::StorageAccessType::WRITE);
@@ -530,12 +524,9 @@ int main(int argc, char *argv[]) {
 
   MG_ASSERT(samples.size() >= 4, "not enough samples to judge a trend; raise --duration_seconds");
 
-  // The signal is the standing backlog, not a growth trend. Delta production is
-  // self-limiting -- writers slow as chains lengthen, and the pass does eventually run --
-  // so the backlog plateaus rather than growing without bound. What the sweep controls is
-  // the height of that plateau: a pass costs `sweep` seconds and drains once per pass, so
-  // the backlog settles near one pass worth of commits. Reported over the last three
-  // quarters, the first being the ramp to steady state.
+  // The signal is the standing backlog, not a growth trend: delta production is self-limiting,
+  // so the backlog plateaus. What the sweep controls is the height of that plateau, one pass
+  // worth of commits. Reported over the last three quarters, the first being the ramp.
   auto const steady_begin = samples.size() / 4;
   std::vector<uint64_t> steady;
   steady.reserve(samples.size() - steady_begin);

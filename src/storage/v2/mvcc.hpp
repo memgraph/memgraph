@@ -321,10 +321,9 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   auto delta = &transaction->deltas.emplace(
       std::forward<Args>(args)..., transaction->commit_info.get(), transaction->command_id);
 
-  // What this write's property belongs to. This is the one point every property delta passes
-  // through, including the edge path, which reaches it through a wrapper; recording it beside the
-  // property writes themselves would mean a site that forgets it silently stops the sweep that
-  // would have cleaned its own stale entries.
+  // Every property delta passes through here, edges included. Recorded at this single point
+  // because if it were recorded at each write instead, a write that forgot to would silently stop
+  // garbage collection from cleaning up the stale index entries it left behind.
   if (delta->action == Delta::Action::SET_PROPERTY) {
     static_assert(std::is_same_v<TObj, Vertex> || std::is_same_v<TObj, Edge>,
                   "a third object kind needs its own index-sweep side before it can set properties");

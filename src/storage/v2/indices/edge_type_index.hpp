@@ -60,9 +60,8 @@ struct EdgeTypeIndexAbortProcessor {
 
   void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, EdgeRef edge);
 
-  /// Borrowed from the snapshot of the indexes this was made against, which the transaction
-  /// aborting holds for its whole life. Sorted, so membership is a search rather than a map
-  /// built per abort.
+  /// Borrowed from the set of indexes the aborting transaction holds for its whole life. Sorted,
+  /// so looking one up is a binary search rather than a map built for every abort.
   std::span<EdgeTypeId const> indexed_;
   EdgeTypeIndexAbortableInfo cleanup_collection_;
 };

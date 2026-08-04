@@ -78,7 +78,7 @@ class InMemoryLabelIndex : public LabelIndex {
   [[nodiscard]] auto DropIndex(LabelId label, ActiveIndicesUpdater const &updater) -> std::shared_ptr<IndividualIndex>;
   void RestoreIndex(LabelId label, std::shared_ptr<IndividualIndex> evicted, ActiveIndicesUpdater const &updater);
 
-  /// Sweeps only the indexes whose label `arming` names, and answers with how many that was.
+  /// Sweeps only the indexes whose label `arming` names, and returns how many that was.
   uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
                                  IndexArming const &arming);
 
@@ -220,8 +220,7 @@ class InMemoryLabelIndex : public LabelIndex {
     auto BuildIndexedLabels() const -> std::vector<LabelId>;
 
     std::shared_ptr<IndexContainer const> index_container_;
-    // Derived from index_container_ on first use and shared from then on; several transactions
-    // can abort against this snapshot at once, so the build has to happen exactly once.
+    // Built from index_container_, which never changes here, so concurrent aborts share one build.
     mutable std::once_flag indexed_labels_built_;
     mutable std::vector<LabelId> indexed_labels_;
   };

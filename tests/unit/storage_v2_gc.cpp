@@ -374,7 +374,7 @@ TEST_F(StorageV2GcIndexSweepCountTest, ADeletedVertexSweepsEveryVertexIndex) {
 }
 
 // The saving must not come at the cost of leaving entries behind: an index whose label was
-// written is swept, and what it holds afterwards is what it would have held before this change.
+// written is swept, and collects everything a sweep of it would.
 TEST_F(StorageV2GcIndexSweepCountTest, TheSweptIndexStillCollectsItsStaleEntries) {
   CreateLabelIndex("A");
   CreateLabelIndex("B");
@@ -636,7 +636,6 @@ TEST_F(StorageV2GcIndexSweepCountTest, AnEdgePropertyWriteSweepsNoEdgeTypeIndex)
   }
   EXPECT_EQ(SweptByOnePass(), 0);
 
-  // Removing the edge does stale them, and they are swept.
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
     auto edge = acc->FindEdge(edge_gid, memgraph::storage::View::OLD);

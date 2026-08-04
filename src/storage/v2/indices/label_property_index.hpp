@@ -317,22 +317,19 @@ class LabelPropertyIndex {
   virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
 };
 
-/// Which indexes a label or a property appears in, so that an abort can find the entries it has
-/// to undo without visiting every index. Derived from a set of indexes and nothing else, and that
-/// set does not change while it is in use, so it is built once and shared by every abort that
-/// runs against the same one.
-///
-/// Points into the indexes it was built from, and is owned by the same snapshot of them, so it
-/// lives exactly as long as they do.
+/// Which indexes a label or a property appears in, so that an aborting transaction can find the
+/// entries it has to undo without looking through every index. It points into the set of indexes
+/// it was built from and is owned by that set, so it is built once and shared by every abort that
+/// runs against the same set.
 struct LabelPropertyIndexAbortLookup {
   std::map<LabelId, std::map<PropertyId, std::vector<LabelPropertyIndex::IndexInfo>>> l2p;
   std::map<PropertyId, std::map<LabelId, std::vector<LabelPropertyIndex::IndexInfo>>> p2l;
 };
 
 struct LabelPropertyIndexAbortProcessor {
-  /// Borrowed from the snapshot of the indexes this was made against, which the transaction
-  /// aborting holds for its whole life. Not shared ownership: every abort would then touch one
-  /// reference count, which is contention in place of the work this saves.
+  /// Borrowed from the set of indexes the aborting transaction holds for its whole life. A raw
+  /// pointer rather than a shared_ptr, because a reference count touched by every abort would be
+  /// contention in place of the work this saves.
   LabelPropertyIndexAbortLookup const *lookup{nullptr};
 
   void CollectOnLabelRemoval(LabelId label, Vertex *vertex);

@@ -1015,16 +1015,14 @@ class InMemoryStorage final : public Storage {
       light_edge_graveyard_;
 
   // What writes whose deltas were discarded outside a collection cycle could have left stale in
-  // the indexes, for the next cycle to act on. Held as one value rather than a flag per index
-  // family because it is due to grow into a description of which indexes were affected, which a
-  // set of independent atomics cannot carry. Its own lock rather than the collection lock: the
-  // producers hold that today but are not required to, and nothing here needs it.
+  // the indexes, for the next cycle to act on. Has its own lock rather than using the collection
+  // lock: the code publishing here happens to hold that one today, but is not required to.
   utils::Synchronized<IndexArming, utils::SpinLock> pending_index_arming_;
 
-  // Where a collection cycle claims the above into, swapped rather than moved so that both this
-  // and the published one keep their allocation across cycles and the producers, which publish
-  // under a spin lock on the commit path, never allocate while holding it. Owned by the cycle,
-  // which the collection lock serializes.
+  // Where a collection cycle takes the above, by swapping this empty one in rather than moving,
+  // so that both keep the memory they have already allocated: writers publish into the one above
+  // while holding a spin lock on the commit path, and must not allocate there. Only ever touched
+  // by a collection cycle, which the collection lock serializes.
   IndexArming claimed_index_arming_;
 
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans

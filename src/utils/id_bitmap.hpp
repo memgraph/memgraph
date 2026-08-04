@@ -23,12 +23,9 @@ concept DenseId = requires(TId const id) {
   { id.AsUint() } -> std::convertible_to<uint64_t>;
 };
 
-/// Membership of a set of ids that are dense and allocated in sequence, so that the whole id
-/// space costs a word per sixty-four ids rather than a node per member. Adding and asking are
-/// constant time with no hashing, which is what a caller adding ids in a hot loop needs.
-///
-/// Typed on the id so that two bitmaps over different kinds of id cannot be confused for each
-/// other. Named after std::bitset, which it is the growable counterpart of.
+/// Set membership for ids that are dense and allocated in sequence: the whole id space costs a
+/// word per sixty-four ids rather than a node per member, and set/test are constant time with no
+/// hashing, which is what a caller adding ids in a hot loop needs.
 template <DenseId TId>
 class IdBitmap {
  public:
@@ -47,8 +44,7 @@ class IdBitmap {
     return std::ranges::any_of(words_, [](uint64_t const word) { return word != 0; });
   }
 
-  /// Empties the set without giving up the memory. The same ids tend to recur, so a caller that
-  /// empties and refills repeatedly would otherwise pay to grow back to the same size each time.
+  /// Empties without giving up the memory: a caller refills with much the same ids each time.
   void reset() { std::ranges::fill(words_, 0); }
 
   IdBitmap &operator|=(IdBitmap const &other) {

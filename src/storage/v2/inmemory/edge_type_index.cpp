@@ -271,8 +271,8 @@ uint64_t InMemoryEdgeTypeIndex::RemoveObsoleteEntries(Storage *storage, uint64_t
 
   auto cpy = all_indices_.ReadCopy();
   if (cpy->empty()) return 0;
-  // No edge came or went, so nothing here can have gone stale, and a sweep costs every index its
-  // whole size to walk to find that out.
+  // No edge was created or removed, so nothing here can have gone stale, and finding that out by
+  // sweeping would cost every index its whole size to walk.
   if (!arming.arms_edge_type_index()) return 0;
 
   // Pin the edge store while sweeping: the loop dereferences raw Edge* the epoch GC could free.
@@ -441,8 +441,6 @@ InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::Chu
 }
 
 EdgeTypeIndex::AbortProcessor InMemoryEdgeTypeIndex::ActiveIndices::GetAbortProcessor() const {
-  // Built from the indexes and nothing else, and they do not change while this snapshot of them
-  // is in use, so every abort running against the same snapshot shares one.
   std::call_once(indexed_built_,
                  [this] { indexed_ = index_container_->indices_ | std::views::keys | ranges::to_vector; });
   return AbortProcessor{indexed_};

@@ -236,9 +236,9 @@ struct Transaction {
   utils::pmr::list<MetadataDelta> md_deltas;
   bool has_serialization_error{};
   bool has_non_sequential_deltas{};
-  // A SET_PROPERTY delta does not say whether it belongs to a vertex or an edge. The object kind
-  // is a template parameter where the delta is created, so it is recorded here rather than
-  // reconstructed later by walking a chain to its owner.
+  // A property delta does not say whether it was on a vertex or an edge. That is known where the
+  // delta is created, so it is recorded here rather than worked out later by following the delta
+  // chain back to whatever it belongs to.
   PropertyWriteTargets wrote_properties_on{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};

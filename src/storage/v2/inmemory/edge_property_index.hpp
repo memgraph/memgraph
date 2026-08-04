@@ -251,8 +251,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
 
    private:
     std::shared_ptr<IndicesContainer const> index_container_;
-    // Derived from index_container_ on first use and shared from then on; several transactions
-    // can abort against this snapshot at once, so the build has to happen exactly once.
+    // Built from index_container_, which never changes here, so concurrent aborts share one build.
     mutable std::once_flag indexed_built_;
     mutable std::vector<PropertyId> indexed_;
   };
@@ -279,7 +278,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
       -> std::shared_ptr<IndividualIndex>;
   void RestoreIndex(PropertyId property, std::shared_ptr<IndividualIndex> evicted, ActiveIndicesUpdater const &updater);
 
-  /// Sweeps only the indexes whose property `arming` names, and answers with how many that was.
+  /// Sweeps only the indexes whose property `arming` names, and returns how many that was.
   uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
                                  IndexArming const &arming);
 

@@ -19,8 +19,8 @@ namespace memgraph::storage {
 void EdgeTypePropertyIndexAbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property,
                                                                   Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
                                                                   PropertyValue value) {
-  // See EdgePropertyIndexAbortProcessor::CollectOnPropertyChange: a write names a key, not an
-  // index, so a key no index is keyed on reaches here and must not be gathered.
+  // See EdgePropertyIndexAbortProcessor::CollectOnPropertyChange: a write names a key, so keys
+  // that no index is built on reach here and must not be collected.
   if (!IsInteresting(edge_type, property)) return;
   cleanup_collection_[{edge_type, property}].emplace_back(from_vertex, to_vertex, edge, std::move(value));
 }

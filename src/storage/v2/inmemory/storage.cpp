@@ -1440,8 +1440,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(
       [&](auto &waiting_list) { linked_undo_buffers.splice(linked_undo_buffers.end(), waiting_list); });
 
   // 1.b.1) unlink, gathering the removals. These belong to other transactions, so each is read
-  //        under its own account of what its property writes could have touched rather than this
-  //        transaction's, which says nothing about them.
+  //        using its own record of what its property writes were on, not this transaction's.
   for (auto &gc_deltas : linked_undo_buffers) {
     auto const arming_scope = arming.for_deltas_of(gc_deltas.wrote_properties_on_);
     UnlinkAndRemoveDeltas(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, arming_scope);
@@ -1480,8 +1479,8 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
   }
 
   // STEP 4) hint to GC that indices need cleanup for performance reasons. These deltas are gone
-  // by the time a collection cycle runs, so what they could have invalidated is only knowable
-  // from here.
+  // by the time a collection cycle runs, so this is the only place that can tell what they could
+  // have invalidated.
   if (arming.arms_anything()) {
     mem_storage->pending_index_arming_.WithLock([&](IndexArming &pending) { pending |= arming; });
   }
@@ -3448,15 +3447,10 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // Used to determine whether the Index GC should be run for performance reasons (removing redundant entries). It
   // should be run when hinted by FastDiscardOfDeltas or by the deltas we processed this GC run.
   const utils::Timer skiplist_cleanup_timer;
-  // Claimed by swapping the cycle's own holder in: the producers publish under a spin lock on
-  // the commit path, so the locked region must not allocate, and handing them back a holder that
-  // has already grown is what stops it.
   auto &sweep_arming = claimed_index_arming_;
   sweep_arming.reset();
   pending_index_arming_.WithLock([&](IndexArming &pending) { std::swap(pending, sweep_arming); });
   sweep_arming |= cycle_arming;
-  // A correctness sweep is looking for entries that point at objects about to be freed. No delta
-  // names those, so it cannot be narrowed the way a performance sweep can.
   if (index_cleanup_vertex_needed) sweep_arming.arm_all_vertex_indexes();
   if (index_cleanup_edge_needed) sweep_arming.arm_all_edge_indexes();
 

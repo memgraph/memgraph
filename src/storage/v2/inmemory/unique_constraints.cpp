@@ -655,8 +655,7 @@ uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
     for (const auto &[properties, individual_constraint] : map) {
       // before starting constraint, check if stop_requested
       if (token.stop_requested()) return swept;
-      // Nothing written since the last sweep can have left an entry here to collect, and a sweep
-      // costs the whole constraint to walk whether or not it finds anything.
+      // A sweep walks the whole constraint whether or not it has anything to collect.
       if (!arming.arms_vertex_index_on(label, properties)) continue;
       ++swept;
 

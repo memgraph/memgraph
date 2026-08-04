@@ -285,8 +285,7 @@ uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t ol
   for (auto &[index, label] : *index_container) {
     // before starting index, check if stop_requested
     if (token.stop_requested()) return swept;
-    // Nothing written since the last sweep can have left an entry here to collect, and a sweep
-    // costs the whole index to walk whether or not it finds anything.
+    // A sweep walks the whole index whether or not it has anything to collect.
     if (!arming.arms_vertex_index_on(label)) continue;
     ++swept;
 
@@ -446,8 +445,6 @@ bool InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &label) {
 }
 
 LabelIndex::AbortProcessor InMemoryLabelIndex::ActiveIndices::GetAbortProcessor() const {
-  // Built from the indexes and nothing else, and they do not change while this snapshot of them
-  // is in use, so every abort running against the same snapshot shares one.
   std::call_once(indexed_labels_built_, [this] { indexed_labels_ = BuildIndexedLabels(); });
   return LabelIndex::AbortProcessor{indexed_labels_};
 }

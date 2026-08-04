@@ -55,8 +55,8 @@ struct LabelIndexAbortProcessor {
     }
   }
 
-  /// Borrowed from the snapshot of the indexes this was made against, which the transaction
-  /// aborting holds for its whole life. Not owned: copying it per abort is the cost this avoids.
+  /// Borrowed from the set of indexes the aborting transaction holds for its whole life; copying
+  /// it for every abort is the cost this avoids.
   std::span<LabelId const> indexed_;
   LabelIndexAbortableInfo cleanup_collection_;
 };

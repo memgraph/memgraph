@@ -250,8 +250,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
    private:
     std::shared_ptr<IndexContainer const> index_container_;
-    // Derived from index_container_ on first use and shared from then on; several transactions
-    // can abort against this snapshot at once, so the build has to happen exactly once.
+    // Built from index_container_, which never changes here, so concurrent aborts share one build.
     mutable std::once_flag indexed_built_;
     mutable EdgeTypePropertyIndexed indexed_;
   };
@@ -269,7 +268,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   void RestoreIndex(EdgeTypeId edge_type, PropertyId property, std::shared_ptr<IndividualIndex> evicted,
                     ActiveIndicesUpdater const &updater);
 
-  /// Sweeps only the indexes whose property `arming` names, and answers with how many that was.
+  /// Sweeps only the indexes whose property `arming` names, and returns how many that was.
   uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
                                  IndexArming const &arming);
 

@@ -57,8 +57,8 @@ class EdgeTypePropertyIndex {
   virtual void DropGraphClearIndices() = 0;
 };
 
-/// Which edge types and properties are indexed, derived from a set of indexes and nothing else.
-/// Both are sorted, so membership is a search rather than a map built per abort.
+/// Which edge types and properties are indexed. Both are sorted, so looking one up is a binary
+/// search rather than a map built for every abort.
 struct EdgeTypePropertyIndexed {
   std::vector<std::pair<EdgeTypeId, PropertyId>> keys;
   std::vector<PropertyId> properties;
@@ -69,8 +69,7 @@ struct EdgeTypePropertyIndexAbortProcessor {
 
   explicit EdgeTypePropertyIndexAbortProcessor(EdgeTypePropertyIndexed const &indexed) : indexed_{&indexed} {}
 
-  /// Borrowed from the snapshot of the indexes this was made against, which the transaction
-  /// aborting holds for its whole life.
+  /// Borrowed from the set of indexes the aborting transaction holds for its whole life.
   EdgeTypePropertyIndexed const *indexed_{nullptr};
 
   void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,

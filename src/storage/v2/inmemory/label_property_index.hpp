@@ -501,8 +501,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     auto BuildAbortLookup() const -> LabelPropertyIndexAbortLookup;
 
     std::shared_ptr<IndexContainer const> index_container_;
-    // Derived from index_container_ on first use and shared from then on; several transactions
-    // can abort against this snapshot at once, so the build has to happen exactly once.
+    // Built from index_container_, which never changes here, so concurrent aborts share one build.
     mutable std::once_flag abort_lookup_built_;
     mutable LabelPropertyIndexAbortLookup abort_lookup_;
   };

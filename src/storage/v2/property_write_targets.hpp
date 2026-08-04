@@ -13,12 +13,10 @@
 
 namespace memgraph::storage {
 
-/// Which kinds of object a transaction set properties on.
-///
-/// A property delta records which property was written but not what it belonged to, and the only
-/// point that knows is where the delta is created. Whoever reads the deltas afterwards needs it:
-/// a property on a vertex can only leave a vertex index holding something to collect, and one on
-/// an edge only an edge index, so the two are disjoint and are dealt with separately.
+/// Which kinds of object a transaction set properties on. A property delta records which property
+/// was written but not what it was written on, and only the code creating the delta knows that.
+/// Whoever reads the deltas later needs it: a property written on a vertex can only leave a vertex
+/// index needing cleanup, and one written on an edge only an edge index.
 struct PropertyWriteTargets {
   bool vertices{false};
   bool edges{false};

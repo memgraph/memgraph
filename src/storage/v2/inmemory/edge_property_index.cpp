@@ -346,8 +346,7 @@ uint64_t InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint
   uint64_t swept = 0;
   for (auto &[property_id, index] : *cpy) {
     if (token.stop_requested()) return swept;
-    // Nothing written since the last sweep can have left an entry here to collect, and a sweep
-    // costs the whole index to walk whether or not it finds anything.
+    // A sweep walks the whole index whether or not it has anything to collect.
     if (!arming.arms_edge_index_on(property_id)) continue;
     ++swept;
 
@@ -545,8 +544,6 @@ InMemoryEdgePropertyIndex::ChunkedIterable InMemoryEdgePropertyIndex::ActiveIndi
 }
 
 EdgePropertyIndex::AbortProcessor InMemoryEdgePropertyIndex::ActiveIndices::GetAbortProcessor() const {
-  // Built from the indexes and nothing else, and they do not change while this snapshot of them
-  // is in use, so every abort running against the same snapshot shares one.
   std::call_once(indexed_built_,
                  [this] { indexed_ = index_container_->indices_ | std::views::keys | ranges::to_vector; });
   return AbortProcessor{indexed_};
