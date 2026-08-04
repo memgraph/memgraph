@@ -78,6 +78,11 @@ DEFINE_int32(num_churn_properties, 0,
              "property, so no index is dirtied. Set it equal to the index count to reproduce the "
              "whole-family sweep -- that configuration is the control: a saving measured at a low "
              "value only means something if the high value still costs what it costs today");
+DEFINE_int32(num_edge_type_indexes, 0,
+             "indexes over an edge type alone, one per type, with the edges spread across those "
+             "types. Such an index holds no property, so a property write cannot stale one; only "
+             "an edge coming or going can. Set with --churn=edge_property to measure what a "
+             "workload that only writes edge properties pays for them");
 DEFINE_int32(num_label_indexes, 0,
              "plain label indexes, over the labels the writers churn. Separate from num_indexes "
              "because a label index turns on a label alone, so it is the one an --churn=label "
@@ -342,21 +347,27 @@ int main(int argc, char *argv[]) {
               << timer.Elapsed().count() << "s\n";
   }
 
-  if (FLAGS_num_edge_indexes > 0) {
+  if (FLAGS_num_edge_indexes > 0 || FLAGS_num_edge_type_indexes > 0) {
     memgraph::utils::Timer timer;
-    auto const edge_type = std::invoke([&] {
+    // One type per edge-type index, so that each holds a share of the edges rather than standing
+    // empty. The edge-type-property indexes are built over the first of them.
+    auto const edge_types = std::invoke([&] {
       auto acc = storage->Access(ms::StorageAccessType::WRITE);
-      auto type = acc->NameToEdgeType("RELATES_TO");
+      auto types = std::vector<ms::EdgeTypeId>{};
+      for (int i = 0; i < std::max(1, FLAGS_num_edge_type_indexes); ++i) {
+        types.push_back(acc->NameToEdgeType("RELATES_TO" + std::to_string(i)));
+      }
       acc->Abort();
-      return type;
+      return types;
     });
+    auto const edge_type = edge_types.front();
     for (size_t base = 0; base + 1 < vertices.size(); base += FLAGS_vertices_per_txn) {
       auto const batch_end = std::min(base + FLAGS_vertices_per_txn, vertices.size() - 1);
       auto acc = storage->Access(ms::StorageAccessType::WRITE);
       for (size_t i = base; i < batch_end; ++i) {
         auto from = acc->FindVertex(vertices[i], ms::View::OLD);
         auto to = acc->FindVertex(vertices[i + 1], ms::View::OLD);
-        auto edge = acc->CreateEdge(&*from, &*to, edge_type);
+        auto edge = acc->CreateEdge(&*from, &*to, edge_types[i % edge_types.size()]);
         MG_ASSERT(edge.has_value());
         edges.push_back(edge->Gid());
         for (int p = 0; p < FLAGS_num_edge_indexes; ++p) {
@@ -365,13 +376,19 @@ int main(int argc, char *argv[]) {
       }
       MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
+    for (int i = 0; i < FLAGS_num_edge_type_indexes; ++i) {
+      auto acc = storage->ReadOnlyAccess();
+      MG_ASSERT(acc->CreateIndex(edge_types[i]).has_value());
+      MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
     for (int i = 0; i < FLAGS_num_edge_indexes; ++i) {
       auto acc = storage->ReadOnlyAccess();
       MG_ASSERT(acc->CreateIndex(edge_type, properties[i]).has_value());
       MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    std::cout << "created " << FLAGS_num_edge_indexes << " edge-type-property indexes over " << (vertices.size() - 1)
-              << " edges in " << timer.Elapsed().count() << "s\n";
+    std::cout << "created " << FLAGS_num_edge_type_indexes << " edge-type and " << FLAGS_num_edge_indexes
+              << " edge-type-property indexes over " << (vertices.size() - 1) << " edges in " << timer.Elapsed().count()
+              << "s\n";
   }
 
   if (FLAGS_num_label_indexes > 0) {
