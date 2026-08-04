@@ -68,7 +68,7 @@ MEMGRAPH_BUILD_DEPS=(
     PyYAML # Package name here does not correspond to the dnf package!
     rpm-build rpmlint # for RPM package building
     custom-rust
-    which nodejs golang custom-golang # for driver tests
+    which nodejs24 golang custom-golang # for driver tests
     zip unzip custom-maven # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
