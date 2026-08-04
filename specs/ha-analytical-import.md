@@ -1,7 +1,13 @@
 # HA analytical import — design
 
-**Status**: design interview complete; all ten questions resolved. Ready to implement.
-**Started**: 2026-08-03. **Completed**: 2026-08-04.
+**Status**: implemented on `feat/ha-analytical-import`. All ten decisions are in code; the only
+outstanding item is the operator-facing documentation, which lives in `memgraph/documentation`.
+**Started**: 2026-08-03. **Design completed**: 2026-08-04. **Implemented**: 2026-08-04.
+
+Deviation from the plan worth recording: the "switching to analytical with a replication client
+attached is refused" unit test lives in `tests/unit/storage_v2_replication.cpp` rather than
+`storage_v2_storage_mode.cpp`, because only the former has the fixture that can produce a real
+`ReplicationStorageClient`.
 
 ## Target workload
 

@@ -352,6 +352,16 @@ auto ReplicationHandler::RegisterReplica(const ReplicationClientConfig &config)
 }
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::UnregisterReplicaResult {
+  // Reject before any replication state is mutated, mirroring the registration gate. Analytical mode
+  // implies there are no per-database clients to erase, so this would silently half-unregister.
+  if (auto const analytical_db = AnalyticalDatabase(); analytical_db.has_value()) {
+    spdlog::error("Cannot unregister replica {} while database \"{}\" is in analytical mode.", name, *analytical_db);
+    return query::UnregisterReplicaResult::ANALYTICAL_MODE;
+  }
+  return UnregisterReplica_(name);
+}
+
+auto ReplicationHandler::UnregisterReplica_(std::string_view name) -> query::UnregisterReplicaResult {
   try {
     auto locked_repl_state = repl_state_.TryLock();
 

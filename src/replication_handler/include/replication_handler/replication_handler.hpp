@@ -235,11 +235,36 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     spdlog::trace("Replication storage clients destroyed.");
   }
 
+  // UnregisterReplica without the analytical-mode gate, for the rollback of a failed registration:
+  // that rollback must succeed precisely when a database did turn analytical mid-registration.
+  auto UnregisterReplica_(std::string_view name) -> query::UnregisterReplicaResult;
+
+  // Name of the first database found in analytical mode, if any. Registration and unregistration are
+  // instance-wide operations, so a single analytical database blocks both.
+  auto AnalyticalDatabase() const -> std::optional<std::string> {
+    std::optional<std::string> analytical_db;
+    dbms_handler_.ForEach([&analytical_db](dbms::DatabaseAccess db_acc) {
+      if (!analytical_db && db_acc->storage()->storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+        analytical_db = db_acc->name();
+      }
+    });
+    return analytical_db;
+  }
+
   template <bool SendSwapUUID>
   auto RegisterReplica_(auto &locked_repl_state, const ReplicationClientConfig &config)
       -> std::expected<void, query::RegisterReplicaError> {
     using query::RegisterReplicaError;
     using ClientRegisterReplicaStatus = RegisterReplicaStatus;
+
+    // Reject before any replication state is mutated: persisting the instance-level client while no
+    // per-database client can be created leaves the replica permanently unattached, since every retry
+    // then fails with NAME_EXISTS.
+    if (auto const analytical_db = AnalyticalDatabase(); analytical_db.has_value()) {
+      spdlog::error(
+          "Cannot register replica {} while database \"{}\" is in analytical mode.", config.name, *analytical_db);
+      return std::unexpected{RegisterReplicaError::ANALYTICAL_MODE};
+    }
 
     auto maybe_client = locked_repl_state->RegisterReplica(config);
     if (!maybe_client) {
@@ -281,7 +306,14 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     bool all_clients_good{true};
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
+      // Disk storage never participates in replication, so it is skipped rather than failed. Analytical
+      // does fail: silently skipping it is what leaves the replica permanently unattached. The up-front
+      // gate above already rejected that, so getting here means the mode flipped in between.
+      if (storage->storage_mode_ == storage::StorageMode::ON_DISK_TRANSACTIONAL) return;
+      if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+        all_clients_good = false;
+        return;
+      }
 
       auto protector = dbms::DatabaseProtector{db_acc};
 
@@ -289,7 +321,11 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       client->Start(storage, protector);
 
       all_clients_good &= storage->repl_storage_state_.replication_storage_clients_.WithLock(
-          [client = std::move(client)](auto &storage_clients) mutable {  // NOLINT
+          [storage, client = std::move(client)](auto &storage_clients) mutable {  // NOLINT
+            // Re-read the mode under this lock. SetStorageMode stores IN_MEMORY_ANALYTICAL under the very
+            // same lock, so "analytical with a live client" is unrepresentable rather than merely unlikely.
+            if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return false;
+
             bool const success = std::invoke([state = client->State()]() {
               // We force sync replicas in other situation
               // DIVERGED_FROM_MAIN is only valid state in enterprise and community replication. HA will immediately
@@ -306,8 +342,10 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
     if (!all_clients_good) {
       spdlog::error("Failed to register all databases for the replica {}. Started unregistering replica.", config.name);
-      switch (UnregisterReplica(config.name)) {
+      switch (UnregisterReplica_(config.name)) {
         using query::UnregisterReplicaResult;
+        case UnregisterReplicaResult::ANALYTICAL_MODE:
+          LOG_FATAL("UnregisterReplica_ must not apply the analytical-mode gate.");
         case UnregisterReplicaResult::NO_ACCESS:
           spdlog::trace("Failed to unregister replica {} since we couldn't get unique access to ReplicationState.",
                         config.name);

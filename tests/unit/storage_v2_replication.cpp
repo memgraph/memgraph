@@ -9,11 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <thread>
+#include <vector>
 
 #include <fmt/format.h>
 #include <gmock/gmock.h>
@@ -32,14 +34,17 @@
 #include "replication/config.hpp"
 #include "replication/state.hpp"
 #include "replication_handler/replication_handler.hpp"
+#include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/storage_test_utils.hpp"
+#include "utils/exceptions.hpp"
 
 using testing::UnorderedElementsAre;
 
@@ -1545,6 +1550,204 @@ TEST_F(ReplicationTest, RecoverySteps) {
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[2]));
   }
+}
+
+// A WAL whose [from, to] range contains the snapshot's timestamp proves the chain can reproduce the
+// snapshot's contents. The pair below pins both verdicts, because a false positive costs a full
+// snapshot transfer on every lagging replica.
+TEST(SnapshotWalCoverage, CoveredAndUncovered) {
+  using memgraph::storage::SnapshotTsCoveredByAnyWal;
+  auto const wal = [](uint64_t const seq_num, uint64_t const from, uint64_t const to) {
+    return memgraph::storage::durability::WalDurabilityInfo{seq_num, from, to, "uuid", "epoch", "path"};
+  };
+  std::vector const finalized{wal(0, 1, 100), wal(1, 101, 200)};
+
+  // Ordinary periodic snapshot: its timestamp sits inside the still-open WAL's range.
+  EXPECT_TRUE(SnapshotTsCoveredByAnyWal(finalized, 201, 300, 250));
+  // ... or inside a finalized one, if the snapshot predates the current WAL.
+  EXPECT_TRUE(SnapshotTsCoveredByAnyWal(finalized, 201, 300, 150));
+  // Range ends are inclusive: a snapshot stamped exactly at a WAL boundary is covered.
+  EXPECT_TRUE(SnapshotTsCoveredByAnyWal(finalized, std::nullopt, std::nullopt, 100));
+
+  // After an analytical episode: the pre-import WAL was finalized at 200 and the post-import WAL
+  // starts after the snapshot, so nothing holds the imported data.
+  EXPECT_FALSE(SnapshotTsCoveredByAnyWal(finalized, 5001, 5100, 5000));
+  // No open WAL at all, snapshot past the end of the chain.
+  EXPECT_FALSE(SnapshotTsCoveredByAnyWal(finalized, std::nullopt, std::nullopt, 5000));
+}
+
+// Decision 9 of specs/ha-analytical-import.md. Entering analytical finalizes the WAL and the import
+// writes none, so the switch-back snapshot holds data no WAL can reproduce. A replica sitting strictly
+// behind the end of the finalized chain would otherwise be recovered from WALs alone and declared in
+// sync while silently missing the whole import.
+TEST_F(ReplicationTest, RecoveryStepsAfterAnalyticalEpisode) {
+  auto config = main_conf;
+  config.durability.wal_file_size_kibibytes = 1;  // Easy way to control when a new WAL is created
+  MinMemgraph main(config);
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+
+  memgraph::utils::FileRetainer file_retainer;
+  auto file_locker = file_retainer.AddLocker();
+
+  auto const p = in_mem->NameToProperty("p1");
+  const auto large_property = PropertyValue{PropertyValue::list_t{1024 / sizeof(int64_t), PropertyValue{int64_t{}}}};
+
+  auto large_write_to_finalize_wal = [&]() {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    auto v = acc->CreateVertex();
+    ASSERT_TRUE(v.SetProperty(p, large_property).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+  auto create_vertices_and_commit = [&](int const n) {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < n; ++i) acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+
+  // A finalized chain of two files, the newest of which spans several commits so a replica can sit
+  // strictly inside it.
+  large_write_to_finalize_wal();
+  create_vertices_and_commit(1);
+  create_vertices_and_commit(1);
+  large_write_to_finalize_wal();
+
+  auto const wal_dir = in_mem->config_.durability.storage_directory / memgraph::storage::durability::kWalDirectory;
+  auto const chain = memgraph::storage::durability::GetWalFiles(wal_dir, std::string{in_mem->uuid()});
+  ASSERT_TRUE(chain.has_value());
+  ASSERT_FALSE(chain->empty());
+  ASSERT_GT(chain->back().to_timestamp, chain->back().from_timestamp);
+  // Strictly behind the end of the chain, but inside the newest file's range: exactly the layout in
+  // which the pre-fix code takes the WAL-only path.
+  auto const replica_commit = chain->back().to_timestamp - 1;
+
+  in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+  create_vertices_and_commit(10);
+  in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  // First post-switch commit opens a fresh WAL, so the current WAL starts after the snapshot.
+  create_vertices_and_commit(1);
+
+  {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto const steps = GetRecoverySteps(replica_commit, &file_locker, in_mem);
+    ASSERT_TRUE(steps.has_value());
+    EXPECT_TRUE(std::ranges::any_of(*steps, [](auto const &step) {
+      return std::holds_alternative<memgraph::storage::RecoverySnapshot>(step);
+    })) << "the mode-change snapshot is the only source of the imported data";
+  }
+}
+
+// The negative half of the pair: an ordinary periodic snapshot must not force a snapshot transfer for
+// a lagging replica, since its timestamp lies inside the open WAL's range.
+TEST_F(ReplicationTest, RecoveryStepsAfterPeriodicSnapshot) {
+  auto config = main_conf;
+  config.durability.wal_file_size_kibibytes = 1;
+  MinMemgraph main(config);
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+
+  memgraph::utils::FileRetainer file_retainer;
+  auto file_locker = file_retainer.AddLocker();
+
+  auto const p = in_mem->NameToProperty("p1");
+  const auto large_property = PropertyValue{PropertyValue::list_t{1024 / sizeof(int64_t), PropertyValue{int64_t{}}}};
+
+  auto large_write_to_finalize_wal = [&]() {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    auto v = acc->CreateVertex();
+    ASSERT_TRUE(v.SetProperty(p, large_property).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+  auto create_vertex_and_commit = [&]() {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+
+  large_write_to_finalize_wal();
+  create_vertex_and_commit();
+  create_vertex_and_commit();
+  large_write_to_finalize_wal();
+
+  auto const wal_dir = in_mem->config_.durability.storage_directory / memgraph::storage::durability::kWalDirectory;
+  auto const chain = memgraph::storage::durability::GetWalFiles(wal_dir, std::string{in_mem->uuid()});
+  ASSERT_TRUE(chain.has_value());
+  ASSERT_FALSE(chain->empty());
+  ASSERT_GT(chain->back().to_timestamp, chain->back().from_timestamp);
+  auto const replica_commit = chain->back().to_timestamp - 1;
+
+  create_vertex_and_commit();  // opens the current WAL the snapshot's timestamp will fall inside
+  ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
+
+  {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto const steps = GetRecoverySteps(replica_commit, &file_locker, in_mem);
+    ASSERT_TRUE(steps.has_value());
+    EXPECT_FALSE(std::ranges::any_of(*steps, [](auto const &step) {
+      return std::holds_alternative<memgraph::storage::RecoverySnapshot>(step);
+    })) << "the WAL chain reproduces everything, so shipping the snapshot is pure waste";
+  }
+}
+
+// Analytical writes are never appended to the WAL, so a storage that replicates must not be allowed to
+// enter analytical mode; registration in the other order must be refused too.
+TEST_F(ReplicationTest, AnalyticalModeAndReplicationAreMutuallyExclusive) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+
+  auto replica_store_handler = replica.repl_handler;
+  replica_store_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+
+  auto const reg = main.repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(reg.has_value()) << static_cast<int>(reg.error());
+
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+  ASSERT_THROW(in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL),
+               memgraph::utils::BasicException);
+  ASSERT_EQ(in_mem->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+
+  ASSERT_EQ(main.repl_handler.UnregisterReplica("REPLICA"), UnregisterReplicaResult::SUCCESS);
+  ASSERT_NO_THROW(in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL));
+
+  // Now the other direction: registering while analytical is rejected before any state is mutated, so
+  // it does not leave a persisted instance-level client that every retry then trips over.
+  auto const reg_while_analytical = main.repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_FALSE(reg_while_analytical.has_value());
+  ASSERT_EQ(reg_while_analytical.error(), RegisterReplicaError::ANALYTICAL_MODE);
+
+  // Rejected up-front means the name is still free once the instance is transactional again.
+  in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = "REPLICA",
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+}
+
+// Unregistering while analytical would erase the persisted client while leaving the per-database
+// clients untouched, so it is refused up-front too -- before the name is even looked up.
+TEST_F(ReplicationTest, UnregisterReplicaRefusedWhileAnalytical) {
+  MinMemgraph main(main_conf);
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+
+  in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+  ASSERT_EQ(main.repl_handler.UnregisterReplica("REPLICA"), UnregisterReplicaResult::ANALYTICAL_MODE);
+
+  in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  ASSERT_EQ(main.repl_handler.UnregisterReplica("REPLICA"), UnregisterReplicaResult::CANNOT_UNREGISTER);
 }
 
 TEST_F(ReplicationTest, SchemaReplication) {
