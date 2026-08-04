@@ -153,7 +153,7 @@ TEST(IdBitmap, MergingAnEmptyBitmapHoldsNothing) {
 
 // A reset bitmap keeps its words, all of them zero, so a merge from one must not report the
 // bitmap it merged into as holding something.
-TEST(IdBitmap, MergingAResetBitmapArmsNothing) {
+TEST(IdBitmap, MergingAResetBitmapHoldsNothing) {
   auto emptied = IdBitmap<TestId>{};
   emptied.set(TestId{5'000});
   emptied.reset();
