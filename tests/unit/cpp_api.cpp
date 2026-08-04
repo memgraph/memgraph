@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <set>
+
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
@@ -1181,6 +1183,97 @@ TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_FALSE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "nonexistent"));
     ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
+TYPED_TEST(CppApiTestFixture, TestHasLabelPropertyIndex) {
+  // No index exists yet.
+  {
+    auto storage_acc = this->storage->Access(AccessorType::WRITE);
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    auto graph = mgp::Graph(&raw_graph);
+    ASSERT_FALSE(graph.HasLabelPropertyIndex("User", "name"));
+  }
+  // Create a label-property index on (User, name).
+  {
+    auto storage_acc = this->CreateIndexAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "User", "name"));
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Reported present only for the exact (label, property) that was indexed.
+  {
+    auto storage_acc = this->storage->Access(AccessorType::WRITE);
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    auto graph = mgp::Graph(&raw_graph);
+    ASSERT_TRUE(graph.HasLabelPropertyIndex("User", "name"));
+    ASSERT_FALSE(graph.HasLabelPropertyIndex("User", "age"));
+    ASSERT_FALSE(graph.HasLabelPropertyIndex("Company", "name"));
+  }
+}
+
+TYPED_TEST(CppApiTestFixture, TestNodesByLabelPropertyRange) {
+  if constexpr (!std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+    GTEST_SKIP() << "TestNodesByLabelPropertyRange runs only on InMemoryStorage.";
+  }
+  // Index on (User, name).
+  {
+    auto storage_acc = this->CreateIndexAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "User", "name"));
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Data: four indexed users, one User without the property, one non-User carrying the property.
+  {
+    auto storage_acc = this->storage->Access(AccessorType::WRITE);
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    auto graph = mgp::Graph(&raw_graph);
+    for (const auto *name : {"alice", "bob", "carol", "dave"}) {
+      auto node = graph.CreateNode();
+      node.AddLabel("User");
+      node.SetProperty("name", mgp::Value(name));
+    }
+    auto without_property = graph.CreateNode();
+    without_property.AddLabel("User");
+    auto wrong_label = graph.CreateNode();
+    wrong_label.SetProperty("name", mgp::Value("alice"));
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Collect the `name`s returned by a range scan.
+  auto names_in_range =
+      [this](const mgp::Value *lower, bool lower_inclusive, const mgp::Value *upper, bool upper_inclusive) {
+        auto storage_acc = this->storage->Access(AccessorType::WRITE);
+        auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+        mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+        auto graph = mgp::Graph(&raw_graph);
+        std::set<std::string> names;
+        for (const auto node :
+             graph.NodesByLabelPropertyRange("User", "name", lower, lower_inclusive, upper, upper_inclusive)) {
+          names.insert(std::string(node.GetProperty("name").ValueString()));
+        }
+        return names;
+      };
+
+  {  // exact match [bob, bob]
+    mgp::Value bob{"bob"};
+    EXPECT_EQ(names_in_range(&bob, true, &bob, true), (std::set<std::string>{"bob"}));
+  }
+  {  // half-open [b, d): bob, carol
+    mgp::Value lower{"b"}, upper{"d"};
+    EXPECT_EQ(names_in_range(&lower, true, &upper, false), (std::set<std::string>{"bob", "carol"}));
+  }
+  {  // unbounded lower, exclusive upper (-inf, bob): alice
+    mgp::Value upper{"bob"};
+    EXPECT_EQ(names_in_range(nullptr, false, &upper, false), (std::set<std::string>{"alice"}));
+  }
+  {  // inclusive lower, unbounded upper [carol, +inf): carol, dave
+    mgp::Value lower{"carol"};
+    EXPECT_EQ(names_in_range(&lower, true, nullptr, false), (std::set<std::string>{"carol", "dave"}));
   }
 }
 
