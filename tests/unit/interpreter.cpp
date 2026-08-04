@@ -286,6 +286,63 @@ TYPED_TEST(InterpreterTest, BuiltinIntrospectionMatchesNormalPath) {
   EXPECT_EQ(sorted_names(fast), sorted_names(normal));
 }
 
+// The accessor-free path neither filters nor installs a memory tracker nor honours USING directives,
+// so a query carrying any of those must fall through to the normal (planned) path rather than have
+// the modifier silently dropped. Regression guard: YIELD ... WHERE used to be accepted by the
+// recognizer and its predicate discarded, returning every row.
+TYPED_TEST(InterpreterTest, AccessorFreePathRejectsUnhonouredModifiers) {
+  {
+    // A YIELD ... WHERE is held on the CallProcedure clause itself, so the clause count stays 1 and
+    // the query otherwise looks exactly like an accessor-free introspection call. The accessor-free
+    // preparer does not filter, so accepting one silently dropped the predicate and returned every
+    // row. It must take the normal path instead.
+    //
+    // NOTE: only the path is asserted, not the row count. The bare `CALL ... YIELD ... WHERE` form
+    // (no trailing clause) returns 0 rows for any predicate on the normal path -- verified to behave
+    // identically on master @572d5b431, so that is a separate pre-existing bug and is deliberately
+    // not encoded as an expectation here. With a trailing RETURN the filter works correctly, which is
+    // the only form master's tests cover (gql_behave procedure_call.feature, query_plan.cpp).
+    SCOPED_TRACE("YIELD ... WHERE must take the normal path");
+    auto unfiltered = this->Interpret("CALL mg.procedures() YIELD name");
+    auto filtered = this->Interpret("CALL mg.procedures() YIELD name WHERE name = 'mg.procedures'");
+    EXPECT_EQ(unfiltered.GetSummary().count("plan_execution_time"), 0U);  // fast path
+    EXPECT_EQ(filtered.GetSummary().count("plan_execution_time"), 1U);    // normal path
+    EXPECT_GT(unfiltered.GetResults().size(), 1U);
+    // The trailing-RETURN form does filter correctly, and must also take the normal path.
+    auto filtered_with_return =
+        this->Interpret("CALL mg.procedures() YIELD name WHERE name = 'mg.procedures' RETURN name");
+    EXPECT_EQ(filtered_with_return.GetSummary().count("plan_execution_time"), 1U);
+    ASSERT_EQ(filtered_with_return.GetResults().size(), 1U);
+    EXPECT_EQ(filtered_with_return.GetResults()[0][0].ValueString(), "mg.procedures");
+  }
+  {
+    // Taking the normal path means the limit is actually enforced. A 1 KB budget is far too small for
+    // mg.procedures, so this must now fail loudly -- where the accessor-free path used to drop the
+    // limit and return every row.
+    SCOPED_TRACE("per-call PROCEDURE MEMORY LIMIT is honoured, not dropped");
+    ASSERT_THROW(this->Interpret("CALL mg.procedures() PROCEDURE MEMORY LIMIT 1 KB YIELD name"),
+                 memgraph::query::QueryRuntimeException);
+    // A limit generous enough to succeed still takes the normal path.
+    auto stream = this->Interpret("CALL mg.procedures() PROCEDURE MEMORY LIMIT 100 MB YIELD name");
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+    EXPECT_GT(stream.GetResults().size(), 1U);
+  }
+  {
+    SCOPED_TRACE("query-level QUERY MEMORY LIMIT takes the normal path");
+    auto stream = this->Interpret("RETURN 1 QUERY MEMORY LIMIT 1 KB");
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+  {
+    SCOPED_TRACE("USING pre-query directives take the normal path");
+    auto stream = this->Interpret("USING INDEX :Foo RETURN 1");
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+}
+
 TYPED_TEST(InterpreterTest, MultiplePulls) {
   {
     auto [stream, qid] = this->Prepare("UNWIND [1,2,3,4,5] as n RETURN n");
