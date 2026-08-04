@@ -31,7 +31,7 @@ using memgraph::storage::PropertiesPaths;
 using memgraph::storage::PropertyId;
 using memgraph::storage::PropertyPath;
 using memgraph::storage::PropertyValue;
-using memgraph::storage::PropertyWrites;
+using memgraph::storage::PropertyWriteTargets;
 
 namespace {
 
@@ -39,8 +39,8 @@ LabelId Label(uint64_t id) { return LabelId::FromUint(id); }
 
 PropertyId Property(uint64_t id) { return PropertyId::FromUint(id); }
 
-constexpr auto kOnVertices = PropertyWrites{.on_vertices = true, .on_edges = false};
-constexpr auto kOnEdges = PropertyWrites{.on_vertices = false, .on_edges = true};
+constexpr auto kOnVertices = PropertyWriteTargets{.vertices = true, .edges = false};
+constexpr auto kOnEdges = PropertyWriteTargets{.vertices = false, .edges = true};
 
 }  // namespace
 
@@ -286,7 +286,7 @@ TEST(IndexArming, ALabelDeltaArmsTheIndexOnItsLabel) {
   auto const &delta = deltas.emplace(Delta::RemoveLabelTag{}, Label(1), nullptr, 0);
 
   auto arming = IndexArming{};
-  arming.for_transaction(kOnVertices).note(delta);
+  arming.for_deltas_of(kOnVertices).note(delta);
 
   EXPECT_TRUE(arming.arms_vertex_index_on(Label(1)));
   EXPECT_FALSE(arming.arms_vertex_index_on(Label(2)));
@@ -299,12 +299,12 @@ TEST(IndexArming, APropertyDeltaIsArmedOnTheSideTheTransactionWroteTo) {
   auto const &delta = deltas.emplace(Delta::SetPropertyTag{}, Property(10), PropertyValue{}, nullptr, 0);
 
   auto on_vertices = IndexArming{};
-  on_vertices.for_transaction(kOnVertices).note(delta);
+  on_vertices.for_deltas_of(kOnVertices).note(delta);
   EXPECT_TRUE(on_vertices.arms_vertex_index_on(Label(1), PropertiesPaths{PropertyPath{Property(10)}}));
   EXPECT_FALSE(on_vertices.arms_edge_index_on(Property(10)));
 
   auto on_edges = IndexArming{};
-  on_edges.for_transaction(kOnEdges).note(delta);
+  on_edges.for_deltas_of(kOnEdges).note(delta);
   EXPECT_TRUE(on_edges.arms_edge_index_on(Property(10)));
   EXPECT_FALSE(on_edges.arms_vertex_indexes());
 }
@@ -316,7 +316,7 @@ TEST(IndexArming, APropertyDeltaFromATransactionWritingBothSidesArmsBoth) {
   auto const &delta = deltas.emplace(Delta::SetPropertyTag{}, Property(10), PropertyValue{}, nullptr, 0);
 
   auto arming = IndexArming{};
-  arming.for_transaction(PropertyWrites{.on_vertices = true, .on_edges = true}).note(delta);
+  arming.for_deltas_of(PropertyWriteTargets{.vertices = true, .edges = true}).note(delta);
 
   EXPECT_TRUE(arming.arms_vertex_index_on(Label(1), PropertiesPaths{PropertyPath{Property(10)}}));
   EXPECT_TRUE(arming.arms_edge_index_on(Property(10)));
@@ -325,12 +325,12 @@ TEST(IndexArming, APropertyDeltaFromATransactionWritingBothSidesArmsBoth) {
 // A scope opened for a transaction that set no properties has nothing to say about a property
 // delta. Were one to reach it, the sweep that would collect its own stale entries would be
 // silently skipped, so pin that this combination cannot arise unnoticed.
-TEST(IndexArming, APropertyDeltaArmsNothingWhenTheTransactionClaimsNoPropertyWrites) {
+TEST(IndexArming, APropertyDeltaArmsNothingWhenTheTransactionWroteNoProperties) {
   auto deltas = delta_container{};
   auto const &delta = deltas.emplace(Delta::SetPropertyTag{}, Property(10), PropertyValue{}, nullptr, 0);
 
   auto arming = IndexArming{};
-  arming.for_transaction(PropertyWrites{}).note(delta);
+  arming.for_deltas_of(PropertyWriteTargets{}).note(delta);
 
   EXPECT_FALSE(arming.arms_anything());
 }
@@ -341,7 +341,7 @@ TEST(IndexArming, AnEdgeDeltaArmsTheEdgeTypeIndex) {
       deltas.emplace(Delta::RemoveOutEdgeTag{}, EdgeTypeId::FromUint(1), nullptr, EdgeRef{nullptr}, nullptr, 0);
 
   auto arming = IndexArming{};
-  arming.for_transaction(kOnVertices).note(delta);
+  arming.for_deltas_of(kOnVertices).note(delta);
 
   EXPECT_TRUE(arming.arms_edge_type_index());
   EXPECT_FALSE(arming.arms_vertex_indexes());
@@ -354,7 +354,7 @@ TEST(IndexArming, AnObjectDeletionDeltaArmsNothingByItself) {
   auto const &delta = deltas.emplace(Delta::DeleteObjectTag{}, nullptr, 0);
 
   auto arming = IndexArming{};
-  arming.for_transaction(kOnVertices).note(delta);
+  arming.for_deltas_of(kOnVertices).note(delta);
 
   EXPECT_FALSE(arming.arms_anything());
 }
@@ -366,7 +366,7 @@ TEST(IndexArming, ASingleScopeReadsAWholeDeltaBuffer) {
   deltas.emplace(Delta::RemoveLabelTag{}, Label(2), nullptr, 0);
 
   auto arming = IndexArming{};
-  auto const scope = arming.for_transaction(kOnVertices);
+  auto const scope = arming.for_deltas_of(kOnVertices);
   for (auto const &delta : deltas) scope.note(delta);
 
   EXPECT_TRUE(arming.arms_vertex_index_on(Label(1)));

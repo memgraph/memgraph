@@ -971,23 +971,23 @@ class InMemoryStorage final : public Storage {
 
   struct GCDeltas {
     GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<CommitInfo> commit_info,
-             uint64_t transaction_id, PropertyWrites property_writes)
+             uint64_t transaction_id, PropertyWriteTargets wrote_properties_on)
         : mark_timestamp_{mark_timestamp},
           deltas_{std::move(deltas)},
           commit_info_{std::move(commit_info)},
           unlinkable_timestamp_{commit_info_ ? commit_info_->timestamp.load(std::memory_order_acquire) : 0},
           transaction_id_{transaction_id},
-          property_writes_{property_writes} {}
+          wrote_properties_on_{wrote_properties_on} {}
 
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
 
-    uint64_t mark_timestamp_{};                  //!< a timestamp no active transaction currently has
-    delta_container deltas_;                     //!< the deltas that need cleaning
-    std::unique_ptr<CommitInfo> commit_info_{};  //!< the commit info the deltas are pointing at
-    uint64_t unlinkable_timestamp_{};            //!< earliest timestamp when these deltas can be safely unlinked
-    uint64_t transaction_id_{};                  //!< the transaction ID that created these deltas
-    PropertyWrites property_writes_{};           //!< what this transaction's property writes belonged to
+    uint64_t mark_timestamp_{};                   //!< a timestamp no active transaction currently has
+    delta_container deltas_;                      //!< the deltas that need cleaning
+    std::unique_ptr<CommitInfo> commit_info_{};   //!< the commit info the deltas are pointing at
+    uint64_t unlinkable_timestamp_{};             //!< earliest timestamp when these deltas can be safely unlinked
+    uint64_t transaction_id_{};                   //!< the transaction ID that created these deltas
+    PropertyWriteTargets wrote_properties_on_{};  //!< what this transaction set properties on
   };
 
   utils::Synchronized<std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>, utils::SpinLock>

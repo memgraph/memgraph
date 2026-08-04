@@ -1443,12 +1443,12 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(
   //        under its own account of what its property writes could have touched rather than this
   //        transaction's, which says nothing about them.
   for (auto &gc_deltas : linked_undo_buffers) {
-    auto const arming_scope = arming.for_transaction(gc_deltas.property_writes_);
+    auto const arming_scope = arming.for_deltas_of(gc_deltas.wrote_properties_on_);
     UnlinkAndRemoveDeltas(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, arming_scope);
   }
 
   // STEP 2) this transaction's deltas
-  auto const arming_scope = arming.for_transaction(transaction_.property_writes);
+  auto const arming_scope = arming.for_deltas_of(transaction_.wrote_properties_on);
   UnlinkAndRemoveDeltas(transaction_.deltas, current_deleted_edges, current_deleted_vertices, arming_scope);
 
   // STEP 3) clear all deltas after unlinking is complete
@@ -1812,7 +1812,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                                           std::move(transaction_.deltas),
                                           std::move(transaction_.commit_info),
                                           transaction_.transaction_id,
-                                          transaction_.property_writes);
+                                          transaction_.wrote_properties_on);
       });
     }
 
@@ -1910,7 +1910,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
                                                               std::move(transaction_.deltas),
                                                               std::move(transaction_.commit_info),
                                                               transaction_.transaction_id,
-                                                              transaction_.property_writes));
+                                                              transaction_.wrote_properties_on));
         });
       } else {
         mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
@@ -1918,7 +1918,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
                                               std::move(transaction_.deltas),
                                               std::move(transaction_.commit_info),
                                               transaction_.transaction_id,
-                                              transaction_.property_writes);
+                                              transaction_.wrote_properties_on);
         });
       }
     }
@@ -3310,7 +3310,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     // chain in a broken state.
     // The chain can be only read without taking any locks.
 
-    auto const arming_scope = cycle_arming.for_transaction(linked_entry->property_writes_);
+    auto const arming_scope = cycle_arming.for_deltas_of(linked_entry->wrote_properties_on_);
 
     for (Delta &delta : linked_entry->deltas_) {
       arming_scope.note(delta);

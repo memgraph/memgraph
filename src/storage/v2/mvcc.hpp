@@ -329,9 +329,9 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
     static_assert(std::is_same_v<TObj, Vertex> || std::is_same_v<TObj, Edge>,
                   "a third object kind needs its own index-sweep side before it can set properties");
     if constexpr (std::is_same_v<TObj, Vertex>) {
-      transaction->property_writes.on_vertices = true;
+      transaction->wrote_properties_on.vertices = true;
     } else {
-      transaction->property_writes.on_edges = true;
+      transaction->wrote_properties_on.edges = true;
     }
   }
 

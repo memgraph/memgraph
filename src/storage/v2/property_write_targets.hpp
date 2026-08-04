@@ -19,9 +19,9 @@ namespace memgraph::storage {
 /// point that knows is where the delta is created. Whoever reads the deltas afterwards needs it:
 /// a property on a vertex can only leave a vertex index holding something to collect, and one on
 /// an edge only an edge index, so the two are disjoint and are dealt with separately.
-struct PropertyWrites {
-  bool on_vertices{false};
-  bool on_edges{false};
+struct PropertyWriteTargets {
+  bool vertices{false};
+  bool edges{false};
 };
 
 }  // namespace memgraph::storage

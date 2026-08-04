@@ -17,7 +17,7 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/property_path.hpp"
-#include "storage/v2/property_writes.hpp"
+#include "storage/v2/property_write_targets.hpp"
 #include "utils/id_bitmap.hpp"
 
 namespace memgraph::storage {
@@ -58,8 +58,8 @@ class IndexArming {
           return;
         }
         case SET_PROPERTY: {
-          if (writes_vertex_properties_) arming_->note_vertex_property(delta.property.key);
-          if (writes_edge_properties_) arming_->note_edge_property(delta.property.key);
+          if (wrote_properties_on_.vertices) arming_->note_vertex_property(delta.property.key);
+          if (wrote_properties_on_.edges) arming_->note_edge_property(delta.property.key);
           return;
         }
         case ADD_LABEL:
@@ -83,19 +83,16 @@ class IndexArming {
     // Neither side is noted here. A transaction reports having written a property on one only
     // because it created a delta saying so, and that delta is in the buffer about to be read,
     // where it names the property.
-    TransactionScope(IndexArming &arming, PropertyWrites property_writes)
-        : arming_{&arming},
-          writes_vertex_properties_{property_writes.on_vertices},
-          writes_edge_properties_{property_writes.on_edges} {}
+    TransactionScope(IndexArming &arming, PropertyWriteTargets wrote_properties_on)
+        : arming_{&arming}, wrote_properties_on_{wrote_properties_on} {}
 
     IndexArming *arming_;
-    bool writes_vertex_properties_;
-    bool writes_edge_properties_;
+    PropertyWriteTargets wrote_properties_on_;
   };
 
-  /// Opens a scope for one transaction's deltas, told what its property writes belonged to,
+  /// Opens a scope for one transaction's deltas, told what that transaction wrote properties on,
   /// which the deltas cannot say on their own.
-  TransactionScope for_transaction(PropertyWrites property_writes) { return {*this, property_writes}; }
+  TransactionScope for_deltas_of(PropertyWriteTargets wrote_properties_on) { return {*this, wrote_properties_on}; }
 
   /// Sweep every vertex index regardless of what was written. Used where entries may point at
   /// objects about to be freed: no delta names those, and leaving one behind is a dangling
