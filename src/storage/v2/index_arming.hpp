@@ -33,6 +33,9 @@ namespace memgraph::storage {
 ///
 /// Grouped by index family, because the two do not arm on the same things: a vertex index turns
 /// on labels, which are mutable, while an edge index cannot turn on its edge type, which is not.
+/// The families are also disjoint, no vertex property or label appearing in an edge index key and
+/// no edge property or type in a vertex index key, which is what lets a write name at most one of
+/// them and the two sweeps be gated apart.
 class IndexArming {
  public:
   /// One transaction's worth of deltas. A property delta records the property but not whether it
