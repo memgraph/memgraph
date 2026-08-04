@@ -202,7 +202,10 @@ install() {
         case "$pkg" in
             dotnet-sdk-8.0)
                 if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
-                    add-apt-repository ppa:dotnet/backports
+                    if ! command -v add-apt-repository &>/dev/null; then
+                        apt-get install -y software-properties-common
+                    fi
+                    add-apt-repository -y ppa:dotnet/backports
                     apt-get update
                     apt-get install -y apt-transport-https dotnet-sdk-8.0
                 fi
