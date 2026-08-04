@@ -1071,7 +1071,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndicesImpl(uint64_t start_t
 }
 
 uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                                           std::stop_token token) {
+                                                           std::stop_token token, IndexArming const &arming) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
   CleanupAllIndices();
@@ -1080,9 +1080,12 @@ uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uin
   auto const remove_from = [&](auto const &all_indexes) {
     for (auto &all_entry : *all_indexes) {
       if (token.stop_requested()) return;
-      ++swept;
       auto const &label_id = all_entry.label_;
       auto const &property_paths = all_entry.properties_;
+      // Nothing written since the last sweep can have left an entry here to collect, and a sweep
+      // costs the whole index to walk whether or not it finds anything.
+      if (!arming.armed(label_id, property_paths)) continue;
+      ++swept;
 
       bool const stop = WithIndex(all_entry.index_, [&](auto &index) -> bool {
         auto const &permutationHelper = index.permutations_helper;

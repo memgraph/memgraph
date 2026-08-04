@@ -34,7 +34,7 @@ uint64_t Indices::RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_
   auto swept = static_cast<InMemoryLabelIndex *>(label_index_.get())
                    ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token, arming);
   swept += static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
-               ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
+               ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token, arming);
   swept += static_cast<InMemoryVertexPropertyIndex *>(vertex_property_index_.get())
                ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
   return swept;

@@ -293,6 +293,14 @@ class StorageV2GcIndexSweepCountTest : public StorageV2GcMetricsTest {
     ASSERT_TRUE(acc->CreateIndex(storage->NameToLabel(name)).has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
+
+  void CreateLabelPropertyIndex(std::string_view label, std::string_view property) {
+    auto acc = storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreateIndex(storage->NameToLabel(label),
+                                 {memgraph::storage::PropertyPath{storage->NameToProperty(property)}})
+                    .has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
 };
 
 TEST_F(StorageV2GcIndexSweepCountTest, IdleDatabaseSweepsNothing) {
@@ -407,6 +415,80 @@ TEST_F(StorageV2GcIndexSweepCountTest, TheSweptIndexStillCollectsItsStaleEntries
   EXPECT_EQ(SweptByOnePass(), 1);
   EXPECT_EQ(indexed_count("A"), 0);
   EXPECT_EQ(indexed_count("B"), kVertices);
+}
+
+TEST_F(StorageV2GcIndexSweepCountTest, OnlyTheWrittenPropertysIndexIsSwept) {
+  CreateLabelPropertyIndex("L", "a");
+  CreateLabelPropertyIndex("L", "b");
+
+  memgraph::storage::Gid gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("L")));
+    ASSERT_TRUE(vertex.SetProperty(acc->NameToProperty("a"), memgraph::storage::PropertyValue{1}).has_value());
+    ASSERT_TRUE(vertex.SetProperty(acc->NameToProperty("b"), memgraph::storage::PropertyValue{1}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(vertex->SetProperty(acc->NameToProperty("a"), memgraph::storage::PropertyValue{2}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  EXPECT_EQ(SweptByOnePass(), 1);
+}
+
+// A property write says the vertex indexes may hold something to collect but a delta cannot say
+// which property it was without being read for it. Were the write to arm the family and name no
+// property, every label-property index would be skipped and the entries it left would stay.
+TEST_F(StorageV2GcIndexSweepCountTest, APropertyWriteStillCollectsTheEntriesItStaled) {
+  CreateLabelPropertyIndex("L", "a");
+  CreateLabelPropertyIndex("L", "b");
+
+  constexpr int kVertices = 100;
+  std::vector<memgraph::storage::Gid> gids;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    for (int i = 0; i != kVertices; ++i) {
+      auto vertex = acc->CreateVertex();
+      gids.push_back(vertex.Gid());
+      ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("L")));
+      ASSERT_TRUE(vertex.SetProperty(acc->NameToProperty("a"), memgraph::storage::PropertyValue{i}).has_value());
+      ASSERT_TRUE(vertex.SetProperty(acc->NameToProperty("b"), memgraph::storage::PropertyValue{i}).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_GT(SweptByOnePass(), 0);
+
+  auto const indexed_count = [&](std::string_view property) {
+    auto acc = storage->Access(memgraph::storage::READ);
+    auto const count = acc->ApproximateVertexCount(
+        storage->NameToLabel("L"), std::array{memgraph::storage::PropertyPath{storage->NameToProperty(property)}});
+    acc->Abort();
+    return count;
+  };
+  ASSERT_EQ(indexed_count("a"), kVertices);
+
+  // Rewriting a property leaves the entry holding the old value behind for the sweep to find.
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    for (auto const gid : gids) {
+      auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_TRUE(vertex->SetProperty(acc->NameToProperty("a"), memgraph::storage::PropertyValue{-1}).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_EQ(indexed_count("a"), 2 * kVertices);
+
+  EXPECT_EQ(SweptByOnePass(), 1);
+  EXPECT_EQ(indexed_count("a"), kVertices);
+  EXPECT_EQ(indexed_count("b"), kVertices);
 }
 
 TEST(StorageV2Gc, Indices) {

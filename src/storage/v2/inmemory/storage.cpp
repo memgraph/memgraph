@@ -283,7 +283,7 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
 void UnlinkAndRemoveDeltas(delta_container &deltas,
                            std::list<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
                            std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
-                           IndexPerformanceTracker &impact_tracker) {
+                           IndexPerformanceTracker::TransactionScope const &impact_scope) {
   for (auto &delta : deltas) {
     DMG_ASSERT(
         [&delta]() {
@@ -293,7 +293,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas,
           return !(next_ts >= kTransactionInitialId && IsDeltaNonSequential(*next));
         }(),
         "downstream active non-sequential delta found during rapid cleanup");
-    impact_tracker.update(delta);
+    impact_scope.update(delta);
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::NULL_PTR:
@@ -1439,13 +1439,17 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(
   mem_storage->waiting_gc_deltas_.WithLock(
       [&](auto &waiting_list) { linked_undo_buffers.splice(linked_undo_buffers.end(), waiting_list); });
 
-  // 1.b.1) unlink, gathering the removals
+  // 1.b.1) unlink, gathering the removals. These belong to other transactions, so each is read
+  //        under its own account of what its property writes could have touched rather than this
+  //        transaction's, which says nothing about them.
   for (auto &gc_deltas : linked_undo_buffers) {
-    UnlinkAndRemoveDeltas(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, impact_tracker);
+    auto const impact_scope = impact_tracker.for_transaction(gc_deltas.property_write_impact_);
+    UnlinkAndRemoveDeltas(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, impact_scope);
   }
 
   // STEP 2) this transaction's deltas
-  UnlinkAndRemoveDeltas(transaction_.deltas, current_deleted_edges, current_deleted_vertices, impact_tracker);
+  auto const impact_scope = impact_tracker.for_transaction(transaction_.property_write_impact);
+  UnlinkAndRemoveDeltas(transaction_.deltas, current_deleted_edges, current_deleted_vertices, impact_scope);
 
   // STEP 3) clear all deltas after unlinking is complete
   linked_undo_buffers.clear();
@@ -1458,7 +1462,6 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
   std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_vertices;
   std::list<Edge *, memory::DbAwareAllocator<Edge *>> current_deleted_edges;
   auto impact_tracker = IndexPerformanceTracker{};
-  impact_tracker.note_property_writes(transaction_.property_write_impact);
 
   // STEP 1 + STEP 2 - delta cleanup
   GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
@@ -3308,10 +3311,10 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     // chain in a broken state.
     // The chain can be only read without taking any locks.
 
-    index_impact.note_property_writes(linked_entry->property_write_impact_);
+    auto const impact_scope = index_impact.for_transaction(linked_entry->property_write_impact_);
 
     for (Delta &delta : linked_entry->deltas_) {
-      index_impact.update(delta);
+      impact_scope.update(delta);
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {

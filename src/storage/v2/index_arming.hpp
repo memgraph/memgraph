@@ -11,8 +11,11 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/index_impact.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "utils/id_bitmap.hpp"
 
 namespace memgraph::storage {
@@ -41,11 +44,22 @@ class IndexArming {
 
   void note_label(LabelId label) { vertex_.labels.Set(label); }
 
+  void note_vertex_property(PropertyId property) { vertex_.properties.Set(property); }
+
   /// Which families the writes could have touched at all, taken from the transaction where a
   /// delta cannot say it on its own.
   void note_families(IndexImpact impact) { families_ |= impact; }
 
   bool armed(LabelId label) const { return vertex_.all || vertex_.labels.Test(label); }
+
+  /// An index on a label and a set of properties goes stale when the label is taken off a vertex
+  /// it covers or when one of the properties is written, so either arms it. A path names a
+  /// property reached through others, and a write names the one it starts from.
+  bool armed(LabelId label, PropertiesPaths const &properties) const {
+    return armed(label) || std::ranges::any_of(properties, [this](PropertyPath const &path) {
+             return !path.empty() && vertex_.properties.Test(path[0]);
+           });
+  }
 
   IndexImpact const &families() const { return families_; }
 
@@ -68,15 +82,18 @@ class IndexArming {
   struct VertexIndexes {
     bool all{false};
     utils::IdBitmap<LabelId> labels{};
+    utils::IdBitmap<PropertyId> properties{};
 
     void Merge(VertexIndexes const &other) {
       all |= other.all;
       labels.Merge(other.labels);
+      properties.Merge(other.properties);
     }
 
     void Clear() {
       all = false;
       labels.Clear();
+      properties.Clear();
     }
   };
 
