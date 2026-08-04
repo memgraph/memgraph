@@ -50,12 +50,17 @@ class VertexPropertyIndex {
 };
 
 struct VertexPropertyIndexAbortProcessor {
-  explicit VertexPropertyIndexAbortProcessor(std::span<PropertyId const> properties);
+  VertexPropertyIndexAbortProcessor() = default;
+
+  explicit VertexPropertyIndexAbortProcessor(std::span<PropertyId const> indexed) : indexed_{indexed} {}
 
   void CollectOnPropertyChange(PropertyId property, Vertex *vertex, PropertyValue value);
 
-  VertexPropertyIndexAbortableInfo cleanup_collection_;
   bool IsInteresting(PropertyId property) const;
+
+  /// Borrowed; see EdgeTypeIndexAbortProcessor::indexed_.
+  std::span<PropertyId const> indexed_;
+  VertexPropertyIndexAbortableInfo cleanup_collection_;
 };
 
 struct VertexPropertyIndexActiveIndices {

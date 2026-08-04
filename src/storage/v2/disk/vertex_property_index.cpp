@@ -38,7 +38,7 @@ std::vector<PropertyId> DiskVertexPropertyIndex::ActiveIndices::ListIndices(uint
 }
 
 VertexPropertyIndex::AbortProcessor DiskVertexPropertyIndex::ActiveIndices::GetAbortProcessor() const {
-  return AbortProcessor({});
+  return AbortProcessor{};
 }
 
 void DiskVertexPropertyIndex::ActiveIndices::AbortEntries(VertexPropertyIndex::AbortableInfo const & /*info*/,

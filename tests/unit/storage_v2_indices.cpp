@@ -5369,6 +5369,58 @@ TEST(IndexAbortLookup, AnAbortSeesALabelIndexCreatedAfterAnEarlierAbortBuiltTheL
   EXPECT_EQ(indexed_count("A"), 1);
 }
 
+// The same for an index keyed on a property alone, whose abort processor borrows a view of the
+// indexed properties rather than a copy: the view has to name the properties of the snapshot it
+// was made against.
+TEST(IndexAbortLookup, AnAbortSeesAGlobalVertexIndexCreatedAfterAnEarlierAbortBuiltTheLookup) {
+  auto storage = std::make_unique<InMemoryStorage>(Config{});
+
+  auto const create_index = [&](std::string_view property) {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_NO_ERROR(acc->CreateGlobalVertexIndex(storage->NameToProperty(property)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  };
+  auto const indexed_count = [&](std::string_view property) {
+    auto acc = storage->Access(READ);
+    auto const count = acc->ApproximateVertexCount(storage->NameToProperty(property));
+    acc->Abort();
+    return count;
+  };
+
+  create_index("a");
+
+  Gid gid;
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), PropertyValue{1}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  ASSERT_EQ(indexed_count("a"), 1);
+
+  // An abort against the set of indexes as it stands, which is what builds the view.
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("a"), PropertyValue{2}));
+    acc->Abort();
+  }
+  EXPECT_EQ(indexed_count("a"), 1);
+
+  create_index("b");
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(acc->NameToProperty("b"), PropertyValue{5}));
+    acc->Abort();
+  }
+  EXPECT_EQ(indexed_count("b"), 0);
+  EXPECT_EQ(indexed_count("a"), 1);
+}
+
 // The edge counterpart, covering the three remaining caches in one test. Edge-property,
 // edge-type and edge-type-property all had their abort lookup moved onto the index-set snapshot
 // by the same change, so they share one hazard and one claim. The assertions stay separate so a

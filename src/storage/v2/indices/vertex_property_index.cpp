@@ -11,26 +11,18 @@
 
 #include "storage/v2/indices/vertex_property_index.hpp"
 
-namespace memgraph::storage {
+#include <algorithm>
 
-VertexPropertyIndexAbortProcessor::VertexPropertyIndexAbortProcessor(std::span<PropertyId const> properties) {
-  for (auto property : properties) {
-    cleanup_collection_.insert({property, {}});
-  }
-}
+namespace memgraph::storage {
 
 void VertexPropertyIndexAbortProcessor::CollectOnPropertyChange(PropertyId property, Vertex *vertex,
                                                                 PropertyValue value) {
-  auto it = cleanup_collection_.find(property);
-  if (it == cleanup_collection_.end()) {
-    DMG_ASSERT(false, "Should not be possible");
-    return;
-  }
-  it->second.emplace_back(std::move(value), vertex);
+  DMG_ASSERT(IsInteresting(property), "Collecting a property no index is keyed on");
+  cleanup_collection_[property].emplace_back(std::move(value), vertex);
 }
 
 bool VertexPropertyIndexAbortProcessor::IsInteresting(PropertyId property) const {
-  return cleanup_collection_.contains(property);
+  return std::ranges::binary_search(indexed_, property);
 }
 
 }  // namespace memgraph::storage
