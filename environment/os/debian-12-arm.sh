@@ -61,6 +61,7 @@ MEMGRAPH_BUILD_DEPS=(
     libssl-dev # for mgconsole (cloned + built at package time)
     netcat-traditional # tests are using nc to wait for memgraph
     lsof # e2e test runners
+    custom-rust
     python3 virtualenv python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     zip unzip default-jdk-headless custom-maven # for driver tests
