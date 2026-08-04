@@ -19,7 +19,7 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/counter.hpp"
 
-namespace r = ranges;
+namespace r = ranges;  // NOLINT(misc-unused-alias-decls)
 
 namespace memgraph::storage {
 
