@@ -245,18 +245,32 @@ void Indices::AbortProcessor::CollectOnEdgePropertyChange(PropertyId property, P
   // belong to the aborting transaction alone, unlike the source vertex's own chain, which another
   // transaction may be writing under a lock an abort does not hold.
   if (!link.has_value()) {
-    if (!out_edge_links_.has_value()) {
-      out_edge_links_.emplace();
+    // Scanning the deltas costs nothing but time, and indexing them costs an entry per edge the
+    // transaction linked, which for one miss in a large transaction is a lot of memory to find one
+    // edge. So scan while misses are few, and only pay for the index once enough of them have
+    // accumulated that scanning every time would be the greater cost.
+    if (!out_edge_links_.has_value() && misses_ < kMissesBeforeIndexing) {
+      ++misses_;
       for (auto const &delta : deltas) {
         if (delta.action != Delta::Action::ADD_OUT_EDGE && delta.action != Delta::Action::REMOVE_OUT_EDGE) continue;
-        out_edge_links_->emplace_back(
-            delta.vertex_edge.edge.ptr, delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get());
+        if (delta.vertex_edge.edge.ptr != edge) continue;
+        link = std::pair{delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get()};
+        break;
       }
-    }
-    for (auto const &[linked_edge, edge_type, to_vertex] : *out_edge_links_) {
-      if (linked_edge != edge) continue;
-      link = std::pair{edge_type, to_vertex};
-      break;
+    } else {
+      if (!out_edge_links_.has_value()) {
+        out_edge_links_.emplace();
+        for (auto const &delta : deltas) {
+          if (delta.action != Delta::Action::ADD_OUT_EDGE && delta.action != Delta::Action::REMOVE_OUT_EDGE) continue;
+          out_edge_links_->emplace_back(
+              delta.vertex_edge.edge.ptr, delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get());
+        }
+      }
+      for (auto const &[linked_edge, edge_type, to_vertex] : *out_edge_links_) {
+        if (linked_edge != edge) continue;
+        link = std::pair{edge_type, to_vertex};
+        break;
+      }
     }
   }
   if (!link.has_value()) return;

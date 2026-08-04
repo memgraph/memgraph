@@ -111,7 +111,10 @@ struct Indices {
     void Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp,
                  NameIdMapper *name_id_mapper);
 
-    /// Built on first use, and only for an edge whose link its source vertex no longer holds.
+    /// Reached only for an edge whose link its source vertex no longer holds. The first few are
+    /// answered by scanning the deltas; past that the scanning is what costs, so they are indexed.
+    static constexpr auto kMissesBeforeIndexing = 8;
+    unsigned misses_{0};
     std::optional<std::vector<std::tuple<Edge *, EdgeTypeId, Vertex *>>> out_edge_links_{};
   };
 
