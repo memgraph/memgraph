@@ -1,4 +1,4 @@
-FROM dokken/centos-stream-10
+FROM quay.io/centos/centos:stream10
 
 ARG TOOLCHAIN_VERSION
 
