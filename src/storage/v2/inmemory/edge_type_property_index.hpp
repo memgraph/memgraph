@@ -43,6 +43,13 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     Vertex *from_vertex;
     Vertex *to_vertex;
     Edge *edge;
+    // The `edge` pointer above is a borrowed reference into the edge store and
+    // cannot be dereferenced to discover its own identity once the edge GC has
+    // reclaimed it. Carrying the gid lets a reader re-resolve the edge through a
+    // pinned accessor instead. Deliberately NOT part of `operator<`: the index
+    // ordering, and the adjacency the duplicate check relies on, must stay
+    // exactly as they were.
+    Gid gid;
 
     uint64_t timestamp;
 

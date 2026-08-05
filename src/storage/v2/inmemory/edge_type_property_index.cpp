@@ -12,6 +12,8 @@
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include <range/v3/all.hpp>
 
+#include <variant>
+
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
@@ -46,7 +48,7 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
       continue;
     }
 
-    index_accessor.insert({std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, 0});
+    index_accessor.insert({std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, edge_ref.ptr->gid, 0});
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::EDGES);
     }
@@ -118,7 +120,8 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
       continue;
     }
 
-    index_accessor.insert({std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, tx.start_timestamp});
+    index_accessor.insert(
+        {std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, edge_ref.ptr->gid, tx.start_timestamp});
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::EDGES);
     }
@@ -126,10 +129,24 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
 }
 
 // Free function which advances the given iterator until the next valid entry is found.
+//
+// `edge_pin` is the iterable's own pin, threaded down so this loop can re-resolve
+// each entry's edge through it. Holding the pin is NOT by itself enough to make
+// `Entry::edge` dereferenceable: the pin protects nodes reachable through the
+// skiplist from the moment its accessor id was allocated, whereas an Entry holds
+// an Edge* captured when the entry was indexed. A node the epoch GC already
+// collected -- tagged with an older accessor id -- before this pin existed is
+// freed underneath the scan, and every touch of it is a use-after-free. Observed
+// in the field as `SkipListGc<Edge>::Run()` freeing the node from a concurrent
+// `CreateEdge` while this loop reads it.
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_edge, EdgeAccessor &current_accessor,
                         PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                        Transaction *transaction, EdgeTypeId edge_type, Gid max_gid) {
+                        Transaction *transaction, EdgeTypeId edge_type, Gid max_gid, EdgePin const &edge_pin) {
+  // Light mode keeps no edge skiplist to resolve against, so it retains the
+  // previous behaviour; the reported crashes are all heavy-edge.
+  auto const *edge_store = std::get_if<utils::SkipListDb<Edge>::ConstAccessor>(&edge_pin);
+
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->edge == current_edge.ptr) {
       continue;
@@ -147,12 +164,32 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_
     // Visibility filters run after the value-bounds check: bounds depend only on the
     // entry value, so checking them first lets the scan stop at the bound instead of
     // walking past entries invisible to this transaction.
-    if (index_iterator->edge->gid >= max_gid) {
+    //
+    // Read the gid off the ENTRY, not through `entry.edge->gid`. That dereference
+    // was the first touch of the edge in this loop and needed the edge to still be
+    // alive just to discover its own identity -- the exact circularity the entry's
+    // own gid removes.
+    if (index_iterator->gid >= max_gid) {
       continue;
     }
 
     if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
       continue;
+    }
+
+    // Everything below dereferences the edge, so establish first that the entry's
+    // pointer still names a live edge under our pin. Resolving the gid through the
+    // pinned store and requiring the SAME address answers both failure modes at
+    // once: a miss means the edge was reclaimed, and a hit at a different address
+    // means the gid was reused by a newer edge. Either way this entry refers to a
+    // dead edge and is stale by definition, which a scan must skip rather than
+    // yield. A hit at the same address is the only case where `entry.edge` is
+    // provably alive for as long as the pin is held.
+    if (edge_store != nullptr) {
+      auto const found = edge_store->find(index_iterator->gid);
+      if (found == edge_store->end() || &*found != index_iterator->edge) {
+        continue;
+      }
     }
 
     if (!CurrentVersionHasProperty(*index_iterator->edge, property, index_iterator->value, transaction, view)) {
@@ -337,6 +374,16 @@ uint64_t InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, 
 
   // Pin the edge store while sweeping: the loop dereferences raw Edge* the epoch GC could free.
   auto const edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
+  // ...but the pin ALONE is not sufficient, for the same reason spelled out above
+  // AdvanceUntilValid_: it protects nodes reachable through the skiplist from the
+  // moment its accessor id was allocated, whereas an Entry holds an Edge* captured
+  // when the entry was indexed. A node already collected before this pin existed is
+  // freed underneath it, and the first touch is fatal -- AnyVersionHasProperty takes
+  // `std::shared_lock{edge.lock}`, so the use-after-free is a WRITE and no amount of
+  // locking discipline can help. Re-resolve the entry's gid through the pinned
+  // accessor instead; a miss means the edge is gone and the entry is stale by
+  // definition, which is precisely what this sweep removes.
+  auto const *edge_store = std::get_if<utils::SkipListDb<Edge>::ConstAccessor>(&edge_pin);
 
   uint64_t swept = 0;
   for (auto &[index, property] : *all_indices) {
@@ -366,8 +413,14 @@ uint64_t InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, 
       const bool redundant_duplicate = has_next && it->value == next_it->value &&
                                        it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
                                        it->edge == next_it->edge;
-      if (redundant_duplicate ||
-          !AnyVersionHasProperty(*it->edge, property, it->value, oldest_active_start_timestamp)) {
+      Edge const *live_edge = it->edge;
+      if (edge_store != nullptr) {
+        auto const found = edge_store->find(it->gid);
+        live_edge = found == edge_store->end() ? nullptr : &*found;
+      }
+
+      if (redundant_duplicate || live_edge == nullptr ||
+          !AnyVersionHasProperty(*live_edge, property, it->value, oldest_active_start_timestamp)) {
         edges_acc.remove(*it);
       }
 
@@ -388,7 +441,11 @@ void InMemoryEdgeTypePropertyIndex::ActiveIndices::AbortEntries(
 
   auto acc = it->second->skiplist.access();
   for (const auto &[from_vertex, to_vertex, edge, value] : edges) {
-    acc.remove(Entry{value, from_vertex, to_vertex, edge, exact_start_timestamp});
+    // Dereferencing `edge` is safe HERE, unlike in a GC-concurrent read: this is
+    // the abort path for a transaction that still owns the edge it is undoing, so
+    // nothing can have reclaimed it yet. `gid` is not part of `operator<`, so it
+    // does not affect which entry `remove` finds.
+    acc.remove(Entry{value, from_vertex, to_vertex, edge, edge->gid, exact_start_timestamp});
   }
 }
 
@@ -405,7 +462,7 @@ void InMemoryEdgeTypePropertyIndex::ActiveIndices::UpdateOnSetProperty(Vertex *f
     return;
 
   auto acc = it->second->skiplist.access();
-  acc.insert({value, from_vertex, to_vertex, edge, timestamp});
+  acc.insert({value, from_vertex, to_vertex, edge, edge->gid, timestamp});
 }
 
 uint64_t InMemoryEdgeTypePropertyIndex::ActiveIndices::ApproximateEdgeCount(EdgeTypeId edge_type,
@@ -504,7 +561,8 @@ void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
                      self_->storage_,
                      self_->transaction_,
                      self_->edge_type_,
-                     self_->max_gid_);
+                     self_->max_gid_,
+                     self_->pin_accessor_edge_);
 }
 
 void InMemoryEdgeTypePropertyIndex::RunGC() {
@@ -592,7 +650,7 @@ void InMemoryEdgeTypePropertyIndex::ActiveIndices::AbortEntries(EdgeTypeProperty
 
     auto acc = it->second->skiplist.access();
     for (const auto &[from_vertex, to_vertex, edge, value] : edges) {
-      acc.remove(Entry{std::move(value), from_vertex, to_vertex, edge, start_timestamp});
+      acc.remove(Entry{std::move(value), from_vertex, to_vertex, edge, edge->gid, start_timestamp});
     }
   }
 }
@@ -661,7 +719,8 @@ void InMemoryEdgeTypePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid
                      self_->storage_,
                      self_->transaction_,
                      self_->edge_type_,
-                     self_->max_gid_);
+                     self_->max_gid_,
+                     self_->pin_accessor_edge_);
 }
 
 }  // namespace memgraph::storage
