@@ -111,9 +111,8 @@ bool WaitForVertexCount(DbAccess &db, size_t expected_count,
   return WaitForCondition([&]() { return CountVisibleVertices(db) == expected_count; }, timeout);
 }
 
-// Wait until the visible vertex count drops to at most `expected_count`. Under TTL the count is monotone
-// non-increasing, so don't poll for exact equality with a transient value: two vertices can expire close
-// together and a single batch takes the count straight past the intermediate, which == would miss.
+// Poll for <=, not ==: a single reap batch can delete several expired vertices at once and skip
+// straight past an intermediate count that WaitForVertexCount would wait for forever.
 template <typename DbAccess>
 bool WaitForVertexCountAtMost(DbAccess &db, size_t expected_count,
                               std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
