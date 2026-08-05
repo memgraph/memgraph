@@ -893,18 +893,25 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     auto splice_branch_comprehensions = [&](std::unique_ptr<LogicalOperator> branch,
                                             const std::vector<query::Clause *> &sets,
                                             const std::unordered_set<Symbol> &branch_bound_symbols) {
-      if (sets.empty() || pending_comprehensions.empty()) return branch;
       const auto wanted = impl::CollectPatternComprehensionSymbols(sets, *context_->symbol_table);
       return SpliceSatisfiedComprehensions(std::move(branch),
                                            pending_comprehensions,
                                            symbols_bound_by_query_part,
                                            branch_bound_symbols,
                                            /*write_occurred=*/true,
-                                           &wanted,
-                                           branch_bound_symbols);
+                                           &wanted);
     };
 
-    on_match = splice_branch_comprehensions(std::move(on_match), merge.on_match_, bound_symbols_copy);
+    {
+      // ON MATCH runs only when the pattern was found, so View::OLD does see its symbols - unlike ON CREATE's, and
+      // unlike the chain below the Merge, where the planner cannot know which branch ran.
+      auto const restore = utils::OnScopeExit{
+          [this, saved = write_bound_symbols_]() mutable { write_bound_symbols_ = std::move(saved); }};
+      for (const auto &sym : matching.expansion_symbols) {
+        write_bound_symbols_.erase(sym);
+      }
+      on_match = splice_branch_comprehensions(std::move(on_match), merge.on_match_, bound_symbols_copy);
+    }
 
     once_with_symbols = std::make_unique<Once>(std::move(bound_symbols));
     // Use the original bound_symbols, so we fill it with new symbols.
