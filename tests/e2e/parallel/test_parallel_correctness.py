@@ -317,6 +317,14 @@ class TestParallelIndices:
         """Parallel range scan with null bounds returns no results."""
         verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age > head([]) RETURN count(n)")
 
+    def test_global_vertex_property_index_null_value(self, indexed_db):
+        """Parallel value scan with null on global vertex property index returns no results."""
+        verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age = head([]) RETURN count(n)")
+
+    def test_label_property_index_null_value(self, indexed_db):
+        """Parallel value scan with null on label-property index returns no results."""
+        verify_parallel_matches_serial(indexed_db, "MATCH (n:Person) WHERE n.age = head([]) RETURN count(n)")
+
     @pytest.fixture
     def desc_indexed_db(self, memgraph):
         """Database with a DESC-ordered label+property index only."""
