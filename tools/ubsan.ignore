@@ -19,3 +19,9 @@ src:*/rdkafka_request.c
 
 # rocksdb: load of misaligned address 0x737fbff2a406 for type 'uint32_t' (aka 'unsigned int'), which requires 4 byte alignment
 src:*/util/crc32c.cc
+
+# libuuid: left shift of getpid() by 16 places cannot be represented in int
+# (randutils.c:55). PRNG seed mixing; the overflowing high bits are meant to
+# be discarded, so it is benign in practice. Standalone libuuid 1.0.3
+# (sourceforge) is effectively unmaintained — no upstream to fix.
+src:*/randutils.c
