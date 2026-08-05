@@ -1783,6 +1783,53 @@ TYPED_TEST(TestSymbolGenerator, CreateInSubqueryMayRedeclareUnimportedOuterVaria
       << "the created node must be a fresh symbol, so the outer `p` survives the subquery";
 }
 
+TYPED_TEST(TestSymbolGenerator, ComprehensionInWhereRejectsAlreadyBoundRelationship) {
+  // MATCH (a)-[r]->(b) WITH a, r WHERE [(a)-[r]->(y) | 1] = [] RETURN a
+  // Reusing a bound *node* correlates the comprehension; reusing a bound *relationship* has no operator behind it -
+  // `Expand` has no `existing_edge` counterpart to `existing_node`. Left to resolve to the outer symbol, the planner
+  // received an already-bound edge symbol and tripped an assertion that aborted the process, reachable from EXPLAIN.
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::OUT), NODE("y")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::OUT), NODE("b"))),
+                                   WITH(IDENT("a"), AS("a"), IDENT("r"), AS("r")),
+                                   WHERE(EQ(pattern_comp, LIST())),
+                                   RETURN("a")));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, ComprehensionInWhereStillCorrelatesAnAlreadyBoundNode) {
+  // MATCH (a)-[r]->(b) WITH a AS a, b AS b WHERE [(a)-[]->(b) | 1] = [] RETURN a
+  // The positive control for the rejection above: a bound *node* in the same position must keep resolving to the symbol
+  // already in scope - here the one the WITH projects, which is what the comprehension has to correlate to.
+  auto *with_a = NEXPR("a", IDENT("a"));
+  auto *inner_a = NODE("a");
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(inner_a, EDGE("anon1", EdgeAtom::Direction::OUT), NODE("b")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::OUT), NODE("b"))),
+                                   WITH(with_a, NEXPR("b", IDENT("b"))),
+                                   WHERE(EQ(pattern_comp, LIST())),
+                                   RETURN("a")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_EQ(symbol_table.at(*inner_a->identifier_), symbol_table.at(*with_a))
+      << "a bound node in a comprehension pattern must correlate to the WITH's output symbol, not declare a fresh one";
+}
+
+TYPED_TEST(TestSymbolGenerator, ExistsSubqueryRejectsAlreadyBoundRelationship) {
+  // MATCH (a)-[r]->(b) WHERE EXISTS { MATCH (a)-[r]->(y) RETURN y } RETURN a
+  // Same planner limitation reached through the other spelling that resolves pattern names against the outer scope.
+  // This one aborted the process on master too.
+  auto *subquery =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::OUT), NODE("y"))), RETURN("y")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::OUT), NODE("b"))),
+                                   WHERE(EXISTS_SUBQUERY(subquery)),
+                                   RETURN("a")));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
 TYPED_TEST(TestSymbolGenerator, SubqueryReturningShadowingNameStillCollidesWithOuterScope) {
   // MATCH (p) CALL { CREATE (p) RETURN p } RETURN p
   // Returning the shadowing name under its own name would collide with the caller's `p`; still rejected.

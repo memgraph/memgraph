@@ -898,3 +898,102 @@ Feature: Pattern comprehensions
         Then the result should be:
             | n | counts |
             | 1 | [0]    |
+
+    Scenario: Variable-length pattern comprehension in the WHERE of a WITH preceded by a write clause
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {id: 1})-[:FRIEND]->(b:Person {id: 2})
+            CREATE (b)-[:FRIEND]->(:Person {id: 9})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) SET p.seen = 1
+            WITH p AS q WHERE size([(q)-[:FRIEND*1..2]->(m) | m]) > 0
+            RETURN q.id AS id ORDER BY id
+            """
+        Then the result should be:
+            | id |
+            | 1  |
+            | 2  |
+
+    Scenario: Variable-length pattern comprehension in the ORDER BY of a WITH preceded by a write clause
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {id: 1})-[:FRIEND]->(b:Person {id: 2})
+            CREATE (b)-[:FRIEND]->(:Person {id: 9})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) SET p.seen = 1
+            WITH p AS q ORDER BY size([(q)-[:FRIEND*1..2]->(m) | m]) DESC, q.id
+            RETURN q.id AS id
+            """
+        Then the result should be, in order:
+            | id |
+            | 1  |
+            | 2  |
+            | 9  |
+
+    Scenario: Nested variable-length pattern comprehension inside a FOREACH body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {id: 1})
+            CREATE (:Person {id: 2})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] |
+              CREATE (q:Marker)
+              SET q.cnt = size([(q)-[:FRIEND]->(x) | size([(x)-[:FRIEND*1..2]->(y) | y])]))
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN count(q) AS n, collect(q.cnt) AS counts
+            """
+        Then the result should be:
+            | n | counts |
+            | 2 | [0, 0] |
+
+    Scenario: Variable-length pattern comprehension over a node its own query part creates is rejected
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (a:Person)-[:FRIEND]->(:Person)
+            RETURN [(a)-[:FRIEND*1..2]->(x) | x] AS reachable
+            """
+        Then an error should be raised
+
+    Scenario: Pattern comprehension may not reuse an already bound relationship variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {id: 1})-[:FRIEND]->(:Person {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (a:Person)-[r:FRIEND]->(b:Person)
+            WITH a, r WHERE size([(a)-[r]->(y) | y]) > 0
+            RETURN a.id AS id
+            """
+        Then an error should be raised
+
+    Scenario: Variable-length pattern comprehension over a matched node a write clause reuses
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {id: 1})-[:FRIEND]->(b:Person {id: 2})
+            CREATE (b)-[:FRIEND]->(:Person {id: 9})
+            """
+        When executing query:
+            """
+            MATCH (a:Person {id: 1}) CREATE (a)-[:SEEN]->(:Marker)
+            RETURN [(a)-[:FRIEND*1..2]->(x) | x.id] AS ids
+            """
+        Then the result should be:
+            | ids    |
+            | [2, 9] |

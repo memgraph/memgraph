@@ -5231,6 +5231,144 @@ TOp *FindOpOfType(memgraph::query::plan::LogicalOperator *root) {
 
 }  // namespace
 
+TYPED_TEST(TestPlanner, VariableLengthComprehensionAfterWriteFallsBackToViewOld) {
+  // Test MATCH (n) SET n.prop = 1 WITH n WHERE [(n)-[*1..2]->(m) | 1] = [] RETURN n
+  // The query part has written, so it has reached View::NEW - but `ExpandVariable` can only read View::OLD. `n` comes
+  // from the MATCH, so View::OLD does see it and a correct plan exists. Handing the query part's View::NEW straight
+  // through rejected the query instead, which is worse than what master answered.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("n"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("m")),
+      nullptr,
+      LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   SET(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(1)),
+                                   WITH("n"),
+                                   WHERE(EQ(pattern_comp, LIST())),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  auto *filter = FindOpOfType<Filter>(&plan);
+  ASSERT_NE(filter, nullptr) << "the WHERE should still be planned as a Filter";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply belongs directly below the Filter that reads it";
+
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr);
+  // The discriminator is Once-not-ScanAll below the expansion: an uncorrelated plan also has an ExpandVariable.
+  auto *expand = dynamic_cast<ExpandVariable *>(branch_produce->input_.get());
+  ASSERT_NE(expand, nullptr) << "the branch should expand the variable-length pattern";
+  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
+      << "the expansion must start from the `n` the WITH projected, not re-scan the graph";
+}
+
+TYPED_TEST(TestPlanner, NestedVariableLengthComprehensionReadsViewOldUnderAViewNewParent) {
+  // Test MATCH (p) FOREACH (i IN [1] | CREATE (q) SET q.prop = [(q)-->(x) | [(x)-[*1..2]->(y) | 1]])
+  // The outer comprehension expands from the just-created `q`, so it needs View::NEW. The nested one holds the
+  // variable-length edge and must read View::OLD - its own root `x` is bound by the outer expansion, not by the write.
+  // Forwarding the parent's view verbatim handed `ExpandVariable` a View::NEW it cannot service.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *nested_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("x"), EDGE_VARIABLE("anon2", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("y")),
+      nullptr,
+      LITERAL(1));
+  auto *outer_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("q"), EDGE("anon1", EdgeAtom::Direction::OUT), NODE("x")), nullptr, nested_comp);
+  auto *foreach_clause = FOREACH(NEXPR("i", LIST(LITERAL(1))),
+                                 {CREATE(PATTERN(NODE("q"))), SET(PROPERTY_LOOKUP(dba, "q", prop), outer_comp)});
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), foreach_clause));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *foreach_op = FindOpOfType<Foreach>(&planner.plan());
+  ASSERT_NE(foreach_op, nullptr) << "expected a Foreach operator";
+  auto *set_property = dynamic_cast<SetProperty *>(foreach_op->update_clauses_.get());
+  ASSERT_NE(set_property, nullptr) << "the body should end with SetProperty";
+  auto *outer_rollup = dynamic_cast<RollUpApply *>(set_property->input_.get());
+  ASSERT_NE(outer_rollup, nullptr) << "the outer comprehension belongs below the SetProperty that reads it";
+
+  auto *outer_branch = dynamic_cast<Produce *>(outer_rollup->list_collection_branch_.get());
+  ASSERT_NE(outer_branch, nullptr);
+  auto *nested_rollup = dynamic_cast<RollUpApply *>(outer_branch->input_.get());
+  ASSERT_NE(nested_rollup, nullptr) << "the nested comprehension is rolled up inside its parent's branch";
+
+  auto *outer_expand = dynamic_cast<Expand *>(nested_rollup->input_.get());
+  ASSERT_NE(outer_expand, nullptr) << "the outer expansion sits below the nested RollUpApply";
+  EXPECT_EQ(outer_expand->view_, memgraph::storage::View::NEW)
+      << "`q` was created in this command, so the parent must read View::NEW";
+
+  auto *nested_branch = dynamic_cast<Produce *>(nested_rollup->list_collection_branch_.get());
+  ASSERT_NE(nested_branch, nullptr);
+  auto *nested_expand = dynamic_cast<ExpandVariable *>(nested_branch->input_.get());
+  ASSERT_NE(nested_expand, nullptr) << "the nested branch should hold the variable-length expansion";
+  EXPECT_NE(dynamic_cast<Once *>(nested_expand->input_.get()), nullptr)
+      << "the nested expansion must start from the `x` its parent bound";
+}
+
+TYPED_TEST(TestPlanner, VariableLengthComprehensionOverANodeAWriteBindsIsRejected) {
+  // Test CREATE (a) RETURN [(a)-[*1..2]->(x) | 1]
+  // `a` does not exist under View::OLD and `ExpandVariable` cannot read View::NEW, so no plan can serve this. Reject at
+  // planning time with a message naming the variable, rather than emit a plan that fails at runtime with
+  // "Trying to get relationships from a node that doesn't exist" - or, before that, abort the process.
+  FakeDbAccessor dba;
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("a"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("x")),
+      nullptr,
+      LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("a"))), RETURN(pattern_comp, AS("l"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  try {
+    MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    FAIL() << "expected the query to be rejected";
+  } catch (const memgraph::query::QueryException &e) {
+    // Naming the variable is what distinguishes this rejection from the `ExpandVariable` backstop, which cannot say
+    // which symbol is at fault. If this ever catches the backstop instead, the routing has regressed.
+    EXPECT_THAT(e.what(), ::testing::HasSubstr("'a'")) << "the rejection should name the variable, got: " << e.what();
+  }
+}
+
+TYPED_TEST(TestPlanner, VariableLengthComprehensionOverAMatchedNodeAWriteReusesIsAccepted) {
+  // Test MATCH (a) CREATE (a)-[:R]->(b) RETURN [(a)-[*1..2]->(x) | 1]
+  // The positive control for the rejection above, and it has to use `a` *inside* the CREATE pattern: a write clause
+  // re-uses the names it does not declare, so collecting its pattern atoms wholesale marks the MATCH's `a` write-bound
+  // and rejects a query View::OLD serves perfectly. `CREATE (b)` as a separate pattern would not discriminate.
+  FakeDbAccessor dba;
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("a"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("x")),
+      nullptr,
+      LITERAL(1));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))),
+                         CREATE(PATTERN(NODE("a"), EDGE("anon2", EdgeAtom::Direction::OUT, {"R"}), NODE("b"))),
+                         RETURN(pattern_comp, AS("l"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *rollup = FindOpOfType<RollUpApply>(&planner.plan());
+  ASSERT_NE(rollup, nullptr) << "the comprehension should still be planned";
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr);
+  auto *expand = dynamic_cast<ExpandVariable *>(branch_produce->input_.get());
+  ASSERT_NE(expand, nullptr) << "the branch should expand the variable-length pattern";
+  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr) << "and stay correlated to the matched `a`";
+}
+
 TYPED_TEST(TestPlanner, PatternComprehensionInMergeOnCreateIsPlannedInsideBranch) {
   // Test MERGE (q) ON CREATE SET q.prop = [(q)-->() | 1]
   // `q` is bound by the MERGE pattern, and the SET runs inside the Merge's create branch, so the comprehension must
