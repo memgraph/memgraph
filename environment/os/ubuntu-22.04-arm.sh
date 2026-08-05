@@ -55,6 +55,7 @@ MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make cmake pkg-config # build system
     curl wget # for downloading libs
+    gperf
     uuid-dev default-jre-headless # required by antlr
     libreadline-dev # for memgraph console
     libpython3-dev python3-dev # for query modules
