@@ -41,7 +41,7 @@ on:
         value: ${{ jobs.aggregate_results.outputs.test_status }}
 env:
   OS: ${{ inputs.os }}
-  TOOLCHAIN: v7
+  TOOLCHAIN: v8
   ARCH: ${{ inputs.arch }}
   THREADS: ${{ inputs.threads }}
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}

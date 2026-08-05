@@ -53,7 +53,7 @@ jobs:
     timeout-minutes: 180
     env:
       OS: ubuntu-24.04
-      TOOLCHAIN: v7
+      TOOLCHAIN: v8
       ARCH: amd
       THREADS: 24
       BUILD_TYPE: RelWithDebInfo
@@ -184,7 +184,7 @@ jobs:
     timeout-minutes: 180
     env:
       OS: ubuntu-24.04
-      TOOLCHAIN: v7
+      TOOLCHAIN: v8
       ARCH: amd
       THREADS: 24
       BUILD_TYPE: RelWithDebInfo
