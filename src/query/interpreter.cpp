@@ -4359,7 +4359,9 @@ std::optional<AccessorFreeQueryKind> ClassifyAccessorFreeQuery(const CypherQuery
 }
 
 // Skips CallProcedure telemetry (owned by CallProcedureCursor, bypassed here) since Lab's polling isn't
-// workload; rows are computed eagerly in Prepare (not lazily on Pull) so errors surface on RUN, not PULL.
+// workload. Only validation (proc exists / not write / no_graph_access / not batched) runs in Prepare, so
+// those errors surface on RUN; `cb` itself is deferred to first Pull, like a normal query, so cb errors
+// surface on PULL and the query stays abortable while cb runs.
 PreparedQuery PrepareBuiltinIntrospectionQuery(ParsedQuery parsed_query) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
   MG_ASSERT(cypher_query && cypher_query->single_query_, "Introspection query expects a cypher single query");
@@ -4372,14 +4374,19 @@ PreparedQuery PrepareBuiltinIntrospectionQuery(ParsedQuery parsed_query) {
     header.push_back(identifier->name_);
   }
 
-  auto rows = plan::CallNoGraphReadProcedure(
-      call_procedure->procedure_name_, call_procedure->result_fields_, utils::NewDeleteResource());
+  auto validated = plan::FindAndValidateNoGraphReadProcedure(call_procedure->procedure_name_);
 
   return PreparedQuery{
       .header = std::move(header),
       .privileges = std::move(parsed_query.required_privileges),
-      .query_handler = [pull_plan = std::make_shared<PullPlanVector>(std::move(rows))](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+      .query_handler = [validated = std::move(validated),
+                        result_fields = call_procedure->result_fields_,
+                        pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (UNLIKELY(!pull_plan)) {
+          pull_plan = std::make_shared<PullPlanVector>(
+              plan::ExecuteNoGraphReadProcedure(validated, result_fields, utils::NewDeleteResource()));
+        }
         if (pull_plan->Pull(stream, n)) {
           return QueryHandlerResult::NOTHING;
         }

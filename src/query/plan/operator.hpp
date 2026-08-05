@@ -24,6 +24,7 @@
 #include "query/parameters.hpp"
 #include "query/plan/point_distance_condition.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/procedure/module_fwd.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "utils/algorithm.hpp"
@@ -37,6 +38,8 @@
 namespace memgraph::metrics {
 struct DatabaseMetricHandles;
 }  // namespace memgraph::metrics
+
+struct mgp_proc;
 
 namespace memgraph::query {
 
@@ -3292,12 +3295,30 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
-/// Runs an argument-less, no-graph-access read procedure (e.g. mg.procedures/mg.functions/mg.transformations)
-/// via a graph-less stub and no storage accessor, returning rows projected onto `result_fields` in
-/// YIELD order; throws QueryRuntimeException on procedure error. Backs the interpreter's Lab-introspection fast path.
-std::vector<std::vector<TypedValue>> CallNoGraphReadProcedure(std::string_view procedure_name,
-                                                              const std::vector<std::string> &result_fields,
-                                                              utils::MemoryResource *memory);
+/// A no-graph-access read procedure (e.g. mg.procedures/mg.functions/mg.transformations) that has passed
+/// `FindAndValidateNoGraphReadProcedure`, ready for `ExecuteNoGraphReadProcedure`. `module` is held so `proc`
+/// stays alive across the Prepare (validate) -> Pull (execute) boundary; mirrors CallProcedureCursor::module_.
+/// `procedure_name` is the caller-supplied fully-qualified name (e.g. "mg.procedures"); `proc->name` is only
+/// the bare registration name (e.g. "procedures") and must not be used for user-facing error text.
+struct ValidatedNoGraphReadProcedure {
+  std::shared_ptr<procedure::Module> module;
+  const mgp_proc *proc;
+  std::string procedure_name;
+};
+
+/// Looks up `procedure_name` and validates it is eligible for the no-graph-access fast path (exists, not a
+/// write procedure, declares no_graph_access, and is neither batched nor initializer/cleanup-bearing); throws
+/// QueryRuntimeException otherwise. Backs the interpreter's Lab-introspection fast path: called from Prepare
+/// so these errors surface on RUN, not PULL.
+ValidatedNoGraphReadProcedure FindAndValidateNoGraphReadProcedure(std::string_view procedure_name);
+
+/// Runs `validated.proc->cb` once via a graph-less stub and no storage accessor, returning rows projected
+/// onto `result_fields` in YIELD order; throws QueryRuntimeException on procedure error. Backs the
+/// interpreter's Lab-introspection fast path: called from first Pull, so cb errors surface on PULL like a
+/// normal query, and the query remains abortable while cb runs.
+std::vector<std::vector<TypedValue>> ExecuteNoGraphReadProcedure(const ValidatedNoGraphReadProcedure &validated,
+                                                                 const std::vector<std::string> &result_fields,
+                                                                 utils::MemoryResource *memory);
 
 }  // namespace plan
 }  // namespace memgraph::query
