@@ -129,7 +129,7 @@ env:
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   MAGE_E2E_OPENAI: "1"
   GENERATE_SBOM: "${{ inputs.generate_sbom }}"
-  TOOLCHAIN: "v7"
+  TOOLCHAIN: "v8"
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}

@@ -41,7 +41,7 @@ env:
   INPUT_CUDA: ${{ inputs.cuda }}
   INPUT_RELWITHDEBINFO: ${{ inputs.relwithdebinfo }}
   INPUT_IMAGE_TYPE: ${{ inputs.image_type }}
-  TOOLCHAIN: v7
+  TOOLCHAIN: v8
   OS: ubuntu-24.04
   ARCH: ${{ inputs.arch }}
 
