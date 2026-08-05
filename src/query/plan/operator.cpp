@@ -7970,11 +7970,9 @@ std::unordered_map<std::string, int64_t> CallProcedure::GetAndResetCounters() {
 
 namespace {
 
-// Populates `result.signature` for a procedure call: the yielded `result_fields` first (indices
-// 0..k-1 in YIELD order), then any remaining procedure result fields at higher indices so a
-// callback that inserts every field still finds a slot. Shared by CallProcedureCursor and the
-// interpreter's accessor-free introspection fast path (CallNoGraphReadProcedure) so the two paths
-// cannot drift.
+// Populates `result.signature`: yielded `result_fields` first (in YIELD order), then any remaining
+// proc fields at higher indices. Shared by CallProcedureCursor and CallNoGraphReadProcedure so the two paths cannot
+// drift.
 void BuildProcedureResultSignature(mgp_result &result, const mgp_proc &proc,
                                    const std::vector<std::string> &result_fields, std::string_view procedure_name) {
   for (size_t i = 0UZ; i < result_fields.size(); ++i) {
@@ -7988,7 +7986,6 @@ void BuildProcedureResultSignature(mgp_result &result, const mgp_proc &proc,
         ResultsMetadata{signature_it->second.first, signature_it->second.second, static_cast<uint32_t>(i)});
   }
   if (proc.results.size() == result_fields.size()) return;
-  // Not all results were yielded but they still need to be inserted inside the signature.
   uint32_t index = result_fields.size();
   for (auto const &[name, signature] : proc.results) {
     if (!result.signature.contains(name)) {
@@ -8118,17 +8115,15 @@ std::vector<std::vector<TypedValue>> CallNoGraphReadProcedure(std::string_view p
   if (proc->info.is_write) {
     throw QueryRuntimeException("The procedure named '{}' is a write procedure.", procedure_name);
   }
-  // Re-validate at execution time rather than trusting the interpreter's classification: the module
-  // could have been reloaded between Prepare and Pull. Without a graph accessor a procedure that
-  // touches the graph would null-dereference, so fail loudly instead.
+  // Re-validate rather than trust the classification check: the module could be reloaded between
+  // that check and this call. Without a graph accessor a procedure touching the graph would
+  // null-dereference, so fail loudly instead.
   if (!proc->info.no_graph_access) {
     throw QueryRuntimeException("The procedure named '{}' requires graph access.", procedure_name);
   }
-  // This accessor-free path invokes `cb` exactly once and drives none of the batch lifecycle. The
-  // CallProcedureCursor loop that re-enters `cb` per batch and runs the initializer/cleanup hooks is
-  // bypassed entirely, so a batched procedure would silently yield only its first batch and skip its
-  // hooks. No builtin introspection procedure is batched, but nothing else enforces that, so reject it
-  // loudly rather than mis-execute it if the two ever combine.
+  // This path calls `cb` once, bypassing CallProcedureCursor's per-batch loop and initializer/cleanup
+  // hooks. No builtin introspection procedure is batched, but reject it explicitly rather than
+  // silently yield only the first batch if that ever changes.
   if (proc->info.is_batched || proc->initializer || proc->cleanup) {
     throw QueryRuntimeException("The procedure named '{}' cannot run without graph access.", procedure_name);
   }
@@ -8139,8 +8134,8 @@ std::vector<std::vector<TypedValue>> CallNoGraphReadProcedure(std::string_view p
   mgp_list proc_args(memory);  // these introspection procedures take no arguments
   mgp_memory proc_memory{memory};
   // The builtin introspection procedures never touch the graph, so pass a graph-less stub and skip
-  // the post-call serialization check -- the one place the operator path dereferences the accessor.
-  // This is what lets the query run with no storage transaction.
+  // the post-call serialization check (the only accessor dereference after `cb` returns on the
+  // normal path). This is what lets the query run with no storage transaction.
   mgp_graph graph{static_cast<memgraph::query::DbAccessor *>(nullptr),
                   memgraph::storage::View::OLD,
                   nullptr,
@@ -8152,10 +8147,9 @@ std::vector<std::vector<TypedValue>> CallNoGraphReadProcedure(std::string_view p
     throw QueryRuntimeException("{}: {}", procedure_name, *result.error_msg);
   }
 
-  // Project each row onto the yielded fields (indices 0..k-1, in YIELD order). Unlike
-  // CallProcedureCursor this does not skip rows with deleted values: a procedure that cannot access
-  // the graph cannot produce graph elements, so no result value can ever be a deleted vertex/edge and
-  // `has_deleted_values` is never set. This holds only because no_graph_access was enforced above.
+  // Projects each row onto the yielded fields (indices 0..k-1). Unlike CallProcedureCursor this never
+  // filters deleted-value rows: with no_graph_access enforced above, a result value can never be a
+  // deleted vertex/edge, so `has_deleted_values` is never set.
   std::vector<std::vector<TypedValue>> rows;
   rows.reserve(result.rows.size());
   for (auto &record : result.rows) {

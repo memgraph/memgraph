@@ -1045,20 +1045,11 @@ struct ProcedureInfo {
   bool is_write{false};
   bool is_batched{false};
   std::optional<memgraph::query::AuthQuery::Privilege> required_privilege = std::nullopt;
-  /// True only if the procedure provably never reaches the graph: it must not use its `mgp_graph *`
-  /// argument at all. Such a procedure can be invoked with no storage accessor open, which is what
-  /// lets `CALL mg.<introspection>()` run without a storage transaction.
-  ///
-  /// Declaring this falsely is NOT a recoverable error. The accessor-free path passes an `mgp_graph`
-  /// whose `impl` variant holds a null `DbAccessor *`, and the `mgp_graph_*` accessors `std::visit`
-  /// into it without a null check -- so any graph access from such a procedure is a null dereference,
-  /// not an `mgp_error`. For that reason this flag is INTERNAL: it is set only on builtin `mg.*`
-  /// procedures and is deliberately not settable through the public module API. Before exposing it,
-  /// `mgp_graph` needs a dedicated "no graph" variant alternative so every accessor is forced by the
-  /// compiler to reject the call cleanly.
-  ///
-  /// Defaults to false (assume the graph is used) so every existing registration path -- including
-  /// all user-defined C/Python/Rust procedures -- keeps its current behaviour.
+  /// True only if the procedure never touches its `mgp_graph *`; lets `CALL mg.<introspection>()`
+  /// run with no storage accessor open. Declaring this falsely is unrecoverable: the accessor-free
+  /// path hands the procedure a graph with a null `DbAccessor *`, which `mgp_graph_*` accessors
+  /// dereference without a null check. INTERNAL: set only on the builtin `mg.*` procedures; not
+  /// reachable via the public module API. Defaults to false so existing registrations are unaffected.
   bool no_graph_access{false};
 };
 

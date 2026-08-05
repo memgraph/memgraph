@@ -1582,9 +1582,8 @@ bool ProcedureIsAccessorFreeEligible(const ModuleRegistry &module_registry,
   auto maybe_found = FindProcedure(module_registry, fully_qualified_procedure_name);
   if (!maybe_found) return false;
   auto const *proc = maybe_found->second;
-  // No graph access and no writes (the callback is safe to run with a graph-less stub), and no
-  // required privilege (the callback runs before the session's CheckAuthorized, so a privileged
-  // procedure must take the normal auth-then-execute path).
+  // required_privilege is excluded because the fast path runs the callback before CheckAuthorized
+  // (see the declaration doc above for the full contract).
   return !proc->info.is_write && proc->info.no_graph_access && !proc->info.required_privilege.has_value();
 }
 
