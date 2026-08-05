@@ -1165,7 +1165,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
     auto existing_node = bound_symbols.contains(node_symbol);
     const auto &edge_symbol = symbol_table.at(*edge->identifier_);
-    MG_ASSERT(!bound_symbols.contains(edge_symbol), "Existing edges are not supported");
+    // `Expand` can check that an already bound *node* is the one the pattern reaches, but it has no equivalent for an
+    // edge, so there is no operator to emit here. Semantic analysis rejects the spellings that get this far, but reject
+    // rather than assert: an assert on the planning path aborts the process, and `EXPLAIN` alone reaches it.
+    if (bound_symbols.contains(edge_symbol)) {
+      throw QueryException("Expanding over the already bound relationship '{}' is not supported.", edge_symbol.name());
+    }
 
     auto edge_types = GetEdgeTypes(edge->edge_types_);
     if (edge->IsVariable()) {

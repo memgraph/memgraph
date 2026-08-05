@@ -497,6 +497,13 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, type)
                                   : GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
     } else {
+      // Resolving to the outer symbol is what correlates the pattern to the enclosing row, and for a node the planner
+      // can check the expansion reaches that node. For an edge it cannot - there is no `existing_edge` counterpart to
+      // `existing_node` - so reject here instead of building a plan that cannot be emitted. The same reuse spelled in
+      // an ORDER BY is already rejected below, by the `visiting_edge` branch.
+      if (scope.in_pattern_atom_identifier && scope.visiting_edge) {
+        throw SemanticException("Cannot use the already bound relationship '{}' in a pattern here.", ident.name_);
+      }
       symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
     }
   } else if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
