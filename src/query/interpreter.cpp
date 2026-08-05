@@ -6179,11 +6179,17 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   MG_ASSERT(current_db.db_acc_, "Trigger query expects a current DB");
   TriggerStore *trigger_store = current_db.db_acc_->get()->trigger_store();
-  MG_ASSERT(current_db.execution_db_accessor_, "Trigger query expects a current DB transaction");
-  DbAccessor *dba = &*current_db.execution_db_accessor_;
 
   auto *trigger_query = utils::Downcast<TriggerQuery>(parsed_query.query);
   MG_ASSERT(trigger_query);
+
+  // Only CREATE TRIGGER opens a storage accessor (READ, to plan the statement); SHOW/DROP TRIGGER
+  // are classified NO_ACCESS, so no execution accessor exists for them.
+  DbAccessor *dba = nullptr;
+  if (trigger_query->action_ == TriggerQuery::Action::CREATE_TRIGGER) {
+    MG_ASSERT(current_db.execution_db_accessor_, "CREATE TRIGGER expects a current DB transaction");
+    dba = &*current_db.execution_db_accessor_;
+  }
 
   std::optional<Notification> trigger_notification;
 
@@ -10193,7 +10199,14 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(ProfileQuery & /*unused*/) override { accessor_type_ = cypher_access_type(); }
 
-  void Visit(TriggerQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::WRITE; }
+  void Visit(TriggerQuery &trigger_query) override {
+    // Only CREATE TRIGGER needs storage access, and only READ: it plans the trigger statement
+    // (metadata lookups) and serializes user params via the accessor — it never writes the graph.
+    // SHOW/DROP TRIGGER operate purely on the trigger store, so they require no storage accessor.
+    if (trigger_query.action_ == TriggerQuery::Action::CREATE_TRIGGER) {
+      accessor_type_ = storage::StorageAccessType::READ;
+    }
+  }
 
   // Complex access logic
   void Visit(IndexQuery &index_query) override {
