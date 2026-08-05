@@ -36,6 +36,13 @@ bool IsConstantLiteral(const Expression *expression) {
   return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
 }
 
+/// True if the comprehension's own pattern holds a variable-length edge. `ExpandVariable` can only read View::OLD, so
+/// such a comprehension must be planned with it. Only the top level - a nested comprehension is planned separately.
+bool HasVariableLengthExpansion(const PatternComprehensionMatching &pc) {
+  return std::ranges::any_of(pc.expansions,
+                             [](const auto &expansion) { return expansion.edge && expansion.edge->IsVariable(); });
+}
+
 /// Like UsedSymbolsCollector, but also descends into a comprehension's filter and result expression - everything the
 /// WHERE evaluates must survive an OrderBy below it. The base class stops at the pattern, as its other callers need.
 class WhereReadSymbolsCollector : public UsedSymbolsCollector {
@@ -911,6 +918,29 @@ std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<
     clause->Accept(collector);
   }
   return symbols;
+}
+
+bool ReferencesExternalSymbols(const PatternComprehensionMatching &pc,
+                               const std::unordered_set<Symbol> &bound_symbols) {
+  if (!pc.external_symbols.empty()) return true;
+  return std::ranges::any_of(pc.expansion_symbols, [&](const Symbol &sym) { return bound_symbols.contains(sym); });
+}
+
+storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, storage::View preferred,
+                                       const std::unordered_set<Symbol> &bound_symbols,
+                                       const std::unordered_set<Symbol> &write_bound_symbols) {
+  if (!HasVariableLengthExpansion(pc)) return preferred;
+  // View::OLD cannot see a node a write clause of this query part bound, and View::NEW is not available here.
+  auto const unseeable = std::ranges::find_if(pc.expansion_symbols, [&](const Symbol &sym) {
+    return bound_symbols.contains(sym) && write_bound_symbols.contains(sym);
+  });
+  if (unseeable != pc.expansion_symbols.end()) {
+    throw QueryException(
+        "A variable-length pattern cannot expand from '{}', which a write clause of this query part binds. Close that "
+        "clause with a WITH before the pattern.",
+        unseeable->name());
+  }
+  return storage::View::OLD;
 }
 
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
