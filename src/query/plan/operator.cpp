@@ -8416,8 +8416,8 @@ std::unordered_map<std::string, int64_t> CallProcedure::GetAndResetCounters() {
 namespace {
 
 // Populates `result.signature`: yielded `result_fields` first (in YIELD order), then any remaining
-// proc fields at higher indices. Shared by CallProcedureCursor and CallNoGraphReadProcedure so the two paths cannot
-// drift.
+// proc fields at higher indices. Shared by CallProcedureCursor and ExecuteNoGraphReadProcedure so the two paths
+// cannot drift.
 void BuildProcedureResultSignature(mgp_result &result, const mgp_proc &proc,
                                    const std::vector<std::string> &result_fields, std::string_view procedure_name) {
   for (size_t i = 0UZ; i < result_fields.size(); ++i) {
@@ -8547,9 +8547,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 
 }  // namespace
 
-std::vector<std::vector<TypedValue>> CallNoGraphReadProcedure(std::string_view procedure_name,
-                                                              const std::vector<std::string> &result_fields,
-                                                              utils::MemoryResource *memory) {
+ValidatedNoGraphReadProcedure FindAndValidateNoGraphReadProcedure(std::string_view procedure_name) {
   auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, procedure_name);
   if (!maybe_found) {
     throw QueryRuntimeException("There is no procedure named '{}'.", procedure_name);
@@ -8572,6 +8570,14 @@ std::vector<std::vector<TypedValue>> CallNoGraphReadProcedure(std::string_view p
   if (proc->info.is_batched || proc->initializer || proc->cleanup) {
     throw QueryRuntimeException("The procedure named '{}' cannot run without graph access.", procedure_name);
   }
+  return ValidatedNoGraphReadProcedure{std::move(module), proc, std::string{procedure_name}};
+}
+
+std::vector<std::vector<TypedValue>> ExecuteNoGraphReadProcedure(const ValidatedNoGraphReadProcedure &validated,
+                                                                 const std::vector<std::string> &result_fields,
+                                                                 utils::MemoryResource *memory) {
+  const auto *proc = validated.proc;
+  const std::string_view procedure_name = validated.procedure_name;
 
   mgp_result result{memory};
   BuildProcedureResultSignature(result, *proc, result_fields, procedure_name);
