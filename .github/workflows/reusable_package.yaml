@@ -286,15 +286,6 @@ jobs:
           echo "SMOKE_IMAGE_TAG=$image_tag" >> $GITHUB_ENV
           echo "Resolved SMOKE_IMAGE_TAG=$image_tag"
 
-      - name: "Build heaptrack"
-        if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os "$OS" \
-          --arch $ARCH \
-          build-heaptrack
-
       - name: "Copy heaptrack"
         if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
         run: |
