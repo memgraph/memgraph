@@ -27,7 +27,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libffi-devel libxml2-devel # for llvm
     libedit-devel pcre2-devel automake bison # for swig
     file gmp-devel gperf diffutils
-    libipt libipt-devel # intel
+#    libipt libipt-devel # intel TODO(matt): add to toolchain sysroot
     patch
     custom-rust # for mgcxx
     libtool # for protobuf
@@ -55,15 +55,11 @@ MEMGRAPH_BUILD_DEPS=(
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
     openssl-devel # for mgconsole (cloned + built at package time)
     python3 python3-pip python3-virtualenv nmap-ncat lsof # for qa, macro_benchmark and stress tests
-    #
-    # IMPORTANT: python3-yaml does NOT exist on CentOS
-    # Install it manually using `pip3 install PyYAML`
-    #
-    PyYAML # Package name here does not correspond to the yum package!
+    python3-pyyaml
     custom-rust
     rpm-build rpmlint # for RPM package building
     which nodejs golang custom-golang # for driver tests
-    zip unzip java-21-openjdk-headless java-21-openjdk java-21-openjdk-devel custom-maven # for driver tests and neo4j (macro benchmarks)
+    zip unzip java-25-openjdk-headless java-25-openjdk java-25-openjdk-devel custom-maven # for driver tests and neo4j (macro benchmarks)
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     ninja-build
@@ -97,7 +93,7 @@ check() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv)
+            custom-*)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -124,17 +120,6 @@ check() {
             if [ -n "$missing_pkg" ]; then
                 missing_custom="$missing_pkg $missing_custom"
             fi
-        else
-            case "$pkg" in
-                PyYAML)
-                    if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-                python3-virtualenv)
-                    # Skip this as it's handled during installation
-                    ;;
-            esac
         fi
     done
 
@@ -182,7 +167,7 @@ install() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel|java-11-openjdk-headless|java-11-openjdk|java-11-openjdk-devel|java-17-openjdk-headless|java-17-openjdk|java-17-openjdk-devel|sbcl)
+            custom-*|libipt|libipt-devel)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -213,63 +198,6 @@ install() {
             libipt-devel)
                 if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
                     dnf install -y https://dl.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/Packages/l/libipt-devel-2.1.1-2.fc41.x86_64.rpm
-                fi
-                ;;
-            java-11-openjdk-headless)
-                if ! dnf list installed java-11-openjdk-headless >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-11-openjdk-headless-11.0.20.1.1-2.el9.x86_64.rpm
-                fi
-                ;;
-            java-11-openjdk)
-                if ! dnf list installed java-11-openjdk >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-11-openjdk-11.0.20.1.1-2.el9.x86_64.rpm
-                fi
-                ;;
-            java-11-openjdk-devel)
-                if ! dnf list installed java-11-openjdk-devel >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-11-openjdk-devel-11.0.20.1.1-2.el9.x86_64.rpm
-                fi
-                ;;
-            java-17-openjdk-headless)
-                if ! dnf list installed java-17-openjdk-headless >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-17-openjdk-headless-17.0.13.0.11-4.el9.x86_64.rpm
-                fi
-                ;;
-            java-17-openjdk)
-                if ! dnf list installed java-17-openjdk >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-17-openjdk-17.0.13.0.11-4.el9.x86_64.rpm
-                fi
-                ;;
-            java-17-openjdk-devel)
-                if ! dnf list installed java-17-openjdk-devel >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-17-openjdk-devel-17.0.13.0.11-4.el9.x86_64.rpm
-                fi
-                ;;
-            PyYAML)
-                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                    pip3 install --user PyYAML
-                else # Running using sudo.
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
-                fi
-                ;;
-            python3-virtualenv)
-                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                    pip3 install virtualenv
-                    pip3 install virtualenvwrapper
-                else # Running using sudo.
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
-                fi
-                ;;
-            sbcl)
-                if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
-                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/cl-asdf-20101028-27.el9.noarch.rpm
-                fi
-                if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
-                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/common-lisp-controller-7.4-29.el9.noarch.rpm
-                fi
-                if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
-                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/sbcl-2.3.11-3.el9~bootstrap.x86_64.rpm
                 fi
                 ;;
             *)

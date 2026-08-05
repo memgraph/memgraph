@@ -31,7 +31,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gmp-devel
     gperf
     diffutils
-    libipt libipt-devel # intel
+#   libipt libipt-devel # intel
     patch
     custom-rust # for mgcxx
     libtool # for protobuf
@@ -60,20 +60,15 @@ MEMGRAPH_BUILD_DEPS=(
     # -DMG_PYTHON_VERSION=3.12) rather than the distro-default 3.9. Needs the
     # 3.12 dev headers/libs to link against, plus the interpreter + pip to
     # install the module deps at package time.
-    python3.12-devel python3.12 python3.12-pip # for query modules
+    python3.12-devel python3.12 python3.12-pip python3.12-pyyaml # for query modules
     python3-devel # for build tooling that still targets the system python
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
     openssl-devel # for mgconsole (cloned + built at package time)
     python3 python3-pip python3-virtualenv nmap-ncat lsof # for qa, macro_benchmark and stress tests
-    #
-    # IMPORTANT: python3-yaml does NOT exist on CentOS
-    # Install it manually using `pip3 install PyYAML`
-    #
     custom-rust custom-node
-    PyYAML # Package name here does not correspond to the yum package!
     rpm-build rpmlint # for RPM package building
     which nodejs golang custom-golang # for driver tests
-    zip unzip java-17-openjdk java-17-openjdk-devel custom-maven # for driver tests (JDK 17 required) and neo4j (macro benchmarks)
+    zip unzip java-25-openjdk java-25-openjdk-devel custom-maven # for driver tests (JDK 17 required) and neo4j (macro benchmarks)
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     ninja-build
@@ -108,7 +103,7 @@ check() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|sbcl|libipt|libipt-devel)
+            custom-*|libipt|libipt-devel)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -135,17 +130,6 @@ check() {
             if [ -n "$missing_pkg" ]; then
                 missing_custom="$missing_pkg $missing_custom"
             fi
-        else
-            case "$pkg" in
-                PyYAML)
-                    if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-                python3-virtualenv)
-                    # Skip this as it's handled during installation
-                    ;;
-            esac
         fi
     done
 
@@ -174,8 +158,6 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
 
-    # --nobest is used because of libipt because we install custom versions
-    # because libipt-devel is not available on CentOS 9 Stream
     dnf install -y wget git python3 python3-pip
     dnf config-manager --set-enabled crb
 
@@ -191,7 +173,7 @@ install() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel|sbcl)
+            custom-*|libipt|libipt-devel)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -222,33 +204,6 @@ install() {
             libipt-devel)
                 if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
                     dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-devel-1.6.1-8.el8.x86_64.rpm
-                fi
-                ;;
-            sbcl)
-                if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
-                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/cl-asdf-20101028-27.el9.noarch.rpm
-                fi
-                if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
-                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/common-lisp-controller-7.4-29.el9.noarch.rpm
-                fi
-                if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
-                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/sbcl-2.3.11-3.el9~bootstrap.x86_64.rpm
-                fi
-                ;;
-            PyYAML)
-                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                    pip3 install --user PyYAML
-                else # Running using sudo.
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
-                fi
-                ;;
-            python3-virtualenv)
-                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                    pip3 install virtualenv
-                    pip3 install virtualenvwrapper
-                else # Running using sudo.
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
                 fi
                 ;;
             *)

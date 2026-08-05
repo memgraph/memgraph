@@ -55,15 +55,11 @@ MEMGRAPH_BUILD_DEPS=(
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
     openssl-devel # for mgconsole (cloned + built at package time)
     python3 python3-pip python3-virtualenv nmap-ncat lsof # for qa, macro_benchmark and stress tests
-    #
-    # IMPORTANT: python3-yaml does NOT exist on Rocky
-    # Install it manually using `pip3 install PyYAML`
-    #
-    PyYAML # Package name here does not correspond to the dnf package!
+    python3-pyyaml
     rpm-build rpmlint # for RPM package building
     custom-rust
     which nodejs golang custom-golang # for driver tests
-    zip unzip java-21-openjdk-headless java-21-openjdk java-21-openjdk-devel custom-maven # for driver tests and neo4j (macro benchmarks)
+    zip unzip java-25-openjdk-headless java-25-openjdk java-25-openjdk-devel custom-maven # for driver tests and neo4j (macro benchmarks)
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     ninja-build
@@ -97,7 +93,7 @@ check() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|cl-asdf|common-lisp-controller|sbcl)
+            custom-*)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -124,32 +120,6 @@ check() {
             if [ -n "$missing_pkg" ]; then
                 missing_custom="$missing_pkg $missing_custom"
             fi
-        else
-            case "$pkg" in
-                cl-asdf)
-                    if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-                common-lisp-controller)
-                    if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-                sbcl)
-                    if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-                PyYAML)
-                    if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-                python3-virtualenv)
-                    # Skip this as it's handled during installation
-                    ;;
-            esac
         fi
     done
 
@@ -195,7 +165,7 @@ install() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|cl-asdf|common-lisp-controller|sbcl)
+            custom-*)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -215,45 +185,6 @@ install() {
     # Install custom packages with bash logic
     install_custom_packages "${custom_packages[@]}"
 
-    # Handle non-custom packages that need special installation
-    for pkg in "${custom_packages[@]}"; do
-        case "$pkg" in
-            cl-asdf)
-                if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
-                    dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/cl-asdf-20101028-18.el8.noarch.rpm
-                fi
-                ;;
-            common-lisp-controller)
-                if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
-                    dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/common-lisp-controller-7.4-20.el8.noarch.rpm
-                fi
-                ;;
-            sbcl)
-                if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
-                    dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/sbcl-2.0.1-4.el8.x86_64.rpm
-                fi
-                ;;
-            PyYAML)
-                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                    pip3 install --user PyYAML
-                else # Running using sudo.
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
-                fi
-                ;;
-            python3-virtualenv)
-                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                    pip3 install virtualenv
-                    pip3 install virtualenvwrapper
-                else # Running using sudo.
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
-                fi
-                ;;
-            *)
-                # Skip packages that don't need special handling
-                ;;
-        esac
-    done
 }
 
 "$1" "$2"
