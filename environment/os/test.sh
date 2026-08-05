@@ -92,9 +92,9 @@ docker run --rm -d --name ${CONTAINER_NAME} ${DOCKER_IMAGE} sleep infinity
 echo -e "${YELLOW}Installing python in the container...${RESET}"
 # for debian/ubuntu based distros use apt
 if [[ "${DOCKER_IMAGE}" == *"debian"* || "${DOCKER_IMAGE}" == *"ubuntu"* ]]; then
-    docker exec -it ${CONTAINER_NAME} bash -c "export DEBIAN_FRONTEND=noninteractive && apt update -y && apt install -y python3"
+    docker exec -i ${CONTAINER_NAME} bash -c "export DEBIAN_FRONTEND=noninteractive && apt update -y && apt install -y python3"
 else
-    docker exec -it ${CONTAINER_NAME} bash -c "dnf install -y python3"
+    docker exec -i ${CONTAINER_NAME} bash -c "dnf install -y python3"
 fi
 
 echo -e "${YELLOW}Copying local environment scripts into the container...${RESET}"
@@ -103,7 +103,7 @@ docker cp "${ENV_DIR}" ${CONTAINER_NAME}:/memgraph/environment
 
 for group in "${GROUPS_TO_TEST[@]}"; do
     echo -e "${YELLOW}Installing ${group} in the container...${RESET}"
-    if ! docker exec -it ${CONTAINER_NAME} bash -c "cd /memgraph && ./environment/os/install_deps.sh install ${group}"; then
+    if ! docker exec -i ${CONTAINER_NAME} bash -c "cd /memgraph && ./environment/os/install_deps.sh install ${group}"; then
         echo -e "${RED}Failed to install ${group} in the container...${RESET}"
         exit 1
     fi

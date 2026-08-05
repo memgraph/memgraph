@@ -1,18 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-source "$DIR/../util.sh"
-
-# Parse command line arguments for --skip-check flag
-SKIP_CHECK=$(parse_skip_check_flag "$@")
-
-# Only run checks if --skip-check flag is not provided
-if [[ "$SKIP_CHECK" == false ]]; then
-    check_operating_system "centos-10"
-    check_architecture "x86_64"
-else
-    echo "Skipping checks for centos-10"
-fi
+source "$DIR/lib.sh"
 
 TOOLCHAIN_BUILD_DEPS=(
     wget # used for archive download
@@ -66,8 +55,6 @@ MEMGRAPH_BUILD_DEPS=(
     krb5-devel # for building python gssapi (kerberos auth module)
 )
 
-MEMGRAPH_TEST_DEPS=("${MEMGRAPH_BUILD_DEPS[@]}")
-
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp
     krb5-libs # runtime for python gssapi (kerberos auth module)
@@ -77,134 +64,13 @@ NEW_DEPS=(
     wget curl tar gzip
 )
 
-list() {
-    local -n packages="$1"
-    printf '%s\n' "${packages[@]}"
-}
-
-check() {
-    local -n packages=$1
-    local missing=""
-    local missing_custom=""
-
-    # Separate standard and custom packages
-    local standard_packages=()
-    local custom_packages=()
-
-    for pkg in "${packages[@]}"; do
-        case "$pkg" in
-            custom-*)
-                custom_packages+=("$pkg")
-                ;;
-            *)
-                standard_packages+=("$pkg")
-                ;;
-        esac
-    done
-
-    # check if python3 is installed
-    if ! command -v python3 &>/dev/null; then
-        echo "python3 is not installed"
-        exit 1
-    fi
-
-    # Check standard packages with Python script
-    if [ ${#standard_packages[@]} -gt 0 ]; then
-        missing=$(python3 "$DIR/check-packages.py" "check" "centos-10" "${standard_packages[@]}")
-    fi
-
-    # Check custom packages with bash logic
-    for pkg in "${custom_packages[@]}"; do
-        missing_pkg=$(check_custom_package "$pkg" || true)
-        if [ $? -eq 0 ]; then
-            if [ -n "$missing_pkg" ]; then
-                missing_custom="$missing_pkg $missing_custom"
-            fi
-        fi
-    done
-
-    # Combine missing packages
-    [ -n "$missing_custom" ] && missing="${missing:+$missing }$missing_custom"
-
-    if [ -n "$missing" ]; then
-        echo "MISSING PACKAGES: $missing"
-        exit 1
-    fi
-}
-
-install() {
-    if [ "$EUID" -ne 0 ]; then
-        echo "Please run as root."
-        exit 1
-    fi
-
-    local -n packages=$1
-
-    # If GitHub Actions runner is installed, append LANG to the environment.
-    # Python related tests doesn't work the LANG export.
-    if [ -d "/home/gh/actions-runner" ]; then
-        echo "LANG=en_US.utf8" >> /home/gh/actions-runner/.env
-    else
-        echo "NOTE: export LANG=en_US.utf8"
-    fi
-
-    # enable EPEL repo for rpmlint
-    dnf install -y epel-release
-
-    dnf install -y wget git python3 python3-pip
+setup_repos() {
     # CRB repo is required for, e.g. texinfo, ninja-build
     dnf config-manager --set-enabled crb
-
-    # Enable EPEL for additional packages
+    # EPEL is required for, e.g. rpmlint, python3-virtualenv
     dnf install -y epel-release
-
     # enable rpm fusion
     dnf install --nogpgcheck -y https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-10.noarch.rpm
-
-    # Separate standard and custom packages
-    local standard_packages=()
-    local custom_packages=()
-
-    for pkg in "${packages[@]}"; do
-        case "$pkg" in
-            custom-*|libipt|libipt-devel)
-                custom_packages+=("$pkg")
-                ;;
-            *)
-                standard_packages+=("$pkg")
-                ;;
-        esac
-    done
-
-    # Install standard packages with Python script
-    if [ ${#standard_packages[@]} -gt 0 ]; then
-        if ! python3 "$DIR/check-packages.py" "install" "centos-10" "${standard_packages[@]}"; then
-            echo "Failed to install standard packages"
-            exit 1
-        fi
-    fi
-
-    # Install custom packages with bash logic
-    install_custom_packages "${custom_packages[@]}"
-
-    # Handle non-custom packages that need special installation
-    for pkg in "${custom_packages[@]}"; do
-        case "$pkg" in
-            libipt)
-                if ! dnf list installed libipt >/dev/null 2>/dev/null; then
-                    dnf install -y https://dl.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/Packages/l/libipt-2.1.1-2.fc41.x86_64.rpm
-                fi
-                ;;
-            libipt-devel)
-                if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
-                    dnf install -y https://dl.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/Packages/l/libipt-devel-2.1.1-2.fc41.x86_64.rpm
-                fi
-                ;;
-            *)
-                # Skip packages that don't need special handling
-                ;;
-        esac
-    done
 }
 
-"$1" "$2"
+main "$@"
