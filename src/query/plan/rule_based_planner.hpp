@@ -281,13 +281,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
         // Compute all symbols that will be bound by this query part (from MATCH, CREATE, MERGE, etc.)
         // This is used to determine which comprehension symbols are external references vs. internal.
-        std::unordered_set<Symbol> symbols_bound_by_query_part;
-        // The subset of the above that a *write* clause of this query part is what *first* binds. View::OLD cannot see
-        // those, which is what makes a variable-length comprehension over one of them unplannable - see
-        // `impl::PatternComprehensionView`. Restored on the way out because a subquery re-enters this function.
-        auto const restore_write_bound = utils::OnScopeExit{
-            [this, saved = std::move(write_bound_symbols_)]() mutable { write_bound_symbols_ = std::move(saved); }};
-        write_bound_symbols_.clear();
+        auto const restore_symbols = utils::OnScopeExit{
+            [this, saved = std::move(query_part_symbols_)]() mutable { query_part_symbols_ = std::move(saved); }};
+        query_part_symbols_ = {};
+        auto &symbols_bound_by_query_part = query_part_symbols_.all;
         // Add symbols from MATCH
         symbols_bound_by_query_part.insert(single_query_part.matching.expansion_symbols.begin(),
                                            single_query_part.matching.expansion_symbols.end());
@@ -301,7 +298,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         // every MATCH symbol is already collected above, so testing at insertion is enough.
         auto note_write_bound = [&](const Symbol &sym) {
           if (!context.bound_symbols.contains(sym) && !symbols_bound_by_query_part.contains(sym)) {
-            write_bound_symbols_.insert(sym);
+            query_part_symbols_.write_bound.insert(sym);
           }
         };
         // Add symbols from merge matchings. MERGE may create its pattern, so View::OLD may not see it either.
@@ -350,11 +347,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
         // Plan and apply all satisfiable comprehensions before write clauses.
         auto plan_and_apply_comprehensions = [&]() {
-          input_op = SpliceSatisfiedComprehensions(std::move(input_op),
-                                                   pending_comprehensions,
-                                                   symbols_bound_by_query_part,
-                                                   context.bound_symbols,
-                                                   write_occurred);
+          input_op = SpliceSatisfiedComprehensions(
+              std::move(input_op), pending_comprehensions, context.bound_symbols, write_occurred);
         };
 
         for (const auto &clause : single_query_part.remaining_clauses) {
@@ -376,11 +370,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                        context.in_exists_subquery);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             plan_and_apply_comprehensions();
-            input_op = GenMerge(*merge,
-                                std::move(input_op),
-                                single_query_part.merge_matching[merge_id++],
-                                pending_comprehensions,
-                                symbols_bound_by_query_part);
+            input_op = GenMerge(
+                *merge, std::move(input_op), single_query_part.merge_matching[merge_id++], pending_comprehensions);
             // Treat MERGE clause as write, because we do not know if it will create anything.
             context.is_write_query = true;
             write_occurred = true;
@@ -471,8 +462,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                            context.bound_symbols,
                                            single_query_part,
                                            merge_id,
-                                           pending_comprehensions,
-                                           symbols_bound_by_query_part);
+                                           pending_comprehensions);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
             auto scoped_variables = std::invoke([&]() -> std::optional<std::unordered_set<Symbol>> {
               if (!call_sub->has_variable_scope_) {
@@ -494,8 +484,6 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                       single_query_part.subqueries[subquery_id++],
                                       *context.symbol_table,
                                       *context_->ast_storage,
-                                      pending_comprehensions,
-                                      write_occurred,
                                       call_sub->cypher_query_->pre_query_directives_.commit_frequency_,
                                       scoped_variables);
             if (context.is_write_query && !has_periodic_commit) {
@@ -542,7 +530,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                                             const SymbolTable &symbol_table,
                                                             const std::unordered_set<Symbol> &bound_symbols,
                                                             storage::View view) {
-    view = impl::PatternComprehensionView(matching, view, bound_symbols, write_bound_symbols_);
+    view = impl::PatternComprehensionView(matching, view, bound_symbols, query_part_symbols_.write_bound);
     std::unique_ptr<LogicalOperator> new_input;
     // Create a copy of bound_symbols and add external symbols from the pattern comprehension.
     // External symbols are references to variables from outer scope (e.g., FOREACH variable `x`
@@ -560,10 +548,18 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   }
 
   TPlanningContext *context_;
-  /// Symbols a write clause of the query part being planned is the first to bind; see
-  /// `impl::PatternComprehensionView`. Scoped to one query part, and saved/restored around it because a subquery
-  /// re-enters `PlanQueryPart` on this same object.
-  std::unordered_set<Symbol> write_bound_symbols_;
+
+  /// What the query part being planned binds. Scoped to one query part and saved/restored around it, because a
+  /// subquery re-enters `PlanQueryPart` on this same object.
+  struct QueryPartSymbols {
+    /// Everything the part binds, wherever in it. A comprehension waits for these - see `DepsSatisfied`.
+    std::unordered_set<Symbol> all;
+    /// The subset a *write* clause of the part is the first to bind, which View::OLD cannot see - see
+    /// `impl::PatternComprehensionView`.
+    std::unordered_set<Symbol> write_bound;
+  };
+
+  QueryPartSymbols query_part_symbols_;
 
   storage::LabelId GetLabel(const LabelIx &label) { return context_->db->NameToLabel(label.name); }
 
@@ -859,8 +855,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   }
 
   auto GenMerge(query::Merge &merge, std::unique_ptr<LogicalOperator> input_op, const Matching &matching,
-                std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions,
-                const std::unordered_set<Symbol> &symbols_bound_by_query_part) {
+                std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions) {
     // Copy the bound symbol set, because we don't want to use the updated
     // version when generating the create part.
     std::unordered_set<Symbol> bound_symbols_copy(context_->bound_symbols);
@@ -879,21 +874,18 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                             const std::vector<query::Clause *> &sets,
                                             const std::unordered_set<Symbol> &branch_bound_symbols) {
       const auto wanted = impl::CollectPatternComprehensionSymbols(sets, *context_->symbol_table);
-      return SpliceSatisfiedComprehensions(std::move(branch),
-                                           pending_comprehensions,
-                                           symbols_bound_by_query_part,
-                                           branch_bound_symbols,
-                                           /*write_occurred=*/true,
-                                           &wanted);
+      return SpliceSatisfiedComprehensions(
+          std::move(branch), pending_comprehensions, branch_bound_symbols, /*write_occurred=*/true, &wanted);
     };
 
     {
       // ON MATCH runs only when the pattern was found, so View::OLD does see its symbols - unlike ON CREATE's, and
       // unlike the chain below the Merge, where the planner cannot know which branch ran.
-      auto const restore = utils::OnScopeExit{
-          [this, saved = write_bound_symbols_]() mutable { write_bound_symbols_ = std::move(saved); }};
+      auto const restore = utils::OnScopeExit{[this, saved = query_part_symbols_.write_bound]() mutable {
+        query_part_symbols_.write_bound = std::move(saved);
+      }};
       for (const auto &sym : matching.expansion_symbols) {
-        write_bound_symbols_.erase(sym);
+        query_part_symbols_.write_bound.erase(sym);
       }
       on_match = splice_branch_comprehensions(std::move(on_match), merge.on_match_, bound_symbols_copy);
     }
@@ -1389,9 +1381,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   /// `ReturnBodyContext` needs no check, because a WITH/RETURN is the last clause of its query part, so a
   /// comprehension reaching there is already at the clause that owns it. (It does share the view rule; see
   /// `impl::PatternComprehensionView`.)
-  static bool DepsSatisfied(const PatternComprehensionMatching &pc,
-                            const std::unordered_set<Symbol> &symbols_bound_by_query_part,
-                            const std::unordered_set<Symbol> &bound_symbols) {
+  bool DepsSatisfied(const PatternComprehensionMatching &pc, const std::unordered_set<Symbol> &bound_symbols) const {
+    const auto &symbols_bound_by_query_part = query_part_symbols_.all;
     // A symbol this query part binds elsewhere must be bound already; one from an earlier part never waits.
     auto ready = [&](const Symbol &sym) {
       return !symbols_bound_by_query_part.contains(sym) || bound_symbols.contains(sym);
@@ -1419,12 +1410,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   std::unique_ptr<LogicalOperator> SpliceSatisfiedComprehensions(
       std::unique_ptr<LogicalOperator> chain,
       std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions,
-      const std::unordered_set<Symbol> &symbols_bound_by_query_part, const std::unordered_set<Symbol> &bound_symbols,
-      bool write_occurred, const std::unordered_set<Symbol> *only = nullptr) {
+      const std::unordered_set<Symbol> &bound_symbols, bool write_occurred,
+      const std::unordered_set<Symbol> *only = nullptr) {
     for (auto it = pending_comprehensions.begin(); it != pending_comprehensions.end();) {
       const auto &[sym, pc] = *it;
       const bool wanted = only == nullptr || only->contains(sym);
-      if (!wanted || !DepsSatisfied(pc, symbols_bound_by_query_part, bound_symbols)) {
+      if (!wanted || !DepsSatisfied(pc, bound_symbols)) {
         ++it;
         continue;
       }
@@ -1441,8 +1432,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   std::unique_ptr<LogicalOperator> HandleForeachClause(
       query::Foreach *foreach, std::unique_ptr<LogicalOperator> input_op, const SymbolTable &symbol_table,
       std::unordered_set<Symbol> &bound_symbols, const SingleQueryPart &query_part, uint64_t &merge_id,
-      std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions,
-      const std::unordered_set<Symbol> &symbols_bound_by_query_part) {
+      std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions) {
     const auto &symbol = symbol_table.at(*foreach->named_expression_);
     bound_symbols.insert(symbol);
     std::unique_ptr<LogicalOperator> op = std::make_unique<plan::Once>();
@@ -1452,8 +1442,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
     // Plan comprehensions whose dependencies are now satisfied, onto the body's own chain.
     auto plan_satisfied_comprehensions = [&]() {
-      op = SpliceSatisfiedComprehensions(
-          std::move(op), pending_comprehensions, symbols_bound_by_query_part, bound_symbols, write_occurred);
+      op = SpliceSatisfiedComprehensions(std::move(op), pending_comprehensions, bound_symbols, write_occurred);
     };
 
     // Plan any comprehensions whose dependencies are now satisfied (e.g., referencing the FOREACH variable)
@@ -1461,20 +1450,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
     for (auto *clause : foreach->clauses_) {
       if (auto *nested_for_each = utils::Downcast<query::Foreach>(clause)) {
-        op = HandleForeachClause(nested_for_each,
-                                 std::move(op),
-                                 symbol_table,
-                                 bound_symbols,
-                                 query_part,
-                                 merge_id,
-                                 pending_comprehensions,
-                                 symbols_bound_by_query_part);
+        op = HandleForeachClause(
+            nested_for_each, std::move(op), symbol_table, bound_symbols, query_part, merge_id, pending_comprehensions);
       } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-        op = GenMerge(*merge,
-                      std::move(op),
-                      query_part.merge_matching[merge_id++],
-                      pending_comprehensions,
-                      symbols_bound_by_query_part);
+        op = GenMerge(*merge, std::move(op), query_part.merge_matching[merge_id++], pending_comprehensions);
       } else {
         op = HandleWriteClause(clause, op, symbol_table, bound_symbols);
       }
@@ -1489,8 +1468,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
   std::unique_ptr<LogicalOperator> HandleSubquery(
       std::unique_ptr<LogicalOperator> last_op, std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
-      AstStorage &storage, std::unordered_map<Symbol, PatternComprehensionMatching> & /*pending_comprehensions*/,
-      bool /*write_occurred*/, Expression *commit_frequency,
+      AstStorage &storage, Expression *commit_frequency,
       const std::optional<std::unordered_set<Symbol>> &scoped_variables = std::nullopt) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
