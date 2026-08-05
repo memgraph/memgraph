@@ -453,16 +453,6 @@ jobs:
           --cugraph $CUGRAPH \
           build-memgraph --mage only $SPLIT_DEBUG_ARG $CUDA_ARG
 
-      - name: "Build heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os "$OS" \
-          --arch $ARCH \
-          --cugraph $CUGRAPH \
-          build-heaptrack
-
       - name: "Copy heaptrack"
         if: ${{ inputs.build_type == 'RelWithDebInfo' && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |

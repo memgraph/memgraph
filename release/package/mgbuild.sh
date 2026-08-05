@@ -1992,15 +1992,10 @@ test_memgraph() {
 }
 
 
-build_heaptrack() {
-  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  docker exec -i -u root $build_container bash -c "apt-get update && apt-get install -y libdw-dev libboost-all-dev"
-  docker exec -i -u root $build_container bash -c "mkdir -p /tmp/heaptrack && chown mg:mg /tmp/heaptrack"
-
-  docker cp tools/ci/build-heaptrack.sh $build_container:$MGBUILD_HOME_DIR/build-heaptrack.sh
-  docker exec -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd $MGBUILD_HOME_DIR && ./build-heaptrack.sh"
-}
-
+# heaptrack ships inside the toolchain (built by
+# environment/toolchain/v8/build.sh). Stage its runtime files from the
+# toolchain prefix into a self-contained /tmp/heaptrack tree (the layout the
+# docker images expect: `cp -r heaptrack/* /usr/`) and copy it out.
 copy_heaptrack() {
   local dest_dir="release/docker"
   while [[ $# -gt 0 ]]; do
@@ -2015,6 +2010,16 @@ copy_heaptrack() {
         exit 1
     esac
   done
+  local tc="/opt/toolchain-${toolchain_version}"
+  docker exec -i -u root $build_container bash -c "
+    set -euo pipefail
+    rm -rf /tmp/heaptrack
+    mkdir -p /tmp/heaptrack/bin /tmp/heaptrack/include /tmp/heaptrack/lib/heaptrack/libexec
+    cp $tc/bin/heaptrack $tc/bin/heaptrack_print /tmp/heaptrack/bin/
+    cp $tc/include/heaptrack_api.h /tmp/heaptrack/include/
+    cp $tc/lib/heaptrack/libheaptrack_inject.so $tc/lib/heaptrack/libheaptrack_preload.so /tmp/heaptrack/lib/heaptrack/
+    cp $tc/lib/heaptrack/libexec/heaptrack_env $tc/lib/heaptrack/libexec/heaptrack_interpret /tmp/heaptrack/lib/heaptrack/libexec/
+  "
   docker cp $build_container:/tmp/heaptrack/ $dest_dir
 }
 
@@ -3342,9 +3347,6 @@ case $command in
     ;;
     package-smoke-image)
       package_smoke_image $@
-    ;;
-    build-heaptrack)
-      build_heaptrack $@
     ;;
     copy-heaptrack)
       copy_heaptrack $@
