@@ -1,21 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
-
-# Set noninteractive frontend to avoid prompts during package installation
-export DEBIAN_FRONTEND=noninteractive
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-source "$DIR/../util.sh"
-
-# Parse command line arguments for --skip-check flag
-SKIP_CHECK=$(parse_skip_check_flag "$@")
-
-# Only run checks if --skip-check flag is not provided
-if [[ "$SKIP_CHECK" == false ]]; then
-    check_operating_system "ubuntu-20.04"
-    check_architecture "arm64" "aarch64"
-else
-    echo "Skipping checks for ubuntu-20.04"
-fi
+source "$DIR/lib.sh"
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils gcc g++ build-essential make # generic build tools
@@ -65,8 +51,6 @@ MEMGRAPH_BUILD_DEPS=(
     libkrb5-dev # for building python gssapi (kerberos auth module)
 )
 
-MEMGRAPH_TEST_DEPS=("${MEMGRAPH_BUILD_DEPS[@]}")
-
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp2
     libkrb5-3 # runtime for python gssapi (kerberos auth module)
@@ -76,137 +60,22 @@ NEW_DEPS=(
     wget curl tar gzip
 )
 
-list() {
-    local -n packages="$1"
-    printf '%s\n' "${packages[@]}"
-}
+SPECIAL_PACKAGES=(dotnet-sdk-6.0)
 
-check() {
-    local -n packages=$1
-    local missing=""
-    local missing_custom=""
-
-    # Separate standard and custom packages
-    local standard_packages=()
-    local custom_packages=()
-
-    for pkg in "${packages[@]}"; do
-        case "$pkg" in
-            custom-*|dotnet-sdk-6.0)
-                custom_packages+=("$pkg")
-                ;;
-            *)
-                standard_packages+=("$pkg")
-                ;;
-        esac
-    done
-
-    # check if python3 is installed
-    if ! command -v python3 &>/dev/null; then
-        echo "python3 is not installed"
-        exit 1
-    fi
-
-    # Check standard packages with Python script
-    if [ ${#standard_packages[@]} -gt 0 ]; then
-        missing=$(python3 "$DIR/check-packages.py" "check" "ubuntu-20.04" "${standard_packages[@]}")
-    fi
-
-    # Check custom packages with bash logic
-    for pkg in "${custom_packages[@]}"; do
-        missing_pkg=$(check_custom_package "$pkg" || true)
-        if [ $? -eq 0 ]; then
-            # Custom package was handled, check if it's missing
-            if [ -n "$missing_pkg" ]; then
-                missing_custom="$missing_pkg $missing_custom"
+install_special_package() {
+    case "$1" in
+        dotnet-sdk-6.0)
+            if ! dpkg -s dotnet-sdk-6.0 &>/dev/null; then
+                wget -nv https://packages.microsoft.com/config/ubuntu/20.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+                dpkg -i packages-microsoft-prod.deb
+                apt-get update
+                apt-get install -y dotnet-sdk-6.0
             fi
-        else
-            # Not a custom package, check with case statement
-            case "$pkg" in
-                dotnet-sdk-6.0)
-                    if ! dpkg -s dotnet-sdk-6.0 &>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-            esac
-        fi
-    done
-
-    # Combine missing packages
-    [ -n "$missing_custom" ] && missing="${missing:+$missing }$missing_custom"
-
-    if [ -n "$missing" ]; then
-        echo "MISSING PACKAGES: $missing"
-        exit 1
-    fi
+            ;;
+    esac
 }
 
-install() {
-    local -n packages=$1
-
-    # Set noninteractive frontend to avoid prompts
-    export DEBIAN_FRONTEND=noninteractive
-
-    # Update package lists first
-    apt update -y
-
-    # check if python3 is installed
-    if ! command -v python3 &>/dev/null; then
-        apt install -y python3
-    fi
-
-    # If GitHub Actions runner is installed, append LANG to the environment.
-    # Python related tests doesn't work the LANG export.
-    if [ -d "/home/gh/actions-runner" ]; then
-        echo "LANG=en_US.utf8" >> /home/gh/actions-runner/.env
-    else
-        echo "NOTE: export LANG=en_US.utf8"
-    fi
-
-    # Separate standard and custom packages
-    local standard_packages=()
-    local custom_packages=()
-
-    for pkg in "${packages[@]}"; do
-        case "$pkg" in
-            custom-*|dotnet-sdk-6.0)
-                custom_packages+=("$pkg")
-                ;;
-            *)
-                standard_packages+=("$pkg")
-                ;;
-        esac
-    done
-
-    # Install standard packages with Python script
-    if [ ${#standard_packages[@]} -gt 0 ]; then
-        if ! python3 "$DIR/check-packages.py" "install" "ubuntu-20.04" "${standard_packages[@]}"; then
-            echo "Failed to install standard packages"
-            exit 1
-        fi
-    fi
-
-    # Install custom packages with bash logic
-    install_custom_packages "${custom_packages[@]}"
-
-    # Handle non-custom packages that need special installation
-    for pkg in "${custom_packages[@]}"; do
-        case "$pkg" in
-            dotnet-sdk-6.0)
-                if ! dpkg -s dotnet-sdk-6.0 &>/dev/null; then
-                    wget -nv https://packages.microsoft.com/config/ubuntu/20.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-                    dpkg -i packages-microsoft-prod.deb
-                    apt-get update
-                    apt-get install -y apt-transport-https dotnet-sdk-6.0
-                fi
-                ;;
-            *)
-                # Skip packages that don't need special handling
-                ;;
-        esac
-    done
-
-    # Handle special cases that need post-installation setup
+post_install() {
     if dpkg -s openjdk-17-jdk-headless &>/dev/null; then
         # The default Java version should be Java 11
         update-alternatives --set java /usr/lib/jvm/java-11-openjdk-arm64/bin/java
@@ -214,4 +83,4 @@ install() {
     fi
 }
 
-"$1" "$2"
+main "$@"

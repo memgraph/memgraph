@@ -4,19 +4,26 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 # Source the util.sh file to get the parse_operating_system function
 source "$SCRIPT_DIR/../util.sh"
 
-SUPPORTED_OS=(
-    all
-    centos-9 centos-10
-    debian-12 debian-12-arm
-    debian-13 debian-13-arm
-    fedora-43 fedora-43-arm
-    fedora-44 fedora-44-arm
-    fedora-45 fedora-45-arm
-    rocky-10
-    ubuntu-22.04 ubuntu-22.04-arm
-    ubuntu-24.04 ubuntu-24.04-arm
-    ubuntu-26.04 ubuntu-26.04-arm
+# Distro scripts no longer exposed through install_deps.sh (the files remain
+# and can still be run directly).
+DEPRECATED_OS=(
+    fedora-42 fedora-42-arm
+    ubuntu-20.04 ubuntu-20.04-arm
 )
+
+# Every distro script in this directory is a supported OS; the filename is
+# the OS name.
+SUPPORTED_OS=()
+for script in "$SCRIPT_DIR"/*.sh; do
+    name="$(basename "$script" .sh)"
+    case "$name" in
+        lib|install_deps|template|test|run) continue ;;
+    esac
+    for deprecated in "${DEPRECATED_OS[@]}"; do
+        [[ "$name" == "$deprecated" ]] && continue 2
+    done
+    SUPPORTED_OS+=("$name")
+done
 
 # Define toolchain download URLs for supported OS and architectures
 declare -A TOOLCHAIN_URLS=(
