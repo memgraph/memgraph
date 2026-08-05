@@ -152,8 +152,10 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
  private:
   bool in_exists{false};
-  // A depth, not a flag: a comprehension nested in another one's filter or result expression would otherwise clear
-  // it on the way out and let the rest of the outer traversal collect anonymous symbols.
+  // A depth, not a flag: `PreVisit` above descends into the pattern itself, whose property maps and variable-length
+  // bounds may hold another comprehension. A flag would be cleared by the inner one's `PostVisit` and let the rest of
+  // the outer pattern collect anonymous symbols. (`filter_`/`resultExpr_` are not reached from here - `PreVisit`
+  // returns false - but `WhereReadSymbolsCollector` in the planner does visit them, which is the other way to nest.)
   int in_pattern_comprehension_depth{0};
 };
 

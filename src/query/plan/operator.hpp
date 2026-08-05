@@ -257,18 +257,19 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
   /** Return @c Symbol vector where the query results will be stored.
    *
    * Output symbols are the query's result columns, in order - not every symbol the operator writes
-   * (see @c ModifiedSymbols). Two kinds of operator answer:
+   * (see @c ModifiedSymbols). Three kinds of operator answer:
    *
    * - those that define columns: @c Produce, @c Union, @c CallProcedure, @c LoadCsv, @c LoadParquet,
    *   @c LoadJsonl, @c OutputTable and @c OutputTableStream;
    * - those that sit above a column-defining operator and propagate its symbols: @c OrderBy,
-   *   @c OrderByParallel, @c Distinct, @c Skip, @c Limit, @c PeriodicCommit and @c RollUpApply.
+   *   @c OrderByParallel, @c Distinct, @c Skip, @c Limit, @c PeriodicCommit and @c RollUpApply;
+   * - @c EmptyResult, which suppresses them - it is how a query with no result columns is expressed.
    *
-   * The default @c {} means "this query has no result columns", which is what wraps a plan in
-   * @c EmptyResult. So any operator inserted between the plan root and the column-defining operator
-   * must propagate, or the query silently returns zero columns. This is not automatic for a
-   * multi-input operator: @c HasSingleInput is false there, so it must override explicitly - as
-   * @c RollUpApply does, once it may be spliced above the @c Produce.
+   * Propagation is never automatic: the default below returns @c {} for every operator that does not
+   * override, whatever its input. So any operator inserted between the plan root and the
+   * column-defining operator must override and propagate, or the plan root reports no columns, gets
+   * wrapped in @c EmptyResult, and the query silently returns zero of them. That is why
+   * @c RollUpApply propagates, now that it may be spliced above the @c Produce.
    *
    *  @param SymbolTable used to find symbols for expressions.
    *  @return std::vector<Symbol> used for results.
