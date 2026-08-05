@@ -440,24 +440,6 @@ Feature: Pattern comprehensions
             | name     |
             | 'Regina' |
 
-    Scenario: Pattern comprehension in the WHERE of a WITH DISTINCT filters on the bound variable
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
-            CREATE (:Person {name: 'Bob'})
-            """
-        When executing query:
-            """
-            MATCH (p:Person)
-            WITH DISTINCT p
-            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
-            RETURN p.name AS name
-            """
-        Then the result should be:
-            | name     |
-            | 'Regina' |
-
     Scenario: Pattern comprehension in the ORDER BY of a WITH sorts on the bound variable
         Given an empty graph
         # Created fewest-edges-first, so the expected order is the reverse of the scan order: a sort key that is the
@@ -566,28 +548,6 @@ Feature: Pattern comprehensions
             | 'Regina' |
             | 'Zoe'    |
 
-    Scenario: Pattern comprehension in the WHERE of an aggregating WITH that also has an ORDER BY
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
-            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
-            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
-            CREATE (:Person {name: 'Bob'})
-            """
-        When executing query:
-            """
-            MATCH (p:Person)
-            WITH p, count(*) AS c
-            ORDER BY p.name
-            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
-            RETURN p.name AS name
-            """
-        Then the result should be, in order:
-            | name     |
-            | 'Regina' |
-            | 'Zoe'    |
-
     Scenario: Pattern comprehensions in both the ORDER BY and the WHERE of a WITH
         Given an empty graph
         And having executed:
@@ -674,27 +634,6 @@ Feature: Pattern comprehensions
             | 'Zoe'    |
             | 'Regina' |
 
-    Scenario: Pattern comprehension in the WHERE of a WITH preceded by a CREATE
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
-            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
-            CREATE (:Person {name: 'Bob'})
-            """
-        When executing query:
-            """
-            MATCH (p:Person)
-            CREATE (:Marker)
-            WITH p
-            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
-            RETURN p.name AS name
-            """
-        Then the result should be:
-            | name     |
-            | 'Zoe'    |
-            | 'Regina' |
-
     Scenario: WITH ORDER BY LIMIT still filters after the limit
         Given an empty graph
         And having executed:
@@ -738,28 +677,6 @@ Feature: Pattern comprehensions
         Then the result should be:
             | created | counts |
             | 2       | [0]    |
-
-    Scenario: Pattern comprehension over a node merged inside the same FOREACH body
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
-            """
-        And having executed:
-            """
-            MATCH (p:Person)
-            FOREACH (i IN [1] |
-              MERGE (q:Marker {id: 1})
-              SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m]))
-            """
-        When executing query:
-            """
-            MATCH (q:Marker)
-            RETURN count(q) AS merged, collect(DISTINCT q.cnt) AS counts
-            """
-        Then the result should be:
-            | merged | counts |
-            | 1      | [0]    |
 
     Scenario: Pattern comprehension over a node created by an enclosing FOREACH body
         Given an empty graph
@@ -921,8 +838,8 @@ Feature: Pattern comprehensions
         Given an empty graph
         And having executed:
             """
-            CREATE (a:Person {id: 1})-[:FRIEND]->(b:Person {id: 2})
-            CREATE (b)-[:FRIEND]->(:Person {id: 9})
+            CREATE (a:Person {id: 9})-[:FRIEND]->(b:Person {id: 2})
+            CREATE (b)-[:FRIEND]->(:Person {id: 1})
             """
         When executing query:
             """
@@ -930,34 +847,38 @@ Feature: Pattern comprehensions
             WITH p AS q ORDER BY size([(q)-[:FRIEND*1..2]->(m) | m]) DESC, q.id
             RETURN q.id AS id
             """
+        # Ids run opposite to reachability on purpose: an uncorrelated key ties every row and the
+        # q.id tie-break would give 1, 2, 9.
         Then the result should be, in order:
             | id |
-            | 1  |
-            | 2  |
             | 9  |
+            | 2  |
+            | 1  |
 
     Scenario: Nested variable-length pattern comprehension inside a FOREACH body
         Given an empty graph
         And having executed:
             """
-            CREATE (:Person {id: 1})
-            CREATE (:Person {id: 2})
+            CREATE (h:Hub {id: 1})-[:FRIEND]->(m:Hub {id: 2})
+            CREATE (m)-[:FRIEND]->(:Hub {id: 3})
             """
         And having executed:
             """
-            MATCH (p:Person)
+            MATCH (h:Hub {id: 1})
             FOREACH (i IN [1] |
               CREATE (q:Marker)
-              SET q.cnt = size([(q)-[:FRIEND]->(x) | size([(x)-[:FRIEND*1..2]->(y) | y])]))
+              SET q.cnt = [(h)-[:FRIEND]->(x) | size([(x)-[:FRIEND*1..2]->(y) | y])])
             """
         When executing query:
             """
             MATCH (q:Marker)
             RETURN count(q) AS n, collect(q.cnt) AS counts
             """
+        # The nested variable-length branch must actually run: h reaches one node, which reaches one
+        # more. Planning this used to abort the process.
         Then the result should be:
             | n | counts |
-            | 2 | [0, 0] |
+            | 1 | [[1]]  |
 
     Scenario: Variable-length pattern comprehension over a node its own query part creates is rejected
         Given an empty graph

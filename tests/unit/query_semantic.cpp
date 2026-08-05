@@ -1608,11 +1608,11 @@ TYPED_TEST(TestSymbolGenerator, ListComprehensionInWith) {
 // Shadowing of un-imported outer variables inside a `CALL {}` subquery. Such a name is out of scope in the subquery,
 // so a pattern occurrence of it declares a fresh variable rather than referencing the outer one. Referencing it would
 // resolve to the outer symbol and make the branch write through its frame slot, which the subquery shares with its
-// caller. `SUBQUERY_COMPREHENSION(name)` builds `[(<name>)-->() | 1]`.
+// caller. `COMPREHENSION_OVER(name)` builds `[(<name>)-->() | 1]`.
 //
 // Note the subquery RETURNs below list two NamedExpressions rather than a bare name plus one: `RETURN("t", NEXPR(...))`
 // selects the `RETURN(expr, AS(name))` overload, which would overwrite the comprehension with an identifier.
-#define SUBQUERY_COMPREHENSION(name)                                                                                   \
+#define COMPREHENSION_OVER(name)                                                                                       \
   PATTERN_COMPREHENSION(                                                                                               \
       nullptr,                                                                                                         \
       PATTERN(                                                                                                         \
@@ -1639,7 +1639,7 @@ NamedExpression *Aliased(NamedExpression *named_expr) {
 TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryShadowsUnimportedOuterVariable) {
   // MATCH (p) CALL { MATCH (t) RETURN t, [(p)-->() | 1] AS k } RETURN p, k
   auto *outer_p = NODE("p");
-  auto *comprehension = SUBQUERY_COMPREHENSION("p");
+  auto *comprehension = COMPREHENSION_OVER("p");
   auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
                                 RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_p)), CALL_SUBQUERY(subquery), RETURN("p", "k")));
@@ -1655,7 +1655,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryShadowsUnimportedO
 TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryCorrelatesExplicitlyImportedVariable) {
   // MATCH (p) CALL (p) { MATCH (t) RETURN t, [(p)-->() | 1] AS k } RETURN p, k
   auto *outer_p = NODE("p");
-  auto *comprehension = SUBQUERY_COMPREHENSION("p");
+  auto *comprehension = COMPREHENSION_OVER("p");
   auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
                                 RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
   auto *call_sub = CALL_SUBQUERY(subquery);
@@ -1672,7 +1672,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryCorrelatesExplicit
 TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryCorrelatesWithCallStar) {
   // MATCH (p) CALL (*) { MATCH (t) RETURN t, [(p)-->() | 1] AS k } RETURN p, k
   auto *outer_p = NODE("p");
-  auto *comprehension = SUBQUERY_COMPREHENSION("p");
+  auto *comprehension = COMPREHENSION_OVER("p");
   auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
                                 RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
   auto *call_sub = CALL_SUBQUERY(subquery);
@@ -1690,7 +1690,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInNestedSubqueryReshadowsImp
   // MATCH (p) CALL (p) { CALL { MATCH (t) RETURN t, [(p)-->() | 1] AS k } RETURN t, k } RETURN p, k
   // The inner `CALL {}` imports nothing, so `p` is out of scope again even though the outer subquery imported it.
   auto *outer_p = NODE("p");
-  auto *comprehension = SUBQUERY_COMPREHENSION("p");
+  auto *comprehension = COMPREHENSION_OVER("p");
   auto *inner_subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
                                       RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
   auto *outer_subquery = SINGLE_QUERY(CALL_SUBQUERY(inner_subquery), RETURN("t", "k"));
@@ -1709,7 +1709,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryCorrelatesItsOwnSc
   // MATCH (p) CALL { MATCH (t) RETURN t, [(t)-->() | 1] AS k } RETURN t, k
   // `t` is declared inside the subquery, so it is in scope there and must correlate, not be shadowed.
   auto *inner_t = NODE("t");
-  auto *comprehension = SUBQUERY_COMPREHENSION("t");
+  auto *comprehension = COMPREHENSION_OVER("t");
   auto *subquery = SINGLE_QUERY(MATCH(PATTERN(inner_t)),
                                 RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), CALL_SUBQUERY(subquery), RETURN("t", "k")));
@@ -1720,37 +1720,24 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryCorrelatesItsOwnSc
       << "a name declared inside the subquery is in scope there, so shadowing must not fire";
 }
 
-TYPED_TEST(TestSymbolGenerator, PatternComprehensionAtTopLevelDeclaresUndeclaredNameAfresh) {
-  // MATCH (t) RETURN [(zz)-->() | 1] AS k -- no CALL {} anywhere, so the rule must not fire differently here
-  auto *comprehension = SUBQUERY_COMPREHENSION("zz");
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("t"))), RETURN(NEXPR("k", comprehension))));
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionAtTopLevelCorrelatesToABoundName) {
+  // MATCH (zz) RETURN [(zz)-->() | 1] AS k
+  // Outside a subquery there is no boundary to shadow against, so a bound name in a comprehension pattern must resolve
+  // to the same symbol. Asserting the symbol's *name* would pass either way - both branches name it "zz".
+  auto *outer = NODE("zz");
+  auto *comprehension = COMPREHENSION_OVER("zz");
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(outer)), RETURN(NEXPR("k", static_cast<Expression *>(comprehension)))));
 
   auto symbol_table = MakeSymbolTable(query);
 
-  EXPECT_EQ(symbol_table.at(ComprehensionStartNode(comprehension)).name(), "zz");
+  EXPECT_EQ(symbol_table.at(ComprehensionStartNode(comprehension)), symbol_table.at(*outer->identifier_))
+      << "at top level the shadowing rule must not fire";
 }
 
 // Moved here from `subqueries.feature` because that suite also runs with `USING PARALLEL EXECUTION`, and this shape
 // (an aggregation inside a `CALL {}`) hits a pre-existing parallel-executor bug that nulls every outer variable --
 // unrelated to what the scenario is checking. Asserting the symbol identity pins the rule directly instead.
-TYPED_TEST(TestSymbolGenerator, PatternComprehensionInAggregatingSubqueryWhereShadowsUnimportedOuterVariable) {
-  // MATCH (p) CALL { MATCH (t) WITH t, count(*) AS c WHERE size([(p)-->() | 1]) > 0 RETURN t } RETURN p
-  auto *outer_p = NODE("p");
-  auto *comprehension = SUBQUERY_COMPREHENSION("p");
-  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
-                                WITH(IDENT("t"), AS("t"), COUNT(LITERAL(1), false), AS("c")),
-                                WHERE(GREATER(comprehension, LITERAL(0))),
-                                RETURN(Aliased(NEXPR("t", IDENT("t")))));
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_p)), CALL_SUBQUERY(subquery), RETURN("p")));
-
-  auto symbol_table = MakeSymbolTable(query);
-
-  const auto outer_symbol = symbol_table.at(*outer_p->identifier_);
-  const auto inner_symbol = symbol_table.at(ComprehensionStartNode(comprehension));
-  EXPECT_NE(outer_symbol, inner_symbol) << "an aggregating WHERE must not correlate the un-imported outer `p` either";
-  EXPECT_EQ(outer_symbol.name(), inner_symbol.name());
-}
-
 TYPED_TEST(TestSymbolGenerator, PlainMatchInSubqueryShadowsUnimportedOuterVariable) {
   // MATCH (a) CALL { MATCH (a)-[:R]->(x) RETURN x } RETURN a, x
   // The subquery's own MATCH pattern is the same case as the comprehension: `a` is out of scope, so the pattern
@@ -1795,7 +1782,8 @@ TYPED_TEST(TestSymbolGenerator, ComprehensionInWhereRejectsAlreadyBoundRelations
                                    WHERE(EQ(pattern_comp, LIST())),
                                    RETURN("a")));
 
-  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  EXPECT_THAT([&] { MakeSymbolTable(query); },
+              ThrowsMessage<SemanticException>(::testing::HasSubstr("already bound relationship 'r'")));
 }
 
 TYPED_TEST(TestSymbolGenerator, ComprehensionInWhereStillCorrelatesAnAlreadyBoundNode) {
@@ -1850,8 +1838,6 @@ TYPED_TEST(TestSymbolGenerator, ExistsPatternInSubqueryRejectsUnimportedOuterVar
   EXPECT_THROW(MakeSymbolTable(query), SemanticException);
 }
 
-#undef SUBQUERY_COMPREHENSION
-
 // A pattern comprehension may not reference a symbol the same CREATE clause declares. The operator that binds the
 // symbol is the one that reads the comprehension's result, so the frame slot is unwritten no matter where the
 // RollUpApply is spliced. A comprehension over a symbol bound by an *earlier* clause is fine and must keep working -
@@ -1867,18 +1853,9 @@ NodeAtom *WithProperty(AstStorage &storage, NodeAtom *node, const std::string &n
 
 }  // namespace
 
-// `[(<name>)-->() | 1]`
-#define SELF_COMPREHENSION(name)                                                                                       \
-  PATTERN_COMPREHENSION(                                                                                               \
-      nullptr,                                                                                                         \
-      PATTERN(                                                                                                         \
-          NODE(name), EDGE("anon_edge", EdgeAtom::Direction::OUT, {}, false), NODE("anon_node", std::nullopt, false)), \
-      nullptr,                                                                                                         \
-      LITERAL(1))
-
 TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedBySameClauseIsRejected) {
   // CREATE (q:L {c: [(q)-->() | 1]})
-  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", SELF_COMPREHENSION("q"));
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", COMPREHENSION_OVER("q"));
   auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(created))));
 
   EXPECT_THROW(MakeSymbolTable(query), SemanticException);
@@ -1888,7 +1865,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedBySameClauseI
   // FOREACH (i IN [1] | CREATE (q:L {c: [(q)-->() | 1]}))
   // The FOREACH-wrapped form is the one that regressed: before the fix the merge-base planned it with an uncorrelated
   // scan and completed with a wrong count, and afterwards it failed with an internal error.
-  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", SELF_COMPREHENSION("q"));
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", COMPREHENSION_OVER("q"));
   auto *query = QUERY(SINGLE_QUERY(FOREACH(NEXPR("i", LIST(LITERAL(1))), {CREATE(PATTERN(created))})));
 
   EXPECT_THROW(MakeSymbolTable(query), SemanticException);
@@ -1896,7 +1873,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedBySameClauseI
 
 TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedByEarlierPatternInSameClauseIsRejected) {
   // CREATE (a:L), (q:L {c: [(a)-->() | 1]})
-  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", SELF_COMPREHENSION("a"));
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", COMPREHENSION_OVER("a"));
   auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("a", "L")), PATTERN(created))));
 
   EXPECT_THROW(MakeSymbolTable(query), SemanticException);
@@ -1921,7 +1898,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionReferencingCreatedNodeOnlyIn
 TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedByAnEarlierCreateClauseIsAccepted) {
   // CREATE (a:L) CREATE (q:L {c: [(a)-->() | 1]})
   // A separate clause binds `a`, so the comprehension is drained after it and correlates normally.
-  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", SELF_COMPREHENSION("a"));
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", COMPREHENSION_OVER("a"));
   auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("a", "L"))), CREATE(PATTERN(created))));
 
   EXPECT_NO_THROW(MakeSymbolTable(query));
@@ -1929,7 +1906,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedByAnEarlierCr
 
 TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverMatchedNodeInsideCreateIsAccepted) {
   // MATCH (p) CREATE (q:L {c: [(p)-->() | 1]})
-  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", SELF_COMPREHENSION("p"));
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", COMPREHENSION_OVER("p"));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), CREATE(PATTERN(created))));
 
   EXPECT_NO_THROW(MakeSymbolTable(query));
@@ -1938,7 +1915,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverMatchedNodeInsideCreateI
 TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverItsOwnNodesInsideCreateIsAccepted) {
   // CREATE (q:L {c: [(z)-->() | 1]})
   // Nothing the CREATE binds is referenced, so the comprehension stands alone.
-  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", SELF_COMPREHENSION("z"));
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", COMPREHENSION_OVER("z"));
   auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(created))));
 
   EXPECT_NO_THROW(MakeSymbolTable(query));

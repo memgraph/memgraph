@@ -796,20 +796,6 @@ Feature: Subqueries
             | 'Player E' | 5   |
             | 'Player F' | 5   |
 
-    Scenario: EXISTS pattern in a CALL subquery cannot see an un-imported outer variable
-        Given graph "subqueries"
-        When executing query:
-            """
-            MATCH (p:Player)
-            CALL {
-              MATCH (t:Team)
-              WHERE exists((p)-[:PLAYS_FOR]->(t))
-              RETURN t
-            }
-            RETURN p.name AS playerName
-            """
-        Then an error should be raised
-
     Scenario: Pattern comprehension in a CALL subquery may use an explicitly imported outer variable
         Given graph "subqueries"
         When executing query:

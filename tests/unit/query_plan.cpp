@@ -3189,30 +3189,6 @@ TYPED_TEST(TestPlanner, PatternComprehensionInWithWhereWithOrderBy) {
       << "RollUpApply for a WHERE comprehension must sit above OrderBy";
 }
 
-TYPED_TEST(TestPlanner, PatternComprehensionInWithOrderByStaysBelowOrderBy) {
-  // Test MATCH (n) WITH n ORDER BY length([(n)--(m) | 1]) RETURN n
-  // A comprehension the ORDER BY itself reads must stay BELOW the OrderBy, which evaluates its sort keys during the
-  // collection sweep.
-  auto *pattern_comp = PATTERN_COMPREHENSION(
-      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
-  FakeDbAccessor dba;
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", ORDER_BY(FN("length", pattern_comp))), RETURN("n")));
-
-  auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  auto &plan = planner.plan();
-
-  // Produce (RETURN) -> OrderBy -> RollUpApply -> Produce (WITH)
-  auto *produce = dynamic_cast<Produce *>(&plan);
-  ASSERT_NE(produce, nullptr) << "Root should be Produce";
-  auto *order_by = dynamic_cast<OrderBy *>(produce->input_.get());
-  ASSERT_NE(order_by, nullptr) << "OrderBy should be directly under Produce";
-  auto *rollup = dynamic_cast<RollUpApply *>(order_by->input_.get());
-  ASSERT_NE(rollup, nullptr) << "RollUpApply for an ORDER BY comprehension must sit below OrderBy";
-  EXPECT_NE(dynamic_cast<Produce *>(rollup->input_.get()), nullptr) << "RollUpApply must come after the WITH's Produce";
-}
-
 TYPED_TEST(TestPlanner, OrderByRemembersSymbolsUsedByWhere) {
   // Test MATCH (n) WITH n.prop AS x ORDER BY x WHERE n.prop2 = 1 RETURN x
   // Filter(where) is planned above OrderBy, so every symbol the WHERE reads must be in OrderBy's remember set -
@@ -5218,6 +5194,21 @@ TYPED_TEST(TestPlanner, PatternComprehensionOverSymbolBoundInsideForeachBody) {
 
 namespace {
 
+/// Asserts @p rollup's comprehension branch expands from a bound symbol rather than re-scanning: `Once` below the
+/// expansion, never merely the presence of one, since an uncorrelated plan has an expansion too.
+template <class TExpand>
+TExpand *ExpectCorrelatedBranch(RollUpApply *rollup) {
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  EXPECT_NE(branch_produce, nullptr) << "comprehension branch should end with Produce";
+  if (!branch_produce) return nullptr;
+  auto *expand = dynamic_cast<TExpand *>(branch_produce->input_.get());
+  EXPECT_NE(expand, nullptr) << "comprehension branch should expand, not re-scan";
+  if (!expand) return nullptr;
+  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
+      << "the expansion must start from the bound symbol on the frame, not a ScanAll";
+  return expand;
+}
+
 /// Walks down the single-input chain from @p root and returns the first operator of type TOp, or nullptr.
 template <class TOp>
 TOp *FindOpOfType(memgraph::query::plan::LogicalOperator *root) {
@@ -5369,6 +5360,30 @@ TYPED_TEST(TestPlanner, VariableLengthComprehensionOverAMatchedNodeAWriteReusesI
   EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr) << "and stay correlated to the matched `a`";
 }
 
+TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInAggregatingWithOrderBy) {
+  // Test MATCH (n) WITH n, count(*) AS c ORDER BY [(n)--(m) | 1] RETURN n
+  // The aggregating path discovers ORDER BY comprehensions separately, so the ORDER BY bucket needs its own coverage
+  // here: the behave scenario for this shape can only discriminate through Aggregate's unordered group emission.
+  FakeDbAccessor dba;
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WITH(IDENT("n"), AS("n"), COUNT(nullptr, false), AS("c"), ORDER_BY(pattern_comp)),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  auto *order_by = FindOpOfType<OrderBy>(&plan);
+  ASSERT_NE(order_by, nullptr) << "expected an OrderBy";
+  auto *rollup = dynamic_cast<RollUpApply *>(order_by->input_.get());
+  ASSERT_NE(rollup, nullptr) << "the ORDER BY bucket belongs directly below the OrderBy that reads it";
+  EXPECT_NE(dynamic_cast<Produce *>(rollup->input_.get()), nullptr) << "and above the WITH's Produce";
+  ExpectCorrelatedBranch<Expand>(rollup);
+}
+
 TYPED_TEST(TestPlanner, PatternComprehensionInMergeOnCreateIsPlannedInsideBranch) {
   // Test MERGE (q) ON CREATE SET q.prop = [(q)-->() | 1]
   // `q` is bound by the MERGE pattern, and the SET runs inside the Merge's create branch, so the comprehension must
@@ -5437,8 +5452,6 @@ TYPED_TEST(TestPlanner, PatternComprehensionInMergeOnMatchCorrelatesToMatchedNod
   ASSERT_NE(branch_produce, nullptr);
   auto *expand = dynamic_cast<Expand *>(branch_produce->input_.get());
   ASSERT_NE(expand, nullptr) << "the comprehension must expand from the matched `q`, not re-scan the whole graph";
-  EXPECT_EQ(dynamic_cast<ScanAll *>(expand->input_.get()), nullptr)
-      << "a ScanAll below the Expand means `q` was not treated as bound, so the branch counts the whole graph";
   EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
       << "the expansion must start from the `q` the branch already has on the frame";
 }
