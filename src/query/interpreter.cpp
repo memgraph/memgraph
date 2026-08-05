@@ -4232,14 +4232,8 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
       .rw_type = RWType::NONE};
 }
 
-// A CypherQuery is "accessor-free" when it produces its result without touching the graph, so it
-// can run with no storage transaction at all (NO_ACCESS): no main_lock_ hold, no entry in
-// active_transactions. Memgraph Lab issues such queries continuously (connection checks, feature
-// detection), and opening a READ transaction for each registers as tenant activity.
-//
-// A constant expression is one the (accessor-less) PrimitiveLiteralExpressionEvaluator can
-// evaluate: literals, parameters, and lists/maps built solely from those. Anything referencing the
-// graph, a function, or an identifier is not constant and must take the normal path.
+// Accessor-free: no storage transaction (NO_ACCESS) -- no main_lock_ hold, no active_transactions entry;
+// Lab issues these continuously; constant = evaluable by PrimitiveLiteralExpressionEvaluator with no DbAccessor.
 bool IsConstantExpression(Expression *expression) {
   if (expression == nullptr) return false;
   if (utils::Downcast<PrimitiveLiteral>(expression) != nullptr ||
@@ -4256,11 +4250,8 @@ bool IsConstantExpression(Expression *expression) {
   return false;
 }
 
-// Besides its clauses, a CypherQuery carries query-level modifiers: a memory limit
-// (`... QUERY MEMORY LIMIT n KB`) and the `USING` pre-query directives (index hints, hops limit,
-// commit frequency, parallel execution). None of them are honoured by the accessor-free preparers,
-// which neither plan nor install a memory tracker, so a query that sets any of them must take the
-// normal path instead of having the modifier silently dropped.
+// Memory limit and `USING` pre-query directives (index hints, hops limit, commit frequency, parallel
+// execution) aren't honoured by the accessor-free preparers, so a query setting any of them must not qualify.
 bool HasNoQueryLevelModifiers(const CypherQuery &query) {
   auto const &directives = query.pre_query_directives_;
   return query.memory_limit_ == nullptr && directives.index_hints_.empty() && directives.hops_limit_ == nullptr &&
@@ -4268,10 +4259,8 @@ bool HasNoQueryLevelModifiers(const CypherQuery &query) {
          directives.num_threads_ == nullptr;
 }
 
-// Recognizes `RETURN <constant expressions>`: a single RETURN clause with no
-// DISTINCT/ORDER BY/SKIP/LIMIT/`*` and no UNION. Covers Lab's `RETURN 1 AS APP_INTERNAL_EXEC_VAR`
-// connection check and the every-2s `RETURN 1` quick-connect probe. Strict by design: anything
-// else falls through to the normal READ path.
+// Recognizes `RETURN <constant expressions>` with no DISTINCT/ORDER BY/SKIP/LIMIT/`*`/UNION -- covers
+// Lab's `RETURN 1 AS APP_INTERNAL_EXEC_VAR` connection check and `RETURN 1` probe; anything else falls through.
 bool IsConstantReturnQuery(const CypherQuery &query) {
   if (query.single_query_ == nullptr || !query.cypher_unions_.empty()) return false;
   if (!HasNoQueryLevelModifiers(query)) return false;
@@ -4289,9 +4278,8 @@ bool IsConstantReturnQuery(const CypherQuery &query) {
   });
 }
 
-// Prepares a constant `RETURN` query for execution with no storage accessor. Evaluates the constant
-// expressions once (no DbAccessor) and streams the single resulting row. Header derivation mirrors
-// the normal Cypher path (see PrepareCypherQuery) so the column names are byte-identical.
+// Evaluates the constant expressions with no DbAccessor and streams the single row. Header derivation
+// mirrors PrepareCypherQuery's (interpreter.cpp:4004) so the column names are byte-identical.
 PreparedQuery PrepareConstantReturnQuery(ParsedQuery parsed_query) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
   MG_ASSERT(cypher_query && cypher_query->single_query_, "Constant RETURN query expects a cypher single query");
@@ -4334,26 +4322,14 @@ PreparedQuery PrepareConstantReturnQuery(ParsedQuery parsed_query) {
       .rw_type = RWType::NONE};
 }
 
-// Asks the module registry -- the authority on what a procedure does -- whether `procedure_name`
-// resolves to a procedure eligible for the accessor-free fast path: a read procedure declaring
-// ProcedureInfo::no_graph_access that also requires no privilege (see ProcedureIsAccessorFreeEligible).
-//
-// This is deliberately the LAST check performed by IsBuiltinIntrospectionQuery: it takes the module
-// registry's shared lock, whereas every preceding check is a pointer/size/bool test on the AST. The
-// lock is released before this returns, so it cannot deadlock against a procedure callback that takes
-// the registry lock itself (e.g. mg.procedures, which takes it exclusively).
+// Reads the module registry (shared lock, released before this returns) -- deliberately the LAST check
+// in IsBuiltinIntrospectionQuery so it can't deadlock against mg.procedures, which takes the lock exclusively.
 bool ProcedureIsAccessorFreeEligible(std::string_view procedure_name) {
   return procedure::ProcedureIsAccessorFreeEligible(procedure::gModuleRegistry, procedure_name);
 }
 
-// Recognizes a standalone `CALL <proc>() YIELD ...` that can run with no storage accessor: a single
-// CallProcedure clause, no arguments, a YIELD (non-empty result fields), no YIELD ... WHERE, no
-// per-call memory limit, no query-level modifiers, no trailing clauses (RETURN/...), no UNION -- and a
-// procedure that the registry says is accessor-free eligible (read, no graph access, no required
-// privilege). Covers Lab's `CALL mg.procedures() YIELD *` feature-detection query.
-//
-// Checks are ordered cheapest-first so the registry lookup is a last resort, reached only by queries
-// that already look exactly like an accessor-free introspection call.
+// Recognizes a standalone accessor-free-eligible `CALL <proc>() YIELD ...` (e.g. Lab's
+// `CALL mg.procedures() YIELD *`); checks are ordered cheapest-first so the registry lookup runs last.
 bool IsBuiltinIntrospectionQuery(const CypherQuery &query) {
   if (query.single_query_ == nullptr || !query.cypher_unions_.empty()) return false;
   if (!HasNoQueryLevelModifiers(query)) return false;
@@ -4372,31 +4348,18 @@ bool IsBuiltinIntrospectionQuery(const CypherQuery &query) {
   return ProcedureIsAccessorFreeEligible(call_procedure->procedure_name_);
 }
 
-// Which accessor-free shape a CypherQuery matched, if any.
 enum class AccessorFreeQueryKind : uint8_t { kConstantReturn, kBuiltinIntrospection };
 
-// Classifies a CypherQuery once. Both the transaction-requirements visitor (which leaves the accessor
-// type unset) and the Prepare dispatch (which picks the preparer) need this answer, and
-// IsBuiltinIntrospectionQuery takes the module-registry lock, so it is computed once and threaded
-// through rather than recognized twice.
+// Computed once and threaded through: both the transaction-requirements visitor and the Prepare dispatch
+// need this answer, and IsBuiltinIntrospectionQuery takes the module-registry lock, so it isn't recomputed.
 std::optional<AccessorFreeQueryKind> ClassifyAccessorFreeQuery(const CypherQuery &query) {
   if (IsConstantReturnQuery(query)) return AccessorFreeQueryKind::kConstantReturn;
   if (IsBuiltinIntrospectionQuery(query)) return AccessorFreeQueryKind::kBuiltinIntrospection;
   return std::nullopt;
 }
 
-// Prepares a `CALL mg.<introspection>()` query with no storage accessor: invokes the procedure via
-// CallNoGraphReadProcedure (graph-less) and streams the rows. Header derivation matches the normal
-// path (yielded identifier names, in order); results are byte-identical because the same procedure
-// callback and signature construction are reused.
-//
-// Deliberately does NOT increment the CallProcedure operator metric or the per-procedure telemetry
-// counter (CallProcedure::IncrementCounter): those are driven by the CallProcedureCursor, which this
-// path bypasses. Keeping Memgraph Lab's constant introspection polling out of procedure-call
-// telemetry is consistent with the intent of the accessor-free path -- these calls are not user
-// workload and should not register as activity. The row work also happens here in Prepare rather than
-// on first Pull, so a procedure error surfaces in the Bolt RUN phase; harmless for these fast,
-// deterministic introspection procedures.
+// Skips CallProcedure telemetry (owned by CallProcedureCursor, bypassed here) since Lab's polling isn't
+// workload; rows are computed eagerly in Prepare (not lazily on Pull) so errors surface on RUN, not PULL.
 PreparedQuery PrepareBuiltinIntrospectionQuery(ParsedQuery parsed_query) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
   MG_ASSERT(cypher_query && cypher_query->single_query_, "Introspection query expects a cypher single query");
@@ -10609,12 +10572,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Write access required
   void Visit(CypherQuery & /*unused*/) override {
-    // Accessor-free Lab introspection queries produce their result without touching the graph, so
-    // they run with no storage transaction. Leaving accessor_type_ unset (NO_ACCESS) makes Prepare
-    // skip SetupDatabaseTransaction entirely: constant RETURN (e.g. the connection-check `RETURN 1`)
-    // and `CALL <proc>()` for a procedure declaring no graph access (e.g. feature detection). The
-    // classification is computed once by the caller and passed in -- recognizing it here as well
-    // would repeat the module-registry lookup.
+    // is_accessor_free_cypher_ (from ClassifyAccessorFreeQuery) leaves accessor_type_ unset here, i.e.
+    // NO_ACCESS, so Prepare skips SetupDatabaseTransaction for constant RETURN / accessor-free CALL queries.
     if (is_accessor_free_cypher_) {
       return;
     }
@@ -10992,10 +10951,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #endif
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      // Accessor-free queries run with no storage transaction (see the QueryTransactionRequirements
-      // visitor, which was told to leave accessor_type_ unset for them). They must not reach
-      // PrepareCypherQuery, which asserts a current DB transaction. accessor_free_kind is only ever
-      // set for implicit transactions.
+      // Accessor-free queries must not reach PrepareCypherQuery, which MG_ASSERTs a current DB transaction
+      // (interpreter.cpp:3939); accessor_free_kind is nullopt whenever accessor_type_ was left unset above.
       if (accessor_free_kind == AccessorFreeQueryKind::kConstantReturn) {
         prepared_query = PrepareConstantReturnQuery(std::move(parsed_query));
       } else if (accessor_free_kind == AccessorFreeQueryKind::kBuiltinIntrospection) {
@@ -11398,12 +11355,9 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
 }
 
 void Interpreter::FinishAutocommitNothing() {
-  // Inverse of SetupInterpreterTransaction for an autocommit query that opened no storage
-  // transaction (handler returned NOTHING). Mirrors the tail of Abort()'s clean_status: CAS the
-  // status to IDLE -- spin-waiting out a concurrent ShowTransactions/TerminateTransactions that has
-  // CAS'd us to VERIFYING -- before clearing the non-atomic fields, so no verifier ever reads a
-  // half-cleared row. Never an unconditional store while ACTIVE, which could race that VERIFYING
-  // CAS.
+  // Mirrors Abort()'s clean_status (interpreter.cpp:11115): CAS ACTIVE->IDLE, spin-waiting out a
+  // concurrent ShowTransactions/TerminateTransactions CAS to VERIFYING before clearing the fields below.
+  // Must be a CAS, not an unconditional store, or it could race that concurrent VERIFYING transition.
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
     if (expected == TransactionStatus::VERIFYING) {
