@@ -15,9 +15,8 @@ fi
 
 PACKAGE_GROUP="$2"
 
-THIS_BRANCH="$(git branch --show-current)"
-GIT_REF="${3:-${THIS_BRANCH}}"
-echo -e "${YELLOW}Using git reference: ${GIT_REF}...${RESET}"
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+ENV_DIR="$( cd "$DIR/.." >/dev/null 2>&1 && pwd )"
 
 # OS and docker image map
 declare -A OS_DOCKER_IMAGE_MAP=(
@@ -90,22 +89,17 @@ docker pull ${DOCKER_IMAGE}
 echo -e "${YELLOW}Running docker container ${DOCKER_IMAGE}...${RESET}"
 docker run --rm -d --name ${CONTAINER_NAME} ${DOCKER_IMAGE} sleep infinity
 
-echo -e "${YELLOW}Installing python and git in the container...${RESET}"
+echo -e "${YELLOW}Installing python in the container...${RESET}"
 # for debian/ubuntu based distros use apt
 if [[ "${DOCKER_IMAGE}" == *"debian"* || "${DOCKER_IMAGE}" == *"ubuntu"* ]]; then
-    docker exec -it ${CONTAINER_NAME} bash -c "export DEBIAN_FRONTEND=noninteractive && apt update -y && apt install -y python3 git"
+    docker exec -it ${CONTAINER_NAME} bash -c "export DEBIAN_FRONTEND=noninteractive && apt update -y && apt install -y python3"
 else
-    docker exec -it ${CONTAINER_NAME} bash -c "dnf install -y python3 git"
+    docker exec -it ${CONTAINER_NAME} bash -c "dnf install -y python3"
 fi
 
-echo -e "${YELLOW}Cloning memgraph repository...${RESET}"
-docker exec -it ${CONTAINER_NAME} bash -c "git clone https://github.com/memgraph/memgraph.git && cd /memgraph && git checkout ${GIT_REF}"
-
-status=$?
-if [[ $status -ne 0 ]]; then
-    echo -e "${RED}Failed to clone memgraph repository...${RESET}"
-    exit $status
-fi
+echo -e "${YELLOW}Copying local environment scripts into the container...${RESET}"
+docker exec ${CONTAINER_NAME} mkdir -p /memgraph
+docker cp "${ENV_DIR}" ${CONTAINER_NAME}:/memgraph/environment
 
 for group in "${GROUPS_TO_TEST[@]}"; do
     echo -e "${YELLOW}Installing ${group} in the container...${RESET}"

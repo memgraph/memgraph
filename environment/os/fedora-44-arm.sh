@@ -61,11 +61,7 @@ MEMGRAPH_BUILD_DEPS=(
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
     openssl-devel # for mgconsole (cloned + built at package time)
     python3 python3-pip python3-virtualenv nmap-ncat lsof # for qa, macro_benchmark and stress tests
-    #
-    # IMPORTANT: python3-yaml does NOT exist on Fedora
-    # Install it manually using `pip3 install PyYAML`
-    #
-    PyYAML # Package name here does not correspond to the dnf package!
+    python3-pyyaml
     rpm-build rpmlint # for RPM package building
     custom-rust
     which nodejs24 golang custom-golang # for driver tests
@@ -102,7 +98,7 @@ check() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv)
+            custom-*)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -130,17 +126,6 @@ check() {
             if [ -n "$missing_pkg" ]; then
                 missing_custom="$missing_pkg $missing_custom"
             fi
-        else
-            case "$pkg" in
-                PyYAML)
-                    if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-                python3-virtualenv)
-                    # Skip this as it's handled during installation
-                    ;;
-            esac
         fi
     done
 
@@ -182,7 +167,7 @@ install() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv)
+            custom-*)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -202,30 +187,6 @@ install() {
     # Install custom packages with bash logic
     install_custom_packages "${custom_packages[@]}"
 
-    # Handle non-custom packages that need special installation
-    for pkg in "${custom_packages[@]}"; do
-        case "$pkg" in
-            PyYAML)
-                if [ -z "${SUDO_USER+x}" ]; then # Running as root (e.g. Docker).
-                    pip3 install --user PyYAML
-                else # Running using sudo.
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
-                fi
-                ;;
-            python3-virtualenv)
-                if [ -z "${SUDO_USER+x}" ]; then # Running as root (e.g. Docker).
-                    pip3 install virtualenv
-                    pip3 install virtualenvwrapper
-                else # Running using sudo.
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
-                fi
-                ;;
-            *)
-                # Skip packages that don't need special handling
-                ;;
-        esac
-    done
 }
 
 deps="${2}[*]"
