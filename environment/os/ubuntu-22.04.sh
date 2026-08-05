@@ -54,7 +54,6 @@ MEMGRAPH_BUILD_DEPS=(
     make cmake pkg-config # build system
     curl wget # for downloading libs
     gperf # conan libseccomp source build
-    default-jre-headless # for neo4j (macro benchmarks)
     libreadline-dev # optional readline support (manual tests)
     libpython3-dev python3-dev # for query modules
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
@@ -65,12 +64,13 @@ MEMGRAPH_BUILD_DEPS=(
     python3 python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     custom-rust
-    zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven # for driver tests (JDK 17 required)
-    dotnet-sdk-6.0 golang custom-golang custom-node # for driver tests
+    zip unzip openjdk-25-jre-headless openjdk-25-jdk-headless custom-maven # for driver tests (JDK 17 required)
+    dotnet-sdk-10.0 golang custom-golang custom-node # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     ninja-build
     libkrb5-dev # for building python gssapi (kerberos auth module)
+    gperf
 )
 
 MEMGRAPH_TEST_DEPS=("${MEMGRAPH_BUILD_DEPS[@]}")
@@ -100,7 +100,7 @@ check() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|dotnet-sdk-6.0)
+            custom-*)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -128,15 +128,6 @@ check() {
             if [ -n "$missing_pkg" ]; then
                 missing_custom="$missing_pkg $missing_custom"
             fi
-        else
-            # Not a custom package, check with case statement
-            case "$pkg" in
-                dotnet-sdk-6.0)
-                    if ! dpkg -s dotnet-sdk-6.0 &>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-            esac
         fi
     done
 
@@ -171,13 +162,20 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
 
+    # for dotnet
+    if ! ls /etc/apt/sources.list.d/ | grep -F 'dotnet-ubuntu-backports'; then
+        apt-get -y install software-properties-common
+        add-apt-repository -y ppa:dotnet/backports
+        apt-get update
+    fi
+
     # Separate standard and custom packages
     local standard_packages=()
     local custom_packages=()
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|dotnet-sdk-6.0)
+            custom-*)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -197,29 +195,6 @@ install() {
     # Install custom packages with bash logic
     install_custom_packages "${custom_packages[@]}"
 
-    # Handle non-custom packages that need special installation
-    for pkg in "${custom_packages[@]}"; do
-        case "$pkg" in
-            dotnet-sdk-6.0)
-                if ! dpkg -s dotnet-sdk-6.0 &>/dev/null; then
-                    wget -nv https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-                    dpkg -i packages-microsoft-prod.deb
-                    apt-get update
-                    apt-get install -y apt-transport-https dotnet-sdk-6.0
-                fi
-                ;;
-            *)
-                # Skip packages that don't need special handling
-                ;;
-        esac
-    done
-
-    # Handle special cases that need post-installation setup
-    if dpkg -s openjdk-17-jdk-headless &>/dev/null; then
-        # The default Java version should be Java 11
-        update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
-        update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-amd64/bin/javac
-    fi
 }
 
 "$1" "$2"

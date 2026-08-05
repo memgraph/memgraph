@@ -65,7 +65,7 @@ MEMGRAPH_BUILD_DEPS=(
     python3-yaml # for the configuration generator
     custom-rust
     zip unzip default-jdk-headless custom-maven # for driver tests
-    dotnet-sdk-8.0 golang custom-golang nodejs npm # for driver tests
+    dotnet-sdk-10.0 golang custom-golang nodejs npm # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     ninja-build
@@ -99,7 +99,7 @@ check() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|dotnet-sdk-8.0)
+            custom-*)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -126,14 +126,6 @@ check() {
             if [ -n "$missing_pkg" ]; then
                 missing_custom="$missing_pkg $missing_custom"
             fi
-        else
-            case "$pkg" in
-                dotnet-sdk-8.0)
-                    if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-            esac
         fi
     done
 
@@ -165,13 +157,21 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
 
+    # for dotnet
+    if ! dpkg -s packages-microsoft-prod.deb; then
+        apt-get install -y wget
+        wget -nv https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+        dpkg -i packages-microsoft-prod.deb
+        apt update -y
+    fi
+
     # Separate standard and custom packages
     local standard_packages=()
     local custom_packages=()
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|dotnet-sdk-8.0)
+            custom-*)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -190,23 +190,6 @@ install() {
 
     # Install custom packages with bash logic
     install_custom_packages "${custom_packages[@]}"
-
-    # Handle non-custom packages that need special installation
-    for pkg in "${custom_packages[@]}"; do
-        case "$pkg" in
-            dotnet-sdk-8.0)
-                if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
-                    wget -nv https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-                    dpkg -i packages-microsoft-prod.deb
-                    apt update -y
-                    apt install -y apt-transport-https dotnet-sdk-8.0
-                fi
-                ;;
-            *)
-                # Skip packages that don't need special handling
-                ;;
-        esac
-    done
 }
 
 "$1" "$2"

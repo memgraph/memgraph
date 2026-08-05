@@ -56,7 +56,6 @@ MEMGRAPH_BUILD_DEPS=(
     make cmake pkg-config # build system
     curl wget # for downloading libs
     gperf # conan libseccomp source build
-    default-jre-headless # for neo4j (macro benchmarks)
     libreadline-dev # optional readline support (manual tests)
     libpython3-dev python3-dev # for query modules
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
@@ -67,8 +66,8 @@ MEMGRAPH_BUILD_DEPS=(
     python3 python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     custom-rust
-    zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven # for driver tests (JDK 17 required)
-    dotnet-sdk-8.0 golang custom-golang custom-node # for driver tests
+    zip unzip openjdk-25-jre-headless openjdk-25-jdk-headless custom-maven # for driver tests (JDK 17 required)
+    dotnet-sdk-10.0 golang custom-golang custom-node # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     ninja-build
@@ -102,7 +101,7 @@ check() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|dotnet-sdk-8.0)
+            custom-*)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -131,15 +130,6 @@ check() {
             if [ -n "$missing_pkg" ]; then
                 missing_custom="$missing_pkg $missing_custom"
             fi
-        else
-            # Not a custom package, check with case statement
-            case "$pkg" in
-                dotnet-sdk-8.0)
-                    if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-            esac
         fi
     done
 
@@ -177,7 +167,7 @@ install() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|dotnet-sdk-8.0)
+            custom-*)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -197,30 +187,6 @@ install() {
     # Install custom packages with bash logic
     install_custom_packages "${custom_packages[@]}"
 
-    # Handle non-custom packages that need special installation
-    for pkg in "${custom_packages[@]}"; do
-        case "$pkg" in
-            dotnet-sdk-8.0)
-                if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
-                    if ! command -v add-apt-repository &>/dev/null; then
-                        apt-get install -y software-properties-common
-                    fi
-                    add-apt-repository -y ppa:dotnet/backports
-                    apt-get update
-                    apt-get install -y apt-transport-https dotnet-sdk-8.0
-                fi
-                ;;
-            *)
-                # Skip packages that don't need special handling
-                ;;
-        esac
-    done
-
-    # Handle special cases that need post-installation setup
-    if dpkg -s openjdk-17-jdk-headless &>/dev/null; then
-        update-alternatives --set java /usr/lib/jvm/java-17-openjdk-amd64/bin/java
-        update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-amd64/bin/javac
-    fi
 }
 
 "$1" "$2"
