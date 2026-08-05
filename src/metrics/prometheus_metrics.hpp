@@ -24,6 +24,9 @@
 #include <variant>
 #include <vector>
 
+#include <prometheus/counter.h>
+#include <prometheus/gauge.h>
+#include <prometheus/histogram.h>
 #include <prometheus/registry.h>
 #include <nlohmann/json_fwd.hpp>
 
