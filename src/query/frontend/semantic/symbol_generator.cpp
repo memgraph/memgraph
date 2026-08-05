@@ -242,12 +242,14 @@ bool SymbolGenerator::PostVisit(CypherUnion &cypher_union) {
 
 bool SymbolGenerator::PreVisit(Create &) {
   scopes_.back().in_create = true;
-  create_clause_symbols_.clear();
+  // Always empty: sibling CREATEs run in sequence and PostVisit clears, and a CREATE cannot nest inside one.
+  DMG_ASSERT(create_clause_symbols_.empty(), "a CREATE clause left its declared symbols behind");
   return true;
 }
 
 bool SymbolGenerator::PostVisit(Create &) {
   scopes_.back().in_create = false;
+  // A later clause reads these through a frame slot that is written by then, so it must not be rejected.
   create_clause_symbols_.clear();
   return true;
 }
@@ -471,13 +473,15 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     throw SemanticException("Variables are not allowed in {}.", scope.in_skip ? "SKIP" : "LIMIT");
   }
 
-  // An un-imported name of the enclosing query is out of scope inside a `CALL {}` subquery, so a pattern occurrence
-  // of it declares a fresh variable instead of referencing the outer one. Referencing it would resolve to the outer
-  // symbol and make the branch write through its frame slot, which the subquery shares with its caller.
-  const bool shadows_outer_name = scope.in_pattern && IsOutsideCallSubquery(ident.name_);
-  // Whether the name is in scope here. A shadowed outer name is not, so the rules below treat it as undeclared:
-  // patterns declare it afresh, while `exists()` - which may not introduce variables - rejects it.
-  const bool name_in_scope = HasSymbol(ident.name_) && !shadows_outer_name;
+  // Inside a `CALL {}` subquery only the scopes from its own outwards are visible; an un-imported name of the
+  // enclosing query is out of scope. A pattern occurrence of such a name declares a fresh variable rather than
+  // referencing the outer one, which would resolve to the outer symbol and make the branch write through its frame
+  // slot - the one the subquery shares with its caller.
+  auto const from = scope.in_pattern ? scope.call_subquery_base.value_or(0) : 0;
+  // A shadowed outer name is not in scope, so the rules below treat it as undeclared: patterns declare it afresh,
+  // while `exists()` - which may not introduce variables - rejects it.
+  const bool name_in_scope = HasSymbol(ident.name_, from);
+  const bool shadows_outer_name = !name_in_scope && from != 0 && HasSymbol(ident.name_);
 
   if (scope.in_exists_pattern && (scope.visiting_edge || scope.in_node_atom)) {
     if (!name_in_scope && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
@@ -1109,17 +1113,9 @@ void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
   }
 }
 
-bool SymbolGenerator::HasSymbol(const std::string &name) const {
-  return std::ranges::any_of(scopes_, [&name](const auto &scope) { return scope.symbols.contains(name); });
-}
-
-bool SymbolGenerator::IsOutsideCallSubquery(const std::string &name) const {
-  const auto base = scopes_.back().call_subquery_base;
-  if (!base) {
-    return false;
-  }
-  auto const inside = std::ranges::subrange(scopes_.begin() + static_cast<std::ptrdiff_t>(*base), scopes_.end());
-  return std::ranges::none_of(inside, [&name](const auto &scope) { return scope.symbols.contains(name); });
+bool SymbolGenerator::HasSymbol(const std::string &name, size_t from) const {
+  auto const visible = std::ranges::subrange(scopes_.begin() + static_cast<std::ptrdiff_t>(from), scopes_.end());
+  return std::ranges::any_of(visible, [&name](const auto &scope) { return scope.symbols.contains(name); });
 }
 
 bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {

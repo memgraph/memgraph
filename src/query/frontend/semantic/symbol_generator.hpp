@@ -187,11 +187,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
-  bool HasSymbol(const std::string &name) const;
-
-  // True if @p name resolves only outside the innermost enclosing `CALL {}` subquery, i.e. it belongs to the
-  // enclosing query and was never imported. Always false when not inside a subquery.
-  bool IsOutsideCallSubquery(const std::string &name) const;
+  // Whether @p name resolves in any scope from index @p from outwards. `call_subquery_base` is the index to pass to
+  // ask only about what is visible inside a `CALL {}` subquery.
+  bool HasSymbol(const std::string &name, size_t from = 0) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
