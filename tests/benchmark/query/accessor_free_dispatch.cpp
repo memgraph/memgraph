@@ -10,14 +10,15 @@
 // licenses/APL.txt.
 
 // Measures the cost of the accessor-free classification that Interpreter::Prepare runs for every
-// CypherQuery.
+// implicit-transaction CypherQuery (interpreter.cpp:10523-10530; explicit-transaction queries skip it).
 //
 // The interesting number is NOT how fast the accessor-free queries are -- those skip a whole storage
 // transaction and are obviously cheaper. It is whether the added classification slows down the
 // queries that do NOT participate: every normal Cypher query now runs the recognizers and is rejected
-// by them. `NormalMatch` and `NormalCallProcedure` are the regression guards. `NormalCallProcedure` is
-// the worst case for rejection depth: it is a CallProcedure that passes every cheap AST check and is
-// only rejected by the trailing-clause count, so it probes how far a non-participating query gets.
+// by them. `NormalMatch`, `NormalArithmeticReturn`, and `NormalCallProcedure` are the regression
+// guards. `NormalCallProcedure` is the worst case for rejection depth: it is a CallProcedure that
+// passes every cheap AST check and is only rejected by the trailing-clause count, so it probes how
+// far a non-participating query gets.
 
 #include <benchmark/benchmark.h>
 
@@ -102,13 +103,9 @@ void RunQuery(benchmark::State &state, const std::string &query) {
   }
 }
 
-// --- accessor-free (participating) shapes ---------------------------------------------------------
-
 void ConstantReturn(benchmark::State &state) { RunQuery(state, "RETURN 1"); }
 
 void BuiltinIntrospection(benchmark::State &state) { RunQuery(state, "CALL mg.procedures() YIELD name"); }
-
-// --- normal (non-participating) shapes: the regression guards -------------------------------------
 
 void NormalMatch(benchmark::State &state) { RunQuery(state, "MATCH (n) RETURN n"); }
 

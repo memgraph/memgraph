@@ -150,12 +150,8 @@ class InterpreterTest : public ::testing::Test {
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(InterpreterTest, StorageTypes);
 
-// Memgraph Lab fires connection-check / probe queries like `RETURN 1` and
-// `RETURN 1 AS APP_INTERNAL_EXEC_VAR` continuously. These are constant RETURNs and take the
-// accessor-free fast path (no storage transaction is opened). Verify the results/headers are
-// correct AND that the fast path is actually taken: the normal Cypher path drives a PullPlan which
-// records "plan_execution_time" in the summary; the fast path uses PullPlanVector and never plans,
-// so that key is absent. Its absence is a proxy for "no storage accessor was opened".
+// Lab's connection-check / probe queries are constant RETURNs and take the accessor-free fast
+// path; absence of "plan_execution_time" in the summary is the proxy for "no accessor was opened".
 TYPED_TEST(InterpreterTest, ConstantReturnUsesAccessorFreeFastPath) {
   {
     auto stream = this->Interpret("RETURN 1 AS APP_INTERNAL_EXEC_VAR");
@@ -164,7 +160,7 @@ TYPED_TEST(InterpreterTest, ConstantReturnUsesAccessorFreeFastPath) {
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
-    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);  // fast path: no plan executed
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
   }
   {
     auto stream = this->Interpret("RETURN 1");
@@ -227,10 +223,8 @@ TYPED_TEST(InterpreterTest, NonConstantReturnTakesNormalPath) {
   }
 }
 
-// Memgraph Lab issues `CALL mg.procedures() YIELD *` on connect and the sibling mg.* introspection
-// calls on layout init. These read only the module registry, so they take the accessor-free fast
-// path (no storage transaction). Verify the columns/values are correct and that the fast path is
-// taken (no "plan_execution_time" in the summary).
+// Lab's `CALL mg.procedures() YIELD *` and sibling mg.* introspection calls read only the module
+// registry, so they also take the accessor-free fast path.
 TYPED_TEST(InterpreterTest, BuiltinIntrospectionUsesAccessorFreeFastPath) {
   {
     // YIELD * exposes all result fields in the procedure's (alphabetical) map order.
@@ -241,26 +235,24 @@ TYPED_TEST(InterpreterTest, BuiltinIntrospectionUsesAccessorFreeFastPath) {
     EXPECT_EQ(stream.GetHeader()[2], "name");
     EXPECT_EQ(stream.GetHeader()[3], "path");
     EXPECT_EQ(stream.GetHeader()[4], "signature");
-    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);  // fast path: no plan executed
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
     // mg.procedures must list itself, and it is a read procedure.
     bool found_self = false;
     for (auto &row : stream.GetResults()) {
       if (row[2].ValueString() == "mg.procedures") {
         found_self = true;
-        EXPECT_FALSE(row[1].ValueBool());  // is_write == false
+        EXPECT_FALSE(row[1].ValueBool());
       }
     }
     EXPECT_TRUE(found_self);
   }
   {
-    // Explicit single-field YIELD.
     auto stream = this->Interpret("CALL mg.functions() YIELD name");
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "name");
     EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
   }
   {
-    // Aliased YIELD -- header uses the alias.
     auto stream = this->Interpret("CALL mg.procedures() YIELD name AS n");
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "n");
@@ -278,19 +270,17 @@ TYPED_TEST(InterpreterTest, BuiltinIntrospectionMatchesNormalPath) {
     std::sort(out.begin(), out.end());
     return out;
   };
-  auto fast = this->Interpret("CALL mg.procedures() YIELD name");                // fast path
-  auto normal = this->Interpret("CALL mg.procedures() YIELD name RETURN name");  // trailing clause -> normal
+  auto fast = this->Interpret("CALL mg.procedures() YIELD name");
+  auto normal = this->Interpret("CALL mg.procedures() YIELD name RETURN name");
   EXPECT_EQ(fast.GetSummary().count("plan_execution_time"), 0U);
   EXPECT_EQ(normal.GetSummary().count("plan_execution_time"), 1U);
   EXPECT_FALSE(sorted_names(fast).empty());
   EXPECT_EQ(sorted_names(fast), sorted_names(normal));
 }
 
-// The column headers the accessor-free path emits must be byte-identical to what the normal, planned
-// path would produce -- clients rely on stable column names. The two paths derive headers
-// differently (the fast path reads named-expression / yield-identifier names off the AST; the normal
-// path reads output-symbol names), so this pins the cases where they could drift. Every header below
-// was verified equal to master's normal-path output for the same query.
+// Column headers from the accessor-free path must be byte-identical to the normal path's (clients
+// rely on stable column names); the two paths derive them via different code (AST names vs. output
+// symbols), so this pins the cases where they could drift.
 TYPED_TEST(InterpreterTest, AccessorFreePathHeaderParity) {
   using Headers = std::vector<std::string>;
   auto header_of = [this](const std::string &query,
@@ -319,13 +309,10 @@ TYPED_TEST(InterpreterTest, AccessorFreePathHeaderParity) {
   EXPECT_EQ(header_of("CALL mg.procedures() YIELD name, is_write, path"), Headers({"name", "is_write", "path"}));
 }
 
-// SetupInterpreterTransaction runs unconditionally for every autocommit query and stamps a fresh
-// transaction id / ACTIVE status, even for accessor-free queries that open no storage transaction
-// and whose handler returns NOTHING. Commit()/Abort() dispose that tracking state; the NOTHING path
-// must too, or the session is left permanently mid-transaction -- a phantom SHOW TRANSACTIONS row
-// with a growing elapsed_ms and a false ActiveTransactionsExist(). Regression guard for BL-NEW:
-// after a fast-path query the interpreter must report no in-flight transaction. GetTransactionId()
-// returns current_transaction_, which is nullopt iff the tracking state was cleaned up.
+// SetupInterpreterTransaction stamps a fresh transaction id / ACTIVE status for every autocommit
+// query, including accessor-free ones whose handler returns NOTHING; NOTHING must dispose that
+// tracking state itself (Commit/Abort do it for their paths) or the session is left permanently
+// mid-transaction.
 TYPED_TEST(InterpreterTest, AccessorFreePathClearsTransactionTracking) {
   auto &interpreter = this->default_interpreter.interpreter;
   for (auto const *query : {"RETURN 1",
@@ -334,34 +321,29 @@ TYPED_TEST(InterpreterTest, AccessorFreePathClearsTransactionTracking) {
                             "CALL mg.functions() YIELD name"}) {
     SCOPED_TRACE(query);
     auto stream = this->Interpret(query);
-    // Confirm we took the fast path (no plan), otherwise this would not be testing BL-NEW.
+    // Confirm we took the fast path, otherwise this isn't exercising the NOTHING cleanup at all.
     ASSERT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
-    // And that the transaction-tracking state was disposed: no stale in-flight transaction id.
     EXPECT_EQ(interpreter.GetTransactionId(), std::nullopt);
   }
 }
 
 // The accessor-free path neither filters nor installs a memory tracker nor honours USING directives,
-// so a query carrying any of those must fall through to the normal (planned) path rather than have
-// the modifier silently dropped. Regression guard: YIELD ... WHERE used to be accepted by the
-// recognizer and its predicate discarded, returning every row.
+// so a query carrying any of those must fall through to the normal path instead of silently dropping
+// the modifier.
 TYPED_TEST(InterpreterTest, AccessorFreePathRejectsUnhonouredModifiers) {
   {
-    // A YIELD ... WHERE is held on the CallProcedure clause itself, so the clause count stays 1 and
-    // the query otherwise looks exactly like an accessor-free introspection call. The accessor-free
-    // preparer does not filter, so accepting one silently dropped the predicate and returned every
-    // row. It must take the normal path instead.
+    // A YIELD ... WHERE stays on the CallProcedure clause (clause count 1), so the accessor-free
+    // preparer -- which does not filter -- would otherwise accept it and silently drop the predicate.
     //
-    // NOTE: only the path is asserted, not the row count. The bare `CALL ... YIELD ... WHERE` form
-    // (no trailing clause) returns 0 rows for any predicate on the normal path -- verified to behave
-    // identically on master @572d5b431, so that is a separate pre-existing bug and is deliberately
-    // not encoded as an expectation here. With a trailing RETURN the filter works correctly, which is
-    // the only form master's tests cover (gql_behave procedure_call.feature, query_plan.cpp).
+    // NOTE: only the path is asserted, not the row count. The bare form (no trailing RETURN) is
+    // believed to already return 0 rows for any predicate on the normal path on master -- a separate,
+    // deliberately-unasserted pre-existing issue; master's tests (procedure_call.feature,
+    // query_plan.cpp) only cover the trailing-RETURN form.
     SCOPED_TRACE("YIELD ... WHERE must take the normal path");
     auto unfiltered = this->Interpret("CALL mg.procedures() YIELD name");
     auto filtered = this->Interpret("CALL mg.procedures() YIELD name WHERE name = 'mg.procedures'");
-    EXPECT_EQ(unfiltered.GetSummary().count("plan_execution_time"), 0U);  // fast path
-    EXPECT_EQ(filtered.GetSummary().count("plan_execution_time"), 1U);    // normal path
+    EXPECT_EQ(unfiltered.GetSummary().count("plan_execution_time"), 0U);
+    EXPECT_EQ(filtered.GetSummary().count("plan_execution_time"), 1U);
     EXPECT_GT(unfiltered.GetResults().size(), 1U);
     // The trailing-RETURN form does filter correctly, and must also take the normal path.
     auto filtered_with_return =
@@ -371,9 +353,7 @@ TYPED_TEST(InterpreterTest, AccessorFreePathRejectsUnhonouredModifiers) {
     EXPECT_EQ(filtered_with_return.GetResults()[0][0].ValueString(), "mg.procedures");
   }
   {
-    // Taking the normal path means the limit is actually enforced. A 1 KB budget is far too small for
-    // mg.procedures, so this must now fail loudly -- where the accessor-free path used to drop the
-    // limit and return every row.
+    // The normal path enforces the limit; 1 KB is far too small for mg.procedures.
     SCOPED_TRACE("per-call PROCEDURE MEMORY LIMIT is honoured, not dropped");
     ASSERT_THROW(this->Interpret("CALL mg.procedures() PROCEDURE MEMORY LIMIT 1 KB YIELD name"),
                  memgraph::query::QueryRuntimeException);
@@ -398,9 +378,8 @@ TYPED_TEST(InterpreterTest, AccessorFreePathRejectsUnhonouredModifiers) {
   }
 }
 
-// The accessor-free path is gated on procedure metadata, not on the procedure name: a read procedure
-// declaring ProcedureInfo::no_graph_access AND requiring no privilege. The three graph-free, unprivileged
-// mg.* introspection procedures qualify.
+// The accessor-free path is gated on procedure metadata (no_graph_access AND no required privilege),
+// not on the procedure name.
 TYPED_TEST(InterpreterTest, AccessorFreePathRequiresDeclaredNoGraphAccess) {
   for (auto const *query :
        {"CALL mg.procedures() YIELD name", "CALL mg.functions() YIELD name", "CALL mg.transformations() YIELD name"}) {
@@ -410,13 +389,11 @@ TYPED_TEST(InterpreterTest, AccessorFreePathRequiresDeclaredNoGraphAccess) {
   }
 }
 
-// A procedure that declares no_graph_access but requires a privilege (mg.get_module_files needs
-// MODULE_READ) is NOT accessor-free eligible: the fast path invokes the callback during Prepare,
-// before the session's authorization check, so a privileged procedure must take the normal
-// auth-then-execute path. Guards NB-1 (privileged callback running before auth).
+// mg.get_module_files declares no_graph_access but requires MODULE_READ, so it is not accessor-free
+// eligible: the fast path would invoke the callback during Prepare, before the auth check.
 TYPED_TEST(InterpreterTest, AccessorFreePathExcludesPrivilegedProcedures) {
   auto stream = this->Interpret("CALL mg.get_module_files() YIELD path");
-  EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);  // normal path
+  EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
 }
 
 TYPED_TEST(InterpreterTest, MultiplePulls) {
