@@ -38,6 +38,7 @@ ALL_SET_QUERIES = [
     'SET DESCRIPTION ON PROPERTY age "Age in years";',
     'SET DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person) "Person knows person";',
     'SET DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since) "Year they met (pattern)";',
+    'SET DESCRIPTION ON PROPERTY gender VALUE "1" "Male";',
 ]
 
 ALL_DELETE_QUERIES = [
@@ -49,6 +50,7 @@ ALL_DELETE_QUERIES = [
     "DELETE DESCRIPTION ON PROPERTY age;",
     "DELETE DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person);",
     "DELETE DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since);",
+    'DELETE DESCRIPTION ON PROPERTY gender VALUE "1";',
 ]
 
 NUM_DESCRIPTION_TYPES = len(ALL_SET_QUERIES)

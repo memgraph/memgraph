@@ -10043,6 +10043,14 @@ void RecoverDescriptionStore(Decoder &snapshot, SnapshotInfo const &info, NameId
         description_store->SetProperty(prop, read_string("property description"));
         break;
       }
+      case DescriptionTargetKind::PROPERTY_VALUE: {
+        auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
+        auto value = snapshot.ReadExternalPropertyValue();
+        if (!value) throw RecoveryFailure("Couldn't read property value for description!");
+        auto desc = read_string("property-value description");
+        description_store->SetPropertyValue(prop, std::move(*value), desc);
+        break;
+      }
       case DescriptionTargetKind::EDGE_TYPE_PATTERN: {
         auto from_labels = read_label_ids();
         auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
@@ -15013,6 +15021,11 @@ std::optional<std::filesystem::path> CreateSnapshot(
           break;
         case DescriptionTargetKind::PROPERTY:
           snapshot.WriteString(id_to_name(entry.property));
+          snapshot.WriteString(entry.description);
+          break;
+        case DescriptionTargetKind::PROPERTY_VALUE:
+          snapshot.WriteString(id_to_name(entry.property));
+          snapshot.WriteExternalPropertyValue(entry.value);
           snapshot.WriteString(entry.description);
           break;
         case DescriptionTargetKind::EDGE_TYPE_PATTERN:

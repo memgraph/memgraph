@@ -2055,9 +2055,21 @@ TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &c
   return TypedValue(std::move(roles_list));
 }
 
+TypedValue Description(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<String, Or<Null, Bool, Integer, Double, String>>("description", args, nargs);
+  if (args[1].IsNull()) return TypedValue(ctx.memory);
+  auto const desc = ctx.db_accessor->GetPropertyValueDescription(args[0].ValueString(),
+                                                                 static_cast<storage::ExternalPropertyValue>(args[1]));
+  if (!desc) return TypedValue(ctx.memory);
+  return TypedValue(TypedValue::TString(*desc, ctx.memory));
+}
+
 auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     // Predicate functions
     {"ISEMPTY", func_info{.func_ = IsEmpty, .is_pure_ = true}},
+
+    // Reads mutable catalog state (server-side descriptions) -> not cacheable.
+    {"DESCRIPTION", func_info{.func_ = Description, .is_pure_ = false}},
 
     // Scalar functions
     {"DEGREE", func_info{.func_ = Degree, .is_pure_ = true}},

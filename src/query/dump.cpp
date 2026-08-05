@@ -1176,6 +1176,10 @@ PullPlanDump::PullChunk PullPlanDump::CreateDescriptionsPullChunk() {
         os << ")(" << EscapeName(dba_->PropertyToName(entry.property)) << ")";
         break;
       }
+      case storage::DescriptionTargetKind::PROPERTY_VALUE:
+        os << "PROPERTY " << EscapeName(dba_->PropertyToName(entry.property)) << " VALUE ";
+        DumpPropertyValue(&os, entry.value, dba_);
+        break;
     }
 
     os << " " << utils::Escape(entry.description) << ";";

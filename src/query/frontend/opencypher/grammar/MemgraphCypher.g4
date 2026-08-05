@@ -1051,6 +1051,13 @@ descriptionTarget
     | EDGE TYPE ':' labelName
     | LABEL PROPERTY ':' labelName ( ':' labelName )* propertyKeyList
     | EDGE TYPE PROPERTY ':' labelName propertyKeyList
+    | PROPERTY propertyKeyName VALUE propertyValueLiteral
     | PROPERTY propertyKeyName
     | DATABASE symbolicName
+    ;
+
+propertyValueLiteral
+    : StringLiteral
+    | numberLiteral
+    | booleanLiteral
     ;

@@ -1043,6 +1043,20 @@ class DbAccessor final {
     return accessor_->GetPropertyDescription(prop_name);
   }
 
+  void SetPropertyValueDescription(std::string_view prop_name, storage::ExternalPropertyValue const &value,
+                                   std::string_view desc) {
+    accessor_->SetPropertyValueDescription(prop_name, value, desc);
+  }
+
+  bool DeletePropertyValueDescription(std::string_view prop_name, storage::ExternalPropertyValue const &value) {
+    return accessor_->DeletePropertyValueDescription(prop_name, value);
+  }
+
+  std::optional<std::string> GetPropertyValueDescription(std::string_view prop_name,
+                                                         storage::ExternalPropertyValue const &value) const {
+    return accessor_->GetPropertyValueDescription(prop_name, value);
+  }
+
   void SetEdgeTypePatternDescription(std::span<std::string const> from_labels, std::string_view edge_type_name,
                                      std::span<std::string const> to_labels, std::string_view desc) {
     accessor_->SetEdgeTypePatternDescription(from_labels, edge_type_name, to_labels, desc);

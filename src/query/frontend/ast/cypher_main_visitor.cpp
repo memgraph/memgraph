@@ -4835,6 +4835,11 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
     for (auto *label : ctx->labelName()) {
       description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
     }
+  } else if (ctx->PROPERTY() && ctx->VALUE()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY_VALUE;
+    description_query->properties_.emplace_back(std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this)));
+    const auto value_token_pos = static_cast<int>(ctx->propertyValueLiteral()->getStart()->getTokenIndex());
+    description_query->value_ = parameters_->AtTokenPosition(value_token_pos);
   } else if (ctx->PROPERTY()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY;
     description_query->properties_.emplace_back(std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this)));

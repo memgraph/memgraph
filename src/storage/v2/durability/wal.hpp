@@ -410,6 +410,7 @@ struct WalDescriptionSet {
   std::string description;
   std::vector<std::string> from_labels;
   std::vector<std::string> to_labels;
+  ExternalPropertyValue value;
 };
 
 struct WalDescriptionDelete {
@@ -420,6 +421,7 @@ struct WalDescriptionDelete {
   std::string property;
   std::vector<std::string> from_labels;
   std::vector<std::string> to_labels;
+  ExternalPropertyValue value;
 };
 
 // Single TTL WAL structure that encompasses all TTL operations
@@ -541,10 +543,11 @@ void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name);
 void EncodeDescriptionSet(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
                           std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property,
                           std::string_view description, std::span<LabelId const> from_labels = {},
-                          std::span<LabelId const> to_labels = {});
+                          std::span<LabelId const> to_labels = {}, ExternalPropertyValue const &value = {});
 void EncodeDescriptionDelete(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
                              std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property,
-                             std::span<LabelId const> from_labels = {}, std::span<LabelId const> to_labels = {});
+                             std::span<LabelId const> from_labels = {}, std::span<LabelId const> to_labels = {},
+                             ExternalPropertyValue const &value = {});
 
 // TTL encoding function
 void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
