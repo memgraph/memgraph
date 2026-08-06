@@ -57,7 +57,8 @@ bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta);
 struct WalSummary {
   uint64_t from_timestamp;
   uint64_t to_timestamp;
-  /// Transactions the writer completed. Zero means the file holds nothing recoverable.
+  /// Transactions the writer completed, always positive. A file with none has nothing to summarize, so it carries
+  /// no summary at all rather than one saying zero - which is also how the unwritten placeholder is recognised.
   uint64_t num_txns;
 };
 
@@ -69,8 +70,8 @@ struct WalHeader {
   std::string uuid;
   std::string epoch_id;
   uint64_t seq_num;
-  /// Absent while the file is still being written, and for files written before kVertexPropertyIndex. Deriving
-  /// the same facts for such a file means parsing its deltas with ReadWalInfo.
+  /// Absent while the file is still being written, and for files written before k37. Deriving the same facts for
+  /// such a file means parsing its deltas with ReadWalInfo.
   std::optional<WalSummary> summary;
 };
 

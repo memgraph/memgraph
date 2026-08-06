@@ -1039,8 +1039,8 @@ TEST_P(WalFileTest, FinalizedHeaderSummaryMatchesScan) {
   EXPECT_EQ(header.seq_num, scanned.seq_num);
 }
 
-// A file the writer never finalized carries no summary, so readers must fall back to parsing its deltas. This is
-// what a crash leaves behind, and what every other test in this file produces.
+// A file the writer never finalized still holds the zeroed placeholders, which readers must not mistake for a real
+// summary. This is what a crash leaves behind, and what every other test in this file produces.
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(WalFileTest, UnfinalizedFileHasNoSummary) {
   {

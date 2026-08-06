@@ -57,12 +57,31 @@ include/exclude decision without a scan: `ReadWalInfo` throws for a file with no
 complete transaction, which is how `GetWalFiles` used to drop it, and
 `num_txns == 0` now means the same thing.
 
-### 2. An explicit finalized flag, not a sentinel
+### 2. A zero transaction count marks the placeholder
 
-The summary is meaningless until `FinalizeWal` runs. Inferring that from
-`from_timestamp == 0` would conflate "not written yet" with a legitimate value, so
-a bool precedes the three numbers. `WriteBool` emits a single marker byte for
-either value, so the reserved space is identical before and after.
+The three values are written twice: as zeros by the constructor, which has nothing
+to describe yet, and with real values by `FinalizeWal`. A reader must tell those
+apart, since placeholders mean "scan this file" and real values mean "trust these".
+
+`num_txns == 0` is what marks them as unwritten. It works because `FinalizeWal`
+only ever writes a positive count, so no file whose summary is worth trusting
+carries a zero. It also reads honestly: a file with no complete transaction has
+nothing to summarize, so having no summary is the correct encoding rather than a
+special case.
+
+`from_timestamp == 0` would *not* work as the marker: `kTimestampInitialId` is 0,
+so zero is a legitimate commit timestamp rather than a reserved value.
+
+The two states that collapse into "no summary" — never finalized, and finalized
+mid-transaction with nothing committed — both fall back to `ReadWalInfo`, and both
+come out right: the first gets its timestamps derived, the second throws and is
+dropped, exactly as before this change. The only cost is that the second case is
+scanned rather than rejected outright, and it is a crash artifact affecting at most
+one file.
+
+An explicit boolean flag was considered and dropped. It would have let the second
+case be rejected without a scan, but that is not worth a byte in the format and an
+extra field to keep consistent.
 
 ### 3. Back-patch the header rather than append a trailer
 
@@ -78,7 +97,7 @@ checks the rewrite lands exactly on the reserved trailer.
 
 ### 4. No new durability version
 
-v37 (`kVertexPropertyIndex`) landed after `v3.12.0` and is unreleased, so no WAL in
+v37 (`k37`) landed after `v3.12.0` and is unreleased, so no WAL in
 the wild claims v37 without a summary and the change can ride on it. That avoids an
 ISSU-visible bump — an older replica would not be able to read a newer WAL streamed
 from a newer main. Sharing one version between two features already happens in this

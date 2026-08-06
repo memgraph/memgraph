@@ -188,16 +188,12 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
         continue;
       }
 
-      // A finalized file states its own timestamps. Anything else - a file the writer never finished, or one
-      // predating kVertexPropertyIndex - has to have its deltas parsed to derive them; ReadWalInfo throws for a file
-      // holding no complete transaction, which is how such a file gets dropped here.
+      // A file that finished with something in it states its own timestamps. Anything else - one the writer never
+      // finalized, one predating k37, or one holding no complete transaction - has its deltas parsed to derive
+      // them, and ReadWalInfo throwing for the last of those is how it gets dropped here.
       uint64_t from_timestamp{0};
       uint64_t to_timestamp{0};
       if (header.summary) {
-        if (header.summary->num_txns == 0) {
-          spdlog::trace("Wal file {} won't be used because it holds no complete transaction.", item.path());
-          continue;
-        }
         from_timestamp = header.summary->from_timestamp;
         to_timestamp = header.summary->to_timestamp;
       } else {

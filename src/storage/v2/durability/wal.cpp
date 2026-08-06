@@ -967,20 +967,17 @@ WalHeader DecodeWalHeader(Decoder &wal, const std::filesystem::path &path, uint6
     if (!maybe_seq_num) throw RecoveryFailure(kInvalidWalErrorMessage);
     header.seq_num = *maybe_seq_num;
 
-    if (version >= kVertexPropertyIndex) {
-      auto maybe_finalized = wal.ReadBool();
-      if (!maybe_finalized) throw RecoveryFailure(kInvalidWalErrorMessage);
-
+    if (version >= k37) {
       auto read_summary_value = [&wal] {
         auto maybe_value = wal.ReadUint();
         if (!maybe_value) throw RecoveryFailure(kInvalidWalErrorMessage);
         return *maybe_value;
       };
-      // The placeholders must be consumed either way to keep the decoder aligned with the CRC trailer.
+      // Read unconditionally to keep the decoder aligned with the CRC trailer, then decide whether the values mean
+      // anything. FinalizeWal only ever writes a positive count, so zero is still the placeholder it reserved.
       auto const from_timestamp = read_summary_value();
       auto const to_timestamp = read_summary_value();
-      auto const num_txns = read_summary_value();
-      if (*maybe_finalized) {
+      if (auto const num_txns = read_summary_value(); num_txns != 0) {
         header.summary =
             WalSummary{.from_timestamp = from_timestamp, .to_timestamp = to_timestamp, .num_txns = num_txns};
       }
@@ -2206,9 +2203,8 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   wal_.WriteString(uuid_);
   wal_.WriteString(epoch_id_);
   wal_.WriteUint(seq_num);
-  // Summary placeholders, overwritten by FinalizeWal once the contents are known. The flag stays false for a file
-  // whose writer never got to finalize it, telling readers the three values below mean nothing.
-  wal_.WriteBool(false);
+  // Summary placeholders, overwritten by FinalizeWal once the contents are known. A transaction count of zero is
+  // what marks them as such: no file worth trusting the summary of has one.
   wal_.WriteUint(0);
   wal_.WriteUint(0);
   wal_.WriteUint(0);
@@ -2259,7 +2255,6 @@ void WalFile::WriteSummary() {
   wal_.WriteString(uuid_);
   wal_.WriteString(epoch_id_);
   wal_.WriteUint(seq_num_);
-  wal_.WriteBool(true);
   wal_.WriteUint(from_timestamp_);
   wal_.WriteUint(to_timestamp_);
   wal_.WriteUint(num_txns_);
