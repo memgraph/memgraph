@@ -1,0 +1,9 @@
+# minLevel/maxLevel are accepted as aliases of minHops/maxHops.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {minLevel: 1, maxLevel: 1})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: B

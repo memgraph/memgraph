@@ -1,0 +1,9 @@
+# A key and its alias together are ambiguous, so neither wins silently.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {maxHops: 1, maxLevel: 2})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+exception: >
+  Config keys 'maxHops' and 'maxLevel' mean the same thing; supply only one.
