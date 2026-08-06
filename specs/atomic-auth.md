@@ -57,7 +57,7 @@ The feature has a natural layering. Each tier adds a new permission shape to the
 compound syntax. The tiers are listed here for discussion; which tiers ship in
 which release is a product decision.
 
-tl/dr:
+tl;dr:
 - Tier 1 allows us to specify LBAC and PBAC permissions in a single query.
 - Tier 2 allows us to specify LBAC permissions, PBAC permissions, and privileges in a
 single query. **I propose we implement this**.
@@ -66,8 +66,9 @@ single query. **I propose we implement this**.
 
 Combine label-level FGAC permissions (`READ`, `UPDATE`, etc.) with
 property-level FGAC permissions (`READ {props}`, `SET PROPERTY {props}`) in a
-single statement. Multiple entity targets (different labels, or a mix of nodes
-and edges) are supported; each entity target carries its own permission list.
+single statement. Each block is strictly one type: LBAC or PBAC. Multiple
+blocks (different labels, different permission types, or a mix of nodes and
+edges) are separated by commas.
 
 ```cypher
 // Today: three separate statements, not atomic
@@ -76,10 +77,15 @@ GRANT READ {name, age} ON NODES CONTAINING LABELS :Employee TO alice;
 GRANT READ ON EDGES OF TYPE :WORKS_AT TO alice;
 
 // Tier 1: single atomic statement
-GRANT READ, READ {name, age} ON NODES CONTAINING LABELS :Employee
-  AND READ ON EDGES OF TYPE :WORKS_AT
+GRANT READ ON NODES CONTAINING LABELS :Employee,
+  READ {name, age} ON NODES CONTAINING LABELS :Employee,
+  READ ON EDGES OF TYPE :WORKS_AT
   TO alice;
 ```
+
+Commas separate blocks within the compound statement, just as they do in
+existing multi-target entity privilege grants. This is fully backwards
+compatible with the current syntax.
 
 This is the direct customer pain point and the minimum viable feature.
 
@@ -106,9 +112,15 @@ Without disambiguation, `GRANT CREATE, READ ON NODES CONTAINING LABELS
 :Employee TO alice` is ambiguous: is `CREATE` the global privilege or the
 label-level FGAC permission?
 
-We resolve this by using `AND` to separate blocks within a compound statement.
-Each block is parsed independently: a privilege block has no `ON` clause; an
-entity block ends with `ON entityTypeSpec`.
+Tier 2 resolves this by using `AND` (instead of commas) to separate blocks
+within a compound statement. Each block is parsed independently: a privilege
+block has no `ON` clause; an entity block ends with `ON entityTypeSpec`.
+
+This means that Tier 2 changes the block separator from `,` to `AND`. The
+existing comma-separated multi-target entity privilege syntax (e.g.
+`GRANT READ ON :A, READ ON :B TO alice`) must be rewritten using `AND`. This
+is a minor syntax break, but it only affects users who already use the
+multi-target form, which is rare in practice.
 
 ```cypher
 // Today: five separate statements
@@ -120,13 +132,15 @@ GRANT READ ON EDGES OF TYPE :WORKS_AT TO alice;
 
 // Tier 2: single atomic statement
 GRANT MATCH, CREATE
-  AND READ, READ {name, age} ON NODES CONTAINING LABELS :Employee
+  AND READ ON NODES CONTAINING LABELS :Employee
+  AND READ {name, age} ON NODES CONTAINING LABELS :Employee
   AND READ ON EDGES OF TYPE :WORKS_AT
   TO alice;
 
 // ALL PRIVILEGES works too
 GRANT ALL PRIVILEGES
-  AND READ, READ {name} ON NODES CONTAINING LABELS :Employee
+  AND READ ON NODES CONTAINING LABELS :Employee
+  AND READ {name} ON NODES CONTAINING LABELS :Employee
   AND READ ON EDGES OF TYPE :WORKS_AT
   TO alice;
 ```
@@ -135,128 +149,95 @@ GRANT ALL PRIVILEGES
 
 ## 4. Syntax
 
-A compound statement is an `AND`-separated list of **blocks**, each block being
-one of:
+A compound statement is a list of **blocks**, each block being strictly one of:
 
-- **Privilege block:** `privilegesList` or `ALL PRIVILEGES`
-- **Entity block:** `compoundPermissionList ON entityTypeSpec` (edge/label-level
-and/or property-level permissions scoped to one entity target). Within an entity
-block, commas separate individual permission items.
+- **LBAC block:** a comma-separated list of label-level permissions
+  (e.g. `READ`, `CREATE`, `*`) followed by `ON entityTypeSpec`.
+- **PBAC block:** a comma-separated list of property-level permissions
+  (e.g. `READ {name}`, `SET PROPERTY {salary}`) followed by `ON entityTypeSpec`.
+- **Privilege block** (Tier 2 only): a comma-separated list of privilege
+  keywords (e.g. `MATCH, CREATE`) or `ALL PRIVILEGES`.
 
-Blocks can appear in any order. The entire statement targets exactly one verb
-(GRANT, DENY, or REVOKE) and exactly one user or role.
+LBAC and PBAC items cannot be mixed within a single block. This preserves
+backwards compatibility with existing syntax (see Section 7).
 
-### 4.1 Grammar
+The entire statement targets exactly one verb (GRANT, DENY, or REVOKE) and
+exactly one user or role. Blocks can appear in any order.
 
-The compound rules **replace** the existing `grantPrivilege`,
-`grantPropertyPermission`, `denyPrivilege`, `denyPropertyPermission`,
-`revokePrivilege`, and `revokePropertyPermission` rules. Every existing
-statement is a valid compound statement with a single block, so this is a
-strict superset of the current syntax.
+### 4.1 Block separators
 
-**Existing rules (removed):**
+**Tier 1** uses commas to separate blocks, matching the existing syntax for
+multi-target entity privilege grants. This is fully backwards compatible.
 
-```antlr
-grantPrivilege : GRANT ( ALL PRIVILEGES
-                       | systemPrivileges=privilegesList
-                       | entityPrivileges=entityPrivilegeList
-                       ) TO target=userOrRole ;
+**Tier 2** uses `AND` to separate blocks. This is necessary to disambiguate
+privilege keywords from FGAC permission keywords that share the same name
+(`CREATE`, `DELETE`). Each block is parsed independently: a privilege block has
+no `ON` clause; an LBAC/PBAC block ends with `ON entityTypeSpec`.
 
-grantPropertyPermission : GRANT permTypes=propertyPermissionTypeList
-                          propList=propertyPermissionList
-                          ON entityTypeSpec
-                          TO target=userOrRole ;
-// (and the corresponding deny/revoke variants)
+### 4.2 Grammar sketch
+
+```ebnf
+lbacBlock        = granularPrivilege {',' granularPrivilege} 'ON' entityTypeSpec ;
+pbacBlock        = propertyPermission {',' propertyPermission} 'ON' entityTypeSpec ;
+privilegeBlock   = privilegesList | 'ALL' 'PRIVILEGES' ;
+
+(* Tier 1: commas separate blocks *)
+tier1Statement   = verb (lbacBlock | pbacBlock) {',' (lbacBlock | pbacBlock)}
+                   ('TO' | 'FROM') userOrRole ;
+
+(* Tier 2: AND separates blocks *)
+block            = privilegeBlock | lbacBlock | pbacBlock ;
+tier2Statement   = verb block {'AND' block} ('TO' | 'FROM') userOrRole ;
 ```
 
-**Replacement compound rules.** The following existing rules are referenced but
-unchanged: `granularPrivilege` (READ, UPDATE, SET LABEL, REMOVE LABEL, SET
-PROPERTY, CREATE, DELETE, DELETE EDGE, CREATE EDGE, ASTERISK),
-`propertyPermissionType` (READ | SET PROPERTY), `propertyPermissionList` ({
-props }), `privilegesList` (comma-separated privilege keywords), `entityTypeSpec`
-(NODES CONTAINING LABELS ... | EDGES OF TYPE ...), `userOrRole`.
+A block without `ON` is a privilege block; a block ending with
+`ON entityTypeSpec` is an LBAC or PBAC block. A PBAC block is identified by
+the presence of a property list (`{...}`) on its items.
 
-```antlr
-compoundPermissionItem
-    : granularPrivilege                                      // label-level
-    | propertyPermissionType propertyPermissionList           // property-level
-    ;
-
-compoundPermissionList
-    : compoundPermissionItem ( ',' compoundPermissionItem )* ;
-
-compoundBlock
-    : privilegesList                                          // privilege block
-    | ALL PRIVILEGES                                          // privilege block (wildcard)
-    | compoundPermissionList ON entityTypeSpec                 // entity block
-    ;
-
-compoundBlockList
-    : compoundBlock ( AND compoundBlock )* ;
-
-grantCompound  : GRANT  compoundBlockList TO target=userOrRole ;
-denyCompound   : DENY   compoundBlockList TO target=userOrRole ;
-revokeCompound : REVOKE compoundBlockList FROM target=userOrRole ;
-```
-
-**Disambiguation.** The `AND` keyword separates blocks, while commas separate
-items within an entity block. This eliminates the ambiguity between privilege
-names and FGAC permission names (`CREATE`, `DELETE`) that share the same
-keyword:
-
-- Each block is parsed independently. A privilege block is a `privilegesList`
-  with no `ON` clause. An entity block is a `compoundPermissionList` followed
-  by `ON entityTypeSpec`.
-- ANTLR4's ALL(*) prediction looks past the comma-separated list to see
-  whether `ON` (entity block) or `AND`/`TO`/`FROM` (privilege block) follows,
-  selecting the correct alternative.
-- `{` after `READ` or `SET PROPERTY` distinguishes a property-level item from
-  a label-level one within an entity block.
-
-Note: the existing `grantPropertyPermission` rule accepted a
-`propertyPermissionTypeList` (e.g. `READ, SET PROPERTY {name}`), sharing one
-property list across multiple permission types. The compound grammar narrows
-this to one `propertyPermissionType` per item. To grant both READ and SET
-PROPERTY on the same properties, list them separately: `READ {name}, SET
-PROPERTY {name}`. This is intentional; it keeps `compoundPermissionItem`
-uniform and avoids ambiguity with comma-separated label-level items.
-
-### 4.2 Examples
+### 4.3 Examples
 
 **FGAC only (Tier 1)**
 ```cypher
-// Label-level READ + UPDATE and property-level READ on {name, age}
-GRANT READ, UPDATE, READ {name, age} ON NODES CONTAINING LABELS :Employee TO alice;
+// LBAC + PBAC on the same label
+GRANT READ, UPDATE ON NODES CONTAINING LABELS :Employee,
+  READ {name, age} ON NODES CONTAINING LABELS :Employee
+  TO alice;
 
 // Multiple entity targets
-GRANT READ, READ {name} ON NODES CONTAINING LABELS :Employee
-  AND READ, READ {weight} ON EDGES OF TYPE :WORKS_AT
+GRANT READ ON NODES CONTAINING LABELS :Employee,
+  READ {name} ON NODES CONTAINING LABELS :Employee,
+  READ ON EDGES OF TYPE :WORKS_AT,
+  READ {weight} ON EDGES OF TYPE :WORKS_AT
   TO alice;
 
 // Deny across different targets
-DENY READ ON NODES CONTAINING LABELS :Secret
-  AND READ {salary} ON NODES CONTAINING LABELS :Employee
+DENY READ ON NODES CONTAINING LABELS :Secret,
+  READ {salary} ON NODES CONTAINING LABELS :Employee
   TO alice;
 
-// Revoke everything on :Employee for alice
-REVOKE *, READ {*}, SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee FROM alice;
+// Revoke all LBAC and PBAC on :Employee
+REVOKE * ON NODES CONTAINING LABELS :Employee,
+  READ {*}, SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee
+  FROM alice;
 
 // Multiple label targets
-GRANT READ ON NODES CONTAINING LABELS :Employee
-  AND READ ON NODES CONTAINING LABELS :Manager
+GRANT READ ON NODES CONTAINING LABELS :Employee,
+  READ ON NODES CONTAINING LABELS :Manager
   TO alice;
 ```
 
 **Privileges + FGAC (Tier 2)**
 ```cypher
-// Global MATCH + CREATE privileges, plus FGAC on :Employee
+// Global MATCH + CREATE privileges, plus LBAC and PBAC on :Employee
 GRANT MATCH, CREATE
-  AND READ, READ {name, age} ON NODES CONTAINING LABELS :Employee
+  AND READ ON NODES CONTAINING LABELS :Employee
+  AND READ {name, age} ON NODES CONTAINING LABELS :Employee
   TO alice;
 
 // ALL PRIVILEGES plus FGAC on two entity targets
 GRANT ALL PRIVILEGES
-  AND READ, READ {name} ON NODES CONTAINING LABELS :Employee
+  AND READ ON NODES CONTAINING LABELS :Employee
+  AND READ {name} ON NODES CONTAINING LABELS :Employee
   AND READ ON EDGES OF TYPE :WORKS_AT
   TO alice;
 
@@ -265,10 +246,10 @@ GRANT READ ON NODES CONTAINING LABELS :Employee
   AND MATCH
   TO alice;
 
-// Privilege-only
+// Privilege-only (unchanged from existing syntax)
 GRANT MATCH, CREATE TO alice;
 
-// ALL PRIVILEGES only
+// ALL PRIVILEGES only (unchanged from existing syntax)
 GRANT ALL PRIVILEGES TO alice;
 
 // DENY with privileges
@@ -291,10 +272,10 @@ All tiers share the same execution model. A compound statement:
 3. **Resolves** the target user or role. If neither exists, the statement fails
    and no changes are made.
 
-4. **Validates** the target. The only runtime validation is user/role existence
-   (step 3); all permission and privilege names are validated at parse time by
-   the grammar. If the target does not exist, the statement fails before any
-   mutation.
+4. **Validates** the target. No new runtime validation is introduced beyond
+   what existing single-block statements already perform (user/role existence,
+   license checks, caller authorization). All permission and privilege names
+   are validated at parse time by the grammar.
 
 5. **Applies** each block to the in-memory user/role object. Global privileges
    are applied via `Permissions::Grant`/`Deny`/`Revoke`. Entity blocks are
@@ -319,8 +300,10 @@ discarded and the on-disk state is unchanged. No rollback mechanism is needed.
 |---|---|
 | Target user/role does not exist | Statement fails; no changes. |
 | Duplicate permission in a block (e.g. `READ, READ`) | Accepted; second application is idempotent. |
-| Multiple privilege blocks (e.g. `GRANT MATCH AND CREATE TO alice`) | Accepted; semantically equivalent to a single block (`GRANT MATCH, CREATE TO alice`). |
-| Mix of label-level and property-level for same keyword (e.g. `READ, READ {x}`) | Accepted; these are distinct permission types. This is the primary use case. |
+| Multiple privilege blocks (Tier 2, e.g. `GRANT MATCH AND CREATE TO alice`) | Accepted; semantically equivalent to `GRANT MATCH, CREATE TO alice`. |
+| Same entity target in multiple blocks (e.g. two blocks for `:Employee`) | Accepted; permissions from both blocks are applied. |
+| `ALL PRIVILEGES` combined with explicit privileges (Tier 2) | Accepted; the explicit privileges are redundant but harmless. `ALL PRIVILEGES` applies only to global privileges; it does not grant FGAC entity-level permissions. |
+| Mix of LBAC and PBAC items in a single block (e.g. `READ, READ {x} ON ...`) | Rejected at parse time. Use separate blocks: `READ ON ... AND READ {x} ON ...`. |
 | Invalid privilege/permission name | Rejected at parse time (syntax error). |
 | Property permission on edges without `OF TYPE` | Rejected at parse time (grammar does not match). |
 | `ALL PRIVILEGES` with no following `AND` or `TO`/`FROM` and extra tokens | Rejected at parse time. |
@@ -330,16 +313,23 @@ discarded and the on-disk state is unchanged. No rollback mechanism is needed.
 
 ## 7. Backwards compatibility
 
-Existing privilege and permission statements are 100% compatible with the new
-grammar. They are simply single-block compound statements. `GRANT MATCH TO
+**Tier 1** is fully backwards compatible. Existing privilege and permission
+statements are valid compound statements with a single block. `GRANT MATCH TO
 alice`, `GRANT READ ON NODES CONTAINING LABELS :Employee TO alice`, and
 `GRANT READ {name} ON NODES CONTAINING LABELS :Employee TO alice` all parse
-unchanged.
+unchanged. The existing comma-separated multi-target entity privilege syntax
+(e.g. `GRANT READ ON :A, READ ON :B TO alice`) also parses unchanged, since
+Tier 1 uses commas as the block separator.
 
-Internally, the compound rules replace the existing `grantPrivilege`,
-`grantPropertyPermission`, `denyPrivilege`, `denyPropertyPermission`,
-`revokePrivilege`, and `revokePropertyPermission` grammar rules, but no
-user-visible syntax is removed.
+**Tier 2** introduces a minor syntax break: commas between blocks are replaced
+by `AND`. The existing comma-separated multi-target entity privilege syntax
+must be rewritten: `GRANT READ ON :A, READ ON :B TO alice` becomes
+`GRANT READ ON :A AND READ ON :B TO alice`. This only affects users who
+already use the multi-target form, which is rare in practice.
+
+All other existing statements parse unchanged, including the existing
+`propertyPermissionTypeList` syntax (e.g. `GRANT READ, SET PROPERTY {name}
+ON ...`), which remains valid as a single PBAC block.
 
 No changes to `SHOW PRIVILEGES` or the audit log are needed. `SHOW PRIVILEGES`
 enumerates individual permissions held by the user/role; a compound statement
@@ -371,6 +361,9 @@ A compound statement targets exactly:
 
 - **Multiple user/role targets.** Supporting `TO alice, bob` could be added
   later if there is demand.
+- **Mixed verbs.** A single statement uses exactly one verb. Combining
+  GRANT and DENY (e.g. grant READ on `:Public` and deny READ on `:Secret`)
+  requires separate statements.
 
 ---
 
