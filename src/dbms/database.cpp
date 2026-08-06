@@ -80,10 +80,25 @@ Database::~Database() {
     // attributed to this tenant's arena rather than whatever happened to be in TLS.
     const memory::DbArenaScope db_arena_scope{this};
     InMemoryReplicationHandlers::AbortTwoPCForTenant(uuid());
-  } catch (...) {  // NOLINT(bugprone-empty-catch)
-    // A destructor is implicitly noexcept; Abort() walks deltas and can throw during allocation.
-    // Letting that escape would call std::terminate, so swallow it here -- same rationale as
-    // ~Gatekeeper's swallowed spdlog throw (gatekeeper.hpp).
+  } catch (const std::exception &e) {
+    // A destructor is implicitly noexcept, so this can't escape (~Database is on that chain too);
+    // log so a stuck 2PC has a diagnostic anchor, same rationale as ~Gatekeeper's wrapped spdlog::trace.
+    try {
+      spdlog::error(
+          "Database::~Database: failed to abort cached 2PC for tenant {}: {} -- prepared transaction stays pinned in "
+          "the commit log.",
+          std::string{uuid()},
+          e.what());
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    }
+  } catch (...) {
+    try {
+      spdlog::error(
+          "Database::~Database: failed to abort cached 2PC for tenant {} (unknown exception) -- prepared transaction "
+          "stays pinned in the commit log.",
+          std::string{uuid()});
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    }
   }
 }
 

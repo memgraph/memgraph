@@ -25,17 +25,17 @@ namespace memgraph::dbms {
 
 // Single global slot holding the in-flight 2PC commit accessor between PrepareCommitRpc and
 // FinalizeCommitRpc (see InMemoryReplicationHandlers::AbortTwoPCForTenant's declaration comment
-// in replication_handlers.hpp for why it is a single slot rather than one per tenant).
+// in dbms/inmemory/replication_handlers.hpp for why it is a single slot rather than one per tenant).
 //
-// Guards the slot with a private mutex. Discipline: EXTRACT the accessor out of the slot while
-// holding that lock, then run AbortAndResetCommitTs()/FinalizeCommitPhase()/destruction on the
+// Guards the slot with a private mutex. This lock is load-bearing, not prophylactic: ~Database
+// calls AbortTwoPCForTenant, and it runs on whichever thread destroys the Database -- including
+// DeferDelete's background defer_pool_ thread (dbms/handler.hpp), which can be tearing down tenant B
+// while the replica RPC thread services tenant A. Discipline: EXTRACT the accessor out of the slot
+// while holding the lock, then run AbortAndResetCommitTs()/FinalizeCommitPhase()/destruction on the
 // extracted local OUTSIDE the lock -- those walk the whole transaction's deltas and take
-// engine_lock_, and this lock must never be held across that. This is hardening, not a fix for a
-// live race: today the replica RPC server is single-threaded (kReplicationServerThreads = 1,
-// replication_server.cpp:28) and the cross-thread caller (AbortTwoPCForTenant, off the
-// tenant-drop path) is serialised against the RPC thread by a real thread join. Every public
-// method below returns with the lock released and never touches the accessor itself, so callers
-// get this discipline for free.
+// engine_lock_, and this lock must never be held across that. Every public method below returns
+// with the lock released and never touches the accessor itself, so callers get this discipline for
+// free.
 //
 // The singleton returned by Instance() is heap-allocated and deliberately never freed -- one slot
 // for the whole process, holding at most one accessor, so the leak is bounded. Two reasons this
