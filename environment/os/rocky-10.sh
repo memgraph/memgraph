@@ -16,7 +16,6 @@ TOOLCHAIN_BUILD_DEPS=(
     libffi-devel libxml2-devel # for llvm
     libedit-devel pcre2-devel automake bison # for swig
     file gmp-devel gperf diffutils
-    libipt libipt-devel # intel
     patch
     custom-rust # for mgcxx
     libtool # for protobuf
