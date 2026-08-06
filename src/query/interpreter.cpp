@@ -6578,17 +6578,27 @@ bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   return exists_active_transaction;
 }
 
-std::vector<Interpreter::SessionInfo> GetActiveUsersInfo(InterpreterContext *interpreter_context) {
-  std::vector<Interpreter::SessionInfo> active_users =
-      interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
-        std::vector<Interpreter::SessionInfo> info;
-        info.reserve(interpreters_.size());
-        for (const auto &interpreter : interpreters_) {
-          info.push_back(interpreter->session_info_);
-        }
+// SessionInfo plus the session's current database, snapshotted through the only cross-thread-safe view
+// CurrentDB offers (foreign_db_view()). marked_for_deletion is the authoritative Gatekeeper flag, not an
+// inference from a handler-map lookup: a session pinning a force-dropped tenant keeps that tenant's memory
+// alive after the tenant is no longer listed by name anywhere else, and this is exactly the flag DROP sets.
+struct ActiveUserInfo {
+  Interpreter::SessionInfo session_info;
+  std::string db_name;
+  bool db_marked_for_deletion{false};
+};
 
-        return info;
-      });
+std::vector<ActiveUserInfo> GetActiveUsersInfo(InterpreterContext *interpreter_context) {
+  std::vector<ActiveUserInfo> active_users = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
+    std::vector<ActiveUserInfo> info;
+    info.reserve(interpreters_.size());
+    for (const auto &interpreter : interpreters_) {
+      auto db_view = interpreter->current_db_.foreign_db_view();
+      info.push_back({interpreter->session_info_, std::move(db_view.name), db_view.marked_for_deletion});
+    }
+
+    return info;
+  });
 
   return active_users;
 }
@@ -8114,11 +8124,15 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       };
     } break;
     case SystemInfoQuery::InfoType::ACTIVE_USERS: {
-      header = {"username", "session uuid", "login timestamp"};
+      header = {"username", "session uuid", "login timestamp", "database", "database marked for deletion"};
       handler = [interpreter_context] {
         std::vector<std::vector<TypedValue>> results;
         for (const auto &result : GetActiveUsersInfo(interpreter_context)) {
-          results.push_back({TypedValue(result.username), TypedValue(result.uuid), TypedValue(result.login_timestamp)});
+          results.push_back({TypedValue(result.session_info.username),
+                             TypedValue(result.session_info.uuid),
+                             TypedValue(result.session_info.login_timestamp),
+                             TypedValue(result.db_name),
+                             TypedValue(result.db_marked_for_deletion)});
         }
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
