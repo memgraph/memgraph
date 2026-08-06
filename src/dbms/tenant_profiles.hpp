@@ -59,7 +59,16 @@ class TenantProfiles {
   std::vector<Profile> GetAll() const;
 
   std::expected<int64_t, AttachError> AttachToDatabase(std::string_view profile_name, std::string_view db_name);
-  std::expected<void, DetachError> DetachFromDatabase(std::string_view db_name);
+
+  /// Detaches `db_name` from whichever profile it is attached to. `extra_keys_to_delete` are folded into
+  /// the SAME atomic kvstore batch as the detach itself and are deleted if and only if the function
+  /// returns success; on ANY error -- including NOT_ATTACHED -- none of them are deleted and the caller
+  /// remains responsible for them. This exists so a DROP DATABASE can retire the tenant's own durability
+  /// key (`database:<name>`) together with its profile attachment in one write: without it, a crash
+  /// between two separate writes could leave the tenant key behind after its attachment is already gone,
+  /// resurrecting the tenant on the next boot with no attachment left to reconcile it.
+  std::expected<void, DetachError> DetachFromDatabase(std::string_view db_name,
+                                                      std::vector<std::string> extra_keys_to_delete = {});
   std::expected<void, RenameError> RenameDatabase(std::string_view old_name, std::string_view new_name);
 
   /// Startup reconciliation. A crash between DROP DATABASE erasing the tenant's durability key and the
