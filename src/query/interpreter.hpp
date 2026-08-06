@@ -16,6 +16,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <utility>
 
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
@@ -270,31 +271,42 @@ struct CurrentDB {
   void CleanupDBTransaction(bool abort);
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
-    // Locked (see db_acc_mutex_). Destroying the previous Accessor here takes GKInternals::mutex_, so the
-    // lock order is db_acc_mutex_ -> GKInternals::mutex_, never the reverse.
-    std::lock_guard lock{db_acc_mutex_};
-    db_acc_ = std::move(new_db);
-    in_explicit_db_ = in_explicit_db;
+    // Move the outgoing Accessor out of db_acc_ under the lock, then let it destruct AFTER the lock is
+    // released (see db_acc_mutex_ for why: its dtor can block on a foreign GKInternals::mutex_).
+    std::optional<memgraph::dbms::DatabaseAccess> old_db;
+    {
+      std::lock_guard lock{db_acc_mutex_};
+      old_db = std::exchange(db_acc_, std::move(new_db));
+      in_explicit_db_ = in_explicit_db;
+    }
   }
 
   void ResetDB() {
     // Narrowed to db_acc_ only: db_transactional_accessor_'s dtor can abort a txn and take storage locks,
-    // which would stall a concurrent foreign_db_view() if held under the same lock.
+    // which would stall a concurrent foreign_db_view() if held under the same lock. old_db is swapped out
+    // under the lock and destructed below, outside it (see db_acc_mutex_).
+    std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
       std::lock_guard lock{db_acc_mutex_};
-      db_acc_.reset();
+      old_db.swap(db_acc_);
     }
+    old_db.reset();  // release db access before the accessors below, as before
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
   }
 
   // Releases db_acc_ only if held and marked for deletion; db_transactional_accessor_/execution_db_accessor_/
-  // trigger_context_collector_ are untouched -- that's ResetDB()'s job.
+  // trigger_context_collector_ are untouched -- that's ResetDB()'s job. is_marked_for_deletion() only reads
+  // an atomic_bool (no GKInternals::mutex_), so it's safe to call under db_acc_mutex_; the swapped-out
+  // Accessor itself is destructed after the lock is released (see db_acc_mutex_).
   void ReleaseDbIfMarked() {
-    std::lock_guard lock{db_acc_mutex_};
-    if (db_acc_ && db_acc_->is_marked_for_deletion()) {
-      db_acc_.reset();
+    std::optional<memgraph::dbms::DatabaseAccess> old_db;
+    {
+      std::lock_guard lock{db_acc_mutex_};
+      if (db_acc_ && db_acc_->is_marked_for_deletion()) {
+        old_db.swap(db_acc_);
+      }
     }
   }
 
@@ -332,6 +344,17 @@ struct CurrentDB {
   // interpreter.cpp) skip it because they run on the same thread as every writer and so can never race one.
   // Must NOT be a spinlock: foreign_db_view() calls Storage::name(), which blocks on a shared_mutex inside
   // utils::SafeString.
+  //
+  // LEAF LOCK: every writer above swaps the outgoing Accessor out under this lock and destroys it only
+  // after releasing it -- no Accessor may be destroyed while this lock is held. An Accessor's dtor takes
+  // its GKInternals::mutex_, which finish_suspend() holds across the whole ~Database + WAL finalization,
+  // and GetActiveUsersInfo() takes this lock (via foreign_db_view()) while holding the interpreters
+  // SpinLock -- so nesting the two would put a busy-wait spinlock over the entire session table behind a
+  // tenant suspend. That pile-up is NOT reachable today: try_begin_suspend() waits for count_ == 1 before
+  // entering SUSPENDING, so a session holding this accessor keeps its tenant out of the suspend path
+  // entirely. Keeping this a leaf lock means correctness here does not depend on that remote invariant
+  // holding -- note finish_suspend()'s own count_ precondition is only a DMG_ASSERT, which compiles out
+  // under NDEBUG.
   mutable std::mutex db_acc_mutex_;
 };
 
