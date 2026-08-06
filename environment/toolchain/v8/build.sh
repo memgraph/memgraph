@@ -60,6 +60,7 @@ NCURSES_VERSION=6.6
 OPENSSL_VERSION=3.6.3
 CURL_VERSION=8.21.0
 LIBFFI_VERSION=3.7.1
+LIBIPT_VERSION=2.2 # Intel PT decoding for GDB btrace; x86_64 only
 # Python lives in the sysroot solely so GDB can be built with scripting
 # support and ship libpython3.so alongside the toolchain. memgraph's CMake
 # ignores this Python via CMAKE_IGNORE_PATH in toolchain.cmake; consumers
@@ -213,6 +214,11 @@ if [ ! -f Python-$PYTHON_VERSION.tgz ]; then
     wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz
     PYTHON_SHA256="73ac8fe780227bf371add8373c3079f42a0dc62deff8d612cd15a618082ab623"
     echo "$PYTHON_SHA256  Python-$PYTHON_VERSION.tgz" | sha256sum -c -
+fi
+if [ ! -f libipt-$LIBIPT_VERSION.tar.gz ]; then
+    wget https://github.com/intel/libipt/archive/refs/tags/v$LIBIPT_VERSION.tar.gz -O libipt-$LIBIPT_VERSION.tar.gz
+    LIBIPT_SHA256="f09a18fefba81d4fc2530d90858789e0c596f1b634e5777e6ccaf492966e9845"
+    echo "$LIBIPT_SHA256  libipt-$LIBIPT_VERSION.tar.gz" | sha256sum -c -
 fi
 
 # verify all archives
@@ -694,8 +700,72 @@ if [[ ! -f "$SYSROOT/usr/lib/libpython${PYTHON_MAJMIN}.so" ]]; then
     popd
 fi
 
-# Host deps (apt): make — gmp/mpfr come from $PREFIX, python/ncurses/zlib from
-# the sysroot; expat/lzma/babeltrace/intel-pt features are disabled below.
+# Host deps (apt): make — compiler is the toolchain gcc; curl/ncurses/openssl/
+# zlib come from the sysroot (--system-curl + CMAKE_SYSROOT below). Built
+# before GDB because the sysroot libipt below needs a cmake.
+log_tool_name "cmake $CMAKE_VERSION"
+if [[ ! -f "$PREFIX/bin/cmake" ]]; then
+    if [[ -d cmake-$CMAKE_VERSION ]]; then
+        rm -rf cmake-$CMAKE_VERSION
+    fi
+    tar -xvf ../archives/cmake-$CMAKE_VERSION.tar.gz
+    pushd "cmake-$CMAKE_VERSION"
+    # influenced by: https://buildd.debian.org/status/fetch.php?pkg=cmake&arch=amd64&ver=3.13.4-1&stamp=1549799837
+    echo 'set(CMAKE_SKIP_RPATH ON CACHE BOOL "Skip rpath" FORCE)' >> build-flags.cmake
+    echo 'set(CMAKE_USE_RELATIVE_PATHS ON CACHE BOOL "Use relative paths" FORCE)' >> build-flags.cmake
+    echo 'set(CMAKE_C_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C flags" FORCE)' >> build-flags.cmake
+    echo 'set(CMAKE_CXX_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C++ flags" FORCE)' >> build-flags.cmake
+    echo 'set(CMAKE_SKIP_BOOTSTRAP_TEST ON CACHE BOOL "Skip BootstrapTest" FORCE)' >> build-flags.cmake
+    # Point cmake's find_* at the sysroot so libcurl/ncurses/openssl from
+    # $SYSROOT/usr are found (and not the host's host-glibc-linked copies).
+    echo "set(CMAKE_SYSROOT \"$SYSROOT\" CACHE PATH \"Sysroot\" FORCE)" >> build-flags.cmake
+    # Force find_library / find_path / find_package to look ONLY inside the
+    # sysroot — otherwise cmake's default BOTH mode happily picks up host
+    # /usr/lib and /usr/include, which drags host-glibc-linked libs into the
+    # build. PROGRAM stays default so build tools like git/make/sh are found.
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY CACHE STRING "" FORCE)' >> build-flags.cmake
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY CACHE STRING "" FORCE)' >> build-flags.cmake
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY CACHE STRING "" FORCE)' >> build-flags.cmake
+    echo 'set(BUILD_CursesDialog ON CACHE BOOL "Build curses GUI" FORCE)' >> build-flags.cmake
+    mkdir build && pushd build
+    ../bootstrap \
+        --prefix=$PREFIX \
+        --init=../build-flags.cmake \
+        --parallel=$CPUS \
+        --system-curl
+    make -j$CPUS
+    # make test # run test suite
+    make install
+    popd && popd
+fi
+
+# Host deps (apt): make — built with the toolchain cmake/gcc from above.
+# Intel PT decoding for GDB's btrace; x86-only (Intel PT is x86 hardware).
+if [[ "$for_arm" = false ]]; then
+    log_tool_name "libipt $LIBIPT_VERSION (sysroot)"
+    if [[ ! -f "$SYSROOT/usr/lib/libipt.a" ]]; then
+        if [[ -d "libipt-$LIBIPT_VERSION" ]]; then
+            rm -rf libipt-$LIBIPT_VERSION
+        fi
+        tar -xzf ../archives/libipt-$LIBIPT_VERSION.tar.gz
+        pushd "libipt-$LIBIPT_VERSION"
+        mkdir build && pushd build
+        # Static so GDB doesn't ship another .so; LIBDIR pinned because
+        # GNUInstallDirs otherwise picks lib/lib64 based on the build host.
+        cmake .. \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        make -j$CPUS
+        make install DESTDIR=$SYSROOT
+        popd && popd
+    fi
+fi
+
+# Host deps (apt): make — gmp/mpfr come from $PREFIX, python/ncurses/zlib and
+# (x86) libipt from the sysroot; expat/lzma/babeltrace are disabled below.
 log_tool_name "GDB $GDB_VERSION"
 if [[ ! -f "$PREFIX/bin/gdb" ]]; then
     if [[ -d "gdb-$GDB_VERSION" ]]; then
@@ -706,10 +776,11 @@ if [[ ! -f "$PREFIX/bin/gdb" ]]; then
     mkdir build && pushd build
     # GDB is built sysroot-aware via the toolchain GCC. --with-python points
     # at the libpython we installed into the sysroot above. Features that
-    # require libraries not in the sysroot (expat, lzma, babeltrace, intel-pt,
+    # require libraries not in the sysroot (expat, lzma, babeltrace,
     # system readline) are disabled — GDB falls back to its bundled
     # readline and skips the niche subsystems. TUI works because ncurses is
-    # in the sysroot.
+    # in the sysroot; on x86 intel-pt btrace works via the sysroot libipt
+    # (ARM stays --without-intel-pt: Intel PT is x86-only hardware).
     if [[ "$for_arm" = true ]]; then
         # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=arm64&ver=10.1-2&stamp=1614889767&raw=0
         env \
@@ -763,7 +834,7 @@ if [[ ! -f "$PREFIX/bin/gdb" ]]; then
                 --without-expat \
                 --without-lzma \
                 --without-babeltrace \
-                --without-intel-pt \
+                --with-intel-pt \
                 --enable-tui \
                 --with-python=$SYSROOT/usr/bin/python$PYTHON_MAJMIN
     fi
@@ -803,44 +874,6 @@ import offsets
 import pahole
 end
 EOF
-fi
-
-# Host deps (apt): make — compiler is the toolchain gcc; curl/ncurses/openssl/
-# zlib come from the sysroot (--system-curl + CMAKE_SYSROOT below).
-log_tool_name "cmake $CMAKE_VERSION"
-if [[ ! -f "$PREFIX/bin/cmake" ]]; then
-    if [[ -d cmake-$CMAKE_VERSION ]]; then
-        rm -rf cmake-$CMAKE_VERSION
-    fi
-    tar -xvf ../archives/cmake-$CMAKE_VERSION.tar.gz
-    pushd "cmake-$CMAKE_VERSION"
-    # influenced by: https://buildd.debian.org/status/fetch.php?pkg=cmake&arch=amd64&ver=3.13.4-1&stamp=1549799837
-    echo 'set(CMAKE_SKIP_RPATH ON CACHE BOOL "Skip rpath" FORCE)' >> build-flags.cmake
-    echo 'set(CMAKE_USE_RELATIVE_PATHS ON CACHE BOOL "Use relative paths" FORCE)' >> build-flags.cmake
-    echo 'set(CMAKE_C_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C flags" FORCE)' >> build-flags.cmake
-    echo 'set(CMAKE_CXX_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C++ flags" FORCE)' >> build-flags.cmake
-    echo 'set(CMAKE_SKIP_BOOTSTRAP_TEST ON CACHE BOOL "Skip BootstrapTest" FORCE)' >> build-flags.cmake
-    # Point cmake's find_* at the sysroot so libcurl/ncurses/openssl from
-    # $SYSROOT/usr are found (and not the host's host-glibc-linked copies).
-    echo "set(CMAKE_SYSROOT \"$SYSROOT\" CACHE PATH \"Sysroot\" FORCE)" >> build-flags.cmake
-    # Force find_library / find_path / find_package to look ONLY inside the
-    # sysroot — otherwise cmake's default BOTH mode happily picks up host
-    # /usr/lib and /usr/include, which drags host-glibc-linked libs into the
-    # build. PROGRAM stays default so build tools like git/make/sh are found.
-    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY CACHE STRING "" FORCE)' >> build-flags.cmake
-    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY CACHE STRING "" FORCE)' >> build-flags.cmake
-    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY CACHE STRING "" FORCE)' >> build-flags.cmake
-    echo 'set(BUILD_CursesDialog ON CACHE BOOL "Build curses GUI" FORCE)' >> build-flags.cmake
-    mkdir build && pushd build
-    ../bootstrap \
-        --prefix=$PREFIX \
-        --init=../build-flags.cmake \
-        --parallel=$CPUS \
-        --system-curl
-    make -j$CPUS
-    # make test # run test suite
-    make install
-    popd && popd
 fi
 
 # Host deps (apt): make ("gcc"/"g++" resolve to the toolchain via PATH).
