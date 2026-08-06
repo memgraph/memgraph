@@ -106,15 +106,10 @@ struct GlobalMetricHandles {
   prometheus::Histogram *database_suspend_latency_seconds;
   prometheus::Histogram *database_resume_latency_seconds;
 
-  // Deferred tenant destruction (global — the pending set is a handler-wide property, and no per-db
-  // series could report the *completion* of a destruction that tears down that same series: RemoveDatabase
-  // runs from ~Database, the very destruction being deferred, so the per-db series stays registered for
-  // as long as a tenant sits in this pending window — pre-existing staleness, not introduced here; the old
-  // single-thread pool lagged longer, not shorter. Meanwhile the tenant's per-db series (vertex_count,
-  // edge_count, per-db memory gauges, etc.) keep reporting their last, frozen values). The gauge tracks
-  // tenants erased from the handler map whose Database object is still alive because an accessor was held
-  // at DROP time; the counter is the cumulative number of drops that hit this path, so it stays diagnosable
-  // even after the gauge returns to zero.
+  // Deferred tenant destruction (global — RemoveDatabase runs from ~Database, the very destruction it
+  // defers, so no per-db series survives to report the *completion*). Gauge = tenants erased from the
+  // handler map whose Database is still alive because an accessor was held at DROP time; counter =
+  // cumulative drops that hit this path, so it stays diagnosable after the gauge returns to zero.
   prometheus::Gauge *pending_tenant_destructions;
   prometheus::Counter *deferred_tenant_destructions;
 
