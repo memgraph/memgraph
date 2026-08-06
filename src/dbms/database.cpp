@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "dbms/database_info.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
@@ -61,7 +62,30 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
   query::PlanCacheLRU &plan_cache;
 };
 
-Database::~Database() = default;
+Database::~Database() {
+  // Every teardown path -- Delete_/DeferDelete, Gatekeeper::Accessor::try_delete(),
+  // Gatekeeper::finish_suspend(), ~Gatekeeper, DbmsHandler::Update()'s drop-and-recreate, and the
+  // implicit teardown at process exit -- funnels through this destructor. The cached 2PC commit
+  // accessor in InMemoryReplicationHandlers is storage-level, not gatekeeper-counted, so none of
+  // those drains observes or waits on it; discarding it here, structurally, replaces having to
+  // remember an AbortTwoPCForTenant call at every one of those sites individually. This is safe
+  // because the destructor body runs before any member is destroyed, so storage_ -- and the per-DB
+  // arena its deltas were allocated from -- is still fully intact. AbortTwoPCForTenant is
+  // UUID-scoped, so a 2PC cached for a different tenant is left untouched. This deliberately takes
+  // no utils::Gatekeeper path: finish_suspend() holds the non-recursive GKInternals::mutex_ across
+  // ~Database (gatekeeper.hpp:400), so any gatekeeper re-entry from here would self-deadlock.
+  try {
+    // GatekeeperGuard clears the arena TLS state around Database construction/destruction, and
+    // Abort() walking deltas allocates -- re-establish the scope so those allocations are
+    // attributed to this tenant's arena rather than whatever happened to be in TLS.
+    const memory::DbArenaScope db_arena_scope{this};
+    InMemoryReplicationHandlers::AbortTwoPCForTenant(uuid());
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+    // A destructor is implicitly noexcept; Abort() walks deltas and can throw during allocation.
+    // Letting that escape would call std::terminate, so swallow it here -- same rationale as
+    // ~Gatekeeper's swallowed spdlog throw (gatekeeper.hpp).
+  }
+}
 
 std::unique_ptr<storage::Accessor> Database::Access(storage::StorageAccessType rw_type,
                                                     std::optional<storage::IsolationLevel> override_isolation_level,
