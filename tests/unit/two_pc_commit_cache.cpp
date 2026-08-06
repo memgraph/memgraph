@@ -22,6 +22,7 @@
 #include <string_view>
 
 #include "dbms/database.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/two_pc_commit_cache.hpp"
 #include "memory/db_arena.hpp"
 #include "storage/v2/config.hpp"
@@ -29,6 +30,7 @@
 
 namespace {
 
+using memgraph::dbms::InMemoryReplicationHandlers;
 using memgraph::dbms::TwoPCCommitCache;
 using memgraph::storage::InMemoryStorage;
 using memgraph::storage::ReplicationAccessor;
@@ -168,6 +170,55 @@ TEST_F(TwoPCCommitCacheTest, TakeAnyIgnoresUuidAndEmptiesSlot) {
   ASSERT_NE(taken, nullptr);
 
   // Slot is empty now.
+  ASSERT_EQ(cache.TakeAny(), nullptr);
+}
+
+// Regression coverage for InMemoryReplicationHandlers::AbortPrevTxnIfNeeded's tenant scoping: it
+// used to call the tenant-oblivious DestroyReplAccessor(), so a recovery/prepare RPC for tenant B
+// would steal and abort tenant A's cached 2PC accessor -- a cross-tenant use-after-free race
+// against A's own concurrent teardown, and (if A survived the race) silent divergence where
+// FinalizeCommitHandler later finds an empty slot and replies "committed" to MAIN for a txn the
+// replica had actually aborted. Drives the exact fixed call (AbortPrevTxnIfNeeded is public static)
+// with two real storages, no RPC handshake required. This pair (...LeavesOtherTenantsEntryIntact /
+// ...ClearsOwnTenantsEntry) pins the tenant-scoped behaviour on both sides: must not touch a
+// different tenant's slot, must still clear its own.
+TEST_F(TwoPCCommitCacheTest, AbortPrevTxnIfNeededLeavesOtherTenantsEntryIntact) {
+  auto &cache = TwoPCCommitCache::Instance();
+  UUID uuid_a;
+  uuid_a.set(kUuidA);
+
+  auto accessor_a = TakeReplicationAccessor(storage_a_.get());
+  // See DestroyingDatabaseDiscardsItsCachedAccessor's comment above: AbortAndResetCommitTs
+  // unconditionally dereferences commit_timestamp_, so seed it even though this build's DMG_ASSERT
+  // would not catch an unseeded one.
+  accessor_a->GetCommitTimestamp().emplace(kCommitTs);
+  cache.Store(std::move(accessor_a), kCommitTs, uuid_a);
+
+  // Fixed behavior: AbortPrevTxnIfNeeded is scoped to storage_b_'s own uuid, so it must be a no-op
+  // against A's populated slot. Before the fix, this called the tenant-oblivious
+  // DestroyReplAccessor() and would have stolen and aborted A's accessor here.
+  InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage_b_.get());
+
+  // A's entry must have survived. Take it back out and let it destruct while storage_a_ is still a
+  // live fixture member (drained here rather than deferred to TearDown, matching Group A's pattern).
+  auto still_a = cache.TakeForTenant(uuid_a);
+  ASSERT_NE(still_a, nullptr);
+}
+
+TEST_F(TwoPCCommitCacheTest, AbortPrevTxnIfNeededClearsOwnTenantsEntry) {
+  auto &cache = TwoPCCommitCache::Instance();
+  UUID uuid_a;
+  uuid_a.set(kUuidA);
+
+  auto accessor_a = TakeReplicationAccessor(storage_a_.get());
+  accessor_a->GetCommitTimestamp().emplace(kCommitTs);
+  cache.Store(std::move(accessor_a), kCommitTs, uuid_a);
+
+  // AbortPrevTxnIfNeeded(storage_a_) is scoped to storage_a_'s own uuid, so the cached accessor
+  // (which belongs to that same uuid) must be taken, aborted, and reset by this call.
+  InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage_a_.get());
+
+  // Slot is empty now -- AbortPrevTxnIfNeeded already consumed it via AbortTwoPCForTenant.
   ASSERT_EQ(cache.TakeAny(), nullptr);
 }
 
