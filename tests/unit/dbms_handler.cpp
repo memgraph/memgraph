@@ -45,13 +45,10 @@ std::set<std::string> GetDirs(auto path) {
   return dirs;
 }
 
-// --- Shared seeding helpers for the startup-reconciliation tests below -------------------------
-// Each of the four tests below builds its OWN isolated root, exactly like MigratesV1DurabilityAndRestoresTenant
-// above: seed a durability kvstore, release it (KVStore forbids two live instances on one directory), construct
-// a DbmsHandler over it, release the handler, then re-open the kvstore to verify.
+// Seeding helpers for the startup-reconciliation tests. Each test seeds its kvstore inside a scope and
+// releases it before constructing the handler: a second live KVStore on one dir throws (kvstore.cpp:38).
 
-// database:<name> -- Durability::kDBPrefix (dbms_handler.cpp) is file-local and not reachable from this test,
-// mirrored here exactly like the two migration tests above already do.
+// Mirrors kDBPrefix (dbms_handler.cpp:46), which is in an anonymous namespace and cannot be named here.
 constexpr std::string_view kDBPrefixLiteral = "database:";
 
 struct SeededRoot {
@@ -60,8 +57,8 @@ struct SeededRoot {
   std::filesystem::path durability_dir;  // <root>/databases/.durability
 };
 
-// A fresh <root>/databases/.durability, mirroring the layout the DbmsHandler ctor creates for itself.
-// `tag` must be unique per test so the tests can run in any order / in parallel without colliding.
+// Layout must match the one the DbmsHandler ctor builds for itself (dbms_handler.cpp:215-219). `tag` must
+// be unique per test: the root is remove_all'd below, so a shared tag would delete a sibling test's data.
 SeededRoot MakeSeededRoot(std::string_view tag) {
   namespace fs = std::filesystem;
   SeededRoot sr;
@@ -73,15 +70,13 @@ SeededRoot MakeSeededRoot(std::string_view tag) {
   return sr;
 }
 
-// The generated uuid plus the exact dumped JSON string that was written, so a caller checking
-// round-trip fidelity across a restart has the original bytes to compare against.
 struct SeededHotEntry {
   memgraph::utils::UUID uuid;
   std::string json_str;
 };
 
-// Exact shape of Durability::GenVal (dbms_handler.cpp): {"uuid": <uuid>, "rel_dir": <path>}, rel_dir
-// rooted at kMultiTenantDir/<uuid> -- the same convention MigratesV1DurabilityAndRestoresTenant uses above.
+// Exact shape of Durability::GenVal (dbms_handler.cpp:114): {"uuid": <uuid>, "rel_dir": <path>}, with
+// rel_dir rooted at kMultiTenantDir/<uuid> as New_/UpdateDurability recompute it (dbms_handler.cpp:860).
 SeededHotEntry SeedHotEntry(memgraph::kvstore::KVStore &kv, std::string_view name) {
   const memgraph::utils::UUID uuid;
   nlohmann::json j;
@@ -92,9 +87,8 @@ SeededHotEntry SeedHotEntry(memgraph::kvstore::KVStore &kv, std::string_view nam
   return {uuid, std::move(dumped)};
 }
 
-// Exact shape of Durability::GenColdVal (dbms_handler.cpp) minus `cold_stats`: the restore loop reads
-// that field via `json.contains("cold_stats")` and treats it as optional, so an entry without it is a
-// faithful minimal COLD fixture.
+// Exact shape of Durability::GenColdVal (dbms_handler.cpp:150) minus `cold_stats`, which the restore loop
+// reads under `json.contains("cold_stats")` (dbms_handler.cpp:239) -- omitting it is still faithful.
 memgraph::utils::UUID SeedColdEntry(memgraph::kvstore::KVStore &kv, std::string_view name) {
   const memgraph::utils::UUID uuid;
   nlohmann::json j;
@@ -105,9 +99,8 @@ memgraph::utils::UUID SeedColdEntry(memgraph::kvstore::KVStore &kv, std::string_
   return uuid;
 }
 
-// Exact shape of TenantProfiles::ProfileToJson (tenant_profiles.cpp): {"memory_limit": <int64>,
-// "databases": [<name>, ...]}. Also writes the db->profile mapping keys under
-// TenantProfiles::kDbMappingPrefix, matching AttachToDatabase's own durability writes.
+// Exact shape of TenantProfiles::ProfileToJson (tenant_profiles.cpp:46): {"memory_limit": <int64>,
+// "databases": [...]}, plus the kDbMappingPrefix rows AttachToDatabase writes (tenant_profiles.cpp:142).
 void SeedProfile(memgraph::kvstore::KVStore &kv, std::string_view profile_name, int64_t memory_limit,
                  const std::set<std::string> &databases) {
   nlohmann::json j;
@@ -119,7 +112,6 @@ void SeedProfile(memgraph::kvstore::KVStore &kv, std::string_view profile_name, 
   }
 }
 
-// <root>/databases/<uuid> -- the on-disk directory a HOT/COLD entry's rel_dir points at.
 std::filesystem::path TenantDataDir(const SeededRoot &sr, const memgraph::utils::UUID &uuid) {
   return sr.db_dir / std::string{uuid};
 }
@@ -492,14 +484,8 @@ TEST(DBMS_Handler, MigratesV0DefaultDbDurabilityAndRestoresTenant) {
   fs::remove_all(root);
 }
 
-// REGRESSION GUARD (pins PRE-EXISTING behavior, predates this branch): the ctor's post-restore
-// "DATABASES CLEAN UP" pass (dbms_handler.cpp) is what makes a lost deferred physical delete benign --
-// if a DROP's durability-key erase lands but the matching directory removal is lost (process dies,
-// remove_all fails, etc.), the orphaned directory is not a permanent leak: the next boot's keep-set is
-// built purely from surviving `database:` keys, so anything on disk that no key points at gets swept.
-// A directory that IS still referenced must be left strictly alone. This branch's PruneDatabases sweep
-// is a sibling reconciliation pass; nothing else in the suite pins the pre-existing directory sweep, so
-// a change to either could silently regress this without any other test noticing.
+// Pins PRE-EXISTING behavior: the ctor's post-restore "DATABASES CLEAN UP" pass (dbms_handler.cpp:345)
+// keeps only dirs a surviving `database:` key names, so a lost physical delete is not a permanent leak.
 TEST(DBMS_Handler, SweepReclaimsOrphanedTenantDirectoryButKeepsLiveOne) {
   namespace fs = std::filesystem;
   using memgraph::dbms::DbmsHandler;
@@ -539,12 +525,8 @@ TEST(DBMS_Handler, SweepReclaimsOrphanedTenantDirectoryButKeepsLiveOne) {
   fs::remove_all(sr.root);
 }
 
-// Positive case for the new startup reconciliation: TenantProfiles::PruneDatabases is wired from the
-// DbmsHandler ctor between constructing TenantProfiles and RestoreTenantProfiles_. A `db_tenant_profile:`
-// mapping (and the matching name inside its Profile's `databases` set) that outlived the tenant it
-// points at -- e.g. a DROP that erased the durability key but crashed before/lost the matching
-// DetachFromDatabase -- has nothing else in the system that ever revisits it; left unpruned, it is
-// permanent.
+// Positive case for the new startup reconciliation: the ctor runs PruneDatabases between constructing
+// TenantProfiles and RestoreTenantProfiles_ (dbms_handler.cpp:368-385); rationale at its declaration.
 TEST(DBMS_Handler, StaleTenantProfileMappingIsPrunedOnStartup) {
   namespace fs = std::filesystem;
   using memgraph::dbms::DbmsHandler;
@@ -583,13 +565,8 @@ TEST(DBMS_Handler, StaleTenantProfileMappingIsPrunedOnStartup) {
   fs::remove_all(sr.root);
 }
 
-// THE NEGATIVE CONTROL for PruneDatabases, and the most important test on this branch: pruning a live
-// SUSPENDED (COLD) tenant's profile attachment would be unrecoverable data loss, not staleness cleanup.
-// The naive way to ask "is this database still alive" is Get_()/db_handler_.All(), but both are
-// HOT-gated -- a COLD tenant looks absent through that lens even though it is a live, resumable tenant.
-// That is exactly why the prune's live-set is built from the raw `database:<name>` durability KEY
-// prefix instead (see the ctor comment immediately above the PruneDatabases call site): the key prefix
-// covers HOT and COLD identically. This test pins that choice against the obvious wrong rewrite.
+// Negative control for PruneDatabases: a COLD tenant looks absent through the HOT-gated Get_/All lens, so
+// pruning its attachment would be data loss. Pins the ctor's raw-`database:`-key live-set (dbms_handler.cpp:371).
 TEST(DBMS_Handler, SuspendedTenantProfileMappingIsNotPrunedOnStartup) {
   namespace fs = std::filesystem;
   using memgraph::dbms::DbmsHandler;
@@ -631,9 +608,8 @@ TEST(DBMS_Handler, SuspendedTenantProfileMappingIsNotPrunedOnStartup) {
   fs::remove_all(sr.root);
 }
 
-// This branch adds a new startup reconciliation pass and reorders two DROP paths, but touches neither
-// Durability::Migrate nor its version chain: a pre-existing V2 store with nothing for the new pass to
-// prune must boot and remain V2, with its `database:` entries left byte-for-byte untouched.
+// This branch adds a startup reconciliation pass and reorders the DROP paths, but touches neither
+// Durability::Migrate nor its version chain: a plain V2 store must still boot, stay V2, and keep its entry.
 TEST(DBMS_Handler, ExistingV2DurabilityStoreBootsUnchanged) {
   namespace fs = std::filesystem;
   using memgraph::dbms::DbmsHandler;
@@ -665,10 +641,8 @@ TEST(DBMS_Handler, ExistingV2DurabilityStoreBootsUnchanged) {
 
   auto entry = verify_kv.Get(std::string{"database:"} + "live");
   ASSERT_TRUE(entry.has_value());
-  // `New_` calls UpdateDurability on every restored HOT tenant, which recomputes rel_dir through
-  // std::filesystem::relative() -- pre-existing rewrite-on-every-boot behavior, so byte-identity would
-  // be a stronger (and flakier, e.g. under a symlinked TMPDIR) claim than this test needs. Asserting the
-  // decoded fields keeps the mutation-sensitivity that matters without depending on exact serialization.
+  // Deliberately not a byte compare: New_ rewrites every restored HOT entry via UpdateDurability, which
+  // recomputes rel_dir through std::filesystem::relative (dbms_handler.cpp:860) -- bytes would be flaky.
   const auto entry_json = nlohmann::json::parse(*entry);
   const auto expected_rel_dir =
       std::filesystem::path(std::string{memgraph::dbms::kMultiTenantDir}) / std::string{live_uuid};
@@ -681,12 +655,8 @@ TEST(DBMS_Handler, ExistingV2DurabilityStoreBootsUnchanged) {
   fs::remove_all(sr.root);
 }
 
-// A corrupt attached tenant-profile record must not be able to turn DROP into a half-done delete
-// that resurrects the tenant on restart (see the try/catch added to TenantProfiles::DetachFromDatabase
-// -- previously an unguarded nlohmann::json::parse there threw past DbmsHandler::TryDelete, aborting
-// after the tenant was removed from the in-memory registry but before its durability key / directory
-// were erased). Leaving the db_tenant_profile: mapping behind afterwards is deliberate: PruneDatabases
-// (boot reconciliation) is what collects it, not this call.
+// A corrupt attached profile record must not turn DROP into a half-done delete: DetachFromDatabase
+// refuses it (DURABILITY_ERROR) and TryDelete must still retire the key + dir (dbms_handler.cpp:479-488).
 TEST(DBMS_Handler, DropSucceedsDurablyWhenAttachedProfileJsonIsCorrupt) {
   namespace fs = std::filesystem;
   using memgraph::dbms::DbmsHandler;
