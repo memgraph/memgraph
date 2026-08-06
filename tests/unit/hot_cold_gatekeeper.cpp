@@ -307,10 +307,15 @@ struct DeferDeleteProbe {
 }  // namespace
 
 TEST(HotColdGatekeeper, DeferDeleteErasesButDefersDestruction) {
-  memgraph::dbms::Handler<DeferDeleteProbe> handler;
-
+  // Declared ahead of `handler` on purpose. DeferDeleteProbe's dtor writes through a raw pointer
+  // to these two flags from whatever thread ends up running it (possibly a still-running defer_pool_
+  // worker). Locals unwind in reverse declaration order, so putting them before `handler` means
+  // `~Handler` -- which joins every worker -- always finishes first, on the success path AND on an
+  // early `return;` from an ASSERT_* below while a worker is still mid-destructor.
   std::atomic<bool> destroyed{false};
   std::atomic<bool> callback_fired{false};
+  memgraph::dbms::Handler<DeferDeleteProbe> handler;
+
   constexpr auto kDtorDelay = std::chrono::milliseconds(200);
 
   // New() constructs the probe in place and hands back the sole live Accessor,
@@ -381,11 +386,15 @@ TEST(HotColdGatekeeper, DeferDeleteErasesButDefersDestruction) {
 // the observable, so this stays a fast, deterministic check on the handler's
 // threading alone.
 TEST(HotColdGatekeeper, DeferDeleteDoesNotHeadOfLineBlockAnotherEntry) {
-  memgraph::dbms::Handler<DeferDeleteProbe> handler;
-
+  // Same reasoning as the erase test above: these three flags are targets of raw pointers/references
+  // a worker thread writes through from DeferDeleteProbe's dtor or the post-delete callback, so they
+  // must outlive every worker. Declaring them before `handler` lets reverse-declaration-order
+  // destruction guarantee that -- `~Handler`'s joins run first -- on every exit path, not just the one
+  // where the test's own drain loops happen to finish first.
   std::atomic<bool> stuck_destroyed{false};
   std::atomic<bool> freed_destroyed{false};
   std::atomic<bool> freed_callback_fired{false};
+  memgraph::dbms::Handler<DeferDeleteProbe> handler;
 
   auto stuck = handler.New(std::piecewise_construct, "stuck", &stuck_destroyed, std::chrono::milliseconds(0));
   ASSERT_TRUE(stuck.has_value());
@@ -421,10 +430,10 @@ TEST(HotColdGatekeeper, DeferDeleteDoesNotHeadOfLineBlockAnotherEntry) {
   // "stuck" -- i.e. for the wrong reason, with the two entries never actually decoupled.
   EXPECT_FALSE(stuck_destroyed.load(std::memory_order_acquire));
 
-  // Release "stuck" and WAIT for it. DeferDeleteProbe holds a raw pointer to its flag, and the local
-  // atomics above are destroyed BEFORE `handler` (reverse declaration order), so ~Handler's join
-  // would otherwise run the probe's destructor against a dead flag. Draining here, not in ~Handler,
-  // is what keeps that from being a use-after-free.
+  // Release "stuck" and WAIT for it. This drain is no longer load-bearing for the raw-pointer safety
+  // (the flags are now declared ahead of `handler`, so `~Handler`'s join covers that on every exit
+  // path -- see the comment at their declaration), but it stays: it is the assertion that "stuck"
+  // actually gets destroyed once released, which the test would otherwise never check.
   stuck_acc.reset();
   const auto drain_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
   while (!stuck_destroyed.load(std::memory_order_acquire)) {
