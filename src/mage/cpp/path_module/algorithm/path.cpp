@@ -373,11 +373,18 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
   const mgp::Node node{path.GetNodeAt(path_size)};
 
   const LabelBools label_bools = path_data_.helper_.GetLabelBools(node);
-  if (path_data_.helper_.PathSizeOk(path_size) && path_data_.helper_.AreLabelsValid(label_bools)) {
+
+  // Unfiltered start: its own labels are exempt, so treat it as a plain whitelisted node.
+  constexpr LabelBools exempt_start{.whitelisted = true};
+  const LabelBools &inclusion_bools =
+      path_data_.helper_.IsNotStartOrFiltersStartNode(path_size == 0) ? label_bools : exempt_start;
+
+  if (path_data_.helper_.PathSizeOk(path_size) && path_data_.helper_.AreLabelsValid(inclusion_bools)) {
     auto record = path_data_.record_factory_.NewRecord();
     record.Insert(std::string(kResultExpand).c_str(), path);
   }
 
+  // Expansion uses the real labels; ContinueExpanding's path_size == 1 clause covers an unfiltered start.
   if (!path_data_.helper_.ContinueExpanding(label_bools, path_size + 1)) {
     return;
   }
