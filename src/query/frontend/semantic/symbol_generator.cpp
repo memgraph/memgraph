@@ -242,7 +242,7 @@ bool SymbolGenerator::PostVisit(CypherUnion &cypher_union) {
 
 bool SymbolGenerator::PreVisit(Create &) {
   scopes_.back().in_create = true;
-  // Always empty: sibling CREATEs run in sequence and PostVisit clears, and a CREATE cannot nest inside one.
+  // Always empty: siblings run in sequence and PostVisit clears, and a CREATE cannot nest.
   DMG_ASSERT(create_clause_symbols_.empty(), "a CREATE clause left its declared symbols behind");
   return true;
 }
@@ -473,13 +473,10 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     throw SemanticException("Variables are not allowed in {}.", scope.in_skip ? "SKIP" : "LIMIT");
   }
 
-  // Inside a `CALL {}` subquery only the scopes from its own outwards are visible; an un-imported name of the
-  // enclosing query is out of scope. A pattern occurrence of such a name declares a fresh variable rather than
-  // referencing the outer one, which would resolve to the outer symbol and make the branch write through its frame
-  // slot - the one the subquery shares with its caller.
+  // Inside a `CALL {}` subquery only its own scopes outwards are visible. A pattern occurrence of an un-imported
+  // outer name declares a fresh variable, rather than writing through the frame slot the caller shares.
   auto const from = scope.in_pattern ? scope.call_subquery_base.value_or(0) : 0;
-  // A shadowed outer name is not in scope, so the rules below treat it as undeclared: patterns declare it afresh,
-  // while `exists()` - which may not introduce variables - rejects it.
+  // Treated as undeclared below: patterns declare it afresh, `exists()` rejects it.
   const bool name_in_scope = HasSymbol(ident.name_, from);
   const bool shadows_outer_name = !name_in_scope && from != 0 && HasSymbol(ident.name_);
 
@@ -497,14 +494,12 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     if (!name_in_scope) {
       ident.user_declared_ = false;
       auto const type = scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE;
-      // A shadowed outer name is still found by GetOrCreateSymbol, so declare it here instead.
+      // Shadowed: GetOrCreateSymbol would find the outer symbol, so declare here.
       symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, type)
                                   : GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
     } else {
-      // Resolving to the outer symbol is what correlates the pattern to the enclosing row, and for a node the planner
-      // can check the expansion reaches that node. For an edge it cannot - there is no `existing_edge` counterpart to
-      // `existing_node` - so reject here instead of building a plan that cannot be emitted. The same reuse spelled in
-      // an ORDER BY is already rejected below, by the `visiting_edge` branch.
+      // A bound node correlates: `Expand` can check the expansion reaches it. An edge has no `existing_edge`
+      // counterpart, so there is no operator to emit. The ORDER BY spelling is already rejected below.
       if (scope.in_pattern_atom_identifier && scope.visiting_edge) {
         throw SemanticException("Cannot use the already bound relationship '{}' in a pattern here.", ident.name_);
       }
@@ -533,10 +528,10 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       }
       type = scope.visiting_edge->IsVariable() ? Symbol::Type::EDGE_LIST : Symbol::Type::EDGE;
     }
-    // A shadowed outer name must not resolve to the enclosing query's symbol, so declare it in this scope.
+    // Shadowed: must not resolve to the enclosing query's symbol.
     symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, type)
                                 : GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
-    // An atom that was not already in scope is declared here, so this CREATE clause is what binds it.
+    // Not already in scope, so this CREATE is what binds it.
     if (scope.in_create && !name_in_scope) {
       create_clause_symbols_.insert(symbol);
     }
@@ -568,8 +563,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
   }
 
-  // The operator that binds a symbol declared by this CREATE is the same one that reads the comprehension's result, so
-  // the frame slot is still unwritten when the clause needs it. There is no placement that works - reject instead.
+  // The operator that binds the symbol is the one that reads the comprehension's result, so no placement works.
   if (scope.in_pattern_comprehension && create_clause_symbols_.contains(symbol)) {
     throw SemanticException(
         "Entity '{}' cannot be created and referenced by a pattern comprehension in the same clause.", ident.name_);
@@ -1057,8 +1051,7 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
 }
 
 bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
-  // Carry the subquery boundary in: a pattern inside the comprehension must not silently reach a variable of
-  // the enclosing query (see IsOutsideCallSubquery).
+  // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name.
   scopes_.emplace_back(
       Scope{.in_pattern_comprehension = true, .call_subquery_base = scopes_.back().call_subquery_base});
 

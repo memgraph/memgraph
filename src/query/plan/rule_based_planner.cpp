@@ -36,22 +36,21 @@ bool IsConstantLiteral(const Expression *expression) {
   return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
 }
 
-/// True if the comprehension's own pattern holds a variable-length edge. `ExpandVariable` can only read View::OLD, so
-/// such a comprehension must be planned with it. Only the top level - a nested comprehension is planned separately.
+/// Whether the comprehension's own pattern holds a variable-length edge. Top level only - a nested one is planned
+/// separately and gets its own view.
 bool HasVariableLengthExpansion(const PatternComprehensionMatching &pc) {
   return std::ranges::any_of(pc.expansions,
                              [](const auto &expansion) { return expansion.edge && expansion.edge->IsVariable(); });
 }
 
-/// Like UsedSymbolsCollector, but also descends into a comprehension's filter and result expression - everything the
-/// WHERE evaluates must survive an OrderBy below it. The base class stops at the pattern, as its other callers need.
+/// Like UsedSymbolsCollector but also descends into a comprehension's filter and result expression: everything the
+/// WHERE evaluates must survive an OrderBy below it. The base stops at the pattern, as its other callers need.
 class WhereReadSymbolsCollector : public UsedSymbolsCollector {
  public:
   using UsedSymbolsCollector::UsedSymbolsCollector;
 
   bool PreVisit(PatternComprehension &pc) override {
-    // Visits pc.pattern_ and enters the comprehension, which keeps anonymous symbols out. The base tracks a depth,
-    // so a comprehension nested in filter_/resultExpr_ below does not release us early.
+    // The base tracks a depth, so a comprehension nested below does not release us early.
     UsedSymbolsCollector::PreVisit(pc);
     if (pc.filter_) {
       pc.filter_->Accept(*this);
@@ -107,8 +106,8 @@ class PCSymbolCollector : public HierarchicalTreeVisitor {
 // aggregations and expressions used for group by.
 class ReturnBodyContext : public HierarchicalTreeVisitor {
  public:
-  // Where in the return body an expression sits, which determines where a pattern comprehension found in it must be
-  // spliced: the projection is evaluated by the Produce, ORDER BY below the OrderBy, and WHERE above it.
+  // Where in the return body an expression sits, hence where a comprehension in it is spliced: the projection below
+  // the Produce, ORDER BY below the OrderBy, WHERE above it.
   enum class BodyPosition : uint8_t { kProjection, kOrderBy, kWhere };
 
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols,
@@ -141,8 +140,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       }
       group_by_used_symbols_ = collector.symbols_;
     }
-    // ORDER BY and WHERE are evaluated after the Produce, so a comprehension there also sees the named expression
-    // symbols - it must be planned against them and spliced in after the Produce.
+    // ORDER BY and WHERE run after the Produce, so a comprehension there also sees the named expression symbols.
     post_produce_bound_symbols_ = bound_symbols_;
     post_produce_bound_symbols_.insert(output_symbols_.begin(), output_symbols_.end());
     if (aggregations_.empty()) {
@@ -163,9 +161,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       }
       MG_ASSERT(aggregations_.empty(), "Unexpected aggregations in ORDER BY or WHERE");
     } else {
-      // With aggregations we must not visit ORDER BY and WHERE fully, or their expressions would pollute group_by_.
-      // Comprehensions in them still need planning, so only collect their symbols. Nested ones are collected too but
-      // are never pending - only top-level matchings are - so they drop out of the lookup.
+      // Visiting ORDER BY / WHERE fully would pollute group_by_, so only collect comprehension symbols. Nested ones
+      // are collected too but are never pending, so they drop out of the lookup.
       auto plan_comprehensions_in = [&](Expression &expr, BodyPosition position) {
         std::unordered_set<Symbol> pc_symbols;
         PCSymbolCollector collector(symbol_table_, pc_symbols);
@@ -567,8 +564,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     }
     has_aggregation_.emplace_back(has_aggr);
 
-    // Only plan top-level pattern comprehensions. Nested pattern comprehensions are handled inside their parent's
-    // operator tree.
+    // Nested comprehensions are planned inside their parent's operator tree.
     if (aggregations_start_index_stack_.empty()) {
       PlanPatternComprehensionOnDemand(symbol_table_.at(pattern_comprehension));
     }
@@ -642,14 +638,12 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return pattern_comprehension_datas_;
   }
 
-  // Pattern comprehensions from ORDER BY, which read the named expression symbols and so must be planned after the
-  // Produce, but below the OrderBy that consumes them.
+  // From ORDER BY: planned after the Produce whose symbols they read, below the OrderBy that consumes them.
   std::unordered_map<Symbol, PatternComprehensionData> order_by_pattern_comprehension_data() const {
     return order_by_pattern_comprehension_datas_;
   }
 
-  // Pattern comprehensions from WHERE. OrderBy restores only its own output symbols, so these must be planned above
-  // it - directly below the Filter that consumes them.
+  // From WHERE: above the OrderBy, which restores only its own output symbols, and below the Filter.
   std::unordered_map<Symbol, PatternComprehensionData> where_pattern_comprehension_data() const {
     return where_pattern_comprehension_datas_;
   }
@@ -664,11 +658,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   const auto &pattern_comprehensions_in_aggregations() const { return pattern_comprehensions_in_aggregations_; }
 
  private:
-  // Plans the comprehension with result symbol @p result_sym if it is still pending, into the bucket matching its
-  // position in the return body.
+  // Plans @p result_sym's comprehension if still pending, into the bucket for its position in the body.
   void PlanPatternComprehensionOnDemand(const Symbol &result_sym) {
-    // Skip if we don't have a planning context (e.g. when analyzing bound symbols in GetSubqueryBoundSymbols) - the
-    // actual planning will handle them later.
+    // No planning context (e.g. GetSubqueryBoundSymbols); the real planning pass handles them later.
     if (!pc_ctx_ || !pc_ctx_->planner) {
       return;
     }
@@ -719,8 +711,6 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   std::unordered_map<Symbol, PatternComprehensionData> pattern_comprehension_datas_;
   std::unordered_map<Symbol, PatternComprehensionData> order_by_pattern_comprehension_datas_;
   std::unordered_map<Symbol, PatternComprehensionData> where_pattern_comprehension_datas_;
-  // Which part of the return body is currently being visited. ORDER BY and WHERE are both evaluated after the
-  // Produce, but at different points in the operator chain, so their comprehensions need separate splice points.
   BodyPosition position_ = BodyPosition::kProjection;
   // What a post-Produce comprehension may reference: the symbols bound before this clause plus its own output symbols.
   std::unordered_set<Symbol> post_produce_bound_symbols_;
@@ -813,7 +803,6 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
   }
 
-  // Splices a RollUpApply for each planned comprehension in @p pc_data onto last_op.
   auto splice_comprehensions = [&](auto &&pc_data) {
     for (auto &[result_symbol, list_collection_data] : pc_data) {
       if (list_collection_data.op) {
@@ -837,14 +826,12 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   if (body.distinct()) {
     last_op = std::make_unique<Distinct>(std::move(last_op), body.output_symbols());
   }
-  // Comprehensions in ORDER BY reference the named expression symbols, so they can only be evaluated once Produce has
-  // written them. OrderBy reads them during its collection sweep, so they belong directly below it.
+  // They read the named expression symbols, and OrderBy reads them in its collection sweep - so directly below it.
   splice_comprehensions(body.order_by_pattern_comprehension_data());
   // Like Where, OrderBy can read from symbols established by named expressions
   // in Produce, so it must come after it.
   if (!body.order_by().empty()) {
-    // OrderBy restores only the symbols it is given, so anything an operator above it reads must be listed here.
-    // Filter(where) - and any comprehension branch feeding it - sits above OrderBy, so add what the WHERE reads.
+    // OrderBy restores only what it is given, and Filter(where) sits above it, so add what the WHERE reads.
     auto remember = body.output_symbols();
     if (body.where()) {
       WhereReadSymbolsCollector collector(body.symbol_table());
@@ -869,8 +856,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   // Where may see new symbols so it comes after we generate Produce and in
   // general, comes after any OrderBy, Skip or Limit.
   if (body.where()) {
-    // Directly below the Filter, because OrderBy restores only its own output symbols: a comprehension spliced below
-    // an OrderBy would hand the Filter one frozen value for every replayed row.
+    // Below the Filter, not the OrderBy: spliced lower, it would hand the Filter one frozen value per replayed row.
     splice_comprehensions(body.where_pattern_comprehension_data());
     last_op = std::make_unique<Filter>(
         std::move(last_op), std::vector<std::shared_ptr<LogicalOperator>>{}, body.where()->expression_);

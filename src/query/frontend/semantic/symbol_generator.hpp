@@ -169,8 +169,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     std::map<std::string, Symbol> symbols;
     // Symbols imported into a `CALL (v1, v2, ...) { ... }` subquery scope.
     std::map<std::string, Symbol> call_subquery_imports;
-    // Index into scopes_ of the scope that opened the innermost enclosing `CALL {}` subquery. A name that resolves
-    // only in a scope below it belongs to the enclosing query and is not visible here without an explicit import.
+    // Index of the scope that opened the innermost enclosing `CALL {}`. A name resolving only below it belongs to
+    // the enclosing query and needs an explicit import.
     std::optional<size_t> call_subquery_base;
     // Identifiers found in property maps of patterns or as variable length path
     // bounds in a single Match clause. They need to be checked after visiting
@@ -187,8 +187,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
-  // Whether @p name resolves in any scope from index @p from outwards. `call_subquery_base` is the index to pass to
-  // ask only about what is visible inside a `CALL {}` subquery.
+  // Whether @p name resolves in any scope from @p from outwards; pass `call_subquery_base` to ask about a subquery.
   bool HasSymbol(const std::string &name, size_t from = 0) const;
 
   // @return true if it added a predefined identifier with that name
@@ -217,8 +216,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
   std::vector<Scope> scopes_;
   Scope global_scope_;
-  // Symbols declared by the CREATE clause currently being visited. A pattern comprehension inside that clause may not
-  // reference one of them - see the check in Visit(Identifier &). Empty outside a CREATE; CREATE cannot nest.
+  // Symbols the CREATE clause being visited declares. A pattern comprehension inside it may not reference one -
+  // see Visit(Identifier &). CREATE pushes no scope of its own, so this cannot be derived from `scopes_`.
   std::unordered_set<Symbol> create_clause_symbols_;
 };
 

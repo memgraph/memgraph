@@ -256,20 +256,19 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
 
   /** Return @c Symbol vector where the query results will be stored.
    *
-   * Output symbols are the query's result columns, in order - not every symbol the operator writes
-   * (see @c ModifiedSymbols). Three kinds of operator answer:
+   * The query's result columns, in order - not every symbol the operator writes (see @c ModifiedSymbols).
+   * Three kinds of operator answer:
    *
-   * - those that define columns: @c Produce, @c Union, @c CallProcedure, @c LoadCsv, @c LoadParquet,
-   *   @c LoadJsonl, @c OutputTable and @c OutputTableStream;
-   * - those that sit above a column-defining operator and propagate its symbols: @c OrderBy,
-   *   @c OrderByParallel, @c Distinct, @c Skip, @c Limit, @c PeriodicCommit and @c RollUpApply;
-   * - @c EmptyResult, which suppresses them - it is how a query with no result columns is expressed.
+   * - column-defining: @c Produce, @c Union, @c CallProcedure, @c LoadCsv, @c LoadParquet, @c LoadJsonl,
+   *   @c OutputTable, @c OutputTableStream;
+   * - propagating from their input: @c OrderBy, @c OrderByParallel, @c Distinct, @c Skip, @c Limit,
+   *   @c PeriodicCommit, @c RollUpApply;
+   * - @c EmptyResult, which suppresses them.
    *
-   * Propagation is never automatic: the default below returns @c {} for every operator that does not
-   * override, whatever its input. So any operator inserted between the plan root and the
-   * column-defining operator must override and propagate, or the plan root reports no columns, gets
-   * wrapped in @c EmptyResult, and the query silently returns zero of them. That is why
-   * @c RollUpApply propagates, now that it may be spliced above the @c Produce.
+   * Propagation is never automatic - the default returns @c {} whatever the input - so an operator between
+   * the plan root and the column-defining one must override, or the root reports no columns, gets wrapped in
+   * @c EmptyResult, and the query silently returns none. @c Filter is the exception that does not override,
+   * safe only because a @c WITH ... @c WHERE is never a query's last clause.
    *
    *  @param SymbolTable used to find symbols for expressions.
    *  @return std::vector<Symbol> used for results.
