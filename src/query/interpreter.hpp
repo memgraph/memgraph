@@ -310,11 +310,11 @@ struct CurrentDB {
     }
   }
 
-  // Owning-thread-only (or under the verifier's ACTIVE->VERIFYING CAS). Reads db_acc_ with no
-  // synchronization, which is safe only because every db_acc_ writer runs on this same owning thread, so a
-  // read/write pair is never concurrent -- adding a writer on any other thread invalidates this contract and
-  // every unlocked read in interpreter.cpp. A foreign thread -- including one observing an IDLE session --
-  // must use foreign_db_view() instead.
+  // Owning-thread-only (or under the verifier's ACTIVE->VERIFYING CAS). Reads db_acc_ with no synchronization,
+  // safe because a session's queries are serialized -- Bolt's worker pool never runs two for one session at
+  // once, so a writer and this read never overlap regardless of which thread runs each -- adding a concurrent
+  // writer invalidates this contract and every unlocked read in interpreter.cpp. A foreign thread -- including
+  // one observing an IDLE session -- must use foreign_db_view() instead.
   std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
 
   // Safe from any thread: unlike name(), it needs no verifier CAS, which can never succeed on IDLE anyway.
@@ -340,8 +340,8 @@ struct CurrentDB {
   bool in_explicit_db_{false};
   metrics::ScopedGauge transaction_gauge_;
 
-  // Guards mutation of db_acc_ only; owning-thread reads (name(), ~100 direct db_acc_ reads in
-  // interpreter.cpp) skip it because they run on the same thread as every writer and so can never race one.
+  // Guards mutation of db_acc_ only; owning-thread reads (name(), ~100 direct db_acc_ reads in interpreter.cpp) skip
+  // it because a session's queries are serialized, so a reader and writer for the same session never overlap.
   // Must NOT be a spinlock: foreign_db_view() calls Storage::name(), which blocks on a shared_mutex inside
   // utils::SafeString.
   //
