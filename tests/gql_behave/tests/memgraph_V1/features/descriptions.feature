@@ -439,3 +439,33 @@ Feature: Server-side descriptions
         Then the result should be:
             | label |
             | 'Low' |
+
+    Scenario: Property-value description with a list code
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON PROPERTY pair VALUE [1, 2] "One and two"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            RETURN description("pair", [1, 2]) AS label
+            """
+        Then the result should be:
+            | label         |
+            | 'One and two' |
+
+    Scenario: Property-value description with a map code
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON PROPERTY coord VALUE {x: 1, y: 2} "A point"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            RETURN description("coord", {x: 1, y: 2}) AS label
+            """
+        Then the result should be:
+            | label     |
+            | 'A point' |

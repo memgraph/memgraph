@@ -1060,4 +1060,6 @@ propertyValueLiteral
     : StringLiteral
     | numberLiteral
     | booleanLiteral
+    | '[' ( propertyValueLiteral ( ',' propertyValueLiteral )* )? ']'
+    | '{' ( propertyKeyName ':' propertyValueLiteral ( ',' propertyKeyName ':' propertyValueLiteral )* )? '}'
     ;

@@ -4446,7 +4446,7 @@ class DescriptionQuery : public memgraph::query::Query {
   std::vector<LabelIx> to_labels_;
   std::string database_name_;
   std::string description_;
-  storage::ExternalPropertyValue value_;
+  Expression *value_{nullptr};
 
   DescriptionQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<DescriptionQuery>();
@@ -4459,7 +4459,7 @@ class DescriptionQuery : public memgraph::query::Query {
     object->to_labels_ = to_labels_;
     object->database_name_ = database_name_;
     object->description_ = description_;
-    object->value_ = value_;
+    object->value_ = value_ ? value_->Clone(storage) : nullptr;
     return object;
   }
 

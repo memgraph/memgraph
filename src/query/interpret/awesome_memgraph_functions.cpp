@@ -2056,7 +2056,7 @@ TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &c
 }
 
 TypedValue Description(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<String, Or<Null, Bool, Integer, Double, String>>("description", args, nargs);
+  FType<String, Or<Null, Bool, Integer, Double, String, List, Map>>("description", args, nargs);
   if (args[1].IsNull()) return TypedValue(ctx.memory);
   auto const desc = ctx.db_accessor->GetPropertyValueDescription(args[0].ValueString(),
                                                                  static_cast<storage::ExternalPropertyValue>(args[1]));

@@ -3181,6 +3181,47 @@ antlrcpp::Any CypherMainVisitor::visitListLiteral(MemgraphCypher::ListLiteralCon
   return expressions;
 }
 
+// Constant literals only (scalars, and lists/maps thereof) — the grammar forbids non-constant expressions here, so the
+// result is always evaluable by PrimitiveLiteralExpressionEvaluator at prepare time.
+antlrcpp::Any CypherMainVisitor::visitPropertyValueLiteral(MemgraphCypher::PropertyValueLiteralContext *ctx) {
+  if (ctx->StringLiteral() || ctx->booleanLiteral() || ctx->numberLiteral()) {
+    const int token_position = ctx->getStart()->getTokenIndex();
+    if (context_.is_query_cached) {
+      return static_cast<Expression *>(storage_->Create<ParameterLookup>(token_position));
+    }
+    if (ctx->StringLiteral()) {
+      return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(
+          std::any_cast<std::string>(visitStringLiteral(std::any_cast<std::string>(ctx->StringLiteral()->getText()))),
+          token_position));
+    }
+    if (ctx->booleanLiteral()) {
+      return static_cast<Expression *>(
+          storage_->Create<PrimitiveLiteral>(std::any_cast<bool>(ctx->booleanLiteral()->accept(this)), token_position));
+    }
+    return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(
+        std::any_cast<TypedValue>(ctx->numberLiteral()->accept(this)), token_position));
+  }
+  if (ctx->getStart()->getText() == "[") {
+    std::vector<Expression *> elements;
+    elements.reserve(ctx->propertyValueLiteral().size());
+    for (auto *element : ctx->propertyValueLiteral()) {
+      elements.push_back(std::any_cast<Expression *>(element->accept(this)));
+    }
+    return static_cast<Expression *>(storage_->Create<ListLiteral>(std::move(elements)));
+  }
+  std::unordered_map<PropertyIx, Expression *> map;
+  auto keys = ctx->propertyKeyName();
+  auto values = ctx->propertyValueLiteral();
+  for (size_t i = 0; i < keys.size(); ++i) {
+    auto key = std::any_cast<PropertyIx>(keys[i]->accept(this));
+    auto *value = std::any_cast<Expression *>(values[i]->accept(this));
+    if (!map.insert({key, value}).second) {
+      throw SemanticException("Same key can't appear twice in a map literal.");
+    }
+  }
+  return static_cast<Expression *>(storage_->Create<MapLiteral>(std::move(map)));
+}
+
 antlrcpp::Any CypherMainVisitor::visitPropertyKeyName(MemgraphCypher::PropertyKeyNameContext *ctx) {
   return AddProperty(std::any_cast<std::string>(visitChildren(ctx)));
 }
@@ -4838,8 +4879,7 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
   } else if (ctx->PROPERTY() && ctx->VALUE()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY_VALUE;
     description_query->properties_.emplace_back(std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this)));
-    const auto value_token_pos = static_cast<int>(ctx->propertyValueLiteral()->getStart()->getTokenIndex());
-    description_query->value_ = parameters_->AtTokenPosition(value_token_pos);
+    description_query->value_ = std::any_cast<Expression *>(ctx->propertyValueLiteral()->accept(this));
   } else if (ctx->PROPERTY()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY;
     description_query->properties_.emplace_back(std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this)));

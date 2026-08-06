@@ -6841,7 +6841,12 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
   auto to_label_names =
       desc_query->to_labels_ | rv::transform([](auto const &label) { return label.name; }) | r::to_vector;
   auto database_name = std::move(desc_query->database_name_);
-  auto value = std::move(desc_query->value_);
+  storage::ExternalPropertyValue value;
+  if (desc_query->value_ != nullptr) {
+    const EvaluationContext eval_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+    PrimitiveLiteralExpressionEvaluator value_evaluator{eval_context};
+    value = static_cast<storage::ExternalPropertyValue>(desc_query->value_->Accept(value_evaluator));
+  }
   auto current_db_name = current_db.db_acc_->get()->name();
 
   switch (desc_query->action_) {
