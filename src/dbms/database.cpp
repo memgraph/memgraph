@@ -63,26 +63,19 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
 };
 
 Database::~Database() {
-  // Every teardown path -- Delete_/DeferDelete, Gatekeeper::Accessor::try_delete(),
-  // Gatekeeper::finish_suspend(), ~Gatekeeper, DbmsHandler::Update()'s drop-and-recreate, and the
-  // implicit teardown at process exit -- funnels through this destructor. The cached 2PC commit
-  // accessor in InMemoryReplicationHandlers is storage-level, not gatekeeper-counted, so none of
-  // those drains observes or waits on it; discarding it here, structurally, replaces having to
-  // remember an AbortTwoPCForTenant call at every one of those sites individually. This is safe
-  // because the destructor body runs before any member is destroyed, so storage_ -- and the per-DB
-  // arena its deltas were allocated from -- is still fully intact. AbortTwoPCForTenant is
-  // UUID-scoped, so a 2PC cached for a different tenant is left untouched. This deliberately takes
-  // no utils::Gatekeeper path: finish_suspend() holds the non-recursive GKInternals::mutex_ across
-  // ~Database (gatekeeper.hpp:400), so any gatekeeper re-entry from here would self-deadlock.
+  // Every teardown path (drop, suspend, drop-recreate, process exit) destroys via this destructor, and
+  // the cached 2PC accessor is storage-level, not gatekeeper-counted -- this is the one choke point
+  // that reaches it. Safe: the body runs before storage_ is destroyed.
+  //
+  // Must not call any utils::Gatekeeper method here -- finish_suspend() holds GKInternals::mutex_
+  // across ~Database (gatekeeper.hpp:394), so re-entry would self-deadlock.
   try {
-    // GatekeeperGuard clears the arena TLS state around Database construction/destruction, and
-    // Abort() walking deltas allocates -- re-establish the scope so those allocations are
-    // attributed to this tenant's arena rather than whatever happened to be in TLS.
+    // GatekeeperGuard clears arena TLS around Database destruction; re-establish it so Abort()'s
+    // delta walk allocates against this tenant's arena, not stale TLS.
     const memory::DbArenaScope db_arena_scope{this};
     InMemoryReplicationHandlers::AbortTwoPCForTenant(uuid());
   } catch (const std::exception &e) {
-    // A destructor is implicitly noexcept, so this can't escape (~Database is on that chain too);
-    // log so a stuck 2PC has a diagnostic anchor, same rationale as ~Gatekeeper's wrapped spdlog::trace.
+    // spdlog can throw; swallow it so it can't escape this implicitly-noexcept destructor (mirrors ~Gatekeeper).
     try {
       spdlog::error(
           "Database::~Database: failed to abort cached 2PC for tenant {}: {} -- prepared transaction stays pinned in "
