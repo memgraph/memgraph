@@ -478,8 +478,9 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
 
     // Abort prev txn if needed
     // It could happen that the main instance died before sending finalize for the previous commit and then
-    // the new instance becomes main and sends prepare
-    DestroyReplAccessor(&heartbeat);
+    // the new instance becomes main and sends prepare. Scoped to this tenant so an RPC for storage A cannot
+    // abort a different tenant's still-pending 2PC (that would strand it and reply commit-OK falsely).
+    AbortTwoPCForTenant(storage->uuid(), &heartbeat);
     auto &repl_storage_state = storage->repl_storage_state_;
 
     if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
@@ -602,11 +603,24 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
-void InMemoryReplicationHandlers::DestroyReplAccessor(rpc::ProgressHeartbeat *heartbeat) {
+void InMemoryReplicationHandlers::DestroyReplAccessor() {
   // Extract under the cache's internal lock, then abort the local outside it -- AbortAndResetCommitTs()
   // walks the transaction's deltas and must not run with the cache mutex held.
   auto accessor = dbms::TwoPCCommitCache::Instance().TakeAny();
   if (accessor) {
+    accessor->AbortAndResetCommitTs();
+  }
+}
+
+void InMemoryReplicationHandlers::AbortTwoPCForTenant(utils::UUID const &uuid, rpc::ProgressHeartbeat *heartbeat) {
+  // TD-3': single global 2PC slot — only abort it when the cached accessor is this tenant's, else a
+  // pending 2PC for a different tenant would be wrongly dropped. See TwoPCCommitCache::TakeForTenant's
+  // declaration comment for why the comparison uses the uuid captured at populate time, not one
+  // re-derived from the accessor.
+  auto accessor = dbms::TwoPCCommitCache::Instance().TakeForTenant(uuid);
+  if (accessor) {
+    // on_progress is reported per delta undone: an interrupted 2PC's abort is O(deltas), and the RPC
+    // pre-abort callers run it inside a handler whose peer is timing them.
     auto const on_progress = [heartbeat]() -> storage::ProgressCallback {
       if (heartbeat == nullptr) return {};
       return [heartbeat] { heartbeat->RecordProgress(); };
@@ -615,20 +629,9 @@ void InMemoryReplicationHandlers::DestroyReplAccessor(rpc::ProgressHeartbeat *he
   }
 }
 
-void InMemoryReplicationHandlers::AbortTwoPCForTenant(utils::UUID const &uuid) {
-  // TD-3': single global 2PC slot — only abort it when the cached accessor is this tenant's, else a
-  // pending 2PC for a different tenant would be wrongly dropped. See TwoPCCommitCache::TakeForTenant's
-  // declaration comment for why the comparison uses the uuid captured at populate time, not one
-  // re-derived from the accessor.
-  auto accessor = dbms::TwoPCCommitCache::Instance().TakeForTenant(uuid);
-  if (accessor) {
-    accessor->AbortAndResetCommitTs();
-  }
-}
-
 void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage,
                                                        rpc::ProgressHeartbeat *heartbeat) {
-  DestroyReplAccessor(heartbeat);
+  AbortTwoPCForTenant(storage->uuid(), heartbeat);
   if (storage->wal_file_) {
     storage->wal_file_->FinalizeWal();
     storage->wal_file_.reset();
