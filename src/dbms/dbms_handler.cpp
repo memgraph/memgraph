@@ -460,6 +460,14 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
     return std::unexpected{DeleteError::NON_EXISTENT};
   }
 
+  // Detach from tenant profile BEFORE the durability key is erased below, so a crash in
+  // between cannot leave a stale profile mapping pointing at a name that no longer has a
+  // tenant. Return value is safe to ignore here — if the DB is not attached, detaching is a
+  // no-op.
+  if (tenant_profiles_) {
+    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(db_name);
+  }
+
   // Remove from durability list
   if (durability_) durability_->Delete(Durability::GenKey(db_name));
 
@@ -468,13 +476,6 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
   (void)std::filesystem::remove_all(storage_path, ec);
   if (ec) {
     spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
-  }
-
-  // Detach from tenant profile. Return value is safe to ignore here because this
-  // code path (TryDelete) is exclusive with the DetachFromDatabase call in Delete_
-  // below. If the DB is not attached, detaching is a no-op.
-  if (tenant_profiles_) {
-    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(db_name);
   }
 
   // Success
@@ -779,14 +780,18 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
   const std::string name_copy{name};
   suspended_.erase(it);
   db_handler_.EraseColdShell(name_copy);  // guaranteed to succeed: we just verified state==COLD above
+  // Detach from tenant profile BEFORE the durability key is erased below, so a crash in
+  // between cannot leave a stale profile mapping pointing at a name that no longer has a
+  // tenant. Return value is safe to ignore here — if the DB is not attached, detaching is a
+  // no-op.
+  if (tenant_profiles_) {
+    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(name_copy);
+  }
   if (durability_) durability_->Delete(Durability::GenKey(name_copy));
   std::error_code ec;
   (void)std::filesystem::remove_all(data_dir, ec);
   if (ec) {
     spdlog::error(R"(Failed to clean disk while dropping suspended database "{}" at {})", name_copy, data_dir.string());
-  }
-  if (tenant_profiles_) {
-    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(name_copy);
   }
   UpdateColdGauge_();
   return uuid;
@@ -821,15 +826,16 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     database.streams()->DropAll();
   }
 
-  // Remove from durability list
-  if (durability_) durability_->Delete(Durability::GenKey(db_name));
-
-  // Detach from tenant profile. Return value is safe to ignore here because this
-  // code path (Delete_) is exclusive with the TryDelete path above. If the DB is
-  // not attached, detaching is a no-op.
+  // Detach from tenant profile BEFORE the durability key is erased below, so a crash in
+  // between cannot leave a stale profile mapping pointing at a name that no longer has a
+  // tenant. Return value is safe to ignore here — if the DB is not attached, detaching is a
+  // no-op.
   if (tenant_profiles_) {
     [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(db_name);
   }
+
+  // Remove from durability list
+  if (durability_) durability_->Delete(Durability::GenKey(db_name));
 
   // Check if db exists
   // Low level handlers
