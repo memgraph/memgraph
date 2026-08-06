@@ -101,10 +101,8 @@ struct GatekeeperGuardFor<T, std::void_t<typename T::GatekeeperGuard>> {
   using type = typename T::GatekeeperGuard;
 };
 
-// Opt-in identity label for the stall diagnostic in ~Gatekeeper: a generic container has no name for
-// what it holds, but a log line that cannot say WHICH object is stuck is far less useful. Mirrors
-// GatekeeperGuardFor above — T contributes the label by declaring `gatekeeper_label()`; Gatekeeper
-// itself must stay free of any tenant/dbms vocabulary. Types that do not opt in pay nothing.
+// Opt-in identity label for the stall diagnostic in ~Gatekeeper (mirrors GatekeeperGuardFor above): T
+// declares `gatekeeper_label()` to contribute a name; Gatekeeper itself stays free of tenant/dbms vocabulary.
 template <typename T, typename = void>
 struct GatekeeperLabelFor {
   static std::string get(T const &) { return {}; }
@@ -145,11 +143,10 @@ constexpr std::string_view GatekeeperStateName(GatekeeperState state) {
   std::unreachable();
 }
 
-// HOT and COLD are the terminal states of the state machine documented on the enum above; SUSPENDING
-// and RESUMING are in-flight transitions. ~Gatekeeper's teardown wait (below) blocks until a terminal
-// state is reached, which is the sole reason this predicate exists.
-// Exhaustive on purpose (no `default:`): -Werror=switch turns a future 5th enumerator into a compile
-// error instead of silently classifying it as terminal or not.
+// HOT and COLD (see the enum above) are the terminal states; SUSPENDING/RESUMING are in-flight —
+// ~Gatekeeper's teardown wait (below) blocks on this predicate, the sole reason it exists.
+// Exhaustive on purpose (no `default:`): -Werror=switch (CMakeLists.txt:303) turns a future 5th
+// enumerator into a compile error instead of silently classifying it as terminal or not.
 constexpr bool IsTerminalGatekeeperState(GatekeeperState state) noexcept {
   switch (state) {
     case GatekeeperState::HOT:
@@ -485,11 +482,9 @@ struct Gatekeeper {
   ~Gatekeeper() {
     if (!pimpl_) return;  // Moved out, nothing to do
     pimpl_->is_marked_for_deletion = true;
-    // Wait for a terminal state (HOT or COLD) AND a drained accessor count — two independent halves.
-    // Every transition above calls notify_all(), so this wait cannot lose a wakeup; it stays unbounded
-    // because a slow accessor drain on shutdown is legitimate. Past kDiagInterval, though, it is no
-    // longer a benign drain — it is a stuck holder or a caller ordering error, and an operator needs to
-    // see it, so the periodic breadcrumb below branches on which half is unsatisfied and logs at WARN.
+    // Every transition above calls notify_all(), so this wait cannot lose a wakeup. It stays unbounded
+    // (a slow accessor drain on shutdown is legitimate) but logs at WARN past kDiagInterval, since by then it's no
+    // longer benign.
     {
       auto lock = std::unique_lock{pimpl_->mutex_};
       auto const terminal_and_drained = [this] {
@@ -500,15 +495,12 @@ struct Gatekeeper {
         auto const state = pimpl_->state_;
         auto const count = pimpl_->count_;
         bool const non_terminal = !IsTerminalGatekeeperState(state);
-        // Everything below — the label/prefix strings, fmt::format, spdlog — can allocate or throw
-        // (bad_alloc, formatting, sink I/O), and a destructor is implicitly noexcept, so any of it
-        // escaping would call std::terminate. Swallow it all - the wait condition above is what
-        // matters here, not this breadcrumb.
+        // Everything below (label/prefix strings, fmt::format, spdlog) can allocate or throw; ~Gatekeeper
+        // is implicitly noexcept, so an escaping exception would call std::terminate — swallow it all.
         try {
-          // value_ is empty in COLD and RESUMING (see finish_suspend/begin_resume), both reachable here —
-          // RESUMING is a legitimately long in-flight recovery, and COLD-with-count>0 is reachable in
-          // release builds because finish_suspend's count_==0 invariant is only a DMG_ASSERT (a no-op
-          // under NDEBUG). Guard on has_value() so the label is opt-in twice over, not a SIGSEGV.
+          // value_ is empty in COLD and RESUMING (finish_suspend/begin_resume); guard on has_value() to
+          // avoid a null deref — COLD-with-count>0 is reachable in release since finish_suspend's DMG_ASSERT is a no-op
+          // under NDEBUG.
           auto const label = pimpl_->value_ ? GatekeeperLabelFor<T>::get(*pimpl_->value_) : std::string{};
           auto const prefix = label.empty() ? std::string{"~Gatekeeper"} : "~Gatekeeper[" + label + "]";
           std::string reason;
