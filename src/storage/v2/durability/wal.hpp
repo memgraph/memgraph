@@ -664,8 +664,11 @@ class WalFile {
   void UpdateStats(uint64_t timestamp);
 
  private:
-  /// Rewrites the metadata section with the summary of what was actually written and repairs the header CRC.
+  /// Fills in the summary of what was actually written, over the placeholders the constructor reserved.
   void WriteSummary();
+
+  /// Bytes the summary region occupies: three values plus its own CRC trailer, each a marker and a uint64.
+  static constexpr uint64_t kSummaryBytes = 4 * (sizeof(Marker) + sizeof(uint64_t));
 
   SalientConfig::Items items_;
   NameIdMapper *name_id_mapper_;
@@ -677,13 +680,8 @@ class WalFile {
   // count_ as of the last completed transaction, i.e. excluding a transaction still being appended.
   uint64_t num_deltas_{0};
   uint64_t seq_num_;
-
-  // Retained so that FinalizeWal can rewrite the metadata section byte for byte, changing only the summary.
-  std::string uuid_;
-  std::string epoch_id_;
-  uint64_t offset_metadata_{0};
-  uint64_t offset_header_crc_{0};
-  uint32_t crc_prefix_offsets_{0};
+  // Where FinalizeWal writes the summary. Deliberately outside the CRC-protected metadata section above it.
+  uint64_t offset_summary_{0};
 
   utils::FileRetainer *file_retainer_;
 };

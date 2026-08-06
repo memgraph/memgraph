@@ -116,17 +116,45 @@ verification to the apply loop, which was tried, does not help: it detects the
 damage no earlier than the parse failure does, and by then part of the transaction
 is applied.
 
-### 3. Back-patch the header rather than append a trailer
+### 3. Back-patch, but outside the metadata's CRC region
 
 The constructor already back-patches the offsets, and `WriteUint` is a marker plus
 8 little-endian bytes, so patching in place is exact. Readers keep a single
 sequential header parse instead of a second seek to EOF.
 
-`WriteSummary` rewrites the whole metadata section rather than patching the three
-values, so its CRC comes from the same code path as the constructor's instead of
-from byte-level CRC arithmetic. The constructor stores where the section begins,
-where its CRC trailer sits, and the CRC of everything preceding it. An assertion
-checks the rewrite lands exactly on the reserved trailer.
+The summary is *not* part of the metadata section, though. It sits after the
+metadata's CRC trailer and carries a CRC of its own:
+
+```
+SECTION_METADATA marker, uuid, epoch_id, seq_num
+metadata CRC trailer        <- written once by the constructor, never again
+from_timestamp, to_timestamp, num_deltas
+summary CRC trailer
+offset_deltas -> first delta
+```
+
+The first version put the summary inside the metadata section and had
+`WriteSummary` rewrite the whole thing to recompute the CRC. That created a window
+where a crash could lose an entire WAL file. Every `GetPosition()` and
+`SetPosition()` reaches `OutputFile::SetPosition`, which flushes, so the new values
+reached the page cache several writes before the new CRC did; a crash between them
+left the header carrying new values with a stale CRC, `ReadWalHeader` threw, and
+`GetWalFiles` dropped the file - taking up to `--storage-wal-file-size-kib` of
+committed transactions with it. Before this work `FinalizeWal` never touched the
+header at all, so a crash during rotation cost nothing, and WAL rotation runs
+routinely under write load.
+
+Separating the regions makes it fail-safe. A torn summary write cannot invalidate
+uuid/epoch/seq or their CRC, so the identity still parses; the summary's own CRC
+catches the damage, it reads as absent, and the file falls back to `ReadWalInfo` -
+the same path an unfinalized file takes. The worst case is losing the optimisation
+for one file rather than the file.
+
+`WriteSummary` is also now seek-once-and-write-forward: `WriteCrc()` emits the
+marker and value at the current position, so nothing between the seek and the CRC
+flushes and the whole region reaches the file in one write. And it no longer needs
+the uuid, epoch id, metadata offset, CRC offset or prefix CRC as members - only the
+summary offset.
 
 ### 4. No new durability version
 
@@ -181,6 +209,9 @@ exist.
 
 - **Which files are excluded.** `num_deltas == 0` reproduces `ReadWalInfo` throwing.
   A corrupt header still throws from `ReadWalHeader`.
+- **Finalizing cannot damage a file.** The metadata section and its CRC are written
+  once, by the constructor. A crash during `FinalizeWal` can only leave the summary
+  torn, which reads as absent.
 - **CRC verification.** Untouched — it happens in `ReadWalInfo`, which `LoadWal`
   still calls on every file it applies.
 - **Ordering.** `GetWalFiles` still sorts by seq_num, and `erase_if` is stable, so

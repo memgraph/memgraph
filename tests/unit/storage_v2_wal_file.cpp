@@ -1040,6 +1040,50 @@ TEST_P(WalFileTest, FinalizedHeaderSummaryMatchesScan) {
   EXPECT_EQ(header.seq_num, scanned.seq_num);
 }
 
+// The summary lives outside the CRC-protected metadata section precisely so that a writer dying partway through
+// filling it in cannot cost the whole file. Damaging it must leave the identity readable and send the reader back to
+// parsing the deltas, exactly as an unfinalized file would.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(WalFileTest, DamagedSummaryFallsBackToParsing) {
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    TRANSACTION(true, { tx.CreateVertex(); });
+    TRANSACTION(true, { tx.CreateVertex(); });
+    gen.Finalize();
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  auto const &wal_file = wal_files.front();
+
+  auto const pristine = memgraph::storage::durability::ReadWalHeader(wal_file);
+  ASSERT_TRUE(pristine.summary.has_value());
+
+  // The summary's CRC trailer ends immediately before the first delta, so its last byte is offset_deltas - 1.
+  {
+    memgraph::utils::OutputFile corrupted;
+    corrupted.Open(wal_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    corrupted.SetPosition(memgraph::utils::OutputFile::Position::SET, pristine.offset_deltas - 1);
+    uint8_t const flipped = 0xFF;
+    corrupted.Write(&flipped, 1);
+    corrupted.Sync();
+    corrupted.Close();
+  }
+
+  auto const damaged = memgraph::storage::durability::ReadWalHeader(wal_file);
+  EXPECT_FALSE(damaged.summary.has_value()) << "a summary failing its own CRC must not be trusted";
+  EXPECT_EQ(damaged.uuid, pristine.uuid);
+  EXPECT_EQ(damaged.epoch_id, pristine.epoch_id);
+  EXPECT_EQ(damaged.seq_num, pristine.seq_num);
+  EXPECT_EQ(damaged.offset_deltas, pristine.offset_deltas);
+
+  // The deltas are untouched, so recovery still gets everything by parsing them.
+  auto const scanned = memgraph::storage::durability::ReadWalInfo(wal_file);
+  EXPECT_EQ(scanned.from_timestamp, pristine.summary->from_timestamp);
+  EXPECT_EQ(scanned.to_timestamp, pristine.summary->to_timestamp);
+  EXPECT_EQ(scanned.num_deltas, pristine.summary->num_deltas);
+}
+
 // A file the writer never finalized still holds the zeroed placeholders, which readers must not mistake for a real
 // summary. This is what a crash leaves behind, and what every other test in this file produces.
 // NOLINTNEXTLINE(hicpp-special-member-functions)

@@ -966,28 +966,36 @@ WalHeader DecodeWalHeader(Decoder &wal, const std::filesystem::path &path, uint6
     auto maybe_seq_num = wal.ReadUint();
     if (!maybe_seq_num) throw RecoveryFailure(kInvalidWalErrorMessage);
     header.seq_num = *maybe_seq_num;
-
-    if (version >= k37) {
-      auto read_summary_value = [&wal] {
-        auto maybe_value = wal.ReadUint();
-        if (!maybe_value) throw RecoveryFailure(kInvalidWalErrorMessage);
-        return *maybe_value;
-      };
-      // Read unconditionally to keep the decoder aligned with the CRC trailer, then decide whether the values mean
-      // anything. FinalizeWal only ever writes a positive count, so zero is still the placeholder it reserved.
-      auto const from_timestamp = read_summary_value();
-      auto const to_timestamp = read_summary_value();
-      if (auto const num_deltas = read_summary_value(); num_deltas != 0) {
-        header.summary =
-            WalSummary{.from_timestamp = from_timestamp, .to_timestamp = to_timestamp, .num_deltas = num_deltas};
-      }
-    }
   }
 
   if (version >= kCrcProtection) {
     wal.ReadUint();
     if (!utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
       throw RecoveryFailure("Durability mismatch in WAL header");
+    }
+  }
+
+  // The summary follows the metadata's CRC trailer and carries its own CRC, so a writer that died partway through
+  // filling it in cannot invalidate anything above. A failed CRC, or the zero count the constructor reserved, both
+  // mean the same thing here: nothing to trust, so the caller has to parse the deltas instead. Neither is an error.
+  if (version >= k37) {
+    auto read_value = [&wal] {
+      auto maybe_value = wal.ReadUint();
+      if (!maybe_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+      return *maybe_value;
+    };
+
+    wal.ResetCrcAcc();
+    auto const from_timestamp = read_value();
+    auto const to_timestamp = read_value();
+    auto const num_deltas = read_value();
+    read_value();  // the summary's own CRC trailer, folded into the accumulator by reading it
+
+    if (num_deltas != 0 && utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+      header.summary =
+          WalSummary{.from_timestamp = from_timestamp, .to_timestamp = to_timestamp, .num_deltas = num_deltas};
+    } else if (num_deltas != 0) {
+      spdlog::warn("WAL file {} has a damaged summary; its deltas will be parsed instead.", path);
     }
   }
 
@@ -2184,8 +2192,6 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
       to_timestamp_(0),
       count_(0),
       seq_num_(seq_num),
-      uuid_(uuid),
-      epoch_id_(epoch_id),
       file_retainer_(file_retainer) {
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(wal_directory);
@@ -2205,20 +2211,28 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   offset_metadata = wal_.GetPosition();
   wal_.ResetCrcAcc();
   wal_.WriteMarker(Marker::SECTION_METADATA);
-  wal_.WriteString(uuid_);
-  wal_.WriteString(epoch_id_);
+  wal_.WriteString(std::string{uuid});
+  wal_.WriteString(epoch_id);
   wal_.WriteUint(seq_num);
-  // Summary placeholders, overwritten by FinalizeWal once the contents are known. A delta count of zero is what
-  // marks them as such: no file worth trusting the summary of has one.
-  wal_.WriteUint(0);
-  wal_.WriteUint(0);
-  wal_.WriteUint(0);
 
   uint64_t const offset_header_crc = wal_.GetPosition();
   wal_.WriteMarker(Marker::TYPE_INT);
   auto const crc_metadata = wal_.CrcAccValue();  // crc(metadata + trailer TYPE_INT marker)
   uint64_t const crc_metadata_len = wal_.GetPosition() - offset_metadata;
-  offset_deltas = offset_header_crc + sizeof(Marker) + sizeof(uint64_t);
+
+  // The summary sits after the metadata's CRC trailer, with a CRC of its own, so that FinalizeWal overwriting it
+  // can never invalidate the identity above: a torn rewrite fails the summary's CRC and reads as no summary at all,
+  // which is the same thing an unfinalized file reports. Placeholders now, real values at FinalizeWal.
+  offset_summary_ = offset_header_crc + sizeof(Marker) + sizeof(uint64_t);
+  wal_.SetPosition(offset_summary_);
+  wal_.ResetCrcAcc();
+  wal_.WriteUint(0);
+  wal_.WriteUint(0);
+  wal_.WriteUint(0);
+  wal_.WriteCrc();
+
+  offset_deltas = offset_summary_ + kSummaryBytes;
+  MG_ASSERT(wal_.GetPosition() == offset_deltas, "WAL summary must occupy exactly kSummaryBytes in {}", path_);
 
   // Back-patch the offsets with their final values, capturing crc(offsets) from a clean accumulator.
   wal_.SetPosition(offset_offsets);
@@ -2232,14 +2246,8 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   auto const crc_prefix_offsets = utils::CrcAccumulator::Combine(crc_header_prefix, crc_offsets, kOffsetsBytes);
   auto const header_crc = utils::CrcAccumulator::Combine(crc_prefix_offsets, crc_metadata, crc_metadata_len);
 
-  // Patch the reserved trailer with the final header CRC.
+  // Patch the reserved trailer with the final header CRC. This is the last time the metadata section is written.
   wal_.WriteCrcAt(offset_header_crc, header_crc);
-
-  // FinalizeWal replays the metadata write with the real summary, so it needs where that section starts, where its
-  // CRC trailer lives, and the CRC of everything preceding it.
-  offset_metadata_ = offset_metadata;
-  offset_header_crc_ = offset_header_crc;
-  crc_prefix_offsets_ = crc_prefix_offsets;
 
   wal_.SetPosition(offset_deltas);
   wal_.ResetCrcAcc();
@@ -2252,27 +2260,15 @@ void WalFile::WriteSummary() {
   // Remember where appending should resume; GetPosition also flushes the buffer.
   auto const end_pos = wal_.GetPosition();
 
-  // Replay the metadata write, identical to the constructor's except that the summary now holds real values, so
-  // that its CRC is produced by the same code path rather than by patching bytes.
-  wal_.SetPosition(offset_metadata_);
+  // Overwrite the placeholders reserved by the constructor. Nothing between the seek and the CRC flushes, so the
+  // whole region reaches the file in a single write - and even a torn one only costs the summary, because the
+  // identity above it and its CRC are not touched.
+  wal_.SetPosition(offset_summary_);
   wal_.ResetCrcAcc();
-  wal_.WriteMarker(Marker::SECTION_METADATA);
-  wal_.WriteString(uuid_);
-  wal_.WriteString(epoch_id_);
-  wal_.WriteUint(seq_num_);
   wal_.WriteUint(from_timestamp_);
   wal_.WriteUint(to_timestamp_);
   wal_.WriteUint(num_deltas_);
-
-  MG_ASSERT(wal_.GetPosition() == offset_header_crc_,
-            "WAL summary must occupy exactly the space reserved for it in {}",
-            path_);
-
-  wal_.WriteMarker(Marker::TYPE_INT);
-  auto const crc_metadata = wal_.CrcAccValue();
-  uint64_t const crc_metadata_len = wal_.GetPosition() - offset_metadata_;
-  wal_.WriteCrcAt(offset_header_crc_,
-                  utils::CrcAccumulator::Combine(crc_prefix_offsets_, crc_metadata, crc_metadata_len));
+  wal_.WriteCrc();
 
   wal_.SetPosition(end_pos);
 }
