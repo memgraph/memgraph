@@ -11,8 +11,6 @@
 
 #include "storage/v2/disk/storage.hpp"
 
-#include "utils/on_scope_exit.hpp"
-
 #include <atomic>
 #include <cstdint>
 #include <limits>
@@ -59,6 +57,7 @@
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/small_vector.hpp"

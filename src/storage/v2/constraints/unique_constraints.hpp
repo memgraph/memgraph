@@ -14,7 +14,7 @@
 #include <memory>
 #include <set>
 
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/vertex.hpp"
 
