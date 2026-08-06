@@ -106,6 +106,14 @@ struct GlobalMetricHandles {
   prometheus::Histogram *database_suspend_latency_seconds;
   prometheus::Histogram *database_resume_latency_seconds;
 
+  // Deferred tenant destruction (global — by the time a dropped tenant is in this state,
+  // PrometheusMetrics::RemoveDatabase has already dropped its per-db series, so there is no per-db
+  // label left to attach to). The gauge tracks tenants erased from the handler map whose Database
+  // object is still alive because an accessor was held at DROP time; the counter is the cumulative
+  // number of drops that hit this path, so it stays diagnosable even after the gauge returns to zero.
+  prometheus::Gauge *pending_tenant_destructions;
+  prometheus::Counter *deferred_tenant_destructions;
+
   // Transaction (global) — incremented when no per-db context is available
   prometheus::Counter *transient_errors;
   prometheus::Counter *failed_query;
@@ -426,6 +434,11 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &cold_databases_family_;
   prometheus::Family<prometheus::Histogram> &database_suspend_latency_family_;
   prometheus::Family<prometheus::Histogram> &database_resume_latency_family_;
+
+  // Global metric families — deferred tenant destruction (see GlobalMetricHandles above for why
+  // these have no per-db counterpart)
+  prometheus::Family<prometheus::Gauge> &pending_tenant_destructions_family_;
+  prometheus::Family<prometheus::Counter> &deferred_tenant_destructions_family_;
 
   // No separate global families needed — global no-db counters reuse the per-db families with no label
 
