@@ -326,3 +326,71 @@ TEST(HotColdGatekeeper, DeferDeleteErasesButDefersDestruction) {
   EXPECT_TRUE(destroyed.load(std::memory_order_acquire));
   EXPECT_TRUE(callback_fired.load(std::memory_order_acquire));
 }
+
+// ---------------------------------------------------------------------------
+// DeferDeleteDoesNotHeadOfLineBlockAnotherEntry
+// ---------------------------------------------------------------------------
+// The starvation regression guard. Handler<T>::DeferDelete parks a BLOCKING
+// ~Gatekeeper -- it does not return until the entry's last Accessor is released,
+// with no timeout. When all deferred destructions shared one worker thread, an
+// entry nobody could drain owned that worker forever and every later entry's
+// destruction queued behind it and never ran at all, so the objects (and their
+// memory) were never released either, even though they had already left the map.
+//
+// Two probes: "stuck" stays pinned for the whole test, "freed" is released. The
+// property is that "freed" must be destroyed anyway. Deliberately free of any
+// Database, memory tracker or allocator dependency -- the probe's atomics are
+// the observable, so this stays a fast, deterministic check on the handler's
+// threading alone.
+TEST(HotColdGatekeeper, DeferDeleteDoesNotHeadOfLineBlockAnotherEntry) {
+  memgraph::dbms::Handler<DeferDeleteProbe> handler;
+
+  std::atomic<bool> stuck_destroyed{false};
+  std::atomic<bool> freed_destroyed{false};
+  std::atomic<bool> freed_callback_fired{false};
+
+  auto stuck = handler.New(std::piecewise_construct, "stuck", &stuck_destroyed, std::chrono::milliseconds(0));
+  ASSERT_TRUE(stuck.has_value());
+  auto stuck_acc = std::move(*stuck);
+  ASSERT_TRUE(stuck_acc);
+
+  auto freed = handler.New(std::piecewise_construct, "freed", &freed_destroyed, std::chrono::milliseconds(0));
+  ASSERT_TRUE(freed.has_value());
+  auto freed_acc = std::move(*freed);
+  ASSERT_TRUE(freed_acc);
+
+  // Both drops must take the DEFERRED path, not the synchronous one: each entry's accessor above is
+  // still held, so DeferDelete's own accessor makes count_ == 2 and try_delete()'s count_ == 1 check
+  // fails for both.
+  handler.DeferDelete("stuck", [] {});
+  handler.DeferDelete("freed",
+                      [&freed_callback_fired] { freed_callback_fired.store(true, std::memory_order_release); });
+
+  // Release ONLY "freed". "stuck" stays pinned below, so its destruction cannot possibly complete.
+  // "freed" has nothing left holding it, so its destruction must complete regardless -- that is the
+  // whole property: the two must not share a worker.
+  freed_acc.reset();
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!freed_destroyed.load(std::memory_order_acquire) || !freed_callback_fired.load(std::memory_order_acquire)) {
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline)
+        << "\"freed\" never got destroyed while \"stuck\" was pinned: head-of-line blocking between "
+           "unrelated entries";
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  // "stuck" must still be alive. Without this the test would also pass if something had released
+  // "stuck" -- i.e. for the wrong reason, with the two entries never actually decoupled.
+  EXPECT_FALSE(stuck_destroyed.load(std::memory_order_acquire));
+
+  // Release "stuck" and WAIT for it. DeferDeleteProbe holds a raw pointer to its flag, and the local
+  // atomics above are destroyed BEFORE `handler` (reverse declaration order), so ~Handler's join
+  // would otherwise run the probe's destructor against a dead flag. Draining here, not in ~Handler,
+  // is what keeps that from being a use-after-free.
+  stuck_acc.reset();
+  const auto drain_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!stuck_destroyed.load(std::memory_order_acquire)) {
+    ASSERT_LT(std::chrono::steady_clock::now(), drain_deadline) << "\"stuck\" was not destroyed after being released";
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+}
