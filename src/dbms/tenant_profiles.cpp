@@ -13,6 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <iterator>
 #include <map>
 #include <set>
 
@@ -144,7 +145,8 @@ std::expected<int64_t, TenantProfiles::AttachError> TenantProfiles::AttachToData
   return new_profile.memory_limit;
 }
 
-std::expected<void, TenantProfiles::DetachError> TenantProfiles::DetachFromDatabase(std::string_view db_name) {
+std::expected<void, TenantProfiles::DetachError> TenantProfiles::DetachFromDatabase(
+    std::string_view db_name, std::vector<std::string> extra_keys_to_delete) {
   const std::unique_lock lock{mutex_};
   auto profile_name = durability_->Get(DbMappingKey(db_name));
   if (!profile_name) return std::unexpected{DetachError::NOT_ATTACHED};
@@ -168,7 +170,10 @@ std::expected<void, TenantProfiles::DetachError> TenantProfiles::DetachFromDatab
     return std::unexpected{DetachError::DURABILITY_ERROR};
   }
 
-  const std::vector<std::string> to_delete{DbMappingKey(db_name)};
+  std::vector<std::string> to_delete{DbMappingKey(db_name)};
+  to_delete.insert(to_delete.end(),
+                   std::make_move_iterator(extra_keys_to_delete.begin()),
+                   std::make_move_iterator(extra_keys_to_delete.end()));
   if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return std::unexpected{DetachError::DURABILITY_ERROR};
   return {};
 }

@@ -478,16 +478,13 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
     return std::unexpected{DeleteError::NON_EXISTENT};
   }
 
-  // Detach from tenant profile BEFORE the durability key is erased below, so a crash in
-  // between cannot leave a stale profile mapping pointing at a name that no longer has a
-  // tenant. Return value is safe to ignore here — if the DB is not attached, detaching is a
-  // no-op.
+  // The tenant's durability key rides along in the detach's atomic batch, so a crash can't retire
+  // one without the other; the fallback below only fires when detach didn't run or wasn't attached.
+  bool retired_with_detach = false;
   if (tenant_profiles_) {
-    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(db_name);
+    retired_with_detach = tenant_profiles_->DetachFromDatabase(db_name, {Durability::GenKey(db_name)}).has_value();
   }
-
-  // Remove from durability list
-  if (durability_) durability_->Delete(Durability::GenKey(db_name));
+  if (!retired_with_detach && durability_) durability_->Delete(Durability::GenKey(db_name));
 
   // Delete disk storage
   std::error_code ec;
@@ -798,14 +795,13 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
   const std::string name_copy{name};
   suspended_.erase(it);
   db_handler_.EraseColdShell(name_copy);  // guaranteed to succeed: we just verified state==COLD above
-  // Detach from tenant profile BEFORE the durability key is erased below, so a crash in
-  // between cannot leave a stale profile mapping pointing at a name that no longer has a
-  // tenant. Return value is safe to ignore here — if the DB is not attached, detaching is a
-  // no-op.
+  // The tenant's durability key rides along in the detach's atomic batch, so a crash can't retire
+  // one without the other; the fallback below only fires when detach didn't run or wasn't attached.
+  bool retired_with_detach = false;
   if (tenant_profiles_) {
-    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(name_copy);
+    retired_with_detach = tenant_profiles_->DetachFromDatabase(name_copy, {Durability::GenKey(name_copy)}).has_value();
   }
-  if (durability_) durability_->Delete(Durability::GenKey(name_copy));
+  if (!retired_with_detach && durability_) durability_->Delete(Durability::GenKey(name_copy));
   std::error_code ec;
   (void)std::filesystem::remove_all(data_dir, ec);
   if (ec) {
@@ -844,16 +840,13 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     database.streams()->DropAll();
   }
 
-  // Detach from tenant profile BEFORE the durability key is erased below, so a crash in
-  // between cannot leave a stale profile mapping pointing at a name that no longer has a
-  // tenant. Return value is safe to ignore here — if the DB is not attached, detaching is a
-  // no-op.
+  // The tenant's durability key rides along in the detach's atomic batch, so a crash can't retire
+  // one without the other; the fallback below only fires when detach didn't run or wasn't attached.
+  bool retired_with_detach = false;
   if (tenant_profiles_) {
-    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(db_name);
+    retired_with_detach = tenant_profiles_->DetachFromDatabase(db_name, {Durability::GenKey(db_name)}).has_value();
   }
-
-  // Remove from durability list
-  if (durability_) durability_->Delete(Durability::GenKey(db_name));
+  if (!retired_with_detach && durability_) durability_->Delete(Durability::GenKey(db_name));
 
   // Check if db exists
   // Low level handlers
