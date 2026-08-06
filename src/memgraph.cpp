@@ -1138,14 +1138,13 @@ int main(int argc, char **argv) {
       }
     }
 
-    // The static 2PC commit-accessor cache (InMemoryReplicationHandlers) outlives `dbms_handler` (a local of
-    // main()) -- it has static storage duration, so without this it would still hold an accessor into a
-    // Database that main() is about to destroy, and its static destructor would use-after-free that storage.
-    // Safe here specifically: ReplicationState::Shutdown() above joins the ReplicationServer's RPC listener
-    // thread pool (Server::AwaitShutdown -> Listener::AwaitShutdown), so no handler can repopulate the slot
-    // afterwards -- same reasoning already applied in ReplicationHandler::DoToMainPromotion (see
-    // replication_handler.cpp). Left unconditional (outside the `if` above): a coordinator instance never
-    // populates this replica-only slot, so the call is a harmless no-op there.
+    // Defense-in-depth, not a UAF fix: the 2PC commit-accessor slot is a deliberately-leaked heap
+    // singleton with no static destructor (TwoPCCommitCache::Instance()/Slot()), so skipping this would
+    // just defer the abort to ~Database during ~DbmsHandler teardown instead of crashing. Doing it here
+    // aborts the in-flight prepared txn now, while storages are alive, and TakeAny() (not uuid-scoped) is
+    // safe because Shutdown() above already joined the replica's RPC worker threads, so nothing can
+    // repopulate the slot afterwards. Left unconditional: a coordinator never populates this replica-only
+    // slot, so it's a no-op there.
     memgraph::dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
 
     if (dbms_handler.has_value()) {
