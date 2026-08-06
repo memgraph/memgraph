@@ -15,8 +15,11 @@
 #ifdef MG_ENTERPRISE
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <system_error>
+#include <thread>
 
 #include <nlohmann/json.hpp>
 
@@ -26,8 +29,11 @@
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "kvstore/kvstore.hpp"
+#include "memory/db_arena.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
+#include "tests/test_commit_args_helper.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/uuid.hpp"
 
 namespace {
@@ -41,6 +47,25 @@ std::set<std::string> GetDirs(auto path) {
     }
   }
   return dirs;
+}
+
+// Unsigned-safe absolute difference for the memory-tracker snapshots below (int64_t IDs can be
+// negative in theory; std::abs overload resolution on int64_t is platform-fiddly, so spell it out).
+int64_t AbsDiff(int64_t lhs, int64_t rhs) { return lhs > rhs ? lhs - rhs : rhs - lhs; }
+
+// Bounded poll: retries `pred` (checking wall-clock time only between retries, never spinning
+// unbounded) until it returns true or `timeout` elapses. Every wait in the memory-attribution tests
+// below is bounded like this, because what's being waited on is a background thread pool's progress,
+// not a fixed-latency operation -- an unbounded wait would hang forever on a real regression, and a
+// single fixed sleep would either flake (too short) or slow the suite down for nothing (too long).
+template <typename Pred>
+bool WaitUntil(std::chrono::milliseconds timeout, Pred &&pred) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  do {
+    if (pred()) return true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  } while (std::chrono::steady_clock::now() < deadline);
+  return pred();
 }
 }  // namespace
 
@@ -401,6 +426,94 @@ TEST(DBMS_Handler, MigratesV0DefaultDbDurabilityAndRestoresTenant) {
   }
 
   fs::remove_all(root);
+}
+
+// --- Memory-attribution / head-of-line-blocking coverage for a force-deleted-while-held Database ---
+//
+// A Database force-deleted via DbmsHandler::Delete (NOT TryDelete, which would just refuse with
+// USING) while a DatabaseAccess is still held becomes invisible to DbmsHandler::Get/ForEach
+// immediately: Handler::DeferDelete (dbms/handler.hpp, ~line 219) erases the entry from `items_`
+// unconditionally, whether or not Gatekeeper::Accessor::try_delete() managed to delete synchronously.
+// But the Database object itself stays ALIVE until the *deferred* destructor actually runs on the
+// handler's single-thread `defer_pool_` (handler.hpp ~line 278), which can only happen once every
+// outstanding accessor (ours) is released. Meanwhile its db_memory_tracker_ still parents into the
+// global utils::graph_memory_tracker (dbms/database.hpp), so its bytes stay counted globally even
+// though the tenant has vanished from the per-tenant reachable set (DbmsHandler::ForEach). These two
+// tests reproduce that gap, and the resulting single-thread head-of-line blocking, end to end.
+TEST(DBMS_Handler, StuckOrphanStarvesAnotherTenantsDeferredDelete) {
+  auto &dbms = *TestEnvironment::get();
+
+  const int64_t global_baseline = memgraph::utils::graph_memory_tracker.Amount();
+
+  auto new_t1 = dbms.New("starve_orphan_t1");
+  ASSERT_TRUE(new_t1.has_value()) << (int)new_t1.error();
+  memgraph::dbms::DatabaseAccess t1_acc = std::move(new_t1.value());
+
+  auto new_t2 = dbms.New("starve_orphan_t2");
+  ASSERT_TRUE(new_t2.has_value()) << (int)new_t2.error();
+  memgraph::dbms::DatabaseAccess t2_acc = std::move(new_t2.value());
+
+  constexpr size_t kNumVertices = 2000;
+  constexpr size_t kPropertyBytes = 1024;
+  const std::string blob(kPropertyBytes, 'y');
+  auto write_payload = [&](memgraph::dbms::DatabaseAccess &acc) {
+    // DbArenaScope required -- see the comment in the previous test for why.
+    memgraph::memory::DbArenaScope db_arena_scope{acc.get()};
+    auto storage_acc = acc->Access();
+    ASSERT_TRUE(storage_acc);
+    const auto property = storage_acc->NameToProperty("payload");
+    for (size_t i = 0; i < kNumVertices; ++i) {
+      auto vertex = storage_acc->CreateVertex();
+      ASSERT_TRUE(vertex.SetProperty(property, memgraph::storage::PropertyValue(blob)).has_value());
+    }
+    ASSERT_TRUE(storage_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+  write_payload(t1_acc);
+  write_payload(t2_acc);
+
+  constexpr int64_t kTightToleranceBytes = 64 * 1024;
+  const int64_t global_with_both = memgraph::utils::graph_memory_tracker.Amount();
+  ASSERT_GT(global_with_both - global_baseline, static_cast<int64_t>(2 * kNumVertices * kPropertyBytes))
+      << "both t1 and t2 must have an unambiguous, measurable footprint before either is deleted";
+
+  // Force-delete BOTH while both accessors are still held, so BOTH must go through the deferred
+  // (not the immediate/synchronous) path in Handler::DeferDelete. Handler::DeferDelete's single-
+  // thread defer_pool_ (handler.hpp ~line 278) is strict FIFO: t1's deferred task is enqueued (and
+  // starts running -- blocking inside move(gk)'s ~Gatekeeper, waiting on t1_acc) strictly before
+  // t2's task is even enqueued.
+  auto del1 = dbms.Delete("starve_orphan_t1");
+  ASSERT_TRUE(del1.has_value()) << (int)del1.error();
+  auto del2 = dbms.Delete("starve_orphan_t2");
+  ASSERT_TRUE(del2.has_value()) << (int)del2.error();
+
+  // Release t2's accessor. t2 now has ABSOLUTELY NOTHING holding it -- if the defer_pool_ worker
+  // were free, t2's already-queued deferred task would complete near-instantly (its own
+  // move(gk)'s ~Gatekeeper has nothing left to wait for: count_ is already 0). But the pool's ONE
+  // worker thread is still stuck running t1's task, blocked waiting for t1_acc's count to reach 0 --
+  // and t1_acc is still held. t2's task cannot even START, let alone finish: head-of-line blocking
+  // on a queue where t2 itself is not the one holding anything up.
+  t2_acc.reset();
+
+  const bool reclaimed_early = WaitUntil(std::chrono::milliseconds(800), [&] {
+    // If either t1 or t2 had actually been reclaimed, the global tracker would have dropped by
+    // roughly one payload's worth of bytes. It must NOT move at all while t1_acc is still held.
+    return AbsDiff(memgraph::utils::graph_memory_tracker.Amount(), global_with_both) > kTightToleranceBytes;
+  });
+  EXPECT_FALSE(reclaimed_early)
+      << "t2's deferred delete must NOT have progressed while stuck behind t1's still-held orphan on "
+         "the single defer_pool_ worker thread, even though t2 itself holds nothing; amount="
+      << memgraph::utils::graph_memory_tracker.Amount() << " with_both=" << global_with_both;
+
+  // Now release t1's accessor too. This finally lets t1's stuck task complete, freeing the worker
+  // thread to dequeue and run t2's (already fully-ready) task right behind it.
+  t1_acc.reset();
+
+  const bool both_recovered = WaitUntil(std::chrono::seconds(10), [&] {
+    return AbsDiff(memgraph::utils::graph_memory_tracker.Amount(), global_baseline) <= kTightToleranceBytes;
+  });
+  EXPECT_TRUE(both_recovered) << "both t1 and t2 must eventually be reclaimed once t1_acc is released; "
+                                 "current amount: "
+                              << memgraph::utils::graph_memory_tracker.Amount() << ", baseline: " << global_baseline;
 }
 
 int main(int argc, char *argv[]) {
