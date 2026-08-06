@@ -681,6 +681,74 @@ TEST(DBMS_Handler, ExistingV2DurabilityStoreBootsUnchanged) {
   fs::remove_all(sr.root);
 }
 
+// A corrupt attached tenant-profile record must not be able to turn DROP into a half-done delete
+// that resurrects the tenant on restart (see the try/catch added to TenantProfiles::DetachFromDatabase
+// -- previously an unguarded nlohmann::json::parse there threw past DbmsHandler::TryDelete, aborting
+// after the tenant was removed from the in-memory registry but before its durability key / directory
+// were erased). Leaving the db_tenant_profile: mapping behind afterwards is deliberate: PruneDatabases
+// (boot reconciliation) is what collects it, not this call.
+TEST(DBMS_Handler, DropSucceedsDurablyWhenAttachedProfileJsonIsCorrupt) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+  using memgraph::dbms::TenantProfiles;
+
+  auto sr = MakeSeededRoot("drop_corrupt_profile");
+
+  memgraph::utils::UUID victim_uuid;
+  {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    ASSERT_TRUE(seed_kv.Put("version", "V2"));
+    victim_uuid = SeedHotEntry(seed_kv, "victim").uuid;
+    // Point "victim" at profile "p", but write "p"'s durable record as deliberately broken JSON --
+    // NOT via SeedProfile, which would also write a well-formed tenant_profile:p row.
+    ASSERT_TRUE(seed_kv.Put(std::string{TenantProfiles::kDbMappingPrefix} + "victim", "p"));
+    ASSERT_TRUE(seed_kv.Put(std::string{TenantProfiles::kPrefix} + "p", "{not json"));
+  }
+  fs::create_directories(TenantDataDir(sr, victim_uuid));
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::unique_ptr<DbmsHandler> handler;
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf));
+
+  std::optional<DbmsHandler::DeleteResult> del;
+  ASSERT_NO_THROW(del = handler->TryDelete("victim"))
+      << "a corrupt attached tenant-profile record must not be able to throw a JSON exception out of DROP";
+  ASSERT_TRUE(del.has_value());
+  ASSERT_TRUE(del->has_value()) << "DROP must succeed even though the attached profile record is corrupt";
+
+  const auto all = handler->All();
+  EXPECT_TRUE(std::find(all.begin(), all.end(), "victim") == all.end())
+      << "victim must be gone from All() immediately after a successful drop";
+  handler.reset();
+
+  {
+    memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+    EXPECT_FALSE(verify_kv.Get(std::string{kDBPrefixLiteral} + "victim").has_value())
+        << "the tenant's durability key must be erased -- under the pre-fix bug the thrown JSON "
+           "exception aborted TryDelete before this erase ran, so the tenant resurrected on restart";
+    EXPECT_FALSE(fs::exists(TenantDataDir(sr, victim_uuid)))
+        << "the tenant's on-disk data directory must also be removed";
+
+    auto mapping = verify_kv.Get(std::string{TenantProfiles::kDbMappingPrefix} + "victim");
+    EXPECT_TRUE(mapping.has_value())
+        << "DetachFromDatabase deliberately leaves the mapping in place when the profile it points at is "
+           "corrupt -- PruneDatabases on the next boot is what collects it, not this call";
+  }
+
+  {
+    std::unique_ptr<DbmsHandler> handler2;
+    ASSERT_NO_THROW(handler2 = std::make_unique<DbmsHandler>(conf));
+    handler2.reset();
+  }
+
+  memgraph::kvstore::KVStore verify_kv2{sr.durability_dir};
+  EXPECT_FALSE(verify_kv2.Get(std::string{TenantProfiles::kDbMappingPrefix} + "victim").has_value())
+      << "boot reconciliation (PruneDatabases) must collect the leftover mapping on the very next boot, "
+         "even though the profile it names never parses";
+
+  fs::remove_all(sr.root);
+}
+
 int main(int argc, char *argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   // gtest takes ownership of the TestEnvironment ptr - we don't delete it.
