@@ -32,6 +32,7 @@
 #include "coordination/data_instance_management_server_handlers.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
 #include "flags/bolt.hpp"
 #include "flags/coord_flag_env_handler.hpp"
@@ -1136,6 +1137,16 @@ int main(int argc, char **argv) {
         locked_repl_state->Shutdown();
       }
     }
+
+    // The static 2PC commit-accessor cache (InMemoryReplicationHandlers) outlives `dbms_handler` (a local of
+    // main()) -- it has static storage duration, so without this it would still hold an accessor into a
+    // Database that main() is about to destroy, and its static destructor would use-after-free that storage.
+    // Safe here specifically: ReplicationState::Shutdown() above joins the ReplicationServer's RPC listener
+    // thread pool (Server::AwaitShutdown -> Listener::AwaitShutdown), so no handler can repopulate the slot
+    // afterwards -- same reasoning already applied in ReplicationHandler::DoToMainPromotion (see
+    // replication_handler.cpp). Left unconditional (outside the `if` above): a coordinator instance never
+    // populates this replica-only slot, so the call is a harmless no-op there.
+    memgraph::dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
 
     if (dbms_handler.has_value()) {
       dbms_handler->ForEach([](memgraph::dbms::DatabaseAccess acc) {
