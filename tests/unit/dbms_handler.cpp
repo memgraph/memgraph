@@ -49,15 +49,10 @@ std::set<std::string> GetDirs(auto path) {
   return dirs;
 }
 
-// Unsigned-safe absolute difference for the memory-tracker snapshots below (int64_t IDs can be
-// negative in theory; std::abs overload resolution on int64_t is platform-fiddly, so spell it out).
 int64_t AbsDiff(int64_t lhs, int64_t rhs) { return lhs > rhs ? lhs - rhs : rhs - lhs; }
 
-// Bounded poll: retries `pred` (checking wall-clock time only between retries, never spinning
-// unbounded) until it returns true or `timeout` elapses. Every wait in the memory-attribution tests
-// below is bounded like this, because what's being waited on is a background thread pool's progress,
-// not a fixed-latency operation -- an unbounded wait would hang forever on a real regression, and a
-// single fixed sleep would either flake (too short) or slow the suite down for nothing (too long).
+// Bounded poll: a fixed sleep would flake (too short) or waste time (too long) waiting on a
+// deferred-destruction background thread; an unbounded wait would hang forever on a real regression.
 template <typename Pred>
 bool WaitUntil(std::chrono::milliseconds timeout, Pred &&pred) {
   const auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -428,21 +423,10 @@ TEST(DBMS_Handler, MigratesV0DefaultDbDurabilityAndRestoresTenant) {
   fs::remove_all(root);
 }
 
-// --- Memory attribution for a force-deleted-while-held Database ---
-//
-// A Database force-deleted via DbmsHandler::Delete (NOT TryDelete, which would refuse with USING)
-// while a DatabaseAccess is still held becomes invisible to DbmsHandler::Get/ForEach immediately:
-// Handler::DeferDelete erases the entry from `items_` unconditionally, whether or not
-// Gatekeeper::Accessor::try_delete() managed to delete synchronously. But the Database object stays
-// ALIVE until its deferred destructor actually runs, which cannot happen until every outstanding
-// accessor is released. Meanwhile its db_memory_tracker_ still parents into the global
-// utils::graph_memory_tracker, so its bytes stay counted globally even though the tenant has
-// vanished from the per-tenant reachable set. That is the "global total far exceeds the sum over
-// tenants" gap.
-//
-// This test covers the part that made one stuck tenant expensive: each deferred destruction gets its
-// own thread, so a tenant nobody can drain must not hold up an unrelated tenant's destruction (and
-// its memory) behind it.
+// A force-deleted Database vanishes from Handler::items_ immediately, but stays alive -- and its
+// db_memory_tracker_ keeps parenting into the global graph_memory_tracker -- until every accessor is
+// released and DeferDelete's deferred destructor runs. This test guards the fix giving each deferred
+// destruction its own thread: a tenant nobody can drain must not block another tenant's release.
 TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
   auto &dbms = *TestEnvironment::get();
 
@@ -456,9 +440,8 @@ TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
   ASSERT_TRUE(new_t2.has_value()) << (int)new_t2.error();
   memgraph::dbms::DatabaseAccess t2_acc = std::move(new_t2.value());
 
-  // Captured while the accessors are alive: post_delete_func removes these directories, so their
-  // disappearance is a direct, binary signal that a tenant's deferred destruction actually ran --
-  // independent of any allocator or memory-tracker bookkeeping.
+  // post_delete_func (dbms_handler.cpp:836) deletes these directories, so their disappearance is a
+  // direct signal a deferred destruction ran -- unlike the memory tracker, independent of purge timing.
   const auto t1_dir = t1_acc->config().durability.storage_directory;
   const auto t2_dir = t2_acc->config().durability.storage_directory;
 
@@ -466,7 +449,7 @@ TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
   constexpr size_t kPropertyBytes = 1024;
   const std::string blob(kPropertyBytes, 'y');
   auto write_payload = [&](memgraph::dbms::DatabaseAccess &acc) {
-    // DbArenaScope required -- see the comment in the previous test for why.
+    // DbArenaScope required -- without it, writes land in an unattributed arena and db_memory_tracker_ never sees them.
     memgraph::memory::DbArenaScope db_arena_scope{acc.get()};
     auto storage_acc = acc->Access();
     ASSERT_TRUE(storage_acc);
@@ -485,33 +468,28 @@ TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
   ASSERT_GT(global_with_both - global_baseline, static_cast<int64_t>(2 * kNumVertices * kPropertyBytes))
       << "both t1 and t2 must have an unambiguous, measurable footprint before either is deleted";
 
-  // Force-delete BOTH while both accessors are still held, so BOTH must go through the deferred
-  // (not the immediate/synchronous) path in Handler::DeferDelete: try_delete()'s count_==1 check
-  // fails for each, since each tenant's own accessor (t1_acc / t2_acc) is still outstanding.
+  // Both accessors are still held, so both deletes take DeferDelete's deferred path: try_delete()'s
+  // count_==1 check fails while t1_acc / t2_acc are outstanding.
   auto del1 = dbms.Delete("starve_orphan_t1");
   ASSERT_TRUE(del1.has_value()) << (int)del1.error();
   auto del2 = dbms.Delete("starve_orphan_t2");
   ASSERT_TRUE(del2.has_value()) << (int)del2.error();
 
-  // Release t2's accessor. t2 now has nothing holding it, while t1 is still pinned and can never
-  // drain. t2's destruction must complete anyway -- it has its own thread and cannot be queued
-  // behind t1's. Three assertions, because each catches a different way this could go wrong.
+  // t2 has nothing else holding it now; t1 stays pinned by t1_acc and can never drain.
   t2_acc.reset();
 
-  // (1) Mechanism: t2's post_delete_func removed its storage directory, so t2's deferred task really
-  //     did run to completion.
   const bool t2_destroyed = WaitUntil(std::chrono::seconds(10), [&] { return !std::filesystem::exists(t2_dir); });
   EXPECT_TRUE(t2_destroyed) << "t2's deferred destruction must complete even though t1 is still pinned; its storage "
                                "directory is still present: "
                             << t2_dir;
 
-  // (2) t1 must NOT have been dragged along. Without this, the test would also pass if something had
-  //     released t1 -- i.e. for the wrong reason, without the two tenants actually being decoupled.
+  // t1 must NOT have been dragged along -- without this, the test would also pass for the wrong
+  // reason if something else had released t1, without the two tenants actually being decoupled.
   EXPECT_TRUE(std::filesystem::exists(t1_dir))
       << "t1 is still held by t1_acc, so its destruction must NOT have completed";
 
-  // (3) The customer-visible symptom: the memory really came back. Roughly one tenant's worth is
-  //     released (t2's) while roughly one tenant's worth (t1's) is still held.
+  // The customer-visible symptom: roughly one tenant's worth of memory (t2's) comes back while
+  // roughly one tenant's worth (t1's) is still held.
   const int64_t after_t2 = memgraph::utils::graph_memory_tracker.Amount();
   EXPECT_GT(global_with_both - after_t2, static_cast<int64_t>(kNumVertices * kPropertyBytes))
       << "releasing t2 must return t2's memory even while t1 is stuck; with_both=" << global_with_both
@@ -520,7 +498,6 @@ TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
       << "t1's memory must still be accounted for while t1_acc is alive; now=" << after_t2
       << " baseline=" << global_baseline;
 
-  // Now release t1's accessor too. This finally lets t1's stuck task complete.
   t1_acc.reset();
 
   const bool both_recovered = WaitUntil(std::chrono::seconds(10), [&] {
