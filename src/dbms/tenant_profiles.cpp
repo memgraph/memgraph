@@ -152,10 +152,22 @@ std::expected<void, TenantProfiles::DetachError> TenantProfiles::DetachFromDatab
   auto profile_stored = durability_->Get(ProfileKey(*profile_name));
   if (!profile_stored) return std::unexpected{DetachError::DURABILITY_ERROR};
 
-  Profile profile = FromJson(nlohmann::json::parse(*profile_stored), *profile_name);
-  profile.databases.erase(std::string{db_name});
+  std::map<std::string, std::string> to_put;
+  try {
+    Profile profile = FromJson(nlohmann::json::parse(*profile_stored), *profile_name);
+    profile.databases.erase(std::string{db_name});
+    to_put.emplace(ProfileKey(profile.name), ProfileToJson(profile).dump());
+  } catch (const nlohmann::json::exception &e) {
+    // Corrupt is indistinguishable from unreadable to the caller, so this reuses DURABILITY_ERROR
+    // rather than adding a new error; the mapping key is left untouched (not deleted here) because
+    // PruneDatabases (boot reconciliation) already prunes mappings whose profile can't be parsed.
+    spdlog::warn("Tenant profile '{}' durable entry is corrupt ({}); failed to detach database '{}'.",
+                 *profile_name,
+                 e.what(),
+                 db_name);
+    return std::unexpected{DetachError::DURABILITY_ERROR};
+  }
 
-  const std::map<std::string, std::string> to_put{{ProfileKey(profile.name), ProfileToJson(profile).dump()}};
   const std::vector<std::string> to_delete{DbMappingKey(db_name)};
   if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return std::unexpected{DetachError::DURABILITY_ERROR};
   return {};
