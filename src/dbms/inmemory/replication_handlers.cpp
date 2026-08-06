@@ -1099,18 +1099,29 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     slk::Builder *res_builder, uint32_t const start_batch_counter) {
   spdlog::trace("Received WAL saved to {}", wal_path);
 
-  // This parses the deltas rather than trusting the header's summary, for the same reason LoadWal does: the scan
-  // stops at the first transaction that fails to parse or fails its CRC, so a damaged one and everything after it
-  // is skipped instead of being replayed until the damage is hit.
-  std::optional<storage::durability::WalInfo> maybe_wal_info;
+  // A finalized file states how much it holds, so it is replayed straight from its header. Only main's current WAL,
+  // which it is still writing, has no summary; that one is parsed so a transaction main had not finished is not
+  // replayed. Either way each transaction's CRC is verified below as it is applied.
+  std::optional<storage::durability::WalHeader> maybe_wal_header;
+  uint64_t wal_to_timestamp{0};
+  uint64_t wal_num_deltas{0};
   try {
-    maybe_wal_info.emplace(storage::durability::ReadWalInfo(wal_path));
+    auto header = storage::durability::ReadWalHeader(wal_path);
+    if (header.summary) {
+      wal_to_timestamp = header.summary->to_timestamp;
+      wal_num_deltas = header.summary->num_deltas;
+    } else {
+      auto const info = storage::durability::ReadWalInfo(wal_path);
+      wal_to_timestamp = info.to_timestamp;
+      wal_num_deltas = info.num_deltas;
+    }
+    maybe_wal_header.emplace(std::move(header));
   } catch (const utils::BasicException &e) {
     spdlog::error("Loading WAL info from {} failed because of {}.", wal_path, e.what());
     return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
 
-  auto const &wal_info = *maybe_wal_info;
+  auto const &wal_info = *maybe_wal_header;
 
   // We have to check if this is our 1st wal, not what main is sending
   if (storage->wal_seq_num_ == 0) {
@@ -1118,7 +1129,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   }
 
   // If WAL file doesn't contain any changes that need to be applied, ignore it
-  if (wal_info.to_timestamp <= storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
+  if (wal_to_timestamp <= storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
     spdlog::trace("WAL file won't be applied since all changes already exist.");
     return LoadWalStatus{.success = true, .current_batch_counter = 0, .num_txns_committed = 0};
   }
@@ -1157,16 +1168,30 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
 
   uint32_t local_batch_counter = start_batch_counter;
   uint64_t num_txns_committed{0};
-  for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
-    // commit_txn_immediately is set true because when loading WAL files, we should commit immediately
-    auto const deltas_res = ReadAndApplyDeltasSingleTxn(storage,
-                                                        &wal_decoder,
-                                                        *version,
-                                                        res_builder,
-                                                        /*two_phase_commit*/ false,
-                                                        /*loading_wal*/ true,
-                                                        deltas_batch_progress_size,
-                                                        local_batch_counter);
+  for (size_t local_delta_idx = 0; local_delta_idx < wal_num_deltas;) {
+    // A delta that won't parse, or a transaction whose CRC doesn't match, throws out of here. The in-flight
+    // transaction's accessor is destroyed while unwinding, which aborts it, so nothing half-applied is ever
+    // committed. Report failure so the caller stops before the WAL files that follow this one: those build on the
+    // transactions that just went missing, and applying them would leave a wrong dataset rather than a stale one.
+    std::optional<storage::SingleTxnDeltasProcessingResult> deltas_res;
+    try {
+      // commit_txn_immediately is set true because when loading WAL files, we should commit immediately
+      deltas_res = ReadAndApplyDeltasSingleTxn(storage,
+                                               &wal_decoder,
+                                               *version,
+                                               res_builder,
+                                               /*two_phase_commit*/ false,
+                                               /*loading_wal*/ true,
+                                               deltas_batch_progress_size,
+                                               local_batch_counter);
+    } catch (const utils::BasicException &e) {
+      spdlog::error("Aborting WAL file {} at delta {} and skipping the rest of the chain because of: {}",
+                    wal_path,
+                    local_delta_idx,
+                    e.what());
+      return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
+    }
+
     if (deltas_res) {
       local_delta_idx += deltas_res->current_delta_idx;
       local_batch_counter = deltas_res->current_batch_counter;

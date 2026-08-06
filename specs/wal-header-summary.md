@@ -41,9 +41,10 @@ without one falls back to `ReadWalInfo`. `RecoverData`'s pre-pass is deleted —
 no uuid known yet it reads every header, adopts the newest file's identity, and
 filters the rest in memory.
 
-The two replay paths - `LoadWal` and `InMemoryReplicationHandlers::LoadWal` - keep
-parsing. They read every file twice, once to scan and once to apply, and that cannot
-be collapsed; see decision 9.
+Both replay paths - `LoadWal` and `InMemoryReplicationHandlers::LoadWal` - take a
+finalized file's extent from its header too, so they read it once instead of twice.
+Only a file with no summary is parsed first. Replay verifies each transaction's CRC
+as it applies it, and damage in a finalized file is fatal; see decision 9.
 
 ## Decisions
 
@@ -87,123 +88,52 @@ An explicit boolean flag was considered and dropped. It would have let the secon
 case be rejected without a scan, but that is not worth a byte in the format and an
 extra field to keep consistent.
 
-### 9. Replay cannot use the summary, so it still parses
+### 9. Replay uses the summary, and damage there is fatal
 
-Both replay paths were converted to read only the header and then reverted. The
-attempt is recorded because the reason is not obvious and the count in the header
-invites trying again.
+A finalized file is fsynced before it is renamed, so its transactions are durable and
+were acknowledged. If replay comes up short of what its header states, the bytes
+rotted - it is not an interrupted write. A file with no summary was never finalized
+and its tail may legitimately be torn, so that one is still parsed by the dry run,
+which stops at the last whole transaction.
 
-The pre-scan does three things, not two. Beyond verifying CRC and bounding the
-loop, it establishes *where the valid data ends before anything is applied*.
-`LoadWal` applies each delta to the skip lists as it reads it, so replaying to the
-writer's own count means a damaged trailing transaction is half-applied before the
-damage is found — strictly worse than not applying it, and unrecoverable, since
-there is nothing to roll back to.
+That split is the whole design:
 
-`WalCorruptLastTransaction` pins this as required behaviour: it zeroes the last 100
-bytes of a *finalized* WAL file and asserts recovery still comes up with everything
-before the damaged transaction. The scan stops at the first transaction that fails
-to parse or fails its CRC, so `num_deltas` spans only transactions that can be
-replayed whole. The summary states what the writer wrote, which is a different
-number once a file has rotted.
+| File | Extent from | Damage means |
+|---|---|---|
+| finalized (has summary) | the header | media rot -> fail |
+| unfinalized, or pre-v37 | `ReadWalInfo` dry run | interrupted write -> truncate |
 
-Making replay single-pass would mean buffering a transaction's deltas before
-applying them, which is a much larger change than this one.
+Replay therefore verifies each transaction's CRC as it applies it, and lets a parse
+failure or a CRC mismatch propagate.
 
-CRC is a red herring here. `LoadWal`'s apply loop verifies nothing, so the pre-scan
-is the only place v36's protection happens on the disk-recovery path — but adding
-verification to the apply loop, which was tried, does not help: it detects the
-damage no earlier than the parse failure does, and by then part of the transaction
-is applied.
+**This also fixes a pre-existing bug.** Recovering a prefix is only sound for the
+*last* file in the chain. The gap check catches a missing file, never a truncated
+one, so a truncated file N left `last_loaded_timestamp` at the last transaction it
+applied, and file N+1 then applied in full on top - a hole. If N+1 touched anything
+from N's lost tail the apply threw, but if its transactions were independent
+recovery succeeded silently with an incomplete dataset. On a replica it was worse:
+the replica reported the later ldt, so main considered it caught up and the
+divergence never healed. Failing on damage in a finalized file removes the case
+entirely, and a mid-chain file cannot be unfinalized in a way that matters, because
+whichever session recovered its prefix already continued from there.
 
-### 3. Back-patch, but outside the metadata's CRC region
+**An earlier revision got this wrong** by using the summary for replay while keeping
+graceful truncation, which half-applied a damaged transaction before noticing. That
+is only a problem if recovery then continues: with a hard failure the half-applied
+state is discarded along with everything else, and on a replica the accessor is
+destroyed while unwinding, which aborts the transaction, so nothing partial commits.
 
-The constructor already back-patches the offsets, and `WriteUint` is a marker plus
-8 little-endian bytes, so patching in place is exact. Readers keep a single
-sequential header parse instead of a second seek to EOF.
+### 10. The replica stops the chain rather than failing the process
 
-The summary is *not* part of the metadata section, though. It sits after the
-metadata's CRC trailer and carries a CRC of its own:
+Damage cannot be fatal on the replica the way it is on restart - there is no process
+to abort and no operator watching. So `InMemoryReplicationHandlers::LoadWal` catches
+it, reports failure, and the caller stops before the remaining files. Those files
+build on the transactions that just went missing, so applying them is exactly the
+hole described above.
 
-```
-SECTION_METADATA marker, uuid, epoch_id, seq_num
-metadata CRC trailer        <- written once by the constructor, never again
-from_timestamp, to_timestamp, num_deltas
-summary CRC trailer
-offset_deltas -> first delta
-```
-
-The first version put the summary inside the metadata section and had
-`WriteSummary` rewrite the whole thing to recompute the CRC. That created a window
-where a crash could lose an entire WAL file. Every `GetPosition()` and
-`SetPosition()` reaches `OutputFile::SetPosition`, which flushes, so the new values
-reached the page cache several writes before the new CRC did; a crash between them
-left the header carrying new values with a stale CRC, `ReadWalHeader` threw, and
-`GetWalFiles` dropped the file - taking up to `--storage-wal-file-size-kib` of
-committed transactions with it. Before this work `FinalizeWal` never touched the
-header at all, so a crash during rotation cost nothing, and WAL rotation runs
-routinely under write load.
-
-Separating the regions makes it fail-safe. A torn summary write cannot invalidate
-uuid/epoch/seq or their CRC, so the identity still parses; the summary's own CRC
-catches the damage, it reads as absent, and the file falls back to `ReadWalInfo` -
-the same path an unfinalized file takes. The worst case is losing the optimisation
-for one file rather than the file.
-
-`WriteSummary` is also now seek-once-and-write-forward: `WriteCrc()` emits the
-marker and value at the current position, so nothing between the seek and the CRC
-flushes and the whole region reaches the file in one write. And it no longer needs
-the uuid, epoch id, metadata offset, CRC offset or prefix CRC as members - only the
-summary offset.
-
-### 4. No new durability version
-
-v37 (`k37`) landed after `v3.12.0` and is unreleased, so no WAL in
-the wild claims v37 without a summary and the change can ride on it. That avoids an
-ISSU-visible bump — an older replica would not be able to read a newer WAL streamed
-from a newer main. Sharing one version between two features already happens in this
-file (`kNumCommittedTxns`/`kTtlSupport` both 30, `kCompositeIndicesForLabelProperties`/
-`kEdgePropIndex` both 24).
-
-A version guard is still required: pre-v37 files genuinely have no bytes there, and
-without it the reader would consume the CRC trailer as the summary.
-
-### 5. Fall back to a scan, don't require the summary
-
-A file has no summary when its writer never finalized it — the `_current` file a
-crash leaves behind — or when it predates v37. Those get `ReadWalInfo`, which is
-exactly today's behaviour for them. There is normally at most one such file.
-
-This is what keeps the change semantics-preserving. An earlier attempt made
-discovery header-only *without* a summary, which could not detect a file holding no
-complete transaction; that needed a dedicated exception and a skip in the load loop,
-and still left the chain-start check able to throw where it previously could not.
-Recording the count removes the reason that machinery existed.
-
-### 6. Pick the identity by path, not by `back()`
-
-The deleted pre-pass sorted by **path**; `GetWalFiles` returns a vector sorted by
-**seq_num**, so `back()` would be a silent behaviour change. They disagree when one
-directory holds more than one uuid — a force-reset replica whose fresh WAL restarts
-at seq_num 0 while stale files carry high seq_nums. Newest-by-path picks the fresh
-file; newest-by-seq_num picks a stale one, and that uuid then filters out every real
-WAL. WAL filenames are prefixed with a zero-padded microsecond timestamp, so
-lexicographic path order is chronological and survives seq_num resets.
-
-### 7. `epoch_id` must be copied, not moved
-
-The old `SetEpoch(std::move(...))` moved out of a local vector that was discarded
-immediately. That element now belongs to the vector that is retained and handed to
-the load loop, which reads `wal_file.epoch_id` from it to build epoch history.
-Moving would leave an empty string there and silently corrupt the epoch chain.
-
-### 8. The dead reopen constructor is removed
-
-`WalFile`'s second constructor, which reopened an existing `_current` file, had no
-callers anywhere in `src/` or `tests/`. It never learned the offsets `WriteSummary`
-needs, so a file finalized through it would have had its header written at offset 0.
-Deleting it removes the hazard rather than guarding against a caller that doesn't
-exist.
+The response carries no commit timestamp, so main does not advance its view of the
+replica, retries later, and the replica skips whatever it already has via
+`to_timestamp <= ldt`. Progress already committed is kept; nothing partial is.
 
 ## Invariants preserved
 
@@ -235,8 +165,15 @@ exist.
   transaction; it now reports what the writer recorded. The summary itself is covered
   by the header CRC, so a corrupted summary is still caught.
 
-  Replay is unaffected, because it still parses - see decision 9. The difference
-  reaches only `GetRecoverySteps`, and only as a liveness concern.
+  Replay now treats that as fatal for a finalized file rather than truncating - see
+  decision 9, which explains why silently dropping acknowledged data is the worse
+  option. `WalCorruptLastTransaction` was renamed to
+  `WalFinalizedFileCorruptLastTransactionCrashes` and its expectation inverted.
+  Operationally this means bit rot in a WAL file after the newest snapshot stops the
+  tenant instead of bringing it up stale, so recovery is via
+  `--storage-allow-recovery-failure` plus `RECOVER SNAPSHOT`, or a backup. Files the
+  newest snapshot already covers are skipped without being read, so rot in those is
+  still harmless.
   `RecoverData` never reads `to_timestamp`, and `LoadWal` re-scans and applies just
   the valid transactions, so recovered data is identical. On the replication path the
   replica calls `ReadWalInfo` on every file it receives before applying anything, so
@@ -274,12 +211,7 @@ Build `memgraph__unit`, then
 
 ## Deferred work
 
-Both replay paths still read each file twice: `ReadWalInfo` to find where the valid
-data ends, then again to apply. Collapsing that needs per-transaction buffering so a
-damaged transaction can be discarded rather than half-applied - see decision 9. It is
-the largest remaining win and the one with the most exposure.
-
-A smaller one, deliberately skipped: the replica's `to_timestamp <= ldt` early exit
+A deliberately skipped one: the replica's `to_timestamp <= ldt` early exit
 could come from the header, skipping a file the replica already has without parsing
 it. The exit almost never fires, though - `GetWalChainInfo` picks `first_useful_wal`
 as the file straddling `replica_commit` and `FirstWalAfterSnapshot` drops what the

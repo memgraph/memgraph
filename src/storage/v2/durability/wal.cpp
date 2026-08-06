@@ -1313,7 +1313,8 @@ WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   return {.crc_wal_pos_ = crc_wal_pos, .stored_crc_ = txn_crc};
 }
 
-// CRC verification is done in ReadWalInfo and is not needed later on
+// Each transaction's CRC is verified as it is replayed, so a finalized file - which states its own extent - never
+// has to be parsed twice.
 std::optional<RecoveryInfo> LoadWal(
     const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
     const std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipListDb<Vertex> *vertices,
@@ -1324,33 +1325,49 @@ std::optional<RecoveryInfo> LoadWal(
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
-  auto version = wal.Initialize(path, kWalMagic);
-  if (!version) throw RecoveryFailure("Couldn't read WAL magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid WAL version!");
+  uint64_t version{};
+  auto const header = DecodeWalHeader(wal, path, version);
 
-  // This deliberately parses the deltas rather than trusting the header's summary. Deltas are applied to the skip
-  // lists as they are read, so where the valid data ends has to be known before any of them is applied: the scan
-  // stops at the first transaction that fails to parse or fails its CRC, leaving num_deltas spanning only
-  // transactions that can be replayed whole. Replaying to the writer's own count would apply part of a damaged
-  // trailing transaction before discovering the damage, where today such a transaction is skipped and everything
-  // before it recovers.
-  auto info = ReadWalInfo(path);
+  // A finalized file states how much it holds, and it was fsynced before being renamed, so replaying that count is
+  // safe: coming up short means the bytes rotted, not that a write was interrupted, and that must not be papered
+  // over. A file with no summary was never finalized and its tail may legitimately be torn, so the dry run finds
+  // the last whole transaction and replay stops there.
+  uint64_t to_timestamp{0};
+  uint64_t num_deltas{0};
+  if (header.summary) {
+    to_timestamp = header.summary->to_timestamp;
+    num_deltas = header.summary->num_deltas;
+  } else {
+    auto const info = ReadWalInfo(path);
+    to_timestamp = info.to_timestamp;
+    num_deltas = info.num_deltas;
+  }
 
   // Check timestamp.
-  if (last_applied_delta_timestamp && info.to_timestamp <= *last_applied_delta_timestamp) {
-    spdlog::info(
-        "Skip loading WAL file because it is too old. {} <= {}", info.to_timestamp, *last_applied_delta_timestamp);
+  if (last_applied_delta_timestamp && to_timestamp <= *last_applied_delta_timestamp) {
+    spdlog::info("Skip loading WAL file because it is too old. {} <= {}", to_timestamp, *last_applied_delta_timestamp);
     return std::nullopt;
   }
 
   std::optional<RecoveryInfo> ret;
 
-  // Recover deltas
-  wal.SetPosition(info.offset_deltas);
+  // Recover deltas, verifying each transaction's CRC as it is replayed. For a file replayed from its summary this
+  // is the only verification there is, and a failure has to be fatal: stopping early would leave a gap that the
+  // WAL files after this one then build on, which is a wrong dataset rather than a stale one.
+  wal.SetPosition(header.offset_deltas);
+  wal.ResetCrcAcc();
+  auto const verify_txn_crc = [&wal, &path, version](bool const is_transaction_end) {
+    if (!is_transaction_end) return;
+    if (version >= kCrcProtection && !utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+      throw RecoveryFailure("Durability CRC mismatch in WAL file {}", path);
+    }
+    wal.ResetCrcAcc();
+  };
+
   uint64_t deltas_applied = 0;
   auto edge_acc = edges->access();
   auto vertex_acc = vertices->access();
-  spdlog::info("WAL file contains {} deltas.", info.num_deltas);
+  spdlog::info("WAL file contains {} deltas.", num_deltas);
   spdlog::info("WAL recovery: properties_on_edges={}, storage_light_edge={}",
                items.properties_on_edges,
                items.storage_light_edge);
@@ -2142,20 +2159,17 @@ std::optional<RecoveryInfo> LoadWal(
       },
   };
 
-  for (uint64_t i = 0; i < info.num_deltas; ++i) {
+  for (uint64_t i = 0; i < num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
     if (auto delta_ts = ReadWalDeltaHeader(&wal);
         (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
       // This delta should be loaded.
-      auto delta = ReadWalDeltaData(&wal, *version);
+      auto delta = ReadWalDeltaData(&wal, version);
       // We should always check if the delta is WalTransactionStart to update should_commit
       if (auto *txn_start = std::get_if<WalTransactionStart>(&delta.data_)) {
         should_commit = txn_start->commit.value_or(true);
         ++deltas_applied;
-        continue;
-      }
-
-      if (should_commit) {
+      } else if (should_commit) {
         // First delta which is not WalTransactionStart -> allocate RecoveryInfo
         if (!ret) {
           ret.emplace(RecoveryInfo{.next_timestamp = delta_ts + 1, .last_durable_timestamp = delta_ts});
@@ -2168,8 +2182,9 @@ std::optional<RecoveryInfo> LoadWal(
         ++deltas_applied;
       }
 
+      verify_txn_crc(IsWalDeltaDataTransactionEnd(delta, version));
     } else {
-      SkipWalDeltaData(&wal, *version);
+      verify_txn_crc(SkipWalDeltaData(&wal, version));
     }
   }
 
@@ -2177,7 +2192,7 @@ std::optional<RecoveryInfo> LoadWal(
       "Applied {} deltas from WAL. Skipped {} deltas, because they were too old or because 2PC protocol decided to "
       "abort txn but deltas were already made durable.",
       deltas_applied,
-      info.num_deltas - deltas_applied);
+      num_deltas - deltas_applied);
 
   return ret;
 }

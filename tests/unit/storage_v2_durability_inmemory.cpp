@@ -3556,7 +3556,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_P(DurabilityTest, WalCorruptLastTransaction) {
+TEST_P(DurabilityTest, WalFinalizedFileCorruptLastTransactionCrashes) {
   // Create WALs
   {
     memgraph::storage::Config config{
@@ -3590,30 +3590,24 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
     DestroyWalSuffix(wal_file);
   }
 
-  // Recover WALs.
-  memgraph::storage::Config config{
-      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(),
-                            .enable_schema_info = true,
-                            .storage_light_edge = GetParam().light_edge}},
-  };
-  memgraph::dbms::Database db{config};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  // The extended dataset shouldn't be recovered because its WAL transaction was
-  // corrupt.
-  VerifyDataset(db.storage(),
-                DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS,
-                GetParam(),
-                config.salient.items.enable_schema_info);
-
-  // Try to use the storage.
-  {
-    auto acc = db.Access(memgraph::storage::WRITE);
-    auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
+  // The damaged file was finalized, which means it had been fsynced before being renamed, so its transactions were
+  // durable and acknowledged. Coming up short of what its header states is media damage, not an interrupted write,
+  // and recovering only the prefix would silently drop acknowledged data - worse still if a later WAL file in the
+  // chain then built on it. Recovery therefore refuses.
+  //
+  // The graceful case, a tail torn by a crash, leaves an unfinalized file with no summary and is covered by
+  // WalDeathResilience.
+  ASSERT_THROW(([&]() {
+                 memgraph::storage::Config config{
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                     .salient = {.items = {.properties_on_edges = GetParam(),
+                                           .enable_schema_info = true,
+                                           .storage_light_edge = GetParam().light_edge}},
+                 };
+                 memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+               }()),
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
