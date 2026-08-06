@@ -428,19 +428,22 @@ TEST(DBMS_Handler, MigratesV0DefaultDbDurabilityAndRestoresTenant) {
   fs::remove_all(root);
 }
 
-// --- Memory-attribution / head-of-line-blocking coverage for a force-deleted-while-held Database ---
+// --- Memory attribution for a force-deleted-while-held Database ---
 //
-// A Database force-deleted via DbmsHandler::Delete (NOT TryDelete, which would just refuse with
-// USING) while a DatabaseAccess is still held becomes invisible to DbmsHandler::Get/ForEach
-// immediately: Handler::DeferDelete (dbms/handler.hpp, ~line 219) erases the entry from `items_`
-// unconditionally, whether or not Gatekeeper::Accessor::try_delete() managed to delete synchronously.
-// But the Database object itself stays ALIVE until the *deferred* destructor actually runs on the
-// handler's single-thread `defer_pool_` (handler.hpp ~line 278), which can only happen once every
-// outstanding accessor (ours) is released. Meanwhile its db_memory_tracker_ still parents into the
-// global utils::graph_memory_tracker (dbms/database.hpp), so its bytes stay counted globally even
-// though the tenant has vanished from the per-tenant reachable set (DbmsHandler::ForEach). These two
-// tests reproduce that gap, and the resulting single-thread head-of-line blocking, end to end.
-TEST(DBMS_Handler, StuckOrphanStarvesAnotherTenantsDeferredDelete) {
+// A Database force-deleted via DbmsHandler::Delete (NOT TryDelete, which would refuse with USING)
+// while a DatabaseAccess is still held becomes invisible to DbmsHandler::Get/ForEach immediately:
+// Handler::DeferDelete erases the entry from `items_` unconditionally, whether or not
+// Gatekeeper::Accessor::try_delete() managed to delete synchronously. But the Database object stays
+// ALIVE until its deferred destructor actually runs, which cannot happen until every outstanding
+// accessor is released. Meanwhile its db_memory_tracker_ still parents into the global
+// utils::graph_memory_tracker, so its bytes stay counted globally even though the tenant has
+// vanished from the per-tenant reachable set. That is the "global total far exceeds the sum over
+// tenants" gap.
+//
+// This test covers the part that made one stuck tenant expensive: each deferred destruction gets its
+// own thread, so a tenant nobody can drain must not hold up an unrelated tenant's destruction (and
+// its memory) behind it.
+TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
   auto &dbms = *TestEnvironment::get();
 
   const int64_t global_baseline = memgraph::utils::graph_memory_tracker.Amount();
@@ -452,6 +455,12 @@ TEST(DBMS_Handler, StuckOrphanStarvesAnotherTenantsDeferredDelete) {
   auto new_t2 = dbms.New("starve_orphan_t2");
   ASSERT_TRUE(new_t2.has_value()) << (int)new_t2.error();
   memgraph::dbms::DatabaseAccess t2_acc = std::move(new_t2.value());
+
+  // Captured while the accessors are alive: post_delete_func removes these directories, so their
+  // disappearance is a direct, binary signal that a tenant's deferred destruction actually ran --
+  // independent of any allocator or memory-tracker bookkeeping.
+  const auto t1_dir = t1_acc->config().durability.storage_directory;
+  const auto t2_dir = t2_acc->config().durability.storage_directory;
 
   constexpr size_t kNumVertices = 2000;
   constexpr size_t kPropertyBytes = 1024;
@@ -477,35 +486,41 @@ TEST(DBMS_Handler, StuckOrphanStarvesAnotherTenantsDeferredDelete) {
       << "both t1 and t2 must have an unambiguous, measurable footprint before either is deleted";
 
   // Force-delete BOTH while both accessors are still held, so BOTH must go through the deferred
-  // (not the immediate/synchronous) path in Handler::DeferDelete. Handler::DeferDelete's single-
-  // thread defer_pool_ (handler.hpp ~line 278) is strict FIFO: t1's deferred task is enqueued (and
-  // starts running -- blocking inside move(gk)'s ~Gatekeeper, waiting on t1_acc) strictly before
-  // t2's task is even enqueued.
+  // (not the immediate/synchronous) path in Handler::DeferDelete: try_delete()'s count_==1 check
+  // fails for each, since each tenant's own accessor (t1_acc / t2_acc) is still outstanding.
   auto del1 = dbms.Delete("starve_orphan_t1");
   ASSERT_TRUE(del1.has_value()) << (int)del1.error();
   auto del2 = dbms.Delete("starve_orphan_t2");
   ASSERT_TRUE(del2.has_value()) << (int)del2.error();
 
-  // Release t2's accessor. t2 now has ABSOLUTELY NOTHING holding it -- if the defer_pool_ worker
-  // were free, t2's already-queued deferred task would complete near-instantly (its own
-  // move(gk)'s ~Gatekeeper has nothing left to wait for: count_ is already 0). But the pool's ONE
-  // worker thread is still stuck running t1's task, blocked waiting for t1_acc's count to reach 0 --
-  // and t1_acc is still held. t2's task cannot even START, let alone finish: head-of-line blocking
-  // on a queue where t2 itself is not the one holding anything up.
+  // Release t2's accessor. t2 now has nothing holding it, while t1 is still pinned and can never
+  // drain. t2's destruction must complete anyway -- it has its own thread and cannot be queued
+  // behind t1's. Three assertions, because each catches a different way this could go wrong.
   t2_acc.reset();
 
-  const bool reclaimed_early = WaitUntil(std::chrono::milliseconds(800), [&] {
-    // If either t1 or t2 had actually been reclaimed, the global tracker would have dropped by
-    // roughly one payload's worth of bytes. It must NOT move at all while t1_acc is still held.
-    return AbsDiff(memgraph::utils::graph_memory_tracker.Amount(), global_with_both) > kTightToleranceBytes;
-  });
-  EXPECT_FALSE(reclaimed_early)
-      << "t2's deferred delete must NOT have progressed while stuck behind t1's still-held orphan on "
-         "the single defer_pool_ worker thread, even though t2 itself holds nothing; amount="
-      << memgraph::utils::graph_memory_tracker.Amount() << " with_both=" << global_with_both;
+  // (1) Mechanism: t2's post_delete_func removed its storage directory, so t2's deferred task really
+  //     did run to completion.
+  const bool t2_destroyed = WaitUntil(std::chrono::seconds(10), [&] { return !std::filesystem::exists(t2_dir); });
+  EXPECT_TRUE(t2_destroyed) << "t2's deferred destruction must complete even though t1 is still pinned; its storage "
+                               "directory is still present: "
+                            << t2_dir;
 
-  // Now release t1's accessor too. This finally lets t1's stuck task complete, freeing the worker
-  // thread to dequeue and run t2's (already fully-ready) task right behind it.
+  // (2) t1 must NOT have been dragged along. Without this, the test would also pass if something had
+  //     released t1 -- i.e. for the wrong reason, without the two tenants actually being decoupled.
+  EXPECT_TRUE(std::filesystem::exists(t1_dir))
+      << "t1 is still held by t1_acc, so its destruction must NOT have completed";
+
+  // (3) The customer-visible symptom: the memory really came back. Roughly one tenant's worth is
+  //     released (t2's) while roughly one tenant's worth (t1's) is still held.
+  const int64_t after_t2 = memgraph::utils::graph_memory_tracker.Amount();
+  EXPECT_GT(global_with_both - after_t2, static_cast<int64_t>(kNumVertices * kPropertyBytes))
+      << "releasing t2 must return t2's memory even while t1 is stuck; with_both=" << global_with_both
+      << " now=" << after_t2;
+  EXPECT_GT(after_t2 - global_baseline, static_cast<int64_t>(kNumVertices * kPropertyBytes))
+      << "t1's memory must still be accounted for while t1_acc is alive; now=" << after_t2
+      << " baseline=" << global_baseline;
+
+  // Now release t1's accessor too. This finally lets t1's stuck task complete.
   t1_acc.reset();
 
   const bool both_recovered = WaitUntil(std::chrono::seconds(10), [&] {
@@ -514,6 +529,8 @@ TEST(DBMS_Handler, StuckOrphanStarvesAnotherTenantsDeferredDelete) {
   EXPECT_TRUE(both_recovered) << "both t1 and t2 must eventually be reclaimed once t1_acc is released; "
                                  "current amount: "
                               << memgraph::utils::graph_memory_tracker.Amount() << ", baseline: " << global_baseline;
+  EXPECT_FALSE(std::filesystem::exists(t1_dir))
+      << "t1's deferred destruction must complete once its accessor is released; " << t1_dir << " is still present";
 }
 
 int main(int argc, char *argv[]) {
