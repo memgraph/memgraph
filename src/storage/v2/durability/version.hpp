@@ -46,6 +46,8 @@ constexpr uint64_t kExtendedEdgeSetProperty{33};
 constexpr uint64_t kDescriptionAndDescIndexSupport{34};
 constexpr uint64_t kVectorIndexMultiLabel{35};
 constexpr uint64_t kCrcProtection{36};
+// Carries two changes: the vertex property index, and the transaction summary the WAL header gained,
+// back-patched when the file is finalized.
 constexpr uint64_t kVertexPropertyIndex{37};
 
 // The current version of snapshot and WAL encoding / decoding.

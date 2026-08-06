@@ -173,39 +173,57 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 
   std::error_code error_code;
 
-  // TODO: (andi) Inefficient to use I/O again, you already read infos.
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!ValidateDurabilityFile(item)) continue;
 
     try {
-      auto info = ReadWalInfo(item.path());
+      auto header = ReadWalHeader(item.path());
+      if ((!uuid.empty() && header.uuid != uuid) || (current_seq_num && header.seq_num >= *current_seq_num)) {
+        spdlog::trace("Wal file {} won't be used. UUID: {}. Header UUID: {}. Current seq num: {}. Header seq num: {}.",
+                      item.path(),
+                      uuid,
+                      header.uuid,
+                      current_seq_num,
+                      header.seq_num);
+        continue;
+      }
+
+      // A finalized file states its own timestamps. Anything else - a file the writer never finished, or one
+      // predating kVertexPropertyIndex - has to have its deltas parsed to derive them; ReadWalInfo throws for a file
+      // holding no complete transaction, which is how such a file gets dropped here.
+      uint64_t from_timestamp{0};
+      uint64_t to_timestamp{0};
+      if (header.summary) {
+        if (header.summary->num_txns == 0) {
+          spdlog::trace("Wal file {} won't be used because it holds no complete transaction.", item.path());
+          continue;
+        }
+        from_timestamp = header.summary->from_timestamp;
+        to_timestamp = header.summary->to_timestamp;
+      } else {
+        auto const info = ReadWalInfo(item.path());
+        from_timestamp = info.from_timestamp;
+        to_timestamp = info.to_timestamp;
+      }
+
       spdlog::trace(
           "Read wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
           "{}, "
           "sequence "
           "number {}.",
           item.path(),
-          info.uuid,
-          info.epoch_id,
-          info.from_timestamp,
-          info.to_timestamp,
-          info.seq_num);
-      if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num)) {
-        wal_files.emplace_back(info.seq_num,
-                               info.from_timestamp,
-                               info.to_timestamp,
-                               std::move(info.uuid),
-                               std::move(info.epoch_id),
-                               item.path());
-        spdlog::trace("Wal file {} will be used.", item.path());
-      } else {
-        spdlog::trace("Wal file {} won't be used. UUID: {}. Info UUID: {}. Current seq num: {}. Info seq num: {}.",
-                      item.path(),
-                      uuid,
-                      info.uuid,
-                      current_seq_num,
-                      info.seq_num);
-      }
+          header.uuid,
+          header.epoch_id,
+          from_timestamp,
+          to_timestamp,
+          header.seq_num);
+      wal_files.emplace_back(header.seq_num,
+                             from_timestamp,
+                             to_timestamp,
+                             std::move(header.uuid),
+                             std::move(header.epoch_id),
+                             item.path());
+      spdlog::trace("Wal file {} will be used.", item.path());
     } catch (const RecoveryFailure &e) {
       spdlog::warn("Failed to read WAL file {}. Error: {}", item.path(), e.what());
     }
@@ -620,6 +638,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
   std::optional<uint64_t> snapshot_durable_timestamp;
+  std::vector<WalDurabilityInfo> wal_files;
   if (!snapshot_files.empty()) {
     spdlog::info("Try recovering from snapshot directory {}.", snapshot_directory_);
 
@@ -668,65 +687,48 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
     recovery_info.last_durable_timestamp = *snapshot_durable_timestamp;
+
+    auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
+    if (!maybe_wal_files.has_value()) {
+      throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
+    }
+    wal_files = std::move(*maybe_wal_files);
   } else {
     // UUID couldn't be recovered from the snapshot; recovering it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
-    std::error_code error_code;
     if (!utils::DirExists(wal_directory_)) return std::nullopt;
 
-    // We use this smaller struct that contains only a subset of information
-    // necessary for the rest of the recovery function.
-    // Also, the struct is sorted primarily on the path it contains.
-    struct WalFileInfo {
-      explicit WalFileInfo(std::filesystem::path path, std::string uuid, std::string epoch_id)
-          : path(std::move(path)), uuid(std::move(uuid)), epoch_id(std::move(epoch_id)) {}
-
-      std::filesystem::path path;
-      std::string uuid;
-      std::string epoch_id;
-
-      auto operator<=>(const WalFileInfo &) const = default;
-    };
-
-    std::vector<WalFileInfo> wal_files;
-    for (const auto &item : std::filesystem::directory_iterator(wal_directory_, error_code)) {
-      if (!item.is_regular_file()) {
-        spdlog::trace("Non-regular WAL file {} found in the wal directory. Skipping it.", item.path());
-        continue;
-      }
-      try {
-        auto info = ReadWalInfo(item.path());
-        wal_files.emplace_back(item.path(), std::move(info.uuid), std::move(info.epoch_id));
-      } catch (const RecoveryFailure &e) {
-        spdlog::error("Recovery failure while reading wal file: {}", e.what());
-      }
+    // The UUID isn't known yet, so every file in the directory is collected and the unrelated ones dropped below.
+    auto maybe_wal_files = GetWalFiles(wal_directory_);
+    if (!maybe_wal_files.has_value()) {
+      throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
     }
-    if (error_code) {
-      throw RecoveryFailure("Couldn't recover data because an error occurred: {}!", error_code.message());
-    }
+    wal_files = std::move(*maybe_wal_files);
 
     if (wal_files.empty()) {
       spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
       return std::nullopt;
     }
 
-    // sort by path
-    std::ranges::sort(wal_files);
-
-    // UUID used for durability is the UUID of the last WAL file.
-    // Same for the epoch id.
-    uuid.set(wal_files.back().uuid);
-    repl_storage_state.epoch_.SetEpoch(std::move(wal_files.back().epoch_id));
+    // The UUID and the epoch id used for durability are the ones of the most recently created WAL file. WAL file
+    // names are prefixed with a zero-padded microsecond timestamp, so the greatest path is the newest file.
+    // Sequence numbers can't be used to find it because they restart from 0 whenever the storage UUID changes.
+    auto const &newest_wal_file = *std::ranges::max_element(wal_files, {}, &WalDurabilityInfo::path);
+    uuid.set(newest_wal_file.uuid);
+    repl_storage_state.epoch_.SetEpoch(newest_wal_file.epoch_id);
     spdlog::trace("UUID of the last WAL file: {}. Epoch id from the last WAL file: {}.",
                   std::string{uuid},
                   repl_storage_state.epoch_.id());
-  }
-  auto const maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
-  if (!maybe_wal_files.has_value()) {
-    throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
+
+    std::erase_if(wal_files, [uuid_str = std::string{uuid}](auto const &wal_file) {
+      if (wal_file.uuid == uuid_str) return false;
+      spdlog::trace(
+          "Wal file {} won't be used. Wanted UUID: {}. File UUID: {}.", wal_file.path, uuid_str, wal_file.uuid);
+      return true;
+    });
   }
 
-  if (auto const &wal_files = *maybe_wal_files; !wal_files.empty()) {
+  if (!wal_files.empty()) {
     spdlog::info("Checking WAL files.");
     r::for_each(wal_files,
                 [](auto &&wal_file) { spdlog::trace("Wal file: {}. Seq num: {}.", wal_file.path, wal_file.seq_num); });

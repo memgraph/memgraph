@@ -52,6 +52,28 @@ struct WalDeltaData;
 /// True iff this pre-v15 delta marks the end of its implicit transaction.
 bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta);
 
+/// What a finalized WAL file records about its own contents. Back-patched into the header by WalFile::FinalizeWal,
+/// so that readers needing only this much don't have to parse every delta to derive it.
+struct WalSummary {
+  uint64_t from_timestamp;
+  uint64_t to_timestamp;
+  /// Transactions the writer completed. Zero means the file holds nothing recoverable.
+  uint64_t num_txns;
+};
+
+/// Everything a WAL file states about itself up front, readable without touching the delta region.
+struct WalHeader {
+  uint64_t offset_metadata;
+  uint64_t offset_deltas;
+
+  std::string uuid;
+  std::string epoch_id;
+  uint64_t seq_num;
+  /// Absent while the file is still being written, and for files written before kVertexPropertyIndex. Deriving
+  /// the same facts for such a file means parsing its deltas with ReadWalInfo.
+  std::optional<WalSummary> summary;
+};
+
 /// Structure used to hold information about a WAL.
 struct WalInfo {
   uint64_t offset_metadata;
@@ -466,7 +488,12 @@ inline bool IsWalDeltaDataTransactionEnd(const WalDeltaData &delta, const uint64
   return std::holds_alternative<WalTransactionEnd>(delta.data_);
 }
 
-/// Function used to read information about the WAL file.
+/// Function used to read the WAL file's header, without parsing the deltas.
+/// @throw RecoveryFailure
+WalHeader ReadWalHeader(const std::filesystem::path &path);
+
+/// Function used to read information about the WAL file. Parses every delta, verifying each transaction's CRC, so
+/// prefer ReadWalHeader when the header's summary already answers the question.
 /// @throw RecoveryFailure
 WalInfo ReadWalInfo(const std::filesystem::path &path);
 
@@ -574,9 +601,6 @@ class WalFile {
   WalFile(const std::filesystem::path &wal_directory, utils::UUID const &uuid, const std::string_view epoch_id,
           SalientConfig::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
           utils::FileRetainer *file_retainer);
-  WalFile(std::filesystem::path current_wal_path, SalientConfig::Items items, NameIdMapper *name_id_mapper,
-          uint64_t seq_num, uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
-          utils::FileRetainer *file_retainer);
 
   WalFile(const WalFile &) = delete;
   WalFile(WalFile &&) = delete;
@@ -637,6 +661,9 @@ class WalFile {
   void UpdateStats(uint64_t timestamp);
 
  private:
+  /// Rewrites the metadata section with the summary of what was actually written and repairs the header CRC.
+  void WriteSummary();
+
   SalientConfig::Items items_;
   NameIdMapper *name_id_mapper_;
   Encoder<utils::OutputFile> wal_;
@@ -644,7 +671,15 @@ class WalFile {
   uint64_t from_timestamp_;
   uint64_t to_timestamp_;
   uint64_t count_;
+  uint64_t num_txns_{0};
   uint64_t seq_num_;
+
+  // Retained so that FinalizeWal can rewrite the metadata section byte for byte, changing only the summary.
+  std::string uuid_;
+  std::string epoch_id_;
+  uint64_t offset_metadata_{0};
+  uint64_t offset_header_crc_{0};
+  uint32_t crc_prefix_offsets_{0};
 
   utils::FileRetainer *file_retainer_;
 };

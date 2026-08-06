@@ -674,6 +674,10 @@ class DeltaGenerator final {
 
   DataT GetData() { return data_; }
 
+  // Finalizes the underlying WAL file, which back-patches the header summary and renames the file away from
+  // "_current". Tests that don't call this leave the file unfinalized, i.e. without a summary.
+  void Finalize() { wal_file_.FinalizeWal(); }
+
   // Byte offsets of every DELTA_TRANSACTION_END marker written so far, in append order. Lets tests corrupt a specific
   // transaction-end marker without having to re-parse the WAL.
   std::vector<uint64_t> const &GetTxnEndMarkerPositions() const { return txn_end_marker_positions_; }
@@ -1007,6 +1011,50 @@ GENERATE_SIMPLE_TEST(AllTransactionOperationsWithoutEnd, {
     tx.DeleteVertex(vertex1);
   });
 });
+
+// The summary the writer back-patches into the header must say exactly what parsing every delta would conclude,
+// because readers trust it instead of parsing.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(WalFileTest, FinalizedHeaderSummaryMatchesScan) {
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    TRANSACTION(true, { tx.CreateVertex(); });
+    TRANSACTION(true, { tx.CreateVertex(); });
+    TRANSACTION(true, { tx.CreateVertex(); });
+    gen.Finalize();
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+
+  auto const header = memgraph::storage::durability::ReadWalHeader(wal_files.front());
+  ASSERT_TRUE(header.summary.has_value()) << "a finalized WAL file must carry its summary";
+
+  auto const scanned = memgraph::storage::durability::ReadWalInfo(wal_files.front());
+  EXPECT_EQ(header.summary->from_timestamp, scanned.from_timestamp);
+  EXPECT_EQ(header.summary->to_timestamp, scanned.to_timestamp);
+  EXPECT_EQ(header.summary->num_txns, 3);
+  EXPECT_EQ(header.uuid, scanned.uuid);
+  EXPECT_EQ(header.epoch_id, scanned.epoch_id);
+  EXPECT_EQ(header.seq_num, scanned.seq_num);
+}
+
+// A file the writer never finalized carries no summary, so readers must fall back to parsing its deltas. This is
+// what a crash leaves behind, and what every other test in this file produces.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(WalFileTest, UnfinalizedFileHasNoSummary) {
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    TRANSACTION(true, { tx.CreateVertex(); });
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+
+  auto const header = memgraph::storage::durability::ReadWalHeader(wal_files.front());
+  EXPECT_FALSE(header.summary.has_value());
+  EXPECT_NO_THROW(static_cast<void>(memgraph::storage::durability::ReadWalInfo(wal_files.front())));
+}
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(WalFileTest, EdgeCreateWithEnd) {

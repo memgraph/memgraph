@@ -919,18 +919,16 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
 #undef read_skip
 }
 
-}  // namespace
-
-// Function used to read information about the WAL file.
-WalInfo ReadWalInfo(const std::filesystem::path &path) {
+// Consumes the offsets and metadata sections, leaving the decoder positioned at the first delta. Shared by
+// ReadWalHeader and ReadWalInfo so that both agree on what a valid header is.
+WalHeader DecodeWalHeader(Decoder &wal, const std::filesystem::path &path, uint64_t &version) {
   // Check magic and version.
-  Decoder wal;
-  auto version = wal.Initialize(path, kWalMagic);
-  if (!version) throw RecoveryFailure("Couldn't read WAL magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid WAL version {}!", *version);
+  auto maybe_version = wal.Initialize(path, kWalMagic);
+  if (!maybe_version) throw RecoveryFailure("Couldn't read WAL magic and/or version!");
+  if (!IsVersionSupported(*maybe_version)) throw RecoveryFailure("Invalid WAL version {}!", *maybe_version);
+  version = *maybe_version;
 
-  // Prepare return value.
-  WalInfo info;
+  WalHeader header;
 
   // Read offsets.
   {
@@ -948,8 +946,8 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
       return offset;
     };
 
-    info.offset_metadata = read_offset();
-    info.offset_deltas = read_offset();
+    header.offset_metadata = read_offset();
+    header.offset_deltas = read_offset();
   }
 
   // Read metadata.
@@ -959,15 +957,34 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
 
     auto maybe_uuid = wal.ReadString();
     if (!maybe_uuid) throw RecoveryFailure(kInvalidWalErrorMessage);
-    info.uuid = std::move(*maybe_uuid);
+    header.uuid = std::move(*maybe_uuid);
 
     auto maybe_epoch_id = wal.ReadString();
     if (!maybe_epoch_id) throw RecoveryFailure(kInvalidWalErrorMessage);
-    info.epoch_id = std::move(*maybe_epoch_id);
+    header.epoch_id = std::move(*maybe_epoch_id);
 
     auto maybe_seq_num = wal.ReadUint();
     if (!maybe_seq_num) throw RecoveryFailure(kInvalidWalErrorMessage);
-    info.seq_num = *maybe_seq_num;
+    header.seq_num = *maybe_seq_num;
+
+    if (version >= kVertexPropertyIndex) {
+      auto maybe_finalized = wal.ReadBool();
+      if (!maybe_finalized) throw RecoveryFailure(kInvalidWalErrorMessage);
+
+      auto read_summary_value = [&wal] {
+        auto maybe_value = wal.ReadUint();
+        if (!maybe_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+        return *maybe_value;
+      };
+      // The placeholders must be consumed either way to keep the decoder aligned with the CRC trailer.
+      auto const from_timestamp = read_summary_value();
+      auto const to_timestamp = read_summary_value();
+      auto const num_txns = read_summary_value();
+      if (*maybe_finalized) {
+        header.summary =
+            WalSummary{.from_timestamp = from_timestamp, .to_timestamp = to_timestamp, .num_txns = num_txns};
+      }
+    }
   }
 
   if (version >= kCrcProtection) {
@@ -977,9 +994,34 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     }
   }
 
+  return header;
+}
+
+}  // namespace
+
+WalHeader ReadWalHeader(const std::filesystem::path &path) {
+  Decoder wal;
+  uint64_t version{};
+  return DecodeWalHeader(wal, path, version);
+}
+
+// Function used to read information about the WAL file.
+WalInfo ReadWalInfo(const std::filesystem::path &path) {
+  Decoder wal;
+  uint64_t version{};
+
+  auto header = DecodeWalHeader(wal, path, version);
+
+  WalInfo info;
+  info.offset_metadata = header.offset_metadata;
+  info.offset_deltas = header.offset_deltas;
+  info.uuid = std::move(header.uuid);
+  info.epoch_id = std::move(header.epoch_id);
+  info.seq_num = header.seq_num;
+
   // Read deltas.
   info.num_deltas = 0;
-  auto validate_delta = [&wal, version = *version]() -> std::optional<std::pair<uint64_t, bool>> {
+  auto validate_delta = [&wal, version]() -> std::optional<std::pair<uint64_t, bool>> {
     try {
       auto timestamp = ReadWalDeltaHeader(&wal);
       auto is_transaction_end = SkipWalDeltaData(&wal, version);
@@ -2140,6 +2182,8 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
       to_timestamp_(0),
       count_(0),
       seq_num_(seq_num),
+      uuid_(uuid),
+      epoch_id_(epoch_id),
       file_retainer_(file_retainer) {
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(wal_directory);
@@ -2159,9 +2203,15 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   offset_metadata = wal_.GetPosition();
   wal_.ResetCrcAcc();
   wal_.WriteMarker(Marker::SECTION_METADATA);
-  wal_.WriteString(std::string{uuid});
-  wal_.WriteString(epoch_id);
+  wal_.WriteString(uuid_);
+  wal_.WriteString(epoch_id_);
   wal_.WriteUint(seq_num);
+  // Summary placeholders, overwritten by FinalizeWal once the contents are known. The flag stays false for a file
+  // whose writer never got to finalize it, telling readers the three values below mean nothing.
+  wal_.WriteBool(false);
+  wal_.WriteUint(0);
+  wal_.WriteUint(0);
+  wal_.WriteUint(0);
 
   uint64_t const offset_header_crc = wal_.GetPosition();
   wal_.WriteMarker(Marker::TYPE_INT);
@@ -2184,6 +2234,12 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   // Patch the reserved trailer with the final header CRC.
   wal_.WriteCrcAt(offset_header_crc, header_crc);
 
+  // FinalizeWal replays the metadata write with the real summary, so it needs where that section starts, where its
+  // CRC trailer lives, and the CRC of everything preceding it.
+  offset_metadata_ = offset_metadata;
+  offset_header_crc_ = offset_header_crc;
+  crc_prefix_offsets_ = crc_prefix_offsets;
+
   wal_.SetPosition(offset_deltas);
   wal_.ResetCrcAcc();
 
@@ -2191,22 +2247,39 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   wal_.Sync();
 }
 
-WalFile::WalFile(std::filesystem::path current_wal_path, SalientConfig::Items items, NameIdMapper *name_id_mapper,
-                 uint64_t seq_num, uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
-                 utils::FileRetainer *file_retainer)
-    : items_(items),
-      name_id_mapper_(name_id_mapper),
-      path_(std::move(current_wal_path)),
-      from_timestamp_(from_timestamp),
-      to_timestamp_(to_timestamp),
-      count_(count),
-      seq_num_(seq_num),
-      file_retainer_(file_retainer) {
-  MG_ASSERT(wal_.OpenExisting(path_), "Failed to open existing WAL file {}", path_);
+void WalFile::WriteSummary() {
+  // Remember where appending should resume; GetPosition also flushes the buffer.
+  auto const end_pos = wal_.GetPosition();
+
+  // Replay the metadata write, identical to the constructor's except that the summary now holds real values, so
+  // that its CRC is produced by the same code path rather than by patching bytes.
+  wal_.SetPosition(offset_metadata_);
+  wal_.ResetCrcAcc();
+  wal_.WriteMarker(Marker::SECTION_METADATA);
+  wal_.WriteString(uuid_);
+  wal_.WriteString(epoch_id_);
+  wal_.WriteUint(seq_num_);
+  wal_.WriteBool(true);
+  wal_.WriteUint(from_timestamp_);
+  wal_.WriteUint(to_timestamp_);
+  wal_.WriteUint(num_txns_);
+
+  MG_ASSERT(wal_.GetPosition() == offset_header_crc_,
+            "WAL summary must occupy exactly the space reserved for it in {}",
+            path_);
+
+  wal_.WriteMarker(Marker::TYPE_INT);
+  auto const crc_metadata = wal_.CrcAccValue();
+  uint64_t const crc_metadata_len = wal_.GetPosition() - offset_metadata_;
+  wal_.WriteCrcAt(offset_header_crc_,
+                  utils::CrcAccumulator::Combine(crc_prefix_offsets_, crc_metadata, crc_metadata_len));
+
+  wal_.SetPosition(end_pos);
 }
 
 void WalFile::FinalizeWal() {
   if (count_ != 0) {
+    WriteSummary();
     wal_.Finalize();
     wal_.Close();
     // Rename file.
@@ -2276,6 +2349,7 @@ void WalFile::UpdateCommitStatus(WalTxnDataPos const &wal_positions) {
 WalTxnEndPos WalFile::AppendTransactionEnd(uint64_t timestamp) {
   auto const txn_end_pos = EncodeTransactionEnd(&wal_, timestamp);
   UpdateStats(timestamp);
+  ++num_txns_;
   return txn_end_pos;
 }
 
