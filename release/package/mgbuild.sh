@@ -795,7 +795,11 @@ build_memgraph () {
     echo "UBSAN enabled"
   fi
 
-  local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_v7 $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+  # The host profile must match --toolchain: the v8 profile carries the
+  # --sysroot/--gcc-toolchain conf that pins compiles to the toolchain's
+  # glibc; with the wrong profile, memgraph compiles against the container's
+  # host glibc and the binary won't run on older distros.
+  local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_${toolchain_version} $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
 
   # MAGE-only: trim the conan graph; the generated toolchain then also sets
   # MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON (see conanfile.py).
