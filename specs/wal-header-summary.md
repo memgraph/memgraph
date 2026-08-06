@@ -165,6 +165,20 @@ exist.
 - Unreadable files are skipped by `ValidateDurabilityFile` with a clear message
   rather than attempted and thrown, because `GetWalFiles` checks read access where
   the old pre-pass only checked `is_regular_file`.
+- Corruption in the delta region of a *finalized* file — bit rot, not a crash — is
+  no longer noticed during discovery, since discovery no longer reads deltas. Such a
+  file used to be reported with a `to_timestamp` truncated at the last valid
+  transaction; it now reports what the writer recorded. The summary itself is covered
+  by the header CRC, so a corrupted summary is still caught.
+
+  This reaches only `GetRecoverySteps`, and only as a liveness concern.
+  `RecoverData` never reads `to_timestamp`, and `LoadWal` re-scans and applies just
+  the valid transactions, so recovered data is identical. On the replication path the
+  replica calls `ReadWalInfo` on every file it receives before applying anything, so
+  an overstated summary cannot make it apply bad data — and such a file was shipped
+  to the replica before this change too, because `ReadWalInfo` does not throw for a
+  file holding at least one valid transaction. The outcome either way is a replica
+  that cannot get past the corruption and keeps retrying.
 
 ## Verification
 
@@ -195,11 +209,17 @@ Build `memgraph__unit`, then
 
 ## Deferred work
 
-`EnsureNecessaryWalFilesExist` and `GetRecoverySteps` both go through `GetWalFiles`,
-so both get the header-only path for free. Neither was re-read as part of this
-change; `GetRecoverySteps` in particular never touches `epoch_id`, `num_deltas` or
-the offsets, and already reads the current WAL's timestamps from memory rather than
-from the file, so it should now be fully header-only.
+`GetRecoverySteps` goes through `GetWalFiles`, so it gets the header-only path for
+free. It never touches `epoch_id`, `num_deltas` or the offsets, and already reads
+the current WAL's timestamps from memory rather than from the file, so it should now
+be fully header-only.
+
+`EnsureNecessaryWalFilesExist` does **not**. It has its own directory loop calling
+`ReadWalInfo`, so it still parses every WAL file after every snapshot — the largest
+recurring cost named at the top of this document, and untouched by this change.
+Switching it over looks safe: it reads only `from_timestamp`, and it retains
+everything from `std::prev(it)` onward, so the "keep at least one WAL predating the
+oldest snapshot" invariant holds whichever value it sees.
 
 `InMemoryReplicationHandlers::LoadWal` still calls `ReadWalInfo` for uuid, epoch_id
 and `to_timestamp`, then applies the deltas in its own loop — two passes over a file
