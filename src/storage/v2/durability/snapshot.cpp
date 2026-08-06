@@ -10070,6 +10070,9 @@ void RecoverDescriptionStore(Decoder &snapshot, SnapshotInfo const &info, NameId
       case DescriptionTargetKind::DATABASE:
         description_store->SetDatabase(read_string("database description"));
         break;
+      default:
+        throw RecoveryFailure(
+            "Unexpected description target kind in snapshot; file may be from an incompatible version.");
     }
   }
 
