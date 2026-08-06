@@ -57,8 +57,7 @@ bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta);
 struct WalSummary {
   uint64_t from_timestamp;
   uint64_t to_timestamp;
-  /// Deltas belonging to transactions the writer completed, always positive. Says what was written, which is not
-  /// what a rotted file can still be replayed to - so this does not bound replay, which keeps parsing. A file with
+  /// Deltas belonging to transactions the writer completed, always positive. A file with
   /// no complete transaction has nothing to summarize and so carries no summary at all rather than one saying zero,
   /// which is also how the unwritten placeholder is recognised.
   uint64_t num_deltas;
