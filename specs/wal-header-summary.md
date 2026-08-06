@@ -18,9 +18,12 @@ read a delta:
 | Call site | Runs | Needs |
 |---|---|---|
 | `GetWalFiles` | every recovery | seq_num, uuid, epoch_id, from/to |
-| `EnsureNecessaryWalFilesExist` | after every snapshot, default 300 s | uuid, seq_num, from/to |
+| `EnsureNecessaryWalFilesExist` | after every snapshot, default 300 s | uuid, seq_num, from_timestamp |
 | `GetRecoverySteps` | every replica recovery | seq_num, from/to, path |
 | `LoadWal` | per file applied | offsets, num_deltas, to_timestamp |
+
+Only the last genuinely needs the deltas parsed. `GetRecoverySteps` reaches them
+through `GetWalFiles`; `EnsureNecessaryWalFilesExist` has its own directory loop.
 
 `RecoverData` was worse still: in the snapshot-less case it parsed the whole
 directory twice, once in a pre-pass that only wanted the newest file's uuid and
@@ -32,10 +35,11 @@ A WAL file records its own summary. `WalFile::FinalizeWal` back-patches
 `from_timestamp`, `to_timestamp` and the count of completed transactions into the
 header, so discovery reads one page per file instead of the whole file.
 
-`ReadWalHeader` stops after the offsets and metadata sections. `GetWalFiles` uses
-it and consults the summary; only a file without one falls back to `ReadWalInfo`.
-`RecoverData`'s pre-pass is deleted — with no uuid known yet it reads every
-header, adopts the newest file's identity, and filters the rest in memory.
+`ReadWalHeader` stops after the offsets and metadata sections. `GetWalFiles` and
+`EnsureNecessaryWalFilesExist` both use it and consult the summary; only a file
+without one falls back to `ReadWalInfo`. `RecoverData`'s pre-pass is deleted — with
+no uuid known yet it reads every header, adopts the newest file's identity, and
+filters the rest in memory.
 
 `LoadWal` is untouched and still parses every delta. Its loop is bounded by
 `num_deltas`, which is also how an incomplete trailing transaction gets excluded,
@@ -209,17 +213,18 @@ Build `memgraph__unit`, then
 
 ## Deferred work
 
-`GetRecoverySteps` goes through `GetWalFiles`, so it gets the header-only path for
-free. It never touches `epoch_id`, `num_deltas` or the offsets, and already reads
-the current WAL's timestamps from memory rather than from the file, so it should now
-be fully header-only.
+`InMemoryReplicationHandlers::LoadWal` is the one remaining `ReadWalInfo` caller
+that could in principle use the header, for its `to_timestamp <= ldt` early exit —
+skipping a file the replica already has, without parsing it. It was left alone
+deliberately, because the exit almost never fires: `GetWalChainInfo` picks
+`first_useful_wal` as the file straddling `replica_commit`, and
+`FirstWalAfterSnapshot` drops anything the snapshot already covers, so main does not
+normally ship a fully-redundant file. The one case that would benefit — the current
+WAL — has no summary anyway. Low value against a change in a sensitive path.
 
-`EnsureNecessaryWalFilesExist` does **not**. It has its own directory loop calling
-`ReadWalInfo`, so it still parses every WAL file after every snapshot — the largest
-recurring cost named at the top of this document, and untouched by this change.
-Switching it over looks safe: it reads only `from_timestamp`, and it retains
-everything from `std::prev(it)` onward, so the "keep at least one WAL predating the
-oldest snapshot" invariant holds whichever value it sees.
+Its real cost is elsewhere: it scans the file with `ReadWalInfo`, then reads it again
+in its own apply loop. Collapsing those is the same problem as `LoadWal` and is out
+of scope for the same reason.
 
 `InMemoryReplicationHandlers::LoadWal` still calls `ReadWalInfo` for uuid, epoch_id
 and `to_timestamp`, then applies the deltas in its own loop — two passes over a file
