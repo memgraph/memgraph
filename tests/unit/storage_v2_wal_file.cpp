@@ -1033,7 +1033,8 @@ TEST_P(WalFileTest, FinalizedHeaderSummaryMatchesScan) {
   auto const scanned = memgraph::storage::durability::ReadWalInfo(wal_files.front());
   EXPECT_EQ(header.summary->from_timestamp, scanned.from_timestamp);
   EXPECT_EQ(header.summary->to_timestamp, scanned.to_timestamp);
-  EXPECT_EQ(header.summary->num_txns, 3);
+  EXPECT_EQ(header.summary->num_deltas, scanned.num_deltas);
+  EXPECT_GT(header.summary->num_deltas, 0);
   EXPECT_EQ(header.uuid, scanned.uuid);
   EXPECT_EQ(header.epoch_id, scanned.epoch_id);
   EXPECT_EQ(header.seq_num, scanned.seq_num);

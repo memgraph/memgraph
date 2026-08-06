@@ -32,8 +32,8 @@ epoch id, and again in `GetWalFiles`.
 ## Solution
 
 A WAL file records its own summary. `WalFile::FinalizeWal` back-patches
-`from_timestamp`, `to_timestamp` and the count of completed transactions into the
-header, so discovery reads one page per file instead of the whole file.
+`from_timestamp`, `to_timestamp` and the delta count into the header, so a reader
+gets them for one page instead of the whole file.
 
 `ReadWalHeader` stops after the offsets and metadata sections. `GetWalFiles` and
 `EnsureNecessaryWalFilesExist` both use it and consult the summary; only a file
@@ -41,33 +41,33 @@ without one falls back to `ReadWalInfo`. `RecoverData`'s pre-pass is deleted —
 no uuid known yet it reads every header, adopts the newest file's identity, and
 filters the rest in memory.
 
-`LoadWal` is untouched and still parses every delta. Its loop is bounded by
-`num_deltas`, which is also how an incomplete trailing transaction gets excluded,
-and per-transaction CRC verification happens only inside `ReadWalInfo`.
+`LoadWal` and `InMemoryReplicationHandlers::LoadWal` read every file twice today,
+once to scan and once to apply. With `num_deltas` in the header they read it once.
+That required moving CRC verification into `LoadWal`'s apply loop - see decision 9.
 
 ## Decisions
 
 ### 1. Three values, not two
 
 Caching only the timestamps leaves a hole. `WalFile::count_` counts frames, not
-completed transactions, and while the commit path finalizes right after
-`AppendTransactionEnd`, the shutdown path and `PrepareForNewEpoch` don't visibly
-exclude a transaction being mid-append. Such a file would advertise perfectly good
-timestamps while holding nothing loadable, and a reader trusting them would try to
-load it.
+frames belonging to *completed* transactions, and while the commit path finalizes
+right after `AppendTransactionEnd`, the shutdown path and `PrepareForNewEpoch` do
+not visibly exclude a transaction being mid-append. Such a file would advertise
+perfectly good timestamps while holding a partial transaction, and a reader
+trusting them would replay it.
 
-`num_txns`, incremented in `AppendTransactionEnd`, is what reproduces today's
-include/exclude decision without a scan: `ReadWalInfo` throws for a file with no
-complete transaction, which is how `GetWalFiles` used to drop it, and
-`num_txns == 0` now means the same thing.
+`num_deltas` - `count_` snapshotted at each `AppendTransactionEnd` - is exactly
+what `ReadWalInfo` derives by parsing. It does three jobs: it marks the unwritten
+placeholder, it lets discovery drop a file with nothing recoverable, and it bounds
+the replay so a torn trailing transaction is never applied.
 
-### 2. A zero transaction count marks the placeholder
+### 2. A zero delta count marks the placeholder
 
 The three values are written twice: as zeros by the constructor, which has nothing
 to describe yet, and with real values by `FinalizeWal`. A reader must tell those
 apart, since placeholders mean "scan this file" and real values mean "trust these".
 
-`num_txns == 0` is what marks them as unwritten. It works because `FinalizeWal`
+`num_deltas == 0` is what marks them as unwritten. It works because `FinalizeWal`
 only ever writes a positive count, so no file whose summary is worth trusting
 carries a zero. It also reads honestly: a file with no complete transaction has
 nothing to summarize, so having no summary is the correct encoding rather than a
@@ -86,6 +86,20 @@ one file.
 An explicit boolean flag was considered and dropped. It would have let the second
 case be rejected without a scan, but that is not worth a byte in the format and an
 extra field to keep consistent.
+
+### 9. CRC verification moves into `LoadWal`'s apply loop
+
+`num_deltas` is not what stopped `LoadWal` from using the header — CRC was. Its
+apply loop verified nothing; the pre-scan was the only place v36's protection
+happened on the disk-recovery path, which is what the old comment above `LoadWal`
+meant. Caching the count and deleting the scan without more would have silently
+dropped that protection.
+
+So `LoadWal` now verifies each transaction's CRC as it replays it, resetting the
+accumulator at every transaction end exactly as the write side and `ReadWalInfo`
+do. `InMemoryReplicationHandlers` already worked this way, so this aligns the two
+rather than inventing anything. Verification is retained and the second pass is
+gone.
 
 ### 3. Back-patch the header rather than append a trailer
 
@@ -150,7 +164,7 @@ exist.
 
 ## Invariants preserved
 
-- **Which files are excluded.** `num_txns == 0` reproduces `ReadWalInfo` throwing.
+- **Which files are excluded.** `num_deltas == 0` reproduces `ReadWalInfo` throwing.
   A corrupt header still throws from `ReadWalHeader`.
 - **CRC verification.** Untouched — it happens in `ReadWalInfo`, which `LoadWal`
   still calls on every file it applies.
@@ -175,7 +189,18 @@ exist.
   transaction; it now reports what the writer recorded. The summary itself is covered
   by the header CRC, so a corrupted summary is still caught.
 
-  This reaches only `GetRecoverySteps`, and only as a liveness concern.
+  Replay behaviour changes with it: a finalized file corrupted mid-way used to have
+  its `num_deltas` truncated at the corruption by the pre-scan, so `LoadWal` applied
+  the valid prefix and recovery *succeeded with partial data*. The header states the
+  full count, so replay now reaches the damage, the apply loop's CRC check fires, and
+  recovery fails loudly (or yields a broken tenant under
+  `--storage-allow-recovery-failure`). That is the better outcome — silently
+  truncating recovery at a corruption point drops committed data without telling
+  anyone, and if the damaged file is mid-chain the old behaviour replayed later
+  transactions on top of a hole.
+
+  For discovery the difference reaches only `GetRecoverySteps`, and only as a
+  liveness concern.
   `RecoverData` never reads `to_timestamp`, and `LoadWal` re-scans and applies just
   the valid transactions, so recovered data is identical. On the replication path the
   replica calls `ReadWalInfo` on every file it receives before applying anything, so

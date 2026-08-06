@@ -977,9 +977,9 @@ WalHeader DecodeWalHeader(Decoder &wal, const std::filesystem::path &path, uint6
       // anything. FinalizeWal only ever writes a positive count, so zero is still the placeholder it reserved.
       auto const from_timestamp = read_summary_value();
       auto const to_timestamp = read_summary_value();
-      if (auto const num_txns = read_summary_value(); num_txns != 0) {
+      if (auto const num_deltas = read_summary_value(); num_deltas != 0) {
         header.summary =
-            WalSummary{.from_timestamp = from_timestamp, .to_timestamp = to_timestamp, .num_txns = num_txns};
+            WalSummary{.from_timestamp = from_timestamp, .to_timestamp = to_timestamp, .num_deltas = num_deltas};
       }
     }
   }
@@ -1305,7 +1305,8 @@ WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   return {.crc_wal_pos_ = crc_wal_pos, .stored_crc_ = txn_crc};
 }
 
-// CRC verification is done in ReadWalInfo and is not needed later on
+// Each transaction's CRC is verified as it is replayed, so a file whose header already states its extent
+// never has to be parsed twice.
 std::optional<RecoveryInfo> LoadWal(
     const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
     const std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipListDb<Vertex> *vertices,
@@ -1316,28 +1317,47 @@ std::optional<RecoveryInfo> LoadWal(
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
-  auto version = wal.Initialize(path, kWalMagic);
-  if (!version) throw RecoveryFailure("Couldn't read WAL magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid WAL version!");
+  uint64_t version{};
+  auto const header = DecodeWalHeader(wal, path, version);
 
-  // Read wal info.
-  auto info = ReadWalInfo(path);
+  // A file that was finalized states its own extent. Anything else - one the writer never finished, or one
+  // predating k37 - is parsed to derive it, which is also what rejects a file holding no complete transaction.
+  // Either way the count covers complete transactions only, so a torn trailing transaction is never replayed.
+  uint64_t to_timestamp{0};
+  uint64_t num_deltas{0};
+  if (header.summary) {
+    to_timestamp = header.summary->to_timestamp;
+    num_deltas = header.summary->num_deltas;
+  } else {
+    auto const info = ReadWalInfo(path);
+    to_timestamp = info.to_timestamp;
+    num_deltas = info.num_deltas;
+  }
 
   // Check timestamp.
-  if (last_applied_delta_timestamp && info.to_timestamp <= *last_applied_delta_timestamp) {
-    spdlog::info(
-        "Skip loading WAL file because it is too old. {} <= {}", info.to_timestamp, *last_applied_delta_timestamp);
+  if (last_applied_delta_timestamp && to_timestamp <= *last_applied_delta_timestamp) {
+    spdlog::info("Skip loading WAL file because it is too old. {} <= {}", to_timestamp, *last_applied_delta_timestamp);
     return std::nullopt;
   }
 
   std::optional<RecoveryInfo> ret;
 
-  // Recover deltas
-  wal.SetPosition(info.offset_deltas);
+  // Recover deltas. The accumulator is reset here and again after every transaction, so each transaction's CRC is
+  // computed over exactly its own byte range, matching the write side.
+  wal.SetPosition(header.offset_deltas);
+  wal.ResetCrcAcc();
+  auto const verify_txn_crc = [&wal, &path, version](bool const is_transaction_end) {
+    if (!is_transaction_end) return;
+    if (version >= kCrcProtection && !utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+      throw RecoveryFailure("Durability CRC mismatch in WAL file {}", path);
+    }
+    wal.ResetCrcAcc();
+  };
+
   uint64_t deltas_applied = 0;
   auto edge_acc = edges->access();
   auto vertex_acc = vertices->access();
-  spdlog::info("WAL file contains {} deltas.", info.num_deltas);
+  spdlog::info("WAL file contains {} deltas.", num_deltas);
   spdlog::info("WAL recovery: properties_on_edges={}, storage_light_edge={}",
                items.properties_on_edges,
                items.storage_light_edge);
@@ -2129,20 +2149,17 @@ std::optional<RecoveryInfo> LoadWal(
       },
   };
 
-  for (uint64_t i = 0; i < info.num_deltas; ++i) {
+  for (uint64_t i = 0; i < num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
     if (auto delta_ts = ReadWalDeltaHeader(&wal);
         (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
       // This delta should be loaded.
-      auto delta = ReadWalDeltaData(&wal, *version);
+      auto delta = ReadWalDeltaData(&wal, version);
       // We should always check if the delta is WalTransactionStart to update should_commit
       if (auto *txn_start = std::get_if<WalTransactionStart>(&delta.data_)) {
         should_commit = txn_start->commit.value_or(true);
         ++deltas_applied;
-        continue;
-      }
-
-      if (should_commit) {
+      } else if (should_commit) {
         // First delta which is not WalTransactionStart -> allocate RecoveryInfo
         if (!ret) {
           ret.emplace(RecoveryInfo{.next_timestamp = delta_ts + 1, .last_durable_timestamp = delta_ts});
@@ -2155,8 +2172,9 @@ std::optional<RecoveryInfo> LoadWal(
         ++deltas_applied;
       }
 
+      verify_txn_crc(IsWalDeltaDataTransactionEnd(delta, version));
     } else {
-      SkipWalDeltaData(&wal, *version);
+      verify_txn_crc(SkipWalDeltaData(&wal, version));
     }
   }
 
@@ -2164,7 +2182,7 @@ std::optional<RecoveryInfo> LoadWal(
       "Applied {} deltas from WAL. Skipped {} deltas, because they were too old or because 2PC protocol decided to "
       "abort txn but deltas were already made durable.",
       deltas_applied,
-      info.num_deltas - deltas_applied);
+      num_deltas - deltas_applied);
 
   return ret;
 }
@@ -2203,8 +2221,8 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   wal_.WriteString(uuid_);
   wal_.WriteString(epoch_id_);
   wal_.WriteUint(seq_num);
-  // Summary placeholders, overwritten by FinalizeWal once the contents are known. A transaction count of zero is
-  // what marks them as such: no file worth trusting the summary of has one.
+  // Summary placeholders, overwritten by FinalizeWal once the contents are known. A delta count of zero is what
+  // marks them as such: no file worth trusting the summary of has one.
   wal_.WriteUint(0);
   wal_.WriteUint(0);
   wal_.WriteUint(0);
@@ -2257,7 +2275,7 @@ void WalFile::WriteSummary() {
   wal_.WriteUint(seq_num_);
   wal_.WriteUint(from_timestamp_);
   wal_.WriteUint(to_timestamp_);
-  wal_.WriteUint(num_txns_);
+  wal_.WriteUint(num_deltas_);
 
   MG_ASSERT(wal_.GetPosition() == offset_header_crc_,
             "WAL summary must occupy exactly the space reserved for it in {}",
@@ -2344,7 +2362,8 @@ void WalFile::UpdateCommitStatus(WalTxnDataPos const &wal_positions) {
 WalTxnEndPos WalFile::AppendTransactionEnd(uint64_t timestamp) {
   auto const txn_end_pos = EncodeTransactionEnd(&wal_, timestamp);
   UpdateStats(timestamp);
-  ++num_txns_;
+  // Everything appended so far now belongs to a completed transaction.
+  num_deltas_ = count_;
   return txn_end_pos;
 }
 

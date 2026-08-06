@@ -57,9 +57,11 @@ bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta);
 struct WalSummary {
   uint64_t from_timestamp;
   uint64_t to_timestamp;
-  /// Transactions the writer completed, always positive. A file with none has nothing to summarize, so it carries
-  /// no summary at all rather than one saying zero - which is also how the unwritten placeholder is recognised.
-  uint64_t num_txns;
+  /// Deltas belonging to transactions the writer completed, always positive - the same figure ReadWalInfo derives
+  /// by parsing, and the bound LoadWal replays to, so a torn trailing transaction is excluded. A file with none has
+  /// nothing to summarize, so it carries no summary at all rather than one saying zero, which is also how the
+  /// unwritten placeholder is recognised.
+  uint64_t num_deltas;
 };
 
 /// Everything a WAL file states about itself up front, readable without touching the delta region.
@@ -672,7 +674,8 @@ class WalFile {
   uint64_t from_timestamp_;
   uint64_t to_timestamp_;
   uint64_t count_;
-  uint64_t num_txns_{0};
+  // count_ as of the last completed transaction, i.e. excluding a transaction still being appended.
+  uint64_t num_deltas_{0};
   uint64_t seq_num_;
 
   // Retained so that FinalizeWal can rewrite the metadata section byte for byte, changing only the summary.
