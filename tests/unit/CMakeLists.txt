@@ -830,6 +830,11 @@ add_unit_test(storage_v2_index_entry_lifetime
     LINK_TARGETS mg::storage mg-utils
 )
 
+add_unit_test(storage_v2_object_removal
+    SOURCES storage_v2_object_removal.cpp
+    LINK_TARGETS mg::storage mg-utils
+)
+
 add_unit_test(storage_v2_name_id_mapper
     SOURCES storage_v2_name_id_mapper.cpp
     LINK_TARGETS mg::storage

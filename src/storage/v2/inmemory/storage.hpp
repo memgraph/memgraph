@@ -878,6 +878,13 @@ class InMemoryStorage final : public Storage {
   // that owes liveness to somebody else (an RPC handler under a peer timeout) observe that this is still advancing.
   void Clear(std::function<void()> const &on_progress = {});
 
+  // How many objects the stores still hold, including ones already deleted but not yet collected.
+  // Lets a test see when an object actually leaves storage, as opposed to when it stops being
+  // visible to queries.
+  [[nodiscard]] uint64_t EdgeStoreSize() const { return edges_.size(); }
+
+  [[nodiscard]] uint64_t VertexStoreSize() const { return vertices_.size(); }
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc

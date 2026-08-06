@@ -1537,7 +1537,8 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
     // We collect vertices and edges we've deleted here into local vectors first,
     // then remove them directly from the skiplists and transfer ownership
     // to the GC in one locked batch, instead of acquiring the lock once per element.
-    std::vector<Gid> my_deleted_vertices;
+    // std::list so the handover into deleted_vertices_ is an O(1) splice, like the edges below.
+    std::list<Gid, memory::DbAwareAllocator<Gid>> my_deleted_vertices;
     // std::list so the light-edge abort handover into deleted_edges_ is an O(1)
     // splice under the SpinLock (see below); heavy arm only iterates it.
     std::list<Edge *, memory::DbAwareAllocator<Edge *>> my_deleted_edges;
@@ -1834,57 +1835,27 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
                                   *transaction_.active_indices_,
                                   transaction_.start_timestamp,
                                   mem_storage->name_id_mapper_.get());
-    // EDGES METADATA (has ptr to Vertices, must be before removing verticies).
-    // Heavy edges are removed from the edges_ skiplist below and never re-enter
-    // GC, so abort is their single metadata-removal site. Light edges instead
-    // ride deleted_edges_ into CollectGarbage, which is THEIR single removal site
-    // (OnEdgesDeleted at the transactional GC light arm) — calling OnEdgesDeleted
-    // here too would double-remove the gid and trip the MG_ASSERT in
-    // EdgeMetadataIndex::OnEdgesDeleted. So gate this to heavy only.
-    // my_deleted_edges holds Edge* for edges this aborting txn created (abort-of-create);
-    // they remain in `edges_` until the remove loop below, so reading ->gid here is safe.
-    if (!my_deleted_edges.empty() && !mem_storage->config_.salient.items.storage_light_edge) {
-      if (auto &idx = mem_storage->edges_metadata_index_) {
-        idx->OnEdgesDeleted(my_deleted_edges | std::ranges::views::transform(&Edge::gid));
-      }
-    }
-
-    // VERTICES (has ptr to Edges, must be before removing edges)
+    // Handed to CollectGarbage for the same reason as the edges below: a removal on this thread
+    // races a sweep or scan holding no pin on `vertices_`.
     if (!my_deleted_vertices.empty()) {
-      auto acc = mem_storage->vertices_.access();
-      for (auto gid : my_deleted_vertices) {
-        acc.remove(gid);
-      }
+      mem_storage->deleted_vertices_.WithLock(
+          [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.end(), my_deleted_vertices); });
     }
 
     // EDGES / LIGHT EDGES
-    // Both heavy and light edges defer to deleted_edges_ here. Light edges must
-    // NOT be pushed to the light_edge_graveyard_ at abort time: the graveyard
-    // watermark (guard_epoch) is snapped at GC-COLLECTION time so that any
-    // post-abort reader is ordered before it. Riding deleted_edges_ into
-    // CollectGarbage also runs the index cleanup (OnEdgesDeleted +
-    // RemoveEdgesFromVectorEdgeIndices) before the graveyard push, exactly like
-    // heavy. Light edges have no skiplist node, so the heavy edges_acc.remove
-    // call is skipped for them; only the deleted_edges_ routing applies.
-    // Heavy behaviour is unchanged.
+    // Hand these to CollectGarbage rather than removing them here, so that the GC pass is the only
+    // place an edge leaves storage. An inline removal runs on this client thread, unsynchronised
+    // with a sweep or a scan that is mid-walk over an index entry naming the edge: the removal
+    // tags the node with the newest accessor id, which nothing that started later holds back, so
+    // it can be freed under a reader that had no chance to pin it first. Deferring means
+    // every removal is ordered after the same pass's index cleanup, on the one thread that does
+    // it. Light edges have no skiplist node and are only ever routed this way -- pushing them to
+    // light_edge_graveyard_ here would snap the guard epoch before post-abort readers exist, and
+    // the drain would free under them -- so both kinds now take the same path.
+    // O(1) splice under the SpinLock -- never an O(batch) copy while locked.
     if (!my_deleted_edges.empty()) {
-      if (mem_storage->config_.salient.items.storage_light_edge) {
-        // Do NOT push to light_edge_graveyard_ here: snapping guard_epoch at abort
-        // time, before any post-commit index iterable opens, would let
-        // DrainLightEdgeGraveyard free the Edge* under a live iterable (UAF). Mirror
-        // the heavy deferral (the skiplist GC frees a marked node only once its
-        // accessor watermark clears) by routing light edges through deleted_edges_
-        // into CollectGarbage, which snaps the graveyard watermark at GC-collection
-        // time.
-        // O(1) splice under the SpinLock — never an O(batch) copy while locked.
-        mem_storage->deleted_edges_.WithLock(
-            [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), my_deleted_edges); });
-      } else {
-        auto edges_acc = mem_storage->edges_.access();
-        for (auto *edge : my_deleted_edges) {
-          edges_acc.remove(edge->gid);
-        }
-      }
+      mem_storage->deleted_edges_.WithLock(
+          [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), my_deleted_edges); });
     }
   }
 
