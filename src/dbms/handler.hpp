@@ -218,10 +218,16 @@ class Handler {
       // thread, with DbmsHandler's lock_ held exclusive, stalling every other database operation in
       // the process. Parked here instead, a failed spawn costs nothing and is retried by the next
       // DeferDelete.
+      //
+      // `gk` is captured LAST on purpose. Init-captures are evaluated in declaration order, so every
+      // capture before it -- `post_delete_func`'s move ctor, `ScopedGauge`'s ctor (it calls the
+      // non-noexcept Gauge::Increment()) -- runs before the Gatekeeper is moved out of `itr->second`.
+      // If any of those throw, the closure never finishes constructing: `itr->second` is untouched, so
+      // there is nothing blocking to destroy and no map entry left half-repaired.
       auto &entry = deferred_.emplace_back();
-      entry.task = [gk = std::move(itr->second),
-                    post_delete_func = std::forward<Func>(post_delete_func),
-                    pending = metrics::ScopedGauge{metrics::Metrics().global.pending_tenant_destructions}]() mutable {
+      entry.task = [post_delete_func = std::forward<Func>(post_delete_func),
+                    pending = metrics::ScopedGauge{metrics::Metrics().global.pending_tenant_destructions},
+                    gk = std::move(itr->second)]() mutable {
         // Destroy the gatekeeper exactly once, via natural scope — NOT an explicit gk.~Gatekeeper<T>()
         // followed by the captured gk being destructed again when this lambda is destroyed (that is a
         // double-destruction: [basic.life] UB, reading a destroyed object's pimpl_). Moving into a
@@ -232,13 +238,23 @@ class Handler {
         }
         post_delete_func();
       };
-      metrics::Metrics().global.deferred_tenant_destructions->Increment();
-      spdlog::warn(
-          "Destruction of dropped database \"{}\" is deferred because it is still in use; its memory "
-          "stays accounted for until the last accessor is released ({} tenant destruction(s) pending).",
-          name,
-          deferred_.size());
-      SpawnParkedWorkers_();
+      // Best-effort bookkeeping and progress, guarded together: the tenant's fate is already sealed --
+      // `entry.task` above now owns the only handle to its Gatekeeper -- so nothing here is allowed to
+      // propagate. Letting the metric increment, the log call (spdlog can throw on formatting or sink
+      // I/O), or the spawn attempt escape would unwind past the unconditional items_.erase(itr) below
+      // and leave a moved-from, null-pimpl_ Gatekeeper in items_ under this tenant's still-live name.
+      // Deliberately silent: logging is one of the things being guarded against, so logging from the
+      // catch would defeat the guard.
+      try {
+        metrics::Metrics().global.deferred_tenant_destructions->Increment();
+        spdlog::warn(
+            "Destruction of dropped database \"{}\" is deferred because it is still in use; its memory "
+            "stays accounted for until the last accessor is released ({} tenant destruction(s) pending).",
+            name,
+            deferred_.size());
+        SpawnParkedWorkers_();
+      } catch (...) {  // NOLINT(bugprone-empty-catch)
+      }
     }
     // In any case remove from handled map
     items_.erase(itr);
@@ -312,10 +328,16 @@ class Handler {
           }  // the ScopedGauge inside `task` decrements here, as soon as the destruction completes
           entry.finished.store(true, std::memory_order_release);
         }};
-      } catch (const std::system_error &e) {
+      } catch (const std::exception &e) {
+        // Deliberately broad: std::jthread's ctor can also throw std::bad_alloc (libstdc++
+        // default-constructs a stop_source, which heap-allocates a shared stop-state before the OS
+        // thread exists), not just std::system_error from thread creation itself. Anything that
+        // escapes here would propagate out of DeferDelete and skip its trailing items_.erase(itr),
+        // leaving a moved-from, null-pimpl_ Gatekeeper husk in the map under a live tenant name.
         spdlog::error(
-            "Could not start a thread to destroy a dropped database ({}); its memory stays accounted "
-            "for and the next database drop will retry.",
+            "Could not start a thread to destroy a dropped database, due to a thread-creation or "
+            "allocation failure ({}); its memory stays accounted for and the next database drop will "
+            "retry.",
             e.what());
         return;
       }
@@ -331,11 +353,18 @@ class Handler {
   // items_ and invisible by name. No pool size avoids that; it only moves the cliff to N+1 stuck
   // tenants. One thread each makes the cross-tenant coupling structurally impossible.
   //
-  // Why declaration order matters: members destruct in reverse declaration order, so `deferred_`
-  // (declared last) is destroyed FIRST. That runs ~DeferredDestruction per entry, whose `worker` —
-  // declared last WITHIN the entry — is destroyed first, and ~jthread joins it. So every worker has
-  // exited before `items_`, and the gatekeepers still in it, are torn down. Reordering either level
-  // would let items_ die under a running destruction: hang or use-after-free.
+  // Why declaration order matters, within DeferredDestruction: members destruct in reverse
+  // declaration order, so `worker` — declared last — is destroyed first, and ~jthread joins it before
+  // `task` and `finished` (the very members its lambda references) are destroyed. Getting this order
+  // wrong is a genuine use-after-free: the joining thread would still be running the lambda while its
+  // captures were torn down underneath it.
+  //
+  // Between the two levels below, `items_` before `deferred_` is deliberate future-proofing rather
+  // than a fix for a live bug: by the time an entry exists in `deferred_`, its Gatekeeper has already
+  // been moved out of `items_`, and today's only caller (DbmsHandler) passes a `post_delete_func` that
+  // captures nothing owned by `items_` or by this Handler — so no worker currently touches `items_` at
+  // all. But `Handler` is a generic template, and a future `post_delete_func` could reference the
+  // handler or its map, so the join is kept ahead of `items_`'s teardown to stay safe if that changes.
   container_type items_;  //!< map to all active items
 
   struct DeferredDestruction {
