@@ -53,7 +53,8 @@ RpcInfoSpecialize(UpdateDataInstanceConfigRpc, update_data_instance_config_rpc_s
 auto ReplicationInstanceClient::InstanceName() const -> std::string const & { return instance_name_; }
 
 void ReplicationInstanceClient::UpdateHealthCheckFrequencySec(std::chrono::seconds const &new_config) const {
-  instance_checker_.SetInterval(new_config);
+  // Called on an already-running checker (runtime setting change), so wake it rather than SetInterval.
+  instance_checker_.SetIntervalAndWake(new_config);
 }
 
 void ReplicationInstanceClient::StartStateCheck() {
