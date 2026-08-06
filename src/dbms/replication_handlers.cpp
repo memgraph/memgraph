@@ -82,6 +82,21 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
     return;
   }
 
+  // If the replica holds this name HOT under a DIFFERENT uuid, Update() below drops+recreates the local
+  // storage (Delete_ frees the OLD-uuid InMemoryStorage). That free is storage-level, not
+  // gatekeeper-counted, so nothing else drains a cached 2PC commit accessor for the OLD uuid; abort it
+  // first so a later FinalizeCommitRpc/DestroyReplAccessor for that uuid can't touch freed storage.
+  // Same-uuid Update is a no-op salient refresh, so *local != req.config.uuid keeps this from aborting an
+  // in-flight 2PC for the very tenant being created/updated (mirrors the SystemRecovery loops below).
+  // Defence-in-depth: the expected_group_timestamp gate above, plus DropDatabaseHandler already calling
+  // AbortTwoPCForTenant(req.uuid) before its own Delete(), appear to close the obvious races that would
+  // reach here with a live 2PC under the OLD uuid -- but this was the one teardown funnel in the file
+  // without the guard, and correctness here shouldn't depend on that reachability argument staying true.
+  const auto name = std::string{*req.config.name.str_view()};
+  if (const auto local = dbms_handler.GetHotUuid(name); local && *local != req.config.uuid) {
+    InMemoryReplicationHandlers::AbortTwoPCForTenant(*local);
+  }
+
   try {
     // Create new
     if (auto const new_db = dbms_handler.Update(req.config); new_db.has_value()) {
