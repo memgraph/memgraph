@@ -137,8 +137,10 @@ void LogRaftResultCode(nuraft::cmd_result_code const raft_code) {
 
 auto RaftResultToRemoveStatus(nuraft::cmd_result_code raft_code)
     -> memgraph::coordination::RemoveCoordinatorInstanceStatus {
+  // Declared in the enclosing scope so that nuraft's NOT_LEADER hides ours inside the switch; the case labels are
+  // nuraft codes, the returned values ours.
+  using enum memgraph::coordination::RemoveCoordinatorInstanceStatus;
   switch (raft_code) {
-    using enum memgraph::coordination::RemoveCoordinatorInstanceStatus;
     using enum nuraft::cmd_result_code;
     case OK:
       return SUCCESS;
@@ -174,8 +176,9 @@ auto RaftResultToRemoveStatus(nuraft::cmd_result_code raft_code)
 }
 
 auto RaftResultToAddStatus(nuraft::cmd_result_code raft_code) -> memgraph::coordination::AddCoordinatorInstanceStatus {
+  // See RaftResultToRemoveStatus for why our enumerators are pulled in outside the switch.
+  using enum memgraph::coordination::AddCoordinatorInstanceStatus;
   switch (raft_code) {
-    using enum memgraph::coordination::AddCoordinatorInstanceStatus;
     using enum nuraft::cmd_result_code;
     case OK:
       return SUCCESS;

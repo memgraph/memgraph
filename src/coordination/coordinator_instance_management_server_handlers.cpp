@@ -136,6 +136,34 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
         res_builder);
   });
 
+  server.Register<YieldLeadershipRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<YieldLeadershipRpc, YieldLeadershipStatus>(
+            [&coordinator_instance]() -> YieldLeadershipStatus {
+              return coordinator_instance.YieldLeadershipAsLeader();
+            },
+            request_version,
+            req_reader,
+            res_builder);
+      });
+
+  server.Register<ShowCoordSettingsRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<ShowCoordSettingsRpc>(
+            [&coordinator_instance]() -> std::optional<std::vector<std::pair<std::string, std::string>>> {
+              return coordinator_instance.ShowCoordinatorSettingsAsLeader();
+            },
+            request_version,
+            req_reader,
+            res_builder);
+      });
+
   server.Register<ShowInstancesRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
                                         uint64_t const request_version,
                                         slk::Reader *req_reader,
@@ -156,7 +184,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
           slk::Builder *res_builder) -> void {
         CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<GetRoutingTableRpc>(
             [&coordinator_instance](std::string_view const db_name) -> RoutingTable {
-              return coordinator_instance.GetRoutingTable(db_name);
+              return coordinator_instance.GetRoutingTableAsLeader(db_name);
             },
             request_version,
             req_reader,
@@ -169,8 +197,8 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
           slk::Reader *req_reader,
           slk::Builder *res_builder) -> void {
         CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<CoordReplicationLagRpc>(
-            [&coordinator_instance]() -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
-              return coordinator_instance.ShowReplicationLag();
+            [&coordinator_instance]() -> ReplicationLagResult {
+              return coordinator_instance.ShowReplicationLagAsLeader();
             },
             request_version,
             req_reader,

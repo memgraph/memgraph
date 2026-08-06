@@ -629,7 +629,16 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         break;
       }
       case coordination::YieldLeadershipStatus::NOT_LEADER: {
-        throw QueryRuntimeException("Only the current leader can yield the leadership!");
+        throw QueryRuntimeException("Yielding leadership failed since the instance is not leader anymore!");
+      }
+      case coordination::YieldLeadershipStatus::LEADER_NOT_FOUND: {
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      }
+      case coordination::YieldLeadershipStatus::LEADER_FAILED: {
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       }
     }
   }
@@ -657,7 +666,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  std::vector<std::pair<std::string, std::string>> ShowCoordinatorSettings() override {
+  std::optional<std::vector<std::pair<std::string, std::string>>> ShowCoordinatorSettings() override {
     return coordinator_handler_.ShowCoordinatorSettings();
   }
 
@@ -759,7 +768,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     return privileges->second;
   }
 
-  std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() override {
+  std::optional<coordination::ReplicationLagResult> ShowReplicationLag() override {
     return coordinator_handler_.ShowReplicationLag();
   }
 
@@ -848,6 +857,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                     std::get<std::string>(instance));
       case RAFT_FAILURE:
         throw QueryRuntimeException("Couldn't update config because appending to Raft log failed.");
+      case NOT_LEADER:
+        throw QueryRuntimeException(
+            "Couldn't update config since coordinator is not a leader! Try contacting other coordinators as there "
+            "might be leader election happening or other coordinators are down.");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -867,6 +880,11 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case NO_SUCH_ID:
         throw QueryRuntimeException(
             "Couldn't remove coordinator instance because coordinator with id {} doesn't exist!", coordinator_id);
+      case NOT_LEADER:
+        throw QueryRuntimeException(
+            "Couldn't remove coordinator {} since coordinator is not a leader! Try contacting other coordinators as "
+            "there might be leader election happening or other coordinators are down.",
+            coordinator_id);
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -955,6 +973,11 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't add coordinator since instance with such coordinator server already exists!");
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+      case NOT_LEADER:
+        throw QueryRuntimeException(
+            "Couldn't add coordinator {} since coordinator is not a leader! Try contacting other coordinators as there "
+            "might be leader election happening or other coordinators are down.",
+            coordinator_id);
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -1052,7 +1075,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     return coordinator_handler_.ShowInstance();
   }
 
-  [[nodiscard]] std::vector<coordination::InstanceStatus> ShowInstances() const override {
+  [[nodiscard]] std::optional<std::vector<coordination::InstanceStatus>> ShowInstances() const override {
     return coordinator_handler_.ShowInstances();
   }
 
@@ -2472,6 +2495,27 @@ int32_t EvaluateCoordinatorId(ExpressionVisitor<TypedValue> &eval, Expression *c
   return static_cast<int32_t>(value);
 }
 
+// SHOW REPLICATION LAG returns no rows whenever the leader has no data. Each reason gets its own message so the user
+// isn't told to retry a query that would keep failing for the same reason.
+constexpr std::string_view ReplicationLagUnavailableMessage(coordination::ReplicationLagStatus const status) {
+  switch (status) {
+    case coordination::ReplicationLagStatus::LEADER_NOT_READY:
+      return "The leader coordinator hasn't finished taking over the cluster, so the replication lag is unknown. "
+             "Please retry the query.";
+    case coordination::ReplicationLagStatus::NO_CURRENT_MAIN:
+      return "No instance is currently main, so there is no replication lag to report.";
+    case coordination::ReplicationLagStatus::MAIN_UNRESPONSIVE:
+      return "The current main didn't respond, so the replication lag is unknown. Check whether the main is up.";
+    case coordination::ReplicationLagStatus::MAIN_IS_REPLICA:
+      return "The instance the leader considers main reports that it is a replica, so the replication lag is unknown. "
+             "Please retry the query once the cluster state is reconciled.";
+    case coordination::ReplicationLagStatus::SUCCESS:
+    case coordination::ReplicationLagStatus::N:
+      break;
+  }
+  return "The replication lag is unknown.";
+}
+
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
                                 std::vector<Notification> *notifications) {
@@ -2739,8 +2783,16 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.header = {
           "name", "bolt_server", "coordinator_server", "management_server", "health", "role", "last_succ_resp_ms"};
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, notifications]() mutable {
         auto const instances = handler.ShowInstances();
+        if (!instances.has_value()) {
+          notifications->emplace_back(SeverityLevel::WARNING,
+                                      NotificationCode::LEADER_NOT_REACHABLE,
+                                      "Couldn't reach the leader coordinator, so the state of the cluster is unknown. "
+                                      "Please retry the query.");
+          return std::vector<std::vector<TypedValue>>{};
+        }
+
         auto const converter = [](const auto &status) -> std::vector<TypedValue> {
           return {TypedValue{status.instance_name},
                   TypedValue{status.bolt_server},
@@ -2751,7 +2803,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                   TypedValue{status.last_succ_resp_ms}};
         };
 
-        return utils::fmap(instances, converter);
+        return utils::fmap(*instances, converter);
       };
       return callback;
     }
@@ -2822,12 +2874,20 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       }
       callback.header = {"setting_name", "setting_value"};
 
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, notifications]() mutable {
         auto const coord_settings = handler.ShowCoordinatorSettings();
-        std::vector<std::vector<TypedValue>> results;
-        results.reserve(coord_settings.size());
+        if (!coord_settings.has_value()) {
+          notifications->emplace_back(SeverityLevel::WARNING,
+                                      NotificationCode::LEADER_NOT_REACHABLE,
+                                      "Couldn't reach the leader coordinator, so the coordinator settings are unknown. "
+                                      "Please retry the query.");
+          return std::vector<std::vector<TypedValue>>{};
+        }
 
-        for (const auto &[k, v] : coord_settings) {
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(coord_settings->size());
+
+        for (const auto &[k, v] : *coord_settings) {
           spdlog::info("Setting name: {} Setting value: {}", k, v);
           std::vector<TypedValue> setting_info;
           setting_info.reserve(2);
@@ -2845,10 +2905,24 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Only coordinator can run SHOW REPLICATION LAG query.");
       }
       callback.header = {"instance_name", "data_info"};
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
-        auto const lag_info = handler.ShowReplicationLag();
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, notifications]() mutable {
+        auto const lag_result = handler.ShowReplicationLag();
+        if (!lag_result.has_value()) {
+          notifications->emplace_back(SeverityLevel::WARNING,
+                                      NotificationCode::LEADER_NOT_REACHABLE,
+                                      "Couldn't reach the leader coordinator, so the replication lag is unknown. "
+                                      "Please retry the query.");
+          return std::vector<std::vector<TypedValue>>{};
+        }
+        if (lag_result->status_ != coordination::ReplicationLagStatus::SUCCESS) {
+          notifications->emplace_back(SeverityLevel::WARNING,
+                                      NotificationCode::REPLICATION_LAG_UNAVAILABLE,
+                                      std::string{ReplicationLagUnavailableMessage(lag_result->status_)});
+          return std::vector<std::vector<TypedValue>>{};
+        }
+
         std::vector<std::vector<TypedValue>> results;
-        results.reserve(lag_info.size());
+        results.reserve(lag_result->data_.size());
 
         auto const db_lag_data_to_tv = [](coordination::ReplicaDBLagData orig) {
           auto info = std::map<std::string, TypedValue>{};
@@ -2867,7 +2941,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
           return info;
         };
 
-        for (auto const &[instance_name, data_info] : lag_info) {
+        for (auto const &[instance_name, data_info] : lag_result->data_) {
           std::vector<TypedValue> instance_out_info;
           instance_out_info.reserve(2);
           instance_out_info.emplace_back(instance_name);

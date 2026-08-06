@@ -86,12 +86,12 @@ auto CoordinatorHandler::GetRolePrivileges(std::string_view const role_name) con
   return coordinator_state_.GetRolePrivileges(role_name);
 }
 
-auto CoordinatorHandler::ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>> {
+auto CoordinatorHandler::ShowCoordinatorSettings() const
+    -> std::optional<std::vector<std::pair<std::string, std::string>>> {
   return coordinator_state_.ShowCoordinatorSettings();
 }
 
-auto CoordinatorHandler::ShowReplicationLag() const
-    -> std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> {
+auto CoordinatorHandler::ShowReplicationLag() const -> std::optional<coordination::ReplicationLagResult> {
   return coordinator_state_.ShowReplicationLag();
 }
 
@@ -99,7 +99,7 @@ auto CoordinatorHandler::ShowInstance() const -> coordination::InstanceStatus {
   return coordinator_state_.ShowInstance();
 }
 
-auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::InstanceStatus> {
+auto CoordinatorHandler::ShowInstances() const -> std::optional<std::vector<coordination::InstanceStatus>> {
   return coordinator_state_.ShowInstances();
 }
 

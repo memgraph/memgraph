@@ -111,14 +111,19 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
   }
 }
 
-auto ReplicationInstanceClient::SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo> {
+auto ReplicationInstanceClient::SendGetReplicationLagRpc() const
+    -> std::expected<ReplicationLagInfo, ReplicationLagStatus> {
   try {
     auto stream{rpc_client_.Stream<ReplicationLagRpc>()};
     auto res = stream.SendAndWait();
-    return res.arg_;
+    if (!res.arg_.has_value()) {
+      spdlog::error("Instance {} refused to report replication lag because it isn't main.", instance_name_);
+      return std::unexpected{ReplicationLagStatus::MAIN_IS_REPLICA};
+    }
+    return std::move(*res.arg_);
   } catch (const rpc::RpcFailedException &e) {
     spdlog::error("Failed to receive response to ReplicationLagRpc. Error occurred: {}", e.what());
-    return {};
+    return std::unexpected{ReplicationLagStatus::MAIN_UNRESPONSIVE};
   }
 }
 

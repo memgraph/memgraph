@@ -178,6 +178,16 @@ inline void Load(coordination::ReplicationLagInfo *obj, Reader *reader) {
   Load(&obj->replicas_info_, reader);
 }
 
+inline void Save(const coordination::ReplicationLagResult &obj, Builder *builder) {
+  Save(obj.status_, builder);
+  Save(obj.data_, builder);
+}
+
+inline void Load(coordination::ReplicationLagResult *obj, Reader *reader) {
+  Load(&obj->status_, reader);
+  Load(&obj->data_, reader);
+}
+
 inline void Save(coordination::CoordinatorInstanceConfig const &config, Builder *builder) {
   Save(config.coordinator_hostname, builder);
   Save(config.coordinator_id, builder);

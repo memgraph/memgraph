@@ -802,7 +802,7 @@ int main(int argc, char **argv) {
   memgraph::metrics::Metrics().SetInstanceStatusResolver(
       [&coordinator_state]() -> std::vector<memgraph::coordination::InstanceStatus> {
         if (!coordinator_state || !coordinator_state->IsCoordinator()) return {};
-        return coordinator_state->ShowInstances();
+        return coordinator_state->ShowInstances().value_or(std::vector<memgraph::coordination::InstanceStatus>{});
       });
 #endif
 

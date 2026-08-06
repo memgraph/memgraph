@@ -17,7 +17,7 @@
 
 namespace memgraph::coordination {
 
-enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
+enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER, LEADER_NOT_FOUND, LEADER_FAILED };
 // Forwarded to the leader (see CoordinatorInstance), like the role/privilege ops. SUCCESS/LEADER_FAILED/
 // LEADER_NOT_FOUND make the enum satisfy the ForwardableStatus concept; a follower maps a forwarding failure to
 // LEADER_FAILED (or LEADER_NOT_FOUND during an election) rather than crashing.
@@ -108,6 +108,7 @@ enum class AddCoordinatorInstanceStatus : uint8_t {
   MGMT_ENDPOINT_ALREADY_EXISTS,
   COORDINATOR_ENDPOINT_ALREADY_EXISTS,
   RAFT_LOG_ERROR,
+  NOT_LEADER,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
   LOCAL_TIMEOUT,
@@ -130,6 +131,7 @@ enum class AddCoordinatorInstanceStatus : uint8_t {
 enum class RemoveCoordinatorInstanceStatus : uint8_t {
   SUCCESS = 0,
   NO_SUCH_ID,
+  NOT_LEADER,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
   LOCAL_TIMEOUT,
@@ -153,6 +155,7 @@ enum class UpdateConfigStatus : uint8_t {
   NO_SUCH_COORD,
   NO_SUCH_REPL_INSTANCE,
   RAFT_FAILURE,
+  NOT_LEADER,
   LEADER_FAILED,
   LEADER_NOT_FOUND,
 };
