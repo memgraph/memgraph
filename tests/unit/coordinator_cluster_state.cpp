@@ -446,3 +446,49 @@ TEST_F(CoordinatorClusterStateTest, DedupCoordinatorsOnDeserialize) {
   };
   ASSERT_EQ(deserialized_cluster_state.GetCoordinatorInstancesContext(), expected_coord_instances);
 }
+
+// A 0 committed by a version that still accepted it is fatal on the read side: StartStateCheck() MG_ASSERTs on it, so
+// without clamping every coordinator recovering this state aborts, on every restart.
+TEST_F(CoordinatorClusterStateTest, ClampZeroHealthCheckFreqOnDoAction) {
+  CoordinatorClusterState cluster_state;
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const zero_delta{.instance_health_check_frequency_sec_ = 0};
+  cluster_state.DoAction(zero_delta);
+  ASSERT_EQ(cluster_state.GetInstanceHealthCheckFrequencySec(),
+            std::chrono::seconds{memgraph::coordination::kMinInstanceHealthCheckFreqSec});
+
+  // A valid value is applied verbatim, so the clamp is not just pinning everything to the minimum.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const valid_delta{.instance_health_check_frequency_sec_ = 7};
+  cluster_state.DoAction(valid_delta);
+  ASSERT_EQ(cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{7});
+}
+
+TEST_F(CoordinatorClusterStateTest, ClampZeroHealthCheckFreqOnDeserialize) {
+  auto const serialize = [](nlohmann::json json) {
+    auto const log = json.dump();
+    ptr<buffer> data = buffer::alloc(sizeof(uint32_t) + log.size());
+    nuraft::buffer_serializer bs(data);
+    bs.put_str(log);
+    return CoordinatorClusterState::Deserialize(*data);
+  };
+
+  auto const base =
+      nlohmann::json{{memgraph::coordination::kDataInstances.data(), std::vector<DataInstanceContext>{}},
+                     {memgraph::coordination::kMainUUID.data(), UUID{}},
+                     {memgraph::coordination::kCoordinatorInstances.data(), std::vector<CoordinatorInstanceContext>{}}};
+
+  auto zero = base;
+  zero[memgraph::coordination::kInstanceHealthCheckFreqSec.data()] = 0;
+  ASSERT_EQ(serialize(zero).GetInstanceHealthCheckFrequencySec(),
+            std::chrono::seconds{memgraph::coordination::kMinInstanceHealthCheckFreqSec});
+
+  auto valid = base;
+  valid[memgraph::coordination::kInstanceHealthCheckFreqSec.data()] = 7;
+  ASSERT_EQ(serialize(valid).GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{7});
+
+  // A snapshot written before the key existed must still land on the default, not on 0.
+  ASSERT_EQ(serialize(base).GetInstanceHealthCheckFrequencySec(),
+            std::chrono::seconds{memgraph::coordination::kMinInstanceHealthCheckFreqSec});
+}
