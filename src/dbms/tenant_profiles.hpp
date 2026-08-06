@@ -76,7 +76,8 @@ class TenantProfiles {
   /// name inside the pointed-to Profile's `databases`) that nothing else ever reconciles. This removes
   /// every persisted database->profile attachment whose database name is absent from `live_db_names`:
   /// the mapping key is deleted and the name is dropped from its profile's `databases`, atomically.
-  /// Returns the number of attachments pruned (0 = nothing to prune); callers use this for logging only.
+  /// Returns the number of attachments pruned. 0 means either nothing needed pruning or the durability batch
+  /// failed (logged here at error level) -- a caller cannot tell those apart and must not read 0 as success.
   std::size_t PruneDatabases(const std::set<std::string> &live_db_names);
 
   std::optional<std::string> GetProfileForDatabase(std::string_view db_name) const;
