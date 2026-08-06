@@ -70,21 +70,15 @@ SeededRoot MakeSeededRoot(std::string_view tag) {
   return sr;
 }
 
-struct SeededHotEntry {
-  memgraph::utils::UUID uuid;
-  std::string json_str;
-};
-
 // Exact shape of Durability::GenVal (dbms_handler.cpp:114): {"uuid": <uuid>, "rel_dir": <path>}, with
 // rel_dir rooted at kMultiTenantDir/<uuid> as New_/UpdateDurability recompute it (dbms_handler.cpp:860).
-SeededHotEntry SeedHotEntry(memgraph::kvstore::KVStore &kv, std::string_view name) {
+memgraph::utils::UUID SeedHotEntry(memgraph::kvstore::KVStore &kv, std::string_view name) {
   const memgraph::utils::UUID uuid;
   nlohmann::json j;
   j["uuid"] = uuid;
   j["rel_dir"] = std::filesystem::path(std::string{memgraph::dbms::kMultiTenantDir}) / std::string{uuid};
-  auto dumped = j.dump();
-  kv.Put(std::string{kDBPrefixLiteral} + std::string{name}, dumped);
-  return {uuid, std::move(dumped)};
+  kv.Put(std::string{kDBPrefixLiteral} + std::string{name}, j.dump());
+  return uuid;
 }
 
 // Exact shape of Durability::GenColdVal (dbms_handler.cpp:150) minus `cold_stats`, which the restore loop
@@ -496,7 +490,7 @@ TEST(DBMS_Handler, SweepReclaimsOrphanedTenantDirectoryButKeepsLiveOne) {
   {
     memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
     ASSERT_TRUE(seed_kv.Put("version", "V2"));
-    live_uuid = SeedHotEntry(seed_kv, "live").uuid;
+    live_uuid = SeedHotEntry(seed_kv, "live");
   }
 
   const auto live_dir = TenantDataDir(sr, live_uuid);
@@ -538,7 +532,7 @@ TEST(DBMS_Handler, StaleTenantProfileMappingIsPrunedOnStartup) {
   {
     memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
     ASSERT_TRUE(seed_kv.Put("version", "V2"));
-    live_uuid = SeedHotEntry(seed_kv, "live").uuid;
+    live_uuid = SeedHotEntry(seed_kv, "live");
     // "gone" has NO `database:gone` durability key -- exactly the state a lost DetachFromDatabase leaves.
     SeedProfile(seed_kv, "p", /*memory_limit=*/1000, {"live", "gone"});
   }
@@ -620,7 +614,7 @@ TEST(DBMS_Handler, ExistingV2DurabilityStoreBootsUnchanged) {
   {
     memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
     ASSERT_TRUE(seed_kv.Put("version", "V2"));
-    live_uuid = SeedHotEntry(seed_kv, "live").uuid;
+    live_uuid = SeedHotEntry(seed_kv, "live");
   }
   fs::create_directories(TenantDataDir(sr, live_uuid));
 
@@ -668,7 +662,7 @@ TEST(DBMS_Handler, DropSucceedsDurablyWhenAttachedProfileJsonIsCorrupt) {
   {
     memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
     ASSERT_TRUE(seed_kv.Put("version", "V2"));
-    victim_uuid = SeedHotEntry(seed_kv, "victim").uuid;
+    victim_uuid = SeedHotEntry(seed_kv, "victim");
     // Point "victim" at profile "p", but write "p"'s durable record as deliberately broken JSON --
     // NOT via SeedProfile, which would also write a well-formed tenant_profile:p row.
     ASSERT_TRUE(seed_kv.Put(std::string{TenantProfiles::kDbMappingPrefix} + "victim", "p"));
@@ -694,8 +688,8 @@ TEST(DBMS_Handler, DropSucceedsDurablyWhenAttachedProfileJsonIsCorrupt) {
   {
     memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
     EXPECT_FALSE(verify_kv.Get(std::string{kDBPrefixLiteral} + "victim").has_value())
-        << "the tenant's durability key must be erased -- under the pre-fix bug the thrown JSON "
-           "exception aborted TryDelete before this erase ran, so the tenant resurrected on restart";
+        << "a corrupt attached profile record must not stop the tenant's durability key from being erased: a "
+           "surviving key brings the tenant back on the next boot";
     EXPECT_FALSE(fs::exists(TenantDataDir(sr, victim_uuid)))
         << "the tenant's on-disk data directory must also be removed";
 
