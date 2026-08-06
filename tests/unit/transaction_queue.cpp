@@ -435,7 +435,7 @@ TYPED_TEST(TransactionQueueSimpleTest, StatusColumnInHeader) {
   // Verify the SHOW TRANSACTIONS header includes the status column
   auto [stream, qid] = this->main_interpreter.Prepare("SHOW TRANSACTIONS");
   auto header = stream.GetHeader();
-  ASSERT_EQ(header.size(), 7U);
+  ASSERT_EQ(header.size(), 8U);
   EXPECT_EQ(header[0], "username");
   EXPECT_EQ(header[1], "transaction_id");
   EXPECT_EQ(header[2], "query");
@@ -443,6 +443,26 @@ TYPED_TEST(TransactionQueueSimpleTest, StatusColumnInHeader) {
   EXPECT_EQ(header[4], "metadata");
   EXPECT_EQ(header[5], "start_time");
   EXPECT_EQ(header[6], "elapsed_ms");
+  EXPECT_EQ(header[7], "database");
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, DatabaseColumnPresentWithCorrectArity) {
+  // Pins the "database" column: it must exist at index 7, and the row must stay 8 wide --
+  // that's what actually breaks on a revert. This fixture never sets config.salient.name, so
+  // this->db->name() is the empty string; the EXPECT_EQ below therefore only proves the column
+  // carries the fixture's (empty) name, not that ShowTransactions reports a real, non-empty
+  // per-session database name. That value-level check lives in
+  // tests/e2e/transaction_queue/test_transaction_queue.py::test_show_transactions_database_column.
+  //
+  // The column is the last one appended by ShowTransactions, sourced from CurrentDB::name().
+  auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
+  ASSERT_EQ(show_stream.GetResults().size(), 1U);
+
+  auto &row = show_stream.GetResults()[0];
+  ASSERT_EQ(row.size(), 8U);
+  EXPECT_EQ(row[2].ValueList().at(0).ValueString(), "SHOW TRANSACTIONS");
+  ASSERT_TRUE(row[7].IsString());
+  EXPECT_EQ(row[7].ValueString(), this->db->name());
 }
 
 TYPED_TEST(TransactionQueueSimpleTest, ElapsedMsAdvances) {
