@@ -107,6 +107,13 @@ class Database {
 
   utils::SafeString::ConstSafeWrapper name_view() const;
 
+  // Opt-in customization point that utils::GatekeeperLabelFor<Database> detects, so that
+  // ~Gatekeeper's teardown-stall warning can name the tenant that is failing to drain instead of
+  // logging an anonymous "~Gatekeeper" line. This direction of dependency is deliberate: utils/
+  // stays free of tenant vocabulary, and Database contributes the label instead. Only read on the
+  // cold, already-stalled (>5min) teardown path, so returning std::string by value is fine here.
+  std::string gatekeeper_label() const { return name(); }
+
   /**
    * @brief Unique storage identified (uuid)
    *
