@@ -101,7 +101,9 @@ bool MayTerminate(Interpreter const *interpreter, QueryUserOrRole *user_or_role,
   };
   if (same_user(interpreter->user_or_role_, user_or_role)) return true;
 
-  auto const db_name = interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : "";
+  // Route through CurrentDB::name() -- the single definition of "this session's database" --
+  // so a later change to what that means can't miss this site.
+  auto const db_name = interpreter->current_db_.name();
   return privilege_checker(user_or_role, db_name);
 }
 
@@ -188,7 +190,9 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
       continue;
     }
     // Transaction is running, so cannot change the underlying db
-    if (interpreter->current_db_.db_acc_ && interpreter->current_db_.db_acc_->get()->name() != db_name) {
+    // db_acc_ guard is deliberate (short-circuit &&): an interpreter with no current DB is
+    // intentionally NOT filtered out here.
+    if (interpreter->current_db_.db_acc_ && interpreter->current_db_.name() != db_name) {
       continue;
     }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
