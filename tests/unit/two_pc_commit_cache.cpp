@@ -69,7 +69,10 @@ auto TakeReplicationAccessor(InMemoryStorage *storage) -> std::unique_ptr<Replic
 // against a storage that's still alive, exactly like Group A's file-level comment promises.
 class TwoPCCommitCacheTest : public ::testing::Test {
  protected:
-  void TearDown() override { TwoPCCommitCache::Instance().TakeAny(); }
+  void TearDown() override {
+    // See the class comment above: drain the slot while storage_a_/storage_b_ are still alive.
+    auto leftover = TwoPCCommitCache::Instance().TakeAny();
+  }
 
   std::unique_ptr<InMemoryStorage> storage_a_ = MakeStorage(kUuidA);
   std::unique_ptr<InMemoryStorage> storage_b_ = MakeStorage(kUuidB);
@@ -205,7 +208,12 @@ auto MakeDatabaseConfig(std::filesystem::path const &storage_directory) -> memgr
 // has been freed -- this must fail on a revert of that call.
 class TwoPCCommitCacheDatabaseTest : public ::testing::Test {
  protected:
-  void TearDown() override { TwoPCCommitCache::Instance().TakeAny(); }
+  void TearDown() override {
+    // Both TEST_Fs below already drain the slot themselves before their Database(s) go out of
+    // scope, so this always finds it empty; drain anyway so a future test added to this fixture
+    // can't leak an entry into the next one.
+    auto leftover = TwoPCCommitCache::Instance().TakeAny();
+  }
 };
 
 TEST_F(TwoPCCommitCacheDatabaseTest, DestroyingDatabaseDiscardsItsCachedAccessor) {
@@ -233,8 +241,17 @@ TEST_F(TwoPCCommitCacheDatabaseTest, DestroyingDatabaseDiscardsItsCachedAccessor
   // ~Database must have discarded the cached accessor via AbortTwoPCForTenant(uuid()). Without
   // that call, this cache entry is untouched and TakeAny() below returns a ReplicationAccessor
   // whose storage_ points at the just-freed Database's InMemoryStorage -- a dangling pointer, not
-  // merely a leaked slot.
-  ASSERT_EQ(TwoPCCommitCache::Instance().TakeAny(), nullptr);
+  // merely a leaked slot. Capture it and release() before asserting: on the FAILING path `taken`
+  // owns that dangling accessor, and letting it destruct here (~InMemoryAccessor -> Abort(),
+  // ~ResourceLockGuard -> unlock a freed main_lock_) would crash the test binary against freed
+  // memory instead of reporting this ASSERT_EQ's clean gtest failure. TakeAny() has already
+  // emptied the slot by this point regardless of what we do with the returned pointer.
+  auto taken = TwoPCCommitCache::Instance().TakeAny();
+  auto *const raw = taken.get();
+  if (taken != nullptr) {
+    taken.release();
+  }
+  ASSERT_EQ(raw, nullptr);
 }
 
 TEST_F(TwoPCCommitCacheDatabaseTest, DestroyingUnrelatedDatabaseLeavesOtherTenantsEntryInPlace) {
