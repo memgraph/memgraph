@@ -232,21 +232,8 @@ TEST(HotColdGatekeeper, DtorWaitsForAccessorRelease) {
 // ---------------------------------------------------------------------------
 // DeferDeleteErasesButDefersDestruction
 // ---------------------------------------------------------------------------
-// memgraph::dbms::Handler<T>::DeferDelete (src/dbms/handler.hpp) must, when another
-// Accessor is still live on the entry:
-//   1) return promptly to the caller — the actual ~T() must run on the 1-thread
-//      defer_pool_, NOT inline on the caller's thread;
-//   2) erase `name` from the map synchronously, before the object dies;
-//   3) NOT yet have destroyed the object (nor fired post_delete_func) while the
-//      other Accessor is still held;
-//   4) complete the destruction and fire post_delete_func once that Accessor is
-//      released.
-//
-// Probe managed type: a destructor that, once actually invoked, sleeps for a
-// configurable delay and then flips an atomic flag — so "destroyed" is directly
-// observable, and slow enough that an implementation which destroyed the probe
-// on the caller's own thread (instead of deferring it) would make the
-// DeferDelete() call itself visibly block for at least that long.
+// DeferDeleteProbe: dtor sleeps then flips an atomic, so destruction is observable and slow enough
+// that inline (non-deferred) destruction would visibly block the DeferDelete() call itself.
 namespace {
 struct DeferDeleteProbe {
   DeferDeleteProbe(std::atomic<bool> *destroyed, std::chrono::milliseconds dtor_delay)
@@ -269,45 +256,30 @@ struct DeferDeleteProbe {
 }  // namespace
 
 TEST(HotColdGatekeeper, DeferDeleteErasesButDefersDestruction) {
-  // Declared ahead of `handler` on purpose. DeferDeleteProbe's dtor writes through a raw pointer
-  // to these two flags from whatever thread ends up running it (possibly a still-running defer_pool_
-  // worker). Locals unwind in reverse declaration order, so putting them before `handler` means
-  // `~Handler` -- which joins every worker -- always finishes first, on the success path AND on an
-  // early `return;` from an ASSERT_* below while a worker is still mid-destructor.
+  // Declared ahead of `handler` on purpose: the probe's dtor writes through a raw pointer to these
+  // flags from a worker thread, so `~Handler`'s joins (reverse-declaration-order unwind) must finish first.
   std::atomic<bool> destroyed{false};
   std::atomic<bool> callback_fired{false};
   memgraph::dbms::Handler<DeferDeleteProbe> handler;
 
   constexpr auto kDtorDelay = std::chrono::milliseconds(200);
 
-  // New() constructs the probe in place and hands back the sole live Accessor,
-  // which this test holds for the whole "not yet destroyed" window below.
   auto new_result = handler.New(std::piecewise_construct, "probe", &destroyed, kDtorDelay);
   ASSERT_TRUE(new_result.has_value());
   auto held_acc = std::move(*new_result);
   ASSERT_TRUE(held_acc);
 
-  // Property 1: DeferDelete must return promptly even though `held_acc` keeps the
-  // entry's accessor count at 2 while DeferDelete mints its own db_acc (count 1->2),
-  // which makes the internal db_acc->try_delete() fail its count_==1 check (it waits
-  // up to its own 100ms default timeout, then returns false) and take the deferred
-  // path instead of destroying inline. Bound is well above that ~100ms internal wait
-  // but far below kDtorDelay/the later release point: an implementation that instead
-  // destroyed the probe synchronously on the caller's thread would have to block here
-  // until held_acc is released — which this test does only much later, well past this
-  // bound — so a regression to inline destruction fails this assertion (or hangs).
+  // held_acc + DeferDelete's own minted accessor push count_ to 2, so try_delete()'s count_==1 check
+  // times out (~100ms) and takes the deferred path; the 500ms bound catches a regression to inline delete.
   const auto call_start = std::chrono::steady_clock::now();
   handler.DeferDelete("probe", [&callback_fired] { callback_fired.store(true, std::memory_order_release); });
   const auto call_elapsed = std::chrono::steady_clock::now() - call_start;
   EXPECT_LT(call_elapsed, std::chrono::milliseconds(500));
 
-  // Property 2: the name leaves the map immediately, even though the probe object
-  // itself is still alive (kept alive by held_acc).
+  // Erased from the map immediately even though held_acc keeps the object alive.
   EXPECT_FALSE(handler.Has("probe"));
 
-  // Property 3: with held_acc still alive, the probe must NOT have been destroyed
-  // yet, and the post-delete callback must not have fired. Poll for a bounded
-  // interval so this is a meaningful (not instantaneous) check.
+  // Poll a bounded window (not an instant check) that destruction hasn't happened while held_acc is alive.
   constexpr auto kPollUntil = std::chrono::milliseconds(250);
   const auto poll_start = std::chrono::steady_clock::now();
   while (std::chrono::steady_clock::now() - poll_start < kPollUntil) {
@@ -316,13 +288,10 @@ TEST(HotColdGatekeeper, DeferDeleteErasesButDefersDestruction) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
-  // Release the only remaining Accessor: this drops the deferred Gatekeeper's
-  // accessor count to 0, which is what lets its ~Gatekeeper() — already blocked
-  // on defer_pool_'s single worker thread — proceed to destroy the probe.
+  // Dropping held_acc's count to 0 is what lets the worker thread's already-blocked ~Gatekeeper()
+  // proceed to destroy the probe.
   held_acc.reset();
 
-  // Property 4: destruction and the post-delete callback both complete within a
-  // bounded (never unbounded) wait.
   const auto wait_start = std::chrono::steady_clock::now();
   while (!destroyed.load(std::memory_order_acquire) || !callback_fired.load(std::memory_order_acquire)) {
     ASSERT_LT(std::chrono::steady_clock::now() - wait_start, std::chrono::seconds(5));
@@ -335,24 +304,12 @@ TEST(HotColdGatekeeper, DeferDeleteErasesButDefersDestruction) {
 // ---------------------------------------------------------------------------
 // DeferDeleteDoesNotHeadOfLineBlockAnotherEntry
 // ---------------------------------------------------------------------------
-// The starvation regression guard. Handler<T>::DeferDelete parks a BLOCKING
-// ~Gatekeeper -- it does not return until the entry's last Accessor is released,
-// with no timeout. When all deferred destructions shared one worker thread, an
-// entry nobody could drain owned that worker forever and every later entry's
-// destruction queued behind it and never ran at all, so the objects (and their
-// memory) were never released either, even though they had already left the map.
-//
-// Two probes: "stuck" stays pinned for the whole test, "freed" is released. The
-// property is that "freed" must be destroyed anyway. Deliberately free of any
-// Database, memory tracker or allocator dependency -- the probe's atomics are
-// the observable, so this stays a fast, deterministic check on the handler's
-// threading alone.
+// Regression guard for the old shared-worker starvation bug: one pool worker serialized all deferred
+// destructions, so an entry nobody released occupied it forever and every later entry's destruction
+// queued behind it and never ran. "stuck" stays pinned; "freed" must be destroyed anyway.
 TEST(HotColdGatekeeper, DeferDeleteDoesNotHeadOfLineBlockAnotherEntry) {
-  // Same reasoning as the erase test above: these three flags are targets of raw pointers/references
-  // a worker thread writes through from DeferDeleteProbe's dtor or the post-delete callback, so they
-  // must outlive every worker. Declaring them before `handler` lets reverse-declaration-order
-  // destruction guarantee that -- `~Handler`'s joins run first -- on every exit path, not just the one
-  // where the test's own drain loops happen to finish first.
+  // Declared ahead of `handler`: these flags are written through raw pointers/references from a worker
+  // thread (the probe's dtor or the post-delete callback), so `~Handler`'s joins must finish first.
   std::atomic<bool> stuck_destroyed{false};
   std::atomic<bool> freed_destroyed{false};
   std::atomic<bool> freed_callback_fired{false};
@@ -368,16 +325,14 @@ TEST(HotColdGatekeeper, DeferDeleteDoesNotHeadOfLineBlockAnotherEntry) {
   auto freed_acc = std::move(*freed);
   ASSERT_TRUE(freed_acc);
 
-  // Both drops must take the DEFERRED path, not the synchronous one: each entry's accessor above is
-  // still held, so DeferDelete's own accessor makes count_ == 2 and try_delete()'s count_ == 1 check
-  // fails for both.
+  // Both drops take the deferred path: each entry's own accessor is still held, so DeferDelete's
+  // minted accessor pushes count_ to 2 and try_delete()'s count_==1 check fails for both.
   handler.DeferDelete("stuck", [] {});
   handler.DeferDelete("freed",
                       [&freed_callback_fired] { freed_callback_fired.store(true, std::memory_order_release); });
 
-  // Release ONLY "freed". "stuck" stays pinned below, so its destruction cannot possibly complete.
-  // "freed" has nothing left holding it, so its destruction must complete regardless -- that is the
-  // whole property: the two must not share a worker.
+  // Release only "freed" -- "stuck" stays pinned, so if the two shared a worker "freed" would never
+  // complete either.
   freed_acc.reset();
 
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -392,10 +347,8 @@ TEST(HotColdGatekeeper, DeferDeleteDoesNotHeadOfLineBlockAnotherEntry) {
   // "stuck" -- i.e. for the wrong reason, with the two entries never actually decoupled.
   EXPECT_FALSE(stuck_destroyed.load(std::memory_order_acquire));
 
-  // Release "stuck" and WAIT for it. This drain is no longer load-bearing for the raw-pointer safety
-  // (the flags are now declared ahead of `handler`, so `~Handler`'s join covers that on every exit
-  // path -- see the comment at their declaration), but it stays: it is the assertion that "stuck"
-  // actually gets destroyed once released, which the test would otherwise never check.
+  // Release "stuck" and wait for it: not load-bearing for raw-pointer safety (see the flags' declaration
+  // comment above) but is the only check that "stuck" actually gets destroyed once released.
   stuck_acc.reset();
   const auto drain_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
   while (!stuck_destroyed.load(std::memory_order_acquire)) {

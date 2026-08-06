@@ -208,22 +208,16 @@ class Handler {
       // Defer deletion
       db_acc->reset();
       auto guard = std::lock_guard{defer_lock_};
-      // Reap workers that already finished. Joining one is bounded by its own cheap tail (closure
-      // teardown), never by the blocking ~Gatekeeper -- that has already returned by the time
-      // `finished` is set.
+      // Reap already-finished workers; joining one only waits on its own closure teardown, never
+      // on the (already-returned) blocking ~Gatekeeper.
       std::erase_if(deferred_, [](DeferredDestruction &d) { return d.finished.load(std::memory_order_acquire); });
-      // Park the work BEFORE asking for a thread. std::jthread's constructor throws when a thread
-      // cannot be created; had the moved-out Gatekeeper been captured straight into the jthread, that
-      // throw would unwind the closure and run the blocking ~Gatekeeper right here -- on the caller's
-      // thread, with DbmsHandler's lock_ held exclusive, stalling every other database operation in
-      // the process. Parked here instead, a failed spawn costs nothing and is retried by the next
-      // DeferDelete.
+      // Parked here before spawning a thread: if the jthread ctor throws, unwinding a gk-owning closure
+      // here would block the caller (which holds lock_ exclusive) in ~Gatekeeper; parking makes a failed
+      // spawn free and retried by the next DeferDelete.
       //
-      // `gk` is captured LAST on purpose. Init-captures are evaluated in declaration order, so every
-      // capture before it -- `post_delete_func`'s move ctor, `ScopedGauge`'s ctor (it calls the
-      // non-noexcept Gauge::Increment()) -- runs before the Gatekeeper is moved out of `itr->second`.
-      // If any of those throw, the closure never finishes constructing: `itr->second` is untouched, so
-      // there is nothing blocking to destroy and no map entry left half-repaired.
+      // `gk` is captured LAST: init-captures construct in declaration order, so if an earlier capture
+      // (post_delete_func's move, ScopedGauge's non-noexcept Increment()) throws, `itr->second` is
+      // never moved from -- nothing left half-destroyed, no worker to clean up.
       auto &entry = deferred_.emplace_back();
       entry.task = [post_delete_func = std::forward<Func>(post_delete_func),
                     pending = metrics::ScopedGauge{metrics::Metrics().global.pending_tenant_destructions},
@@ -238,13 +232,10 @@ class Handler {
         }
         post_delete_func();
       };
-      // Best-effort bookkeeping and progress, guarded together: the tenant's fate is already sealed --
-      // `entry.task` above now owns the only handle to its Gatekeeper -- so nothing here is allowed to
-      // propagate. Letting the metric increment, the log call (spdlog can throw on formatting or sink
-      // I/O), or the spawn attempt escape would unwind past the unconditional items_.erase(itr) below
-      // and leave a moved-from, null-pimpl_ Gatekeeper in items_ under this tenant's still-live name.
-      // Deliberately silent: logging is one of the things being guarded against, so logging from the
-      // catch would defeat the guard.
+      // Guarded together and swallowed: entry.task now owns the only handle to the Gatekeeper, so if the
+      // gauge increment, the (throwing-capable) spdlog::warn, or SpawnParkedWorkers_ escaped, it would
+      // skip the unconditional items_.erase(itr) below and leave a moved-from husk under a live name.
+      // Silent on purpose -- logging is one of the things being guarded against.
       try {
         metrics::Metrics().global.deferred_tenant_destructions->Increment();
         spdlog::warn(
@@ -310,15 +301,12 @@ class Handler {
   [[nodiscard]] bool empty() const noexcept { return items_.empty(); }
 
  private:
-  // Gives every parked deferred destruction its own thread, so no tenant's destruction can
-  // head-of-line-block another's; a tenant whose accessor is never released blocks only its own
-  // thread. Best-effort by design: anything that could not get a thread stays parked and is retried
-  // by the next DeferDelete. Requires defer_lock_.
+  // Starts a thread for each parked entry that doesn't have one yet; best-effort -- entries that fail
+  // to get a thread stay parked and are retried by the next DeferDelete. Requires defer_lock_ held.
   void SpawnParkedWorkers_() {
     for (auto &entry : deferred_) {
-      // joinable() is tested FIRST and short-circuits deliberately. It is written only here, under
-      // defer_lock_, whereas `task` is moved-from by the worker itself — so reading `task` for an
-      // entry that already has a worker would be a data race.
+      // joinable() short-circuits deliberately: `task` is moved-from by the worker thread itself
+      // (unlocked), so checking it for an entry that already has a worker would race.
       if (entry.worker.joinable() || !entry.task) continue;
       try {
         entry.worker = std::jthread{[&entry]() {
@@ -329,11 +317,10 @@ class Handler {
           entry.finished.store(true, std::memory_order_release);
         }};
       } catch (const std::exception &e) {
-        // Deliberately broad: std::jthread's ctor can also throw std::bad_alloc (libstdc++
-        // default-constructs a stop_source, which heap-allocates a shared stop-state before the OS
-        // thread exists), not just std::system_error from thread creation itself. Anything that
-        // escapes here would propagate out of DeferDelete and skip its trailing items_.erase(itr),
-        // leaving a moved-from, null-pimpl_ Gatekeeper husk in the map under a live tenant name.
+        // Broad on purpose: libstdc++'s jthread ctor can throw bad_alloc (stop_source's heap-allocated
+        // stop-state, built before the OS thread) as well as system_error from thread creation. Either
+        // escaping here would skip the trailing items_.erase(itr), leaving a moved-from Gatekeeper husk
+        // under a live tenant name.
         spdlog::error(
             "Could not start a thread to destroy a dropped database, due to a thread-creation or "
             "allocation failure ({}); its memory stays accounted for and the next database drop will "
@@ -344,33 +331,26 @@ class Handler {
     }
   }
 
-  // One thread per deferred destruction, and the declaration order below is LOAD-BEARING.
+  // One thread per deferred destruction; declaration order below is LOAD-BEARING for both.
   //
-  // Why a thread each rather than a pool: the work is a blocking ~Gatekeeper whose wait for the
-  // tenant's last accessor is unbounded (utils/gatekeeper.hpp). On any fixed-size pool a tenant that
-  // never drains occupies a worker forever, and every later tenant's destruction queues behind it and
-  // never runs — so their memory is never released either, even though they are already gone from
-  // items_ and invisible by name. No pool size avoids that; it only moves the cliff to N+1 stuck
-  // tenants. One thread each makes the cross-tenant coupling structurally impossible.
+  // Why a thread each, not a pool: ~Gatekeeper's wait for the last accessor is unbounded
+  // (gatekeeper.hpp). A fixed-size pool lets one stuck tenant occupy a worker forever and queue every
+  // later tenant's destruction behind it; no pool size avoids this, it only moves the cliff to N+1.
   //
-  // Why declaration order matters, within DeferredDestruction: members destruct in reverse
-  // declaration order, so `worker` — declared last — is destroyed first, and ~jthread joins it before
-  // `task` and `finished` (the very members its lambda references) are destroyed. Getting this order
-  // wrong is a genuine use-after-free: the joining thread would still be running the lambda while its
-  // captures were torn down underneath it.
+  // Within DeferredDestruction, `worker` is declared last so members destruct in reverse order:
+  // ~jthread joins before `task`/`finished` (the members its lambda references) are destroyed.
+  // Wrong order is a genuine use-after-free.
   //
-  // Between the two levels below, `items_` before `deferred_` is deliberate future-proofing rather
-  // than a fix for a live bug: by the time an entry exists in `deferred_`, its Gatekeeper has already
-  // been moved out of `items_`, and today's only caller (DbmsHandler) passes a `post_delete_func` that
-  // captures nothing owned by `items_` or by this Handler — so no worker currently touches `items_` at
-  // all. But `Handler` is a generic template, and a future `post_delete_func` could reference the
-  // handler or its map, so the join is kept ahead of `items_`'s teardown to stay safe if that changes.
+  // `items_` before `deferred_` is future-proofing, not a live-bug fix: today's only caller
+  // (DbmsHandler) passes a `post_delete_func` that touches neither `items_` nor this Handler, so no
+  // worker currently reaches back into `items_`. But `Handler` is generic, and a future caller's
+  // callback could -- so the join stays ahead of `items_`'s teardown in case that changes.
   container_type items_;  //!< map to all active items
 
   struct DeferredDestruction {
-    // Owns the moved-out Gatekeeper, the post-delete callback and the pending-destruction gauge. Held
-    // here rather than captured straight into `worker` so a failure to start the thread cannot force
-    // the blocking destruction onto the caller's thread — see DeferDelete.
+    // Owns the moved-out Gatekeeper, callback, and gauge -- stored here rather than captured straight
+    // into `worker` so a failed thread spawn can't force the blocking destruction onto the caller (see
+    // DeferDelete).
     std::move_only_function<void()> task;
     std::atomic<bool> finished{false};  //!< set by the worker as its last act; gates reaping
     std::jthread worker;                //!< declared last: ~jthread joins before the members above die
