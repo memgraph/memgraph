@@ -12,7 +12,9 @@
 #include "path.hpp"
 
 #include <algorithm>
+#include <array>
 #include <ranges>
+#include <string_view>
 #include <utility>
 
 #include "mgp.hpp"
@@ -26,38 +28,77 @@ Path::PathHelper::PathHelper(const mgp::List &labels, const mgp::List &relations
   config_.max_hops = max_hops;
 }
 
+namespace {
+
+// Every config key the path procedures honour. An unrecognized key is rejected rather than ignored:
+// silently dropping something like `limit` or `endNodes` returns a different result set than was asked for.
+constexpr std::array<std::string_view, 9> kConfigKeys{"minHops",
+                                                      "maxHops",
+                                                      "minLevel",
+                                                      "maxLevel",
+                                                      "relationshipFilter",
+                                                      "labelFilter",
+                                                      "filterStartNode",
+                                                      "beginSequenceAtStart",
+                                                      "bfs"};
+
+void ValidateConfigKeys(const mgp::Map &config) {
+  for (const auto &item : config) {
+    if (std::ranges::find(kConfigKeys, item.key) == kConfigKeys.end()) {
+      throw mgp::ValueException("Unrecognized config key '" + std::string(item.key) + "'.");
+    }
+  }
+}
+
+// Reads `key`, falling back to its alias. Supplying both is ambiguous, so it throws instead of picking one.
+mgp::Value AliasedValue(const mgp::Map &config, std::string_view key, std::string_view alias) {
+  auto value = config.At(key);
+  if (value.IsNull()) {
+    return config.At(alias);
+  }
+  if (!config.At(alias).IsNull()) {
+    throw mgp::ValueException("Config keys '" + std::string(key) + "' and '" + std::string(alias) +
+                              "' mean the same thing; supply only one.");
+  }
+  return value;
+}
+
+}  // namespace
+
 Path::PathHelper::PathHelper(const mgp::Map &config) {
-  auto same_type_or_null = [](const mgp::Type type, const mgp::Type wanted_type) {
-    return type == wanted_type || type == mgp::Type::Null;
+  ValidateConfigKeys(config);
+
+  auto same_type_or_null = [](const mgp::Value &value, const mgp::Type wanted_type) {
+    return value.Type() == wanted_type || value.IsNull();
   };
 
-  if (!same_type_or_null(config.At("minHops").Type(), mgp::Type::Int) ||
-      !same_type_or_null(config.At("maxHops").Type(), mgp::Type::Int) ||
-      !same_type_or_null(config.At("relationshipFilter").Type(), mgp::Type::List) ||
-      !same_type_or_null(config.At("labelFilter").Type(), mgp::Type::List) ||
-      !same_type_or_null(config.At("filterStartNode").Type(), mgp::Type::Bool) ||
-      !same_type_or_null(config.At("beginSequenceAtStart").Type(), mgp::Type::Bool) ||
-      !same_type_or_null(config.At("bfs").Type(), mgp::Type::Bool)) {
+  const auto min_hops_value = AliasedValue(config, "minHops", "minLevel");
+  const auto max_hops_value = AliasedValue(config, "maxHops", "maxLevel");
+
+  if (!same_type_or_null(min_hops_value, mgp::Type::Int) || !same_type_or_null(max_hops_value, mgp::Type::Int) ||
+      !same_type_or_null(config.At("relationshipFilter"), mgp::Type::List) ||
+      !same_type_or_null(config.At("labelFilter"), mgp::Type::List) ||
+      !same_type_or_null(config.At("filterStartNode"), mgp::Type::Bool) ||
+      !same_type_or_null(config.At("beginSequenceAtStart"), mgp::Type::Bool) ||
+      !same_type_or_null(config.At("bfs"), mgp::Type::Bool)) {
     throw mgp::ValueException(
         "The config parameter needs to be a map with keys and values in line with the documentation.");
   }
 
-  auto value = config.At("maxHops");
-  if (!value.IsNull()) {
-    const int64_t max_hops = value.ValueInt();
+  if (!max_hops_value.IsNull()) {
+    const int64_t max_hops = max_hops_value.ValueInt();
     if (max_hops >= 0) {
       config_.max_hops = max_hops;
     }
   }
-  value = config.At("minHops");
-  if (!value.IsNull()) {
-    const int64_t min_hops = value.ValueInt();
+  if (!min_hops_value.IsNull()) {
+    const int64_t min_hops = min_hops_value.ValueInt();
     if (min_hops >= 0) {
       config_.min_hops = min_hops;
     }
   }
 
-  value = config.At("relationshipFilter");
+  auto value = config.At("relationshipFilter");
   if (!value.IsNull()) {
     ParseRelationships(value.ValueList());
   } else {

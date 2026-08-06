@@ -1,0 +1,10 @@
+# An unsupported key is rejected rather than ignored: honouring `maxHops` while dropping
+# `limit` would silently return more nodes than the caller asked for.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {maxHops: 5, limit: 1})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+exception: >
+  Unrecognized config key 'limit'.
