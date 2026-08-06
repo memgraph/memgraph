@@ -918,3 +918,41 @@ Feature: Pattern comprehensions
         Then the result should be:
             | ids    |
             | [2, 9] |
+
+    Scenario: A pattern comprehension's own path variable does not overwrite an outer path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Hop {id: 10})-[:S]->(b:Hop {id: 11})
+            CREATE (b)-[:S]->(:Hop {id: 12})
+            CREATE (:Side {id: 1})-[:R]->(:Side {id: 4})
+            """
+        When executing query:
+            """
+            MATCH p = (:Hop {id: 10})-[:S*2]->(:Hop {id: 12})
+            RETURN [n IN nodes(p) | n.id] AS ids, [p = (:Side)-[:R]->(y:Side) | y.id] AS inner
+            """
+        Then the result should be:
+            | ids          | inner |
+            | [10, 11, 12] | [4]   |
+
+    Scenario: A named path inside a CALL subquery does not overwrite the caller's
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Hop {id: 10})-[:S]->(b:Hop {id: 11})
+            CREATE (b)-[:S]->(:Hop {id: 12})
+            CREATE (:Side {id: 1})-[:R]->(:Side {id: 4})
+            """
+        When executing query:
+            """
+            MATCH p = (:Hop {id: 10})-[:S*2]->(:Hop {id: 12})
+            CALL {
+              MATCH p = (:Side)-[:R]->(y:Side)
+              RETURN y
+            }
+            RETURN [n IN nodes(p) | n.id] AS ids, y.id AS yid
+            """
+        Then the result should be:
+            | ids          | yid |
+            | [10, 11, 12] | 4   |

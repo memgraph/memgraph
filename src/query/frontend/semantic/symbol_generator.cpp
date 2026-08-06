@@ -507,8 +507,9 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     }
   } else if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
     // If we are in the pattern, and outside of a node or an edge, the
-    // identifier is the pattern name.
-    symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
+    // identifier is the pattern name. Shadowed: declare here, as for node and edge atoms below.
+    symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH)
+                                : GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
   } else if (scope.in_pattern && scope.in_pattern_atom_identifier) {
     //  Patterns used to create nodes and edges cannot redeclare already
     //  established bindings. Declaration only happens in single node
@@ -1064,7 +1065,9 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
   // so in_pattern is not yet true when Visit(Identifier) is called for variable_.
   // Without this, Visit(Identifier) will throw UnboundVariableError.
   if (pc.variable_) {
-    auto path_symbol = GetOrCreateSymbol(pc.variable_->name_, pc.variable_->user_declared_, Symbol::Type::PATH);
+    // Always this comprehension's own declaration, so create it here: resolving outward would bind an outer path of
+    // the same name and overwrite its frame slot.
+    auto path_symbol = CreateSymbol(pc.variable_->name_, pc.variable_->user_declared_, Symbol::Type::PATH);
     pc.variable_->MapTo(path_symbol);
   }
 
