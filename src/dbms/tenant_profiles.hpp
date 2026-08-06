@@ -71,13 +71,14 @@ class TenantProfiles {
                                                       std::vector<std::string> extra_keys_to_delete = {});
   std::expected<void, RenameError> RenameDatabase(std::string_view old_name, std::string_view new_name);
 
-  /// Startup reconciliation. A crash between DROP DATABASE erasing the tenant's durability key and the
-  /// matching DetachFromDatabase call leaves a permanently stale kDbMappingPrefix entry (and a dangling
-  /// name inside the pointed-to Profile's `databases`) that nothing else ever reconciles. This removes
-  /// every persisted database->profile attachment whose database name is absent from `live_db_names`:
-  /// the mapping key is deleted and the name is dropped from its profile's `databases`, atomically.
-  /// Returns the number of attachments pruned. 0 means either nothing needed pruning or the durability batch
-  /// failed (logged here at error level) -- a caller cannot tell those apart and must not read 0 as success.
+  /// Startup reconciliation. A DROP that retires the tenant's durability key without its detach -- the
+  /// detach refuses on a corrupt profile record and the caller retires the key anyway, and older
+  /// releases wrote the two non-atomically -- leaves a permanently stale kDbMappingPrefix entry (and a
+  /// dangling name inside the pointed-to Profile's `databases`) that nothing else ever reconciles. This
+  /// removes every persisted database->profile attachment whose database name is absent from
+  /// `live_db_names`: the mapping key is deleted and the name is dropped from its profile's `databases`,
+  /// atomically. Returns the number pruned; 0 is ambiguous between nothing-to-prune and a failed
+  /// durability batch (logged here at error level), so a caller must not read 0 as success.
   std::size_t PruneDatabases(const std::set<std::string> &live_db_names);
 
   std::optional<std::string> GetProfileForDatabase(std::string_view db_name) const;

@@ -1064,8 +1064,7 @@ class DbmsHandler {
           }
         } catch (const UnknownDatabaseException &) {
           if (suspended_.contains(db_name)) {
-            // Get_ is HOT-gated, so a suspended tenant throws here even though it exists; its cap is
-            // applied by Resume_ instead.
+            // SuspendedDatabaseException derives from UnknownDatabaseException, so a COLD tenant lands here too.
             spdlog::info("Tenant profile '{}' targets suspended database '{}' — limit will be applied on resume",
                          profile.name,
                          db_name);

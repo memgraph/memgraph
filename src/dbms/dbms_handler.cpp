@@ -368,10 +368,8 @@ DbmsHandler::DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_
   tenant_profiles_ = std::make_unique<TenantProfiles>(*durability_);
 
   {
-    // Live set is built from the durable key prefix, NOT Get_/db_handler_: Get_ is HOT-gated, so a
-    // suspended (COLD) tenant would look absent and PruneDatabases would wrongly delete its
-    // attachment. The key prefix covers HOT and COLD identically, and stays correct even for an
-    // entry whose value failed to parse above, since its key is still present.
+    // Built from the durable key prefix, not Get_: Get_ is HOT-gated, so a suspended (COLD) tenant
+    // would look absent and have its attachment pruned. A key also survives a value that failed to parse.
     std::set<std::string> live{std::string{kDefaultDB}};
     for (auto pit = durability_->begin(std::string(kDBPrefix)), pend = durability_->end(std::string(kDBPrefix));
          pit != pend;
@@ -478,8 +476,7 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
     return std::unexpected{DeleteError::NON_EXISTENT};
   }
 
-  // The tenant's durability key rides along in the detach's atomic batch, so a crash can't retire
-  // one without the other; the fallback below only fires when detach didn't run or wasn't attached.
+  // Delete the key here only if the detach did not retire it: no profile attached, or a durability error.
   bool retired_with_detach = false;
   if (tenant_profiles_) {
     retired_with_detach = tenant_profiles_->DetachFromDatabase(db_name, {Durability::GenKey(db_name)}).has_value();
@@ -795,8 +792,7 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
   const std::string name_copy{name};
   suspended_.erase(it);
   db_handler_.EraseColdShell(name_copy);  // guaranteed to succeed: we just verified state==COLD above
-  // The tenant's durability key rides along in the detach's atomic batch, so a crash can't retire
-  // one without the other; the fallback below only fires when detach didn't run or wasn't attached.
+  // Delete the key here only if the detach did not retire it: no profile attached, or a durability error.
   bool retired_with_detach = false;
   if (tenant_profiles_) {
     retired_with_detach = tenant_profiles_->DetachFromDatabase(name_copy, {Durability::GenKey(name_copy)}).has_value();
@@ -840,8 +836,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     database.streams()->DropAll();
   }
 
-  // The tenant's durability key rides along in the detach's atomic batch, so a crash can't retire
-  // one without the other; the fallback below only fires when detach didn't run or wasn't attached.
+  // Delete the key here only if the detach did not retire it: no profile attached, or a durability error.
   bool retired_with_detach = false;
   if (tenant_profiles_) {
     retired_with_detach = tenant_profiles_->DetachFromDatabase(db_name, {Durability::GenKey(db_name)}).has_value();
