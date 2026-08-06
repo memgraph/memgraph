@@ -5384,6 +5384,33 @@ TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInAggregatingWithOrderBy) 
   ExpectCorrelatedBranch<Expand>(rollup);
 }
 
+TYPED_TEST(TestPlanner, QueryPartSymbolsSurviveASubquery) {
+  // Test CREATE (a) CALL { MATCH (z) RETURN count(z) AS c } RETURN [(a)-[*1..2]->(m) | 1]
+  // A CALL subquery is not a query-part boundary, so the write and the comprehension are in the same part - but
+  // planning the subquery re-enters PlanQueryPart on this same planner. Without the save/restore around
+  // `query_part_symbols_`, the subquery's sets replace the caller's, `a` stops looking write-bound, and the rejection
+  // silently degrades into a plan that fails at runtime with "Trying to get relationships from a node that doesn't
+  // exist".
+  FakeDbAccessor dba;
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("a"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("m")),
+      nullptr,
+      LITERAL(1));
+  auto *subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("z"))), RETURN(COUNT(IDENT("z"), false), AS("c"))));
+  auto *query = QUERY(SINGLE_QUERY(
+      CREATE(PATTERN(NODE("a"))), CALL_SUBQUERY(subquery), RETURN(pattern_comp, AS("l"), IDENT("c"), AS("c"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  try {
+    MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    FAIL() << "expected the query to be rejected";
+  } catch (const memgraph::query::QueryException &e) {
+    EXPECT_THAT(e.what(), ::testing::HasSubstr("'a'")) << "the caller's write-bound symbols must survive the subquery";
+  }
+}
+
 TYPED_TEST(TestPlanner, PatternComprehensionInMergeOnCreateIsPlannedInsideBranch) {
   // Test MERGE (q) ON CREATE SET q.prop = [(q)-->() | 1]
   // `q` is bound by the MERGE pattern, and the SET runs inside the Merge's create branch, so the comprehension must
