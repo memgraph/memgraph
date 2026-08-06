@@ -1,0 +1,13 @@
+# whitelistNodes is a deprecated alias of allowlistNodes.
+query: >
+  MATCH (n) WHERE n.name IN ['B', 'C']
+  WITH collect(n) AS allow
+  MATCH (a:A)
+  CALL path.subgraph_nodes(a, {whitelistNodes: allow, maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A
+  - name: B
+  - name: C

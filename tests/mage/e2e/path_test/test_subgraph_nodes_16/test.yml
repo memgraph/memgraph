@@ -1,0 +1,15 @@
+# A non-empty allowlistNodes supersedes the deprecated whitelistNodes, which is then ignored.
+query: >
+  MATCH (n) WHERE n.name IN ['B', 'C']
+  WITH collect(n) AS allow
+  MATCH (e:E)
+  WITH allow, collect(e) AS deprecated
+  MATCH (a:A)
+  CALL path.subgraph_nodes(a, {allowlistNodes: allow, whitelistNodes: deprecated, maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A
+  - name: B
+  - name: C

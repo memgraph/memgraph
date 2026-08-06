@@ -1,0 +1,14 @@
+# blacklistNodes is a deprecated alias of denylistNodes.
+query: >
+  MATCH (b:B)
+  WITH collect(b) AS deny
+  MATCH (a:A)
+  CALL path.subgraph_nodes(a, {blacklistNodes: deny, maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A
+  - name: C
+  - name: D
+  - name: E

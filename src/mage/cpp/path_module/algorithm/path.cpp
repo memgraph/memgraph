@@ -32,15 +32,19 @@ namespace {
 
 // Every config key the path procedures honour. An unrecognized key is rejected rather than ignored:
 // silently dropping something like `limit` or `endNodes` returns a different result set than was asked for.
-constexpr std::array<std::string_view, 9> kConfigKeys{"minHops",
-                                                      "maxHops",
-                                                      "minLevel",
-                                                      "maxLevel",
-                                                      "relationshipFilter",
-                                                      "labelFilter",
-                                                      "filterStartNode",
-                                                      "beginSequenceAtStart",
-                                                      "bfs"};
+constexpr std::array<std::string_view, 13> kConfigKeys{"minHops",
+                                                       "maxHops",
+                                                       "minLevel",
+                                                       "maxLevel",
+                                                       "relationshipFilter",
+                                                       "labelFilter",
+                                                       "filterStartNode",
+                                                       "beginSequenceAtStart",
+                                                       "bfs",
+                                                       "allowlistNodes",
+                                                       "denylistNodes",
+                                                       "whitelistNodes",
+                                                       "blacklistNodes"};
 
 void ValidateConfigKeys(const mgp::Map &config) {
   for (const auto &item : config) {
@@ -63,9 +67,36 @@ mgp::Value AliasedValue(const mgp::Map &config, std::string_view key, std::strin
   return value;
 }
 
+int64_t NodeFilterId(const mgp::Value &value, const mgp::Graph &graph) {
+  if (value.IsNode()) {
+    return value.ValueNode().Id().AsInt();
+  }
+  if (value.IsInt()) {
+    // Resolve the ID so a node that doesn't exist is reported instead of silently never matching.
+    return graph.GetNodeById(mgp::Id::FromInt(value.ValueInt())).Id().AsInt();
+  }
+  throw mgp::ValueException("Node filters need to be a node, an integer ID, or a list thereof.");
+}
+
+// Collects node IDs from a node, an integer ID, or a list thereof. A null value collects nothing.
+std::unordered_set<int64_t> CollectNodeIds(const mgp::Value &value, const mgp::Graph &graph) {
+  std::unordered_set<int64_t> ids;
+  if (value.IsNull()) {
+    return ids;
+  }
+  if (!value.IsList()) {
+    ids.insert(NodeFilterId(value, graph));
+    return ids;
+  }
+  for (const auto &item : value.ValueList()) {
+    ids.insert(NodeFilterId(item, graph));
+  }
+  return ids;
+}
+
 }  // namespace
 
-Path::PathHelper::PathHelper(const mgp::Map &config) {
+Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph) {
   ValidateConfigKeys(config);
 
   auto same_type_or_null = [](const mgp::Value &value, const mgp::Type wanted_type) {
@@ -121,6 +152,20 @@ Path::PathHelper::PathHelper(const mgp::Map &config) {
 
   value = config.At("bfs");
   config_.bfs = value.IsNull() ? false : value.ValueBool();
+
+  ParseNodeFilters(config, graph);
+}
+
+// `allowlistNodes` and `denylistNodes` supersede the deprecated `whitelistNodes` and `blacklistNodes`;
+// an absent or empty list falls back to the deprecated key.
+void Path::PathHelper::ParseNodeFilters(const mgp::Map &config, const mgp::Graph &graph) {
+  auto allowlist = CollectNodeIds(config.At("allowlistNodes"), graph);
+  auto whitelist = CollectNodeIds(config.At("whitelistNodes"), graph);
+  config_.allowlist_nodes = allowlist.empty() ? std::move(whitelist) : std::move(allowlist);
+
+  auto denylist = CollectNodeIds(config.At("denylistNodes"), graph);
+  auto blacklist = CollectNodeIds(config.At("blacklistNodes"), graph);
+  config_.denylist_nodes = denylist.empty() ? std::move(blacklist) : std::move(denylist);
 }
 
 Path::RelDirection Path::PathHelper::GetDirection(std::string_view rel_type) const {
@@ -151,6 +196,22 @@ bool Path::PathHelper::ContinueExpanding(const LabelBools &label_bools, size_t p
           ((!label_bools.blacklisted && !label_bools.terminated &&
             (label_bools.end_node || Whitelisted(label_bools.whitelisted))) ||
            (path_size == 1 && !config_.filter_start_node)));
+}
+
+// Evaluated independently of the label filters: a node the lists reject is never returned nor expanded through.
+bool Path::PathHelper::NodeFilterAllows(const mgp::Node &node, const bool is_start) const {
+  if (config_.allowlist_nodes.empty() && config_.denylist_nodes.empty()) {
+    return true;
+  }
+
+  // An unfiltered start node is exempt, as it is for the label filters.
+  if (!IsNotStartOrFiltersStartNode(is_start)) {
+    return true;
+  }
+
+  const auto id = node.Id().AsInt();
+  return !config_.denylist_nodes.contains(id) &&
+         (config_.allowlist_nodes.empty() || config_.allowlist_nodes.contains(id));
 }
 
 bool Path::PathHelper::PathSizeOk(const int64_t path_size) const {
@@ -572,6 +633,10 @@ mgp::List Path::PathSubgraph::BFS() {
       continue;
     }
 
+    if (!path_data_.helper_.NodeFilterAllows(pair.first, pair.second == 0)) {
+      continue;
+    }
+
     LabelBools label_bools = path_data_.helper_.GetLabelBools(pair.first);
     TryInsertNode(pair.first, pair.second, label_bools);
     if (!path_data_.helper_.ContinueExpanding(label_bools, pair.second + 1)) {
@@ -593,7 +658,7 @@ void Path::SubgraphNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *
   const auto record_factory = mgp::RecordFactory(result);
   try {
     auto config = arguments[1].ValueMap();
-    PathSubgraph path_subgraph{PathData(PathHelper{config}, record_factory, graph)};
+    PathSubgraph path_subgraph{PathData(PathHelper{config, graph}, record_factory, graph)};
 
     auto start_value = arguments[0];
     if (!start_value.IsList()) {
@@ -624,7 +689,7 @@ void Path::SubgraphAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
   const auto record_factory = mgp::RecordFactory(result);
   try {
     auto config = arguments[1].ValueMap();
-    PathSubgraph path_subgraph{PathData(PathHelper{config}, record_factory, graph)};
+    PathSubgraph path_subgraph{PathData(PathHelper{config, graph}, record_factory, graph)};
 
     auto start_value = arguments[0];
     if (!start_value.IsList()) {
