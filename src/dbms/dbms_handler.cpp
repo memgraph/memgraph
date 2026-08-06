@@ -1505,6 +1505,18 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
             std::chrono::duration<double>(std::chrono::steady_clock::now() - resume_start).count());
       });
 
+      // A resumed tenant is a freshly built Database with a default (uncapped) tracker, so the
+      // attached profile's memory cap has to be re-applied.
+      best_effort("re-applying tenant profile memory limit", [&] {
+        if (tenant_profiles_) {
+          if (auto profile_name = tenant_profiles_->GetProfileForDatabase(name)) {
+            if (auto profile = tenant_profiles_->Get(*profile_name); profile && profile->memory_limit > 0) {
+              acc.get()->SetTenantMemoryLimit(profile->memory_limit);
+            }
+          }
+        }
+      });
+
       // Flip the durable entry back to HOT (drop the cold marker) so a restart recovers it HOT.
       // Done in a SEPARATE short lock_ scope AFTER the publish. The write is guarded by
       // !suspended_.contains: if a SUSPEND raced in after our publish-erase and re-suspended the tenant,
