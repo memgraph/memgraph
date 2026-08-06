@@ -53,6 +53,10 @@ constexpr std::string_view kArgumentMinHopsExpand = "min_hops";
 constexpr std::string_view kArgumentMaxHopsExpand = "max_hops";
 constexpr std::string_view kResultExpand = "result";
 
+/* expand_config constants */
+constexpr std::string_view kProcedureExpandConfig = "expand_config";
+constexpr std::string_view kArgumentConfigExpandConfig = "config";
+
 /* subgraph_nodes constants */
 constexpr std::string_view kReturnSubgraphNodes = "nodes";
 constexpr std::string_view kProcedureSubgraphNodes = "subgraph_nodes";
@@ -213,6 +217,8 @@ void Slice(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memo
 void Create(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 
 void Expand(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
+
+void ExpandConfig(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 
 void SubgraphNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 

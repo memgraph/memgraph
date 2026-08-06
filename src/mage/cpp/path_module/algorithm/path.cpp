@@ -474,6 +474,11 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationshi
 void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
   const mgp::Node node{path.GetNodeAt(path_size)};
 
+  // A node the identity filters reject ends the walk here: no record and no expansion.
+  if (!path_data_.helper_.NodeFilterAllows(node, path_size == 0)) {
+    return;
+  }
+
   const LabelBools label_bools = path_data_.helper_.GetLabelBools(node);
 
   // Unfiltered start: its own labels are exempt, so treat it as a plain whitelisted node.
@@ -517,29 +522,53 @@ void Path::PathExpand::RunAlgorithm() {
   }
 }
 
+namespace {
+
+void RunExpand(Path::PathHelper &&helper, const mgp::Value &start_value, const mgp::RecordFactory &record_factory,
+               const mgp::Graph &graph) {
+  Path::PathExpand path_expand{Path::PathData(std::move(helper), record_factory, graph)};
+
+  if (!start_value.IsList()) {
+    path_expand.Parse(start_value);
+  } else {
+    for (const auto &list_item : start_value.ValueList()) {
+      path_expand.Parse(list_item);
+    }
+  }
+
+  path_expand.RunAlgorithm();
+}
+
+}  // namespace
+
 void Path::Expand(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    auto graph = mgp::Graph(memgraph_graph);
-    const mgp::Value start_value = arguments[0];
+    const auto graph = mgp::Graph(memgraph_graph);
     const mgp::List relationships{arguments[1].ValueList()};
     const mgp::List labels{arguments[2].ValueList()};
     const int64_t min_hops{arguments[3].ValueInt()};
     const int64_t max_hops{arguments[4].ValueInt()};
 
-    PathExpand path_expand{PathData(PathHelper{labels, relationships, min_hops, max_hops}, record_factory, graph)};
+    RunExpand(PathHelper{labels, relationships, min_hops, max_hops}, arguments[0], record_factory, graph);
 
-    if (!start_value.IsList()) {
-      path_expand.Parse(start_value);
-    } else {
-      for (const auto &list_item : start_value.ValueList()) {
-        path_expand.Parse(list_item);
-      }
-    }
+  } catch (const std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
+    return;
+  }
+}
 
-    path_expand.RunAlgorithm();
+void Path::ExpandConfig(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  const auto record_factory = mgp::RecordFactory(result);
+  try {
+    const auto graph = mgp::Graph(memgraph_graph);
+    const auto config = arguments[1].ValueMap();
+
+    RunExpand(PathHelper{config, graph}, arguments[0], record_factory, graph);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
