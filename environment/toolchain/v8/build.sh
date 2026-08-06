@@ -752,11 +752,14 @@ if [[ "$for_arm" = false ]]; then
         mkdir build && pushd build
         # Static so GDB doesn't ship another .so; LIBDIR pinned because
         # GNUInstallDirs otherwise picks lib/lib64 based on the build host.
+        # THREADS off: C11 mtx_* lives in libpthread until glibc 2.34, but
+        # GDB's configure links plain -lipt (and decodes single-threaded).
         cmake .. \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DCMAKE_INSTALL_LIBDIR=lib \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF \
+            -DFEATURE_THREADS=OFF \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON
         make -j$CPUS
         make install DESTDIR=$SYSROOT
