@@ -1126,12 +1126,24 @@ void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs(ProgressCallback c
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
+void InMemoryStorage::InMemoryAccessor::PublishIndexArming() {
+  // Transactional arming is read off the deltas as the GC unlinks them. Analytical makes no deltas,
+  // so its writes note what they touched on the transaction and it is handed over here instead.
+  // Without this an analytical workload that only creates and updates never arms a sweep, and every
+  // superseded index entry it writes stays until something is deleted.
+  if (!transaction_.index_arming.arms_anything()) return;
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  mem_storage->pending_index_arming_.WithLock([this](IndexArming &pending) { pending |= transaction_.index_arming; });
+}
+
 std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
     CommitArgs const commit_args) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  PublishIndexArming();
 
   // TODO: duplicated transaction finalization in md_deltas and deltas processing cases
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
@@ -1491,6 +1503,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() { Abort({}); }
 
 void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progress) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
+
+  // An analytical abort undoes nothing, so its writes -- and whatever they left for a sweep to
+  // collect -- are still there.
+  PublishIndexArming();
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 

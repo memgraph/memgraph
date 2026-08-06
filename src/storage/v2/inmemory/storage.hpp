@@ -171,6 +171,9 @@ class InMemoryStorage final : public Storage {
 
     void CheckForFastDiscardOfDeltas();
 
+    // Hands this transaction's noted arming to the next collection cycle; see the definition.
+    void PublishIndexArming();
+
     std::optional<EdgeAccessor> CreateEdgeInternal(Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type,
                                                    DeltaChainState from_state, DeltaChainState to_state,
                                                    storage::Gid gid,
