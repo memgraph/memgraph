@@ -14,6 +14,7 @@
 #include <gflags/gflags.h>
 #include <chrono>
 #include <functional>
+#include <mutex>
 #include <optional>
 
 #include "dbms/database.hpp"
@@ -257,6 +258,9 @@ struct CurrentDB {
                           //       ATM: it is provided by the DatabaseAccess
                           //       future: should be a name + ptr to dbms_handler, lazy fetch when needed
 
+  // No lock needed here: db_acc_ is set in the member-init list, and this CurrentDB is only reachable
+  // (e.g. via InterpreterContext::interpreters) once construction has completed, so no other thread can
+  // observe it beforehand.
   explicit CurrentDB(memgraph::dbms::DatabaseAccess db_acc) : db_acc_{std::move(db_acc)} {}
 
   CurrentDB(CurrentDB const &) = delete;
@@ -267,19 +271,60 @@ struct CurrentDB {
   void CleanupDBTransaction(bool abort);
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
-    // do we lock here?
+    // Locked: db_acc_mutex_ guards this mutation so a foreign thread (SHOW ACTIVE USERS) can observe it via
+    // foreign_db_view(). Note the assignment below destroys the previous Accessor, which decrements
+    // GKInternals::count_ under GKInternals::mutex_ -- so the lock order here is db_acc_mutex_ ->
+    // GKInternals::mutex_. utils/gatekeeper.hpp has no knowledge of CurrentDB, so there is no reverse edge.
+    std::lock_guard lock{db_acc_mutex_};
     db_acc_ = std::move(new_db);
     in_explicit_db_ = in_explicit_db;
   }
 
   void ResetDB() {
-    db_acc_.reset();
+    // Narrowed to just db_acc_: it's the only member observed cross-thread (foreign_db_view()).
+    // db_transactional_accessor_'s ~Storage::Accessor can abort a txn and take storage locks, which would
+    // stall foreign_db_view() and add a needless db_acc_mutex_ -> storage-lock edge.
+    {
+      std::lock_guard lock{db_acc_mutex_};
+      db_acc_.reset();
+    }
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
   }
 
+  // Mirrors the conditional reset in Interpreter::ResetInterpreter(): releases db_acc_ only when a database
+  // is held AND it is marked for deletion. Does not touch db_transactional_accessor_/execution_db_accessor_/
+  // trigger_context_collector_ -- that is ResetDB()'s job, not this one's.
+  void ReleaseDbIfMarked() {
+    std::lock_guard lock{db_acc_mutex_};
+    if (db_acc_ && db_acc_->is_marked_for_deletion()) {
+      db_acc_.reset();
+    }
+  }
+
+  // Owning-thread-only (or under the transaction verifier's ACTIVE->VERIFYING CAS). Reads the live accessor
+  // without synchronization -- safe because every db_acc_ writer runs on this same owning thread, so a
+  // same-thread read/write pair is never concurrent. An IDLE session (no verifier window) is NOT covered by
+  // this contract; cross-thread callers (e.g. SHOW ACTIVE USERS, which must also see IDLE sessions) must use
+  // foreign_db_view() instead.
   std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
+
+  // A snapshot of the current database as seen from a thread that is NOT the owning session thread. This is
+  // the ONLY member of CurrentDB safe to call from any thread; it needs no transaction verifier, which is the
+  // point -- the verifier CAS can never succeed on an IDLE session, so it cannot cover the sessions that
+  // silently pin a dropped tenant's memory. Deliberately reads db_acc_ live (no cached name): DbmsHandler::Rename
+  // rewrites a live storage's name in place without touching db_acc_, so a cache would go stale.
+  struct ForeignDbView {
+    std::string name;                 // "" when the session holds no database
+    bool marked_for_deletion{false};  // false when there is no database
+  };
+
+  [[nodiscard]] ForeignDbView foreign_db_view() const {
+    std::lock_guard lock{db_acc_mutex_};
+    if (!db_acc_) return {};
+    return {db_acc_->get()->name(), db_acc_->is_marked_for_deletion()};
+  }
 
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
   // DatabaseAccess
@@ -290,6 +335,13 @@ struct CurrentDB {
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_db_{false};
   metrics::ScopedGauge transaction_gauge_;
+
+  // Guards MUTATION of db_acc_ only, so a foreign thread (SHOW ACTIVE USERS) can observe an IDLE session's
+  // database via foreign_db_view(). Owning-thread reads (name(), and ~100 direct db_acc_ reads in
+  // interpreter.cpp) deliberately do NOT take this lock -- they run on the same thread as every writer, so
+  // they can never race one. Must NOT be a spinlock: foreign_db_view() calls Storage::name(), which takes a
+  // shared_mutex inside utils::SafeString, so the holder can block.
+  mutable std::mutex db_acc_mutex_;
 };
 
 using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;
@@ -582,9 +634,7 @@ class Interpreter final {
     system_transaction_.reset();
     transaction_queries_->clear();
     commit_notification_.reset();
-    if (current_db_.db_acc_ && current_db_.db_acc_->is_marked_for_deletion()) {
-      current_db_.db_acc_.reset();
-    }
+    current_db_.ReleaseDbIfMarked();
   }
 
   struct QueryExecution {
