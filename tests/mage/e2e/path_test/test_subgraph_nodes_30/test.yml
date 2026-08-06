@@ -1,0 +1,9 @@
+# Only -1 is the no-limit value: a bound below it is real and matches nothing, where the config
+# reader used to ignore it and return the whole reachable set.
+query: >
+  MATCH (a:A)
+  CALL path.subgraph_nodes(a, {maxHops: -5})
+  YIELD nodes
+  RETURN nodes.name AS name;
+
+output: []

@@ -17,6 +17,7 @@
 #include <limits>
 #include <queue>
 #include <set>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
@@ -71,11 +72,21 @@ constexpr std::string_view kProcedureSubgraphAll = "subgraph_all";
 constexpr std::string_view kResultNodesSubgraphAll = "nodes";
 constexpr std::string_view kResultRelsSubgraphAll = "rels";
 
+// Enables heterogeneous string_view lookup so labels and relationship types can be looked up without allocating.
+struct TransparentStringHash {
+  using is_transparent = void;
+
+  [[nodiscard]] size_t operator()(std::string_view sv) const noexcept { return std::hash<std::string_view>{}(sv); }
+};
+
+// Owning: the parsed config outlives the mgp::List the labels were read from, so a view into it would dangle.
+using LabelSet = std::unordered_set<std::string, TransparentStringHash, std::equal_to<>>;
+
 struct LabelSets {
-  std::unordered_set<std::string_view> termination_list;
-  std::unordered_set<std::string_view> blacklist;
-  std::unordered_set<std::string_view> whitelist;
-  std::unordered_set<std::string_view> end_list;
+  LabelSet termination_list;
+  LabelSet blacklist;
+  LabelSet whitelist;
+  LabelSet end_list;
 };
 
 struct LabelBools {
@@ -102,13 +113,6 @@ struct LabelBoolsStatus {
 };
 
 enum class RelDirection { kNone = -1, kAny = 0, kIncoming = 1, kOutgoing = 2, kBoth = 3 };
-
-// Enables heterogeneous string_view lookup so relationship types can be looked up without allocating.
-struct TransparentStringHash {
-  using is_transparent = void;
-
-  [[nodiscard]] size_t operator()(std::string_view sv) const noexcept { return std::hash<std::string_view>{}(sv); }
-};
 
 struct Config {
   LabelBoolsStatus label_bools_status;
@@ -144,7 +148,7 @@ class PathHelper {
   bool ContinueExpanding(const LabelBools &label_bools, size_t path_size) const;
 
   // False means the node is neither returned nor expanded through.
-  bool NodeFilterAllows(const mgp::Node &node, bool is_start) const;
+  [[nodiscard]] bool NodeFilterAllows(const mgp::Node &node, bool is_start) const;
 
   bool PathSizeOk(int64_t path_size) const;
   bool PathTooBig(int64_t path_size) const;
@@ -161,11 +165,7 @@ class PathHelper {
   Config config_;
 };
 
-class PathData {
- public:
-  friend class PathExpand;
-  friend class PathSubgraph;
-
+struct PathData {
   explicit PathData(PathHelper &&helper, const mgp::RecordFactory &record_factory, const mgp::Graph &graph)
       : helper_(std::move(helper)), record_factory_(record_factory), graph_(graph) {}
 
@@ -183,7 +183,7 @@ class PathExpand {
   void ExpandPath(mgp::Path &path, const mgp::Relationship &relationship, int64_t path_size);
   void ExpandFromRelationships(mgp::Path &path, mgp::Relationships relationships, bool outgoing, int64_t path_size,
                                std::set<std::pair<std::string, int64_t>> &seen);
-  void StartAlgorithm(mgp::Node node);
+  void StartAlgorithm(const mgp::Node &node);
   void Parse(const mgp::Value &value);
   void DFS(mgp::Path &path, int64_t path_size);
   void RunAlgorithm();

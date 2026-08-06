@@ -6,4 +6,4 @@ query: >
   RETURN nodes.name AS name ORDER BY name ASC;
 
 exception: >
-  Node filters need to be a node, an integer ID, or a list thereof.
+  Node filter list entries need to be a node or an integer ID.
