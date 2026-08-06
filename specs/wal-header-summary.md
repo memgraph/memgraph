@@ -41,9 +41,9 @@ without one falls back to `ReadWalInfo`. `RecoverData`'s pre-pass is deleted —
 no uuid known yet it reads every header, adopts the newest file's identity, and
 filters the rest in memory.
 
-`LoadWal` and `InMemoryReplicationHandlers::LoadWal` read every file twice today,
-once to scan and once to apply. With `num_deltas` in the header they read it once.
-That required moving CRC verification into `LoadWal`'s apply loop - see decision 9.
+The two replay paths - `LoadWal` and `InMemoryReplicationHandlers::LoadWal` - keep
+parsing. They read every file twice, once to scan and once to apply, and that cannot
+be collapsed; see decision 9.
 
 ## Decisions
 
@@ -87,19 +87,34 @@ An explicit boolean flag was considered and dropped. It would have let the secon
 case be rejected without a scan, but that is not worth a byte in the format and an
 extra field to keep consistent.
 
-### 9. CRC verification moves into `LoadWal`'s apply loop
+### 9. Replay cannot use the summary, so it still parses
 
-`num_deltas` is not what stopped `LoadWal` from using the header — CRC was. Its
-apply loop verified nothing; the pre-scan was the only place v36's protection
-happened on the disk-recovery path, which is what the old comment above `LoadWal`
-meant. Caching the count and deleting the scan without more would have silently
-dropped that protection.
+Both replay paths were converted to read only the header and then reverted. The
+attempt is recorded because the reason is not obvious and the count in the header
+invites trying again.
 
-So `LoadWal` now verifies each transaction's CRC as it replays it, resetting the
-accumulator at every transaction end exactly as the write side and `ReadWalInfo`
-do. `InMemoryReplicationHandlers` already worked this way, so this aligns the two
-rather than inventing anything. Verification is retained and the second pass is
-gone.
+The pre-scan does three things, not two. Beyond verifying CRC and bounding the
+loop, it establishes *where the valid data ends before anything is applied*.
+`LoadWal` applies each delta to the skip lists as it reads it, so replaying to the
+writer's own count means a damaged trailing transaction is half-applied before the
+damage is found — strictly worse than not applying it, and unrecoverable, since
+there is nothing to roll back to.
+
+`WalCorruptLastTransaction` pins this as required behaviour: it zeroes the last 100
+bytes of a *finalized* WAL file and asserts recovery still comes up with everything
+before the damaged transaction. The scan stops at the first transaction that fails
+to parse or fails its CRC, so `num_deltas` spans only transactions that can be
+replayed whole. The summary states what the writer wrote, which is a different
+number once a file has rotted.
+
+Making replay single-pass would mean buffering a transaction's deltas before
+applying them, which is a much larger change than this one.
+
+CRC is a red herring here. `LoadWal`'s apply loop verifies nothing, so the pre-scan
+is the only place v36's protection happens on the disk-recovery path — but adding
+verification to the apply loop, which was tried, does not help: it detects the
+damage no earlier than the parse failure does, and by then part of the transaction
+is applied.
 
 ### 3. Back-patch the header rather than append a trailer
 
@@ -189,18 +204,8 @@ exist.
   transaction; it now reports what the writer recorded. The summary itself is covered
   by the header CRC, so a corrupted summary is still caught.
 
-  Replay behaviour changes with it: a finalized file corrupted mid-way used to have
-  its `num_deltas` truncated at the corruption by the pre-scan, so `LoadWal` applied
-  the valid prefix and recovery *succeeded with partial data*. The header states the
-  full count, so replay now reaches the damage, the apply loop's CRC check fires, and
-  recovery fails loudly (or yields a broken tenant under
-  `--storage-allow-recovery-failure`). That is the better outcome — silently
-  truncating recovery at a corruption point drops committed data without telling
-  anyone, and if the damaged file is mid-chain the old behaviour replayed later
-  transactions on top of a hole.
-
-  For discovery the difference reaches only `GetRecoverySteps`, and only as a
-  liveness concern.
+  Replay is unaffected, because it still parses - see decision 9. The difference
+  reaches only `GetRecoverySteps`, and only as a liveness concern.
   `RecoverData` never reads `to_timestamp`, and `LoadWal` re-scans and applies just
   the valid transactions, so recovered data is identical. On the replication path the
   replica calls `ReadWalInfo` on every file it receives before applying anything, so
@@ -238,18 +243,17 @@ Build `memgraph__unit`, then
 
 ## Deferred work
 
-`InMemoryReplicationHandlers::LoadWal` is the one remaining `ReadWalInfo` caller
-that could in principle use the header, for its `to_timestamp <= ldt` early exit —
-skipping a file the replica already has, without parsing it. It was left alone
-deliberately, because the exit almost never fires: `GetWalChainInfo` picks
-`first_useful_wal` as the file straddling `replica_commit`, and
-`FirstWalAfterSnapshot` drops anything the snapshot already covers, so main does not
-normally ship a fully-redundant file. The one case that would benefit — the current
-WAL — has no summary anyway. Low value against a change in a sensitive path.
+Both replay paths still read each file twice: `ReadWalInfo` to find where the valid
+data ends, then again to apply. Collapsing that needs per-transaction buffering so a
+damaged transaction can be discarded rather than half-applied - see decision 9. It is
+the largest remaining win and the one with the most exposure.
 
-Its real cost is elsewhere: it scans the file with `ReadWalInfo`, then reads it again
-in its own apply loop. Collapsing those is the same problem as `LoadWal` and is out
-of scope for the same reason.
+A smaller one, deliberately skipped: the replica's `to_timestamp <= ldt` early exit
+could come from the header, skipping a file the replica already has without parsing
+it. The exit almost never fires, though - `GetWalChainInfo` picks `first_useful_wal`
+as the file straddling `replica_commit` and `FirstWalAfterSnapshot` drops what the
+snapshot already covers, so main does not normally ship a fully-redundant file - and
+the one case that would benefit, the current WAL, has no summary anyway.
 
 `InMemoryReplicationHandlers::LoadWal` still calls `ReadWalInfo` for uuid, epoch_id
 and `to_timestamp`, then applies the deltas in its own loop — two passes over a file

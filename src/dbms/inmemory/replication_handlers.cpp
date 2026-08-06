@@ -1099,46 +1099,35 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     slk::Builder *res_builder, uint32_t const start_batch_counter) {
   spdlog::trace("Received WAL saved to {}", wal_path);
 
-  // A finalized file states its extent in its header. Only main's current WAL, which it is still writing, has to be
-  // parsed to find out - and that parse is also what keeps a transaction main had not finished from being replayed.
-  // The per-transaction CRC is verified below as the deltas are applied, so nothing else needs the extra pass.
-  std::optional<storage::durability::WalHeader> maybe_wal_header;
-  uint64_t wal_to_timestamp{0};
-  uint64_t wal_num_deltas{0};
+  // This parses the deltas rather than trusting the header's summary, for the same reason LoadWal does: the scan
+  // stops at the first transaction that fails to parse or fails its CRC, so a damaged one and everything after it
+  // is skipped instead of being replayed until the damage is hit.
+  std::optional<storage::durability::WalInfo> maybe_wal_info;
   try {
-    auto header = storage::durability::ReadWalHeader(wal_path);
-    if (header.summary) {
-      wal_to_timestamp = header.summary->to_timestamp;
-      wal_num_deltas = header.summary->num_deltas;
-    } else {
-      auto const info = storage::durability::ReadWalInfo(wal_path);
-      wal_to_timestamp = info.to_timestamp;
-      wal_num_deltas = info.num_deltas;
-    }
-    maybe_wal_header.emplace(std::move(header));
+    maybe_wal_info.emplace(storage::durability::ReadWalInfo(wal_path));
   } catch (const utils::BasicException &e) {
     spdlog::error("Loading WAL info from {} failed because of {}.", wal_path, e.what());
     return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
 
-  auto const &wal_header = *maybe_wal_header;
+  auto const &wal_info = *maybe_wal_info;
 
   // We have to check if this is our 1st wal, not what main is sending
   if (storage->wal_seq_num_ == 0) {
-    storage->uuid().set(wal_header.uuid);
+    storage->uuid().set(wal_info.uuid);
   }
 
   // If WAL file doesn't contain any changes that need to be applied, ignore it
-  if (wal_to_timestamp <= storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
+  if (wal_info.to_timestamp <= storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
     spdlog::trace("WAL file won't be applied since all changes already exist.");
     return LoadWalStatus{.success = true, .current_batch_counter = 0, .num_txns_committed = 0};
   }
 
   // We trust only WAL files which contain changes we are interested in (newer changes)
-  if (auto &repl_epoch = storage->repl_storage_state_.epoch_; wal_header.epoch_id != repl_epoch.id()) {
-    spdlog::trace("Set epoch to {} for db {}", wal_header.epoch_id, storage->name());
+  if (auto &repl_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != repl_epoch.id()) {
+    spdlog::trace("Set epoch to {} for db {}", wal_info.epoch_id, storage->name());
     storage->repl_storage_state_.SaveLatestHistory();
-    repl_epoch.SetEpoch(wal_header.epoch_id);
+    repl_epoch.SetEpoch(wal_info.epoch_id);
   }
 
   // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
@@ -1164,11 +1153,11 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
 
-  wal_decoder.SetPosition(wal_header.offset_deltas);
+  wal_decoder.SetPosition(wal_info.offset_deltas);
 
   uint32_t local_batch_counter = start_batch_counter;
   uint64_t num_txns_committed{0};
-  for (size_t local_delta_idx = 0; local_delta_idx < wal_num_deltas;) {
+  for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
     // commit_txn_immediately is set true because when loading WAL files, we should commit immediately
     auto const deltas_res = ReadAndApplyDeltasSingleTxn(storage,
                                                         &wal_decoder,
