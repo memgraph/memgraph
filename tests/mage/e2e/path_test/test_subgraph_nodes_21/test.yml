@@ -1,0 +1,9 @@
+# A node filter entry that is neither a node nor an integer ID is rejected.
+query: >
+  MATCH (a:A)
+  CALL path.subgraph_nodes(a, {denylistNodes: ['B'], maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+exception: >
+  Node filters need to be a node, an integer ID, or a list thereof.

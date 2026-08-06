@@ -110,6 +110,9 @@ struct Config {
   LabelBoolsStatus label_bools_status;
   std::unordered_map<std::string, RelDirection, TransparentStringHash, std::equal_to<>> relationship_sets;
   LabelSets label_sets;
+  // Node-identity filters, kept separate from the label filters they are evaluated alongside.
+  std::unordered_set<int64_t> allowlist_nodes;
+  std::unordered_set<int64_t> denylist_nodes;
   int64_t min_hops = 0;
   int64_t max_hops = std::numeric_limits<int64_t>::max();
   bool any_incoming = false;
@@ -122,7 +125,7 @@ struct Config {
 class PathHelper {
  public:
   explicit PathHelper(const mgp::List &labels, const mgp::List &relationships, int64_t min_hops, int64_t max_hops);
-  explicit PathHelper(const mgp::Map &config);
+  explicit PathHelper(const mgp::Map &config, const mgp::Graph &graph);
 
   RelDirection GetDirection(std::string_view rel_type) const;
   LabelBools GetLabelBools(const mgp::Node &node) const;
@@ -136,6 +139,9 @@ class PathHelper {
   bool AreLabelsValid(const LabelBools &label_bools) const;
   bool ContinueExpanding(const LabelBools &label_bools, size_t path_size) const;
 
+  // False means the node is neither returned nor expanded through.
+  bool NodeFilterAllows(const mgp::Node &node, bool is_start) const;
+
   bool PathSizeOk(int64_t path_size) const;
   bool PathTooBig(int64_t path_size) const;
   bool Whitelisted(bool whitelisted) const;
@@ -145,6 +151,7 @@ class PathHelper {
   void FilterLabel(std::string_view label, LabelBools &label_bools) const;
   void ParseLabels(const mgp::List &list_of_labels);
   void ParseRelationships(const mgp::List &list_of_relationships);
+  void ParseNodeFilters(const mgp::Map &config, const mgp::Graph &graph);
 
  private:
   Config config_;
