@@ -263,6 +263,11 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
       context.is_write_query = false;
       for (const auto &single_query_part : query_part.single_query_parts) {
+        // Installed before HandleMatching, which plans MATCH-clause comprehensions through the same member.
+        auto const restore_symbols = utils::OnScopeExit{
+            [this, saved = std::move(query_part_symbols_)]() mutable { query_part_symbols_ = std::move(saved); }};
+        query_part_symbols_ = {};
+
         input_op = HandleMatching(std::move(input_op), single_query_part, *context.symbol_table, context.bound_symbols);
 
         uint64_t merge_id = 0;
@@ -277,9 +282,6 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
         // Compute all symbols that will be bound by this query part (from MATCH, CREATE, MERGE, etc.)
         // This is used to determine which comprehension symbols are external references vs. internal.
-        auto const restore_symbols = utils::OnScopeExit{
-            [this, saved = std::move(query_part_symbols_)]() mutable { query_part_symbols_ = std::move(saved); }};
-        query_part_symbols_ = {};
         auto &symbols_bound_by_query_part = query_part_symbols_.all;
         // Add symbols from MATCH
         symbols_bound_by_query_part.insert(single_query_part.matching.expansion_symbols.begin(),
@@ -365,8 +367,11 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                        context.in_exists_subquery);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             plan_and_apply_comprehensions();
-            input_op = GenMerge(
-                *merge, std::move(input_op), single_query_part.merge_matching[merge_id++], pending_comprehensions);
+            input_op = GenMerge(*merge,
+                                std::move(input_op),
+                                single_query_part.merge_matching[merge_id++],
+                                pending_comprehensions,
+                                write_occurred);
             // Treat MERGE clause as write, because we do not know if it will create anything.
             context.is_write_query = true;
             write_occurred = true;
@@ -847,8 +852,9 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     return last_op;
   }
 
+  /// @param write_occurred whether a clause earlier in this query part has already written.
   auto GenMerge(query::Merge &merge, std::unique_ptr<LogicalOperator> input_op, const Matching &matching,
-                std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions) {
+                std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions, bool write_occurred) {
     // Copy the bound symbol set, because we don't want to use the updated
     // version when generating the create part.
     std::unordered_set<Symbol> bound_symbols_copy(context_->bound_symbols);
@@ -872,12 +878,16 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
     {
       // ON MATCH runs only when the pattern was found, so View::OLD sees its symbols - unlike ON CREATE's, or the
-      // chain below the Merge, where the planner cannot know which branch ran.
+      // chain below the Merge, where the planner cannot know which branch ran. Only once nothing has written earlier
+      // in this part, though: the match branch reads View::NEW, so it can find a node such a write created, which
+      // View::OLD cannot see.
       auto const restore = utils::OnScopeExit{[this, saved = query_part_symbols_.write_bound]() mutable {
         query_part_symbols_.write_bound = std::move(saved);
       }};
-      for (const auto &sym : matching.expansion_symbols) {
-        query_part_symbols_.write_bound.erase(sym);
+      if (!write_occurred) {
+        for (const auto &sym : matching.expansion_symbols) {
+          query_part_symbols_.write_bound.erase(sym);
+        }
       }
       on_match = splice_branch_comprehensions(std::move(on_match), merge.on_match_, bound_symbols_copy);
     }
@@ -1436,7 +1446,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         op = HandleForeachClause(
             nested_for_each, std::move(op), symbol_table, bound_symbols, query_part, merge_id, pending_comprehensions);
       } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-        op = GenMerge(*merge, std::move(op), query_part.merge_matching[merge_id++], pending_comprehensions);
+        op = GenMerge(
+            *merge, std::move(op), query_part.merge_matching[merge_id++], pending_comprehensions, write_occurred);
       } else {
         op = HandleWriteClause(clause, op, symbol_table, bound_symbols);
       }

@@ -5411,6 +5411,83 @@ TYPED_TEST(TestPlanner, QueryPartSymbolsSurviveASubquery) {
   }
 }
 
+TYPED_TEST(TestPlanner, MergeOnMatchPlansAVariableLengthComprehensionWithViewOld) {
+  // Test MERGE (a) ON MATCH SET a.prop = [(a)-[*1..2]->(x) | 1]
+  // ON MATCH runs only when the pattern was found, so View::OLD does see `a` and the comprehension is plannable.
+  // Treating every MERGE symbol as write-bound rejected this outright.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("a"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("x")),
+      nullptr,
+      LITERAL(1));
+  auto *query =
+      QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("a")), ON_MATCH(SET(PROPERTY_LOOKUP(dba, "a", prop), pattern_comp)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *merge = FindOpOfType<Merge>(&planner.plan());
+  ASSERT_NE(merge, nullptr);
+  auto *set_property = dynamic_cast<SetProperty *>(merge->merge_match_.get());
+  ASSERT_NE(set_property, nullptr) << "the match branch should end with SetProperty";
+  auto *rollup = dynamic_cast<RollUpApply *>(set_property->input_.get());
+  ASSERT_NE(rollup, nullptr) << "the comprehension belongs inside the ON MATCH branch";
+  ExpectCorrelatedBranch<ExpandVariable>(rollup);
+}
+
+TYPED_TEST(TestPlanner, MergeOnMatchAfterAWriteStillRejectsAVariableLengthComprehension) {
+  // Test CREATE (x) MERGE (b) ON MATCH SET b.prop = [(b)-[*1..2]->(m) | 1]
+  // MERGE's match branch reads View::NEW, so with a write earlier in the query part it can match a node that write
+  // created - which View::OLD cannot see. Narrowing unconditionally turned the rejection into a runtime failure.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("b"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("m")),
+      nullptr,
+      LITERAL(1));
+  auto *query =
+      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("x"))),
+                         MERGE(PATTERN(NODE("b")), ON_MATCH(SET(PROPERTY_LOOKUP(dba, "b", prop), pattern_comp)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  try {
+    MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    FAIL() << "expected the query to be rejected";
+  } catch (const memgraph::query::QueryException &e) {
+    EXPECT_THAT(e.what(), ::testing::HasSubstr("'b'"));
+  }
+}
+
+TYPED_TEST(TestPlanner, MergeRestoresTheWriteBoundSymbolsItNarrowed) {
+  // Test MERGE (b) ON MATCH SET b.prop = 1 RETURN [(b)-[*1..2]->(m) | 1]
+  // The ON MATCH narrowing is scoped to that branch. If it leaked, `b` would no longer look write-bound and the
+  // RETURN's comprehension would be planned instead of rejected.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("b"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("m")),
+      nullptr,
+      LITERAL(1));
+  auto *query =
+      QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("b")), ON_MATCH(SET(PROPERTY_LOOKUP(dba, "b", prop), LITERAL(1)))),
+                         RETURN(pattern_comp, AS("l"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  try {
+    MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    FAIL() << "expected the query to be rejected";
+  } catch (const memgraph::query::QueryException &e) {
+    EXPECT_THAT(e.what(), ::testing::HasSubstr("'b'"));
+  }
+}
+
 TYPED_TEST(TestPlanner, PatternComprehensionInMergeOnCreateIsPlannedInsideBranch) {
   // Test MERGE (q) ON CREATE SET q.prop = [(q)-->() | 1]
   // `q` is bound by the MERGE pattern, and the SET runs inside the Merge's create branch, so the comprehension must
