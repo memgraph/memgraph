@@ -1,0 +1,8 @@
+# Only -1 is the no-limit value: a max hop count below it is a bound no path can satisfy.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand(a, [], [], 0, -5)
+  YIELD result
+  RETURN result;
+
+output: []
