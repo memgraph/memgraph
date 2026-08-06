@@ -13,11 +13,20 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <ranges>
 #include <string_view>
 #include <utility>
 
 #include "mgp.hpp"
+
+namespace {
+
+// -1 means "no limit" for an upper hop bound; every other value is used as given, so a bound of -5
+// legitimately matches nothing. A negative lower bound needs no such rule: it is trivially satisfied.
+int64_t MaxHopsOrNoLimit(int64_t max_hops) { return max_hops == -1 ? std::numeric_limits<int64_t>::max() : max_hops; }
+
+}  // namespace
 
 Path::PathHelper::PathHelper(const mgp::List &labels, const mgp::List &relationships, int64_t min_hops,
                              int64_t max_hops) {
@@ -25,7 +34,7 @@ Path::PathHelper::PathHelper(const mgp::List &labels, const mgp::List &relations
   FilterLabelBoolStatus();
   ParseRelationships(relationships);
   config_.min_hops = min_hops;
-  config_.max_hops = max_hops;
+  config_.max_hops = MaxHopsOrNoLimit(max_hops);
 }
 
 namespace {
@@ -117,16 +126,10 @@ Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph) {
   }
 
   if (!max_hops_value.IsNull()) {
-    const int64_t max_hops = max_hops_value.ValueInt();
-    if (max_hops >= 0) {
-      config_.max_hops = max_hops;
-    }
+    config_.max_hops = MaxHopsOrNoLimit(max_hops_value.ValueInt());
   }
   if (!min_hops_value.IsNull()) {
-    const int64_t min_hops = min_hops_value.ValueInt();
-    if (min_hops >= 0) {
-      config_.min_hops = min_hops;
-    }
+    config_.min_hops = min_hops_value.ValueInt();
   }
 
   auto value = config.At("relationshipFilter");

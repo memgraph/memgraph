@@ -1,0 +1,8 @@
+# A maxHops below -1 is a real bound, not a value to drop: dropping it returned the whole graph.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {maxHops: -5})
+  YIELD result
+  RETURN result;
+
+output: []
