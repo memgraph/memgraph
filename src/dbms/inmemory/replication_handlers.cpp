@@ -12,6 +12,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 
 #include "dbms/dbms_handler.hpp"
+#include "dbms/inmemory/two_pc_commit_cache.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "rpc/progress_heartbeat.hpp"
@@ -227,58 +228,6 @@ void LogWrongMain(utils::UUID const &current_main_uuid, const utils::UUID &main_
                 rpc_req,
                 std::string(main_req_id),
                 std::string(current_main_uuid));
-}
-
-// Single global slot holding the in-flight 2PC commit accessor between PrepareCommitRpc and
-// FinalizeCommitRpc (see AbortTwoPCForTenant's declaration comment for why it is a single slot).
-struct TwoPCCache {
-  std::unique_ptr<storage::ReplicationAccessor> commit_accessor_;
-  uint64_t durability_commit_timestamp_{};
-  // Captured from storage->uuid() when the slot is populated (PrepareCommitHandler), never
-  // re-derived from commit_accessor_->uuid(). Accessor::uuid() forwards to storage_->uuid()
-  // (storage.hpp:846), and every guard that consults this field exists precisely for the case
-  // where that Storage may already be gone (e.g. AbortTwoPCForTenant runs from the tenant-drop
-  // path) -- asking the accessor who it belongs to would be the very use-after-free the guard is
-  // meant to prevent.
-  utils::UUID uuid_{};
-
-  TwoPCCache() = default;
-  TwoPCCache(TwoPCCache &&) = default;
-  TwoPCCache(TwoPCCache const &) = delete;
-  // Assignment is deleted deliberately: an implicitly-generated member-wise move-assignment runs
-  // in forward declaration order, which for any future member owning a lifetime/scope token would
-  // release that token before commit_accessor_ (whose ~InMemoryAccessor dereferences storage_) is
-  // destroyed. Deleting assignment forces every mutation through explicit per-member assignment or
-  // extract-then-clear, turning the ordering into a compile-time constraint instead of a
-  // convention someone can silently break.
-  TwoPCCache &operator=(TwoPCCache &&) = delete;
-  TwoPCCache &operator=(TwoPCCache const &) = delete;
-};
-
-// Guards TwoPCCache. Discipline: EXTRACT the accessor out of the slot while holding this lock,
-// then run AbortAndResetCommitTs()/FinalizeCommitPhase()/destruction on the extracted local
-// OUTSIDE the lock -- those walk the whole transaction's deltas and take engine_lock_, and this
-// lock must never be held across that. This is hardening, not a fix for a live race: today the
-// replica RPC server is single-threaded (kReplicationServerThreads = 1, replication_server.cpp:28)
-// and the two cross-thread callers (AbortTwoPCForTenant off the tenant-drop path) are serialised
-// against the RPC thread by a real thread join.
-//
-// Heap-allocated and deliberately never freed -- one slot for the whole process, holding at most
-// one accessor, so the leak is bounded. Two reasons this matters, both load-bearing:
-//  1. No static destructor. A static object here that is still populated at process exit would be
-//     destroyed after main() returns, i.e. after every Database/InMemoryStorage is already gone,
-//     and destroying the cached ReplicationAccessor then dereferences freed storage
-//     (~InMemoryAccessor calls Abort()/FinalizeTransaction(); ~ResourceLockGuard unlocks a freed
-//     main_lock_). main's shutdown path already clears this slot in order while the storages are
-//     alive; leaking the slot only matters for paths that bypass that ordered clear, where not
-//     aborting is strictly safer than aborting against freed memory.
-//  2. No cross-TU destruction-order dependency. ~Database (dbms/database.cpp) calls
-//     AbortTwoPCForTenant, and destruction order across translation units is unspecified, so a
-//     Database with static storage duration could otherwise reach a static slot here after it had
-//     already been destroyed.
-auto TwoPCCacheSlot() -> utils::Synchronized<TwoPCCache, std::mutex> & {
-  static auto *slot = new utils::Synchronized<TwoPCCache, std::mutex>{};
-  return *slot;
 }
 
 }  // namespace
@@ -560,13 +509,11 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     heartbeat.Stop();
 
     if (deltas_res) {
-      TwoPCCacheSlot().WithLock([&](TwoPCCache &cache) {
-        cache.commit_accessor_ = std::move(deltas_res->commit_acc);
-        cache.durability_commit_timestamp_ = req.durability_commit_timestamp;
-        cache.uuid_ = storage->uuid();
-      });
+      dbms::TwoPCCommitCache::Instance().Store(std::move(deltas_res->commit_acc), req.durability_commit_timestamp,
+                                               storage->uuid());
       res.success = true;
     }
+  }
   rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
 }
 
@@ -593,41 +540,28 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 
   const memory::DbArenaScope db_arena_scope{db_acc->get()};
 
-  // Extract the cached accessor out of the slot while holding the cache lock; everything that
-  // walks its deltas or touches engine_lock_ happens below, on the local, with the lock released.
-  // mismatched_cached_timestamp is only set when the slot stayed populated (mismatch path below
-  // must NOT clear it -- unlike the "missing" case, this is not treated as terminal by the caller).
-  struct CacheExtractResult {
-    std::unique_ptr<storage::ReplicationAccessor> accessor;  // non-null only once timestamps matched
-    std::optional<uint64_t> mismatched_cached_timestamp;
-  };
-
-  auto extracted = TwoPCCacheSlot().WithLock([&](TwoPCCache &cache) -> CacheExtractResult {
-    if (!cache.commit_accessor_) {
-      return {};
-    }
-    if (req.durability_commit_timestamp != cache.durability_commit_timestamp_) {
-      return {.mismatched_cached_timestamp = cache.durability_commit_timestamp_};
-    }
-    return {.accessor = std::move(cache.commit_accessor_)};
-  });
+  // Extract the cached accessor out of the slot; everything that walks its deltas or touches
+  // engine_lock_ happens below, on the local, with the cache's internal lock already released --
+  // see TwoPCCommitCache::TakeMatching's declaration comment for the mismatch-leaves-it-populated
+  // contract.
+  auto extracted = dbms::TwoPCCommitCache::Instance().TakeMatching(req.durability_commit_timestamp);
 
   // In this handler, we can either commit or abort. If cached accessor is nullptr, it is impossible we should commit
   // because replying to prepare happens after assignment to the accessor
   // If cached accessor is nullptr, and we should abort (e.g. exception was thrown while processing deltas), we can
   // safely return here OK because it means that the abort already happened while destructing accessor during
   // ReadAndApplyDeltasSingleTxn
-  if (!extracted.accessor && !extracted.mismatched_cached_timestamp) {
+  if (!extracted.accessor && !extracted.mismatched_durability_commit_timestamp) {
     spdlog::warn("Cached commit accessor became invalid between two phases");
     storage::replication::FinalizeCommitRes const res(true);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
-  if (extracted.mismatched_cached_timestamp) {
+  if (extracted.mismatched_durability_commit_timestamp) {
     spdlog::warn("Trying to finalize txn with ldt {} but the last prepared txn is with ldt {}",
                  req.durability_commit_timestamp,
-                 *extracted.mismatched_cached_timestamp);
+                 *extracted.mismatched_durability_commit_timestamp);
     storage::replication::FinalizeCommitRes const res(true);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -669,11 +603,9 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 }
 
 void InMemoryReplicationHandlers::DestroyReplAccessor(rpc::ProgressHeartbeat *heartbeat) {
-  // Extract under the cache lock, then abort the local outside it -- AbortAndResetCommitTs() walks
-  // the transaction's deltas and must not run with the cache mutex held.
-  auto accessor = TwoPCCacheSlot().WithLock([](TwoPCCache &cache) -> std::unique_ptr<storage::ReplicationAccessor> {
-    return std::move(cache.commit_accessor_);
-  });
+  // Extract under the cache's internal lock, then abort the local outside it -- AbortAndResetCommitTs()
+  // walks the transaction's deltas and must not run with the cache mutex held.
+  auto accessor = dbms::TwoPCCommitCache::Instance().TakeAny();
   if (accessor) {
     auto const on_progress = [heartbeat]() -> storage::ProgressCallback {
       if (heartbeat == nullptr) return {};
@@ -685,15 +617,10 @@ void InMemoryReplicationHandlers::DestroyReplAccessor(rpc::ProgressHeartbeat *he
 
 void InMemoryReplicationHandlers::AbortTwoPCForTenant(utils::UUID const &uuid) {
   // TD-3': single global 2PC slot — only abort it when the cached accessor is this tenant's, else a
-  // pending 2PC for a different tenant would be wrongly dropped. The comparison uses the uuid_
-  // captured at populate time (see the TwoPCCache definition above), not one re-derived from the
-  // accessor.
-  auto accessor = TwoPCCacheSlot().WithLock([&](TwoPCCache &cache) -> std::unique_ptr<storage::ReplicationAccessor> {
-    if (cache.commit_accessor_ && cache.uuid_ == uuid) {
-      return std::move(cache.commit_accessor_);
-    }
-    return nullptr;
-  });
+  // pending 2PC for a different tenant would be wrongly dropped. See TwoPCCommitCache::TakeForTenant's
+  // declaration comment for why the comparison uses the uuid captured at populate time, not one
+  // re-derived from the accessor.
+  auto accessor = dbms::TwoPCCommitCache::Instance().TakeForTenant(uuid);
   if (accessor) {
     accessor->AbortAndResetCommitTs();
   }

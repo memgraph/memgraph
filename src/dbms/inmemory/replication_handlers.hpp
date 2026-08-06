@@ -58,7 +58,8 @@ class InMemoryReplicationHandlers {
   // drain it, and destroying the storage with the accessor still cached would dangle it. The slot
   // is a single global (not per-UUID), so the UUID check prevents wrongly aborting a pending 2PC for
   // a different tenant. The UUID compared against is the one captured when the slot was populated,
-  // not re-derived from the accessor -- see the cache definition in replication_handlers.cpp for why.
+  // not re-derived from the accessor -- see TwoPCCommitCache (dbms/inmemory/two_pc_commit_cache.hpp)
+  // for why.
   static void AbortTwoPCForTenant(utils::UUID const &uuid);
 
  private:
