@@ -20,7 +20,6 @@ TOOLCHAIN_BUILD_DEPS=(
     gmp-devel
     gperf
     diffutils
-#   libipt libipt-devel # intel
     patch
     custom-rust # for mgcxx
     libtool # for protobuf
