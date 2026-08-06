@@ -61,12 +61,11 @@ class TwoPCCommitCache {
   TwoPCCommitCache &operator=(TwoPCCommitCache const &) = delete;
   TwoPCCommitCache &operator=(TwoPCCommitCache &&) = delete;
 
-  // Populates the slot, capturing the tenant uuid alongside the accessor. Captured from
-  // storage->uuid() at call time, never re-derived later from accessor->uuid(): Accessor::uuid()
-  // forwards to storage_->uuid() (storage.hpp:846), and every guard that consults the captured
-  // uuid exists precisely for the case where that Storage may already be gone (e.g.
-  // TakeForTenant runs from the tenant-drop path) -- asking the accessor who it belongs to would
-  // be the very use-after-free the guard is meant to prevent.
+  // Populates the slot, capturing the tenant uuid from storage->uuid() rather than deriving it
+  // later from accessor->uuid() (storage_->uuid(), storage.hpp:846). This decouples the uuid
+  // checks in TakeForTenant/TakeMatching from relying on cross-file destroy-before-extract
+  // ordering holding at every call site -- robustness, not a fix for a currently-reachable
+  // use-after-free.
   void Store(std::unique_ptr<storage::ReplicationAccessor> accessor, uint64_t durability_commit_timestamp,
              utils::UUID uuid);
 
