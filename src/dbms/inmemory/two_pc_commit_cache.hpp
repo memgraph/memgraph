@@ -79,15 +79,15 @@ class TwoPCCommitCache {
   // the cached one. On mismatch the slot is deliberately LEFT POPULATED and the cached value is
   // reported via mismatched_durability_commit_timestamp -- unlike the "missing" case (both fields
   // empty), a mismatch is not treated as terminal by the caller.
-  auto TakeMatching(uint64_t durability_commit_timestamp) -> Taken;
+  [[nodiscard]] auto TakeMatching(uint64_t durability_commit_timestamp) -> Taken;
 
   // Takes the accessor out iff it belongs to `uuid` (the uuid captured by Store, not one
   // re-derived from the accessor -- see Store's comment for why). No-op (returns nullptr)
   // otherwise, so a pending 2PC for a different tenant is not wrongly dropped.
-  auto TakeForTenant(utils::UUID const &uuid) -> std::unique_ptr<storage::ReplicationAccessor>;
+  [[nodiscard]] auto TakeForTenant(utils::UUID const &uuid) -> std::unique_ptr<storage::ReplicationAccessor>;
 
   // Takes whatever is cached, regardless of tenant.
-  auto TakeAny() -> std::unique_ptr<storage::ReplicationAccessor>;
+  [[nodiscard]] auto TakeAny() -> std::unique_ptr<storage::ReplicationAccessor>;
 
  private:
   TwoPCCommitCache() = default;

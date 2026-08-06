@@ -53,11 +53,19 @@ auto TwoPCCommitCache::Instance() -> TwoPCCommitCache & {
 
 void TwoPCCommitCache::Store(std::unique_ptr<storage::ReplicationAccessor> accessor,
                              uint64_t durability_commit_timestamp, utils::UUID uuid) {
-  Slot().WithLock([&](Record &cache) {
+  // Extract any pre-existing accessor out of the lambda instead of move-assigning over it in
+  // place: a populated slot here would otherwise be destroyed while the lock is held, and
+  // ~InMemoryAccessor runs Abort(), which takes engine_lock_. A non-null `stale` means a caller
+  // skipped the abort that is supposed to precede a re-populate, so this is a safety net rather
+  // than an expected path.
+  auto stale = Slot().WithLock([&](Record &cache) {
+    auto stale = std::move(cache.commit_accessor_);
     cache.commit_accessor_ = std::move(accessor);
     cache.durability_commit_timestamp_ = durability_commit_timestamp;
     cache.uuid_ = uuid;
+    return stale;
   });
+  // `stale` destructs here, with the lock released.
 }
 
 auto TwoPCCommitCache::TakeMatching(uint64_t durability_commit_timestamp) -> Taken {
