@@ -6578,10 +6578,8 @@ bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   return exists_active_transaction;
 }
 
-// SessionInfo plus the session's current database, snapshotted through the only cross-thread-safe view
-// CurrentDB offers (foreign_db_view()). marked_for_deletion is the authoritative Gatekeeper flag, not an
-// inference from a handler-map lookup: a session pinning a force-dropped tenant keeps that tenant's memory
-// alive after the tenant is no longer listed by name anywhere else, and this is exactly the flag DROP sets.
+// foreign_db_view(), not name(), is required: this runs on a foreign thread with no verifier held.
+// db_marked_for_deletion is the authoritative Gatekeeper flag, not inferred from a handler-map lookup.
 struct ActiveUserInfo {
   Interpreter::SessionInfo session_info;
   std::string db_name;
@@ -7347,8 +7345,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       if (lv && rv) return *lv == *rv;
       return false;
     };
-    // Read once: current_db_.name() is safe here because the verifier CAS above is held, and the value
-    // feeds both the privilege check and the "database" column below.
+    // current_db_.name() is safe here because the verifier CAS above is held (see CurrentDB::name()'s contract).
     auto const db_name = interpreter->current_db_.name();
     if (!same_user(interpreter->user_or_role_, user_or_role) && !privilege_checker(user_or_role, db_name)) continue;
     auto const runtime_status = verifier->status();

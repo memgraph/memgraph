@@ -190,8 +190,8 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
       continue;
     }
     // Transaction is running, so cannot change the underlying db
-    // db_acc_ guard is deliberate (short-circuit &&): an interpreter with no current DB is
-    // intentionally NOT filtered out here.
+    // No current DB (db_acc_ null) deliberately passes this filter: the caller uses this list as a
+    // DROP DATABASE ... FORCE kill-list, and a no-DB interpreter must stay a termination candidate.
     if (interpreter->current_db_.db_acc_ && interpreter->current_db_.name() != db_name) {
       continue;
     }
