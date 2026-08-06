@@ -1921,4 +1921,4 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverItsOwnNodesInsideCreateI
   EXPECT_NO_THROW(MakeSymbolTable(query));
 }
 
-#undef SELF_COMPREHENSION
+#undef COMPREHENSION_OVER
