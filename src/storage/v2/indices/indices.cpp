@@ -198,6 +198,8 @@ void Indices::RebindMetricHandles(metrics::DatabaseMetricHandles const &handles)
   static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())
       ->SetGauge(handles.active_edge_type_property_indices);
   static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->SetGauge(handles.active_edge_property_indices);
+  static_cast<InMemoryVertexPropertyIndex *>(vertex_property_index_.get())
+      ->SetGauge(handles.active_vertex_property_indices);
 }
 
 Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_indices) const {
