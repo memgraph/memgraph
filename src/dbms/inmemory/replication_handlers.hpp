@@ -28,11 +28,6 @@ class ProgressHeartbeat;
 
 namespace memgraph::dbms {
 
-struct TwoPCCache {
-  std::unique_ptr<storage::ReplicationAccessor> commit_accessor_;
-  uint64_t durability_commit_timestamp_;
-};
-
 class InMemoryReplicationHandlers {
  public:
   // Although it seems a bit unintuitive this is ok. The logic is following:
@@ -62,7 +57,8 @@ class InMemoryReplicationHandlers {
   // the cached accessor is storage-level (not gatekeeper-counted), so the suspend freeze does not
   // drain it, and destroying the storage with the accessor still cached would dangle it. The slot
   // is a single global (not per-UUID), so the UUID check prevents wrongly aborting a pending 2PC for
-  // a different tenant.
+  // a different tenant. The UUID compared against is the one captured when the slot was populated,
+  // not re-derived from the accessor -- see the cache definition in replication_handlers.cpp for why.
   static void AbortTwoPCForTenant(utils::UUID const &uuid);
 
  private:
@@ -111,8 +107,6 @@ class InMemoryReplicationHandlers {
   static std::optional<storage::SingleTxnDeltasProcessingResult> ReadAndApplyDeltasSingleTxn(
       storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version,
       rpc::ProgressHeartbeat &heartbeat, bool two_phase_commit, bool loading_wal);
-
-  static TwoPCCache two_pc_cache_;
 };
 
 }  // namespace memgraph::dbms
