@@ -14,6 +14,8 @@
 #ifdef MG_ENTERPRISE
 
 #include <map>
+#include <set>
+
 #include <nlohmann/json.hpp>
 
 #include "spdlog/spdlog.h"
@@ -157,6 +159,47 @@ std::expected<void, TenantProfiles::DetachError> TenantProfiles::DetachFromDatab
   const std::vector<std::string> to_delete{DbMappingKey(db_name)};
   if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return std::unexpected{DetachError::DURABILITY_ERROR};
   return {};
+}
+
+std::size_t TenantProfiles::PruneDatabases(const std::set<std::string> &live_db_names) {
+  const std::unique_lock lock{mutex_};
+
+  std::vector<std::string> to_delete;
+  // Group stale db names by the profile they point at, keyed by profile name, so that a profile
+  // attached to two stale databases gets its JSON re-read/rewritten once: the batch below is a
+  // std::map keyed by ProfileKey(profile.name), and a second put of the same key would silently
+  // overwrite the first, losing whichever prune lost the race.
+  std::map<std::string, std::set<std::string>> stale_by_profile;
+  const auto mapping_end = durability_->end(std::string{kDbMappingPrefix});
+  for (auto it = durability_->begin(std::string{kDbMappingPrefix}); it != mapping_end; ++it) {
+    const auto &[key, profile_name] = *it;
+    auto db_name = key.substr(kDbMappingPrefix.size());
+    if (live_db_names.contains(db_name)) continue;
+    to_delete.push_back(key);
+    stale_by_profile[profile_name].insert(std::move(db_name));
+  }
+  if (to_delete.empty()) return 0;
+
+  std::map<std::string, std::string> to_put;
+  for (const auto &[profile_name, stale_dbs] : stale_by_profile) {
+    auto stored = durability_->Get(ProfileKey(profile_name));
+    if (!stored) continue;
+    try {
+      Profile profile = FromJson(nlohmann::json::parse(*stored), profile_name);
+      for (const auto &db_name : stale_dbs) profile.databases.erase(db_name);
+      to_put.emplace(ProfileKey(profile.name), ProfileToJson(profile).dump());
+    } catch (const nlohmann::json::exception &e) {
+      // The mapping key is deleted regardless: it points at a database that already failed the
+      // live_db_names check, so it is garbage whether or not the profile it names can be parsed.
+      // Only nlohmann::json::exception is caught so std::bad_alloc keeps propagating.
+      spdlog::warn("Tenant profile '{}' durable entry is corrupt ({}); pruning its stale database mapping(s) anyway.",
+                   profile_name,
+                   e.what());
+    }
+  }
+
+  if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return 0;
+  return to_delete.size();
 }
 
 std::expected<void, TenantProfiles::RenameError> TenantProfiles::RenameDatabase(std::string_view old_name,

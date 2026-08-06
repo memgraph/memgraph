@@ -366,6 +366,24 @@ DbmsHandler::DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_
    * TENANT PROFILES
    */
   tenant_profiles_ = std::make_unique<TenantProfiles>(*durability_);
+
+  {
+    // Live set is built from the durable key prefix, NOT Get_/db_handler_: Get_ is HOT-gated, so a
+    // suspended (COLD) tenant would look absent and PruneDatabases would wrongly delete its
+    // attachment. The key prefix covers HOT and COLD identically, and stays correct even for an
+    // entry whose value failed to parse above, since its key is still present.
+    std::set<std::string> live{std::string{kDefaultDB}};
+    for (auto pit = durability_->begin(std::string(kDBPrefix)), pend = durability_->end(std::string(kDBPrefix));
+         pit != pend;
+         ++pit) {
+      live.insert(pit->first.substr(kDBPrefix.size()));
+    }
+    const auto pruned = tenant_profiles_->PruneDatabases(live);
+    if (pruned != 0) {
+      spdlog::warn("Pruned {} tenant profile attachment(s) whose database no longer exists.", pruned);
+    }
+  }
+
   RestoreTenantProfiles_();
 }
 

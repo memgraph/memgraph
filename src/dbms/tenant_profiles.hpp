@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <expected>
 #include <optional>
+#include <set>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
@@ -60,6 +61,15 @@ class TenantProfiles {
   std::expected<int64_t, AttachError> AttachToDatabase(std::string_view profile_name, std::string_view db_name);
   std::expected<void, DetachError> DetachFromDatabase(std::string_view db_name);
   std::expected<void, RenameError> RenameDatabase(std::string_view old_name, std::string_view new_name);
+
+  /// Startup reconciliation. A crash between DROP DATABASE erasing the tenant's durability key and the
+  /// matching DetachFromDatabase call leaves a permanently stale kDbMappingPrefix entry (and a dangling
+  /// name inside the pointed-to Profile's `databases`) that nothing else ever reconciles. This removes
+  /// every persisted database->profile attachment whose database name is absent from `live_db_names`:
+  /// the mapping key is deleted and the name is dropped from its profile's `databases`, atomically.
+  /// Returns the number of attachments pruned (0 = nothing to prune); callers use this for logging only.
+  std::size_t PruneDatabases(const std::set<std::string> &live_db_names);
+
   std::optional<std::string> GetProfileForDatabase(std::string_view db_name) const;
 
  private:
