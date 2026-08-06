@@ -1063,7 +1063,15 @@ class DbmsHandler {
                 "Applied tenant profile '{}' (limit={}) to database '{}'", profile.name, profile.memory_limit, db_name);
           }
         } catch (const UnknownDatabaseException &) {
-          spdlog::warn("Tenant profile '{}' references unknown database '{}' — skipping", profile.name, db_name);
+          if (suspended_.contains(db_name)) {
+            // Get_ is HOT-gated, so a suspended tenant throws here even though it exists; its cap is
+            // applied by Resume_ instead.
+            spdlog::info("Tenant profile '{}' targets suspended database '{}' — limit will be applied on resume",
+                         profile.name,
+                         db_name);
+          } else {
+            spdlog::warn("Tenant profile '{}' references unknown database '{}' — skipping", profile.name, db_name);
+          }
         }
       }
     }
