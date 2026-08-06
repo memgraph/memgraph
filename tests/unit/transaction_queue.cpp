@@ -538,25 +538,12 @@ TYPED_TEST(TransactionQueueSimpleTest, ShowFilteredTransactionsExcludesNonMatchi
 
 // ShowFilteredTransactionsWithTerminated removed
 
-// Regression test for the db_acc_mutex_ leaf-lock invariant in query::CurrentDB (interpreter.hpp):
-// SetCurrentDB/ResetDB/ReleaseDbIfMarked must swap the outgoing DatabaseAccess out from under
-// db_acc_mutex_ and destroy it only after releasing that lock -- never while the lock is held. If that
-// invariant regressed (e.g. back to `db_acc_ = std::move(new_db);` under the lock), the outgoing
-// Accessor's dtor -- which takes the (unrelated, per-tenant) GKInternals::mutex_ -- would run nested
-// under db_acc_mutex_, and GetActiveUsersInfo takes db_acc_mutex_ (via foreign_db_view()) while holding
-// the interpreters SpinLock, so a slow-to-release GKInternals::mutex_ elsewhere would stall that spinlock
-// across the whole session table.
-//
-// What this test does NOT cover: it cannot reproduce that exact cross-tenant stall. Every Gatekeeper API
-// that holds GKInternals::mutex_ for a non-trivial duration (finish_suspend(), try_delete(),
-// try_exclusively()) requires sole ownership (count_==1) as a precondition, which a live CurrentDB
-// accessor on the same Database structurally rules out -- and GKInternals itself is a private
-// implementation detail of Gatekeeper<T>, not reachable from a test for direct instrumentation. So this
-// is a structural/API-level regression test, not a reproduction of the originally-hypothesized deadlock.
-// What it DOES cover: heavy concurrent SetCurrentDB/ResetDB/ReleaseDbIfMarked churn on the "owning" thread
-// against concurrent foreign_db_view() reads from a second thread (a) completes within a bounded time
-// (no hang), and (b) never observes a torn/inconsistent {name, marked_for_deletion} pair -- which is what
-// a broken swap (e.g. destroying db_acc_ mid-read) would produce.
+// Structural regression test for the db_acc_mutex_ leaf-lock invariant (see CurrentDB::db_acc_mutex_ in
+// interpreter.hpp). Does NOT reproduce the originally-hypothesized cross-tenant stall: every long-hold
+// Gatekeeper API requires sole ownership (count_==1), which a live CurrentDB accessor rules out, and
+// GKInternals is private to Gatekeeper<T> -- not reachable for direct instrumentation from a test. What it
+// DOES assert: heavy SetCurrentDB/ResetDB/ReleaseDbIfMarked churn against concurrent foreign_db_view()
+// reads completes within bounded time and never observes a torn {name, marked_for_deletion} pair.
 TYPED_TEST(TransactionQueueSimpleTest, CurrentDBChurnVsForeignDbViewNoTornReads) {
   memgraph::query::CurrentDB current_db{std::move(this->db_gk.access().value())};
   auto const expected_name = this->db->name();
@@ -579,17 +566,14 @@ TYPED_TEST(TransactionQueueSimpleTest, CurrentDBChurnVsForeignDbViewNoTornReads)
   std::jthread reader_thread([&](std::stop_token st) {
     while (!st.stop_requested()) {
       auto view = current_db.foreign_db_view();
-      // Either no db is currently held (ResetDB() won the race for that instant) or it's exactly this
-      // fixture's db -- never a partial/garbage string, which is what a torn read across the swap would
-      // produce.
+      // No db held, or exactly this fixture's db -- never a partial/garbage name from a torn read.
       EXPECT_TRUE(view.name.empty() || view.name == expected_name) << "torn read: '" << view.name << "'";
       EXPECT_FALSE(view.marked_for_deletion);
       read_count.fetch_add(1, std::memory_order_relaxed);
     }
   });
 
-  // Bounded by construction: churn_thread runs a fixed kIters loop (no wait/backoff), so this join cannot
-  // hang unless the leaf-lock invariant is broken and something blocks db_acc_mutex_ indefinitely.
+  // churn_thread runs a fixed kIters loop with no wait/backoff, so this join is bounded by construction.
   churn_thread.join();
   reader_thread.request_stop();
   reader_thread.join();
