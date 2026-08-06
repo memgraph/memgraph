@@ -255,8 +255,15 @@ void Path::PathHelper::FilterLabel(std::string_view label, LabelBools &label_boo
 // Function that takes input list of labels, and sorts them into appropriate category
 // sets were used so when filtering is done, its done in O(1)
 void Path::PathHelper::ParseLabels(const mgp::List &list_of_labels) {
+  constexpr std::string_view kLabelPrefixes = "-+>/";
   for (const auto &label : list_of_labels) {
     std::string_view label_string = label.ValueString();
+    // Reject an empty entry, or a prefix with no label behind it: either would filter on a label no node
+    // can carry, silently emptying or unbounding the result instead of reporting the mistake.
+    if (label_string.empty() || (label_string.size() == 1 && kLabelPrefixes.contains(label_string.front()))) {
+      throw mgp::ValueException("Invalid labelFilter entry '" + std::string(label_string) +
+                                "': expected a label, optionally prefixed with '+', '-', '>' or '/'.");
+    }
     const char first_elem = label_string.front();
     switch (first_elem) {
       case '-':
