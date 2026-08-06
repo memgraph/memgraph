@@ -61,6 +61,10 @@ constexpr auto kInstanceDownTimeoutSec = "instance_down_timeout_sec"sv;
 constexpr auto kInstanceHealthCheckFreqSec = "instance_health_check_frequency_sec"sv;
 constexpr auto kGlobalReadOnly = "global_read_only"sv;
 
+// Lower bound for instance_health_check_frequency_sec. There is no gflag for this setting (it lives only in the
+// Raft-replicated cluster state), so this stands in for the FLAG_IN_RANGE validator a startup flag would carry.
+constexpr uint32_t kMinInstanceHealthCheckFreqSec = 1;
+
 // cluster state
 constexpr int MAX_SNAPSHOTS = 3;
 constexpr auto kUuid = "uuid"sv;

@@ -1146,10 +1146,15 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     } else if (setting_name == kInstanceHealthCheckFreqSec) {
       auto const freq_sec = utils::ParseStringToUint<uint32_t>(setting_value);
       // Unlike other scheduler-backed settings (e.g. storage_snapshot_interval_sec), 0 has no "disabled"
-      // meaning here: StartStateCheck() asserts freq > 0, so a committed 0 aborts the coordinator on the
-      // next REGISTER INSTANCE or reconcile, and — since Raft replicates it — keeps doing so on restart.
-      if (freq_sec == 0) {
-        throw std::invalid_argument{"Value must be greater than 0."};
+      // meaning here: StartStateCheck() rejects freq < kMinInstanceHealthCheckFreqSec, so a committed 0 aborts
+      // the coordinator on the next REGISTER INSTANCE or reconcile, and — since Raft replicates it — keeps
+      // doing so on restart.
+      if (freq_sec < kMinInstanceHealthCheckFreqSec) {
+        spdlog::error("Error occurred while trying to update {} to {}. Error: value must be >= {}.",
+                      setting_name,
+                      setting_value,
+                      kMinInstanceHealthCheckFreqSec);
+        return SetCoordinatorSettingStatus::INVALID_ARGUMENT;
       }
       delta_state.instance_health_check_frequency_sec_ = freq_sec;
     } else if (setting_name == kGlobalReadOnly) {
