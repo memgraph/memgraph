@@ -820,21 +820,22 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
     return std::unexpected{DeleteError::DEFAULT_DB};
   }
 
-  const auto storage_path = StorageDir_(db_name);
-  if (!storage_path) return std::unexpected{DeleteError::NON_EXISTENT};
-
-  // Own the name NOW. Delete(uuid) passes `it->first`, a view into a db_handler_ map key; once `lock`
-  // is released below for Phase 2, that view can dangle if another thread structurally mutates
-  // db_handler_ (heap-UAF). DeleteCold_ documents the identical hazard at cpp:777-779.
+  // Own the name NOW, ahead of every lookup below: Delete(uuid) passes `it->first`, a view into a
+  // db_handler_ map key; once `lock` is released below for Phase 2, that view can dangle if another
+  // thread structurally mutates db_handler_ (heap-UAF). DeleteCold_ documents the identical hazard
+  // at cpp:777-779.
   const std::string name{db_name};
 
   auto *gk = db_handler_.GetGatekeeper(name);
   if (!gk) return std::unexpected{DeleteError::NON_EXISTENT};
 
   // Non-HOT (mid-SUSPEND/RESUME) is retriable USING, never NON_EXISTENT — mirrors the Rename guard
-  // and DeleteCold_'s sibling COLD-only check. This is diagnostic only: begin_drain() below re-checks
-  // the identical HOT condition atomically with setting draining_, and on its own would collapse
-  // "not HOT" and "already draining" into the same bare `false`.
+  // and DeleteCold_'s sibling COLD-only check. Identity (GetGatekeeper) and state MUST be resolved
+  // before anything that depends on the tenant being mintable (StorageDir_/GetConfig, below, is
+  // drain-gated on the plain access() and would itself report NON_EXISTENT for a tenant that is only
+  // mid-SUSPEND, not gone — see Handler<T>::GetConfig's comment). This is diagnostic only:
+  // begin_drain() below re-checks the identical HOT condition atomically with setting draining_, and
+  // on its own would collapse "not HOT" and "already draining" into the same bare `false`.
   if (gk->state() != utils::GatekeeperState::HOT) return std::unexpected{DeleteError::USING};
 
   // Single-flight: false means a concurrent DROP already owns this drain (the state() check above
@@ -851,6 +852,11 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   acc->prepare_for_deletion();
 
   auto *database = acc->get();
+  // Read from the accessor we already hold, not through StorageDir_/GetConfig: those go through the
+  // drain-gated plain access() (Handler<T>::GetConfig), which begin_drain() just above made refuse on
+  // THIS gatekeeper too -- calling StorageDir_(name) here would itself now (mis)report NON_EXISTENT.
+  // `acc` is drain_bypass-minted and live, so this field read cannot race a concurrent teardown.
+  const auto storage_path = database->config().durability.storage_directory;
   const auto tenant_uuid = database->uuid();
   const auto memory_at_detach = database->DbMemoryUsage();
   // Excludes the drop's own drain_bypass accessor, which is live at this point (Phase 1 must hold it
@@ -927,7 +933,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   // comment), but the retryability half of that fix still matters. Phase 2's teardown
   // (StopAllBackgroundTasks/streams()->DropAll()) is NOT undone here, exactly as it wasn't before.
   try {
-    db_handler_.DeferDelete(name, [this, tenant_uuid, storage_path = *storage_path, name]() {
+    db_handler_.DeferDelete(name, [this, tenant_uuid, storage_path, name]() {
       ForgetDetached_(tenant_uuid);
       // Delete disk storage
       std::error_code ec;

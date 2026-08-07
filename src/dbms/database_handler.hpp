@@ -168,11 +168,14 @@ class DatabaseHandler : public Handler<Database> {
    *
    * Deliberately stays gated on the plain, drain-gated Get() -- NOT utils::drain_bypass -- even
    * though that looks like an omission next to New()'s collision scan above. A draining tenant's
-   * config being unreachable here is intentional and load-bearing: DbmsHandler::TryDelete
-   * (src/dbms/dbms_handler.cpp) uses this lookup as its early existence check for a tenant under
-   * drop, and DbmsHandler::Delete_ resolves the storage directory through it (via StorageDir_) as
-   * the very first thing it does, ahead of everything else it does to the tenant. Nothing
-   * legitimately needs a draining tenant's config afterwards.
+   * config being unreachable by name here is intentional: every remaining caller either only cares
+   * about a HOT tenant (DbmsHandler::GetHotUuid, StorageDir_/SetupDefault_ on the always-HOT default
+   * db) or is a drop-family entry point for which "config not found" is meant to mean "give up on
+   * this name" -- DbmsHandler::TryDelete additionally special-cases an already-draining tenant with
+   * its own is_draining() check *before* reaching this lookup, so it reports the accurate USING
+   * rather than relying on (or being confused by) this refusal. DbmsHandler::Delete_, the drop path
+   * itself, never calls this at all: once it holds the tenant's drain_bypass accessor it reads the
+   * storage directory straight off `database->config()`, so this gate cannot block its own drop.
    *
    * @param name
    * @return std::optional<storage::Config>
