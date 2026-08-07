@@ -234,6 +234,11 @@ PrometheusMetrics::PrometheusMetrics()
                                                .Name("memgraph_scan_all_by_edge_id_operator_total")
                                                .Help("Number of times ScanAllByEdgeId operator was used")
                                                .Register(registry_)},
+      scan_all_by_vertex_property_operator_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_scan_all_by_vertex_property_operator_total")
+              .Help("Number of times ScanAllByVertexProperty operator was used")
+              .Register(registry_)},
       scan_all_by_point_distance_operator_family_{prometheus::BuildCounter()
                                                       .Name("memgraph_scan_all_by_point_distance_operator_total")
                                                       .Help("Number of times ScanAllByPointDistance operator was used")
@@ -404,6 +409,10 @@ PrometheusMetrics::PrometheusMetrics()
                                                .Name("memgraph_active_edge_property_indices")
                                                .Help("Number of active edge property indices")
                                                .Register(registry_)},
+      active_vertex_property_indices_family_{prometheus::BuildGauge()
+                                                 .Name("memgraph_active_vertex_property_indices")
+                                                 .Help("Number of active vertex property indices")
+                                                 .Register(registry_)},
       active_point_indices_family_{prometheus::BuildGauge()
                                        .Name("memgraph_active_point_indices")
                                        .Help("Number of active point indices")
@@ -783,6 +792,10 @@ PrometheusMetrics::PrometheusMetrics()
                                               .Name("memgraph_gc_skiplist_cleanup_latency_seconds")
                                               .Help("GC skiplist cleanup latency in seconds")
                                               .Register(registry_)},
+      gc_index_sweeps_family_{prometheus::BuildCounter()
+                                  .Name("memgraph_gc_index_sweeps_total")
+                                  .Help("Individual indexes swept by GC index cleanup")
+                                  .Register(registry_)},
       snapshot_throughput_family_{prometheus::BuildHistogram()
                                       .Name("memgraph_snapshot_throughput_bytes_per_second")
                                       .Help("Throughput of snapshot sent to each replica during recovery, in bytes/s")
@@ -962,6 +975,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .scan_all_by_edge_property_range_operator = {&scan_all_by_edge_property_range_operator_family_.Add(
                       labels)},
                   .scan_all_by_edge_id_operator = {&scan_all_by_edge_id_operator_family_.Add(labels)},
+                  .scan_all_by_vertex_property_operator = {&scan_all_by_vertex_property_operator_family_.Add(labels)},
                   .scan_all_by_point_distance_operator = {&scan_all_by_point_distance_operator_family_.Add(labels)},
                   .scan_all_by_point_withinbbox_operator = {&scan_all_by_point_withinbbox_operator_family_.Add(labels)},
                   .expand_operator = {&expand_operator_family_.Add(labels)},
@@ -1004,6 +1018,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .active_edge_type_indices = {&active_edge_type_indices_family_.Add(labels)},
                   .active_edge_type_property_indices = {&active_edge_type_property_indices_family_.Add(labels)},
                   .active_edge_property_indices = {&active_edge_property_indices_family_.Add(labels)},
+                  .active_vertex_property_indices = {&active_vertex_property_indices_family_.Add(labels)},
                   .active_point_indices = {&active_point_indices_family_.Add(labels)},
                   .active_text_indices = {&active_text_indices_family_.Add(labels)},
                   .active_text_edge_indices = {&active_text_edge_indices_family_.Add(labels)},
@@ -1041,6 +1056,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .gc_latency_seconds = {&gc_latency_family_.Add(labels, kLatencyBuckets)},
                   .gc_skiplist_cleanup_latency_seconds = {&gc_skiplist_cleanup_latency_family_.Add(labels,
                                                                                                    kLatencyBuckets)},
+                  .gc_index_sweeps = {&gc_index_sweeps_family_.Add(labels)},
               },
       });
   return databases_.entries.back().handles;
@@ -1075,6 +1091,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   scan_all_by_edge_property_value_operator_family_.Remove(h.scan_all_by_edge_property_value_operator.get());
   scan_all_by_edge_property_range_operator_family_.Remove(h.scan_all_by_edge_property_range_operator.get());
   scan_all_by_edge_id_operator_family_.Remove(h.scan_all_by_edge_id_operator.get());
+  scan_all_by_vertex_property_operator_family_.Remove(h.scan_all_by_vertex_property_operator.get());
   scan_all_by_point_distance_operator_family_.Remove(h.scan_all_by_point_distance_operator.get());
   scan_all_by_point_withinbbox_operator_family_.Remove(h.scan_all_by_point_withinbbox_operator.get());
   expand_operator_family_.Remove(h.expand_operator.get());
@@ -1117,6 +1134,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   active_edge_type_indices_family_.Remove(h.active_edge_type_indices.get());
   active_edge_type_property_indices_family_.Remove(h.active_edge_type_property_indices.get());
   active_edge_property_indices_family_.Remove(h.active_edge_property_indices.get());
+  active_vertex_property_indices_family_.Remove(h.active_vertex_property_indices.get());
   active_point_indices_family_.Remove(h.active_point_indices.get());
   active_text_indices_family_.Remove(h.active_text_indices.get());
   active_text_edge_indices_family_.Remove(h.active_text_edge_indices.get());
@@ -1151,6 +1169,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   snapshot_recovery_latency_family_.Remove(h.snapshot_recovery_latency_seconds.get());
   gc_latency_family_.Remove(h.gc_latency_seconds.get());
   gc_skiplist_cleanup_latency_family_.Remove(h.gc_skiplist_cleanup_latency_seconds.get());
+  gc_index_sweeps_family_.Remove(h.gc_index_sweeps.get());
   if (default_db_uuid_ && *default_db_uuid_ == uuid) {
     default_db_uuid_.reset();
   }
@@ -1408,6 +1427,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
       {"UnreleasedDeltaObjects", "Memory", "Gauge", static_cast<int64_t>(h.unreleased_delta_objects.Value())});
   AppendHistogramPercentiles(out, "GCLatency", "Memory", *h.gc_latency_seconds.get());
   AppendHistogramPercentiles(out, "GCSkiplistCleanupLatency", "Memory", *h.gc_skiplist_cleanup_latency_seconds.get());
+  out.push_back({"GCIndexSweeps", "Memory", "Counter", static_cast<int64_t>(h.gc_index_sweeps.Value())});
 
   // Operator
   out.push_back({"OnceOperator", "Operator", "Counter", static_cast<int64_t>(h.once_operator.Value())});
@@ -1455,6 +1475,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
                  static_cast<int64_t>(h.scan_all_by_edge_property_range_operator.Value())});
   out.push_back(
       {"ScanAllByEdgeIdOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_by_edge_id_operator.Value())});
+  out.push_back({"ScanAllByVertexPropertyOperator",
+                 "Operator",
+                 "Counter",
+                 static_cast<int64_t>(h.scan_all_by_vertex_property_operator.Value())});
   out.push_back({"ScanAllByPointDistanceOperator",
                  "Operator",
                  "Counter",
@@ -1532,6 +1556,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
                  static_cast<int64_t>(h.active_edge_type_property_indices.Value())});
   out.push_back(
       {"ActiveEdgePropertyIndices", "Index", "Gauge", static_cast<int64_t>(h.active_edge_property_indices.Value())});
+  out.push_back({"ActiveVertexPropertyIndices",
+                 "Index",
+                 "Gauge",
+                 static_cast<int64_t>(h.active_vertex_property_indices.Value())});
   out.push_back({"ActivePointIndices", "Index", "Gauge", static_cast<int64_t>(h.active_point_indices.Value())});
   out.push_back({"ActiveTextIndices", "Index", "Gauge", static_cast<int64_t>(h.active_text_indices.Value())});
   out.push_back({"ActiveTextEdgeIndices", "Index", "Gauge", static_cast<int64_t>(h.active_text_edge_indices.Value())});

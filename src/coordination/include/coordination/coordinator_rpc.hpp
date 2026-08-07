@@ -531,14 +531,29 @@ using ForceResetReq = EmptyReq<utils::TypeId::COORD_FORCE_RESET_REQ, "ForceReset
 using ForceResetRes = SingleArgMsg<utils::TypeId::COORD_FORCE_RESET_RES, "ForceResetRes", 1, bool>;
 using ForceResetRpc = rpc::RequestResponse<ForceResetReq, ForceResetRes>;
 
+using YieldLeadershipReq = EmptyReq<utils::TypeId::COORD_YIELD_LEADERSHIP_REQ, "YieldLeadershipReq", 1>;
+using YieldLeadershipRes = SingleArgMsg<utils::TypeId::COORD_YIELD_LEADERSHIP_RES, "YieldLeadershipRes", 1, bool>;
+using YieldLeadershipRpc = rpc::RequestResponse<YieldLeadershipReq, YieldLeadershipRes>;
+
+using ShowCoordSettingsReq = EmptyReq<utils::TypeId::COORD_SHOW_COORD_SETTINGS_REQ, "ShowCoordSettingsReq", 1>;
+// nullopt when the leader couldn't serve the request.
+using ShowCoordSettingsRes = SingleArgMsg<utils::TypeId::COORD_SHOW_COORD_SETTINGS_RES, "ShowCoordSettingsRes", 1,
+                                          std::optional<std::vector<std::pair<std::string, std::string>>>>;
+using ShowCoordSettingsRpc = rpc::RequestResponse<ShowCoordSettingsReq, ShowCoordSettingsRes>;
+
 using UpdateConfigReq =
     SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_REQ, "UpdateConfigReq", 1, UpdateInstanceConfig>;
 using UpdateConfigRes = SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_RES, "UpdateConfigRes", 1, bool>;
 using UpdateConfigRpc = rpc::RequestResponse<UpdateConfigReq, UpdateConfigRes>;
 
-using CoordReplicationLagReq = EmptyReq<utils::TypeId::COORD_REPL_LAG_REQ, "CoordReplLagReq", 1>;
-using CoordReplicationLagRes = SingleArgMsg<utils::TypeId::COORD_REPL_LAG_RES, "CoordReplLagRes", 1,
-                                            std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
+// v1 answered with a bare map, where an empty map meant both "the leader has no lag data" and "the leader couldn't
+// collect it". v2 answers with ReplicationLagResult so a forwarding follower can tell the two apart and report why.
+// The request is bumped alongside it because the response version follows the request version.
+using CoordReplicationLagReqV1 = EmptyReq<utils::TypeId::COORD_REPL_LAG_REQ, "CoordReplLagReq", 1>;
+using CoordReplicationLagReq = UpgradeableEmptyReq<CoordReplicationLagReqV1>;
+using CoordReplicationLagResV1 =
+    SingleArgMsg<utils::TypeId::COORD_REPL_LAG_RES, "CoordReplLagRes", 1, ReplicationLagData>;
+using CoordReplicationLagRes = DowngradeableSingleArgMsg<CoordReplicationLagResV1, ReplicationLagResult>;
 using CoordReplicationLagRpc = rpc::RequestResponse<CoordReplicationLagReq, CoordReplicationLagRes>;
 
 // RPC for updating data instance config managed by the coordinator. v1 carried only deltas_batch_progress_size; v2
@@ -733,6 +748,8 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::UnregisterInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::SetInstanceToMainRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::DemoteInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::ForceResetRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::YieldLeadershipRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::ShowCoordSettingsRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::UpdateConfigRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::CoordReplicationLagRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::CreateRoleRpc)
@@ -747,6 +764,9 @@ DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReqV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReq)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigResV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigRes)
+
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::CoordReplicationLagReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::CoordReplicationLagResV1)
 
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::StateCheckReqV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::StateCheckReqV2)

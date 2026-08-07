@@ -162,8 +162,9 @@ class CoordinatorQueryHandler {
   /// @throw QueryRuntimeException if an error occurred.
   virtual coordination::InstanceStatus ShowInstance() const = 0;
 
+  /// nullopt if the leader couldn't be reached.
   /// @throw QueryRuntimeException if an error occurred.
-  virtual std::vector<coordination::InstanceStatus> ShowInstances() const = 0;
+  virtual std::optional<std::vector<coordination::InstanceStatus>> ShowInstances() const = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
   virtual void AddCoordinatorInstance(int32_t coordinator_id, std::string_view bolt_server,
@@ -181,7 +182,8 @@ class CoordinatorQueryHandler {
 
   virtual void SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) = 0;
 
-  virtual std::vector<std::pair<std::string, std::string>> ShowCoordinatorSettings() = 0;
+  /// Both return nullopt if the leader couldn't be reached.
+  virtual std::optional<std::vector<std::pair<std::string, std::string>>> ShowCoordinatorSettings() = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
   virtual void CreateRole(std::string_view role_name, bool if_not_exists) = 0;
@@ -201,7 +203,7 @@ class CoordinatorQueryHandler {
   /// @throw QueryRuntimeException if an error occurred. Returns the role's coordinator permission mask.
   virtual uint64_t ShowRolePrivileges(std::string_view role_name) = 0;
 
-  virtual std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() = 0;
+  virtual std::optional<coordination::ReplicationLagResult> ShowReplicationLag() = 0;
 };
 #endif
 

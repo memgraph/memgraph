@@ -51,7 +51,8 @@ class CoordinatorState {
 
   [[nodiscard]] auto ShowInstance() const -> InstanceStatus;
 
-  [[nodiscard]] auto ShowInstances() const -> std::vector<InstanceStatus>;
+  // nullopt if the leader couldn't be reached.
+  [[nodiscard]] auto ShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
 
   auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus;
 
@@ -78,9 +79,10 @@ class CoordinatorState {
   // returned pair is {role_found, mask}.
   auto GetRolePrivileges(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
 
-  auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
+  // Both return nullopt if the leader couldn't be reached.
+  auto ShowCoordinatorSettings() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
 
-  auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
+  auto ShowReplicationLag() const -> std::optional<ReplicationLagResult>;
 
   [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 

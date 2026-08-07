@@ -44,7 +44,8 @@ class CoordinatorHandler {
   auto ForceResetClusterState() -> coordination::ReconcileClusterStateStatus;
 
   auto ShowInstance() const -> coordination::InstanceStatus;
-  auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
+  // nullopt if the leader couldn't be reached.
+  auto ShowInstances() const -> std::optional<std::vector<coordination::InstanceStatus>>;
 
   auto YieldLeadership() const -> coordination::YieldLeadershipStatus;
 
@@ -63,7 +64,8 @@ class CoordinatorHandler {
 
   auto GetRolePrivileges(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
 
-  auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
+  // nullopt if the leader couldn't be reached.
+  auto ShowCoordinatorSettings() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
 
   auto AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config)
       -> coordination::AddCoordinatorInstanceStatus;
@@ -74,7 +76,8 @@ class CoordinatorHandler {
 
   auto GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData>;
 
-  auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>>;
+  // nullopt if the leader couldn't be reached.
+  auto ShowReplicationLag() const -> std::optional<coordination::ReplicationLagResult>;
 
  private:
   // NOLINTNEXTLINE

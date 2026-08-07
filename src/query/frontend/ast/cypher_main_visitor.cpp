@@ -516,6 +516,14 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
   for (auto *pre_query_directive : ctx->preQueryDirective()) {
     if (auto *index_hints_ctx = pre_query_directive->indexHints()) {
       for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
+        if (auto *prop_ctx = index_hint_ctx->propertyKeyName()) {
+          auto property = std::any_cast<PropertyIx>(prop_ctx->accept(this));
+          pre_query_directives.index_hints_.emplace_back(
+              // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
+              IndexHint{.index_type_ = IndexHint::IndexType::VERTEX_PROPERTY,
+                        .property_ixs_ = {PropertyIxPath{{property}}}});
+          continue;
+        }
         auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
         auto *list = index_hint_ctx->nestedPropertyKeyList();
         if (!list) {
@@ -664,6 +672,24 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
     index_query->config_ = std::any_cast<ConfigMap>(config_ctx->accept(this));
   }
 
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateGlobalVertexIndex(MemgraphCypher::CreateGlobalVertexIndexContext *ctx) {
+  auto *index_query = storage_->Create<IndexQuery>();
+  index_query->action_ = IndexQuery::Action::CREATE;
+  index_query->is_global_ = true;
+  auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+  index_query->properties_ = {PropertyIxPath{{std::move(name_key)}}};
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropGlobalVertexIndex(MemgraphCypher::DropGlobalVertexIndexContext *ctx) {
+  auto *index_query = storage_->Create<IndexQuery>();
+  index_query->action_ = IndexQuery::Action::DROP;
+  index_query->is_global_ = true;
+  auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+  index_query->properties_ = {PropertyIxPath{{std::move(name_key)}}};
   return index_query;
 }
 

@@ -11,19 +11,14 @@
 
 #include "storage/v2/indices/edge_type_index.hpp"
 
+#include <algorithm>
+
 #include <utility>
 
 namespace memgraph::storage {
 void EdgeTypeIndexAbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
                                                        EdgeRef edge) {
-  auto it = cleanup_collection_.find(edge_type);
-  if (it == cleanup_collection_.end()) return;
-  it->second.emplace_back(from_vertex, to_vertex, edge);
-}
-
-EdgeTypeIndexAbortProcessor::EdgeTypeIndexAbortProcessor(std::span<EdgeTypeId const> edge_types) {
-  for (auto edge_type : edge_types) {
-    cleanup_collection_.insert({edge_type, {}});
-  }
+  if (!std::ranges::binary_search(indexed_, edge_type)) return;
+  cleanup_collection_[edge_type].emplace_back(from_vertex, to_vertex, edge);
 }
 }  // namespace memgraph::storage

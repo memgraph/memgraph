@@ -326,7 +326,7 @@ def test_global_read_only_honored_across_failover():
     expected_cluster_after_failover = [
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "replica"),
     ]
     mg_sleep_and_assert(expected_cluster_after_failover, partial(show_instances, coordinator_cursor))
 

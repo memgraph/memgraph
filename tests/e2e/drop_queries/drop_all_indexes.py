@@ -10,8 +10,8 @@
 # licenses/APL.txt.
 
 import sys
-import pytest
 
+import pytest
 from common import get_results_length, memgraph
 
 
@@ -33,13 +33,14 @@ def test_drop_all_indexes(memgraph):
     memgraph.execute("CREATE EDGE INDEX ON :WORKS_AT")
     memgraph.execute("CREATE EDGE INDEX ON :WORKS_AT(since)")
     memgraph.execute("CREATE GLOBAL EDGE INDEX ON :(since)")
+    memgraph.execute("CREATE GLOBAL INDEX ON :(name)")
     memgraph.execute("CREATE POINT INDEX ON :Person(location)")
     memgraph.execute("CREATE TEXT INDEX personTextIndex ON :Person")
     memgraph.execute("CREATE VECTOR INDEX personVectorIndex ON :Person(embedding) WITH CONFIG {'dimension': 2, 'capacity': 100}")
     memgraph.execute("CREATE VECTOR EDGE INDEX vector_index_name ON :WORKS_AT(embedding) WITH CONFIG {'dimension': 2, 'capacity': 100}")
 
     index_info = list(memgraph.execute_and_fetch("SHOW INDEX INFO"))    
-    assert len(index_info) == 9, f"Expected exactly 9 indexes, but got {len(index_info)}"
+    assert len(index_info) == 10, f"Expected exactly 10 indexes, but got {len(index_info)}"
 
     memgraph.execute("DROP ALL INDEXES")
     

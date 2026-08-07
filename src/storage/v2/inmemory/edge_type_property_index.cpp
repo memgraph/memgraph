@@ -155,7 +155,7 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_
       continue;
     }
 
-    if (!CurrentEdgeVersionHasProperty(*index_iterator->edge, property, index_iterator->value, transaction, view)) {
+    if (!CurrentVersionHasProperty(*index_iterator->edge, property, index_iterator->value, transaction, view)) {
       continue;
     }
 
@@ -328,22 +328,26 @@ std::vector<std::pair<EdgeTypeId, PropertyId>> InMemoryEdgeTypePropertyIndex::Ac
   return ret;
 }
 
-void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                                          std::stop_token token) {
+uint64_t InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                                              std::stop_token token, IndexArming const &arming) {
   auto maybe_stop = utils::ResettableCounter(2048);
   CleanupAllIndices();
   auto all_indices = all_indices_.ReadCopy();
-  if (all_indices->empty()) return;
+  if (all_indices->empty()) return 0;
 
   // Pin the edge store while sweeping: the loop dereferences raw Edge* the epoch GC could free.
   auto const edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
 
+  uint64_t swept = 0;
   for (auto &[index, property] : *all_indices) {
-    if (token.stop_requested()) return;
+    if (token.stop_requested()) return swept;
+    // A sweep walks the whole index whether or not it has anything to collect.
+    if (!arming.arms_edge_index_on(property)) continue;
+    ++swept;
 
     auto edges_acc = index->skiplist.access();
     for (auto it = edges_acc.begin(); it != edges_acc.end();) {
-      if (maybe_stop() && token.stop_requested()) return;
+      if (maybe_stop() && token.stop_requested()) return swept;
 
       auto next_it = it;
       ++next_it;
@@ -370,6 +374,7 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint
       it = next_it;
     }
   }
+  return swept;
 }
 
 void InMemoryEdgeTypePropertyIndex::ActiveIndices::AbortEntries(
@@ -567,8 +572,14 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::Ac
 }
 
 EdgeTypePropertyIndex::AbortProcessor InMemoryEdgeTypePropertyIndex::ActiveIndices::GetAbortProcessor() const {
-  auto edge_type_property_filter = *index_container_ | std::views::keys | ranges::to_vector;
-  return AbortProcessor{edge_type_property_filter};
+  std::call_once(indexed_built_, [this] {
+    indexed_.keys = *index_container_ | std::views::keys | ranges::to_vector;
+    indexed_.properties = indexed_.keys | std::views::values | ranges::to_vector;
+    std::ranges::sort(indexed_.properties);
+    auto const dropped = std::ranges::unique(indexed_.properties);
+    indexed_.properties.erase(dropped.begin(), dropped.end());
+  });
+  return AbortProcessor{indexed_};
 }
 
 void InMemoryEdgeTypePropertyIndex::ActiveIndices::AbortEntries(EdgeTypePropertyIndex::AbortableInfo const &info,

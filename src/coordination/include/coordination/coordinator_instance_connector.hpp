@@ -16,6 +16,8 @@
 #include "coordination/coordinator_instance_client.hpp"
 #include "utils/tls.hpp"
 
+#include <optional>
+
 namespace memgraph::coordination {
 
 class CoordinatorInstanceConnector {
@@ -24,15 +26,15 @@ class CoordinatorInstanceConnector {
                                         std::optional<utils::TlsConfig> const &tls_config)
       : client_{config, tls_config} {}
 
+  // nullopt if the response couldn't be received, otherwise the response's payload.
   template <rpc::IsRpc Rpc, typename... Args>
-  auto SendRpc(Args &&...args) {
-    using ReturnType = decltype(std::declval<typename Rpc::Response>().arg_);
+  auto SendRpc(Args &&...args) -> std::optional<decltype(std::declval<typename Rpc::Response>().arg_)> {
     try {
       auto stream{client_.RpcClient().Stream<Rpc>(std::forward<Args>(args)...)};
       return stream.SendAndWait().arg_;
     } catch (std::exception const &e) {
       spdlog::error("Failed to receive response to {}: {}", Rpc::Request::kType.name, e.what());
-      return ReturnType{};
+      return std::nullopt;
     }
   }
 

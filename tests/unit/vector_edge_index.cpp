@@ -28,6 +28,7 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/view.hpp"
@@ -646,6 +647,7 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
                                            std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
                                            std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
                                            std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryVertexPropertyIndex::ActiveIndices>(),
                                            std::make_shared<memgraph::storage::TextIndex::ActiveIndices>(),
                                            std::make_shared<memgraph::storage::TextEdgeIndex::ActiveIndices>(),
                                            std::make_shared<memgraph::storage::PointIndexStorage::ActiveIndices>(),

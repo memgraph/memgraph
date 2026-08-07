@@ -66,6 +66,7 @@ CREATE VECTOR INDEX `vector_index_name` ON :`Label`(`embedding`) WITH CONFIG { "
 CREATE VECTOR EDGE INDEX `vector_edge_index_wildcard` ON (`wild_embedding`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };
 CREATE VECTOR EDGE INDEX `vector_edge_index_or` ON :`ER1`|`ER2`(`or_embedding`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };
 CREATE VECTOR EDGE INDEX `vector_edge_index_name` ON :`REL`(`embedding`) WITH CONFIG { "dimension": 3, "metric": "l2sq", "capacity": 1000, "resize_coefficient": 2, "scalar_kind": "f16" };
+CREATE GLOBAL INDEX ON :(`prop`);
 CREATE CONSTRAINT ON (u:`label`) ASSERT EXISTS (u.`ext`);
 CREATE CONSTRAINT ON (u:`label2`) ASSERT u.`prop2`, u.`prop` IS UNIQUE;
 CREATE CONSTRAINT ON (u:`label`) ASSERT u.`is_string` IS TYPED STRING;

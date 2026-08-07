@@ -15,7 +15,7 @@
 #include <optional>
 #include <variant>
 #include "memory/db_arena_fwd.hpp"
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
@@ -23,6 +23,7 @@
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
@@ -163,8 +164,11 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   auto Validate(const std::unordered_set<Vertex const *> &vertices, const Transaction &tx,
                 uint64_t commit_timestamp) const -> std::expected<void, ConstraintViolation>;
 
-  /// GC method that removes outdated entries from constraints' storages.
-  void RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, const std::stop_token &token);
+  /// GC method that removes outdated entries from constraints' storages. Sweeps only the
+  /// constraints whose label or one of whose properties `arming` names, and answers with how
+  /// many that was.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, const std::stop_token &token,
+                                 IndexArming const &arming);
 
   void Clear() override;
 

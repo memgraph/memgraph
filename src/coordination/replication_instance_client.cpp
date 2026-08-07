@@ -53,7 +53,8 @@ RpcInfoSpecialize(UpdateDataInstanceConfigRpc, update_data_instance_config_rpc_s
 auto ReplicationInstanceClient::InstanceName() const -> std::string const & { return instance_name_; }
 
 void ReplicationInstanceClient::UpdateHealthCheckFrequencySec(std::chrono::seconds const &new_config) const {
-  instance_checker_.SetInterval(new_config);
+  // Called on an already-running checker (runtime setting change), so wake it rather than SetInterval.
+  instance_checker_.SetIntervalAndWake(new_config);
 }
 
 void ReplicationInstanceClient::StartStateCheck() {
@@ -61,8 +62,9 @@ void ReplicationInstanceClient::StartStateCheck() {
     return;
   }
 
-  MG_ASSERT(instance_health_check_frequency_sec_ > std::chrono::seconds(0),
-            "Health check frequency must be greater than 0");
+  MG_ASSERT(instance_health_check_frequency_sec_ >= std::chrono::seconds{kMinInstanceHealthCheckFreqSec},
+            "Health check frequency must be at least {}s",
+            kMinInstanceHealthCheckFreqSec);
 
   instance_checker_.SetInterval(instance_health_check_frequency_sec_);
   instance_checker_.Run(instance_name_, [this] {
@@ -111,14 +113,19 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
   }
 }
 
-auto ReplicationInstanceClient::SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo> {
+auto ReplicationInstanceClient::SendGetReplicationLagRpc() const
+    -> std::expected<ReplicationLagInfo, ReplicationLagStatus> {
   try {
     auto stream{rpc_client_.Stream<ReplicationLagRpc>()};
     auto res = stream.SendAndWait();
-    return res.arg_;
+    if (!res.arg_.has_value()) {
+      spdlog::error("Instance {} refused to report replication lag because it isn't main.", instance_name_);
+      return std::unexpected{ReplicationLagStatus::MAIN_IS_REPLICA};
+    }
+    return std::move(*res.arg_);
   } catch (const rpc::RpcFailedException &e) {
     spdlog::error("Failed to receive response to ReplicationLagRpc. Error occurred: {}", e.what());
-    return {};
+    return std::unexpected{ReplicationLagStatus::MAIN_UNRESPONSIVE};
   }
 }
 

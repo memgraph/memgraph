@@ -649,11 +649,14 @@ auto InMemoryLabelPropertyIndex::GetIndividualIndex(LabelId const &label, Proper
 
 void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                                  const Transaction &tx) {
-  auto const prop_ids = vertex_after_update->properties.ExtractPropertyIds();
+  // Decoded on first use: extracting the ids walks the whole property store, and a label
+  // with no index on it never reaches the filter below.
+  auto prop_ids = std::optional<std::vector<PropertyId>>{};
 
   auto const relevant_index = [&](auto &&each) {
     auto &[index_props, _] = each;
-    auto vector_has_property = [&](auto &&index_prop) { return r::binary_search(prop_ids, index_prop); };
+    if (!prop_ids) prop_ids = vertex_after_update->properties.ExtractPropertyIds();
+    auto vector_has_property = [&](PropertyId index_prop) { return r::binary_search(*prop_ids, index_prop); };
     return r::any_of(index_props[0], vector_has_property);
   };
 
@@ -682,11 +685,13 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId remo
   // that sweep is gated on vertex deletions — so reclaim eagerly here.
   if (tx.storage_mode != StorageMode::IN_MEMORY_ANALYTICAL) return;
 
-  auto const prop_ids = vertex_before_update->properties.ExtractPropertyIds();
+  // Decoded on first use; see UpdateOnAddLabel.
+  auto prop_ids = std::optional<std::vector<PropertyId>>{};
 
   auto const relevant_index = [&](auto &&each) {
     auto &[index_props, _] = each;
-    auto vector_has_property = [&](auto &&index_prop) { return r::binary_search(prop_ids, index_prop); };
+    if (!prop_ids) prop_ids = vertex_before_update->properties.ExtractPropertyIds();
+    auto vector_has_property = [&](PropertyId index_prop) { return r::binary_search(*prop_ids, index_prop); };
     return r::any_of(index_props[0], vector_has_property);
   };
 
@@ -1065,17 +1070,21 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndicesImpl(uint64_t start_t
   return ret;
 }
 
-void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
-                                                       std::stop_token token) {
+uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                                           std::stop_token token, IndexArming const &arming) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
   CleanupAllIndices();
 
+  uint64_t swept = 0;
   auto const remove_from = [&](auto const &all_indexes) {
     for (auto &all_entry : *all_indexes) {
       if (token.stop_requested()) return;
       auto const &label_id = all_entry.label_;
       auto const &property_paths = all_entry.properties_;
+      // A sweep walks the whole index whether or not it has anything to collect.
+      if (!arming.arms_vertex_index_on(label_id, property_paths)) continue;
+      ++swept;
 
       bool const stop = WithIndex(all_entry.index_, [&](auto &index) -> bool {
         auto const &permutationHelper = index.permutations_helper;
@@ -1111,12 +1120,13 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_
   };
 
   auto data = all_indices_.ReadCopy();
-  if (data.asc->empty() && data.desc->empty()) return;
+  if (data.asc->empty() && data.desc->empty()) return 0;
 
   // Pin vertices_ while sweeping: the loop dereferences raw Vertex* the epoch GC could free.
   auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
 
   data.ForEach(remove_from);
+  return swept;
 }
 
 template <typename EntryT>
@@ -1430,7 +1440,12 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const -> LabelPropertyIndex::AbortProcessor {
-  AbortProcessor res{};
+  std::call_once(abort_lookup_built_, [this] { abort_lookup_ = BuildAbortLookup(); });
+  return LabelPropertyIndex::AbortProcessor{.lookup = &abort_lookup_};
+}
+
+auto InMemoryLabelPropertyIndex::ActiveIndices::BuildAbortLookup() const -> LabelPropertyIndexAbortLookup {
+  auto res = LabelPropertyIndexAbortLookup{};
 
   auto const collect_from = [&](auto &indices_map) {
     for (const auto &[label, per_properties] : indices_map) {

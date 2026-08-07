@@ -1585,6 +1585,55 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgePropertyRange::Clone(AstStorage *s
   return object;
 }
 
+ScanAllByVertexProperty::ScanAllByVertexProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                                 storage::PropertyId property, ExpressionRange expression_range,
+                                                 storage::View view)
+    : ScanAll(input, output_symbol, view), property_(property), expression_range_(expression_range) {}
+
+ACCEPT_WITH_INPUT(ScanAllByVertexProperty)
+
+UniqueCursorPtr ScanAllByVertexProperty::MakeCursor(utils::MemoryResource *mem,
+                                                    metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.scan_all_by_vertex_property_operator.Increment();
+  auto const get_vertices = [this](Frame &frame, ExecutionContext &context)
+      -> std::optional<decltype(context.db_accessor->Vertices(view_, property_, std::nullopt, std::nullopt))> {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
+    auto range = expression_range_.Evaluate(evaluator);
+
+    if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
+      return std::make_optional(db->Vertices(view_, property_));
+    }
+
+    if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
+      return std::nullopt;
+    }
+
+    return std::make_optional(db->Vertices(view_, property_, range.lower_, range.upper_));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(get_vertices)>>(mem,
+                                                                    *this,
+                                                                    output_symbol_,
+                                                                    input_->MakeCursor(mem, metric_handles),
+                                                                    view_,
+                                                                    std::move(get_vertices),
+                                                                    "ScanAllByVertexProperty");
+}
+
+std::string ScanAllByVertexProperty::ToString(const DbAccessor *dba) const {
+  return fmt::format("ScanAllByVertexProperty ({} {{{}}})", output_symbol_.name(), dba->PropertyToName(property_));
+}
+
+std::unique_ptr<LogicalOperator> ScanAllByVertexProperty::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanAllByVertexProperty>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->output_symbol_ = output_symbol_;
+  object->view_ = view_;
+  object->property_ = property_;
+  object->expression_range_ = ExpressionRange(expression_range_, *storage);
+  return object;
+}
+
 ScanAllByLabelProperties::ScanAllByLabelProperties(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                                    storage::LabelId label,
                                                    std::vector<storage::PropertyPath> properties,
@@ -9930,14 +9979,11 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
     auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
-    // Return empty chunks if bounds are null - need to handle this case
-    // For now, we'll create a dummy chunks object, but this might need special handling
-    return db->ChunkedVertices(view_,
-                               label_,
-                               properties_,
-                               maybe_prop_value_ranges.value_or(std::vector<storage::PropertyValueRange>{}),
-                               num_threads_,
-                               index_order_);
+    if (!maybe_prop_value_ranges) {
+      return db->ChunkedVertices(
+          view_, label_, properties_, std::vector<storage::PropertyValueRange>{}, 0, index_order_);
+    }
+    return db->ChunkedVertices(view_, label_, properties_, *maybe_prop_value_ranges, num_threads_, index_order_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10130,7 +10176,8 @@ UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResourc
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
     auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
-    return db->ChunkedEdges(view_, property_, maybe_prop_value.value_or(storage::PropertyValue()), num_threads_);
+    if (!maybe_prop_value) return db->ChunkedEdges(view_, property_, storage::PropertyValue(), 0);
+    return db->ChunkedEdges(view_, property_, *maybe_prop_value, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10210,6 +10257,57 @@ std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyRange::Clone(AstStora
   return object;
 }
 
+ScanParallelByVertexProperty::ScanParallelByVertexProperty(const std::shared_ptr<LogicalOperator> &input,
+                                                           storage::View view, size_t num_threads, Symbol state_symbol,
+                                                           storage::PropertyId property,
+                                                           ExpressionRange expression_range)
+    : ScanParallel(input, view, num_threads, state_symbol), property_(property), expression_range_(expression_range) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByVertexProperty)
+
+UniqueCursorPtr ScanParallelByVertexProperty::MakeCursor(utils::MemoryResource *mem,
+                                                         metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.scan_all_by_vertex_property_operator.Increment();
+#ifdef MG_ENTERPRISE
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
+    auto range = expression_range_.Evaluate(evaluator);
+
+    if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
+      return db->ChunkedVertices(view_, property_, num_threads_);
+    }
+
+    if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
+      return db->ChunkedVertices(view_, property_, std::nullopt, std::nullopt, 0);
+    }
+
+    return db->ChunkedVertices(view_, property_, range.lower_, range.upper_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
+      mem, *this, mem, metric_handles, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByVertexProperty is not supported in the community edition");
+#endif
+}
+
+std::string ScanParallelByVertexProperty::ToString(const DbAccessor *dba) const {
+  return fmt::format(
+      "ScanParallelByVertexProperty (threads: {}, {{{}}})", num_threads_, dba->PropertyToName(property_));
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByVertexProperty::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByVertexProperty>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->property_ = property_;
+  object->expression_range_ = ExpressionRange(expression_range_, *storage);
+  return object;
+}
+
 ScanParallelByEdge::ScanParallelByEdge(const std::shared_ptr<LogicalOperator> &input, storage::View view,
                                        size_t num_threads, Symbol state_symbol, Symbol edge_symbol, Symbol node1_symbol,
                                        Symbol node2_symbol, EdgeAtom::Direction direction)
@@ -10274,7 +10372,7 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryRes
     auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
     if (!maybe_prop_value) {
       // Return empty chunks
-      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, num_threads_);
+      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
     }
     // Use range with equal bounds to simulate value lookup
     auto bound = utils::MakeBoundInclusive(*maybe_prop_value);

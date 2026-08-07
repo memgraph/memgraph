@@ -21,6 +21,7 @@
 #include <optional>
 #include <system_error>
 #include <unordered_set>
+#include <utility>
 
 #include "ctre.hpp"
 #include "dbms/constants.hpp"
@@ -44,6 +45,7 @@
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info_glue.hpp"
@@ -98,6 +100,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(EDGE_PROPERTY_INDEX_DROP);
     add_case(GLOBAL_EDGE_PROPERTY_INDEX_CREATE);
     add_case(GLOBAL_EDGE_PROPERTY_INDEX_DROP);
+    add_case(GLOBAL_VERTEX_PROPERTY_INDEX_CREATE);
+    add_case(GLOBAL_VERTEX_PROPERTY_INDEX_DROP);
     add_case(TEXT_INDEX_CREATE);
     add_case(TEXT_EDGE_INDEX_CREATE);
     add_case(TEXT_INDEX_DROP);
@@ -242,10 +246,7 @@ class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::util
   explicit PeriodicSnapshotObserver(memgraph::utils::Scheduler &scheduler) : scheduler_{&scheduler} {}
 
   // String HAS to be a valid cron expr
-  void Update(const memgraph::utils::SchedulerInterval &in) override {
-    scheduler_->SetInterval(in);
-    scheduler_->SpinOnce();
-  }
+  void Update(const memgraph::utils::SchedulerInterval &in) override { scheduler_->SetIntervalAndWake(in); }
 
  private:
   memgraph::utils::Scheduler *scheduler_;
@@ -279,7 +280,7 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
 void UnlinkAndRemoveDeltas(delta_container &deltas,
                            std::list<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
                            std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
-                           IndexPerformanceTracker &impact_tracker) {
+                           IndexArming::TransactionScope const &arming_scope) {
   for (auto &delta : deltas) {
     DMG_ASSERT(
         [&delta]() {
@@ -289,7 +290,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas,
           return !(next_ts >= kTransactionInitialId && IsDeltaNonSequential(*next));
         }(),
         "downstream active non-sequential delta found during rapid cleanup");
-    impact_tracker.update(delta.action);
+    arming_scope.note(delta);
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::NULL_PTR:
@@ -578,6 +579,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       static_cast<InMemoryEdgeTypeIndex *>(indices_.edge_type_index_.get())->RunGC();
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices_.edge_type_property_index_.get())->RunGC();
       static_cast<InMemoryEdgePropertyIndex *>(indices_.edge_property_index_.get())->RunGC();
+      static_cast<InMemoryVertexPropertyIndex *>(indices_.vertex_property_index_.get())->RunGC();
 
       // Constraints
       static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get())->RunGC();
@@ -1417,7 +1419,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(
     std::list<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
-    std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker) {
+    std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices, IndexArming &arming) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // STEP 1) ensure everything in GC is gone
@@ -1434,13 +1436,16 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(
   mem_storage->waiting_gc_deltas_.WithLock(
       [&](auto &waiting_list) { linked_undo_buffers.splice(linked_undo_buffers.end(), waiting_list); });
 
-  // 1.b.1) unlink, gathering the removals
+  // 1.b.1) unlink, gathering the removals. These belong to other transactions, so each is read
+  //        using its own record of what its property writes were on, not this transaction's.
   for (auto &gc_deltas : linked_undo_buffers) {
-    UnlinkAndRemoveDeltas(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, impact_tracker);
+    auto const arming_scope = arming.for_deltas_of(gc_deltas.wrote_properties_on_);
+    UnlinkAndRemoveDeltas(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, arming_scope);
   }
 
   // STEP 2) this transaction's deltas
-  UnlinkAndRemoveDeltas(transaction_.deltas, current_deleted_edges, current_deleted_vertices, impact_tracker);
+  auto const arming_scope = arming.for_deltas_of(transaction_.wrote_properties_on);
+  UnlinkAndRemoveDeltas(transaction_.deltas, current_deleted_edges, current_deleted_vertices, arming_scope);
 
   // STEP 3) clear all deltas after unlinking is complete
   linked_undo_buffers.clear();
@@ -1452,10 +1457,10 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
 
   std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_vertices;
   std::list<Edge *, memory::DbAwareAllocator<Edge *>> current_deleted_edges;
-  auto impact_tracker = IndexPerformanceTracker{};
+  auto arming = IndexArming{};
 
   // STEP 1 + STEP 2 - delta cleanup
-  GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
+  GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, arming);
 
   // STEP 3) hand over the deleted vertices and edges to the GC
   if (!current_deleted_vertices.empty()) {
@@ -1470,12 +1475,11 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
         [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), current_deleted_edges); });
   }
 
-  // STEP 4) hint to GC that indices need cleanup for performance reasons
-  if (impact_tracker.impacts_vertex_indexes()) {
-    mem_storage->gc_index_cleanup_vertex_performance_.store(true, std::memory_order_release);
-  }
-  if (impact_tracker.impacts_edge_indexes()) {
-    mem_storage->gc_index_cleanup_edge_performance_.store(true, std::memory_order_release);
+  // STEP 4) hint to GC that indices need cleanup for performance reasons. These deltas are gone
+  // by the time a collection cycle runs, so this is the only place that can tell what they could
+  // have invalidated.
+  if (arming.arms_anything()) {
+    mem_storage->pending_index_arming_.WithLock([&](IndexArming &pending) { pending |= arming; });
   }
 }
 
@@ -1544,19 +1548,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 auto prop_id = current->property.key;
                 auto *from_vertex = current->property.out_vertex;
 
-                auto processor_prop_is_interesting = index_abort_processor.IsInterestingEdgeProperty(prop_id);
-                if (processor_prop_is_interesting) {
-                  // TODO: MVCC collect out_edges (including ones deleted this txn)
-                  //       from_vertex->out_edges would be missing any edge that was deleted during this transaction
-                  //       ATM we don't handle that corner case. Setting a property on an edge that would then be
-                  //       removed
-                  for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                    if (edge_ref.ptr != edge) continue;
-                    index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
-                    index_abort_processor.vector_edge_.CollectOnPropertyChange(
-                        edge_type, prop_id, *current->property.value, from_vertex, to_vertex, edge);
-                  }
-                }
+                index_abort_processor.CollectOnEdgePropertyChange(
+                    prop_id, *current->property.value, from_vertex, edge, transaction_.deltas);
 
                 edge->properties.SetProperty(prop_id, *current->property.value);
 
@@ -1803,7 +1796,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         garbage_undo_buffers.emplace_back(mark_timestamp,
                                           std::move(transaction_.deltas),
                                           std::move(transaction_.commit_info),
-                                          transaction_.transaction_id);
+                                          transaction_.transaction_id,
+                                          transaction_.wrote_properties_on);
       });
     }
 
@@ -1897,13 +1891,19 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     if (!transaction_.deltas.empty()) {
       if (transaction_.has_non_sequential_deltas) {
         mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
-          waiting_list.emplace_back(InMemoryStorage::GCDeltas(
-              0, std::move(transaction_.deltas), std::move(transaction_.commit_info), transaction_.transaction_id));
+          waiting_list.emplace_back(InMemoryStorage::GCDeltas(0,
+                                                              std::move(transaction_.deltas),
+                                                              std::move(transaction_.commit_info),
+                                                              transaction_.transaction_id,
+                                                              transaction_.wrote_properties_on));
         });
       } else {
         mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
-          committed_transactions.emplace_back(
-              0, std::move(transaction_.deltas), std::move(transaction_.commit_info), transaction_.transaction_id);
+          committed_transactions.emplace_back(0,
+                                              std::move(transaction_.deltas),
+                                              std::move(transaction_.commit_info),
+                                              transaction_.transaction_id,
+                                              transaction_.wrote_properties_on);
         });
       }
     }
@@ -2130,6 +2130,40 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   return {};
 }
 
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateGlobalVertexIndex(
+    PropertyId property, CheckCancelFunction cancel_check) {
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
+            "Creating global vertex property index requires unique or read-only access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_vertex_property_index =
+      static_cast<InMemoryVertexPropertyIndex *>(in_memory->indices_.vertex_property_index_.get());
+  auto updater = storage_->indices_.MakeUpdater();
+  if (!mem_vertex_property_index->RegisterIndex(property, updater)) {
+    return std::unexpected{IndexDefinitionError{}};
+  }
+  DowngradeToReadIfValid();
+  if (!mem_vertex_property_index
+           ->PopulateIndex(property,
+                           in_memory->vertices_.access(),
+                           std::nullopt,
+                           updater,
+                           std::nullopt,
+                           &transaction_,
+                           std::move(cancel_check))
+           .has_value()) {
+    return std::unexpected{IndexDefinitionCancelationError{}};
+  }
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [=](uint64_t commit_timestamp) { return mem_vertex_property_index->PublishIndex(property, commit_timestamp); });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add([mem_vertex_property_index, property, updater]() {
+    (void)mem_vertex_property_index->DropIndex(property, updater);
+  });
+
+  transaction_.md_deltas.emplace_back(MetadataDelta::global_vertex_property_index_create, property);
+  return {};
+}
+
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ,
@@ -2289,6 +2323,30 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
+  return {};
+}
+
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalVertexIndex(
+    PropertyId property) {
+  MG_ASSERT(type() == UNIQUE || type() == READ,
+            "Dropping global vertex property index requires unique or read access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_vertex_property_index =
+      static_cast<InMemoryVertexPropertyIndex *>(in_memory->indices_.vertex_property_index_.get());
+  auto updater = storage_->indices_.MakeUpdater();
+  std::shared_ptr<InMemoryVertexPropertyIndex::IndividualIndex> evicted;
+  storage_->invalidator_->invalidate_now([&] {
+    evicted = mem_vertex_property_index->DropIndex(property, updater);
+    return static_cast<bool>(evicted);
+  });
+  if (!evicted) {
+    return std::unexpected{IndexDefinitionError{}};
+  }
+  transaction_.abort_callbacks_.Add([mem_vertex_property_index, property, updater, evicted]() mutable {
+    mem_vertex_property_index->RestoreIndex(property, std::move(evicted), updater);
+  });
+
+  transaction_.md_deltas.emplace_back(MetadataDelta::global_vertex_property_index_drop, property);
   return {};
 }
 
@@ -2650,6 +2708,73 @@ VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
       static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
   return active_indices->ChunkedVertices(
       label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks, order);
+}
+
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(PropertyId property, View view,
+                                                                           size_t num_chunks) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesChunkedIterable(active_indices->ChunkedVertices(
+      property, std::move(vertex_acc), std::nullopt, std::nullopt, view, storage_, &transaction_, num_chunks));
+}
+
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(PropertyId property,
+                                                                           const PropertyValue &value, View view,
+                                                                           size_t num_chunks) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesChunkedIterable(active_indices->ChunkedVertices(property,
+                                                                 std::move(vertex_acc),
+                                                                 utils::MakeBoundInclusive(value),
+                                                                 utils::MakeBoundInclusive(value),
+                                                                 view,
+                                                                 storage_,
+                                                                 &transaction_,
+                                                                 num_chunks));
+}
+
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
+    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, size_t num_chunks) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesChunkedIterable(active_indices->ChunkedVertices(
+      property, std::move(vertex_acc), lower_bound, upper_bound, view, storage_, &transaction_, num_chunks));
+}
+
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(PropertyId property, View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesIterable(active_indices->Vertices(
+      property, std::move(vertex_acc), std::nullopt, std::nullopt, view, storage_, &transaction_));
+}
+
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(PropertyId property, PropertyValue const &value,
+                                                             View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesIterable(active_indices->Vertices(property,
+                                                   std::move(vertex_acc),
+                                                   utils::MakeBoundInclusive(value),
+                                                   utils::MakeBoundInclusive(value),
+                                                   view,
+                                                   storage_,
+                                                   &transaction_));
+}
+
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
+    PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower_bound,
+    std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesIterable(active_indices->Vertices(
+      property, std::move(vertex_acc), lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
@@ -3124,7 +3249,8 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
 
   // This is to track if any of the unlinked deltas would have an impact on index performance, i.e. do they hint that
   // there are possible stale/duplicate entries that can be removed
-  auto index_impact = IndexPerformanceTracker{};
+  auto &cycle_arming = cycle_index_arming_;
+  cycle_arming.reset();
 
   auto const end_linked_undo_buffers = linked_undo_buffers.end();
   for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
@@ -3170,8 +3296,10 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     // chain in a broken state.
     // The chain can be only read without taking any locks.
 
+    auto const arming_scope = cycle_arming.for_deltas_of(linked_entry->wrote_properties_on_);
+
     for (Delta &delta : linked_entry->deltas_) {
-      index_impact.update(delta.action);
+      arming_scope.note(delta);
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
@@ -3306,11 +3434,15 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // Used to determine whether the Index GC should be run for performance reasons (removing redundant entries). It
   // should be run when hinted by FastDiscardOfDeltas or by the deltas we processed this GC run.
   const utils::Timer skiplist_cleanup_timer;
-  auto index_cleanup_vertex_performance =
-      gc_index_cleanup_vertex_performance_.exchange(false, std::memory_order_acq_rel) ||
-      index_impact.impacts_vertex_indexes();
-  auto index_cleanup_edge_performance = gc_index_cleanup_edge_performance_.exchange(false, std::memory_order_acq_rel) ||
-                                        index_impact.impacts_edge_indexes();
+  auto &sweep_arming = claimed_index_arming_;
+  sweep_arming.reset();
+  pending_index_arming_.WithLock([&](IndexArming &pending) { std::swap(pending, sweep_arming); });
+  sweep_arming |= cycle_arming;
+  if (index_cleanup_vertex_needed) sweep_arming.arm_all_vertex_indexes();
+  if (index_cleanup_edge_needed) sweep_arming.arm_all_edge_indexes();
+
+  auto index_cleanup_vertex_performance = sweep_arming.arms_vertex_indexes();
+  auto index_cleanup_edge_performance = sweep_arming.arms_edge_indexes();
 
   // After unlinking deltas from vertices, we refresh the indices. That way
   // we're sure that none of the vertices from `current_deleted_vertices`
@@ -3320,14 +3452,16 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // in every index every time.
   gc_progress_.SetPhase(GcPhase::INDEX_CLEANUP);
   if (auto token = stop_source.get_token(); !token.stop_requested()) {
+    uint64_t swept = 0;
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
-      indices_.RemoveObsoleteVertexEntries(this, oldest_active_start_timestamp, token);
+      swept += indices_.RemoveObsoleteVertexEntries(this, oldest_active_start_timestamp, token, sweep_arming);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-      mem_unique_constraints->RemoveObsoleteEntries(this, oldest_active_start_timestamp, token);
+      swept += mem_unique_constraints->RemoveObsoleteEntries(this, oldest_active_start_timestamp, token, sweep_arming);
     }
     if (index_cleanup_edge_needed || index_cleanup_edge_performance) {
-      indices_.RemoveObsoleteEdgeEntries(this, oldest_active_start_timestamp, token);
+      swept += indices_.RemoveObsoleteEdgeEntries(this, oldest_active_start_timestamp, token, sweep_arming);
     }
+    metric_handles_.gc_index_sweeps.Increment(static_cast<double>(swept));
   }
   {
     auto skiplist_elapsed = std::chrono::duration<double>(skiplist_cleanup_timer.Elapsed());
@@ -3766,7 +3900,14 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
       case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_property.property);
+          EncodePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_property.property);
+        });
+        break;
+      }
+      case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
+      case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.vertex_property.property);
         });
         break;
       }
@@ -5028,6 +5169,7 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
       .edge_type_property =
           transaction_.active_indices_->edge_type_properties_->ListIndices(transaction_.start_timestamp),
       .edge_property = transaction_.active_indices_->edge_property_->ListIndices(transaction_.start_timestamp),
+      .vertex_property = transaction_.active_indices_->vertex_property_->ListIndices(transaction_.start_timestamp),
       .text_indices = transaction_.active_indices_->text_->ListIndices(),
       .text_edge_indices = transaction_.active_indices_->text_edge_->ListIndices(),
       .point_label_property = transaction_.active_indices_->point_->ListIndices(),
@@ -5064,6 +5206,10 @@ void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
 
   for (const auto &property_id : indices_info.edge_property) {
     [[maybe_unused]] auto maybe_error = DropGlobalEdgeIndex(property_id);
+  }
+
+  for (const auto &property_id : indices_info.vertex_property) {
+    [[maybe_unused]] auto maybe_error = DropGlobalVertexIndex(property_id);
   }
 
   for (const auto &[label_id, property_id] : indices_info.point_label_property) {

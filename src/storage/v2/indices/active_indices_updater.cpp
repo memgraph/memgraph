@@ -47,6 +47,10 @@ void ActiveIndicesUpdater::operator()(std::shared_ptr<EdgePropertyIndexActiveInd
   Publish<&ActiveIndices::edge_property_>(active_indices_, x);
 }
 
+void ActiveIndicesUpdater::operator()(std::shared_ptr<VertexPropertyIndexActiveIndices> const &x) const {
+  Publish<&ActiveIndices::vertex_property_>(active_indices_, x);
+}
+
 void ActiveIndicesUpdater::operator()(std::shared_ptr<TextIndexActiveIndices> const &x) const {
   Publish<&ActiveIndices::text_>(active_indices_, x);
 }
