@@ -221,9 +221,12 @@ class ReplicationStorageClient {
    *
    * @param replica_last_commit_ts the commit up to which we should recover to
    * @param main_storage pointer to the storage associated with the client
+   * @param protector gatekeeper access that protects the database; checked between recovery steps so a
+   * long-running recovery (e.g. streaming a whole snapshot) can abandon early once the tenant is dropped
    * @param reset_needed If true, replica needs to reset its storage when the 1st recovery step is sent.
    */
-  void RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage, bool reset_needed = false) const;
+  void RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage, DatabaseProtector const &protector,
+                      bool reset_needed = false) const;
 
   /**
    * @brief Check replica state

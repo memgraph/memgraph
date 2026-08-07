@@ -212,12 +212,30 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                   client_.name_,
                   main_db_name);
     replica_state_.WithLock([&](auto &state) {
+      // A cloned protector keeps its tenant's Gatekeeper accessor alive for as long as the clone lives, which is
+      // exactly how a drop-in-progress tenant escapes the drop gate: that gate only refuses to mint *new* accessors,
+      // it can't revoke ones already handed out, and each re-arm below clones a fresh one for a background task that
+      // can itself later re-arm (e.g. this heartbeat path is reached from inside a task that already holds a clone).
+      // Left unchecked, the chain never ends just because the drop asked new mints to stop. So every re-arm site
+      // must ask the protector first and decline to clone once the tenant is marked for deletion.
+      // We can't just skip the AddTask and leave the "state = RECOVERY" above intact: nothing would ever leave
+      // RECOVERY (the heartbeat gate at the top of this function refuses to touch state while it's RECOVERY), so a
+      // rolled-back drop would strand the replica forever. MAYBE_BEHIND is this file's existing idiom for "abandon,
+      // let a later heartbeat re-decide" (see the GetRecoverySteps failure path and FinalizeTransactionReplication).
+      // This is purely cooperative: the protector itself is not revoked and stays valid in whoever's holding it.
+      if (protector.is_tenant_marked_for_deletion()) {
+        spdlog::debug(
+            "Replica {} for db {} marked for deletion; abandoning recovery re-arm.", client_.name_, main_db_name);
+        state = ReplicaState::MAYBE_BEHIND;
+        return;
+      }
       state = ReplicaState::RECOVERY;
       client_.thread_pool_.AddTask(
           [main_storage, gk = protector.clone(), this, arena_pool = main_storage->DbArenaPool()] {
             const memory::DbArenaScope db_arena_scope{arena_pool};
             this->RecoverReplica(/*replica_last_commit_ts*/ 0,
                                  main_storage,
+                                 *gk,
                                  true);  // needs force reset so we need to recover from 0.
           });
     });
@@ -287,6 +305,11 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
         main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
       spdlog::debug("Replica {} up to date for db {}.", client_.name_, main_db_name);
       state = ReplicaState::READY;
+    } else if (protector.is_tenant_marked_for_deletion()) {
+      // See the branching-point re-arm above for why this check has to run before "state = RECOVERY".
+      spdlog::debug(
+          "Replica {} for db {} marked for deletion; abandoning recovery re-arm.", client_.name_, main_db_name);
+      state = ReplicaState::MAYBE_BEHIND;
     } else {
       spdlog::debug("Replica {} is behind for db {}.", client_.name_, main_db_name);
       state = ReplicaState::RECOVERY;
@@ -296,7 +319,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                                     arena_pool = main_storage->DbArenaPool(),
                                     this] {
         const memory::DbArenaScope db_arena_scope{arena_pool};
-        this->RecoverReplica(current_commit_timestamp, main_storage);
+        this->RecoverReplica(current_commit_timestamp, main_storage, *gk);
       });
     }
   });
@@ -316,6 +339,12 @@ void ReplicationStorageClient::LogRpcFailure() const {
 }
 
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, DatabaseProtector const &protector) {
+  // No WithLock/state write here (unlike the other re-arm sites) -- just don't arm the task.
+  if (protector.is_tenant_marked_for_deletion()) {
+    spdlog::debug(
+        "Db {} marked for deletion; skipping replica state check for {}.", main_storage->name(), client_.name_);
+    return;
+  }
   client_.thread_pool_.AddTask(
       [main_storage, protector = protector.clone(), arena_pool = main_storage->DbArenaPool(), this]() {
         const memory::DbArenaScope db_arena_scope{arena_pool};
@@ -327,12 +356,21 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
   spdlog::debug(
       "Force recovering replica {} for db {}", client_.name_, static_cast<InMemoryStorage *>(main_storage)->name());
   replica_state_.WithLock([&](auto &state) {
+    // See the branching-point re-arm in UpdateReplicaState for why this check has to run before "state = RECOVERY".
+    if (protector.is_tenant_marked_for_deletion()) {
+      spdlog::debug("Replica {} for db {} marked for deletion; abandoning forced recovery re-arm.",
+                    client_.name_,
+                    static_cast<InMemoryStorage *>(main_storage)->name());
+      state = ReplicaState::MAYBE_BEHIND;
+      return;
+    }
     state = ReplicaState::RECOVERY;
     client_.thread_pool_.AddTask(
         [main_storage, gk = protector.clone(), this, arena_pool = main_storage->DbArenaPool()] {
           const memory::DbArenaScope db_arena_scope{arena_pool};
           this->RecoverReplica(/*replica_last_commit_ts*/ 0,
                                main_storage,
+                               *gk,
                                true);  // needs force reset so we need to recover from 0.
         });
   });
@@ -665,7 +703,7 @@ void ReplicationStorageClient::Start(Storage *storage, DatabaseProtector const &
 // The replica will be considered as READY if it gets fully recovered. If there are commits taking place while recovery
 // is running, the replica will be again set to MAYBE_BEHIND state.
 void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage,
-                                              bool const reset_needed) const {
+                                              DatabaseProtector const &protector, bool const reset_needed) const {
   auto const &main_db_name = main_storage->name();
 
   // A guardrail, not a decision point: read without a hold, so the mode could flip right after.
@@ -714,6 +752,18 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   auto const &steps = *maybe_steps;
 
   for (auto const &[step_index, recovery_step] : ranges::views::enumerate(steps)) {
+    // A recovery in flight (e.g. streaming a whole snapshot) can outlive the drop that marked this tenant for
+    // deletion; re-check between steps rather than only at entry. Abandon via MAYBE_BEHIND, not a bare return --
+    // see the branching-point re-arm in UpdateReplicaState for why RECOVERY must never be left with nothing armed
+    // to leave it.
+    if (protector.is_tenant_marked_for_deletion()) {
+      spdlog::debug("Replica {} for db {} marked for deletion; abandoning in-flight recovery at step {}.",
+                    client_.name_,
+                    main_db_name,
+                    step_index);
+      replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+      return;
+    }
     try {
       spdlog::trace("Replica: {}, db: {}. Recovering in step: {}. Current local replica commit: {}.",
                     client_.name_,
