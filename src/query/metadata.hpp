@@ -52,6 +52,10 @@ enum class NotificationCode : uint8_t {
   YIELD_LEADERSHIP,
   LEADER_NOT_REACHABLE,
   REPLICATION_LAG_UNAVAILABLE,
+  // DROP DATABASE ... FORCE ABORT couldn't destroy the tenant (an accessor is pinning it); it warns the
+  // operator that the database is DETACHED, not gone. Multi-database DDL is enterprise-only
+  // (PrepareMultiDatabaseQuery in interpreter.cpp is wrapped whole in #ifdef MG_ENTERPRISE), so this stays here.
+  DROP_DATABASE_DETACHED,
 #endif
   SET_REPLICA,
   SYNC_REPLICATION_FAILURE,
