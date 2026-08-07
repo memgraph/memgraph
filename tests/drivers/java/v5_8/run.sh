@@ -24,7 +24,7 @@ done
 JAVA_VER=$(java -version 2>&1 >/dev/null | grep 'version' | cut -d "\"" -f2 | cut -d "." -f1)
 if [ $JAVA_VER -lt 17 ]
 then
-    echo "neo4j-java-driver v5.8 requires Java 17. Please install it!"
+    echo "neo4j-java-driver v5.8 requires Java 17+. Please install it!"
     exit 1
 fi
 
