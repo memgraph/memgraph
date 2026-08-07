@@ -128,7 +128,9 @@ struct Config {
   bool any_outgoing = false;
   bool filter_start_node = false;
   bool begin_sequence_at_start = true;
-  bool bfs = false;
+  // Emit every path of one length before any longer one. The default, so a LIMIT returns the
+  // shortest paths rather than whichever branch happened to be walked first.
+  bool bfs = true;
 };
 
 class PathHelper {
@@ -154,6 +156,18 @@ class PathHelper {
   bool PathSizeOk(int64_t path_size) const;
   bool PathTooBig(int64_t path_size) const;
   bool Whitelisted(bool whitelisted) const;
+
+  [[nodiscard]] bool Bfs() const { return config_.bfs; }
+
+  [[nodiscard]] int64_t MinHops() const { return config_.min_hops; }
+
+  [[nodiscard]] int64_t MaxHops() const { return config_.max_hops; }
+
+  // Used to walk one depth at a time; see PathExpand::RunAlgorithm.
+  void SetHopBounds(int64_t min_hops, int64_t max_hops) {
+    config_.min_hops = min_hops;
+    config_.max_hops = max_hops;
+  }
 
   // methods for parsing config
   void FilterLabelBoolStatus();
@@ -207,7 +221,12 @@ class PathExpand {
   void RunAlgorithm();
 
  private:
+  void RunAllStarts();
+
   PathData path_data_;
+  // Deepest path reached in the current pass; tells the breadth-first driver when it has run out of
+  // depth to explore, which is what bounds it when no upper hop bound was given.
+  int64_t deepest_reached_ = -1;
 };
 
 class PathSubgraph {

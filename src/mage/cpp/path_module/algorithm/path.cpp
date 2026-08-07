@@ -170,7 +170,7 @@ Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph) {
   config_.begin_sequence_at_start = value.IsNull() ? true : value.ValueBool();
 
   value = config.At("bfs");
-  config_.bfs = value.IsNull() ? false : value.ValueBool();
+  config_.bfs = value.IsNull() ? true : value.ValueBool();
 
   ParseNodeFilters(config, graph);
 }
@@ -579,6 +579,8 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
     return;
   }
 
+  deepest_reached_ = std::max(deepest_reached_, path_size);
+
   const LabelBools label_bools = path_data_.helper_.GetLabelBools(node);
   const LabelBools &inclusion_bools =
       path_data_.helper_.IsNotStartOrFiltersStartNode(path_size == 0) ? label_bools : kExemptStart;
@@ -615,10 +617,40 @@ void Path::PathExpand::Parse(const mgp::Value &value) {
   }
 }
 
-void Path::PathExpand::RunAlgorithm() {
+void Path::PathExpand::RunAllStarts() {
   for (const auto &node : path_data_.start_nodes_) {
     StartAlgorithm(node);
   }
+}
+
+// Depth-first emits a whole branch before moving to the next one; breadth-first emits every path of
+// one length before any longer path, which is what makes a LIMIT return the shortest paths.
+//
+// Breadth-first is driven by re-walking once per depth with the hop bounds pinned to that depth, so
+// the traversal, the filters and the uniqueness rule stay exactly the ones the depth-first walk uses.
+// The alternative -- a queue of partial paths -- would hold the whole frontier at once, and the
+// frontier of this walk is as large as the result set it is about to build.
+void Path::PathExpand::RunAlgorithm() {
+  if (!path_data_.helper_.Bfs()) {
+    RunAllStarts();
+    return;
+  }
+
+  const int64_t min_hops = path_data_.helper_.MinHops();
+  const int64_t max_hops = path_data_.helper_.MaxHops();
+
+  for (int64_t depth = std::max(min_hops, int64_t{0}); depth <= max_hops; ++depth) {
+    deepest_reached_ = -1;
+    path_data_.helper_.SetHopBounds(depth, depth);
+    RunAllStarts();
+    // Nothing reached this depth, so nothing can reach a greater one. This is what terminates the
+    // loop when no upper hop bound was given.
+    if (deepest_reached_ < depth) {
+      break;
+    }
+  }
+
+  path_data_.helper_.SetHopBounds(min_hops, max_hops);
 }
 
 namespace {
