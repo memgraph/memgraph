@@ -14,6 +14,8 @@
 #ifdef MG_ENTERPRISE
 
 #include <algorithm>
+#include <atomic>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -67,31 +69,49 @@ class DatabaseHandler : public Handler<Database> {
   }
 
  private:
-  /// Returns a factory callable that produces a DatabaseProtector for the database named
-  /// @p db_name by looking it up in this handler at call time. Used by both New_() and
-  /// BuildDetached() so the factory logic lives in exactly one place.
+  // A GKInternals<Database>* cannot be known when the factory closure is built: the Database (and
+  // thus the closure captured inside it) is constructed *inside* GKInternals, before that
+  // GKInternals has a stable address of its own (New()'s map node, or BuildDetached()'s
+  // soon-to-be-returned Gatekeeper). This cell is published into after construction succeeds, once
+  // the address exists -- see New() and BuildDetached() below. It must be an atomic, not a plain
+  // pointer: a background thread (e.g. the TTL scheduler, which WAL replay during recovery can
+  // spawn from inside the Storage constructor) may already be calling the factory before publish.
+  using ProtectorCell = std::shared_ptr<std::atomic<utils::GKInternals<Database> *>>;
+
+  struct ProtectorFactoryHandle {
+    std::function<storage::DatabaseProtectorPtr()> factory;
+    ProtectorCell cell;
+  };
+
+  /// Builds a {factory, cell} pair. The factory mints a DatabaseProtector for whichever tenant's
+  /// GKInternals is later published into `cell`; used by both New() and BuildDetached() so the
+  /// factory logic lives in exactly one place.
   ///
-  /// DRAIN GUARANTEE: the only route this closure has to a tenant is `this->Get(db_name)` ->
-  /// `Handler<Database>::Get` -> `Gatekeeper::access()` (the plain, drain-gated overload, never
-  /// utils::drain_bypass). Once a tenant is draining, access() returns nullopt, Get() returns
-  /// nullopt, and this factory returns nullptr. Its two consumers -- storage::ttl::TTL
-  /// (src/storage/v2/ttl.cpp) and the async indexer (src/storage/v2/async_indexer.cpp), both via
-  /// Storage::make_database_protector() -- check the result for null and return/stop rather than
-  /// commit. So no new DatabaseProtector can be armed for a tenant being dropped: a re-armed one
+  /// DRAIN GUARANTEE: the closure's only route to a tenant is `utils::Gatekeeper<Database>::access_via`
+  /// -- the plain, drain-gated mint, never utils::drain_bypass -- and it shares its `mint_locked`
+  /// predicate with both Gatekeeper::access() overloads, so a draining tenant is refused here exactly
+  /// as it would be through Get(). The closure holds no DatabaseHandler pointer, no name, and no
+  /// tenant registry -- only `cell` -- so it still has no other route to a tenant; that structural
+  /// absence (now: it never touches items_ at all, on either the background TTL/async-indexer
+  /// threads or otherwise) is what makes the guarantee hold by construction. Its two consumers --
+  /// storage::ttl::TTL (src/storage/v2/ttl.cpp) and the async indexer (src/storage/v2/async_indexer.cpp),
+  /// both via Storage::make_database_protector() -- check the result for null and return/stop rather
+  /// than commit. So no new DatabaseProtector can be armed for a tenant being dropped: a re-armed one
   /// would hold a live DatabaseAccess and keep the tenant's accessor count above zero indefinitely,
-  /// which would stop the drain from ever converging. This closure deliberately has no other route
-  /// to a tenant (no DbmsHandler pointer, no tenant registry) -- that structural absence is what
-  /// makes the guarantee hold by construction, not by caller discipline.
-  auto MakeDatabaseProtectorFactory(std::string db_name) {
-    return [this, db_name = std::move(db_name)]() -> storage::DatabaseProtectorPtr {
-      if (auto db_gatekeeper_opt = this->Get(db_name)) {
-        return std::make_unique<DatabaseProtector>(*db_gatekeeper_opt);
+  /// which would stop the drain from ever converging. A null `cell` (pre-publish) fails the same way
+  /// and is not a special case: it matches the pre-existing behaviour of looking up a not-yet-inserted
+  /// tenant.
+  ProtectorFactoryHandle MakeDatabaseProtectorFactory() {
+    auto cell = std::make_shared<std::atomic<utils::GKInternals<Database> *>>(nullptr);
+    auto factory = [cell]() -> storage::DatabaseProtectorPtr {
+      auto *internals = cell->load(std::memory_order_acquire);
+      if (internals == nullptr) return nullptr;
+      if (auto db_acc = utils::Gatekeeper<Database>::access_via(internals)) {
+        return std::make_unique<DatabaseProtector>(*db_acc);
       }
-      // A null return here is an expected, load-bearing outcome -- not an anomaly -- for a
-      // database that has been dropped or is currently draining (see the DRAIN GUARANTEE note
-      // above); it is exactly how ttl.cpp / async_indexer.cpp learn to stop re-arming work.
       return nullptr;
     };
+    return {std::move(factory), std::move(cell)};
   }
 
  public:
@@ -123,29 +143,35 @@ class DatabaseHandler : public Handler<Database> {
       return std::unexpected{NewError::EXISTS};
     }
 
-    return HandlerT::New(std::piecewise_construct,
-                         *config.salient.name.str_view(),
-                         config,
-                         MakeDatabaseProtectorFactory(config.salient.name.str()));
+    auto handle = MakeDatabaseProtectorFactory();
+    auto result =
+        HandlerT::New(std::piecewise_construct, *config.salient.name.str_view(), config, std::move(handle.factory));
+    if (result.has_value()) {
+      // Caller (DbmsHandler::New_) holds lock_ exclusive, so items_ cannot have moved this node yet.
+      auto *gk = GetGatekeeper(*config.salient.name.str_view());
+      handle.cell->store(gk->internals(), std::memory_order_release);
+    }
+    return result;
   }
 
   /**
    * @brief Build a Database gatekeeper OFF the map (no insert), recovering it if the config asks for
    *        it. Used by the hot/cold resume engine: the winner rebuilds the storage on its own thread
    *        without holding the handler under lock, then move-assigns the returned (HOT) gatekeeper
-   *        over the in-map COLD shell. The database-protector factory resolves the gatekeeper by name
-   *        via this->Get(db_name); after the caller publishes it at `name`, that lookup finds the
-   *        (now HOT) in-map gatekeeper.
+   *        over the in-map COLD shell. The database-protector factory is published against this
+   *        Gatekeeper's own GKInternals before it is returned, so it stays correct across that later
+   *        move-assignment (a unique_ptr pointer transfer -- see utils::Gatekeeper<T>::internals()).
    *
    * @param config Storage configuration (already path-resolved by the caller)
    * @return a HOT utils::Gatekeeper<Database> by value (move)
    */
   utils::Gatekeeper<Database> BuildDetached(storage::Config config) {
-    // Snap name before the move so MakeDatabaseProtectorFactory doesn't read moved-from config.
-    auto factory = MakeDatabaseProtectorFactory(config.salient.name.str());
+    auto handle = MakeDatabaseProtectorFactory();
     // Build OFF the map (no insert). The Database ctor recovers when
-    // config.durability.recover_on_startup == true. Returned by value (move).
-    return utils::Gatekeeper<Database>{std::move(config), std::move(factory)};
+    // config.durability.recover_on_startup == true.
+    utils::Gatekeeper<Database> gk{std::move(config), std::move(handle.factory)};
+    handle.cell->store(gk.internals(), std::memory_order_release);
+    return gk;
   }
 
   /**
