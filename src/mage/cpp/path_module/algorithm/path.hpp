@@ -13,6 +13,7 @@
 
 #include <mgp.hpp>
 
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <queue>
@@ -165,15 +166,31 @@ class PathHelper {
   Config config_;
 };
 
+// A traversal can run for a long time without allocating anything, so nothing else can stop it: the
+// memory tracker only fires on allocation, and the query timeout, TERMINATE TRANSACTIONS and shutdown
+// are only observed by a procedure that polls for them. Poll every kAbortPollInterval steps -- the
+// check is a few atomic loads, which would otherwise dominate the per-relationship test it guards.
+inline constexpr uint64_t kAbortPollInterval = 64;
+
+// Throws if the query is being terminated, has timed out, or the server is shutting down.
+inline void PollAbort(const mgp::Graph &graph, uint64_t &poll_counter) {
+  if (poll_counter++ % kAbortPollInterval == 0) {
+    graph.CheckMustAbort();
+  }
+}
+
 struct PathData {
   explicit PathData(PathHelper &&helper, const mgp::RecordFactory &record_factory, const mgp::Graph &graph)
       : helper_(std::move(helper)), record_factory_(record_factory), graph_(graph) {}
+
+  void MaybeAbort() { PollAbort(graph_, abort_poll_counter_); }
 
   PathHelper helper_;
   const mgp::RecordFactory &record_factory_;
   const mgp::Graph &graph_;
   std::unordered_set<int64_t> visited_;
   std::unordered_set<mgp::Node> start_nodes_;
+  uint64_t abort_poll_counter_ = 0;
 };
 
 class PathExpand {

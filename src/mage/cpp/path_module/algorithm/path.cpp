@@ -426,16 +426,20 @@ void Path::Slice(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *re
   }
 }
 
-void Path::Create(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+void Path::Create(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
+  const auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
   try {
     auto start_node{arguments[0].ValueNode()};
     auto relationships{arguments[1].ValueMap()};
 
+    // Each entry scans an endpoint's relationships, so a long list over dense nodes needs polling too.
+    uint64_t abort_poll_counter = 0;
     mgp::Path path{start_node};
     for (const auto &relationship : relationships["rel"].ValueList()) {
+      PollAbort(graph, abort_poll_counter);
       if (relationship.IsNull()) {
         break;
       }
@@ -489,6 +493,10 @@ void Path::PathExpand::ExpandPath(mgp::Path &path, const mgp::Relationship &rela
 void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationships relationships, bool outgoing,
                                                int64_t path_size, std::set<std::pair<std::string, int64_t>> &seen) {
   for (const auto relationship : relationships) {
+    // A node whose relationships are all filtered out does no other work, so without a poll here the
+    // walk is unstoppable for the whole adjacency list of a supernode.
+    path_data_.MaybeAbort();
+
     // string_view keeps the GetDirection lookup allocation-free; `seen` below owns its key.
     const std::string_view type = relationship.Type();
     auto wanted_direction = path_data_.helper_.GetDirection(type);
@@ -515,6 +523,10 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationshi
 
 /*function used for traversal and filtering*/
 void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
+  // The walk enumerates paths, not nodes, so it can run far longer than the graph is big -- and with a
+  // high enough minHops it does so without emitting anything, where no memory limit can stop it.
+  path_data_.MaybeAbort();
+
   // One frame per hop, so an unbounded upper hop bound would overflow the stack rather than return.
   if (path_size > kMaxExpandDepth) {
     throw mgp::ValueException("Path expansion exceeded the maximum depth of " + std::to_string(kMaxExpandDepth) +
@@ -640,6 +652,10 @@ void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int6
                                                  std::queue<std::pair<mgp::Node, int64_t>> &queue,
                                                  std::set<std::pair<std::string, int64_t>> &seen) {
   for (const auto relationship : relationships) {
+    // As in the expand walk: a supernode whose relationships are all filtered out would otherwise be
+    // traversed without ever reaching the dequeue poll above.
+    path_data_.MaybeAbort();
+
     auto next_node = outgoing ? relationship.To() : relationship.From();
 
     if (path_data_.visited_.contains(next_node.Id().AsInt())) {
@@ -701,6 +717,8 @@ mgp::List Path::PathSubgraph::BFS() {
   }
 
   while (!queue.empty()) {
+    path_data_.MaybeAbort();
+
     auto pair = std::move(queue.front());
     queue.pop();
 
@@ -783,9 +801,13 @@ void Path::SubgraphAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
       to_be_returned_nodes_searchable.insert(node.ValueNode());
     }
 
+    // Collecting the relationships is a second O(nodes * degree) pass outside the walk, so it needs its
+    // own polling to stay abortable.
+    uint64_t abort_poll_counter = 0;
     mgp::List to_be_returned_rels;
     for (auto node : to_be_returned_nodes) {
       for (auto rel : node.ValueNode().OutRelationships()) {
+        PollAbort(graph, abort_poll_counter);
         if (to_be_returned_nodes_searchable.contains(rel.To())) {
           to_be_returned_rels.AppendExtend(mgp::Value(rel));
         }
