@@ -493,7 +493,7 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
 }
 
 DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::Transaction *transaction,
-                                              CooperativeCancelFn cooperative_cancel) {
+                                              CooperativeCancelFn cooperative_cancel, DrainRequest const *drain) {
   auto wr = std::unique_lock(lock_);
 
   // Cold-tenant fast path.
@@ -515,7 +515,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
 
   // `conf` is a by-value copy (DatabaseHandler::GetConfig), so unlike a pointer/reference into
   // db_handler_ it stays valid across Delete_'s internal unlock/relock of `wr`.
-  const auto res = Delete_(db_name, wr, cooperative_cancel);
+  const auto res = Delete_(db_name, wr, cooperative_cancel, drain);
   if (res) {
     // Success; save delta
     if (transaction) {
@@ -823,8 +823,76 @@ void DbmsHandler::RequestCooperativeCancel_(Database *database, CooperativeCance
   database->StopAfterCommitTriggers();
 }
 
+void DbmsHandler::AwaitDrain_(utils::Gatekeeper<Database> *gk, Database *database,
+                              CooperativeCancelFn const &cooperative_cancel, DrainRequest const &drain) {
+  using clock = std::chrono::steady_clock;
+  using std::chrono::duration_cast;
+  using std::chrono::milliseconds;
+
+  const auto started = clock::now();
+  const auto expiry = started + drain.deadline;
+
+  auto finish = [&](DrainOutcome outcome, uint64_t holders_remaining, DrainBlockers blockers) {
+    if (!drain.report) return;
+    *drain.report = DrainReport{.outcome = outcome,
+                                .waited = duration_cast<milliseconds>(clock::now() - started),
+                                .holders_remaining = holders_remaining,
+                                .blockers = blockers};
+  };
+
+  for (;;) {
+    // holder_count() self-documents as "INHERENTLY RACY ... Diagnostics only; use
+    // try_delete()/try_begin_suspend() ... to actually gate" (gatekeeper.hpp:387-393). That warning is
+    // about using the count AS a gate. This loop gates nothing: the authoritative gate is still Phase
+    // 3's DeferDelete -> Accessor::try_delete(), which re-checks count_ == 1 under mutex_ before
+    // destroying anything. A stale-low read here only causes an early exit that degrades to exactly
+    // today's deferred behaviour; a stale-high read only spends more of the deadline.
+    const auto holders = gk->holder_count();
+    if (holders <= 1) {
+      // <= 1, not == 1: Phase 1's own drain_bypass accessor guarantees holder_count() >= 1 for the
+      // entire loop (it is reset at :950, strictly after this wait), so == 1 is correct today -- but
+      // <= 1 cannot spin forever if a future edit ever moves acc.reset() above the wait.
+      finish(DrainOutcome::CONVERGED, 0, {});
+      spdlog::info(R"(Database "{}" finished draining after {} ms; proceeding with the drop.)",
+                   database->name(),
+                   duration_cast<milliseconds>(clock::now() - started).count());
+      return;
+    }
+    if (clock::now() >= expiry) {
+      DrainBlockers blockers{};
+      if (drain.probe) {
+        // MANDATORY, not defensive fluff: an escaping throw here unwinds into Delete_'s
+        // `rollback_drain` guard and converts an EXPIRED drop -- a legitimate, honoured outcome --
+        // into a FAILED one. A diagnostic must never fail an otherwise-honoured drop.
+        try {
+          blockers = drain.probe();
+        } catch (...) {
+        }
+      }
+      const auto holders_remaining = holders - 1;
+      finish(DrainOutcome::EXPIRED, holders_remaining, blockers);
+      spdlog::warn(
+          R"(Database "{}" still has {} holder(s) after waiting {} ms to drain; {} transaction(s) were asked to abort and have not released it yet.)",
+          database->name(),
+          holders_remaining,
+          duration_cast<milliseconds>(clock::now() - started).count(),
+          blockers.transactions_asked_to_abort);
+      return;
+    }
+    RequestCooperativeCancel_(database, cooperative_cancel);
+    // Re-read the clock HERE, after the sweep, not before it: computing the sleep bound from a
+    // pre-sweep clock would let the loop overshoot `expiry` by one sweep's duration (the sweep
+    // iterates every live interpreter under a SpinLock doing a CAS and possibly a virtual
+    // IsAuthorized call).
+    const auto now = clock::now();
+    if (now >= expiry) continue;  // let the top-of-loop expiry branch above produce the report
+    std::this_thread::sleep_for(std::min(kDrainPollSlice, std::chrono::ceil<milliseconds>(expiry - now)));
+  }
+}
+
 DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::unique_lock<LockT> &lock,
-                                               CooperativeCancelFn const &cooperative_cancel) {
+                                               CooperativeCancelFn const &cooperative_cancel,
+                                               DrainRequest const *drain) {
   // PHASE 1 — under `lock`: in-memory bookkeeping only, no blocking call, no thread join, no disk
   // I/O below this point until Phase 3.
   if (db_name == kDefaultDB) {
@@ -945,6 +1013,11 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   RequestCooperativeCancel_(database, cooperative_cancel);
   database->StopAllBackgroundTasks();
   database->streams()->DropAll();
+  // Wait goes AFTER StopAllBackgroundTasks()/DropAll(), not before: those two joins already remove
+  // whole holder classes synchronously (TTL, async-indexer, the after-commit trigger pool, stream
+  // consumers), so waiting first would spend the deadline on holders that are about to be joined
+  // anyway. `drain` is nullptr on every non-FORCE-ABORT caller, so this is a no-op there.
+  if (drain) AwaitDrain_(gk, database, cooperative_cancel, *drain);
   acc.reset();  // release the drop's own accessor so Phase 3's DeferDelete -> try_delete() can win
   lock.lock();
 
