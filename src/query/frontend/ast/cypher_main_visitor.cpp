@@ -4824,16 +4824,11 @@ bool IsConstantLiteralExpression(Expression *expr) {
     return true;
   }
   if (auto *list = utils::Downcast<ListLiteral>(expr)) {
-    for (auto *element : list->elements_) {
-      if (!IsConstantLiteralExpression(element)) return false;
-    }
-    return true;
+    return std::ranges::all_of(list->elements_, IsConstantLiteralExpression);
   }
   if (auto *map = utils::Downcast<MapLiteral>(expr)) {
-    for (auto const &entry : map->elements_) {
-      if (!IsConstantLiteralExpression(entry.second)) return false;
-    }
-    return true;
+    return std::ranges::all_of(map->elements_,
+                               [](auto const &entry) { return IsConstantLiteralExpression(entry.second); });
   }
   return false;
 }
