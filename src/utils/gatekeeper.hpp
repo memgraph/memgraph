@@ -149,9 +149,8 @@ struct GKInternals {
   std::unique_ptr<T> value_;
   uint64_t count_ = 0;
   std::atomic_bool is_marked_for_deletion = false;
-  // Plain bool, NOT atomic: every access happens under mutex_ already, and begin_drain() needs the
-  // HOT check and the set to be one indivisible step — an atomic<bool> gives atomicity to each
-  // access individually but not to "check state_ == HOT, then set draining_" as a single unit.
+  // Plain bool, not atomic: every access already happens under mutex_, and begin_drain() needs the
+  // HOT check plus the set to be one indivisible step, which a bare atomic<bool> would not give.
   bool draining_ = false;
   std::mutex mutex_;  // TODO change to something cheaper?
   std::condition_variable cv_;
@@ -376,11 +375,13 @@ struct Gatekeeper {
   }
 
   // Bypasses the draining_ refusal above. Restricted to deletion/teardown machinery:
-  // Handler<T>::DeferDelete, and DatabaseHandler's destructor / its New() directory-collision scan.
+  // DbmsHandler::Delete_'s own accessor right after begin_drain(), Handler<T>::DeferDelete, and
+  // DatabaseHandler's destructor / its New() directory-collision scan.
   // Mandatory, not a convenience: Handler<T>::DeferDelete does
-  //   auto db_acc = itr->second.access(); if (!db_acc) return;
-  // *before* its unconditional items_.erase(itr) — a drain-gated mint there would strand the tenant
-  // in items_ forever: unreachable by name, never destroyed, its name permanently unusable.
+  //   auto db_acc = itr->second.access(utils::drain_bypass); if (!db_acc) return;
+  // *before* its unconditional items_.erase(itr) — minting via the plain (non-bypass) overload
+  // there would strand the tenant in items_ forever: unreachable by name, never destroyed, its
+  // name permanently unusable.
   // Do NOT use this from anything that could win Accessor::try_delete() behind the drop's back —
   // that is exactly why Handler<T>::TryDelete stays gated on the non-bypass overload above.
   std::optional<Accessor> access(drain_bypass_t /*tag*/) {
@@ -512,9 +513,8 @@ struct Gatekeeper {
     pimpl_->cv_.notify_all();
   }
 
-  // HOT -> HOT, draining_: false -> true. Deliberately NOT a GatekeeperState transition — see the
-  // note on GatekeeperState above and on draining_ in GKInternals for why a fifth state value would
-  // hang ~Gatekeeper's terminal predicate forever.
+  // HOT -> HOT, draining_: false -> true — an orthogonal flag, not a GatekeeperState transition
+  // (see the note on GatekeeperState above).
   //
   // Single-flight CAS *and* the concurrent-SUSPEND/RESUME guard in one atomic step: requires
   // state_ == HOT (refuses an in-flight SUSPENDING/RESUMING gatekeeper, and a COLD one) AND
@@ -558,10 +558,8 @@ struct Gatekeeper {
     {
       auto lock = std::unique_lock{pimpl_->mutex_};
       auto const terminal_and_drained = [this] {
-        // Deliberately tests state_ and count_ only — draining_ is an orthogonal flag (see
-        // GatekeeperState's comment above), not a state, so it never enters this predicate and a
-        // draining HOT/COLD gatekeeper stays destructible. Anyone adding a new GatekeeperState value
-        // must extend this predicate too, or a Gatekeeper stuck in that state waits here forever.
+        // draining_ deliberately excluded (orthogonal flag, not a state — see GatekeeperState above),
+        // so a draining HOT/COLD gatekeeper stays destructible; a new GatekeeperState value must be added here too.
         return (pimpl_->state_ == GatekeeperState::HOT || pimpl_->state_ == GatekeeperState::COLD) &&
                pimpl_->count_ == 0;
       };
