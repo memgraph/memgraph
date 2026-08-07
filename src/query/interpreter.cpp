@@ -8522,8 +8522,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
       .rw_type = RWType::NONE};
 }
 
-PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
-                                        Interpreter &interpreter) {
+PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, std::vector<Notification> *notifications,
+                                        InterpreterContext *interpreter_context, Interpreter &interpreter) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryRuntimeException(
@@ -8594,9 +8594,11 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [db_name = query->db_name_,
                             force = query->force_,
+                            force_abort = query->force_abort_,
                             db_handler,
                             interpreter_context,
                             auth = interpreter_context->auth,
+                            notifications,
                             interpreter = &interpreter](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             if (!interpreter->system_transaction_) {
@@ -8604,6 +8606,11 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             }
 
             std::vector<std::vector<TypedValue>> status;
+            // Written only inside the `force` branch below (left NOT_REQUESTED otherwise); read after the
+            // try/catch to decide whether the operator-facing DETACHED warning is due. Declared out here,
+            // rather than beside `drain` below, so it is still in scope once the try block has exited
+            // (Delete() itself is synchronous, so the report is always fully written before that point).
+            dbms::DbmsHandler::DrainReport drain_report;
 
             try {
               // Remove database
@@ -8644,7 +8651,36 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                     spdlog::warn("Cooperative cancel of transactions using {} failed; continuing drop.", db_name);
                   }
                 };
-                success = db_handler->Delete(db_name, &*interpreter->system_transaction_, cooperative_cancel);
+
+                // Diagnostic-only holder breakdown for the operator-facing report on drain expiry (see
+                // DrainRequest's doc on DbmsHandler::Delete). Reuses the exact same verifier-protected
+                // enumeration the cooperative_cancel sweep above already uses -- ShowTransactionsUsingDBName
+                // goes through Interpreter::TryAcquireForVerification() -- so this adds no new cross-thread
+                // read. Must swallow for the same reason cooperative_cancel does: a diagnostic can never be
+                // allowed to turn an expired-but-otherwise-honoured drop into a failed one (AwaitDrain_ also
+                // guards this call itself; this is belt-and-braces on the layer that owns the operator text).
+                auto holder_probe = [db_name, interpreter_context]() -> dbms::DbmsHandler::DrainBlockers {
+                  try {
+                    const auto asked_to_abort =
+                        interpreter_context->interpreters.WithLock([db_name](auto &interpreters) {
+                          return InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name).size();
+                        });
+                    return dbms::DbmsHandler::DrainBlockers{
+                        .transactions_asked_to_abort = static_cast<uint64_t>(asked_to_abort), .probe_ran = true};
+                  } catch (...) {
+                    return {};
+                  }
+                };
+
+                std::optional<dbms::DbmsHandler::DrainRequest> drain;
+                if (force_abort) {
+                  drain.emplace(dbms::DbmsHandler::DrainRequest{
+                      .deadline = dbms::DbmsHandler::kDrainDeadline, .probe = holder_probe, .report = &drain_report});
+                }
+                // Plain FORCE must stay on today's exact path: drain is nullptr unless FORCE ABORT asked
+                // for the bounded wait.
+                success = db_handler->Delete(
+                    db_name, &*interpreter->system_transaction_, cooperative_cancel, drain ? &*drain : nullptr);
               } else {
                 success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
               }
@@ -8667,6 +8703,44 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
               }
             } catch (const utils::BasicException &e) {
               throw QueryRuntimeException(e.what());
+            }
+
+            // Only on EXPIRED: on CONVERGED the outcome is identical to plain FORCE's, and stays silent so
+            // FORCE ABORT is a drop-in (dbms already spdlog::warn's the expiry; this is the operator-facing
+            // half of that same event). Reaching here at all implies the drop itself threw nothing, i.e.
+            // Phase 3 accepted the DETACHED state -- the wording below states that as fact, not hope.
+            if (notifications != nullptr && drain_report.outcome == dbms::DbmsHandler::DrainOutcome::EXPIRED) {
+              const auto asked_to_abort = drain_report.blockers.transactions_asked_to_abort;
+              const auto residual = drain_report.holders_remaining > asked_to_abort
+                                        ? drain_report.holders_remaining - asked_to_abort
+                                        : uint64_t{0};
+              std::string description = fmt::format(
+                  "Waited {} ms for the last holders of \"{}\" to let go after asking them to stop; {} holder(s) "
+                  "remain, so the database is now DETACHED and its memory stays accounted for until the last "
+                  "holder releases it.",
+                  drain_report.waited.count(),
+                  db_name,
+                  drain_report.holders_remaining);
+              if (asked_to_abort > 0) {
+                description += fmt::format(
+                    " {} transaction(s) on this database were asked to abort and have not released it yet: an "
+                    "explicit transaction is released only when its client sends ROLLBACK, and a transaction "
+                    "waiting for this database's storage lock only notices the abort once that wait ends.",
+                    asked_to_abort);
+              }
+              if (residual > 0) {
+                description += fmt::format(
+                    " {} remaining holder(s) are attached to no transaction: an idle client session that "
+                    "selected this database (it releases on its next request), or in-flight replication work.",
+                    residual);
+              }
+              description += fmt::format(
+                  " The name \"{}\" is free for immediate reuse; watch the tenant retire with SHOW DATABASES.",
+                  db_name);
+              notifications->emplace_back(SeverityLevel::WARNING,
+                                          NotificationCode::DROP_DATABASE_DETACHED,
+                                          fmt::format("Database \"{}\" was dropped but is not destroyed yet.", db_name),
+                                          std::move(description));
             }
 
             status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully deleted " + db_name)});
@@ -8833,6 +8907,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;
+  (void)notifications;
   (void)interpreter_context;
   (void)interpreter;
   throw EnterpriseOnlyException();
@@ -10995,7 +11070,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       }
       /// SYSTEM (Replication) + INTERPRETER
       // DMG_ASSERT(system_guard);
-      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), interpreter_context_, *this);
+      prepared_query = PrepareMultiDatabaseQuery(
+          std::move(parsed_query), &query_execution->notifications, interpreter_context_, *this);
     } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw UseDatabaseQueryInMulticommandTxException();
