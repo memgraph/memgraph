@@ -11724,7 +11724,8 @@ void Interpreter::Commit() {
   // finished, that transaction probably will schedule its after commit triggers, because the other transactions that
   // want to commit are still waiting for commiting or one of them just started commiting its changes. This means the
   // ordered execution of after commit triggers are not guaranteed.
-  if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
+  auto const after_commit_trigger_count = db->trigger_store()->AfterCommitTriggers().size();
+  if (trigger_context && after_commit_trigger_count > 0) {
     // The ReplicationError arm above doesn't throw, so an aborted STRICT_SYNC transaction still reaches here;
     // the throw happens further down. Skip the trigger run so it doesn't fire for rolled-back effects.
     if (txn_committed) {
@@ -11739,9 +11740,10 @@ void Interpreter::Commit() {
         SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
       });
     } else {
-      spdlog::warn("Skipping {} AFTER COMMIT trigger(s) on database '{}' because the transaction was aborted.",
-                   db->trigger_store()->AfterCommitTriggers().size(),
-                   db->name());
+      spdlog::warn("Skipping {} AFTER COMMIT trigger(s) on database '{}' because the transaction was aborted: {}",
+                   after_commit_trigger_count,
+                   db->name(),
+                   replication_error_msg.value_or("no replication error was recorded"));
     }
   }
 
