@@ -1121,11 +1121,11 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
 
-  auto const &wal_info = *maybe_wal_header;
+  auto const &wal_header = *maybe_wal_header;
 
   // We have to check if this is our 1st wal, not what main is sending
   if (storage->wal_seq_num_ == 0) {
-    storage->uuid().set(wal_info.uuid);
+    storage->uuid().set(wal_header.uuid);
   }
 
   // If WAL file doesn't contain any changes that need to be applied, ignore it
@@ -1135,10 +1135,10 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   }
 
   // We trust only WAL files which contain changes we are interested in (newer changes)
-  if (auto &repl_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != repl_epoch.id()) {
-    spdlog::trace("Set epoch to {} for db {}", wal_info.epoch_id, storage->name());
+  if (auto &repl_epoch = storage->repl_storage_state_.epoch_; wal_header.epoch_id != repl_epoch.id()) {
+    spdlog::trace("Set epoch to {} for db {}", wal_header.epoch_id, storage->name());
     storage->repl_storage_state_.SaveLatestHistory();
-    repl_epoch.SetEpoch(wal_info.epoch_id);
+    repl_epoch.SetEpoch(wal_header.epoch_id);
   }
 
   // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
@@ -1164,7 +1164,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
 
-  wal_decoder.SetPosition(wal_info.offset_deltas);
+  wal_decoder.SetPosition(wal_header.offset_deltas);
 
   uint32_t local_batch_counter = start_batch_counter;
   uint64_t num_txns_committed{0};
