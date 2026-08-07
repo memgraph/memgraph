@@ -212,17 +212,14 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                   client_.name_,
                   main_db_name);
     replica_state_.WithLock([&](auto &state) {
-      // A cloned protector keeps its tenant's Gatekeeper accessor alive for as long as the clone lives, which is
-      // exactly how a drop-in-progress tenant escapes the drop gate: that gate only refuses to mint *new* accessors,
-      // it can't revoke ones already handed out, and each re-arm below clones a fresh one for a background task that
-      // can itself later re-arm (e.g. this heartbeat path is reached from inside a task that already holds a clone).
-      // Left unchecked, the chain never ends just because the drop asked new mints to stop. So every re-arm site
-      // must ask the protector first and decline to clone once the tenant is marked for deletion.
-      // We can't just skip the AddTask and leave the "state = RECOVERY" above intact: nothing would ever leave
-      // RECOVERY (the heartbeat gate at the top of this function refuses to touch state while it's RECOVERY), so a
-      // rolled-back drop would strand the replica forever. MAYBE_BEHIND is this file's existing idiom for "abandon,
-      // let a later heartbeat re-decide" (see the GetRecoverySteps failure path and FinalizeTransactionReplication).
-      // This is purely cooperative: the protector itself is not revoked and stays valid in whoever's holding it.
+      // A cloned protector keeps its tenant's Gatekeeper accessor alive for as long as the clone lives: a DROP gate
+      // that only refuses new mints can't stop an already-armed re-arm chain (this heartbeat path is itself reached
+      // from a task holding a clone), so every re-arm site must ask the protector before cloning another one.
+      // Bailing via a bare return instead of MAYBE_BEHIND would strand the replica in RECOVERY forever: the RECOVERY
+      // check later in this function (before merging commit_ts_info_ below) never sees state leave RECOVERY.
+      // MAYBE_BEHIND is this file's idiom for "abandon, let a later heartbeat re-decide" (see the GetRecoverySteps
+      // failure path and FinalizeTransactionReplication). This is cooperative only -- the protector itself stays
+      // valid, never revoked.
       if (protector.is_tenant_marked_for_deletion()) {
         spdlog::debug(
             "Replica {} for db {} marked for deletion; abandoning recovery re-arm.", client_.name_, main_db_name);
@@ -752,10 +749,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   auto const &steps = *maybe_steps;
 
   for (auto const &[step_index, recovery_step] : ranges::views::enumerate(steps)) {
-    // A recovery in flight (e.g. streaming a whole snapshot) can outlive the drop that marked this tenant for
-    // deletion; re-check between steps rather than only at entry. Abandon via MAYBE_BEHIND, not a bare return --
-    // see the branching-point re-arm in UpdateReplicaState for why RECOVERY must never be left with nothing armed
-    // to leave it.
+    // A recovery in flight (e.g. streaming a snapshot) can outlive the drop; re-check between steps, not just at
+    // entry. Abandon via MAYBE_BEHIND, not a bare return -- see the branching-point re-arm in UpdateReplicaState.
     if (protector.is_tenant_marked_for_deletion()) {
       spdlog::debug("Replica {} for db {} marked for deletion; abandoning in-flight recovery at step {}.",
                     client_.name_,

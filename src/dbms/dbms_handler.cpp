@@ -817,9 +817,8 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
 }
 
 void DbmsHandler::RequestCooperativeCancel_(Database *database, CooperativeCancelFn const &cooperative_cancel) {
-  // Step 1 first, deliberately: it can throw, and at this point nothing about the drop is latched, so
-  // Delete_'s `rollback_drain` guard can still unwind to a fully usable tenant. Step 2 is noexcept and
-  // one-way (see Database::StopAfterCommitTriggers), so it must run last.
+  // Step 1 first: it can throw, and nothing about the drop is latched yet, so `rollback_drain` can
+  // still unwind cleanly. Step 2 is noexcept and one-way (Database::StopAfterCommitTriggers), so it runs last.
   if (cooperative_cancel) cooperative_cancel();
   database->StopAfterCommitTriggers();
 }
@@ -941,12 +940,10 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   // `gk`/`acc` are the only handles we still trust past this point; `name`/`storage_path` are owned copies.
   lock.unlock();
   // Must run BEFORE StopAllBackgroundTasks(): that call joins the after-commit trigger pool's worker
-  // (Database::StopAllBackgroundTasks -> ThreadPool::ShutDown() -> jthread join), so a trigger told to
-  // stop only afterwards is told nothing at all -- the join is already blocked on it. The same ordering
-  // is what lets `cooperative_cancel` reach an in-flight stream batch too: a stream consumer holds a
-  // DatabaseAccess through a per-batch Interpreter, and StopAllBackgroundTasks() would otherwise join
-  // that batch first. `database` is safe to dereference here: Phase 1's `acc` (drain_bypass) is still
-  // live, so count_ >= 1 across this whole window.
+  // (ThreadPool::ShutDown() -> jthread join) and, via streams()->Shutdown(), each running stream
+  // consumer's thread -- asking afterwards reaches nothing still in flight, including a consumer's
+  // Interpreter (holds a DatabaseAccess, registered in interpreter_context->interpreters). `database`
+  // stays alive throughout: Phase 1's `acc` (count_ >= 1) isn't reset until below.
   RequestCooperativeCancel_(database, cooperative_cancel);
   database->StopAllBackgroundTasks();
   database->streams()->DropAll();
