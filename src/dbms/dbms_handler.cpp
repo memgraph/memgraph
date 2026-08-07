@@ -854,15 +854,24 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
 
   // Check if db exists
   // Low level handlers
-  db_handler_.DeferDelete(db_name, [this, tenant_uuid, storage_path = *storage_path, db_name = std::string{db_name}]() {
+  // The row above is already published; if constructing the deferred closure or DeferDelete itself
+  // throws before the Gatekeeper is actually handed off, undo the publish or it outlives the
+  // still-live tenant and double-counts it forever.
+  try {
+    db_handler_.DeferDelete(
+        db_name, [this, tenant_uuid, storage_path = *storage_path, db_name = std::string{db_name}]() {
+          ForgetDetached_(tenant_uuid);
+          // Delete disk storage
+          std::error_code ec;
+          (void)std::filesystem::remove_all(storage_path, ec);
+          if (ec) {
+            spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
+          }
+        });
+  } catch (...) {
     ForgetDetached_(tenant_uuid);
-    // Delete disk storage
-    std::error_code ec;
-    (void)std::filesystem::remove_all(storage_path, ec);
-    if (ec) {
-      spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
-    }
-  });
+    throw;
+  }
 
   return {};  // Success
 }

@@ -8128,7 +8128,13 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
       } else {
-        handler = [interpreter_isolation_level, next_transaction_isolation_level, dbms_handler] {
+        handler = [interpreter_isolation_level,
+                   next_transaction_isolation_level
+#ifdef MG_ENTERPRISE
+                   ,
+                   dbms_handler
+#endif
+        ] {
           metrics::Metrics().global.show_storage_info->Increment();
           const auto instance_info = GetInstanceStorageInfo();
 #ifdef MG_ENTERPRISE
