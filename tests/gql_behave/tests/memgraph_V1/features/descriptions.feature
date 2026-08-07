@@ -469,3 +469,19 @@ Feature: Server-side descriptions
         Then the result should be:
             | label     |
             | 'A point' |
+
+    Scenario: A non-constant VALUE is rejected
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON PROPERTY p VALUE [1 + 2] "x"
+            """
+        Then an error should be raised
+
+    Scenario: A null VALUE is rejected
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON PROPERTY p VALUE null "x"
+            """
+        Then an error should be raised

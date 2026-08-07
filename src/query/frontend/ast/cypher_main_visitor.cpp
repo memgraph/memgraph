@@ -4789,6 +4789,30 @@ antlrcpp::Any CypherMainVisitor::visitDescriptionQuery(MemgraphCypher::Descripti
   return description_query;
 }
 
+namespace {
+// VALUE reuses the general `literal` rule, whose list/map alternatives admit arbitrary expressions. A property-value
+// code must be a constant, so reject anything that is not a literal (or a stripped-literal ParameterLookup) — otherwise
+// a non-constant would reach the prepare-time constant evaluator and terminate / evaluate to null.
+bool IsConstantLiteralExpression(Expression *expr) {
+  if (utils::Downcast<PrimitiveLiteral>(expr) != nullptr || utils::Downcast<ParameterLookup>(expr) != nullptr) {
+    return true;
+  }
+  if (auto *list = utils::Downcast<ListLiteral>(expr)) {
+    for (auto *element : list->elements_) {
+      if (!IsConstantLiteralExpression(element)) return false;
+    }
+    return true;
+  }
+  if (auto *map = utils::Downcast<MapLiteral>(expr)) {
+    for (auto const &entry : map->elements_) {
+      if (!IsConstantLiteralExpression(entry.second)) return false;
+    }
+    return true;
+  }
+  return false;
+}
+}  // namespace
+
 void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetContext *ctx,
                                               DescriptionQuery *description_query) {
   if (ctx->LABEL() && ctx->PROPERTY()) {
@@ -4839,6 +4863,9 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
     description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY_VALUE;
     description_query->properties_.emplace_back(std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this)));
     description_query->value_ = std::any_cast<Expression *>(ctx->literal()->accept(this));
+    if (!IsConstantLiteralExpression(description_query->value_)) {
+      throw SemanticException("A property-value description VALUE must be a constant literal (scalar, list, or map).");
+    }
   } else if (ctx->PROPERTY()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY;
     description_query->properties_.emplace_back(std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this)));
