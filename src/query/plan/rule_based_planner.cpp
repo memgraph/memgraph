@@ -18,6 +18,7 @@
 #include <ranges>
 #include <stack>
 #include <unordered_set>
+#include <utility>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -34,6 +35,32 @@ namespace {
 bool IsConstantLiteral(const Expression *expression) {
   return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
 }
+
+/// Whether the comprehension's own pattern holds a variable-length edge. Top level only - a nested one is planned
+/// separately and gets its own view.
+bool HasVariableLengthExpansion(const PatternComprehensionMatching &pc) {
+  return std::ranges::any_of(pc.expansions,
+                             [](const auto &expansion) { return expansion.edge && expansion.edge->IsVariable(); });
+}
+
+/// Like UsedSymbolsCollector but also descends into a comprehension's filter and result expression: everything the
+/// WHERE evaluates must survive an OrderBy below it. The base stops at the pattern, as its other callers need.
+class WhereReadSymbolsCollector : public UsedSymbolsCollector {
+ public:
+  using UsedSymbolsCollector::UsedSymbolsCollector;
+
+  bool PreVisit(PatternComprehension &pc) override {
+    // The base tracks a depth, so a comprehension nested below does not release us early.
+    UsedSymbolsCollector::PreVisit(pc);
+    if (pc.filter_) {
+      pc.filter_->Accept(*this);
+    }
+    if (pc.resultExpr_) {
+      pc.resultExpr_->Accept(*this);
+    }
+    return false;
+  }
+};
 
 /// Visitor to collect pattern comprehension symbols from expressions.
 /// Used to track which pattern comprehensions appear inside aggregate expressions.
@@ -79,6 +106,10 @@ class PCSymbolCollector : public HierarchicalTreeVisitor {
 // aggregations and expressions used for group by.
 class ReturnBodyContext : public HierarchicalTreeVisitor {
  public:
+  // Where in the return body an expression sits, hence where a comprehension in it is spliced: the projection below
+  // the Produce, ORDER BY below the OrderBy, WHERE above it.
+  enum class BodyPosition : uint8_t { kProjection, kOrderBy, kWhere };
+
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols,
                     AstStorage &storage, PatternComprehensionContext *pc_ctx, Where *where = nullptr)
       : body_(body),
@@ -109,6 +140,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       }
       group_by_used_symbols_ = collector.symbols_;
     }
+    // ORDER BY and WHERE run after the Produce, so a comprehension there also sees the named expression symbols.
+    post_produce_bound_symbols_ = bound_symbols_;
+    post_produce_bound_symbols_.insert(output_symbols_.begin(), output_symbols_.end());
     if (aggregations_.empty()) {
       // Visit order_by and where if we do not have aggregations. This way we
       // prevent collecting group_by expressions from order_by and where, which
@@ -116,15 +150,36 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       // only use new symbols (ensured in semantic analysis), so we don't care
       // about collecting used_symbols. Also, semantic analysis should
       // have prevented any aggregations from appearing here.
+      position_ = BodyPosition::kOrderBy;
       for (const auto &order_pair : body.order_by) {
         order_pair.expression->Accept(*this);
       }
 
       if (where) {
+        position_ = BodyPosition::kWhere;
         where->Accept(*this);
       }
       MG_ASSERT(aggregations_.empty(), "Unexpected aggregations in ORDER BY or WHERE");
+    } else {
+      // Visiting ORDER BY / WHERE fully would pollute group_by_, so only collect comprehension symbols. Nested ones
+      // are collected too but are never pending, so they drop out of the lookup.
+      auto plan_comprehensions_in = [&](Expression &expr, BodyPosition position) {
+        std::unordered_set<Symbol> pc_symbols;
+        PCSymbolCollector collector(symbol_table_, pc_symbols);
+        expr.Accept(collector);
+        position_ = position;
+        for (const auto &sym : pc_symbols) {
+          PlanPatternComprehensionOnDemand(sym);
+        }
+      };
+      for (const auto &order_pair : body.order_by) {
+        plan_comprehensions_in(*order_pair.expression, BodyPosition::kOrderBy);
+      }
+      if (where) {
+        plan_comprehensions_in(*where->expression_, BodyPosition::kWhere);
+      }
     }
+    position_ = BodyPosition::kProjection;
 
     // Handle pattern comprehensions in SKIP and LIMIT expressions
     // These are processed regardless of aggregation since SKIP/LIMIT come after aggregation
@@ -509,20 +564,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     }
     has_aggregation_.emplace_back(has_aggr);
 
-    // Only add top-level pattern comprehensions to pattern_comprehension_datas_.
-    // Nested pattern comprehensions are handled inside their parent's operator tree.
-    // Also skip if we don't have a planning context (e.g., when analyzing bound
-    // symbols in GetSubqueryBoundSymbols) - the actual planning will handle them later.
-    if (aggregations_start_index_stack_.empty() && pc_ctx_ && pc_ctx_->planner) {
-      const auto result_sym = symbol_table_.at(pattern_comprehension);
-      // Find and plan this pattern comprehension on-demand
-      auto &pending = pc_ctx_->pending_comprehensions;
-      if (auto it = pending.find(result_sym); it != pending.end()) {
-        auto op = pc_ctx_->planner->Plan(it->second, pc_ctx_->view);
-        pattern_comprehension_datas_[result_sym] =
-            PatternComprehensionData(std::move(op), result_sym, it->second.expansion_symbols);
-        pending.erase(it);
-      }
+    // Nested comprehensions are planned inside their parent's operator tree.
+    if (aggregations_start_index_stack_.empty()) {
+      PlanPatternComprehensionOnDemand(symbol_table_.at(pattern_comprehension));
     }
     return true;
   }
@@ -589,10 +633,19 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // named_expressions.
   const auto &output_symbols() const { return output_symbols_; }
 
-  bool has_pattern_comprehension() const { return !pattern_comprehension_datas_.empty(); }
-
+  // Pattern comprehensions from the named expressions, planned before the Produce.
   std::unordered_map<Symbol, PatternComprehensionData> pattern_comprehension_data() const {
     return pattern_comprehension_datas_;
+  }
+
+  // From ORDER BY: planned after the Produce whose symbols they read, below the OrderBy that consumes them.
+  std::unordered_map<Symbol, PatternComprehensionData> order_by_pattern_comprehension_data() const {
+    return order_by_pattern_comprehension_datas_;
+  }
+
+  // From WHERE: above the OrderBy, which restores only its own output symbols, and below the Filter.
+  std::unordered_map<Symbol, PatternComprehensionData> where_pattern_comprehension_data() const {
+    return where_pattern_comprehension_datas_;
   }
 
   // Symbols that were bound before this RETURN/WITH clause (from MATCH, CREATE, etc.)
@@ -605,6 +658,36 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   const auto &pattern_comprehensions_in_aggregations() const { return pattern_comprehensions_in_aggregations_; }
 
  private:
+  // Plans @p result_sym's comprehension if still pending, into the bucket for its position in the body.
+  void PlanPatternComprehensionOnDemand(const Symbol &result_sym) {
+    // No planning context (e.g. GetSubqueryBoundSymbols); the real planning pass handles them later.
+    if (!pc_ctx_ || !pc_ctx_->planner) {
+      return;
+    }
+    auto &pending = pc_ctx_->pending_comprehensions;
+    auto it = pending.find(result_sym);
+    if (it == pending.end()) {
+      return;
+    }
+    const auto &bound_symbols = position_ == BodyPosition::kProjection ? bound_symbols_ : post_produce_bound_symbols_;
+    auto op = pc_ctx_->planner->Plan(it->second, pc_ctx_->view, bound_symbols);
+    auto &datas = Bucket(position_);
+    datas[result_sym] = PatternComprehensionData(std::move(op), result_sym, it->second.expansion_symbols);
+    pending.erase(it);
+  }
+
+  std::unordered_map<Symbol, PatternComprehensionData> &Bucket(BodyPosition position) {
+    switch (position) {
+      case BodyPosition::kProjection:
+        return pattern_comprehension_datas_;
+      case BodyPosition::kOrderBy:
+        return order_by_pattern_comprehension_datas_;
+      case BodyPosition::kWhere:
+        return where_pattern_comprehension_datas_;
+    }
+    std::unreachable();
+  }
+
   const ReturnBody &body_;
   SymbolTable &symbol_table_;
   const std::unordered_set<Symbol> &bound_symbols_;
@@ -626,6 +709,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   std::list<bool> has_aggregation_;
   std::vector<NamedExpression *> named_expressions_;
   std::unordered_map<Symbol, PatternComprehensionData> pattern_comprehension_datas_;
+  std::unordered_map<Symbol, PatternComprehensionData> order_by_pattern_comprehension_datas_;
+  std::unordered_map<Symbol, PatternComprehensionData> where_pattern_comprehension_datas_;
+  BodyPosition position_ = BodyPosition::kProjection;
+  // What a post-Produce comprehension may reference: the symbols bound before this clause plus its own output symbols.
+  std::unordered_set<Symbol> post_produce_bound_symbols_;
   // Pattern comprehension symbols that appear inside aggregate expressions.
   // These must be planned BEFORE the Aggregate operator so their values are available.
   std::unordered_set<Symbol> pattern_comprehensions_in_aggregations_;
@@ -715,14 +803,18 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
   }
 
-  // Plan remaining pattern comprehensions AFTER Aggregate (or when no aggregations)
-  for (auto &[result_symbol, list_collection_data] : pc_data) {
-    if (list_collection_data.op) {
-      auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
-      last_op = std::make_unique<RollUpApply>(
-          std::move(last_op), std::move(list_collection_data.op), list_collection_symbols, result_symbol);
+  auto splice_comprehensions = [&](auto &&pc_data) {
+    for (auto &[result_symbol, list_collection_data] : pc_data) {
+      if (list_collection_data.op) {
+        auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
+        last_op = std::make_unique<RollUpApply>(
+            std::move(last_op), std::move(list_collection_data.op), list_collection_symbols, result_symbol);
+      }
     }
-  }
+  };
+
+  // Plan remaining pattern comprehensions AFTER Aggregate (or when no aggregations)
+  splice_comprehensions(pc_data);
 
   bool const has_periodic_commit = commit_frequency != nullptr;
   if (has_periodic_commit) {
@@ -734,10 +826,24 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   if (body.distinct()) {
     last_op = std::make_unique<Distinct>(std::move(last_op), body.output_symbols());
   }
+  // They read the named expression symbols, and OrderBy reads them in its collection sweep - so directly below it.
+  splice_comprehensions(body.order_by_pattern_comprehension_data());
   // Like Where, OrderBy can read from symbols established by named expressions
   // in Produce, so it must come after it.
   if (!body.order_by().empty()) {
-    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), body.output_symbols());
+    // OrderBy restores only what it is given, and Filter(where) sits above it, so add what the WHERE reads.
+    auto remember = body.output_symbols();
+    if (body.where()) {
+      WhereReadSymbolsCollector collector(body.symbol_table());
+      body.where()->expression_->Accept(collector);
+      for (const auto &symbol : collector.symbols_) {
+        // Only symbols bound before this clause; the rest are written above OrderBy anyway.
+        if (body.bound_symbols().contains(symbol) && !std::ranges::contains(remember, symbol)) {
+          remember.push_back(symbol);
+        }
+      }
+    }
+    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), remember);
   }
   // Finally, Skip and Limit must come after OrderBy.
   if (body.skip()) {
@@ -750,6 +856,8 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   // Where may see new symbols so it comes after we generate Produce and in
   // general, comes after any OrderBy, Skip or Limit.
   if (body.where()) {
+    // Below the Filter, not the OrderBy: spliced lower, it would hand the Filter one frozen value per replayed row.
+    splice_comprehensions(body.where_pattern_comprehension_data());
     last_op = std::make_unique<Filter>(
         std::move(last_op), std::vector<std::shared_ptr<LogicalOperator>>{}, body.where()->expression_);
   }
@@ -760,6 +868,39 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
 }  // namespace
 
 namespace impl {
+
+std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<Clause *> &clauses,
+                                                              const SymbolTable &symbol_table) {
+  std::unordered_set<Symbol> symbols;
+  PCSymbolCollector collector(symbol_table, symbols);
+  for (auto *clause : clauses) {
+    clause->Accept(collector);
+  }
+  return symbols;
+}
+
+bool ReferencesExternalSymbols(const PatternComprehensionMatching &pc,
+                               const std::unordered_set<Symbol> &bound_symbols) {
+  if (!pc.external_symbols.empty()) return true;
+  return std::ranges::any_of(pc.expansion_symbols, [&](const Symbol &sym) { return bound_symbols.contains(sym); });
+}
+
+storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, storage::View preferred,
+                                       const std::unordered_set<Symbol> &bound_symbols,
+                                       const std::unordered_set<Symbol> &write_bound_symbols) {
+  if (!HasVariableLengthExpansion(pc)) return preferred;
+  // View::OLD cannot see a node a write clause of this query part bound, and View::NEW is not available here.
+  auto const unseeable = std::ranges::find_if(pc.expansion_symbols, [&](const Symbol &sym) {
+    return bound_symbols.contains(sym) && write_bound_symbols.contains(sym);
+  });
+  if (unseeable != pc.expansion_symbols.end()) {
+    throw QueryException(
+        "A variable-length pattern cannot expand from '{}', which a write clause of this query part binds. Close that "
+        "clause with a WITH before the pattern.",
+        unseeable->name());
+  }
+  return storage::View::OLD;
+}
 
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
   return std::ranges::all_of(filter.used_symbols,

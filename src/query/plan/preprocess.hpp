@@ -84,7 +84,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    const bool is_ordinary_flow = !in_exists && !in_pattern_comprehension;
+    const bool is_ordinary_flow = !in_exists && in_pattern_comprehension_depth == 0;
     if (is_ordinary_flow) {
       symbols_.insert(symbol_table_.at(ident));
     } else if (ident.user_declared_) {
@@ -130,14 +130,14 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(PatternComprehension &pc) override {
-    in_pattern_comprehension = true;
+    ++in_pattern_comprehension_depth;
     pc.pattern_->Accept(*this);
 
     return false;
   }
 
   bool PostVisit(PatternComprehension & /*pc*/) override {
-    in_pattern_comprehension = false;
+    --in_pattern_comprehension_depth;
     return true;
   }
 
@@ -152,7 +152,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
  private:
   bool in_exists{false};
-  bool in_pattern_comprehension{false};
+  // A depth, not a flag: a pattern's property maps and variable-length bounds may hold another comprehension, whose
+  // `PostVisit` would clear a flag and let the rest of the outer pattern collect anonymous symbols.
+  int in_pattern_comprehension_depth{0};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)

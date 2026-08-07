@@ -2975,10 +2975,11 @@ TYPED_TEST(TestPlanner, PatternComprehensionInWithWhere) {
 
   auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", LITERAL(1))), WHERE(where_expr), RETURN("a")));
 
-  // Plan structure: Once -> RollUpApply -> Produce (WITH) -> Filter (WHERE) -> Produce (RETURN)
-  // The RollUpApply evaluates the pattern comprehension in the WHERE clause
+  // Plan structure: Once -> Produce (WITH) -> RollUpApply -> Filter (WHERE) -> Produce (RETURN)
+  // The comprehension is in WHERE, which is evaluated after the WITH's Produce, so the RollUpApply follows it.
   std::list<std::unique_ptr<BaseOpChecker>> input_ops;
   input_ops.push_back(std::make_unique<ExpectOnce>());
+  input_ops.push_back(std::make_unique<ExpectProduce>());
 
   // Pattern comprehension branch operations (bottom-up: Once -> ScanAll -> Expand -> Produce)
   std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
@@ -2987,12 +2988,263 @@ TYPED_TEST(TestPlanner, PatternComprehensionInWithWhere) {
   pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
   pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
 
-  CheckPlan<TypeParam>(query,
-                       this->storage,
-                       ExpectRollUpApply(input_ops, pattern_comp_branch_ops),
-                       ExpectProduce(),
-                       ExpectFilter(),
-                       ExpectProduce());
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithWhere) {
+  // Test MATCH (n) WITH n WHERE [(n)--(m) | 1] = [] RETURN n
+  // The comprehension expands from `n`, which WITH re-declares. Its branch must expand from the bound `n` rather
+  // than re-scanning it, which is only possible if the RollUpApply is planned after the WITH's Produce.
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n"), WHERE(EQ(pattern_comp, LIST())), RETURN("n")));
+
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectOnce>());
+  input_ops.push_back(std::make_unique<ExpectScanAll>());
+  input_ops.push_back(std::make_unique<ExpectProduce>());
+
+  // No ScanAll in the branch: `n` is bound, so the expansion starts from it.
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithWhereAfterWriteClause) {
+  // Test MATCH (n) SET n.prop = 1 WITH n WHERE [(n)--(m) | 1] = [] RETURN n
+  // A write clause drains the pending comprehensions before it is planned, and `n` is bound there - but the
+  // comprehension resolves to the symbol the later WITH re-binds, not to the MATCH's `n`. Only because
+  // `symbols_bound_by_query_part` is seeded with the output symbols of every WITH/RETURN still ahead does the drain
+  // wait; otherwise the SET takes it, plans it uncorrelated, and the WHERE machinery never sees it at all.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   SET(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(1)),
+                                   WITH("n"),
+                                   WHERE(EQ(pattern_comp, LIST())),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  // Produce (RETURN) -> Filter (WHERE) -> RollUpApply -> Produce (WITH) -> Accumulate -> SetProperty -> ScanAll
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "Filter should be directly under Produce";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply belongs below the Filter; if the SET drained it early it sits under the "
+                                "SetProperty instead and the WHERE reads an unwritten slot";
+  auto *with_produce = dynamic_cast<Produce *>(rollup->input_.get());
+  ASSERT_NE(with_produce, nullptr) << "RollUpApply must come after the WITH's Produce";
+  auto *accumulate = dynamic_cast<Accumulate *>(with_produce->input_.get());
+  ASSERT_NE(accumulate, nullptr) << "a WITH after a write accumulates";
+  EXPECT_NE(dynamic_cast<SetProperty *>(accumulate->input_.get()), nullptr) << "SetProperty belongs below the WITH";
+
+  // The discriminator: a ScanAll below the Expand means the branch was planned before `n` was bound, so it counts the
+  // whole graph instead of this row's node.
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr) << "Branch root should be Produce";
+  auto *branch_expand = dynamic_cast<Expand *>(branch_produce->input_.get());
+  ASSERT_NE(branch_expand, nullptr) << "Branch should expand from the correlated `n`";
+  EXPECT_NE(dynamic_cast<Once *>(branch_expand->input_.get()), nullptr)
+      << "Correlated branch must start at Once, not ScanAll";
+}
+
+TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithWhereAfterForeach) {
+  // Test MATCH (n) FOREACH (i IN [1] | SET n.prop = 1) WITH n WHERE [(n)--(m) | 1] = [] RETURN n
+  // FOREACH drains onto its own body chain, and it must apply the same dependency check as the main clause loop. Its
+  // own copy tested only `external_symbols`, which is empty here - the comprehension's sole free reference is its
+  // pattern's start node - so it drained on entry to the FOREACH and was planned uncorrelated inside the body.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *foreach_clause = FOREACH(NEXPR("i", LIST(LITERAL(1))), {SET(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(1))});
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), foreach_clause, WITH("n"), WHERE(EQ(pattern_comp, LIST())), RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  // Produce (RETURN) -> Filter (WHERE) -> RollUpApply -> Produce (WITH) -> Accumulate -> Foreach -> ScanAll
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "Filter should be directly under Produce";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply belongs below the Filter; if the FOREACH drained it early it sits on the "
+                                "body's chain instead, where the WHERE cannot read it";
+  auto *with_produce = dynamic_cast<Produce *>(rollup->input_.get());
+  ASSERT_NE(with_produce, nullptr) << "RollUpApply must come after the WITH's Produce";
+  auto *accumulate = dynamic_cast<Accumulate *>(with_produce->input_.get());
+  ASSERT_NE(accumulate, nullptr) << "a WITH after a write accumulates";
+  auto *foreach_op = dynamic_cast<Foreach *>(accumulate->input_.get());
+  ASSERT_NE(foreach_op, nullptr) << "Foreach belongs below the WITH";
+  auto *body_set = dynamic_cast<SetProperty *>(foreach_op->update_clauses_.get());
+  ASSERT_NE(body_set, nullptr) << "the FOREACH body should be just the SetProperty";
+  EXPECT_NE(dynamic_cast<Once *>(body_set->input_.get()), nullptr)
+      << "the FOREACH body must not have taken the WITH's comprehension";
+
+  // Same discriminator as above: Once, not ScanAll, below the Expand.
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr) << "Branch root should be Produce";
+  auto *branch_expand = dynamic_cast<Expand *>(branch_produce->input_.get());
+  ASSERT_NE(branch_expand, nullptr) << "Branch should expand from the correlated `n`";
+  EXPECT_NE(dynamic_cast<Once *>(branch_expand->input_.get()), nullptr)
+      << "Correlated branch must start at Once, not ScanAll";
+}
+
+TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithOrderBy) {
+  // Test MATCH (n) WITH n ORDER BY length([(n)--(m) | 1]) RETURN n
+  // As above, but for ORDER BY: the sort key must be computed per row from the bound `n`.
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", ORDER_BY(FN("length", pattern_comp))), RETURN("n")));
+
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectOnce>());
+  input_ops.push_back(std::make_unique<ExpectScanAll>());
+  input_ops.push_back(std::make_unique<ExpectProduce>());
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectOrderBy(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithWhereWithAggregation) {
+  // Test MATCH (n) WITH n, count(*) AS c WHERE [(n)--(m) | 1] = [] RETURN n
+  // With an aggregation present, ORDER BY / WHERE are not visited for group-by collection. The comprehension there
+  // must still be planned, and after the Produce - otherwise it is never planned at all and its frame slot is null.
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WITH(IDENT("n"), AS("n"), COUNT(nullptr, false), AS("c")),
+                                   WHERE(EQ(pattern_comp, LIST())),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  // Produce (RETURN) -> Filter (WHERE) -> RollUpApply -> Produce (WITH) -> Aggregate
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "Filter should be directly under Produce";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply should be planned for the comprehension in WHERE";
+  EXPECT_NE(dynamic_cast<Produce *>(rollup->input_.get()), nullptr) << "RollUpApply must come after the WITH's Produce";
+
+  // The branch must expand from the bound `n` rather than re-scanning it. Without this the test would still pass if
+  // the aggregating path stopped passing the return body's output symbols as extra bound symbols.
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr) << "Branch root should be Produce";
+  auto *branch_expand = dynamic_cast<Expand *>(branch_produce->input_.get());
+  ASSERT_NE(branch_expand, nullptr) << "Branch should expand from the correlated `n`";
+  EXPECT_NE(dynamic_cast<Once *>(branch_expand->input_.get()), nullptr)
+      << "Correlated branch must start at Once, not ScanAll";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInWithWhereWithOrderBy) {
+  // Test MATCH (n) WITH n ORDER BY n.prop WHERE [(n)--(m) | 1] = [] RETURN n
+  // OrderBy restores only its own output symbols, so a comprehension feeding the WHERE must be planned ABOVE it -
+  // below it, the Filter would read one frozen value for every row OrderBy replays.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WITH("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop))),
+                                   WHERE(EQ(pattern_comp, LIST())),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  // Produce (RETURN) -> Filter (WHERE) -> RollUpApply -> OrderBy -> Produce (WITH)
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "Filter should be directly under Produce";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply should be planned for the comprehension in WHERE";
+  EXPECT_NE(dynamic_cast<OrderBy *>(rollup->input_.get()), nullptr)
+      << "RollUpApply for a WHERE comprehension must sit above OrderBy";
+}
+
+TYPED_TEST(TestPlanner, OrderByRemembersSymbolsUsedByWhere) {
+  // Test MATCH (n) WITH n.prop AS x ORDER BY x WHERE n.prop2 = 1 RETURN x
+  // Filter(where) is planned above OrderBy, so every symbol the WHERE reads must be in OrderBy's remember set -
+  // otherwise `n` is frozen at the last row pulled during the collection sweep.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto prop2 = dba.Property("prop2");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WITH(PROPERTY_LOOKUP(dba, "n", prop), AS("x"), ORDER_BY(IDENT("x"))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", prop2), LITERAL(1))),
+                                   RETURN("x")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "Filter should be directly under Produce";
+  auto *order_by = dynamic_cast<OrderBy *>(filter->input_.get());
+  ASSERT_NE(order_by, nullptr) << "OrderBy should be under the Filter";
+  EXPECT_TRUE(std::ranges::any_of(order_by->output_symbols_, [](const auto &sym) { return sym.name() == "n"; }))
+      << "OrderBy must remember `n`, which the WHERE above it reads";
+}
+
+TYPED_TEST(TestPlanner, OrderByRemembersSymbolsReadOnlyInsideComprehension) {
+  // MATCH (n), (q) WITH n.prop AS x ORDER BY x WHERE size([(n)-->(m) WHERE q.prop2 = 1 | m]) > 0 RETURN x
+  // `q` is read only from the comprehension's own filter, which the WHERE-bucket RollUpApply evaluates above
+  // OrderBy. It must therefore be remembered too, or `q` is frozen at the last row of the collection sweep.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto prop2 = dba.Property("prop2");
+  auto *comprehension = PATTERN_COMPREHENSION(nullptr,
+                                              PATTERN(NODE("n"), EDGE("anon1"), NODE("m")),
+                                              WHERE(EQ(PROPERTY_LOOKUP(dba, "q", prop2), LITERAL(1))),
+                                              IDENT("m"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n")), PATTERN(NODE("q"))),
+                                   WITH(PROPERTY_LOOKUP(dba, "n", prop), AS("x"), ORDER_BY(IDENT("x"))),
+                                   WHERE(GREATER(FN("size", comprehension), LITERAL(0))),
+                                   RETURN("x")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "Filter should be directly under Produce";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "The WHERE's comprehension branch should sit directly below the Filter";
+  auto *order_by = dynamic_cast<OrderBy *>(rollup->input_.get());
+  ASSERT_NE(order_by, nullptr) << "OrderBy should be below the comprehension branch";
+  EXPECT_TRUE(std::ranges::any_of(order_by->output_symbols_, [](const auto &sym) { return sym.name() == "q"; }))
+      << "OrderBy must remember `q`, which the comprehension's filter reads above it";
 }
 
 TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {
@@ -3008,10 +3260,12 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {
 
   auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", LITERAL(1))), WHERE(where_expr), RETURN("a")));
 
-  // Plan structure: Once -> RollUpApply (first PC) -> RollUpApply (second PC) -> Produce (WITH) -> Filter (WHERE) ->
-  // Produce (RETURN) First RollUpApply
+  // Plan structure: Once -> Produce (WITH) -> RollUpApply (first PC) -> RollUpApply (second PC) -> Filter (WHERE) ->
+  // Produce (RETURN). Both comprehensions are in WHERE, so both follow the WITH's Produce.
+  // First RollUpApply
   std::list<std::unique_ptr<BaseOpChecker>> input_ops1;
   input_ops1.push_back(std::make_unique<ExpectOnce>());
+  input_ops1.push_back(std::make_unique<ExpectProduce>());
 
   std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops1;
   pattern_comp_branch_ops1.push_back(std::make_unique<ExpectOnce>());
@@ -3029,12 +3283,8 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {
   pattern_comp_branch_ops2.push_back(std::make_unique<ExpectExpand>());
   pattern_comp_branch_ops2.push_back(std::make_unique<ExpectProduce>());
 
-  CheckPlan<TypeParam>(query,
-                       this->storage,
-                       ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2),
-                       ExpectProduce(),
-                       ExpectFilter(),
-                       ExpectProduce());
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, NestedPatternComprehensionInMatchWhere) {
@@ -3162,10 +3412,11 @@ TYPED_TEST(TestPlanner, SinglePatternComprehensionInOrderBy) {
 
   auto *query = QUERY(SINGLE_QUERY(RETURN(NEXPR("x", LITERAL(1)), ORDER_BY(length_call))));
 
-  // Plan structure: Once -> RollUpApply -> Produce -> OrderBy
-  // The RollUpApply evaluates the pattern comprehension in the ORDER BY clause
+  // Plan structure: Once -> Produce -> RollUpApply -> OrderBy
+  // ORDER BY is evaluated after the Produce, so the RollUpApply follows it.
   std::list<std::unique_ptr<BaseOpChecker>> input_ops;
   input_ops.push_back(std::make_unique<ExpectOnce>());
+  input_ops.push_back(std::make_unique<ExpectProduce>());
 
   // Pattern comprehension branch operations (bottom-up: Once -> ScanAll -> Expand -> Produce)
   std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
@@ -3174,8 +3425,7 @@ TYPED_TEST(TestPlanner, SinglePatternComprehensionInOrderBy) {
   pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
   pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
 
-  CheckPlan<TypeParam>(
-      query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectProduce(), ExpectOrderBy());
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectOrderBy());
 }
 
 TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInOrderBy) {
@@ -3190,10 +3440,11 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInOrderBy) {
 
   auto *query = QUERY(SINGLE_QUERY(RETURN(NEXPR("x", LITERAL(1)), ORDER_BY(length_call))));
 
-  // Plan structure: Once -> RollUpApply (first PC) -> RollUpApply (second PC) -> Produce -> OrderBy
+  // Plan structure: Once -> Produce -> RollUpApply (first PC) -> RollUpApply (second PC) -> OrderBy
   // First RollUpApply
   std::list<std::unique_ptr<BaseOpChecker>> input_ops1;
   input_ops1.push_back(std::make_unique<ExpectOnce>());
+  input_ops1.push_back(std::make_unique<ExpectProduce>());
 
   std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops1;
   pattern_comp_branch_ops1.push_back(std::make_unique<ExpectOnce>());
@@ -3211,8 +3462,7 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInOrderBy) {
   pattern_comp_branch_ops2.push_back(std::make_unique<ExpectExpand>());
   pattern_comp_branch_ops2.push_back(std::make_unique<ExpectProduce>());
 
-  CheckPlan<TypeParam>(
-      query, this->storage, ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2), ExpectProduce(), ExpectOrderBy());
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2), ExpectOrderBy());
 }
 
 // Note: Nested pattern comprehensions (e.g., RETURN [()--() | [()--() | 1]] AS x) are supported.
@@ -4877,6 +5127,437 @@ TYPED_TEST(TestPlanner, PatternComprehensionInForeachBodyWithExternalReference) 
   // The input to Foreach should be Once (the list is evaluated once)
   auto *once = dynamic_cast<Once *>(foreach_op->input_.get());
   ASSERT_NE(once, nullptr) << "Foreach input should be Once";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionOverSymbolBoundInsideForeachBody) {
+  // Test FOREACH (i IN [1] | CREATE (q) SET q.prop = [(q)-->() | 1])
+  // `q` is bound by a CREATE inside the body, so the comprehension can only be planned once that CREATE has run.
+  // The body is drained after every clause, so the RollUpApply lands between CreateNode and SetProperty. Draining
+  // only on entry - as before - left the comprehension pending forever and its frame slot unwritten.
+  //
+  // Expected plan structure:
+  //   EmptyResult
+  //   Foreach
+  //   |\
+  //   | SetProperty
+  //   | RollUpApply
+  //   | |\
+  //   | | Produce {anon_result}
+  //   | | Expand (q)-[anon_edge]->(anon_node)
+  //   | | Once
+  //   | CreateNode (q)
+  //   | Once
+  //   Once
+
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("q"), EDGE("anon_edge", EdgeAtom::Direction::OUT), NODE("anon_node")), nullptr, LITERAL(1));
+
+  auto *foreach_clause = FOREACH(NEXPR("i", LIST(LITERAL(1))),
+                                 {CREATE(PATTERN(NODE("q"))), SET(PROPERTY_LOOKUP(dba, "q", prop), pattern_comp)});
+
+  auto *query = QUERY(SINGLE_QUERY(foreach_clause));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto &plan = planner.plan();
+  auto *empty_result = dynamic_cast<EmptyResult *>(&plan);
+  ASSERT_NE(empty_result, nullptr) << "Root should be EmptyResult";
+
+  auto *foreach_op = dynamic_cast<Foreach *>(empty_result->input_.get());
+  ASSERT_NE(foreach_op, nullptr) << "Should have Foreach operator";
+
+  auto *set_property = dynamic_cast<SetProperty *>(foreach_op->update_clauses_.get());
+  ASSERT_NE(set_property, nullptr) << "Foreach update branch should end with SetProperty";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(set_property->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply must sit between CreateNode and SetProperty; without the per-clause "
+                                "drain the comprehension is never planned at all";
+
+  // The comprehension must expand from the just-created `q`, not re-scan, and must read View::NEW - `q` does not
+  // exist under View::OLD, which surfaces as "Trying to get relationships from a node that doesn't exist".
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr) << "Comprehension branch should end with Produce";
+  auto *expand = dynamic_cast<Expand *>(branch_produce->input_.get());
+  ASSERT_NE(expand, nullptr) << "Comprehension branch should expand from the bound `q`, not ScanAll";
+  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
+      << "the expansion must start from the `q` on the frame, not re-scan the graph";
+  EXPECT_EQ(expand->common_.existing_node, false);
+  EXPECT_EQ(expand->view_, memgraph::storage::View::NEW)
+      << "A comprehension planned after a write it depends on must read View::NEW";
+
+  auto *create_node = dynamic_cast<CreateNode *>(rollup->input_.get());
+  ASSERT_NE(create_node, nullptr) << "CreateNode should be below the RollUpApply";
+}
+
+namespace {
+
+/// Asserts @p rollup's comprehension branch expands from a bound symbol rather than re-scanning: `Once` below the
+/// expansion, never merely the presence of one, since an uncorrelated plan has an expansion too.
+template <class TExpand>
+TExpand *ExpectCorrelatedBranch(RollUpApply *rollup) {
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  EXPECT_NE(branch_produce, nullptr) << "comprehension branch should end with Produce";
+  if (!branch_produce) return nullptr;
+  auto *expand = dynamic_cast<TExpand *>(branch_produce->input_.get());
+  EXPECT_NE(expand, nullptr) << "comprehension branch should expand, not re-scan";
+  if (!expand) return nullptr;
+  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
+      << "the expansion must start from the bound symbol on the frame, not a ScanAll";
+  return expand;
+}
+
+/// Walks down the single-input chain from @p root and returns the first operator of type TOp, or nullptr.
+template <class TOp>
+TOp *FindOpOfType(memgraph::query::plan::LogicalOperator *root) {
+  for (auto *op = root; op != nullptr;) {
+    if (auto *found = dynamic_cast<TOp *>(op)) return found;
+    if (!op->HasSingleInput()) return nullptr;
+    op = op->input().get();
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+TYPED_TEST(TestPlanner, VariableLengthComprehensionAfterWriteFallsBackToViewOld) {
+  // Test MATCH (n) SET n.prop = 1 WITH n WHERE [(n)-[*1..2]->(m) | 1] = [] RETURN n
+  // The query part has written, so it has reached View::NEW - but `ExpandVariable` can only read View::OLD. `n` comes
+  // from the MATCH, so View::OLD does see it and a correct plan exists. Handing the query part's View::NEW straight
+  // through rejected the query instead, which is worse than what master answered.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("n"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("m")),
+      nullptr,
+      LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   SET(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(1)),
+                                   WITH("n"),
+                                   WHERE(EQ(pattern_comp, LIST())),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  auto *filter = FindOpOfType<Filter>(&plan);
+  ASSERT_NE(filter, nullptr) << "the WHERE should still be planned as a Filter";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply belongs directly below the Filter that reads it";
+
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr);
+  // The discriminator is Once-not-ScanAll below the expansion: an uncorrelated plan also has an ExpandVariable.
+  auto *expand = dynamic_cast<ExpandVariable *>(branch_produce->input_.get());
+  ASSERT_NE(expand, nullptr) << "the branch should expand the variable-length pattern";
+  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
+      << "the expansion must start from the `n` the WITH projected, not re-scan the graph";
+}
+
+TYPED_TEST(TestPlanner, NestedVariableLengthComprehensionReadsViewOldUnderAViewNewParent) {
+  // Test MATCH (p) FOREACH (i IN [1] | CREATE (q) SET q.prop = [(q)-->(x) | [(x)-[*1..2]->(y) | 1]])
+  // The outer comprehension expands from the just-created `q`, so it needs View::NEW. The nested one holds the
+  // variable-length edge and must read View::OLD - its own root `x` is bound by the outer expansion, not by the write.
+  // Forwarding the parent's view verbatim handed `ExpandVariable` a View::NEW it cannot service.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *nested_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("x"), EDGE_VARIABLE("anon2", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("y")),
+      nullptr,
+      LITERAL(1));
+  auto *outer_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("q"), EDGE("anon1", EdgeAtom::Direction::OUT), NODE("x")), nullptr, nested_comp);
+  auto *foreach_clause = FOREACH(NEXPR("i", LIST(LITERAL(1))),
+                                 {CREATE(PATTERN(NODE("q"))), SET(PROPERTY_LOOKUP(dba, "q", prop), outer_comp)});
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), foreach_clause));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *foreach_op = FindOpOfType<Foreach>(&planner.plan());
+  ASSERT_NE(foreach_op, nullptr) << "expected a Foreach operator";
+  auto *set_property = dynamic_cast<SetProperty *>(foreach_op->update_clauses_.get());
+  ASSERT_NE(set_property, nullptr) << "the body should end with SetProperty";
+  auto *outer_rollup = dynamic_cast<RollUpApply *>(set_property->input_.get());
+  ASSERT_NE(outer_rollup, nullptr) << "the outer comprehension belongs below the SetProperty that reads it";
+
+  auto *outer_branch = dynamic_cast<Produce *>(outer_rollup->list_collection_branch_.get());
+  ASSERT_NE(outer_branch, nullptr);
+  auto *nested_rollup = dynamic_cast<RollUpApply *>(outer_branch->input_.get());
+  ASSERT_NE(nested_rollup, nullptr) << "the nested comprehension is rolled up inside its parent's branch";
+
+  auto *outer_expand = dynamic_cast<Expand *>(nested_rollup->input_.get());
+  ASSERT_NE(outer_expand, nullptr) << "the outer expansion sits below the nested RollUpApply";
+  EXPECT_EQ(outer_expand->view_, memgraph::storage::View::NEW)
+      << "`q` was created in this command, so the parent must read View::NEW";
+
+  auto *nested_branch = dynamic_cast<Produce *>(nested_rollup->list_collection_branch_.get());
+  ASSERT_NE(nested_branch, nullptr);
+  auto *nested_expand = dynamic_cast<ExpandVariable *>(nested_branch->input_.get());
+  ASSERT_NE(nested_expand, nullptr) << "the nested branch should hold the variable-length expansion";
+  EXPECT_NE(dynamic_cast<Once *>(nested_expand->input_.get()), nullptr)
+      << "the nested expansion must start from the `x` its parent bound";
+}
+
+TYPED_TEST(TestPlanner, VariableLengthComprehensionOverANodeAWriteBindsIsRejected) {
+  // Test CREATE (a) RETURN [(a)-[*1..2]->(x) | 1]
+  // `a` does not exist under View::OLD and `ExpandVariable` cannot read View::NEW, so no plan can serve this. Reject at
+  // planning time with a message naming the variable, rather than emit a plan that fails at runtime with
+  // "Trying to get relationships from a node that doesn't exist" - or, before that, abort the process.
+  FakeDbAccessor dba;
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("a"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("x")),
+      nullptr,
+      LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("a"))), RETURN(pattern_comp, AS("l"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  try {
+    MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    FAIL() << "expected the query to be rejected";
+  } catch (const memgraph::query::QueryException &e) {
+    // Naming the variable is what distinguishes this rejection from the `ExpandVariable` backstop, which cannot say
+    // which symbol is at fault. If this ever catches the backstop instead, the routing has regressed.
+    EXPECT_THAT(e.what(), ::testing::HasSubstr("'a'")) << "the rejection should name the variable, got: " << e.what();
+  }
+}
+
+TYPED_TEST(TestPlanner, VariableLengthComprehensionOverAMatchedNodeAWriteReusesIsAccepted) {
+  // Test MATCH (a) CREATE (a)-[:R]->(b) RETURN [(a)-[*1..2]->(x) | 1]
+  // The positive control for the rejection above, and it has to use `a` *inside* the CREATE pattern: a write clause
+  // re-uses the names it does not declare, so collecting its pattern atoms wholesale marks the MATCH's `a` write-bound
+  // and rejects a query View::OLD serves perfectly. `CREATE (b)` as a separate pattern would not discriminate.
+  FakeDbAccessor dba;
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("a"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("x")),
+      nullptr,
+      LITERAL(1));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))),
+                         CREATE(PATTERN(NODE("a"), EDGE("anon2", EdgeAtom::Direction::OUT, {"R"}), NODE("b"))),
+                         RETURN(pattern_comp, AS("l"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *rollup = FindOpOfType<RollUpApply>(&planner.plan());
+  ASSERT_NE(rollup, nullptr) << "the comprehension should still be planned";
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr);
+  auto *expand = dynamic_cast<ExpandVariable *>(branch_produce->input_.get());
+  ASSERT_NE(expand, nullptr) << "the branch should expand the variable-length pattern";
+  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr) << "and stay correlated to the matched `a`";
+}
+
+TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInAggregatingWithOrderBy) {
+  // Test MATCH (n) WITH n, count(*) AS c ORDER BY [(n)--(m) | 1] RETURN n
+  // The aggregating path discovers ORDER BY comprehensions separately, so the ORDER BY bucket needs its own coverage
+  // here: the behave scenario for this shape can only discriminate through Aggregate's unordered group emission.
+  FakeDbAccessor dba;
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WITH(IDENT("n"), AS("n"), COUNT(nullptr, false), AS("c"), ORDER_BY(pattern_comp)),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  auto *order_by = FindOpOfType<OrderBy>(&plan);
+  ASSERT_NE(order_by, nullptr) << "expected an OrderBy";
+  auto *rollup = dynamic_cast<RollUpApply *>(order_by->input_.get());
+  ASSERT_NE(rollup, nullptr) << "the ORDER BY bucket belongs directly below the OrderBy that reads it";
+  EXPECT_NE(dynamic_cast<Produce *>(rollup->input_.get()), nullptr) << "and above the WITH's Produce";
+  ExpectCorrelatedBranch<Expand>(rollup);
+}
+
+TYPED_TEST(TestPlanner, QueryPartSymbolsSurviveASubquery) {
+  // Test CREATE (a) CALL { MATCH (z) RETURN count(z) AS c } RETURN [(a)-[*1..2]->(m) | 1]
+  // A CALL subquery is not a query-part boundary, so the write and the comprehension are in the same part - but
+  // planning the subquery re-enters PlanQueryPart on this same planner. Without the save/restore around
+  // `query_part_symbols_`, the subquery's sets replace the caller's, `a` stops looking write-bound, and the rejection
+  // silently degrades into a plan that fails at runtime with "Trying to get relationships from a node that doesn't
+  // exist".
+  FakeDbAccessor dba;
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("a"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("m")),
+      nullptr,
+      LITERAL(1));
+  auto *subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("z"))), RETURN(COUNT(IDENT("z"), false), AS("c"))));
+  auto *query = QUERY(SINGLE_QUERY(
+      CREATE(PATTERN(NODE("a"))), CALL_SUBQUERY(subquery), RETURN(pattern_comp, AS("l"), IDENT("c"), AS("c"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  try {
+    MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    FAIL() << "expected the query to be rejected";
+  } catch (const memgraph::query::QueryException &e) {
+    EXPECT_THAT(e.what(), ::testing::HasSubstr("'a'")) << "the caller's write-bound symbols must survive the subquery";
+  }
+}
+
+TYPED_TEST(TestPlanner, MergeOnMatchPlansAVariableLengthComprehensionWithViewOld) {
+  // Test MERGE (a) ON MATCH SET a.prop = [(a)-[*1..2]->(x) | 1]
+  // ON MATCH runs only when the pattern was found, so View::OLD does see `a` and the comprehension is plannable.
+  // Treating every MERGE symbol as write-bound rejected this outright.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("a"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("x")),
+      nullptr,
+      LITERAL(1));
+  auto *query =
+      QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("a")), ON_MATCH(SET(PROPERTY_LOOKUP(dba, "a", prop), pattern_comp)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *merge = FindOpOfType<Merge>(&planner.plan());
+  ASSERT_NE(merge, nullptr);
+  auto *set_property = dynamic_cast<SetProperty *>(merge->merge_match_.get());
+  ASSERT_NE(set_property, nullptr) << "the match branch should end with SetProperty";
+  auto *rollup = dynamic_cast<RollUpApply *>(set_property->input_.get());
+  ASSERT_NE(rollup, nullptr) << "the comprehension belongs inside the ON MATCH branch";
+  ExpectCorrelatedBranch<ExpandVariable>(rollup);
+}
+
+TYPED_TEST(TestPlanner, MergeOnMatchAfterAWriteStillRejectsAVariableLengthComprehension) {
+  // Test CREATE (x) MERGE (b) ON MATCH SET b.prop = [(b)-[*1..2]->(m) | 1]
+  // MERGE's match branch reads View::NEW, so with a write earlier in the query part it can match a node that write
+  // created - which View::OLD cannot see. Narrowing unconditionally turned the rejection into a runtime failure.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("b"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("m")),
+      nullptr,
+      LITERAL(1));
+  auto *query =
+      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("x"))),
+                         MERGE(PATTERN(NODE("b")), ON_MATCH(SET(PROPERTY_LOOKUP(dba, "b", prop), pattern_comp)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  try {
+    MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    FAIL() << "expected the query to be rejected";
+  } catch (const memgraph::query::QueryException &e) {
+    EXPECT_THAT(e.what(), ::testing::HasSubstr("'b'"));
+  }
+}
+
+TYPED_TEST(TestPlanner, MergeRestoresTheWriteBoundSymbolsItNarrowed) {
+  // Test MERGE (b) ON MATCH SET b.prop = 1 RETURN [(b)-[*1..2]->(m) | 1]
+  // The ON MATCH narrowing is scoped to that branch. If it leaked, `b` would no longer look write-bound and the
+  // RETURN's comprehension would be planned instead of rejected.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(NODE("b"), EDGE_VARIABLE("anon1", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT), NODE("m")),
+      nullptr,
+      LITERAL(1));
+  auto *query =
+      QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("b")), ON_MATCH(SET(PROPERTY_LOOKUP(dba, "b", prop), LITERAL(1)))),
+                         RETURN(pattern_comp, AS("l"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  try {
+    MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    FAIL() << "expected the query to be rejected";
+  } catch (const memgraph::query::QueryException &e) {
+    EXPECT_THAT(e.what(), ::testing::HasSubstr("'b'"));
+  }
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInMergeOnCreateIsPlannedInsideBranch) {
+  // Test MERGE (q) ON CREATE SET q.prop = [(q)-->() | 1]
+  // `q` is bound by the MERGE pattern, and the SET runs inside the Merge's create branch, so the comprehension must
+  // be spliced into that branch - between CreateNode and SetProperty. Splicing it onto the chain the MERGE sits on
+  // would leave the frame slot unwritten when the SET reads it.
+  //
+  // Expected create branch (bottom-up): Once -> CreateNode (q) -> RollUpApply -> SetProperty
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("q"), EDGE("anon_edge", EdgeAtom::Direction::OUT), NODE("anon_node")), nullptr, LITERAL(1));
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("q")), ON_CREATE(SET(PROPERTY_LOOKUP(dba, "q", prop), pattern_comp)))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *merge = FindOpOfType<Merge>(&planner.plan());
+  ASSERT_NE(merge, nullptr) << "expected a Merge operator";
+
+  auto *set_property = dynamic_cast<SetProperty *>(merge->merge_create_.get());
+  ASSERT_NE(set_property, nullptr) << "the create branch should end with SetProperty";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(set_property->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply must sit inside the create branch, below the SetProperty that reads it";
+
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr);
+  auto *expand = dynamic_cast<Expand *>(branch_produce->input_.get());
+  ASSERT_NE(expand, nullptr) << "the comprehension must expand from the merged `q`, not re-scan";
+  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
+      << "the expansion must start from the just-created `q` on the frame, not a ScanAll";
+  EXPECT_EQ(expand->view_, memgraph::storage::View::NEW)
+      << "`q` was created in this command, so it is invisible under View::OLD";
+
+  EXPECT_NE(dynamic_cast<CreateNode *>(rollup->input_.get()), nullptr) << "CreateNode belongs below the RollUpApply";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInMergeOnMatchCorrelatesToMatchedNode) {
+  // Test MERGE (q) ON MATCH SET q.prop = [(q)-->() | 1]
+  // ON MATCH binds the pattern into a *copy* of the bound symbol set that the planning context does not share, so the
+  // branch's symbols have to be handed to the comprehension planner explicitly. Without that the branch is planned
+  // uncorrelated - a ScanAll - and the query silently returns a whole-graph count instead of `q`'s own.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("q"), EDGE("anon_edge", EdgeAtom::Direction::OUT), NODE("anon_node")), nullptr, LITERAL(1));
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("q")), ON_MATCH(SET(PROPERTY_LOOKUP(dba, "q", prop), pattern_comp)))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *merge = FindOpOfType<Merge>(&planner.plan());
+  ASSERT_NE(merge, nullptr) << "expected a Merge operator";
+
+  auto *set_property = dynamic_cast<SetProperty *>(merge->merge_match_.get());
+  ASSERT_NE(set_property, nullptr) << "the match branch should end with SetProperty";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(set_property->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply must sit inside the match branch, below the SetProperty that reads it";
+
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr);
+  auto *expand = dynamic_cast<Expand *>(branch_produce->input_.get());
+  ASSERT_NE(expand, nullptr) << "the comprehension must expand from the matched `q`, not re-scan the whole graph";
+  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
+      << "the expansion must start from the `q` the branch already has on the frame";
 }
 
 TYPED_TEST(TestPlanner, PatternComprehensionInsideCountAggregate) {

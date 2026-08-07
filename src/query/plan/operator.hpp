@@ -256,9 +256,19 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
 
   /** Return @c Symbol vector where the query results will be stored.
    *
-   * Currently, output symbols are generated in @c Produce @c Union and
-   * @c CallProcedure operators. @c Skip, @c Limit, @c OrderBy and @c Distinct
-   * propagate the symbols from @c Produce (if it exists as input operator).
+   * The query's result columns, in order - not every symbol the operator writes (see @c ModifiedSymbols).
+   * Three kinds of operator answer:
+   *
+   * - column-defining: @c Produce, @c Union, @c CallProcedure, @c LoadCsv, @c LoadParquet, @c LoadJsonl,
+   *   @c OutputTable, @c OutputTableStream;
+   * - propagating from their input: @c OrderBy, @c OrderByParallel, @c Distinct, @c Skip, @c Limit,
+   *   @c PeriodicCommit, @c RollUpApply;
+   * - @c EmptyResult, which suppresses them.
+   *
+   * Propagation is never automatic - the default returns @c {} whatever the input - so an operator between
+   * the plan root and the column-defining one must override, or the root reports no columns, gets wrapped in
+   * @c EmptyResult, and the query silently returns none. @c Filter is the exception that does not override,
+   * safe only because a @c WITH ... @c WHERE is never a query's last clause.
    *
    *  @param SymbolTable used to find symbols for expressions.
    *  @return std::vector<Symbol> used for results.
@@ -3191,6 +3201,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 

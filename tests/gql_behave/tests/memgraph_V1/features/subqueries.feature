@@ -774,3 +774,221 @@ Feature: Subqueries
             RETURN playerName
             """
         Then an error should be raised
+
+    Scenario: Pattern comprehension in a CALL subquery declares a fresh variable, not the un-imported outer one
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (p:Player)
+            CALL {
+              MATCH (t:Team)
+              WITH t, size([(p)-[:PLAYS_FOR]->(x) | x]) AS cnt
+              RETURN t, cnt
+            }
+            RETURN DISTINCT p.name AS playerName, cnt
+            """
+        Then the result should be:
+            | playerName | cnt |
+            | 'Player A' | 5   |
+            | 'Player B' | 5   |
+            | 'Player C' | 5   |
+            | 'Player D' | 5   |
+            | 'Player E' | 5   |
+            | 'Player F' | 5   |
+
+    Scenario: Pattern comprehension in a CALL subquery may use an explicitly imported outer variable
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (p:Player {name: 'Player A'})
+            CALL (p) {
+              MATCH (t:Team)
+              WITH t, size([(p)-[:PLAYS_FOR]->(x) | x]) AS cnt
+              RETURN t, cnt
+            }
+            RETURN DISTINCT p.name AS playerName, cnt
+            """
+        Then the result should be:
+            | playerName | cnt |
+            | 'Player A' | 1   |
+
+    Scenario: A plain MATCH in a CALL subquery declares a fresh variable, not the un-imported outer one
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            CALL {
+              MATCH (p)-[:ACTED_IN]->(x)
+              RETURN x
+            }
+            RETURN p.name AS name, x.title AS title
+            ORDER BY name, title
+            """
+        Then the result should be, in order:
+            | name       | title |
+            | 'Regina'   | 'M1'  |
+            | 'Regina'   | 'M2'  |
+            | 'Zoe'      | 'M1'  |
+            | 'Zoe'      | 'M2'  |
+
+    Scenario: A CALL subquery may not return a variable that shadows an outer one
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'p1'})
+            CREATE (:Parent {name: 'x1'})
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            CALL {
+              MATCH (n:Parent)
+              RETURN n
+            }
+            RETURN n.name AS name
+            """
+        Then an error should be raised
+
+    Scenario: A nested CALL subquery may not return a variable that shadows the outermost one
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'p1'})
+            CREATE (:Parent {name: 'x1'})
+            """
+        # The inner return merges into the outer subquery's scope, which is empty, so the collision is only
+        # caught when that scope is merged into the main query's.
+        When executing query:
+            """
+            MATCH (n:Person)
+            CALL {
+              CALL {
+                MATCH (n:Parent)
+                RETURN n
+              }
+              RETURN n
+            }
+            RETURN n.name AS name
+            """
+        Then an error should be raised
+
+    Scenario: A CALL subquery may not return a shadowing variable through a UNION either
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'p1'})
+            CREATE (:Parent {name: 'x1'})
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            CALL {
+              MATCH (n:Parent) RETURN n
+              UNION
+              MATCH (n:Parent) RETURN n
+            }
+            RETURN n.name AS name
+            """
+        Then an error should be raised
+
+    Scenario: A shadowing variable may be returned under a different name
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'p1'})
+            CREATE (:Person {name: 'p2'})
+            CREATE (:Parent {name: 'x1'})
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            CALL {
+              CALL {
+                MATCH (n:Parent)
+                RETURN n
+              }
+              RETURN n AS m
+            }
+            RETURN n.name AS person, m.name AS shadowed
+            ORDER BY person
+            """
+        Then the result should be, in order:
+            | person | shadowed |
+            | 'p1'   | 'x1'     |
+            | 'p2'   | 'x1'     |
+
+    Scenario: A subquery may use a shadowing variable as long as the name does not escape
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'p1'})
+            CREATE (:Person {name: 'p2'})
+            CREATE (:Parent {name: 'x1'})
+            """
+        # Deliberately no aggregation in the subquery: that shape hits a pre-existing parallel-executor bug, and this
+        # suite also runs with USING PARALLEL EXECUTION.
+        When executing query:
+            """
+            MATCH (n:Person)
+            CALL {
+              MATCH (n:Parent)
+              RETURN n.name AS shadowed
+            }
+            RETURN n.name AS person, shadowed
+            ORDER BY person
+            """
+        Then the result should be, in order:
+            | person | shadowed |
+            | 'p1'   | 'x1'     |
+            | 'p2'   | 'x1'     |
+
+    Scenario: A pattern comprehension correlates through a legacy importing WITH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1})-[:R]->(b:Node {id: 2})
+            CREATE (b)-[:R]->(a)
+            """
+        When executing query:
+            """
+            MATCH (p:Node)
+            CALL {
+              WITH p
+              RETURN size([(p)-[:R]->(x) | 1]) AS c
+            }
+            RETURN p.id AS id, c
+            ORDER BY id
+            """
+        Then the result should be, in order:
+            | id | c |
+            | 1  | 1 |
+            | 2  | 1 |
+
+    Scenario: A leading WITH that does not import the outer variable still shadows it
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1})-[:R]->(b:Node {id: 2})
+            CREATE (b)-[:R]->(a)
+            """
+        # `c` is 2, the whole-graph count, because `p` inside the comprehension is a fresh variable.
+        When executing query:
+            """
+            MATCH (p:Node)
+            CALL {
+              WITH 1 AS k
+              RETURN size([(p)-[:R]->(x) | 1]) AS c
+            }
+            RETURN p.id AS id, c
+            ORDER BY id
+            """
+        Then the result should be, in order:
+            | id | c |
+            | 1  | 2 |
+            | 2  | 2 |

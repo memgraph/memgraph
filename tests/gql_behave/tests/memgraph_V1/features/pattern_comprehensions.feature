@@ -421,3 +421,538 @@ Feature: Pattern comprehensions
         Then the result should be:
             | cnt | edges  |
             | 2   | [1, 1] |
+
+    Scenario: Pattern comprehension in the WHERE of a WITH filters on the bound variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be:
+            | name     |
+            | 'Regina' |
+
+    Scenario: Pattern comprehension in the ORDER BY of a WITH sorts on the bound variable
+        Given an empty graph
+        # Created fewest-edges-first, so the expected order is the reverse of the scan order: a sort key that is the
+        # same for every row - an uncorrelated whole-graph count - cannot produce it.
+        And having executed:
+            """
+            CREATE (:Person {name: 'Bob'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p
+            ORDER BY size([(p)-[:ACTED_IN]->(m) | m]) DESC
+            RETURN p.name AS name
+            """
+        Then the result should be, in order:
+            | name     |
+            | 'Zoe'    |
+            | 'Regina' |
+            | 'Bob'    |
+
+    Scenario: Pattern comprehension in the WHERE of an aggregating WITH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p, count(*) AS c
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name, c
+            """
+        Then the result should be:
+            | name     | c |
+            | 'Regina' | 1 |
+
+    Scenario: Pattern comprehension in the ORDER BY of an aggregating WITH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p, count(*) AS c
+            ORDER BY size([(p)-[:ACTED_IN]->(m) | m]) DESC
+            RETURN p.name AS name
+            """
+        Then the result should be, in order:
+            | name     |
+            | 'Zoe'    |
+            | 'Regina' |
+            | 'Bob'    |
+
+    Scenario: Pattern comprehension in the ORDER BY of a RETURN sorts on the bound variable
+        Given an empty graph
+        # As above: fewest edges created first, so the scan order is the reverse of the expected one.
+        And having executed:
+            """
+            CREATE (:Person {name: 'Bob'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            RETURN p.name AS name
+            ORDER BY size([(p)-[:ACTED_IN]->(m) | m]) DESC
+            """
+        Then the result should be, in order:
+            | name     |
+            | 'Zoe'    |
+            | 'Regina' |
+            | 'Bob'    |
+
+    Scenario: Pattern comprehension in the WHERE of a WITH that also has an ORDER BY
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p
+            ORDER BY p.name
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be, in order:
+            | name     |
+            | 'Regina' |
+            | 'Zoe'    |
+
+    Scenario: Pattern comprehensions in both the ORDER BY and the WHERE of a WITH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p
+            ORDER BY size([(p)-[:ACTED_IN]->(m) | m]) DESC
+            WHERE size([(p)-[:ACTED_IN]->(x) | x]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be, in order:
+            | name     |
+            | 'Zoe'    |
+            | 'Regina' |
+
+    Scenario: Pattern comprehension in the WHERE of a WITH that renames the variable it references
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p AS q
+            ORDER BY q.name
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN q.name AS name
+            """
+        Then the result should be, in order:
+            | name     |
+            | 'Regina' |
+            | 'Zoe'    |
+
+    Scenario: Pattern comprehension in the WHERE of a WITH preceded by a write clause
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            SET p.seen = 1
+            WITH p
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be:
+            | name     |
+            | 'Zoe'    |
+            | 'Regina' |
+
+    Scenario: Pattern comprehension in the WHERE of a WITH preceded by a FOREACH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] | SET p.seen = 1)
+            WITH p
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be:
+            | name     |
+            | 'Zoe'    |
+            | 'Regina' |
+
+    Scenario: WITH ORDER BY LIMIT still filters after the limit
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p
+            ORDER BY p.name
+            LIMIT 2
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be:
+            | name     |
+            | 'Regina' |
+
+    Scenario: Pattern comprehension over a node created inside the same FOREACH body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] |
+              CREATE (q:Marker)
+              SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m]))
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN count(q) AS created, collect(DISTINCT q.cnt) AS counts
+            """
+        Then the result should be:
+            | created | counts |
+            | 2       | [0]    |
+
+    Scenario: Pattern comprehension over a node created by an enclosing FOREACH body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] |
+              CREATE (q:Marker)
+              FOREACH (j IN [1] |
+                SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m])))
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN count(q) AS created, collect(DISTINCT q.cnt) AS counts
+            """
+        Then the result should be:
+            | created | counts |
+            | 1       | [0]    |
+
+    Scenario: Pattern comprehension in a FOREACH body sees edges created in that body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Zoe'})
+            CREATE (:Extra)-[:ACTED_IN]->(:Movie {title: 'Old'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] |
+              CREATE (q:Marker)-[:ACTED_IN]->(:Movie {title: 'New'})
+              SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m]))
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN collect(q.cnt) AS counts
+            """
+        Then the result should be:
+            | counts |
+            | [1]    |
+
+    Scenario: A comprehension on a pre-FOREACH symbol is unaffected by one bound inside the body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] |
+              CREATE (q:Marker)
+              SET q.outer = size([(p)-[:ACTED_IN]->(m) | m]),
+                  q.inner = size([(q)-[:ACTED_IN]->(m2) | m2]))
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN sum(q.outer) AS outer_sum, collect(DISTINCT q.inner) AS inners
+            """
+        Then the result should be:
+            | outer_sum | inners |
+            | 1         | [0]    |
+
+    Scenario: Pattern comprehension in MERGE ON CREATE correlates to the merged node
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            MERGE (q:Marker {id: 1})
+              ON CREATE SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m])
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN count(q) AS n, collect(q.cnt) AS counts
+            """
+        Then the result should be:
+            | n | counts |
+            | 1 | [0]    |
+
+    Scenario: Pattern comprehension in MERGE ON MATCH correlates to the matched node
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (b:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'J1'})
+            CREATE (b)-[:ACTED_IN]->(:Movie {title: 'J2'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            MERGE (q:Person {name: 'Zoe'})
+              ON MATCH SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m])
+            """
+        When executing query:
+            """
+            MATCH (q:Person {name: 'Zoe'})
+            RETURN q.cnt AS cnt
+            """
+        Then the result should be:
+            | cnt |
+            | 1   |
+
+    Scenario: Pattern comprehension in a MERGE ON CREATE inside a FOREACH body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            FOREACH (i IN [1] |
+              MERGE (q:Marker {id: 1})
+                ON CREATE SET q.cnt = size([(q)-[:ACTED_IN]->(m) | m]))
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN count(q) AS n, collect(q.cnt) AS counts
+            """
+        Then the result should be:
+            | n | counts |
+            | 1 | [0]    |
+
+    Scenario: Variable-length pattern comprehension in the WHERE of a WITH preceded by a write clause
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {id: 1})-[:FRIEND]->(b:Person {id: 2})
+            CREATE (b)-[:FRIEND]->(:Person {id: 9})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) SET p.seen = 1
+            WITH p AS q WHERE size([(q)-[:FRIEND*1..2]->(m) | m]) > 0
+            RETURN q.id AS id ORDER BY id
+            """
+        Then the result should be:
+            | id |
+            | 1  |
+            | 2  |
+
+    Scenario: Variable-length pattern comprehension in the ORDER BY of a WITH preceded by a write clause
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {id: 9})-[:FRIEND]->(b:Person {id: 2})
+            CREATE (b)-[:FRIEND]->(:Person {id: 1})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) SET p.seen = 1
+            WITH p AS q ORDER BY size([(q)-[:FRIEND*1..2]->(m) | m]) DESC, q.id
+            RETURN q.id AS id
+            """
+        # Ids run opposite to reachability on purpose: an uncorrelated key ties every row and the
+        # q.id tie-break would give 1, 2, 9.
+        Then the result should be, in order:
+            | id |
+            | 9  |
+            | 2  |
+            | 1  |
+
+    Scenario: Nested variable-length pattern comprehension inside a FOREACH body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (h:Hub {id: 1})-[:FRIEND]->(m:Hub {id: 2})
+            CREATE (m)-[:FRIEND]->(:Hub {id: 3})
+            """
+        And having executed:
+            """
+            MATCH (h:Hub {id: 1})
+            FOREACH (i IN [1] |
+              CREATE (q:Marker)
+              SET q.cnt = [(h)-[:FRIEND]->(x) | size([(x)-[:FRIEND*1..2]->(y) | y])])
+            """
+        When executing query:
+            """
+            MATCH (q:Marker)
+            RETURN count(q) AS n, collect(q.cnt) AS counts
+            """
+        # The nested variable-length branch must actually run: h reaches one node, which reaches one
+        # more. Planning this used to abort the process.
+        Then the result should be:
+            | n | counts |
+            | 1 | [[1]]  |
+
+    Scenario: Variable-length pattern comprehension over a node its own query part creates is rejected
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (a:Person)-[:FRIEND]->(:Person)
+            RETURN [(a)-[:FRIEND*1..2]->(x) | x] AS reachable
+            """
+        Then an error should be raised
+
+    Scenario: Pattern comprehension may not reuse an already bound relationship variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {id: 1})-[:FRIEND]->(:Person {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (a:Person)-[r:FRIEND]->(b:Person)
+            WITH a, r WHERE size([(a)-[r]->(y) | y]) > 0
+            RETURN a.id AS id
+            """
+        Then an error should be raised
+
+    Scenario: Variable-length pattern comprehension over a matched node a write clause reuses
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {id: 1})-[:FRIEND]->(b:Person {id: 2})
+            CREATE (b)-[:FRIEND]->(:Person {id: 9})
+            """
+        When executing query:
+            """
+            MATCH (a:Person {id: 1}) CREATE (a)-[:SEEN]->(:Marker)
+            RETURN [(a)-[:FRIEND*1..2]->(x) | x.id] AS ids
+            """
+        Then the result should be:
+            | ids    |
+            | [2, 9] |
+
+    Scenario: A pattern comprehension's own path variable does not overwrite an outer path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Hop {id: 10})-[:S]->(b:Hop {id: 11})
+            CREATE (b)-[:S]->(:Hop {id: 12})
+            CREATE (:Side {id: 1})-[:R]->(:Side {id: 4})
+            """
+        When executing query:
+            """
+            MATCH p = (:Hop {id: 10})-[:S*2]->(:Hop {id: 12})
+            RETURN [n IN nodes(p) | n.id] AS ids, [p = (:Side)-[:R]->(y:Side) | y.id] AS inner
+            """
+        Then the result should be:
+            | ids          | inner |
+            | [10, 11, 12] | [4]   |
+
+    Scenario: A named path inside a CALL subquery does not overwrite the caller's
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Hop {id: 10})-[:S]->(b:Hop {id: 11})
+            CREATE (b)-[:S]->(:Hop {id: 12})
+            CREATE (:Side {id: 1})-[:R]->(:Side {id: 4})
+            """
+        When executing query:
+            """
+            MATCH p = (:Hop {id: 10})-[:S*2]->(:Hop {id: 12})
+            CALL {
+              MATCH p = (:Side)-[:R]->(y:Side)
+              RETURN y
+            }
+            RETURN [n IN nodes(p) | n.id] AS ids, y.id AS yid
+            """
+        Then the result should be:
+            | ids          | yid |
+            | [10, 11, 12] | 4   |

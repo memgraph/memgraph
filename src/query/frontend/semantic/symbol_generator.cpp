@@ -208,6 +208,7 @@ bool SymbolGenerator::PreVisit(CypherUnion &) {
   // Currently only CALL and EXISTS subqueries can contain complete queries with UNION.
   next_scope.in_call_subquery = prev_scope.in_call_subquery;
   next_scope.in_exists_subquery = prev_scope.in_exists_subquery;
+  next_scope.call_subquery_base = prev_scope.call_subquery_base;
   // Carry over explicit `CALL (v1, v2) { ... }` imports so each UNION branch
   // within the subquery still sees the imported variables.
   next_scope.call_subquery_imports = prev_scope.call_subquery_imports;
@@ -241,11 +242,15 @@ bool SymbolGenerator::PostVisit(CypherUnion &cypher_union) {
 
 bool SymbolGenerator::PreVisit(Create &) {
   scopes_.back().in_create = true;
+  // Always empty: siblings run in sequence and PostVisit clears, and a CREATE cannot nest.
+  DMG_ASSERT(create_clause_symbols_.empty(), "a CREATE clause left its declared symbols behind");
   return true;
 }
 
 bool SymbolGenerator::PostVisit(Create &) {
   scopes_.back().in_create = false;
+  // A later clause reads these through a frame slot that is written by then, so it must not be rejected.
+  create_clause_symbols_.clear();
   return true;
 }
 
@@ -271,6 +276,8 @@ bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
 
 bool SymbolGenerator::PreVisit(CallSubquery &call_sub) {
   Scope new_scope{.in_call_subquery = true};
+  // The scope about to be pushed is the subquery's outermost one; names below it need an explicit import.
+  new_scope.call_subquery_base = scopes_.size();
 
   if (call_sub.has_variable_scope_) {
     // `CALL (...) { ... }`: resolve imports against the current outer scope
@@ -444,8 +451,10 @@ bool SymbolGenerator::PostVisit(Match &) {
 
 bool SymbolGenerator::PreVisit(Foreach &for_each) {
   const auto &name = for_each.named_expression_->name_;
+  auto const call_subquery_base = scopes_.back().call_subquery_base;
   scopes_.emplace_back(Scope());
   scopes_.back().in_foreach = true;
+  scopes_.back().call_subquery_base = call_subquery_base;
   for_each.named_expression_->MapTo(
       CreateSymbol(name, true, Symbol::Type::ANY, for_each.named_expression_->token_position_));
   return true;
@@ -464,9 +473,15 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     throw SemanticException("Variables are not allowed in {}.", scope.in_skip ? "SKIP" : "LIMIT");
   }
 
+  // Inside a `CALL {}` subquery only its own scopes outwards are visible. A pattern occurrence of an un-imported
+  // outer name declares a fresh variable, rather than writing through the frame slot the caller shares.
+  auto const from = scope.in_pattern ? scope.call_subquery_base.value_or(0) : 0;
+  // Treated as undeclared below: patterns declare it afresh, `exists()` rejects it.
+  const bool name_in_scope = HasSymbol(ident.name_, from);
+  const bool shadows_outer_name = !name_in_scope && from != 0 && HasSymbol(ident.name_);
+
   if (scope.in_exists_pattern && (scope.visiting_edge || scope.in_node_atom)) {
-    auto has_symbol = HasSymbol(ident.name_);
-    if (!has_symbol && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
+    if (!name_in_scope && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
       throw SemanticException("Unbounded variables are not allowed in exists!");
     }
   }
@@ -476,18 +491,25 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
 
   Symbol symbol;
   if ((scope.in_exists_subquery || is_in_pattern_comprehension_filter) && (scope.visiting_edge || scope.in_node_atom)) {
-    auto has_symbol = HasSymbol(ident.name_);
-    if (!has_symbol) {
+    if (!name_in_scope) {
       ident.user_declared_ = false;
-      symbol = GetOrCreateSymbol(
-          ident.name_, ident.user_declared_, scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE);
+      auto const type = scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE;
+      // Shadowed: GetOrCreateSymbol would find the outer symbol, so declare here.
+      symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, type)
+                                  : GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
     } else {
+      // A bound node correlates: `Expand` can check the expansion reaches it. An edge has no `existing_edge`
+      // counterpart, so there is no operator to emit. The ORDER BY spelling is already rejected below.
+      if (scope.in_pattern_atom_identifier && scope.visiting_edge) {
+        throw SemanticException("Cannot use the already bound relationship '{}' in a pattern here.", ident.name_);
+      }
       symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
     }
   } else if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
     // If we are in the pattern, and outside of a node or an edge, the
-    // identifier is the pattern name.
-    symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
+    // identifier is the pattern name. Shadowed: declare here, as for node and edge atoms below.
+    symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH)
+                                : GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
   } else if (scope.in_pattern && scope.in_pattern_atom_identifier) {
     //  Patterns used to create nodes and edges cannot redeclare already
     //  established bindings. Declaration only happens in single node
@@ -495,19 +517,25 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     //  `MATCH (n) CREATE (n)` should throw an error that `n` is already
     //  declared. While `MATCH (n) CREATE (n) -[:R]-> (n)` is allowed,
     //  since `n` now references the bound node instead of declaring it.
-    if ((scope.in_create_node || scope.in_create_edge) && HasSymbol(ident.name_)) {
+    if ((scope.in_create_node || scope.in_create_edge) && name_in_scope) {
       throw RedeclareVariableError(ident.name_);
     }
     auto type = Symbol::Type::VERTEX;
     if (scope.visiting_edge) {
       // Edge referencing is not allowed (like in Neo4j):
       // `MATCH (n) - [r] -> (n) - [r] -> (n) RETURN r` is not allowed.
-      if (HasSymbol(ident.name_)) {
+      if (name_in_scope) {
         throw RedeclareVariableError(ident.name_);
       }
       type = scope.visiting_edge->IsVariable() ? Symbol::Type::EDGE_LIST : Symbol::Type::EDGE;
     }
-    symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
+    // Shadowed: must not resolve to the enclosing query's symbol.
+    symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, type)
+                                : GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
+    // Not already in scope, so this CREATE is what binds it.
+    if (scope.in_create && !name_in_scope) {
+      create_clause_symbols_.insert(symbol);
+    }
   } else if (scope.in_pattern && !scope.in_pattern_atom_identifier && scope.in_match) {
     if (scope.in_edge_range && scope.visiting_edge && scope.visiting_edge->identifier_ &&
         scope.visiting_edge->identifier_->name_ == ident.name_) {
@@ -534,6 +562,12 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       throw UnboundVariableError(ident.name_);
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
+  }
+
+  // The operator that binds the symbol is the one that reads the comprehension's result, so no placement works.
+  if (scope.in_pattern_comprehension && create_clause_symbols_.contains(symbol)) {
+    throw SemanticException(
+        "Entity '{}' cannot be created and referenced by a pattern comprehension in the same clause.", ident.name_);
   }
 
   ident.MapTo(symbol);
@@ -702,7 +736,8 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   }
 
   if (exists.HasSubquery()) {
-    scopes_.emplace_back(Scope{.in_exists_subquery = true});  // NOLINT(hicpp-use-emplace,modernize-use-emplace)
+    // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
+    scopes_.emplace_back(Scope{.in_exists_subquery = true, .call_subquery_base = scope.call_subquery_base});
   }
 
   return true;
@@ -1017,7 +1052,9 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
 }
 
 bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
-  scopes_.emplace_back(Scope{.in_pattern_comprehension = true});
+  // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name.
+  scopes_.emplace_back(
+      Scope{.in_pattern_comprehension = true, .call_subquery_base = scopes_.back().call_subquery_base});
 
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
@@ -1028,7 +1065,9 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
   // so in_pattern is not yet true when Visit(Identifier) is called for variable_.
   // Without this, Visit(Identifier) will throw UnboundVariableError.
   if (pc.variable_) {
-    auto path_symbol = GetOrCreateSymbol(pc.variable_->name_, pc.variable_->user_declared_, Symbol::Type::PATH);
+    // Always this comprehension's own declaration, so create it here: resolving outward would bind an outer path of
+    // the same name and overwrite its frame slot.
+    auto path_symbol = CreateSymbol(pc.variable_->name_, pc.variable_->user_declared_, Symbol::Type::PATH);
     pc.variable_->MapTo(path_symbol);
   }
 
@@ -1070,8 +1109,9 @@ void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
   }
 }
 
-bool SymbolGenerator::HasSymbol(const std::string &name) const {
-  return std::ranges::any_of(scopes_, [&name](const auto &scope) { return scope.symbols.contains(name); });
+bool SymbolGenerator::HasSymbol(const std::string &name, size_t from) const {
+  auto const visible = std::ranges::subrange(scopes_.begin() + static_cast<std::ptrdiff_t>(from), scopes_.end());
+  return std::ranges::any_of(visible, [&name](const auto &scope) { return scope.symbols.contains(name); });
 }
 
 bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {
