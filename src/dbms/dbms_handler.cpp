@@ -801,6 +801,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   const auto storage_path = StorageDir_(db_name);
   if (!storage_path) return std::unexpected{DeleteError::NON_EXISTENT};
 
+  utils::UUID tenant_uuid;
+  int64_t memory_at_detach = 0;
   {
     auto db = db_handler_.Get(db_name);
     if (!db) {
@@ -819,6 +821,10 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     auto &database = *db->get();
     database.StopAllBackgroundTasks();
     database.streams()->DropAll();
+    // Last point this Database is reachable from Delete_: the accessor above is the only thing
+    // keeping it alive, and it goes out of scope at the end of this block.
+    tenant_uuid = database.uuid();
+    memory_at_detach = database.DbMemoryUsage();
   }
 
   // Remove from durability list
@@ -831,9 +837,30 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(db_name);
   }
 
+  // The accessor above is gone, so this read no longer counts it; nullptr is defensive only (we hold
+  // lock_ exclusive and the !db branch above already returned, so the entry is guaranteed present).
+  uint64_t holders = 0;
+  if (auto *gk = db_handler_.GetGatekeeper(db_name)) holders = gk->holder_count();
+
+  // Publish before DeferDelete, not after: DeferDelete may hand the Gatekeeper to a drain thread that
+  // finishes and invokes the post-delete callback at any point once DeferDelete returns, so publishing
+  // afterwards could race the retire below and leave a permanent phantom row. The callback itself may
+  // take ONLY detached_lock_ (via ForgetDetached_) because it can also run INLINE on this thread, which
+  // still holds lock_ exclusive at that point — a second lock_ acquisition would self-deadlock (lock_ is
+  // non-recursive). On that inline path both the publish and the retire happen inside this same
+  // exclusive-lock_ section, so no shared-lock_ reader can ever observe a row for a tenant that was in
+  // fact destroyed synchronously.
+  RecordDetached_(DetachedTenant{.name = std::string{db_name},
+                                 .uuid = tenant_uuid,
+                                 .detached_at = std::chrono::system_clock::now(),
+                                 .reason = DetachReason::DROP,
+                                 .holders_at_detach = holders,
+                                 .memory_at_detach = memory_at_detach});
+
   // Check if db exists
   // Low level handlers
-  db_handler_.DeferDelete(db_name, [storage_path = *storage_path, db_name = std::string{db_name}]() {
+  db_handler_.DeferDelete(db_name, [this, tenant_uuid, storage_path = *storage_path, db_name = std::string{db_name}]() {
+    ForgetDetached_(tenant_uuid);
     // Delete disk storage
     std::error_code ec;
     (void)std::filesystem::remove_all(storage_path, ec);
