@@ -322,10 +322,11 @@ class DbmsHandler {
   /// Phase 3, both of which run under `lock_`. Its job is to *ask* current holders of the tenant's
   /// DatabaseAccess to release it (e.g. terminate the sessions/transactions pinning it); it must never
   /// revoke one itself -- a trigger cursor or a Bolt session mid-Prepare/Pull would use-after-free if
-  /// its accessor were released out from under it. May be invoked more than once for a single drop (a
-  /// bounded-wait retry loop re-asks each iteration), so it must be idempotent. May throw: a throw
-  /// unwinds through Delete_'s `rollback_drain` guard, which makes the drop retriable, so this must run
-  /// before anything about the drop is latched.
+  /// its accessor were released out from under it. Today Delete_ calls it exactly once; it must
+  /// nonetheless be idempotent, because a bounded-wait loop that re-asks each iteration is the intended
+  /// next step and because a retried drop calls it again on the same tenant. May throw: a throw unwinds
+  /// through Delete_'s `rollback_drain` guard, which makes the drop retriable, so this must run before
+  /// anything about the drop is latched.
   ///
   /// This is a per-call parameter, not a SetOnSuspend-style member hook, because the query layer's
   /// sweep is scoped to the dropping user's privileges (it needs a QueryUserOrRole* and a
