@@ -522,21 +522,23 @@ class DbmsHandler {
   }
 
   /**
-   * @brief Atomic, de-duplicated HOT ∪ COLD tenant set for cold-aware SHOW DATABASES.
+   * @brief Atomic, de-duplicated HOT ∪ COLD ∪ DETACHED tenant set for cold-aware SHOW DATABASES.
    *
    * All()/ForEach skip COLD shells, so a suspended tenant would otherwise vanish from SHOW DATABASES.
    * This reads db_handler_ (HOT) and suspended_ (COLD) under a SINGLE shared_lock and returns each
-   * tenant once as (name, is_cold). De-dup matters: during the SUSPENDING transient a tenant is briefly
+   * tenant once as (name, state). De-dup matters: during the SUSPENDING transient a tenant is briefly
    * in BOTH db_handler_ (value_ still live -> passes Handler::All()) and suspended_, because
    * Suspend_ inserts into suspended_ under lock_ but calls finish_suspend() (which nulls value_) AFTER
    * releasing the lock. suspended_ takes precedence (the tenant is on its way COLD), so it is listed
    * once, as COLD — never duplicated.
    *
-   * Also appends a DETACHED row for each detached_ tenant not already covered by a HOT/COLD row above
-   * (DROP x -> CREATE x can otherwise leave two live rows named x while the old one drains; the
-   * addressable one wins here). The suppressed tenant is still counted by TenantMemorySum()/
-   * AllDetached(), which key by uuid. DETACHED is deliberate, not a failure — it just means a live
-   * accessor delayed teardown — so it never triggers a WARN/health-downgrade (see interpreter.cpp).
+   * Also appends one DETACHED row per detached_ name not yet in out — out already holds everything
+   * appended above (HOT/COLD and earlier DETACHED rows), so a HOT/COLD row always wins and, among
+   * several detached_ entries sharing a name (DROP x -> CREATE x -> DROP x again; detached_ is
+   * uuid-keyed), only the first is listed: a duplicate name would just repeat in this name-keyed
+   * listing. TenantMemorySum()/AllDetached() still count every one, keyed by uuid, so completeness
+   * isn't lost. DETACHED is deliberate, not a failure — a live accessor delayed teardown — so it
+   * never triggers a WARN/health-downgrade (see interpreter.cpp).
    */
   std::vector<std::pair<std::string, std::string>> AllWithHotColdStatus() const {
     auto rd = std::shared_lock{lock_};
