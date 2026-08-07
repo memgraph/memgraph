@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 
+import glob
 import os
 import sys
 import time
@@ -429,6 +430,111 @@ def test_mt_strict_sync_commit(test_name):
     # memgraph
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
     assert get_vertex_count(main_cursor) == 100
+
+
+def get_labeled_vertex_count(cursor, label):
+    return execute_and_fetch_all(cursor, f"MATCH (n:{label}) RETURN count(n)")[0][0]
+
+
+def get_main_log_path(test_name):
+    # Mirrors interactive_mg_runner._start's log_file_path construction: BUILD_DIR/e2e/logs/<log_file>,
+    # where instance_3's log_file is get_logs_path(file, test_name) + "/instance_3.log" (see
+    # get_instances_description_no_setup above). Memgraph's log sink appends a "_<YYYY-MM-DD>" suffix to
+    # the actual filename, so the exact name above never exists on disk -- glob for it instead.
+    log_dir = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name))
+    matches = glob.glob(os.path.join(log_dir, "instance_3*.log"))
+    assert matches, f"No instance_3 log found in {log_dir} (glob pattern: 'instance_3*.log')"
+    return max(matches, key=os.path.getmtime)
+
+
+def read_log_since(log_path, offset):
+    with open(log_path, "r") as f:
+        f.seek(offset)
+        return f.read()
+
+
+def log_contains_any(log_path, offset, substrings):
+    content = read_log_since(log_path, offset)
+    return any(substring in content for substring in substrings)
+
+
+# Regression test: an AFTER COMMIT trigger must not fire for a transaction that aborted (STRICT_SYNC
+# replica down => 2PC prepare fails). Interpreter::Commit() used to unconditionally enqueue the AFTER
+# COMMIT trigger task regardless of whether the transaction actually committed.
+def test_after_commit_trigger_does_not_fire_for_aborted_txn(test_name):
+    trigger_name = "audit_trigger"
+    inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
+    main_cursor = connect(host="localhost", port=7689).cursor()
+
+    # Data for the (to be aborted) transaction to delete, and the trigger it should NOT fire.
+    # Constraint: the trigger must be DELETE-typed, not CREATE-typed. Trigger::Execute bails out early
+    # unless ShouldEventTrigger() passes, and TriggerContext::AdaptForAccessor re-resolves objects by Gid
+    # and drops created_vertices_ that no longer exist post-abort -- so a CREATE trigger's body never
+    # runs at all after an abort, which would make this test vacuous. deleted_vertices_ is deliberately
+    # not pruned, so a DELETE trigger's body does run, and we can observe what happens next.
+    execute_and_fetch_all(main_cursor, "CREATE (n:Node {id: 1})")
+    execute_and_fetch_all(
+        main_cursor, f"CREATE TRIGGER {trigger_name} ON () DELETE AFTER COMMIT EXECUTE CREATE (:Audit)"
+    )
+    mg_sleep_and_assert(1, partial(get_labeled_vertex_count, main_cursor, "Node"))
+
+    main_log_path = get_main_log_path(test_name)
+    # Ignore everything logged by the healthy setup above; only look at what the aborted txn produces.
+    start_offset = os.path.getsize(main_log_path)
+
+    # Kill the STRICT_SYNC replica so the upcoming write aborts in the 2PC prepare phase.
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(main_cursor, "MATCH (n:Node) DETACH DELETE n")
+    assert "Failed to replicate to STRICT_SYNC replica" in str(e.value)
+
+    # The delete must not have taken effect -- this is the precondition proving we are really in the
+    # aborted-transaction state, not just observing a no-op.
+    assert get_labeled_vertex_count(main_cursor, "Node") == 1
+
+    # Constraint: assert on MAIN's log, not on graph data. While instance_1 is down, the trigger's own
+    # commit (CREATE (:Audit)) also goes through the same STRICT_SYNC path and also aborts, so the audit
+    # node never persists either way -- a MATCH (:Audit) count assertion would read 0 with or without the
+    # fix and prove nothing. The real signal is whether Commit() dispatched the trigger task at all,
+    # which only shows up in the log line it emits when it dispatches (unfixed) or skips (fixed) it.
+    #
+    # The trigger task, if dispatched, runs asynchronously on a separate thread pool, so give it a fair
+    # chance to run before checking for the absence of its log line: wait (bounded) for either outcome's
+    # tell-tale line to appear, so the test can't pass merely because it looked too early.
+    mg_sleep_and_assert(
+        True,
+        partial(
+            log_contains_any,
+            main_log_path,
+            start_offset,
+            ("Skipping 1 AFTER COMMIT trigger(s)", f"Trigger '{trigger_name}' replication:"),
+        ),
+        max_duration=10,
+    )
+
+    log_content = read_log_since(main_log_path, start_offset)
+    assert f"Trigger '{trigger_name}' replication:" not in log_content
+    # Kept as a separate assertion from the one above: a future wording change to one line shouldn't be
+    # able to mask a regression in the other.
+    assert "Skipping 1 AFTER COMMIT trigger(s)" in log_content
+
+
+# Regression guard for the fix above: on a healthy cluster the transaction really commits, so the AFTER
+# COMMIT trigger must still fire and its write must still persist. Suppressing a trigger for a
+# transaction that actually committed would be a worse bug than the one being fixed.
+def test_after_commit_trigger_fires_for_committed_txn(test_name):
+    setup_cluster(test_name, get_default_setup_queries())
+    main_cursor = connect(host="localhost", port=7689).cursor()
+
+    execute_and_fetch_all(main_cursor, "CREATE (n:Node {id: 1})")
+    execute_and_fetch_all(main_cursor, "CREATE TRIGGER audit_trigger ON () DELETE AFTER COMMIT EXECUTE CREATE (:Audit)")
+    mg_sleep_and_assert(1, partial(get_labeled_vertex_count, main_cursor, "Node"))
+
+    execute_and_fetch_all(main_cursor, "MATCH (n:Node) DETACH DELETE n")
+    mg_sleep_and_assert(0, partial(get_labeled_vertex_count, main_cursor, "Node"))
+
+    mg_sleep_and_assert(1, partial(get_labeled_vertex_count, main_cursor, "Audit"))
 
 
 if __name__ == "__main__":
