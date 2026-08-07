@@ -597,19 +597,27 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
     const auto old_val = durability_->Get(old_key);
 
     if (old_val) {
-      // Parse the existing value and update the name
-      auto json = nlohmann::json::parse(*old_val);
-      json["name"] = new_name;
-
-      // Update in durability store
-      durability_->Put(new_key, json.dump());
-      durability_->Delete(old_key);
+      // The stored value is name-independent (only "uuid"/"rel_dir"/cold fields; the name lives in
+      // the key), so move it verbatim instead of parsing and rewriting it.
+      if (durability_->Put(new_key, *old_val)) {
+        durability_->Delete(old_key);
+      } else {
+        // Only drop the old key once the new one is durably in place; otherwise the tenant would be
+        // left with no durability record under either name and vanish on the next restart.
+        spdlog::error("Failed to write durability record for renamed database {} (was {}).", new_name, old_name);
+      }
     }
   }
 
   // Update tenant profile membership (no-op if database had no profile attached).
   if (tenant_profiles_) {
-    [[maybe_unused]] auto renamed = tenant_profiles_->RenameDatabase(old_name, new_name);
+    // The rename itself already committed (in-memory + durably); a failure here is just a
+    // profile-membership bookkeeping row, so it must not stop us from falling through to
+    // AddAction<RenameDatabase> below — skipping that is what used to cause MAIN/replica divergence.
+    auto renamed = tenant_profiles_->RenameDatabase(old_name, new_name);
+    if (!renamed.has_value() && renamed.error() == TenantProfiles::RenameError::DURABILITY_ERROR) {
+      spdlog::warn("Failed to persist tenant profile membership rename for database {} (was {}).", new_name, old_name);
+    }
   }
 
   // Add system action for replication
