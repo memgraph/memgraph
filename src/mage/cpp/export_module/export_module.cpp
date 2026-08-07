@@ -37,10 +37,11 @@ void AddSignature(mgp_proc *proc, mgp_value *default_config) {
 }  // namespace
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
-  mgp_value *default_config = nullptr;
   try {
     const mgp::MemoryDispatcherGuard guard{memory};
-    default_config = mgp::value_make_map(mgp::map_make_empty(memory));
+    // RAII rather than a raw mgp_value*: the map would leak if wrapping it threw. proc_add_opt_arg deep-copies the
+    // default, so one instance can back all three procedures and die at the end of this scope.
+    const auto default_config = mgp::Value(mgp::Map{});
 
     // The low-level path rather than mgp::AddProcedure: `nodes`/`rels` must accept NULL (the reference coerces it to an
     // empty list) and mgp::AddProcedure only builds non-nullable list types.
@@ -48,19 +49,18 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     mgp::proc_add_arg(json_data, Export::kArgumentNodes, mgp::type_nullable(mgp::type_list(mgp::type_node())));
     mgp::proc_add_arg(
         json_data, Export::kArgumentRelationships, mgp::type_nullable(mgp::type_list(mgp::type_relationship())));
-    AddSignature(json_data, default_config);
+    AddSignature(json_data, default_config.ptr());
 
-    AddSignature(mgp::module_add_read_procedure(module, Export::kProcedureJsonAll, Export::JsonAll), default_config);
+    AddSignature(mgp::module_add_read_procedure(module, Export::kProcedureJsonAll, Export::JsonAll),
+                 default_config.ptr());
 
     auto *json_graph = mgp::module_add_read_procedure(module, Export::kProcedureJsonGraph, Export::JsonGraph);
     mgp::proc_add_arg(json_graph, Export::kArgumentGraph, mgp::type_map());
-    AddSignature(json_graph, default_config);
+    AddSignature(json_graph, default_config.ptr());
   } catch (const std::exception &e) {
-    mgp_value_destroy(default_config);
     return 1;
   }
 
-  mgp_value_destroy(default_config);
   return 0;
 }
 
