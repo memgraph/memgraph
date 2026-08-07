@@ -2942,6 +2942,18 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             &abort_snapshot_,
                                                             &snapshot_progress_,
                                                             "storage_mode_change");
+      // Publish the snapshot's timestamp as the cached ldt. Analytical writes never reach
+      // FinalizeCommitPhase, so without this main keeps advertising the pre-analytical ldt and a replica
+      // registered afterwards is judged up to date by the heartbeat comparison -- recovery would never
+      // run and the imported data would never reach it. num_committed_txns_ is deliberately left alone:
+      // the snapshot records the same unchanged counter, so main and a recovering replica stay
+      // consistent. Advance-only, since concurrent commits are barred by the UNIQUE main_lock_ hold but
+      // the field is shared with the replication clients.
+      atomic_struct_update<CommitTsInfo>(repl_storage_state_.commit_ts_info_,
+                                         [ldt = txn->last_durable_ts_](CommitTsInfo const &old_info) {
+                                           return CommitTsInfo{.ldt_ = std::max(old_info.ldt_, ldt),
+                                                               .num_committed_txns_ = old_info.num_committed_txns_};
+                                         });
       snapshot_runner_.Resume();
       // Under the clients' lock for symmetry with the analytical store above, so replica registration's
       // in-lock read of storage_mode_ is serialized against every mode change, not just one direction.
