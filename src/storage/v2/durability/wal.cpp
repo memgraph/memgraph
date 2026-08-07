@@ -1364,6 +1364,7 @@ std::optional<RecoveryInfo> LoadWal(
   };
 
   uint64_t deltas_applied = 0;
+  bool last_delta_was_txn_end = false;
   auto edge_acc = edges->access();
   auto vertex_acc = vertices->access();
   spdlog::info("WAL file contains {} deltas.", num_deltas);
@@ -2181,10 +2182,19 @@ std::optional<RecoveryInfo> LoadWal(
         ++deltas_applied;
       }
 
-      verify_txn_crc(IsWalDeltaDataTransactionEnd(delta, version));
+      last_delta_was_txn_end = IsWalDeltaDataTransactionEnd(delta, version);
     } else {
-      verify_txn_crc(SkipWalDeltaData(&wal, version));
+      last_delta_was_txn_end = SkipWalDeltaData(&wal, version);
     }
+    verify_txn_crc(last_delta_was_txn_end);
+  }
+
+  // The delta count a finalized file states is only ever advanced by a transaction end, so the last delta replayed
+  // has to be one. If it isn't, the marker that ended the transaction rotted into another delta of the same encoded
+  // length - the deltas just replayed belong to a transaction whose CRC trailer was never reached, so nothing
+  // verified them.
+  if (num_deltas > 0 && !last_delta_was_txn_end) {
+    throw RecoveryFailure("WAL file {} ends mid-transaction", path);
   }
 
   spdlog::info(

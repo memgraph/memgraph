@@ -1603,6 +1603,86 @@ TEST_P(WalFileTest, WalMissingTransactionEndMarker) {
                memgraph::storage::durability::RecoveryFailure);
 }
 
+// Replays a WAL file the way recovery does, into throwaway containers.
+void ReplayWal(std::filesystem::path const &path, bool properties_on_edges) {
+  memgraph::storage::durability::RecoveredIndicesAndConstraints indices_constraints;
+  memgraph::utils::SkipListDb<memgraph::storage::Vertex> vertices;
+  memgraph::utils::SkipListDb<memgraph::storage::Edge> edges;
+  memgraph::storage::NameIdMapper name_id_mapper;
+  std::atomic<uint64_t> edge_count{0};
+  memgraph::storage::EnumStore enum_store;
+  auto find_edge = [](memgraph::storage::Gid) -> std::optional<std::tuple<memgraph::storage::EdgeRef,
+                                                                          memgraph::storage::EdgeTypeId,
+                                                                          memgraph::storage::Vertex *,
+                                                                          memgraph::storage::Vertex *>> {
+    return std::nullopt;
+  };
+
+  static_cast<void>(memgraph::storage::durability::LoadWal(
+      path,
+      &indices_constraints,
+      std::nullopt,
+      &vertices,
+      &edges,
+      &name_id_mapper,
+      &edge_count,
+      memgraph::storage::SalientConfig::Items{.properties_on_edges = properties_on_edges},
+      &enum_store,
+      nullptr,
+      find_edge,
+      nullptr,
+      nullptr));
+}
+
+// A finalized file replays exactly the delta count its summary states, so a transaction-end marker that rots into a
+// delta of the same encoded length - DELTA_VERTEX_CREATE reads the CRC trailer as a gid - would consume the count
+// without the CRC ever being checked, and the transaction it silently truncated would apply anyway.
+TEST_P(WalFileTest, FinalizedFileEndingMidTransactionFailsRecovery) {
+  uint64_t last_end_marker_pos = 0;
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    TRANSACTION(true, { tx.CreateVertex(); });
+    TRANSACTION(true, { tx.CreateVertex(); });
+    last_end_marker_pos = gen.GetTxnEndMarkerPositions().back();
+    gen.Finalize();
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  auto const &wal_file = wal_files.front();
+
+  // The file is finalized, so LoadWal replays from the summary instead of parsing the deltas first.
+  auto const header = memgraph::storage::durability::ReadWalHeader(wal_file);
+  ASSERT_TRUE(header.summary.has_value());
+  ASSERT_NO_THROW(ReplayWal(wal_file, GetParam()));
+
+  // Sanity check: the byte about to be overwritten really is the last transaction-end marker.
+  {
+    memgraph::utils::InputFile original;
+    ASSERT_TRUE(original.Open(wal_file));
+    uint8_t marker_byte{};
+    ASSERT_TRUE(original.SetPosition(memgraph::utils::InputFile::Position::SET, last_end_marker_pos).has_value());
+    ASSERT_TRUE(original.Read(&marker_byte, 1));
+    ASSERT_EQ(marker_byte, static_cast<uint8_t>(memgraph::storage::durability::Marker::DELTA_TRANSACTION_END));
+    original.Close();
+  }
+
+  {
+    memgraph::utils::OutputFile corrupted;
+    corrupted.Open(wal_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    corrupted.SetPosition(memgraph::utils::OutputFile::Position::SET, last_end_marker_pos);
+    auto const create_marker = static_cast<uint8_t>(memgraph::storage::durability::Marker::DELTA_VERTEX_CREATE);
+    corrupted.Write(&create_marker, 1);
+    corrupted.Sync();
+    corrupted.Close();
+  }
+
+  // The summary is untouched, so the damage is only visible in the deltas: the replay must refuse rather than commit
+  // the phantom vertex the flipped marker decodes into.
+  ASSERT_TRUE(memgraph::storage::durability::ReadWalHeader(wal_file).summary.has_value());
+  EXPECT_THROW(ReplayWal(wal_file, GetParam()), memgraph::storage::durability::RecoveryFailure);
+}
+
 class StorageModeWalFileTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
  public:
   StorageModeWalFileTest() = default;
