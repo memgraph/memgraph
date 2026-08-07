@@ -39,7 +39,7 @@ MEMGRAPH_BUILD_DEPS=(
     git # source code control
     gcc-c++ libstdc++-devel libstdc++-static # conan tool builds (ninja links -static-libstdc++)
     make cmake pkgconf-pkg-config # build system
-    wget # for downloading libs
+    wget tar gzip # for downloading and unpacking libs (curl binary ships via curl-minimal)
     perl # conan openssl's Configure
     gperf # conan libseccomp source build
     readline-devel # optional readline support (manual tests)
@@ -52,15 +52,22 @@ MEMGRAPH_BUILD_DEPS=(
     python3-devel # for build tooling that still targets the system python
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
     openssl-devel # for mgconsole (cloned + built at package time)
-    python3 python3-pip python3-virtualenv nmap-ncat lsof # for qa, macro_benchmark and stress tests
-    custom-rust custom-node
+    python3 python3-pip python3-virtualenv # for conan (runs in a venv) and build tooling
+    custom-rust
     rpm-build rpmlint # for RPM package building
-    which nodejs golang custom-golang # for driver tests
-    zip unzip java-25-openjdk java-25-openjdk-devel custom-maven # for driver tests (JDK 17 required) and neo4j (macro benchmarks)
+    which # needed by various build and test scripts
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     ninja-build
     krb5-devel # for building python gssapi (kerberos auth module)
+)
+
+# Extra packages on top of MEMGRAPH_BUILD_DEPS needed to run the test suites.
+MEMGRAPH_TEST_DEPS=(
+    nmap-ncat lsof # for qa, macro_benchmark and stress tests
+    custom-node # for driver tests
+    nodejs golang custom-golang # for driver tests
+    zip unzip java-25-openjdk java-25-openjdk-devel custom-maven # for driver tests (JDK 17 required) and neo4j (macro benchmarks)
     xmlsec1-devel xmlsec1-openssl-devel # pip xmlsec (SAML SSO) builds from source; no wheels since 1.3.15
     sudo # stress tests set up passwordless sudo for mg (iptables)
 )
@@ -71,9 +78,6 @@ MEMGRAPH_RUN_DEPS=(
     krb5-libs # runtime for python gssapi (kerberos auth module)
 )
 
-NEW_DEPS=(
-    wget curl tar gzip
-)
 
 setup_repos() {
     dnf config-manager --set-enabled crb

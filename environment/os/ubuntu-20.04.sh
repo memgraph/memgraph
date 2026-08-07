@@ -31,19 +31,16 @@ TOOLCHAIN_RUN_DEPS=(
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make cmake pkg-config # build system
-    curl wget # for downloading libs
+    curl wget tar gzip # for downloading and unpacking libs
     uuid-dev default-jre-headless # required by antlr
     libreadline-dev # for memgraph console
     libpython3-dev python3-dev # for query modules
     libssl-dev
     libseccomp-dev
-    netcat # tests are using nc to wait for memgraph
-    python3 python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
+    python3 python3-pip python3-virtualenv python3-venv # for conan (runs in a venv) and build tooling
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
-    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven # for driver tests
-    dotnet-sdk-6.0 golang custom-golang custom-node # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     libsasl2-dev
@@ -51,14 +48,18 @@ MEMGRAPH_BUILD_DEPS=(
     libkrb5-dev # for building python gssapi (kerberos auth module)
 )
 
+# Extra packages on top of MEMGRAPH_BUILD_DEPS needed to run the test suites.
+MEMGRAPH_TEST_DEPS=(
+    netcat # tests are using nc to wait for memgraph
+    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven # for driver tests
+    dotnet-sdk-6.0 golang custom-golang custom-node # for driver tests
+)
+
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp2
     libkrb5-3 # runtime for python gssapi (kerberos auth module)
 )
 
-NEW_DEPS=(
-    wget curl tar gzip
-)
 
 SPECIAL_PACKAGES=(dotnet-sdk-6.0)
 

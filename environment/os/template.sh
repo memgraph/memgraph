@@ -23,13 +23,12 @@ MEMGRAPH_BUILD_DEPS=(
     pkg
 )
 
-MEMGRAPH_RUN_DEPS=(
+# Extra packages on top of MEMGRAPH_BUILD_DEPS needed to run the test suites.
+MEMGRAPH_TEST_DEPS=(
     pkg
 )
 
-# NEW_DEPS is useful when you want to test the installation of a new package.
-# During the test you can put here packages like wget curl tar gzip
-NEW_DEPS=(
+MEMGRAPH_RUN_DEPS=(
     pkg
 )
 

@@ -9,13 +9,13 @@
 #     TOOLCHAIN_RUN_DEPS=(...)
 #     MEMGRAPH_BUILD_DEPS=(...)
 #     MEMGRAPH_RUN_DEPS=(...)
-#     NEW_DEPS=(...)
 #     main "$@"
 #
 # The filename is the OS name (fedora-44.sh, debian-13.sh, ...); one script
 # serves every architecture — anything arch-specific belongs in a hook that
-# inspects `uname -m`. MEMGRAPH_TEST_DEPS defaults to MEMGRAPH_BUILD_DEPS
-# unless the script sets it explicitly.
+# inspects `uname -m`. MEMGRAPH_TEST_DEPS holds only the EXTRA packages the
+# test suites need on top of MEMGRAPH_BUILD_DEPS — consumers that run tests
+# install both groups. It defaults to empty if a script doesn't set it.
 #
 # Optional hooks, defined between `source lib.sh` and `main "$@"`:
 #   setup_repos()              enable extra repos before packages install
@@ -51,6 +51,7 @@ _package_manager() {
 
 list() {
     local -n _packages="$1"
+    [ ${#_packages[@]} -gt 0 ] || return 0
     printf '%s\n' "${_packages[@]}"
 }
 
@@ -171,7 +172,7 @@ main() {
     fi
 
     if [[ -z "${MEMGRAPH_TEST_DEPS+x}" ]]; then
-        MEMGRAPH_TEST_DEPS=("${MEMGRAPH_BUILD_DEPS[@]}")
+        MEMGRAPH_TEST_DEPS=()
     fi
 
     local cmd="${1:-}" group="${2:-}"
