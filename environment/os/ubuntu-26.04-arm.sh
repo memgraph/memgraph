@@ -56,6 +56,8 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
     ninja-build
     libkrb5-dev # for building python gssapi (kerberos auth module)
+    libxmlsec1-dev xmlsec1 # pip xmlsec (SAML SSO) builds from source; no wheels since 1.3.15
+    sudo adduser # stress tests set up passwordless sudo for mg (iptables)
 )
 
 MEMGRAPH_RUN_DEPS=(
@@ -66,5 +68,14 @@ MEMGRAPH_RUN_DEPS=(
 NEW_DEPS=(
     wget curl tar gzip
 )
+
+setup_repos() {
+    # deadsnakes PPA for non-default python versions
+    if ! ls /etc/apt/sources.list.d/ | grep -F 'deadsnakes'; then
+        apt-get -y install software-properties-common
+        add-apt-repository -y ppa:deadsnakes/ppa
+        apt-get update
+    fi
+}
 
 main "$@"

@@ -493,9 +493,6 @@ install_python_from_deadsnakes () {
   echo "Installing Python $version from the deadsnakes PPA ..."
   docker exec -u root "$build_container" bash -c "export DEBIAN_FRONTEND=noninteractive && \
     apt-get update && \
-    apt-get install -y software-properties-common && \
-    add-apt-repository -y ppa:deadsnakes/ppa && \
-    apt-get update && \
     apt-get install -y python${version} python${version}-dev python${version}-venv"
   point_libpython3_so "$version"
 }
@@ -678,23 +675,21 @@ build_memgraph () {
     copy_project_files
   fi
 
-  # Ubuntu and Debian builds fail because of missing xmlsec since the Python package xmlsec==1.3.15
-  if [[ "$os" == debian* || "$os" == ubuntu* ]]; then
-    if [[ "$os" == debian-11* ]]; then
-      # this should blacklist that version of xmlsec for debian-11
-      docker exec -u root "$build_container" bash -c "echo 'xmlsec!=1.3.15' > /etc/pip_constraints.txt"
-      docker exec -u root "$build_container" bash -c "echo '[global]' > /etc/pip.conf && echo 'constraint = /etc/pip_constraints.txt' >> /etc/pip.conf"
-    else
-      docker exec -u root "$build_container" bash -c "apt update && apt install -y libxmlsec1-dev xmlsec1"
-    fi
-  fi
-
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
-  echo "Installing Rust $DEFAULT_RUST_VERSION..."
-  docker exec -u mg "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && retry_install install_rust $DEFAULT_RUST_VERSION"
+  # check rust version installed matches
+  local installed_rust_ver_str="$(docker exec -u mg $build_container bash -c 'source $HOME/.cargo/env && cargo --version 2>/dev/null || echo ""')"
+  local installed_rust_ver=""
+  if [[ $installed_rust_ver_str =~ v?([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+    installed_rust_ver="${BASH_REMATCH[1]}"
+    echo "Found Rust version ${installed_rust_ver} in the build container"
+  fi
+  if [[ "$installed_rust_ver" != "$DEFAULT_RUST_VERSION" ]]; then
+    echo "Installing Rust $DEFAULT_RUST_VERSION..."
+    docker exec -u mg "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && retry_install install_rust $DEFAULT_RUST_VERSION"
+  fi
 
   # Install the requested build-time Python (--python-build-version) from deadsnakes
   # and point libpython3.so at it, so the build links against exactly that
@@ -974,7 +969,6 @@ build_memgraph () {
 init_tests() {
   echo "Initializing tests..."
   local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
-  docker exec -u root "$build_container" bash -c "apt update && apt install -y python3-venv"
   docker exec -u mg "$build_container" bash -c "$SETUP_MGDEPS_CACHE_ENDPOINT && cd $MGBUILD_ROOT_DIR && ./init-test --ci"
   echo "...Done"
 }
@@ -1674,8 +1668,8 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=standalone/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
     ;;
     stress-native-ha)
-      # Set up passwordless sudo for mg user (needed by stress tests that use iptables)
-      docker exec -u root $build_container bash -c "apt-get update -qq && apt-get install -y -qq sudo && adduser mg sudo && echo 'mg ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers"
+      # Passwordless sudo for mg (stress tests use iptables)
+      docker exec -u root $build_container bash -c "echo 'mg ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/mg && chmod 440 /etc/sudoers.d/mg"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_AWS_KEY_ID && $EXPORT_AWS_SECRET_KEY && export REPLICATION_MODE=${REPLICATION_MODE:-sync} && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=ha/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
     ;;
     stress-docker-ha)
@@ -1927,7 +1921,6 @@ test_memgraph() {
     ;;
     e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
-      docker exec -u root $build_container bash -c "apt-get update && apt-get install -y lsof" # TODO(matt): install within mgbuild container
       local pycmd="python${python_runtime_version:-3}"
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user networkx==2.5.1"
