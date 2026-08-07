@@ -13,10 +13,20 @@
 
 #include <gtest/gtest.h>
 
+#include <set>
+
+using memgraph::storage::ConstraintViolation;
 using memgraph::storage::FormatReplicationError;
+using memgraph::storage::LabelId;
+using memgraph::storage::PersistenceError;
+using memgraph::storage::PropertyId;
 using memgraph::storage::ReplicaFailureReason;
 using memgraph::storage::ReplicaFailureReasonToString;
+using memgraph::storage::ReplicaShouldNotWriteError;
 using memgraph::storage::ReplicationError;
+using memgraph::storage::SerializationError;
+using memgraph::storage::StorageManipulationError;
+using memgraph::storage::TransactionWasCommitted;
 
 // --- ReplicaFailureReasonToString ---
 
@@ -183,4 +193,61 @@ TEST(FormatReplicationErrorTest, MultipleTimeoutsListedInSuffix) {
   };
   auto msg = FormatReplicationError(error);
   EXPECT_NE(msg.find("Main reached an RPC timeout while replicating to [r1, r2]"), std::string::npos);
+}
+
+// --- TransactionWasCommitted ---
+
+TEST(TransactionWasCommittedTest, ReplicationErrorCommittedOnMainReturnsTrue) {
+  StorageManipulationError error{ReplicationError{
+      .failures = {{"replica_1", "SYNC", ReplicaFailureReason::NOT_IN_SYNC}}, .transaction_committed = true}};
+  EXPECT_TRUE(TransactionWasCommitted(error));
+}
+
+TEST(TransactionWasCommittedTest, StrictSyncAbortReturnsFalse) {
+  StorageManipulationError error{ReplicationError{
+      .failures = {{"replica_1", "STRICT_SYNC", ReplicaFailureReason::RPC_ERROR}}, .transaction_committed = false}};
+  EXPECT_FALSE(TransactionWasCommitted(error));
+}
+
+TEST(TransactionWasCommittedTest, CommittedFlagIsAuthoritativeWhenNoFailures) {
+  // No failures recorded, yet the flag alone must still drive the answer.
+  StorageManipulationError error{ReplicationError{.failures = {}, .transaction_committed = true}};
+  EXPECT_TRUE(TransactionWasCommitted(error));
+}
+
+TEST(TransactionWasCommittedTest, MultipleFailuresAbortReturnsFalse) {
+  StorageManipulationError error{
+      ReplicationError{.failures = {{"replica_1", "STRICT_SYNC", ReplicaFailureReason::RPC_ERROR},
+                                    {"replica_2", "STRICT_SYNC", ReplicaFailureReason::TIMEOUT}},
+                       .transaction_committed = false}};
+  EXPECT_FALSE(TransactionWasCommitted(error));
+}
+
+TEST(TransactionWasCommittedTest, ConstraintViolationReturnsFalse) {
+  StorageManipulationError error{ConstraintViolation{
+      ConstraintViolation::Type::EXISTENCE, LabelId::FromUint(1), std::set{PropertyId::FromUint(1)}}};
+  EXPECT_FALSE(TransactionWasCommitted(error));
+}
+
+TEST(TransactionWasCommittedTest, SerializationErrorReturnsFalse) {
+  StorageManipulationError error{SerializationError{}};
+  EXPECT_FALSE(TransactionWasCommitted(error));
+}
+
+TEST(TransactionWasCommittedTest, PersistenceErrorReturnsFalse) {
+  StorageManipulationError error{PersistenceError{}};
+  EXPECT_FALSE(TransactionWasCommitted(error));
+}
+
+TEST(TransactionWasCommittedTest, ReplicaShouldNotWriteErrorReturnsFalse) {
+  StorageManipulationError error{ReplicaShouldNotWriteError{}};
+  EXPECT_FALSE(TransactionWasCommitted(error));
+}
+
+TEST(TransactionWasCommittedTest, OnlyReplicationErrorCanReturnTrue) {
+  EXPECT_FALSE(TransactionWasCommitted(StorageManipulationError{ConstraintViolation{
+      ConstraintViolation::Type::EXISTENCE, LabelId::FromUint(1), std::set{PropertyId::FromUint(1)}}}));
+  EXPECT_FALSE(TransactionWasCommitted(StorageManipulationError{SerializationError{}}));
+  EXPECT_FALSE(TransactionWasCommitted(StorageManipulationError{PersistenceError{}}));
+  EXPECT_FALSE(TransactionWasCommitted(StorageManipulationError{ReplicaShouldNotWriteError{}}));
 }
