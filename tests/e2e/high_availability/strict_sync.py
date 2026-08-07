@@ -437,10 +437,8 @@ def get_labeled_vertex_count(cursor, label):
 
 
 def get_main_log_path(test_name):
-    # Mirrors interactive_mg_runner._start's log_file_path construction: BUILD_DIR/e2e/logs/<log_file>,
-    # where instance_3's log_file is get_logs_path(file, test_name) + "/instance_3.log" (see
-    # get_instances_description_no_setup above). Memgraph's log sink appends a "_<YYYY-MM-DD>" suffix to
-    # the actual filename, so the exact name above never exists on disk -- glob for it instead.
+    # Memgraph's log sink appends a "_<YYYY-MM-DD>" date suffix to the filename, so the exact name
+    # below never exists on disk -- glob for it instead.
     log_dir = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name))
     matches = glob.glob(os.path.join(log_dir, "instance_3*.log"))
     assert matches, f"No instance_3 log found in {log_dir} (glob pattern: 'instance_3*.log')"
@@ -458,20 +456,16 @@ def log_contains_any(log_path, offset, substrings):
     return any(substring in content for substring in substrings)
 
 
-# Regression test: an AFTER COMMIT trigger must not fire for a transaction that aborted (STRICT_SYNC
-# replica down => 2PC prepare fails). Interpreter::Commit() used to unconditionally enqueue the AFTER
-# COMMIT trigger task regardless of whether the transaction actually committed.
+# Regression test: an AFTER COMMIT trigger must not fire when the txn aborted (STRICT_SYNC replica
+# down => 2PC prepare fails); Commit() used to enqueue the trigger task unconditionally.
 def test_after_commit_trigger_does_not_fire_for_aborted_txn(test_name):
     trigger_name = "audit_trigger"
     inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
     main_cursor = connect(host="localhost", port=7689).cursor()
 
-    # Data for the (to be aborted) transaction to delete, and the trigger it should NOT fire.
-    # Constraint: the trigger must be DELETE-typed, not CREATE-typed. Trigger::Execute bails out early
-    # unless ShouldEventTrigger() passes, and TriggerContext::AdaptForAccessor re-resolves objects by Gid
-    # and drops created_vertices_ that no longer exist post-abort -- so a CREATE trigger's body never
-    # runs at all after an abort, which would make this test vacuous. deleted_vertices_ is deliberately
-    # not pruned, so a DELETE trigger's body does run, and we can observe what happens next.
+    # Trigger must be DELETE-typed: TriggerContext::AdaptForAccessor re-resolves objects by Gid post-abort
+    # and prunes created_vertices_ (a CREATE trigger's body would never run, making this test vacuous),
+    # but deliberately leaves deleted_vertices_ unpruned, so a DELETE trigger's body still runs.
     execute_and_fetch_all(main_cursor, "CREATE (n:Node {id: 1})")
     execute_and_fetch_all(
         main_cursor, f"CREATE TRIGGER {trigger_name} ON () DELETE AFTER COMMIT EXECUTE CREATE (:Audit)"
@@ -482,8 +476,8 @@ def test_after_commit_trigger_does_not_fire_for_aborted_txn(test_name):
     # Ignore everything logged by the healthy setup above; only look at what the aborted txn produces.
     start_offset = os.path.getsize(main_log_path)
 
-    # Kill the STRICT_SYNC replica so the upcoming write aborts in the 2PC prepare phase.
-    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+    # This test never restarts instance_1, so its data directory must be dropped now or it poisons the next run.
+    interactive_mg_runner.kill(inner_instances_description, "instance_1", keep_directories=False)
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "MATCH (n:Node) DETACH DELETE n")
@@ -493,15 +487,10 @@ def test_after_commit_trigger_does_not_fire_for_aborted_txn(test_name):
     # aborted-transaction state, not just observing a no-op.
     assert get_labeled_vertex_count(main_cursor, "Node") == 1
 
-    # Constraint: assert on MAIN's log, not on graph data. While instance_1 is down, the trigger's own
-    # commit (CREATE (:Audit)) also goes through the same STRICT_SYNC path and also aborts, so the audit
-    # node never persists either way -- a MATCH (:Audit) count assertion would read 0 with or without the
-    # fix and prove nothing. The real signal is whether Commit() dispatched the trigger task at all,
-    # which only shows up in the log line it emits when it dispatches (unfixed) or skips (fixed) it.
-    #
-    # The trigger task, if dispatched, runs asynchronously on a separate thread pool, so give it a fair
-    # chance to run before checking for the absence of its log line: wait (bounded) for either outcome's
-    # tell-tale line to appear, so the test can't pass merely because it looked too early.
+    # Assert on MAIN's log, not graph data: the trigger's own CREATE (:Audit) commit also aborts under
+    # STRICT_SYNC, so a MATCH (:Audit) count reads 0 with or without the fix and proves nothing. The
+    # signal is the log line Commit() emits when it dispatches (unfixed) or skips (fixed) the trigger task.
+    # Trigger task runs asynchronously; wait (bounded) so the test can't pass by looking too early.
     mg_sleep_and_assert(
         True,
         partial(
@@ -520,9 +509,9 @@ def test_after_commit_trigger_does_not_fire_for_aborted_txn(test_name):
     assert "Skipping 1 AFTER COMMIT trigger(s)" in log_content
 
 
-# Regression guard for the fix above: on a healthy cluster the transaction really commits, so the AFTER
-# COMMIT trigger must still fire and its write must still persist. Suppressing a trigger for a
-# transaction that actually committed would be a worse bug than the one being fixed.
+# Regression guard: on a healthy cluster the trigger must still fire and its write must still persist --
+# suppressing it for a committed txn would be worse than the bug being fixed. Passes on the unfixed
+# binary too (verified); it catches over-suppression, the test above is the one that catches the abort bug.
 def test_after_commit_trigger_fires_for_committed_txn(test_name):
     setup_cluster(test_name, get_default_setup_queries())
     main_cursor = connect(host="localhost", port=7689).cursor()
