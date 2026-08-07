@@ -8073,10 +8073,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           metrics::Metrics().global.show_storage_info->Increment();
           const auto instance_info = GetInstanceStorageInfo();
 #ifdef MG_ENTERPRISE
-          // db_handler_-derived per-tenant figures under-report: a force-dropped tenant leaves every
-          // by-name surface immediately, but its bytes stay parented into utils::graph_memory_tracker
-          // until its last accessor is released. These rows close that gap and make the residue
-          // attributable instead of silently vanishing from every by-name view.
+          // Surfaces detached-tenant memory (see TenantMemorySum) at the instance level, where
+          // by-name views can't see it.
           const auto tenant_mem = dbms_handler->TenantMemorySum();
           const auto detached_count = static_cast<int64_t>(dbms_handler->AllDetached().size());
 #endif
@@ -8942,11 +8940,10 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     }
 
     // A database that failed durability recovery comes up broken (see
-    // --storage-allow-recovery-failure); report that so operators can spot it. A DETACHED tenant is,
-    // by construction, absent from the by-name lookup: report "ready" without calling Get, since the
-    // name may already have been reused by a different, newly created tenant, and probing it by name
-    // would silently report that other tenant's health under the DETACHED row.
+    // --storage-allow-recovery-failure); report that so operators can spot it.
     auto health_of = [db_handler](std::string_view name, std::string_view state) -> std::string {
+      // A newly created tenant can reuse a DETACHED name while the old one drains; probing by name
+      // here would misattribute that tenant's health, so short-circuit instead of calling Get().
       if (state == "DETACHED") return "ready";
       try {
         return db_handler->Get(name)->storage()->IsBroken() ? "broken" : "ready";

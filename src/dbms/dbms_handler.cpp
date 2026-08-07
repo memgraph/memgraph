@@ -842,14 +842,9 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   uint64_t holders = 0;
   if (auto *gk = db_handler_.GetGatekeeper(db_name)) holders = gk->holder_count();
 
-  // Publish before DeferDelete, not after: DeferDelete may hand the Gatekeeper to a drain thread that
-  // finishes and invokes the post-delete callback at any point once DeferDelete returns, so publishing
-  // afterwards could race the retire below and leave a permanent phantom row. The callback itself may
-  // take ONLY detached_lock_ (via ForgetDetached_) because it can also run INLINE on this thread, which
-  // still holds lock_ exclusive at that point — a second lock_ acquisition would self-deadlock (lock_ is
-  // non-recursive). On that inline path both the publish and the retire happen inside this same
-  // exclusive-lock_ section, so no shared-lock_ reader can ever observe a row for a tenant that was in
-  // fact destroyed synchronously.
+  // Publish before DeferDelete, not after: the drain thread can finish and invoke the post-delete
+  // callback the moment DeferDelete returns, so publishing afterwards would race ForgetDetached_
+  // and leave a permanent phantom row.
   RecordDetached_(DetachedTenant{.name = std::string{db_name},
                                  .uuid = tenant_uuid,
                                  .detached_at = std::chrono::system_clock::now(),

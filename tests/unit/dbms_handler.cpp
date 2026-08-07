@@ -510,12 +510,8 @@ TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
       << "t1's deferred destruction must complete once its accessor is released; " << t1_dir << " is still present";
 }
 
-// Force-dropping a tenant while a DatabaseAccess is still held takes the deferred path (see the
-// StuckOrphan test above): the tenant leaves every by-name surface immediately, but its bytes stay
-// parented into utils::graph_memory_tracker until the last accessor is released. This test guards the
-// registry that makes that interval observable instead of silently unaccounted: the detached tenant's
-// memory must still show up in TenantMemorySum()'s detached half (and AllDetached()/AllWithHotColdStatus)
-// while it is unaddressable by name, and the row must be retired once the drain thread actually finishes.
+// Pins the deferred-drop invariant: a force-dropped tenant with a live accessor is unaddressable by
+// name immediately, but stays attributable (TenantMemorySum/AllDetached) until the drain retires it.
 TEST(DBMS_Handler, DetachedTenantMemoryStaysAttributableWhileUnaddressable) {
   auto &dbms = *TestEnvironment::get();
 
@@ -528,8 +524,7 @@ TEST(DBMS_Handler, DetachedTenantMemoryStaysAttributableWhileUnaddressable) {
   constexpr size_t kPropertyBytes = 1024;
   const std::string blob(kPropertyBytes, 'z');
   {
-    // DbArenaScope required -- without it, writes land in an unattributed arena and db_memory_tracker_
-    // never sees them (same requirement as StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete above).
+    // DbArenaScope required -- see StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete above.
     memgraph::memory::DbArenaScope db_arena_scope{acc.get()};
     auto storage_acc = acc->Access();
     ASSERT_TRUE(storage_acc);
@@ -553,7 +548,6 @@ TEST(DBMS_Handler, DetachedTenantMemoryStaysAttributableWhileUnaddressable) {
   auto del = dbms.Delete("detached_mem_t1");
   ASSERT_TRUE(del.has_value()) << (int)del.error();
 
-  // UNADDRESSABLE: the tenant must have left every by-name surface immediately.
   ASSERT_ANY_THROW(dbms.Get("detached_mem_t1"));
   bool seen_by_foreach = false;
   dbms.ForEach([&](memgraph::dbms::DatabaseAccess db_acc) {
@@ -567,7 +561,6 @@ TEST(DBMS_Handler, DetachedTenantMemoryStaysAttributableWhileUnaddressable) {
     })) << "a detached tenant must not be reported HOT";
   }
 
-  // STILL ATTRIBUTABLE: the registry keeps enough to answer "where did the bytes go".
   {
     const auto all_detached = dbms.AllDetached();
     const auto it = std::ranges::find_if(
@@ -593,7 +586,6 @@ TEST(DBMS_Handler, DetachedTenantMemoryStaysAttributableWhileUnaddressable) {
     EXPECT_LE(after.hot, before.hot - (footprint - tolerance)) << "and must have left the hot half";
   }
 
-  // BOUNDED BY DRAIN COMPLETION: release the last accessor and wait for the drain thread to retire the row.
   acc.reset();
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
   bool retired = false;
@@ -614,12 +606,8 @@ TEST(DBMS_Handler, DetachedTenantMemoryStaysAttributableWhileUnaddressable) {
   })) << "the DETACHED row must disappear from AllWithHotColdStatus once the row is retired";
 }
 
-// Negative control for the test above: with NO accessor held, Delete() takes the inline fast path --
-// try_delete() succeeds immediately and post_delete_func runs synchronously inside Delete_'s own
-// exclusive lock_ section (see RecordDetached_/ForgetDetached_'s doc comments in dbms_handler.hpp: the
-// insert-then-inline-erase pair on the fast path must be invisible to readers, which take lock_ shared).
-// A regression that published a row on the fast path without retiring it would make the registry grow
-// without bound, since nothing else ever cleans up a row for a tenant that no longer exists anywhere.
+// Negative control: with no accessor held, try_delete() succeeds inline, so the row must be retired
+// synchronously too (see the detached_lock_ lock-order note, dbms_handler.hpp) or it leaks forever.
 TEST(DBMS_Handler, DroppedTenantWithNoHoldersLeavesNoDetachedRow) {
   auto &dbms = *TestEnvironment::get();
 
