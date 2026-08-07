@@ -28,8 +28,8 @@ bool ThreadPool::AddTask(TaskSignature new_task) {
       return false;
     }
     task_queue_.emplace(std::move(new_task));
+    unfinished_tasks_num_.fetch_add(1);
   }
-  unfinished_tasks_num_.fetch_add(1);
 
   queue_cv_.notify_one();
   return true;
