@@ -33,9 +33,6 @@ constexpr int64_t MaxHopsOrNoLimit(int64_t max_hops) noexcept {
 // take the whole process down on a long chain. Refuse the walk instead of crashing.
 constexpr int64_t kMaxExpandDepth = 5000;
 
-// An unfiltered start node is exempt from the label filters: treat it as a plain whitelisted node.
-constexpr Path::LabelBools kExemptStart{.whitelisted = true};
-
 }  // namespace
 
 Path::PathHelper::PathHelper(const mgp::List &labels, const mgp::List &relationships, int64_t min_hops,
@@ -66,6 +63,16 @@ constexpr std::array<std::string_view, 13> kConfigKeys{"minHops",
                                                        "blacklistNodes"};
 
 void ValidateConfigKeys(const mgp::Map &config) {
+  // Every recognized key that is present, counted by hash lookup. That equals the map's size exactly
+  // when the map holds nothing else, so the common case never walks the map -- iterating it deep-copies
+  // every value twice (once into a Value, again into the MapItem), which for a large node-filter list
+  // is a lot of copying just to check spellings. Only walk it when there is an offending key to name.
+  const auto recognized =
+      std::ranges::count_if(kConfigKeys, [&config](std::string_view key) { return config.KeyExists(key); });
+  if (std::cmp_equal(recognized, config.Size())) {
+    return;
+  }
+
   for (const auto &item : config) {
     if (std::ranges::find(kConfigKeys, item.key) == kConfigKeys.end()) {
       throw mgp::ValueException("Unrecognized config key '" + std::string(item.key) + "'.");
@@ -124,22 +131,26 @@ std::unordered_set<int64_t> CollectNodeIds(const mgp::Value &value, const mgp::G
 Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph) {
   ValidateConfigKeys(config);
 
-  auto same_type_or_null = [](const mgp::Value &value, const mgp::Type wanted_type) {
-    return value.Type() == wanted_type || value.IsNull();
-  };
+  // Naming the offending key beats a blanket "see the documentation": with a dozen keys accepted, the
+  // caller otherwise has to bisect the map to find which one is the wrong type.
+  auto require_type =
+      [](std::string_view key, const mgp::Value &value, const mgp::Type wanted_type, std::string_view wanted_name) {
+        if (!value.IsNull() && value.Type() != wanted_type) {
+          throw mgp::ValueException("Config key '" + std::string(key) + "' needs to be " + std::string(wanted_name) +
+                                    ".");
+        }
+      };
 
   const auto min_hops_value = AliasedValue(config, "minHops", "minLevel");
   const auto max_hops_value = AliasedValue(config, "maxHops", "maxLevel");
 
-  if (!same_type_or_null(min_hops_value, mgp::Type::Int) || !same_type_or_null(max_hops_value, mgp::Type::Int) ||
-      !same_type_or_null(config.At("relationshipFilter"), mgp::Type::List) ||
-      !same_type_or_null(config.At("labelFilter"), mgp::Type::List) ||
-      !same_type_or_null(config.At("filterStartNode"), mgp::Type::Bool) ||
-      !same_type_or_null(config.At("beginSequenceAtStart"), mgp::Type::Bool) ||
-      !same_type_or_null(config.At("bfs"), mgp::Type::Bool)) {
-    throw mgp::ValueException(
-        "The config parameter needs to be a map with keys and values in line with the documentation.");
-  }
+  require_type("minHops", min_hops_value, mgp::Type::Int, "an integer");
+  require_type("maxHops", max_hops_value, mgp::Type::Int, "an integer");
+  require_type("relationshipFilter", config.At("relationshipFilter"), mgp::Type::List, "a list of strings");
+  require_type("labelFilter", config.At("labelFilter"), mgp::Type::List, "a list of strings");
+  require_type("filterStartNode", config.At("filterStartNode"), mgp::Type::Bool, "a boolean");
+  require_type("beginSequenceAtStart", config.At("beginSequenceAtStart"), mgp::Type::Bool, "a boolean");
+  require_type("bfs", config.At("bfs"), mgp::Type::Bool, "a boolean");
 
   if (!max_hops_value.IsNull()) {
     config_.max_hops = MaxHopsOrNoLimit(max_hops_value.ValueInt());
@@ -226,7 +237,8 @@ bool Path::PathHelper::NodeFilterAllows(const mgp::Node &node, const bool is_sta
     return true;
   }
 
-  // An unfiltered start node is exempt, as it is for the label filters.
+  // Exempt by walk position, not by node identity: an unfiltered start node is exempt here exactly as
+  // it is for the label filters, but that same node re-entered deeper in the walk is filtered.
   if (!IsNotStartOrFiltersStartNode(is_start)) {
     return true;
   }
@@ -569,7 +581,7 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
   // One frame per hop, so an unbounded upper hop bound would overflow the stack rather than return.
   if (path_size > kMaxExpandDepth) {
     throw mgp::ValueException("Path expansion exceeded the maximum depth of " + std::to_string(kMaxExpandDepth) +
-                              "; set a smaller maxHops to bound the traversal.");
+                              "; lower the upper hop bound to bound the traversal.");
   }
 
   const mgp::Node node{path.GetNodeAt(path_size)};
@@ -582,8 +594,7 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
   deepest_reached_ = std::max(deepest_reached_, path_size);
 
   const LabelBools label_bools = path_data_.helper_.GetLabelBools(node);
-  const LabelBools &inclusion_bools =
-      path_data_.helper_.IsNotStartOrFiltersStartNode(path_size == 0) ? label_bools : kExemptStart;
+  const LabelBools &inclusion_bools = path_data_.helper_.InclusionLabelBools(label_bools, path_size == 0);
 
   if (path_data_.helper_.PathSizeOk(path_size) && path_data_.helper_.AreLabelsValid(inclusion_bools)) {
     auto record = path_data_.record_factory_.NewRecord();
@@ -772,14 +783,7 @@ void Path::PathSubgraph::TryInsertNode(const mgp::Node &node, int64_t hop_count,
     return;
   }
 
-  if (path_data_.helper_.IsNotStartOrFiltersStartNode(hop_count == 0)) {
-    if (path_data_.helper_.AreLabelsValid(label_bools)) {
-      to_be_returned_nodes_.AppendExtend(mgp::Value(node));
-    }
-    return;
-  }
-
-  if (path_data_.helper_.AreLabelsValid(kExemptStart)) {
+  if (path_data_.helper_.AreLabelsValid(path_data_.helper_.InclusionLabelBools(label_bools, hop_count == 0))) {
     to_be_returned_nodes_.AppendExtend(mgp::Value(node));
   }
 }

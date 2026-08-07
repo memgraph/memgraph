@@ -103,6 +103,9 @@ struct LabelBools {
   bool whitelisted = false;
 };
 
+// An unfiltered start node is exempt from the label filters: treat it as a plain whitelisted node.
+inline constexpr LabelBools kExemptStart{.whitelisted = true};
+
 struct LabelBoolsStatus {
   // true if there is an end node -> only paths ending with it can be saved as result,
   // but they can be expanded further
@@ -149,6 +152,12 @@ class PathHelper {
 
   bool AreLabelsValid(const LabelBools &label_bools) const;
   bool ContinueExpanding(const LabelBools &label_bools, size_t path_size) const;
+
+  // The labels to judge a node's *inclusion* by. An unfiltered start node is exempt from the label
+  // filters, so its own labels are not consulted. Expansion still uses the real labels.
+  [[nodiscard]] const LabelBools &InclusionLabelBools(const LabelBools &label_bools, bool is_start) const {
+    return IsNotStartOrFiltersStartNode(is_start) ? label_bools : kExemptStart;
+  }
 
   // False means the node is neither returned nor expanded through.
   [[nodiscard]] bool NodeFilterAllows(const mgp::Node &node, bool is_start) const;
