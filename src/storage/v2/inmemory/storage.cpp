@@ -3016,6 +3016,34 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
             "or ENABLE TTL) was enqueued concurrently with the storage mode change. Wait for pending "
             "index creation to finish and retry.");
       }
+      // Analytical writes are never appended to the WAL, so a replica attached across the switch would
+      // silently miss the whole episode. Refuse and store the mode under the clients' own lock, which is
+      // the same lock replica registration inserts under: "analytical with a live client" is then
+      // unrepresentable rather than merely a narrow race.
+      repl_storage_state_.replication_storage_clients_.WithLock([this](auto const &clients) {
+        if (!clients.empty()) {
+          throw utils::BasicException(
+              "Cannot switch to IN_MEMORY_ANALYTICAL while {} replica(s) replicate from this database. Analytical "
+              "writes are not replicated; unregister every replica first.",
+              clients.size());
+        }
+        storage_mode_ = StorageMode::IN_MEMORY_ANALYTICAL;
+      });
+
+      // Finalize the WAL so the episode leaves a file-level signature: the pre-import file's [from, to]
+      // range then ends before the switch-back snapshot's timestamp, which is how GetRecoverySteps
+      // detects that no WAL can reproduce the imported data. Placed after every check that throws, so a
+      // rejected switch has no side effect, and under engine_lock_ because GetRecoverySteps holds that
+      // lock specifically to read wal_file_. Lock order main_lock_ -> engine_lock_ is respected, since
+      // the UNIQUE hold above is on main_lock_.
+      {
+        std::unique_lock engine_guard(engine_lock_);
+        if (wal_file_) {
+          wal_file_->FinalizeWal();
+          wal_file_.reset();
+          wal_unsynced_transactions_ = 0;
+        }
+      }
       snapshot_runner_.Pause();
     } else {
       // No need to resume async indexer, it is always running.
@@ -3039,9 +3067,24 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             &abort_snapshot_,
                                                             &snapshot_progress_,
                                                             "storage_mode_change");
+      // Publish the snapshot's timestamp as the cached ldt. Analytical writes never reach
+      // FinalizeCommitPhase, so without this main keeps advertising the pre-analytical ldt and a replica
+      // registered afterwards is judged up to date by the heartbeat comparison -- recovery would never
+      // run and the imported data would never reach it. num_committed_txns_ is deliberately left alone:
+      // the snapshot records the same unchanged counter, so main and a recovering replica stay
+      // consistent. Advance-only, since concurrent commits are barred by the UNIQUE main_lock_ hold but
+      // the field is shared with the replication clients.
+      atomic_struct_update<CommitTsInfo>(repl_storage_state_.commit_ts_info_,
+                                         [ldt = *txn->last_durable_ts_](CommitTsInfo const &old_info) {
+                                           return CommitTsInfo{.ldt_ = std::max(old_info.ldt_, ldt),
+                                                               .num_committed_txns_ = old_info.num_committed_txns_};
+                                         });
       snapshot_runner_.Resume();
+      // Under the clients' lock for symmetry with the analytical store above, so replica registration's
+      // in-lock read of storage_mode_ is serialized against every mode change, not just one direction.
+      repl_storage_state_.replication_storage_clients_.WithLock(
+          [this](auto const & /*clients*/) { storage_mode_ = StorageMode::IN_MEMORY_TRANSACTIONAL; });
     }
-    storage_mode_ = new_storage_mode;
     // Hand off the same lock unique_accessor already holds; adopting main_lock_ into a second
     // lock would give the one hold two owners and release it twice.
     FreeMemory(unique_accessor->ReleaseGuard(), false);

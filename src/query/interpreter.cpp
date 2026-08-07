@@ -470,6 +470,13 @@ class ReplQueryHandler {
         throw QueryRuntimeException("Replica can't register another replica!");
       }
 
+      if (error.error() == RegisterReplicaError::ANALYTICAL_MODE) {
+        throw QueryRuntimeException(
+            "Couldn't register replica {} because a database is in analytical storage mode. Switch every database back "
+            "to IN_MEMORY_TRANSACTIONAL and retry.",
+            name);
+      }
+
       throw QueryRuntimeException("Couldn't register replica {}. Error: {}", name, static_cast<uint8_t>(error.error()));
     }
   }
@@ -491,6 +498,11 @@ class ReplQueryHandler {
         [[fallthrough]];
       case CANNOT_UNREGISTER:
         throw QueryRuntimeException("Failed to unregister the replica {}.", replica_name);
+      case ANALYTICAL_MODE:
+        throw QueryRuntimeException(
+            "Couldn't unregister replica {} because a database is in analytical storage mode. Switch every database "
+            "back to IN_MEMORY_TRANSACTIONAL and retry.",
+            replica_name);
       case SUCCESS:
         break;
     }
@@ -6572,7 +6584,24 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 #ifdef MG_ENTERPRISE
   if (interpreter_context->coordinator_state_ && interpreter_context->coordinator_state_->IsDataInstance() &&
       requested_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-    throw QueryRuntimeException("Data instances cannot use analytical mode");
+    // Analytical writes bypass the WAL, so a data instance may only enter analytical mode when it is the
+    // MAIN and nothing replicates from it. Instance-wide and advisory: replicas can still appear before
+    // SetStorageMode stores the mode, which is why that store re-checks under the clients' own lock.
+    auto const locked_repl_state = interpreter_context->repl_state->ReadLock();
+    if (!locked_repl_state->IsMain()) {
+      throw QueryRuntimeException(
+          "Only the MAIN data instance can use analytical mode. A REPLICA receives replicated writes, which analytical "
+          "mode cannot apply.");
+    }
+    if (auto const &replicas = locked_repl_state->GetMainRole().registered_replicas_; !replicas.empty()) {
+      auto const names = replicas | std::views::transform([](auto const &replica) { return replica.name_; }) |
+                         std::ranges::to<std::vector<std::string>>();
+      throw QueryRuntimeException(
+          "Cannot switch to analytical mode while replicas are registered ({}). Analytical writes are not replicated, "
+          "so unregister every replica from the cluster first and register them back after switching to "
+          "IN_MEMORY_TRANSACTIONAL.",
+          utils::Join(names, ", "));
+    }
   }
 #endif
 
