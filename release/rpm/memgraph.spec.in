@@ -137,7 +137,7 @@ xmlsec==$xmlsec_version numpy==$numpy_version scipy==$scipy_version \
 networkx==3.4.2"
 # Failure stays hard unless MEMGRAPH_OFFLINE_INSTALL=1 (the .run installer
 # pre-installs the wheels; see the MAGE %%post).
-if ! runuser -l memgraph -c "PIP_BREAK_SYSTEM_PACKAGES=1 $PYBIN -m pip install --user --no-cache-dir $pip_packages"; then
+if ! runuser -l memgraph -c "PIP_BREAK_SYSTEM_PACKAGES=1 $PYBIN -m pip install --user --no-cache-dir --no-warn-script-location $pip_packages"; then
     if [ "${MEMGRAPH_OFFLINE_INSTALL:-}" = "1" ]; then
         echo "WARNING: pip install of query module python deps failed;" >&2
         echo "         tolerated because MEMGRAPH_OFFLINE_INSTALL=1." >&2
@@ -147,10 +147,17 @@ if ! runuser -l memgraph -c "PIP_BREAK_SYSTEM_PACKAGES=1 $PYBIN -m pip install -
         exit 1
     fi
 fi
-# gssapi (Kerberos SSO only) ships no PyPI wheels and building it needs
-# gcc + krb5-devel, absent on most hosts — best effort.
-runuser -l memgraph -c "PIP_BREAK_SYSTEM_PACKAGES=1 $PYBIN -m pip install --user --no-cache-dir gssapi==1.11.1" || \
-    echo "WARNING: python gssapi not installed (only Kerberos SSO needs it; requires gcc + krb5-devel)." >&2
+# gssapi (Kerberos SSO only) ships no PyPI wheels; only attempt the source
+# build when its prerequisites are already present, so the common case
+# skips with one line instead of a pip traceback.
+if command -v krb5-config >/dev/null 2>&1 && command -v cc >/dev/null 2>&1; then
+    runuser -l memgraph -c "PIP_BREAK_SYSTEM_PACKAGES=1 $PYBIN -m pip install --user --no-cache-dir --no-warn-script-location gssapi==1.11.1" || \
+        echo "WARNING: python gssapi failed to build; Kerberos SSO will be unavailable." >&2
+else
+    echo "NOTE: skipping python gssapi (only Kerberos SSO needs it); to enable," >&2
+    echo "      install krb5-devel and a C compiler, then as memgraph run:" >&2
+    echo "      $PYBIN -m pip install --user gssapi==1.11.1" >&2
+fi
 @RPM_SYMLINK_POSTINSTALL@
 @CPACK_RPM_SPEC_POSTINSTALL@
 
