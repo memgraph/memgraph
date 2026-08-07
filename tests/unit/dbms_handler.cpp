@@ -510,6 +510,140 @@ TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
       << "t1's deferred destruction must complete once its accessor is released; " << t1_dir << " is still present";
 }
 
+// Force-dropping a tenant while a DatabaseAccess is still held takes the deferred path (see the
+// StuckOrphan test above): the tenant leaves every by-name surface immediately, but its bytes stay
+// parented into utils::graph_memory_tracker until the last accessor is released. This test guards the
+// registry that makes that interval observable instead of silently unaccounted: the detached tenant's
+// memory must still show up in TenantMemorySum()'s detached half (and AllDetached()/AllWithHotColdStatus)
+// while it is unaddressable by name, and the row must be retired once the drain thread actually finishes.
+TEST(DBMS_Handler, DetachedTenantMemoryStaysAttributableWhileUnaddressable) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t1 = dbms.New("detached_mem_t1");
+  ASSERT_TRUE(new_t1.has_value()) << (int)new_t1.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t1.value());
+  const auto tenant_uuid = acc->uuid();
+
+  constexpr size_t kNumVertices = 4000;
+  constexpr size_t kPropertyBytes = 1024;
+  const std::string blob(kPropertyBytes, 'z');
+  {
+    // DbArenaScope required -- without it, writes land in an unattributed arena and db_memory_tracker_
+    // never sees them (same requirement as StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete above).
+    memgraph::memory::DbArenaScope db_arena_scope{acc.get()};
+    auto storage_acc = acc->Access();
+    ASSERT_TRUE(storage_acc);
+    const auto property = storage_acc->NameToProperty("payload");
+    for (size_t i = 0; i < kNumVertices; ++i) {
+      auto vertex = storage_acc->CreateVertex();
+      ASSERT_TRUE(vertex.SetProperty(property, memgraph::storage::PropertyValue(blob)).has_value());
+    }
+    ASSERT_TRUE(storage_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const int64_t footprint = acc->DbMemoryUsage();
+  ASSERT_GT(footprint, static_cast<int64_t>(kNumVertices * kPropertyBytes))
+      << "the footprint must be unambiguous before it is used as a tolerance baseline below";
+
+  const auto before = dbms.TenantMemorySum();
+  ASSERT_GE(before.hot, footprint);
+
+  // Force-drop while acc is still held: try_delete() times out and the destruction is deferred onto
+  // its own drain thread (see DbmsHandler::Delete's single-arg, no-transaction overload).
+  auto del = dbms.Delete("detached_mem_t1");
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+
+  // UNADDRESSABLE: the tenant must have left every by-name surface immediately.
+  ASSERT_ANY_THROW(dbms.Get("detached_mem_t1"));
+  bool seen_by_foreach = false;
+  dbms.ForEach([&](memgraph::dbms::DatabaseAccess db_acc) {
+    if (db_acc->name() == "detached_mem_t1") seen_by_foreach = true;
+  });
+  EXPECT_FALSE(seen_by_foreach) << "a detached tenant must not be walkable via ForEach";
+  {
+    const auto statuses = dbms.AllWithHotColdStatus();
+    EXPECT_TRUE(std::ranges::none_of(statuses, [](auto const &kv) {
+      return kv.first == "detached_mem_t1" && kv.second == "HOT";
+    })) << "a detached tenant must not be reported HOT";
+  }
+
+  // STILL ATTRIBUTABLE: the registry keeps enough to answer "where did the bytes go".
+  {
+    const auto all_detached = dbms.AllDetached();
+    const auto it = std::ranges::find_if(
+        all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == tenant_uuid; });
+    ASSERT_NE(it, all_detached.end()) << "the force-dropped, still-held tenant must have a detached row";
+    EXPECT_EQ(it->name, "detached_mem_t1");
+    EXPECT_EQ(it->reason, memgraph::dbms::DbmsHandler::DetachReason::DROP);
+    EXPECT_GE(it->holders_at_detach, 1u);
+    EXPECT_LE(AbsDiff(it->memory_at_detach, footprint), footprint / 10)
+        << "memory_at_detach=" << it->memory_at_detach << " footprint=" << footprint;
+  }
+  {
+    const auto statuses = dbms.AllWithHotColdStatus();
+    EXPECT_TRUE(std::ranges::any_of(
+        statuses, [](auto const &kv) { return kv.first == "detached_mem_t1" && kv.second == "DETACHED"; }));
+  }
+  {
+    // The two halves are asserted separately on purpose: a regression that simply stopped counting the
+    // tenant anywhere would still pass a test that only checked the (hot + detached) total.
+    const auto after = dbms.TenantMemorySum();
+    const int64_t tolerance = footprint / 10;
+    EXPECT_GE(after.detached, footprint - tolerance) << "the bytes must have moved into the detached half";
+    EXPECT_LE(after.hot, before.hot - (footprint - tolerance)) << "and must have left the hot half";
+  }
+
+  // BOUNDED BY DRAIN COMPLETION: release the last accessor and wait for the drain thread to retire the row.
+  acc.reset();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  bool retired = false;
+  do {
+    const auto all_detached = dbms.AllDetached();
+    retired = std::ranges::none_of(
+        all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == tenant_uuid; });
+    if (retired) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline)
+        << "detached_mem_t1's row must be retired once its drain completes";
+  } while (true);
+  EXPECT_TRUE(retired);
+
+  const auto statuses_after_drain = dbms.AllWithHotColdStatus();
+  EXPECT_TRUE(std::ranges::none_of(statuses_after_drain, [](auto const &kv) {
+    return kv.first == "detached_mem_t1" && kv.second == "DETACHED";
+  })) << "the DETACHED row must disappear from AllWithHotColdStatus once the row is retired";
+}
+
+// Negative control for the test above: with NO accessor held, Delete() takes the inline fast path --
+// try_delete() succeeds immediately and post_delete_func runs synchronously inside Delete_'s own
+// exclusive lock_ section (see RecordDetached_/ForgetDetached_'s doc comments in dbms_handler.hpp: the
+// insert-then-inline-erase pair on the fast path must be invisible to readers, which take lock_ shared).
+// A regression that published a row on the fast path without retiring it would make the registry grow
+// without bound, since nothing else ever cleans up a row for a tenant that no longer exists anywhere.
+TEST(DBMS_Handler, DroppedTenantWithNoHoldersLeavesNoDetachedRow) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t2 = dbms.New("detached_mem_t2");
+  ASSERT_TRUE(new_t2.has_value()) << (int)new_t2.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t2.value());
+  const auto tenant_uuid = acc->uuid();
+
+  // Release before dropping so the destruction happens inline, not deferred.
+  acc.reset();
+
+  auto del = dbms.Delete("detached_mem_t2");
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+
+  const auto all_detached = dbms.AllDetached();
+  EXPECT_TRUE(std::ranges::none_of(all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) {
+    return d.uuid == tenant_uuid;
+  })) << "the inline fast path must never leave a detached row behind";
+
+  const auto statuses = dbms.AllWithHotColdStatus();
+  EXPECT_TRUE(std::ranges::none_of(statuses, [](auto const &kv) { return kv.first == "detached_mem_t2"; }))
+      << "a fast-path-dropped tenant must not appear under any status";
+}
+
 int main(int argc, char *argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   // gtest takes ownership of the TestEnvironment ptr - we don't delete it.
