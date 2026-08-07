@@ -1040,11 +1040,11 @@ TEST_P(WalFileTest, FinalizedHeaderSummaryMatchesScan) {
   EXPECT_EQ(header.seq_num, scanned.seq_num);
 }
 
-// The summary lives outside the CRC-protected metadata section precisely so that a writer dying partway through
-// filling it in cannot cost the whole file. Damaging it must leave the identity readable and send the reader back to
-// parsing the deltas, exactly as an unfinalized file would.
+// The summary has only two legitimate states, the writer's placeholders and the values FinalizeWal fills in, and both
+// verify against its own CRC. Anything else is corruption, so the file must be rejected rather than quietly re-derived
+// from the deltas.
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_P(WalFileTest, DamagedSummaryFallsBackToParsing) {
+TEST_P(WalFileTest, DamagedSummaryFailsRecovery) {
   {
     DeltaGenerator gen(storage_directory, GetParam(), 5);
     TRANSACTION(true, { tx.CreateVertex(); });
@@ -1070,18 +1070,10 @@ TEST_P(WalFileTest, DamagedSummaryFallsBackToParsing) {
     corrupted.Close();
   }
 
-  auto const damaged = memgraph::storage::durability::ReadWalHeader(wal_file);
-  EXPECT_FALSE(damaged.summary.has_value()) << "a summary failing its own CRC must not be trusted";
-  EXPECT_EQ(damaged.uuid, pristine.uuid);
-  EXPECT_EQ(damaged.epoch_id, pristine.epoch_id);
-  EXPECT_EQ(damaged.seq_num, pristine.seq_num);
-  EXPECT_EQ(damaged.offset_deltas, pristine.offset_deltas);
-
-  // The deltas are untouched, so recovery still gets everything by parsing them.
-  auto const scanned = memgraph::storage::durability::ReadWalInfo(wal_file);
-  EXPECT_EQ(scanned.from_timestamp, pristine.summary->from_timestamp);
-  EXPECT_EQ(scanned.to_timestamp, pristine.summary->to_timestamp);
-  EXPECT_EQ(scanned.num_deltas, pristine.summary->num_deltas);
+  EXPECT_THROW(static_cast<void>(memgraph::storage::durability::ReadWalHeader(wal_file)),
+               memgraph::storage::durability::RecoveryFailure);
+  EXPECT_THROW(static_cast<void>(memgraph::storage::durability::ReadWalInfo(wal_file)),
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // A file the writer never finalized still holds the zeroed placeholders, which readers must not mistake for a real
@@ -1518,6 +1510,8 @@ TEST_P(WalFileTest, WalFileModification) {
       tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue());
       tx.DeleteVertex(vertex1);
     });
+    // Finalize so the summary holds real values rather than the placeholders the constructor reserved.
+    gen.Finalize();
   }
 
   auto wal_files = GetFilesList();

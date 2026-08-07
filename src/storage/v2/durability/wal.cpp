@@ -975,27 +975,26 @@ WalHeader DecodeWalHeader(Decoder &wal, const std::filesystem::path &path, uint6
     }
   }
 
-  // The summary follows the metadata's CRC trailer and carries its own CRC, so a writer that died partway through
-  // filling it in cannot invalidate anything above. A failed CRC, or the zero count the constructor reserved, both
-  // mean the same thing here: nothing to trust, so the caller has to parse the deltas instead. Neither is an error.
+  // The summary follows the metadata's CRC trailer and carries a CRC of its own, so FinalizeWal overwriting it can
+  // never invalidate the identity above. It has exactly two legitimate states, and both verify: the zeros the
+  // constructor reserved, meaning the file was never finalized, and the values FinalizeWal filled in. The region is one
+  // sector-sized write, so it cannot tear into anything else - a summary that doesn't verify is real corruption.
   if (version >= k37) {
-    auto read_value = [&wal] {
-      auto maybe_value = wal.ReadUint();
-      if (!maybe_value) throw RecoveryFailure(kInvalidWalErrorMessage);
-      return *maybe_value;
-    };
-
     wal.ResetCrcAcc();
-    auto const from_timestamp = read_value();
-    auto const to_timestamp = read_value();
-    auto const num_deltas = read_value();
-    read_value();  // the summary's own CRC trailer, folded into the accumulator by reading it
+    auto const from_timestamp = wal.ReadUint();
+    auto const to_timestamp = wal.ReadUint();
+    auto const num_deltas = wal.ReadUint();
+    auto const crc_trailer = wal.ReadUint();  // folded into the accumulator by reading it
 
-    if (num_deltas != 0 && utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+    if (!from_timestamp || !to_timestamp || !num_deltas || !crc_trailer ||
+        !utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+      throw RecoveryFailure("Durability mismatch in WAL summary");
+    }
+
+    // A file that was never finalized has no summary to offer; its deltas have to be parsed.
+    if (*num_deltas != 0) {
       header.summary =
-          WalSummary{.from_timestamp = from_timestamp, .to_timestamp = to_timestamp, .num_deltas = num_deltas};
-    } else if (num_deltas != 0) {
-      spdlog::warn("WAL file {} has a damaged summary; its deltas will be parsed instead.", path);
+          WalSummary{.from_timestamp = *from_timestamp, .to_timestamp = *to_timestamp, .num_deltas = *num_deltas};
     }
   }
 
