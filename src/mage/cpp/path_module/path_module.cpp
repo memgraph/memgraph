@@ -50,6 +50,15 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  module,
                  memory);
 
+    AddProcedure(Path::ExpandConfig,
+                 std::string(Path::kProcedureExpandConfig),
+                 mgp::ProcedureType::Read,
+                 {mgp::Parameter(std::string(Path::kArgumentStartExpand), mgp::Type::Any),
+                  mgp::Parameter(std::string(Path::kArgumentConfigExpandConfig), mgp::Type::Map)},
+                 {mgp::Return(std::string(Path::kResultExpand), mgp::Type::Path)},
+                 module,
+                 memory);
+
     auto empty_list = mgp::Value(mgp::List{});
     auto empty_map = mgp::Map{};
     empty_map.Insert("key", empty_list);

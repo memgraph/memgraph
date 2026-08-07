@@ -1,0 +1,9 @@
+# The shared config reader rejects unsupported keys for this procedure as well.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {maxHops: 5, uniqueness: 'NODE_PATH'})
+  YIELD result
+  RETURN result;
+
+exception: >
+  Unrecognized config key 'uniqueness'.

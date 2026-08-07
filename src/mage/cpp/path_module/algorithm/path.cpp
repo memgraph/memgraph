@@ -12,10 +12,31 @@
 #include "path.hpp"
 
 #include <algorithm>
+#include <array>
+#include <limits>
 #include <ranges>
+#include <string>
+#include <string_view>
 #include <utility>
 
 #include "mgp.hpp"
+
+namespace {
+
+// -1 means "no limit" for an upper hop bound; every other value is used as given, so a bound of -5
+// legitimately matches nothing. A negative lower bound needs no such rule: it is trivially satisfied.
+constexpr int64_t MaxHopsOrNoLimit(int64_t max_hops) noexcept {
+  return max_hops == -1 ? std::numeric_limits<int64_t>::max() : max_hops;
+}
+
+// The expand walk recurses once per hop, so an unbounded upper hop bound would exhaust the stack and
+// take the whole process down on a long chain. Refuse the walk instead of crashing.
+constexpr int64_t kMaxExpandDepth = 5000;
+
+// An unfiltered start node is exempt from the label filters: treat it as a plain whitelisted node.
+constexpr Path::LabelBools kExemptStart{.whitelisted = true};
+
+}  // namespace
 
 Path::PathHelper::PathHelper(const mgp::List &labels, const mgp::List &relationships, int64_t min_hops,
                              int64_t max_hops) {
@@ -23,41 +44,111 @@ Path::PathHelper::PathHelper(const mgp::List &labels, const mgp::List &relations
   FilterLabelBoolStatus();
   ParseRelationships(relationships);
   config_.min_hops = min_hops;
-  config_.max_hops = max_hops;
+  config_.max_hops = MaxHopsOrNoLimit(max_hops);
 }
 
-Path::PathHelper::PathHelper(const mgp::Map &config) {
-  auto same_type_or_null = [](const mgp::Type type, const mgp::Type wanted_type) {
-    return type == wanted_type || type == mgp::Type::Null;
+namespace {
+
+// Every config key the path procedures honour. An unrecognized key is rejected rather than ignored:
+// silently dropping something like `limit` or `endNodes` returns a different result set than was asked for.
+constexpr std::array<std::string_view, 13> kConfigKeys{"minHops",
+                                                       "maxHops",
+                                                       "minLevel",
+                                                       "maxLevel",
+                                                       "relationshipFilter",
+                                                       "labelFilter",
+                                                       "filterStartNode",
+                                                       "beginSequenceAtStart",
+                                                       "bfs",
+                                                       "allowlistNodes",
+                                                       "denylistNodes",
+                                                       "whitelistNodes",
+                                                       "blacklistNodes"};
+
+void ValidateConfigKeys(const mgp::Map &config) {
+  for (const auto &item : config) {
+    if (std::ranges::find(kConfigKeys, item.key) == kConfigKeys.end()) {
+      throw mgp::ValueException("Unrecognized config key '" + std::string(item.key) + "'.");
+    }
+  }
+}
+
+// Reads `key`, falling back to its alias. Supplying both is ambiguous, so it throws instead of picking one.
+mgp::Value AliasedValue(const mgp::Map &config, std::string_view key, std::string_view alias) {
+  auto value = config.At(key);
+  auto alias_value = config.At(alias);
+  if (value.IsNull()) {
+    return alias_value;
+  }
+  if (!alias_value.IsNull()) {
+    throw mgp::ValueException("Config keys '" + std::string(key) + "' and '" + std::string(alias) +
+                              "' mean the same thing; supply only one.");
+  }
+  return value;
+}
+
+int64_t NodeFilterId(const mgp::Value &value, const mgp::Graph &graph, std::string_view type_error) {
+  if (value.IsNode()) {
+    return value.ValueNode().Id().AsInt();
+  }
+  if (value.IsInt()) {
+    const int64_t id = value.ValueInt();
+    // A negative ID has no node behind it, and reporting it raw beats the unsigned wraparound the lookup prints.
+    if (id < 0) {
+      throw mgp::ValueException("Node filters need a non-negative node ID, got " + std::to_string(id) + ".");
+    }
+    // Resolve the ID so a node that doesn't exist is reported instead of silently never matching.
+    return graph.GetNodeById(mgp::Id::FromInt(id)).Id().AsInt();
+  }
+  throw mgp::ValueException(std::string(type_error));
+}
+
+// Collects node IDs from a node, an integer ID, or a list thereof. A null value collects nothing.
+std::unordered_set<int64_t> CollectNodeIds(const mgp::Value &value, const mgp::Graph &graph) {
+  std::unordered_set<int64_t> ids;
+  if (value.IsNull()) {
+    return ids;
+  }
+  if (!value.IsList()) {
+    ids.insert(NodeFilterId(value, graph, "Node filters need to be a node, an integer ID, or a list thereof."));
+    return ids;
+  }
+  for (const auto &item : value.ValueList()) {
+    ids.insert(NodeFilterId(item, graph, "Node filter list entries need to be a node or an integer ID."));
+  }
+  return ids;
+}
+
+}  // namespace
+
+Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph) {
+  ValidateConfigKeys(config);
+
+  auto same_type_or_null = [](const mgp::Value &value, const mgp::Type wanted_type) {
+    return value.Type() == wanted_type || value.IsNull();
   };
 
-  if (!same_type_or_null(config.At("minHops").Type(), mgp::Type::Int) ||
-      !same_type_or_null(config.At("maxHops").Type(), mgp::Type::Int) ||
-      !same_type_or_null(config.At("relationshipFilter").Type(), mgp::Type::List) ||
-      !same_type_or_null(config.At("labelFilter").Type(), mgp::Type::List) ||
-      !same_type_or_null(config.At("filterStartNode").Type(), mgp::Type::Bool) ||
-      !same_type_or_null(config.At("beginSequenceAtStart").Type(), mgp::Type::Bool) ||
-      !same_type_or_null(config.At("bfs").Type(), mgp::Type::Bool)) {
+  const auto min_hops_value = AliasedValue(config, "minHops", "minLevel");
+  const auto max_hops_value = AliasedValue(config, "maxHops", "maxLevel");
+
+  if (!same_type_or_null(min_hops_value, mgp::Type::Int) || !same_type_or_null(max_hops_value, mgp::Type::Int) ||
+      !same_type_or_null(config.At("relationshipFilter"), mgp::Type::List) ||
+      !same_type_or_null(config.At("labelFilter"), mgp::Type::List) ||
+      !same_type_or_null(config.At("filterStartNode"), mgp::Type::Bool) ||
+      !same_type_or_null(config.At("beginSequenceAtStart"), mgp::Type::Bool) ||
+      !same_type_or_null(config.At("bfs"), mgp::Type::Bool)) {
     throw mgp::ValueException(
         "The config parameter needs to be a map with keys and values in line with the documentation.");
   }
 
-  auto value = config.At("maxHops");
-  if (!value.IsNull()) {
-    const int64_t max_hops = value.ValueInt();
-    if (max_hops >= 0) {
-      config_.max_hops = max_hops;
-    }
+  if (!max_hops_value.IsNull()) {
+    config_.max_hops = MaxHopsOrNoLimit(max_hops_value.ValueInt());
   }
-  value = config.At("minHops");
-  if (!value.IsNull()) {
-    const int64_t min_hops = value.ValueInt();
-    if (min_hops >= 0) {
-      config_.min_hops = min_hops;
-    }
+  if (!min_hops_value.IsNull()) {
+    config_.min_hops = min_hops_value.ValueInt();
   }
 
-  value = config.At("relationshipFilter");
+  auto value = config.At("relationshipFilter");
   if (!value.IsNull()) {
     ParseRelationships(value.ValueList());
   } else {
@@ -80,6 +171,23 @@ Path::PathHelper::PathHelper(const mgp::Map &config) {
 
   value = config.At("bfs");
   config_.bfs = value.IsNull() ? false : value.ValueBool();
+
+  ParseNodeFilters(config, graph);
+}
+
+// `allowlistNodes` and `denylistNodes` supersede the deprecated `whitelistNodes` and `blacklistNodes`;
+// an absent or empty list falls back to the deprecated key. The deprecated key is read only when the
+// preferred one came back empty, so a stale ID in a superseded list cannot abort the query.
+void Path::PathHelper::ParseNodeFilters(const mgp::Map &config, const mgp::Graph &graph) {
+  config_.allowlist_nodes = CollectNodeIds(config.At("allowlistNodes"), graph);
+  if (config_.allowlist_nodes.empty()) {
+    config_.allowlist_nodes = CollectNodeIds(config.At("whitelistNodes"), graph);
+  }
+
+  config_.denylist_nodes = CollectNodeIds(config.At("denylistNodes"), graph);
+  if (config_.denylist_nodes.empty()) {
+    config_.denylist_nodes = CollectNodeIds(config.At("blacklistNodes"), graph);
+  }
 }
 
 Path::RelDirection Path::PathHelper::GetDirection(std::string_view rel_type) const {
@@ -110,6 +218,22 @@ bool Path::PathHelper::ContinueExpanding(const LabelBools &label_bools, size_t p
           ((!label_bools.blacklisted && !label_bools.terminated &&
             (label_bools.end_node || Whitelisted(label_bools.whitelisted))) ||
            (path_size == 1 && !config_.filter_start_node)));
+}
+
+// Evaluated independently of the label filters: a node the lists reject is never returned nor expanded through.
+bool Path::PathHelper::NodeFilterAllows(const mgp::Node &node, const bool is_start) const {
+  if (config_.allowlist_nodes.empty() && config_.denylist_nodes.empty()) {
+    return true;
+  }
+
+  // An unfiltered start node is exempt, as it is for the label filters.
+  if (!IsNotStartOrFiltersStartNode(is_start)) {
+    return true;
+  }
+
+  const auto id = node.Id().AsInt();
+  return !config_.denylist_nodes.contains(id) &&
+         (config_.allowlist_nodes.empty() || config_.allowlist_nodes.contains(id));
 }
 
 bool Path::PathHelper::PathSizeOk(const int64_t path_size) const {
@@ -150,28 +274,38 @@ void Path::PathHelper::FilterLabel(std::string_view label, LabelBools &label_boo
 // Function that takes input list of labels, and sorts them into appropriate category
 // sets were used so when filtering is done, its done in O(1)
 void Path::PathHelper::ParseLabels(const mgp::List &list_of_labels) {
+  constexpr std::string_view kLabelPrefixes = "-+>/";
   for (const auto &label : list_of_labels) {
+    if (label.Type() != mgp::Type::String) {
+      throw mgp::ValueException("Label filter entries need to be strings.");
+    }
     std::string_view label_string = label.ValueString();
+    // Reject an empty entry, or a prefix with no label behind it: either would filter on a label no node
+    // can carry, silently emptying or unbounding the result instead of reporting the mistake.
+    if (label_string.empty() || (label_string.size() == 1 && kLabelPrefixes.contains(label_string.front()))) {
+      throw mgp::ValueException("Invalid labelFilter entry '" + std::string(label_string) +
+                                "': expected a label, optionally prefixed with '+', '-', '>' or '/'.");
+    }
     const char first_elem = label_string.front();
     switch (first_elem) {
       case '-':
         label_string.remove_prefix(1);
-        config_.label_sets.blacklist.insert(label_string);
+        config_.label_sets.blacklist.emplace(label_string);
         break;
       case '>':
         label_string.remove_prefix(1);
-        config_.label_sets.end_list.insert(label_string);
+        config_.label_sets.end_list.emplace(label_string);
         break;
       case '+':
         label_string.remove_prefix(1);
-        config_.label_sets.whitelist.insert(label_string);
+        config_.label_sets.whitelist.emplace(label_string);
         break;
       case '/':
         label_string.remove_prefix(1);
-        config_.label_sets.termination_list.insert(label_string);
+        config_.label_sets.termination_list.emplace(label_string);
         break;
       default:
-        config_.label_sets.whitelist.insert(label_string);
+        config_.label_sets.whitelist.emplace(label_string);
         break;
     }
   }
@@ -188,7 +322,18 @@ void Path::PathHelper::ParseRelationships(const mgp::List &list_of_relationships
   }
 
   for (const auto &rel : list_of_relationships) {
+    if (rel.Type() != mgp::Type::String) {
+      throw mgp::ValueException("Relationship filter entries need to be strings.");
+    }
     const std::string rel_type{std::string(rel.ValueString())};
+    // Reject an entry with no type behind the direction markers: it can never match, so it would silently
+    // block every relationship instead of reporting the mistake. A bare '<' or '>' is a real any-direction
+    // filter and stays valid; an empty *list* already means "no filter" and is handled above.
+    if (rel_type.empty() || rel_type == "<>") {
+      throw mgp::ValueException(
+          "Invalid relationshipFilter entry '" + rel_type +
+          "': expected a relationship type, optionally wrapped in '<' and '>', or a bare '<' or '>'.");
+    }
     const bool starts_with = rel_type.starts_with('<');
     const bool ends_with = rel_type.ends_with('>');
 
@@ -370,14 +515,31 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationshi
 
 /*function used for traversal and filtering*/
 void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
+  // One frame per hop, so an unbounded upper hop bound would overflow the stack rather than return.
+  if (path_size > kMaxExpandDepth) {
+    throw mgp::ValueException("Path expansion exceeded the maximum depth of " + std::to_string(kMaxExpandDepth) +
+                              "; set a smaller maxHops to bound the traversal.");
+  }
+
   const mgp::Node node{path.GetNodeAt(path_size)};
 
+  // A node the identity filters reject ends the walk here: no record and no expansion.
+  if (!path_data_.helper_.NodeFilterAllows(node, path_size == 0)) {
+    return;
+  }
+
   const LabelBools label_bools = path_data_.helper_.GetLabelBools(node);
-  if (path_data_.helper_.PathSizeOk(path_size) && path_data_.helper_.AreLabelsValid(label_bools)) {
+  const LabelBools &inclusion_bools =
+      path_data_.helper_.IsNotStartOrFiltersStartNode(path_size == 0) ? label_bools : kExemptStart;
+
+  if (path_data_.helper_.PathSizeOk(path_size) && path_data_.helper_.AreLabelsValid(inclusion_bools)) {
     auto record = path_data_.record_factory_.NewRecord();
     record.Insert(std::string(kResultExpand).c_str(), path);
   }
 
+  // Expansion uses the real labels. That is equivalent to passing inclusion_bools today, because the two
+  // differ only at an unfiltered start, where ContinueExpanding's `path_size == 1 && !filter_start_node`
+  // clause already decides the answer -- but it stops being equivalent if that clause is ever removed.
   if (!path_data_.helper_.ContinueExpanding(label_bools, path_size + 1)) {
     return;
   }
@@ -387,7 +549,7 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
   this->ExpandFromRelationships(path, node.OutRelationships(), true, path_size, seen);
 }
 
-void Path::PathExpand::StartAlgorithm(const mgp::Node node) {
+void Path::PathExpand::StartAlgorithm(const mgp::Node &node) {
   mgp::Path path = mgp::Path(node);
   DFS(path, 0);
 }
@@ -408,29 +570,53 @@ void Path::PathExpand::RunAlgorithm() {
   }
 }
 
+namespace {
+
+void RunExpand(Path::PathHelper &&helper, const mgp::Value &start_value, const mgp::RecordFactory &record_factory,
+               const mgp::Graph &graph) {
+  Path::PathExpand path_expand{Path::PathData(std::move(helper), record_factory, graph)};
+
+  if (!start_value.IsList()) {
+    path_expand.Parse(start_value);
+  } else {
+    for (const auto &list_item : start_value.ValueList()) {
+      path_expand.Parse(list_item);
+    }
+  }
+
+  path_expand.RunAlgorithm();
+}
+
+}  // namespace
+
 void Path::Expand(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    auto graph = mgp::Graph(memgraph_graph);
-    const mgp::Value start_value = arguments[0];
+    const auto graph = mgp::Graph(memgraph_graph);
     const mgp::List relationships{arguments[1].ValueList()};
     const mgp::List labels{arguments[2].ValueList()};
     const int64_t min_hops{arguments[3].ValueInt()};
     const int64_t max_hops{arguments[4].ValueInt()};
 
-    PathExpand path_expand{PathData(PathHelper{labels, relationships, min_hops, max_hops}, record_factory, graph)};
+    RunExpand(PathHelper{labels, relationships, min_hops, max_hops}, arguments[0], record_factory, graph);
 
-    if (!start_value.IsList()) {
-      path_expand.Parse(start_value);
-    } else {
-      for (const auto &list_item : start_value.ValueList()) {
-        path_expand.Parse(list_item);
-      }
-    }
+  } catch (const std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
+    return;
+  }
+}
 
-    path_expand.RunAlgorithm();
+void Path::ExpandConfig(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  const auto record_factory = mgp::RecordFactory(result);
+  try {
+    const auto graph = mgp::Graph(memgraph_graph);
+    const auto config = arguments[1].ValueMap();
+
+    RunExpand(PathHelper{config, graph}, arguments[0], record_factory, graph);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -501,9 +687,7 @@ void Path::PathSubgraph::TryInsertNode(const mgp::Node &node, int64_t hop_count,
     return;
   }
 
-  // Unfiltered start: its own labels are exempt, so treat it as a plain whitelisted node.
-  constexpr LabelBools exempt_start{.whitelisted = true};
-  if (path_data_.helper_.AreLabelsValid(exempt_start)) {
+  if (path_data_.helper_.AreLabelsValid(kExemptStart)) {
     to_be_returned_nodes_.AppendExtend(mgp::Value(node));
   }
 }
@@ -521,6 +705,10 @@ mgp::List Path::PathSubgraph::BFS() {
     queue.pop();
 
     if (path_data_.helper_.PathTooBig(pair.second)) {
+      continue;
+    }
+
+    if (!path_data_.helper_.NodeFilterAllows(pair.first, pair.second == 0)) {
       continue;
     }
 
@@ -545,7 +733,7 @@ void Path::SubgraphNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *
   const auto record_factory = mgp::RecordFactory(result);
   try {
     auto config = arguments[1].ValueMap();
-    PathSubgraph path_subgraph{PathData(PathHelper{config}, record_factory, graph)};
+    PathSubgraph path_subgraph{PathData(PathHelper{config, graph}, record_factory, graph)};
 
     auto start_value = arguments[0];
     if (!start_value.IsList()) {
@@ -576,7 +764,7 @@ void Path::SubgraphAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
   const auto record_factory = mgp::RecordFactory(result);
   try {
     auto config = arguments[1].ValueMap();
-    PathSubgraph path_subgraph{PathData(PathHelper{config}, record_factory, graph)};
+    PathSubgraph path_subgraph{PathData(PathHelper{config, graph}, record_factory, graph)};
 
     auto start_value = arguments[0];
     if (!start_value.IsList()) {

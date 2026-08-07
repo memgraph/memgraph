@@ -1,0 +1,9 @@
+# Validation covers subgraph_all too; `endNodes` would narrow the result set if ignored.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_all(a, {maxHops: 5, endNodes: []})
+  YIELD nodes, rels
+  RETURN size(nodes) AS node_count, size(rels) AS rel_count;
+
+exception: >
+  Unrecognized config key 'endNodes'.

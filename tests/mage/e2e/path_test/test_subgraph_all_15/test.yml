@@ -1,0 +1,32 @@
+# denylistNodes with a <R> filter, which needs a reciprocal pair to traverse: denying C cuts
+# the B-C pair, so only the A-B pair survives and D becomes unreachable.
+query: >
+  MATCH (c:C)
+  WITH collect(c) AS deny
+  MATCH (a:A)
+  CALL path.subgraph_all(a, {relationshipFilter: ['<R>'], denylistNodes: deny, maxHops: 5})
+  YIELD nodes, rels
+  UNWIND nodes AS node
+  WITH rels, node ORDER BY node.name
+  WITH collect(node) AS nodes, rels
+  UNWIND rels AS rel
+  WITH nodes, rel ORDER BY rel.seq
+  RETURN nodes, collect(rel) AS rels;
+
+output:
+  - nodes:
+      - labels:
+          - A
+        properties:
+          name: A
+      - labels:
+          - B
+        properties:
+          name: B
+    rels:
+      - label: R
+        properties:
+          seq: 1
+      - label: R
+        properties:
+          seq: 2

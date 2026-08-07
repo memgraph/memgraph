@@ -1,0 +1,10 @@
+# A relationship filter entry with no type behind the direction markers can never match, so it is
+# reported instead of silently blocking every relationship.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {relationshipFilter: [''], maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name;
+
+exception: >
+  Invalid relationshipFilter entry ''

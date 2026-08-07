@@ -1,0 +1,9 @@
+# A negative node ID is reported as written rather than as its unsigned wraparound.
+query: >
+  MATCH (a:A)
+  CALL path.subgraph_nodes(a, {denylistNodes: [-1], maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name;
+
+exception: >
+  Node filters need a non-negative node ID, got -1.

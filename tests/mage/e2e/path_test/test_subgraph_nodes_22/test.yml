@@ -1,0 +1,9 @@
+# An empty labelFilter entry used to read past the end of the string; it is now reported.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {labelFilter: [''], maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name;
+
+exception: >
+  Invalid labelFilter entry ''
