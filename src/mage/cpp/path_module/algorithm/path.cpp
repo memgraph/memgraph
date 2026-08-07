@@ -334,30 +334,60 @@ void Path::PathHelper::ParseRelationships(const mgp::List &list_of_relationships
           "Invalid relationshipFilter entry '" + rel_type +
           "': expected a relationship type, optionally wrapped in '<' and '>', or a bare '<' or '>'.");
     }
-    const bool starts_with = rel_type.starts_with('<');
-    const bool ends_with = rel_type.ends_with('>');
+    std::string_view type{rel_type};
+    RelDirection direction = RelDirection::kAny;
 
-    if (rel_type.size() == 1) {
-      if (starts_with) {
+    if (type.size() == 1) {  // a bare marker: every type, in that direction
+      if (type.front() == '<') {
         config_.any_incoming = true;
-      } else if (ends_with) {
-        config_.any_outgoing = true;
-      } else {
-        config_.relationship_sets[rel_type] = RelDirection::kAny;
+        continue;
       }
+      if (type.front() == '>') {
+        config_.any_outgoing = true;
+        continue;
+      }
+    } else if (type.starts_with('<') && type.ends_with('>')) {  // <type>
+      direction = RelDirection::kBoth;
+      type = type.substr(1, type.size() - 2);
+    } else if (type.starts_with('<')) {  // <type
+      direction = RelDirection::kIncoming;
+      type.remove_prefix(1);
+    } else if (type.starts_with('>')) {  // >type -- the outgoing marker may lead as well as trail
+      direction = RelDirection::kOutgoing;
+      type.remove_prefix(1);
+      if (type.ends_with('>')) {  // >type>
+        type.remove_suffix(1);
+      }
+    } else if (type.ends_with('>')) {  // type>
+      direction = RelDirection::kOutgoing;
+      type = type.substr(0, type.size() - 1);
+    }
+
+    // Stripping a leading marker can leave another one behind ('>>', '><'), which is the bare-marker
+    // form again: every type, in the direction the remaining marker names.
+    if (type == "<") {
+      config_.any_incoming = true;
+      continue;
+    }
+    if (type == ">" || type.empty()) {
+      config_.any_outgoing = true;
       continue;
     }
 
-    if (starts_with && ends_with) {  // <type>
-      config_.relationship_sets[rel_type.substr(1, rel_type.size() - 2)] = RelDirection::kBoth;
-    } else if (starts_with) {  // <type
-      config_.relationship_sets[rel_type.substr(1)] = RelDirection::kIncoming;
-    } else if (ends_with) {  // type>
-      config_.relationship_sets[rel_type.substr(0, rel_type.size() - 1)] = RelDirection::kOutgoing;
-    } else {  // type
-      config_.relationship_sets[rel_type] = RelDirection::kAny;
-    }
+    AddRelationshipDirection(std::string(type), direction);
   }
+}
+
+// Two entries for the same type merge rather than overwrite: 'R>' together with '<R' means the type is
+// traversable either way, which is exactly what an unqualified type already means. Overwriting would
+// silently drop one of the two directions, and which one would depend on the order they were listed in.
+void Path::PathHelper::AddRelationshipDirection(std::string type, RelDirection direction) {
+  const auto [it, inserted] = config_.relationship_sets.try_emplace(std::move(type), direction);
+  if (inserted || it->second == direction) {
+    return;
+  }
+  // The reciprocal mode is not a direction, so it has nothing to merge with; keep the later entry.
+  it->second = (it->second == RelDirection::kBoth || direction == RelDirection::kBoth) ? direction : RelDirection::kAny;
 }
 
 void Path::Elements(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {

@@ -160,6 +160,7 @@ class PathHelper {
   void FilterLabel(std::string_view label, LabelBools &label_bools) const;
   void ParseLabels(const mgp::List &list_of_labels);
   void ParseRelationships(const mgp::List &list_of_relationships);
+  void AddRelationshipDirection(std::string type, RelDirection direction);
   void ParseNodeFilters(const mgp::Map &config, const mgp::Graph &graph);
 
  private:
