@@ -59,6 +59,8 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
     ninja-build
     krb5-devel # for building python gssapi (kerberos auth module)
+    xmlsec1-devel xmlsec1-openssl-devel # pip xmlsec (SAML SSO) builds from source; no wheels since 1.3.15
+    sudo # stress tests set up passwordless sudo for mg (iptables)
 )
 
 MEMGRAPH_RUN_DEPS=(

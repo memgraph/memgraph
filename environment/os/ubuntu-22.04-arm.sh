@@ -64,6 +64,9 @@ MEMGRAPH_BUILD_DEPS=(
     ninja-build
     libkrb5-dev # for building python gssapi (kerberos auth module)
     gperf
+    libxmlsec1-dev xmlsec1 # pip xmlsec (SAML SSO) builds from source; no wheels since 1.3.15
+    sudo adduser # stress tests set up passwordless sudo for mg (iptables)
+    lsof # e2e test runners
 )
 
 MEMGRAPH_RUN_DEPS=(
@@ -80,6 +83,12 @@ setup_repos() {
     if ! ls /etc/apt/sources.list.d/ | grep -F 'dotnet-ubuntu-backports'; then
         apt-get -y install software-properties-common
         add-apt-repository -y ppa:dotnet/backports
+        apt-get update
+    fi
+    # deadsnakes PPA for non-default python versions
+    if ! ls /etc/apt/sources.list.d/ | grep -F 'deadsnakes'; then
+        apt-get -y install software-properties-common
+        add-apt-repository -y ppa:deadsnakes/ppa
         apt-get update
     fi
 }
