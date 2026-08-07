@@ -850,6 +850,40 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   // cannot see draining_, so this is the only place that particular race is caught).
   if (!gk->begin_drain()) return std::unexpected{DeleteError::USING};
 
+  // RAII rollback guard, armed the instant begin_drain() succeeds. Undoes exactly what begin_drain()
+  // did (plus retiring a published DETACHED-registry row) on EVERY exit between here and the single
+  // Disable() at the end of Phase 3 -- an early `return`, or a throw from Phase 2's off-lock teardown
+  // or Phase 3's DetachFromDatabase/DeferDelete. Without it, any of those left draining_ stuck true:
+  // the tenant's *name* wedges forever (fresh CREATE sees EXISTS, retried DROP sees begin_drain()'s
+  // own USING) even though nothing was actually deleted, and -- once RecordDetached_ below has
+  // published a row -- the registry entry is stuck at DRAINING with nothing left to point at a
+  // possibly-already-unlinked-from-durability, possibly-already-teardown on-disk directory.
+  //
+  // `detached_row_uuid` (not `tenant_uuid` directly) because the guard can fire before tenant_uuid is
+  // even read (nothing between here and RecordDetached_ below throws today, but the guard's job is to
+  // hold even if that changes) and before any row has been published. Empty means "nothing to
+  // retire yet" -- ForgetDetached_ on a row that was never recorded would be a harmless no-op erase_if
+  // anyway, but this avoids depending on that and avoids needing a placeholder UUID (utils::UUID's
+  // default constructor calls uuid_generate(), not a cheap sentinel).
+  std::optional<utils::UUID> detached_row_uuid;
+  auto rollback_drain = utils::OnScopeExit{[&] {
+    // Phase 2 below runs with `lock` unlocked. If the throw came from there, `lock` is not held here,
+    // yet db_handler_ (GetGatekeeper) has no internal synchronization of its own -- every access relies
+    // on the caller already holding `lock` (see DatabaseHandler::GetGatekeeper's doc). Re-locking during
+    // unwind is a blocking call on `lock` (a reader-preferring pthread rwlock), same cost any other
+    // writer pays to get in; touching db_handler_ without it would be a data race instead, which is
+    // strictly worse on an already-exceptional path.
+    if (!lock.owns_lock()) lock.lock();
+    // Fresh by-name lookup, never the Phase 1 `gk` pointer above: the off-lock Phase 2 window could
+    // have let a concurrent structural change invalidate it. is_draining() guards abort_drain()'s own
+    // DMG_ASSERT -- load-bearing, not defensive fluff: the Phase 3 re-validation failure path below
+    // (gk3 gone, or found but no longer draining) intentionally does NOT call abort_drain() there
+    // (nothing to abort), and this guard still fires on that path's `return` to retire the registry
+    // row, so it must not blindly re-call abort_drain() into that same non-draining state.
+    if (auto *g = db_handler_.GetGatekeeper(name); g && g->is_draining()) g->abort_drain();
+    if (detached_row_uuid) ForgetDetached_(*detached_row_uuid);
+  }};
+
   // drain_bypass is required, not a convenience: begin_drain() just flipped draining_ true one line
   // above, so the plain (non-bypass) access() would now refuse on THIS gatekeeper too. begin_drain()
   // proved HOT, and `lock` is held exclusive so no concurrent Suspend_/Resume_/second-drop can have
@@ -890,6 +924,11 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
                                  .phase = TenantPhase::DRAINING,
                                  .holders_at_detach = holders,
                                  .memory_at_detach = memory_at_detach});
+  // A row now exists to retire -- arm `rollback_drain`'s ForgetDetached_ half. Placed only after
+  // RecordDetached_ returns (not alongside it): if RecordDetached_ itself throws (push_back growing
+  // detached_'s backing storage is the only fallible step, and even that keeps the vector unchanged
+  // on failure), no row was actually published, so there is nothing for the guard to retire.
+  detached_row_uuid = tenant_uuid;
 
   // ===============================================================================================
   // PHASE 2 — `lock` released. The unbounded part: two thread joins that used to run under lock_.
@@ -915,7 +954,11 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   if (!gk3 || !gk3->is_draining()) {
     spdlog::error(R"(Lost the drain marker for database "{}" while its teardown ran off-lock; aborting the drop.)",
                   name);
-    ForgetDetached_(tenant_uuid);
+    // No explicit ForgetDetached_ here: this `return` runs `rollback_drain`'s destructor, which
+    // retires the row via `detached_row_uuid` on its own. It correctly skips abort_drain() too --
+    // gk3 is already gone or already not draining, and the guard's fresh lookup sees the same
+    // state, so its is_draining() check leaves abort_drain() uncalled here exactly as this comment
+    // requires: there is nothing left to abort.
     return std::unexpected{DeleteError::FAIL};
   }
 
@@ -940,22 +983,26 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   // access() is refused, so TenantMemorySum's HOT half already excludes it — see TenantMemorySum's
   // comment), but the retryability half of that fix still matters. Phase 2's teardown
   // (StopAllBackgroundTasks/streams()->DropAll()) is NOT undone here, exactly as it wasn't before.
-  try {
-    db_handler_.DeferDelete(name, [this, tenant_uuid, storage_path, name]() {
-      ForgetDetached_(tenant_uuid);
-      // Delete disk storage
-      std::error_code ec;
-      (void)std::filesystem::remove_all(storage_path, ec);
-      if (ec) {
-        spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", name, storage_path);
-      }
-    });
-  } catch (...) {
-    if (auto *g = db_handler_.GetGatekeeper(name)) g->abort_drain();
+  // No local try/catch: `rollback_drain` already does exactly this (fresh-lookup abort_drain guarded
+  // by is_draining(), then ForgetDetached_) on unwind, so a second copy here would just be a duplicate
+  // that runs after it, wastefully, on every throwing path -- not incorrect (both halves are
+  // idempotent/self-guarding), but redundant code with no behavior of its own to justify existing.
+  db_handler_.DeferDelete(name, [this, tenant_uuid, storage_path, name]() {
     ForgetDetached_(tenant_uuid);
-    throw;
-  }
+    // Delete disk storage
+    std::error_code ec;
+    (void)std::filesystem::remove_all(storage_path, ec);
+    if (ec) {
+      spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", name, storage_path);
+    }
+  });
 
+  // Point of no return: DeferDelete has taken ownership of the eventual teardown/ForgetDetached_/
+  // remove_all. Disarm BEFORE returning success -- nothing below can throw, but if it ever did,
+  // rollback_drain firing on a tenant DeferDelete already owns would abort_drain() out from under a
+  // handoff that has already happened, and (once the drain thread's ForgetDetached_ races this one)
+  // double-retire a row whose uuid slot could theoretically already have been reused.
+  rollback_drain.Disable();
   return {};  // Success
 }
 
