@@ -21,6 +21,16 @@
 
 namespace memgraph::query::plan {
 
+// The IN-to-Unwind lowering wraps the original list in toSet(coalesce(list, [])).
+// Extract the inner ListLiteral if the expression matches that pattern.
+inline auto ExtractListFromInUnwind(Expression *expr) -> ListLiteral * {
+  auto *func = utils::Downcast<Function>(expr);
+  if (!func || func->function_name_ != "TOSET" || func->arguments_.size() != 1) return nullptr;
+  auto *coalesce = utils::Downcast<Coalesce>(func->arguments_[0]);
+  if (!coalesce || coalesce->expressions_.empty()) return nullptr;
+  return utils::Downcast<ListLiteral>(coalesce->expressions_[0]);
+}
+
 /**
  * The symbol statistics specify essential DB statistics which
  * help the query planner (namely here the cost estimator), to decide
@@ -426,10 +436,14 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // if the Unwind expression is a list literal, we can deduce cardinality
     // exactly, otherwise we approximate
     double unwind_value;
-    if (auto *literal = utils::Downcast<query::ListLiteral>(unwind.input_expression_))
+    if (auto *literal = utils::Downcast<query::ListLiteral>(unwind.input_expression_)) {
       unwind_value = literal->elements_.size();
-    else
+    } else if (auto *list = ExtractListFromInUnwind(unwind.input_expression_)) {
+      // IN-to-Unwind lowering wraps the list in toSet(coalesce(list, []))
+      unwind_value = list->elements_.size();
+    } else {
       unwind_value = MiscParam::kUnwindNoLiteral;
+    }
 
     cardinality_ *= unwind_value;
     return true;
@@ -752,10 +766,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   double EstimateLabelPropertiesCardinality(storage::LabelId label,
                                             const std::vector<storage::PropertyPath> &properties,
                                             const std::vector<ExpressionRange> &expression_ranges) {
+    auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+
     auto maybe_propertyvalue_ranges =
-        expression_ranges | ranges::views::transform([&](ExpressionRange const &er) {
-          return er.ResolveAtPlantime(parameters, db_accessor_->GetStorageAccessor()->GetNameIdMapper());
-        }) |
+        expression_ranges |
+        ranges::views::transform([&](ExpressionRange const &er) { return er.ResolveAtPlantime(parameters, mapper); }) |
         ranges::to_vector;
 
     if (ranges::none_of(maybe_propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
@@ -764,9 +779,48 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
                                   ranges::to_vector;
 
       return db_accessor_->VerticesCount(label, properties, propertyvalue_ranges);
-    } else {
-      return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
     }
+
+    // If resolution failed, check if any expression range has an original IN list
+    // whose elements we can resolve individually and sum their cardinalities.
+    for (size_t i = 0; i < expression_ranges.size(); ++i) {
+      if (maybe_propertyvalue_ranges[i] || !expression_ranges[i].original_in_list_) continue;
+
+      auto *list = utils::Downcast<ListLiteral>(expression_ranges[i].original_in_list_);
+      if (!list) continue;
+
+      double sum = 0.0;
+      bool all_resolved = true;
+      for (auto *elem : list->elements_) {
+        auto elem_range = ExpressionRange::Equal(elem);
+        auto resolved = elem_range.ResolveAtPlantime(parameters, mapper);
+        if (!resolved) {
+          all_resolved = false;
+          break;
+        }
+        // Build a full property-value-ranges vector, substituting this element for position i
+        auto per_elem_ranges = maybe_propertyvalue_ranges;
+        per_elem_ranges[i] = *resolved;
+        if (ranges::none_of(per_elem_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
+          auto pvrs =
+              per_elem_ranges | ranges::views::transform([](auto &&optional) { return *optional; }) | ranges::to_vector;
+          sum += db_accessor_->VerticesCount(label, properties, pvrs);
+        } else {
+          all_resolved = false;
+          break;
+        }
+      }
+      if (all_resolved) {
+        maybe_propertyvalue_ranges[i] = storage::PropertyValueRange::IsNotNull();  // mark as resolved
+        // Replace the full estimate with the sum
+        // If all other ranges are already resolved, return the sum directly
+        if (ranges::none_of(maybe_propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
+          return sum;
+        }
+      }
+    }
+
+    return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
   }
 
   // Helper function to estimate cardinality for point-based queries.

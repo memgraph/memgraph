@@ -54,8 +54,10 @@ struct ExpressionRange {
   Type type_;
   std::optional<utils::Bound<Expression *>> lower_;
   std::optional<utils::Bound<Expression *>> upper_;
+  Expression *original_in_list_{nullptr};
 
   static auto Equal(Expression *value) -> ExpressionRange;
+  static auto In(Expression *runtime_value, Expression *original_list) -> ExpressionRange;
   static auto RegexMatch() -> ExpressionRange;
   static auto Range(std::optional<utils::Bound<Expression *>> lower, std::optional<utils::Bound<Expression *>> upper)
       -> ExpressionRange;
