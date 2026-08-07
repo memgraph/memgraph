@@ -79,9 +79,9 @@ install_special_package() {
 post_install() {
     local jvm_arch=$([ "$(uname -m)" = "aarch64" ] && echo "arm64" || echo "amd64")
     if dpkg -s openjdk-17-jdk-headless &>/dev/null; then
-        # The default Java version should be Java 11
-        update-alternatives --set java /usr/lib/jvm/java-11-openjdk-${jvm_arch}/bin/java
-        update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-${jvm_arch}/bin/javac
+        # The default Java version should be Java 17
+        update-alternatives --set java /usr/lib/jvm/java-17-openjdk-${jvm_arch}/bin/java
+        update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-${jvm_arch}/bin/javac
     fi
 }
 
