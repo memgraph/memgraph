@@ -1164,6 +1164,78 @@ TEST(DBMS_Handler, IdleTenantDropReportsNoForeignHolders) {
   EXPECT_TRUE(del_fut.get().has_value()) << "the drop itself must still succeed once its stall is released";
 }
 
+// PINS 1a82eb021: the FORCE-drop overload (DbmsHandler::Delete(std::string_view, system::Transaction *)
+// -- the two-argument form DROP DATABASE ... FORCE calls, interpreter.cpp) must see a concurrently
+// DRAINING tenant as retriable USING, not NON_EXISTENT. Deleting the is_draining() guard immediately
+// above the GetConfig pre-check in that overload (dbms_handler.cpp) would make this call fall through
+// to GetConfig's !conf branch and reintroduce the "does not exist" misreport for a tenant that plainly
+// does.
+TEST(DBMS_Handler, ForceDropOfADrainingTenantIsRetriableNotMissing) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("force_drop_race");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+
+  PhaseTwoStall stall{acc};
+  ASSERT_TRUE(stall.WaitUntilRunning()) << "the stalling task must start before the first drop begins";
+  acc.reset();  // not needed as an external holder; the stall alone parks Phase 2
+
+  // First drop: any overload's Phase 1 (begin_drain()) puts the tenant into the same DRAINING state,
+  // so the plain single-argument overload is enough to manufacture the race this test needs.
+  auto del_prom = std::make_shared<std::promise<memgraph::dbms::DbmsHandler::DeleteResult>>();
+  auto del_fut = del_prom->get_future();
+  std::thread dropper([&dbms, del_prom] { del_prom->set_value(dbms.Delete("force_drop_race")); });
+
+  bool cleaned_up = false;
+  auto cleanup = memgraph::utils::OnScopeExit{[&] {
+    if (cleaned_up) return;
+    stall.Release();
+    if (del_fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
+      dropper.join();
+    } else {
+      dropper.detach();
+    }
+  }};
+
+  const bool draining_seen = WaitUntil(std::chrono::seconds(5), [&] {
+    const auto statuses = dbms.AllWithHotColdStatus();
+    return std::ranges::any_of(statuses,
+                               [](auto const &kv) { return kv.first == "force_drop_race" && kv.second == "DRAINING"; });
+  });
+  ASSERT_TRUE(draining_seen) << "the first drop never reached the DRAINING window this test needs to probe";
+
+  // The call under test: the TWO-argument overload, Delete(std::string_view, system::Transaction *) --
+  // the one DROP DATABASE ... FORCE binds to. The single-argument Delete(std::string_view) used for the
+  // first drop above never had this bug (its Delete_ Phase 1 begin_drain() already returns USING), so
+  // calling it here instead would pass this assertion for the wrong reason. The explicit
+  // system::Transaction* cast on the second argument is belt-and-suspenders: Delete(utils::UUID) and
+  // Delete(std::string_view) both take exactly one argument, so a plain `nullptr` would already bind
+  // unambiguously to this two-argument overload -- the cast just makes that binding visible in the diff.
+  auto [force_ready, force_result] = RunBounded(std::chrono::seconds(2), [&] {
+    return dbms.Delete("force_drop_race", static_cast<memgraph::system::Transaction *>(nullptr));
+  });
+  ASSERT_TRUE(force_ready) << "a FORCE drop racing a DRAINING tenant must return promptly (the is_draining() "
+                              "check runs before Phase 2's lock_-released teardown), not block";
+  ASSERT_TRUE(force_result.has_value());
+  ASSERT_FALSE(force_result->has_value())
+      << "a FORCE drop racing a DRAINING tenant must fail, not silently succeed a second time";
+  EXPECT_EQ(force_result->error(), memgraph::dbms::DeleteError::USING)
+      << "regression: a DRAINING tenant reported via the FORCE-path Delete(name, transaction) overload must "
+         "be USING (retriable), not NON_EXISTENT (the pre-1a82eb021 misreport)";
+
+  stall.Release();
+  const auto del_status = del_fut.wait_for(std::chrono::seconds(5));
+  if (del_status == std::future_status::ready) {
+    dropper.join();
+  } else {
+    dropper.detach();
+  }
+  cleaned_up = true;
+  ASSERT_EQ(del_status, std::future_status::ready) << "the first drop must complete once the stall is released";
+  EXPECT_TRUE(del_fut.get().has_value()) << "the first drop itself must still succeed once its stall is released";
+}
+
 int main(int argc, char *argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   // gtest takes ownership of the TestEnvironment ptr - we don't delete it.
