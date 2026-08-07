@@ -165,6 +165,32 @@ TEST_F(VectorIndexTest, DeleteVertexTest) {
   }
 }
 
+TEST_F(VectorIndexTest, SearchResultsSurviveGcWhileAccessorIsAliveTest) {
+  // The accessors a vector search returns wrap raw Vertex*, and the caller reads
+  // through them after the search call has returned. Pinning only for the
+  // duration of the search leaves that read unprotected, so the pin is held on
+  // the storage accessor instead. Read the results back with a GC pass in
+  // between: the reads must still be valid while the searching accessor lives.
+  this->CreateIndex(2, 10);
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto properties = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F});
+    this->CreateVertex(acc.get(), test_property, properties, test_label);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  std::vector<float> query = {1.0F, 1.0F};
+  const auto results = acc->VectorIndexSearchOnNodes(test_index.data(), 1, query);
+  ASSERT_EQ(results.size(), 1);
+
+  this->storage->FreeMemory();
+
+  const auto &vertex = std::get<0>(results[0]);
+  const auto property = acc->NameToProperty(test_property.data());
+  EXPECT_TRUE(vertex.GetProperty(property, View::OLD).has_value());
+}
+
 TEST_F(VectorIndexTest, SimpleAbortTest) {
   this->CreateIndex(2, 10);
   auto acc = this->storage->Access(memgraph::storage::WRITE);
