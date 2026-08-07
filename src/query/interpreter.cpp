@@ -4363,6 +4363,8 @@ PreparedQuery PrepareConstantReturnQuery(ParsedQuery parsed_query) {
   }
 
   EvaluationContext evaluation_context;
+  // No DB memory tracker without an accessor; use the process allocator (matches PrepareBuiltinIntrospectionQuery).
+  evaluation_context.memory = utils::NewDeleteResource();
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
   PrimitiveLiteralExpressionEvaluator evaluator{evaluation_context, /*dba=*/nullptr};
@@ -11432,7 +11434,7 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
 }
 
 void Interpreter::FinishAutocommitNothing() {
-  // Mirrors Abort()'s clean_status (interpreter.cpp:11115): CAS ACTIVE->IDLE, spin-waiting out a
+  // Mirrors Abort()'s clean_status: CAS ACTIVE->IDLE, spin-waiting out a
   // concurrent ShowTransactions/TerminateTransactions CAS to VERIFYING before clearing the fields below.
   // Must be a CAS, not an unconditional store, or it could race that concurrent VERIFYING transition.
   auto expected = TransactionStatus::ACTIVE;
