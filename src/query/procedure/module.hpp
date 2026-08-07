@@ -157,11 +157,13 @@ find_result<mgp_proc> FindProcedure(const ModuleRegistry &module_registry,
 /// any of these -- so an unknown, undeclared, write, or privileged procedure always takes the normal,
 /// accessor-backed path.
 ///
-/// The privilege condition matters because the fast path invokes the procedure callback during
-/// `Prepare`, before the session performs its `CheckAuthorized`. A procedure that gates on a privilege
-/// (e.g. `mg.get_module_files` needs MODULE_READ) must therefore run on the normal path, where
-/// authorization precedes execution -- otherwise an unauthorized caller's callback would run (e.g. a
-/// filesystem walk) before being denied.
+/// The privilege condition is defense-in-depth, not the primary control: `CheckAuthorized` (invoked
+/// from `SessionHL::InterpretPrepare`, right after `Prepare`) already validates a `CALL`'s full
+/// `required_privileges` -- which include the procedure's own `required_privilege` via
+/// `PrivilegeExtractor::PreVisit(CallProcedure&)` -- before any `Pull`, and the accessor-free callback
+/// is itself deferred to first `Pull`. Excluding privileged procedures (e.g. `mg.get_module_files`,
+/// which needs MODULE_READ) keeps them on the single, uniformly-audited normal path rather than
+/// relying on that Prepare/Pull ordering staying intact under future changes.
 ///
 /// Lives here rather than in the interpreter because the registry is the authority on what a
 /// procedure does, and because `mgp_proc` is an incomplete type outside the procedure layer.
