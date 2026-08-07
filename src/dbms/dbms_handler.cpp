@@ -492,7 +492,8 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
   return {};
 }
 
-DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::Transaction *transaction) {
+DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::Transaction *transaction,
+                                              CooperativeCancelFn cooperative_cancel) {
   auto wr = std::unique_lock(lock_);
 
   // Cold-tenant fast path.
@@ -514,7 +515,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
 
   // `conf` is a by-value copy (DatabaseHandler::GetConfig), so unlike a pointer/reference into
   // db_handler_ it stays valid across Delete_'s internal unlock/relock of `wr`.
-  const auto res = Delete_(db_name, wr);
+  const auto res = Delete_(db_name, wr, cooperative_cancel);
   if (res) {
     // Success; save delta
     if (transaction) {
@@ -548,6 +549,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
   if (it == db_handler_.end()) return std::unexpected{DeleteError::NON_EXISTENT};
   // `it->first` is a view into a db_handler_ map key (Delete_'s Phase 1 copies it before releasing
   // `wr` -- see its comment). Do not read `it` again after this call.
+  // No cooperative-cancel callback: this is the replica-apply path, with no session/user context to
+  // scope one to (see CooperativeCancelFn's doc at the Delete() overload that takes it).
   return Delete_(it->first, wr);
 }
 
@@ -813,7 +816,16 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
   return uuid;
 }
 
-DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::unique_lock<LockT> &lock) {
+void DbmsHandler::RequestCooperativeCancel_(Database *database, CooperativeCancelFn const &cooperative_cancel) {
+  // Step 1 first, deliberately: it can throw, and at this point nothing about the drop is latched, so
+  // Delete_'s `rollback_drain` guard can still unwind to a fully usable tenant. Step 2 is noexcept and
+  // one-way (see Database::StopAfterCommitTriggers), so it must run last.
+  if (cooperative_cancel) cooperative_cancel();
+  database->StopAfterCommitTriggers();
+}
+
+DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::unique_lock<LockT> &lock,
+                                               CooperativeCancelFn const &cooperative_cancel) {
   // PHASE 1 — under `lock`: in-memory bookkeeping only, no blocking call, no thread join, no disk
   // I/O below this point until Phase 3.
   if (db_name == kDefaultDB) {
@@ -926,6 +938,14 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   // this replaces), so a self-deadlock there would have already been a live bug, not a latent one.
   // `gk`/`acc` are the only handles we still trust past this point; `name`/`storage_path` are owned copies.
   lock.unlock();
+  // Must run BEFORE StopAllBackgroundTasks(): that call joins the after-commit trigger pool's worker
+  // (Database::StopAllBackgroundTasks -> ThreadPool::ShutDown() -> jthread join), so a trigger told to
+  // stop only afterwards is told nothing at all -- the join is already blocked on it. The same ordering
+  // is what lets `cooperative_cancel` reach an in-flight stream batch too: a stream consumer holds a
+  // DatabaseAccess through a per-batch Interpreter, and StopAllBackgroundTasks() would otherwise join
+  // that batch first. `database` is safe to dereference here: Phase 1's `acc` (drain_bypass) is still
+  // live, so count_ >= 1 across this whole window.
+  RequestCooperativeCancel_(database, cooperative_cancel);
   database->StopAllBackgroundTasks();
   database->streams()->DropAll();
   acc.reset();  // release the drop's own accessor so Phase 3's DeferDelete -> try_delete() can win

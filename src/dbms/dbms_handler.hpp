@@ -317,6 +317,23 @@ class DbmsHandler {
 #endif
 
 #ifdef MG_ENTERPRISE
+  /// Per-call cooperative-cancel hook for a DROP. Invoked from Delete_'s Phase 2, OFF-lock (`lock_` is
+  /// not held), so it may take locks of its own -- this is precisely why it cannot live in Phase 1 or
+  /// Phase 3, both of which run under `lock_`. Its job is to *ask* current holders of the tenant's
+  /// DatabaseAccess to release it (e.g. terminate the sessions/transactions pinning it); it must never
+  /// revoke one itself -- a trigger cursor or a Bolt session mid-Prepare/Pull would use-after-free if
+  /// its accessor were released out from under it. May be invoked more than once for a single drop (a
+  /// bounded-wait retry loop re-asks each iteration), so it must be idempotent. May throw: a throw
+  /// unwinds through Delete_'s `rollback_drain` guard, which makes the drop retriable, so this must run
+  /// before anything about the drop is latched.
+  ///
+  /// This is a per-call parameter, not a SetOnSuspend-style member hook, because the query layer's
+  /// sweep is scoped to the dropping user's privileges (it needs a QueryUserOrRole* and a
+  /// TRANSACTION_MANAGEMENT privilege checker for THIS call) -- a process-wide member hook cannot carry
+  /// per-call session state without either making termination unconditional or storing a
+  /// session-owned pointer process-wide.
+  using CooperativeCancelFn = std::function<void()>;
+
   /**
    * @brief Attempt to delete database.
    *
@@ -337,6 +354,9 @@ class DbmsHandler {
   /**
    * @brief Delete or defer deletion of database.
    *
+   * Replica-apply path (no session/user context available here), so it always runs with an empty
+   * cooperative-cancel callback -- deliberate, not an oversight; see CooperativeCancelFn's doc above.
+   *
    * @param uuid database UUID
    * @return DeleteResult error on failure
    */
@@ -347,9 +367,11 @@ class DbmsHandler {
    *
    * @param db_name database name
    * @param transaction system transaction
+   * @param cooperative_cancel see CooperativeCancelFn's doc above
    * @return DeleteResult error on failure
    */
-  DeleteResult Delete(std::string_view db_name, system::Transaction *transaction);
+  DeleteResult Delete(std::string_view db_name, system::Transaction *transaction,
+                      CooperativeCancelFn cooperative_cancel = {});
 
   /**
    * @brief Rename a database.
@@ -1044,7 +1066,17 @@ class DbmsHandler {
   // CONTRACT: `lock` is held EXCLUSIVE on entry and on every return path, including every error
   // return. Delete_ unlocks/relocks it internally for Phase 2; the caller's lock object is left in
   // the SAME (locked) state either way, as if this were one uninterrupted critical section.
-  DeleteResult Delete_(std::string_view db_name, std::unique_lock<LockT> &lock);
+  // `cooperative_cancel`: see CooperativeCancelFn's doc at the Delete() overload that takes it. Called
+  // exactly once, from Phase 2 -- see RequestCooperativeCancel_.
+  DeleteResult Delete_(std::string_view db_name, std::unique_lock<LockT> &lock,
+                       CooperativeCancelFn const &cooperative_cancel = {});
+
+  // Phase-2 helper: ask `cooperative_cancel` (if any) to release outside holders, then latch this
+  // tenant's after-commit triggers stopped. Order is load-bearing: step 1 can throw, and at the point
+  // it runs nothing about the drop is latched yet, so Delete_'s `rollback_drain` guard can still make
+  // the drop retriable; step 2 is noexcept and one-way, so it must run last. May be called more than
+  // once for the same `database` (see CooperativeCancelFn's idempotence requirement).
+  static void RequestCooperativeCancel_(Database *database, CooperativeCancelFn const &cooperative_cancel);
 
   // Drop a COLD (suspended) tenant: erases suspended_ entry, durable cold marker, on-disk data dir,
   // cold shell, and tenant-profile attachment. Returns the dropped UUID on success, or DeleteError
