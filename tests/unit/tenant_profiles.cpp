@@ -11,6 +11,7 @@
 
 #include <unistd.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <unordered_set>
@@ -126,4 +127,86 @@ TEST_F(TenantProfilesTest, AttachDetachDropLifecycle) {
 
   ASSERT_TRUE(profiles.Drop("p"));
   EXPECT_TRUE(profiles.GetAll().empty());
+}
+
+// Regression guard: before the fix, a corrupt profile record made RenameDatabase throw a raw
+// nlohmann::json::exception instead of returning an error. Its caller, DbmsHandler::Rename, has by
+// that point already committed the tenant rename both in memory and durably -- the throw made the
+// client see RENAME as failed for an operation that had, in fact, fully succeeded, and it also skipped
+// the subsequent txn->AddAction<RenameDatabase>, so the rename was never replicated -- leaving MAIN and
+// its replica permanently disagreeing on the tenant's database name. This writes the durable rows
+// directly through the kvstore (bypassing Create/AttachToDatabase, which would only ever write a
+// well-formed record) so the profile record RenameDatabase reads back is deliberately malformed.
+TEST_F(TenantProfilesTest, RenameDatabaseReportsErrorInsteadOfThrowingOnCorruptProfile) {
+  memgraph::kvstore::KVStore durability{test_folder_ / "rename_corrupt"};
+  memgraph::dbms::TenantProfiles profiles{durability};
+  const auto db_mapping_prefix = std::string{memgraph::dbms::TenantProfiles::kDbMappingPrefix};
+  const auto profile_prefix = std::string{memgraph::dbms::TenantProfiles::kPrefix};
+
+  ASSERT_TRUE(durability.Put(db_mapping_prefix + "db1", "p"));
+  ASSERT_TRUE(durability.Put(profile_prefix + "p", "{not json"));
+
+  std::expected<void, memgraph::dbms::TenantProfiles::RenameError> result;
+  ASSERT_NO_THROW(result = profiles.RenameDatabase("db1", "db2"));
+  ASSERT_FALSE(result);
+  EXPECT_EQ(result.error(), memgraph::dbms::TenantProfiles::RenameError::DURABILITY_ERROR);
+
+  // Deliberate, not an oversight: the caller (DbmsHandler::Rename) still completes and replicates the
+  // rename, and the next boot's PruneDatabases collects the stale mapping once "db1" is no longer live.
+  EXPECT_TRUE(durability.Get(db_mapping_prefix + "db1"))
+      << "old mapping must survive a failed rewrite -- PruneDatabases reconciles it on next boot";
+  // A failure must write neither the profile rewrite nor the new mapping, or "db2" would point at a
+  // profile that never agreed to it.
+  EXPECT_FALSE(durability.Get(db_mapping_prefix + "db2"));
+}
+
+// Regression guard: GetAll is called from the DbmsHandler constructor (RestoreTenantProfiles_) with no
+// enclosing try/catch anywhere up to main(), so an exception escaping it terminates the whole process at
+// startup. Before the fix, Get and GetAll only caught nlohmann::json::parse_error, but a wrong-typed
+// persisted field makes FromJson's `.get<int64_t>()` throw nlohmann::json::type_error -- a SIBLING of
+// parse_error (both derive from nlohmann::detail::exception; neither derives from the other) -- so it
+// slipped past the old catch. The payload below is syntactically valid JSON (parse succeeds); only the
+// later typed .get<int64_t>() throws, so this exercises type_error specifically, not parse_error.
+TEST_F(TenantProfilesTest, WrongTypedProfileFieldDoesNotEscapeGetOrGetAll) {
+  memgraph::kvstore::KVStore durability{test_folder_ / "wrong_typed"};
+  memgraph::dbms::TenantProfiles profiles{durability};
+
+  ASSERT_TRUE(profiles.Create("good", 4096));
+  ASSERT_TRUE(durability.Put(std::string{memgraph::dbms::TenantProfiles::kPrefix} + "typed",
+                             R"({"memory_limit": "not-a-number", "databases": []})"));
+
+  std::optional<memgraph::dbms::TenantProfiles::Profile> get_result;
+  ASSERT_NO_THROW(get_result = profiles.Get("typed"));
+  EXPECT_EQ(get_result, std::nullopt);
+
+  std::vector<memgraph::dbms::TenantProfiles::Profile> all;
+  ASSERT_NO_THROW(all = profiles.GetAll());
+  EXPECT_TRUE(std::ranges::any_of(all, [](const auto &profile) { return profile.name == "good"; }));
+  EXPECT_FALSE(std::ranges::any_of(all, [](const auto &profile) { return profile.name == "typed"; }));
+}
+
+// Negative control: a healthy rename is unchanged by the try/catch restructuring. The existing
+// PersistsProfileAndDatabaseMapping test also calls RenameDatabase, but only ever counts mappings -- it
+// never inspects the profile's own `databases` set, which is exactly what moved around in the fix. This
+// asserts the full expected end state so the fix is provably not over-broad.
+TEST_F(TenantProfilesTest, RenameDatabaseRewritesProfileMembershipOnHealthyRecord) {
+  memgraph::kvstore::KVStore durability{test_folder_ / "rename_healthy"};
+  memgraph::dbms::TenantProfiles profiles{durability};
+  const auto db_mapping_prefix = std::string{memgraph::dbms::TenantProfiles::kDbMappingPrefix};
+
+  ASSERT_TRUE(profiles.Create("p", 2048));
+  ASSERT_EQ(profiles.AttachToDatabase("p", "db1"), 2048);
+
+  ASSERT_TRUE(profiles.RenameDatabase("db1", "db2"));
+
+  const auto new_mapping = durability.Get(db_mapping_prefix + "db2");
+  ASSERT_TRUE(new_mapping);
+  EXPECT_EQ(*new_mapping, "p");
+  EXPECT_FALSE(durability.Get(db_mapping_prefix + "db1"));
+
+  const auto profile = profiles.Get("p");
+  ASSERT_TRUE(profile);
+  EXPECT_TRUE(profile->databases.contains("db2"));
+  EXPECT_FALSE(profile->databases.contains("db1"));
+  EXPECT_EQ(profile->memory_limit, 2048);
 }
