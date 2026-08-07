@@ -100,20 +100,22 @@ class TerminatedMustAbortException : public MustAbortException {
 
 class ShutdownMustAbortException : public MustAbortException {
  public:
-  explicit ShutdownMustAbortException() : MustAbortException("Query was asked to because of server shutdown.") {}
+  explicit ShutdownMustAbortException()
+      : MustAbortException("Query was asked to terminate because of server shutdown.") {}
 };
 
 class TimeoutMustAbortException : public MustAbortException {
  public:
-  explicit TimeoutMustAbortException() : MustAbortException("Query was asked to because of timeout was hit.") {}
+  explicit TimeoutMustAbortException()
+      : MustAbortException("Query was asked to terminate because the timeout was hit.") {}
 };
 
 class ExceptionMustAbortException : public MustAbortException {
  public:
   explicit ExceptionMustAbortException()
       : MustAbortException(
-            "Query was asked to because of an exception occurred. Please contact Memgraph support as this scenario "
-            "should not happen!") {}
+            "Query was asked to terminate because an exception occurred. Please contact Memgraph support as this "
+            "scenario should not happen!") {}
 };
 
 // Forward declarations
