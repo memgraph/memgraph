@@ -5419,7 +5419,28 @@ TEST_P(CypherMainVisitorTest, TestShowInstance) {
   EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::SHOW_INSTANCE);
 }
 
+TEST_P(CypherMainVisitorTest, TestShowRoutingTable) {
+  auto &ast_generator = *GetParam();
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery("SHOW ROUTING TABLE"));
+  ASSERT_TRUE(parsed_query);
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::SHOW_ROUTING_TABLE);
+}
+
+TEST_P(CypherMainVisitorTest, TestShowRoutingTableInvalid) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("SHOW ROUTING"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("SHOW TABLE"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("SHOW ROUTING TABLES"), SyntaxException);
+}
+
 #endif
+
+TEST_P(CypherMainVisitorTest, RoutingTableKeywordsStillUsableAsIdentifiers) {
+  auto &ast_generator = *GetParam();
+  // Making ROUTING and TABLE tokens must not stop them from being used as symbolic names.
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (routing:table) RETURN routing.table AS table"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :routing(table)"));
+}
 
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   auto &ast_generator = *GetParam();

@@ -3285,7 +3285,8 @@ class CoordinatorQuery : public memgraph::query::Query {
     SET_COORDINATOR_SETTING,
     SHOW_COORDINATOR_SETTINGS,
     SHOW_REPLICATION_LAG,
-    UPDATE_CONFIG
+    UPDATE_CONFIG,
+    SHOW_ROUTING_TABLE
   };
 
   enum class SyncMode : uint8_t { SYNC, ASYNC, STRICT_SYNC };

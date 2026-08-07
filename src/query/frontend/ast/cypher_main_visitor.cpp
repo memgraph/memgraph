@@ -1166,6 +1166,12 @@ antlrcpp::Any CypherMainVisitor::visitShowReplicationLag(MemgraphCypher::ShowRep
   return coordinator_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitShowRoutingTable(MemgraphCypher::ShowRoutingTableContext * /*ctx*/) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::SHOW_ROUTING_TABLE;
+  return coordinator_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitDropReplica(MemgraphCypher::DropReplicaContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::DROP_REPLICA;

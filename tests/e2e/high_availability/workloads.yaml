@@ -23,6 +23,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/global_read_only.py"]
 
+  - name: "Show routing table"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/show_routing_table.py"]
+
   - name: "Distributed coordinators"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/distributed_coords.py"]

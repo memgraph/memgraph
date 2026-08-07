@@ -772,6 +772,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     return coordinator_handler_.ShowReplicationLag();
   }
 
+  coordination::RoutingTable GetRoutingTable(std::string_view const db_name) override {
+    return coordinator_handler_.GetRoutingTable(db_name);
+  }
+
   void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
                                    std::string_view replication_server, std::string_view instance_name,
                                    CoordinatorQuery::SyncMode sync_mode) override {
@@ -1302,6 +1306,7 @@ auth::Permission RequiredCoordinatorPermission(Query *query) {
       case CoordinatorQuery::Action::SHOW_INSTANCES:
       case CoordinatorQuery::Action::SHOW_COORDINATOR_SETTINGS:
       case CoordinatorQuery::Action::SHOW_REPLICATION_LAG:
+      case CoordinatorQuery::Action::SHOW_ROUTING_TABLE:
         return auth::Permission::COORDINATOR_READ;
       default:
         return auth::Permission::COORDINATOR_WRITE;
@@ -2949,6 +2954,25 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
           results.push_back(std::move(instance_out_info));
         }
         return results;
+      };
+      return callback;
+    }
+    case CoordinatorQuery::Action::SHOW_ROUTING_TABLE: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can run SHOW ROUTING TABLE query.");
+      }
+      callback.header = {"role", "servers"};
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
+        auto const routing_table = handler.GetRoutingTable(dbms::kDefaultDB);
+        auto const converter = [](auto const &entry) -> std::vector<TypedValue> {
+          auto const &[servers, role] = entry;
+          auto servers_tv = std::vector<TypedValue>{};
+          servers_tv.reserve(servers.size());
+          std::ranges::transform(
+              servers, std::back_inserter(servers_tv), [](auto const &server) { return TypedValue{server}; });
+          return {TypedValue{role}, TypedValue{std::move(servers_tv)}};
+        };
+        return utils::fmap(routing_table, converter);
       };
       return callback;
     }

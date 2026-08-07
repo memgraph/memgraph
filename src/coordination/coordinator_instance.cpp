@@ -1694,6 +1694,8 @@ auto CoordinatorInstance::GetRoutingTable(std::string_view const db_name) const 
 }
 
 auto CoordinatorInstance::GetRoutingTableAsLeader(std::string_view const db_name) const -> RoutingTable {
+  // Lock needed because we are reading replicas' lag
+  auto lock = std::shared_lock{coord_instance_lock_};
   return raft_state_->GetRoutingTable(db_name, replicas_num_txns_cache_);
 }
 

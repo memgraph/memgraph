@@ -95,6 +95,10 @@ auto CoordinatorHandler::ShowReplicationLag() const -> std::optional<coordinatio
   return coordinator_state_.ShowReplicationLag();
 }
 
+auto CoordinatorHandler::GetRoutingTable(std::string_view const db_name) const -> coordination::RoutingTable {
+  return coordinator_state_.GetRoutingTable(db_name);
+}
+
 auto CoordinatorHandler::ShowInstance() const -> coordination::InstanceStatus {
   return coordinator_state_.ShowInstance();
 }
