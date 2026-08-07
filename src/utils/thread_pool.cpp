@@ -21,29 +21,38 @@ ThreadPool::ThreadPool(const size_t pool_size, ThreadInitFn thread_init) : threa
   }
 }
 
-void ThreadPool::AddTask(TaskSignature new_task) {
+bool ThreadPool::AddTask(TaskSignature new_task) {
   {
     auto guard = std::unique_lock{pool_lock_};
     if (pool_stop_source_.stop_requested()) {
-      return;
+      return false;
     }
     task_queue_.emplace(std::move(new_task));
   }
   unfinished_tasks_num_.fetch_add(1);
 
   queue_cv_.notify_one();
+  return true;
 }
 
-void ThreadPool::ShutDown() {
+size_t ThreadPool::ShutDown() {
+  // Declared here, destroyed last (after thread_pool_.clear() below): destroying a task can run
+  // arbitrary user destructors (for the after-commit trigger pool, a storage accessor's
+  // Abort/FinalizeTransaction and a gatekeeper accessor release), so it must not happen under
+  // `pool_lock_`, nor concurrently with a worker still finishing its in-flight task.
+  auto discarded = std::queue<TaskSignature>{};
   {
     auto guard = std::unique_lock{pool_lock_};
     pool_stop_source_.request_stop();
-    auto empty_queue = std::queue<TaskSignature>{};
-    task_queue_.swap(empty_queue);
+    task_queue_.swap(discarded);
   }
+  auto const discarded_count = discarded.size();
+  unfinished_tasks_num_.fetch_sub(discarded_count, std::memory_order_relaxed);
 
   queue_cv_.notify_all();
   thread_pool_.clear();
+
+  return discarded_count;
 }
 
 ThreadPool::~ThreadPool() {
