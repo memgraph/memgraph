@@ -13,6 +13,8 @@
 
 #include <memory>
 
+#include "spdlog/spdlog.h"
+
 #include "dbms/database_info.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/coord_flag_env_handler.hpp"
@@ -167,9 +169,25 @@ DatabaseInfo Database::GetInfo() const {
   return info;
 }
 
+void Database::AddTask(utils::ThreadPool::TaskSignature new_task) {
+  if (!after_commit_trigger_pool_.AddTask(std::move(new_task))) {
+    spdlog::warn(
+        "Database '{}': could not schedule an after commit trigger because the database's background tasks are "
+        "already shut down (database is being dropped or the process is shutting down); the trigger will not run.",
+        name());
+  }
+}
+
 void Database::StopAllBackgroundTasks() {
   streams()->Shutdown();
-  thread_pool()->ShutDown();
+  auto const discarded = thread_pool()->ShutDown();
+  if (discarded != 0) {
+    spdlog::warn(
+        "Database '{}': shutting down background tasks discarded {} queued after commit trigger execution(s); "
+        "these triggers belong to already-committed transactions and will never run.",
+        name(),
+        discarded);
+  }
   storage_->StopAllBackgroundTasks();
 }
 
