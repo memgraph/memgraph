@@ -18,8 +18,8 @@ ARG GIT_REF
 SHELL ["/bin/bash", "-c"]
 RUN git clone --branch ${GIT_REF} https://github.com/memgraph/memgraph.git \
     && cd memgraph \
-    && ./environment/os/fedora-42-arm.sh install TOOLCHAIN_RUN_DEPS \
-    && ./environment/os/fedora-42-arm.sh install MEMGRAPH_BUILD_DEPS \
+    && ./environment/os/fedora-42.sh install TOOLCHAIN_RUN_DEPS \
+    && ./environment/os/fedora-42.sh install MEMGRAPH_BUILD_DEPS \
     && cd .. && rm -rf memgraph
 
 # Create mg user and set as default

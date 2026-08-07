@@ -88,9 +88,6 @@ fi
 
 # Set the right operating system setup script.
 ENV_SCRIPT_RELATIVE="environment/os/$DISTRO.sh"
-if [[ "$for_arm" = true ]]; then
-    ENV_SCRIPT_RELATIVE="environment/os/$DISTRO-arm.sh"
-fi
 ENV_SCRIPT="$DIR/../../../$ENV_SCRIPT_RELATIVE"
 echo "ALL BUILD PACKAGES: $(${ENV_SCRIPT} list TOOLCHAIN_BUILD_DEPS)"
 ${ENV_SCRIPT} check TOOLCHAIN_BUILD_DEPS

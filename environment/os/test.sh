@@ -9,10 +9,6 @@ RESET="\033[0m"
 
 # bash script to test the installation of the dependencies
 OS="$1"
-if [[ "$(arch)" == "aarch64" ]]; then
-  OS="$OS-arm"
-fi
-
 PACKAGE_GROUP="$2"
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
@@ -23,24 +19,15 @@ declare -A OS_DOCKER_IMAGE_MAP=(
     [centos-9]="quay.io/centos/centos:stream9"
     [centos-10]="quay.io/centos/centos:stream10"
     [debian-12]="debian:12"
-    [debian-12-arm]="debian:12"
     [debian-13]="debian:13"
-    [debian-13-arm]="debian:13"
     [fedora-42]="fedora:42"
-    [fedora-42-arm]="fedora:42"
     [fedora-43]="fedora:43"
-    [fedora-43-arm]="fedora:43"
     [fedora-44]="fedora:44"
-    [fedora-44-arm]="fedora:44"
     [fedora-45]="fedora:45"
-    [fedora-45-arm]="fedora:45"
     [rocky-10]="rockylinux/rockylinux:10"
     [ubuntu-22.04]="ubuntu:22.04"
-    [ubuntu-22.04-arm]="ubuntu:22.04"
     [ubuntu-24.04]="ubuntu:24.04"
-    [ubuntu-24.04-arm]="ubuntu:24.04"
     [ubuntu-26.04]="ubuntu:26.04"
-    [ubuntu-26.04-arm]="ubuntu:26.04"
 )
 
 if [[ ! -v OS_DOCKER_IMAGE_MAP[$OS] ]]; then

@@ -7,8 +7,8 @@ source "$SCRIPT_DIR/../util.sh"
 # Distro scripts no longer exposed through install_deps.sh (the files remain
 # and can still be run directly).
 DEPRECATED_OS=(
-    fedora-42 fedora-42-arm
-    ubuntu-20.04 ubuntu-20.04-arm
+    fedora-42
+    ubuntu-20.04
 )
 
 # Every distro script in this directory is a supported OS; the filename is
@@ -94,7 +94,7 @@ run_script() {
 # New function for 'prepare' command to download and extract the toolchain
 prepare_toolchain() {
     local os_arch="$1"
-    local toolchain_arch=$([[ $os_arch == *-arm ]] && echo "aarch64" || echo "x86_64")
+    local toolchain_arch=$([[ "$(uname -m)" == "aarch64" ]] && echo "aarch64" || echo "x86_64")
     local toolchain_url="${TOOLCHAIN_URLS[$toolchain_arch]}"
 
     if [ -z "$toolchain_url" ]; then
@@ -146,24 +146,10 @@ else
     exit 1
 fi
 
-ARCH=$(uname -m)
-case $ARCH in
-    arm*|aarch64)
-        ARCH="arm"
-        ;;
-    *)
-        ARCH=""
-        ;;
-esac
-
-# Normalize OS name to lowercase
+# Normalize OS name to lowercase. One distro script serves every
+# architecture, so the OS identifier carries no arch suffix.
 OS=$(echo "$OS" | tr '[:upper:]' '[:lower:]')
-
-if [[ -z "$ARCH" ]]; then
-    OS_ARCH="${OS}-${VER}"
-else
-    OS_ARCH="${OS}-${VER}-${ARCH}"
-fi
+OS_ARCH="${OS}-${VER}"
 
 OS_ARCH_SCRIPT="${OS_ARCH}.sh"
 

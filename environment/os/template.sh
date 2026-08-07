@@ -3,8 +3,8 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/lib.sh"
 
-# Copy this file to <os>-<version>[-arm].sh -- the filename IS the OS name,
-# used for the OS/architecture checks and passed to check-packages.py.
+# Copy this file to <os>-<version>.sh -- the filename IS the OS name (one
+# script serves all architectures), used for the OS check and check-packages.py.
 # Fill in the package arrays; lib.sh provides list/check/install and the
 # dispatch. For distro-specific extras (extra repos, packages that need a
 # non-repo install, post-install fixups) define the optional hooks documented

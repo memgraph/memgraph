@@ -675,9 +675,9 @@ build_memgraph () {
     copy_project_files
   fi
 
-  echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
-  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
-  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
+  echo "Installing dependencies using '/memgraph/environment/os/${os%-arm}.sh' script..."
+  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/${os%-arm}.sh check TOOLCHAIN_RUN_DEPS || $MGBUILD_ROOT_DIR/environment/os/${os%-arm}.sh install TOOLCHAIN_RUN_DEPS"
+  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/${os%-arm}.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/${os%-arm}.sh install MEMGRAPH_BUILD_DEPS"
 
   # check rust version installed matches
   local installed_rust_ver_str="$(docker exec -u mg $build_container bash -c 'source $HOME/.cargo/env && cargo --version 2>/dev/null || echo ""')"
