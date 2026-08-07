@@ -1217,6 +1217,127 @@ TEST(DBMS_Handler, ForceDropOfADrainingTenantIsRetriableNotMissing) {
   EXPECT_TRUE(del_fut.get().has_value()) << "the first drop itself must still succeed once its stall is released";
 }
 
+// PINS: MakeDatabaseProtectorFactory (database_handler.hpp) must keep resolving its own tenant across a
+// RENAME. If the factory captures the tenant's NAME at construction time and re-looks it up through
+// Handler<T>::Get on every call, the lookup goes stale the moment the name changes -- items_ is now keyed
+// under the NEW name -- and make_database_protector() starts returning nullptr forever. Both consumers
+// (storage/v2/ttl.cpp and storage/v2/async_indexer.cpp) treat a nullptr protector as "the database was
+// dropped, stop this worker", so this would silently and permanently kill TTL expiry and async index
+// building for any tenant that is ever renamed, with no error, no log, and no recovery short of a
+// process restart. Exercises the real seam (Storage::make_database_protector()), not a hand-rolled lookup.
+TEST(DBMS_Handler, ProtectorFactorySurvivesRename) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("factory_rename_src");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  // Held for the whole test, same reasoning as DrainingTenantIsRefusedToTheProtectorFactory above: this
+  // accessor is what keeps `storage` (and the Database it belongs to) alive across the rename below.
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  auto *storage = acc->storage();
+
+  {
+    auto p0 = storage->make_database_protector();
+    EXPECT_NE(p0, nullptr) << "a HOT tenant must be protectable before the rename -- if this already "
+                              "fails, the assertion below proves nothing about the rename itself";
+  }
+
+  auto rename_result = dbms.Rename("factory_rename_src", "factory_rename_dst");
+  ASSERT_TRUE(rename_result.has_value()) << "the rename itself must succeed for this test to probe anything";
+
+  auto p1 = storage->make_database_protector();
+  EXPECT_NE(p1, nullptr) << "the protector factory must still resolve its own tenant after a RENAME -- a "
+                            "factory that re-looks-up a captured NAME returns nullptr here, and both "
+                            "consumers (storage/v2/ttl.cpp:315 and storage/v2/async_indexer.cpp:96) read "
+                            "nullptr as 'database dropped, stop this worker', silently killing TTL expiry "
+                            "and async index building until process restart";
+
+  acc.reset();
+  const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(all_detached, [](auto const &d) { return d.name == "factory_rename_dst"; });
+  });
+  if (!retired) {
+    // Best-effort: don't leave the shared TestEnvironment polluted, but don't hang the binary over it
+    // either -- this cleanup path is not what this test is pinning.
+    RunBounded(std::chrono::seconds(2), [&] { return dbms.Delete("factory_rename_dst"); });
+  }
+}
+
+// PINS: Handler<T>::Get's items_.find (handler.hpp) has no synchronization of its own against
+// structural mutation of items_ (insert/erase under DbmsHandler::lock_ elsewhere). If
+// MakeDatabaseProtectorFactory re-resolves its tenant through that same unsynchronized map on every
+// call, a lock-free reader racing New()/Delete() for an UNRELATED tenant is a data race on items_ --
+// benign-looking under a normal build, but a real find under ThreadSanitizer. Under a non-TSan build
+// this test is a smoke test only: it must not crash or hang. Its real purpose is to give TSan a window
+// on that race; it does not (and cannot, without TSan) prove the race is absent.
+TEST(DBMS_Handler, ProtectorFactoryConcurrentWithHandlerMapMutation) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("factory_race_target");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  auto *storage = acc->storage();
+
+  std::atomic<bool> stop{false};
+  std::atomic<uint64_t> reader_iterations{0};
+  std::atomic<uint64_t> non_null_results{0};
+
+  std::thread reader([&] {
+    constexpr uint64_t kMaxIterations = 20000;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!stop.load(std::memory_order_relaxed) &&
+           reader_iterations.load(std::memory_order_relaxed) < kMaxIterations &&
+           std::chrono::steady_clock::now() < deadline) {
+      // A nullptr result is legitimate here (the target tenant is never itself mutated below), so this
+      // loop intentionally does not assert on the returned protector -- only that calling this seam
+      // concurrently with unrelated map mutation neither crashes nor hangs.
+      auto protector = storage->make_database_protector();
+      if (protector != nullptr) {
+        non_null_results.fetch_add(1, std::memory_order_relaxed);
+      }
+      reader_iterations.fetch_add(1, std::memory_order_relaxed);
+    }
+  });
+
+  // Cross-tenant churn only -- deliberately NOT renaming/dropping factory_race_target itself. A
+  // same-tenant Rename loop would race Handler<T>::Rename's move-then-erase window (handler.hpp), during
+  // which the in-map Gatekeeper::pimpl_ is transiently null; a concurrent lookup landing in that window
+  // is a real finding (NULL-dereference/SIGSEGV) but would crash this whole shared test binary, not just
+  // fail an assertion, so it is out of scope for this smoke test.
+  const auto churn_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  uint64_t churn_iterations = 0;
+  while (churn_iterations < 20000 && std::chrono::steady_clock::now() < churn_deadline) {
+    auto other = dbms.New("factory_race_other");
+    if (other.has_value()) {
+      memgraph::dbms::DatabaseAccess other_acc = std::move(other.value());
+      other_acc.reset();
+      dbms.Delete("factory_race_other");  // best-effort; a USING/NON_EXISTENT race here is not this test's concern
+    }
+    ++churn_iterations;
+  }
+  stop.store(true, std::memory_order_relaxed);
+
+  auto [reader_done, _] = RunBounded(std::chrono::seconds(5), [&] {
+    reader.join();
+    return true;
+  });
+  if (!reader_done) {
+    // RunBounded already ran `reader.join()` on its own worker thread; if that worker itself is stuck,
+    // detach rather than block this thread indefinitely (mirrors this file's established idiom for a
+    // wedged background operation, e.g. DropDoesNotHoldTheHandlerLockDuringTeardown's dropper.detach()).
+    ADD_FAILURE() << "the reader thread failed to join within the bound -- possible hang in the seam under test";
+  }
+
+  EXPECT_GT(reader_iterations.load(), 0u) << "the reader must have completed at least one iteration";
+
+  // Best-effort cleanup: make sure this test doesn't leave factory_race_target behind for later tests.
+  acc.reset();
+  WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(all_detached, [](auto const &d) { return d.name == "factory_race_target"; });
+  });
+}
+
 int main(int argc, char *argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   // gtest takes ownership of the TestEnvironment ptr - we don't delete it.
