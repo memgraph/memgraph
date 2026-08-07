@@ -601,9 +601,8 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
       // the key), so move it verbatim instead of parsing and rewriting it.
       const std::map<std::string, std::string> to_put{{new_key, *old_val}};
       const std::vector<std::string> to_delete{old_key};
-      // Single atomic batch: a separate Put-then-Delete would leave the tenant durably recorded under
-      // BOTH names if the process died (or Delete failed) between the two calls, and the next boot's
-      // restore loop would then restore the same uuid/data-dir twice.
+      // Atomic batch: a separate Put-then-Delete could leave the tenant durably recorded under BOTH
+      // names if the process died mid-way, and the restore loop would then restore the same uuid twice.
       if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) {
         spdlog::error("Failed to persist rename of database {} to {}; still durably recorded as {}.",
                       old_name,
@@ -615,9 +614,8 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
 
   // Update tenant profile membership (no-op if database had no profile attached).
   if (tenant_profiles_) {
-    // The rename itself already committed (in-memory + durably); a failure here is just a
-    // profile-membership bookkeeping row, so it must not stop us from falling through to
-    // AddAction<RenameDatabase> below — skipping that is what used to cause MAIN/replica divergence.
+    // The rename already committed (in-memory + durably); a profile-membership failure here must not skip
+    // the fallthrough to AddAction<RenameDatabase> below — that gap used to cause MAIN/replica divergence.
     auto renamed = tenant_profiles_->RenameDatabase(old_name, new_name);
     if (!renamed.has_value() && renamed.error() == TenantProfiles::RenameError::DURABILITY_ERROR) {
       spdlog::warn("Failed to persist tenant profile membership rename for database {} (was {}).", new_name, old_name);
