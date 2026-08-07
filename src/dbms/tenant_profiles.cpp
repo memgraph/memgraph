@@ -100,7 +100,7 @@ std::optional<TenantProfiles::Profile> TenantProfiles::Get(std::string_view name
   if (!stored) return std::nullopt;
   try {
     return FromJson(nlohmann::json::parse(*stored), name);
-  } catch (const nlohmann::json::parse_error &e) {
+  } catch (const nlohmann::json::exception &e) {
     spdlog::warn("Failed to parse tenant profile '{}': {}", name, e.what());
     return std::nullopt;
   }
@@ -114,7 +114,10 @@ std::vector<TenantProfiles::Profile> TenantProfiles::GetAll() const {
     auto name = key.substr(kPrefix.size());
     try {
       result.push_back(FromJson(nlohmann::json::parse(value), name));
-    } catch (const nlohmann::json::parse_error &e) {
+    } catch (const nlohmann::json::exception &e) {
+      // Base json::exception, not parse_error: FromJson's .get<int64_t>() on a wrong-typed persisted field
+      // throws type_error, a sibling of parse_error, and this runs on the ctor's startup path with no
+      // enclosing try/catch up to main().
       spdlog::warn("Failed to parse tenant profile '{}': {}", name, e.what());
     }
   }
@@ -230,14 +233,26 @@ std::expected<void, TenantProfiles::RenameError> TenantProfiles::RenameDatabase(
   auto profile_stored = durability_->Get(ProfileKey(*profile_name));
   if (!profile_stored) return std::unexpected{RenameError::DURABILITY_ERROR};
 
-  Profile profile = FromJson(nlohmann::json::parse(*profile_stored), *profile_name);
-  profile.databases.erase(std::string{old_name});
-  profile.databases.insert(std::string{new_name});
+  std::map<std::string, std::string> to_put;
+  try {
+    Profile profile = FromJson(nlohmann::json::parse(*profile_stored), *profile_name);
+    profile.databases.erase(std::string{old_name});
+    profile.databases.insert(std::string{new_name});
+    to_put.emplace(ProfileKey(profile.name), ProfileToJson(profile).dump());
+    to_put.emplace(DbMappingKey(new_name), *profile_name);
+  } catch (const nlohmann::json::exception &e) {
+    // Corrupt reads the same as unreadable to the caller, so reuse DURABILITY_ERROR rather than add a new
+    // variant. The old mapping key is deliberately left in place: the caller (DbmsHandler::Rename) still
+    // completes and replicates the rename, and the next boot's PruneDatabases collects the now-stale
+    // mapping once the old database name is no longer in the live set.
+    spdlog::warn("Tenant profile '{}' durable entry is corrupt ({}); failed to rename database '{}' to '{}'.",
+                 *profile_name,
+                 e.what(),
+                 old_name,
+                 new_name);
+    return std::unexpected{RenameError::DURABILITY_ERROR};
+  }
 
-  const std::map<std::string, std::string> to_put{
-      {ProfileKey(profile.name), ProfileToJson(profile).dump()},
-      {DbMappingKey(new_name), *profile_name},
-  };
   const std::vector<std::string> to_delete{DbMappingKey(old_name)};
   if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return std::unexpected{RenameError::DURABILITY_ERROR};
   return {};
