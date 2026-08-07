@@ -879,7 +879,17 @@ void DbmsHandler::AwaitDrain_(utils::Gatekeeper<Database> *gk, Database *databas
           blockers.transactions_asked_to_abort);
       return;
     }
-    RequestCooperativeCancel_(database, cooperative_cancel);
+    // Guarded here, unlike the pre-loop call in Phase 2 above: by now Phase 2 has already joined this
+    // tenant's background threads and dropped its streams -- teardown rollback_drain does not undo --
+    // so an escaping throw would surface as a tenant that's alive but permanently missing that
+    // machinery. Swallow and keep waiting: `expiry` still bounds the loop, and a holder this sweep
+    // missed can still release on a later one.
+    try {
+      RequestCooperativeCancel_(database, cooperative_cancel);
+    } catch (...) {
+      spdlog::warn(R"(Cooperative cancel sweep failed while draining database "{}"; continuing to wait.)",
+                   database->name());
+    }
     // Re-read the clock HERE, after the sweep, not before it: computing the sleep bound from a
     // pre-sweep clock would let the loop overshoot `expiry` by one sweep's duration (the sweep
     // iterates every live interpreter under a SpinLock doing a CAS and possibly a virtual
