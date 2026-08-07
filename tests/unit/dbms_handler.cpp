@@ -1348,12 +1348,90 @@ TEST(DBMS_Handler, ProtectorFactoryConcurrentWithHandlerMapMutation) {
 
   EXPECT_GT(reader_iterations.load(), 0u) << "the reader must have completed at least one iteration";
 
-  // Best-effort cleanup: make sure this test doesn't leave factory_race_target behind for later tests.
   acc.reset();
-  WaitUntil(std::chrono::seconds(10), [&] {
+
+  // Both names this test creates must be deterministically gone before returning: under
+  // --gtest_repeat, a name left behind here makes the NEXT iteration's dbms.New() for that same name
+  // fail with EXISTS instead of re-exercising the race. factory_race_target was previously only
+  // detach-waited, never actually dropped (so the wait below was trivially true and it stayed HOT
+  // forever); factory_race_other's churn loop only ever deletes it best-effort, so its very last
+  // iteration (or one that lost a benign USING/NON_EXISTENT race) can leave it behind too. Retry
+  // Delete() itself (not just the AllDetached wait) since a single call can race a USING report from
+  // the churn loop's own in-flight delete.
+  auto drop_and_wait = [&](std::string_view name) {
+    const bool dropped = WaitUntil(std::chrono::seconds(10), [&] {
+      const auto del = dbms.Delete(name);
+      return del.has_value() || del.error() == memgraph::dbms::DeleteError::NON_EXISTENT;
+    });
+    EXPECT_TRUE(dropped) << name
+                         << " must end up dropped (or already gone) so a later --gtest_repeat "
+                            "iteration's New() for this name does not fail with EXISTS";
+    const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
+      const auto all_detached = dbms.AllDetached();
+      return std::ranges::none_of(all_detached, [&](auto const &d) { return d.name == name; });
+    });
+    EXPECT_TRUE(retired) << name << "'s detached row must retire before this test returns";
+  };
+  drop_and_wait("factory_race_target");
+  drop_and_wait("factory_race_other");
+}
+
+// PINS: DatabaseHandler::BuildDetached (database_handler.hpp) -- the hot/cold RESUME path -- must
+// publish the freshly rebuilt generation's OWN GKInternals<Database>* into that generation's own
+// protector cell, exactly as DatabaseHandler::New does for a brand-new tenant. Suspend destroys the
+// previous Database (and with it the previous cell), so every generation must be self-published; a
+// missed publish here fails CLOSED and silently -- both consumers (storage/v2/ttl.cpp and
+// storage/v2/async_indexer.cpp) read a nullptr protector as "database dropped, stop this worker", so
+// TTL expiry and async index building would quietly stop on every resumed tenant, with no error, no
+// log, and no recovery short of a process restart.
+TEST(DBMS_Handler, ProtectorFactorySurvivesSuspendResume) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("protector_suspend_resume");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+
+  {
+    auto protector = acc->storage()->make_database_protector();
+    EXPECT_NE(protector, nullptr) << "a HOT tenant must be protectable before suspend -- if this already "
+                                     "fails, the assertions below prove nothing about resume";
+  }
+
+  // Suspend requires sole-accessor (try_begin_suspend() waits for count==1); a held DatabaseAccess
+  // would fail the call with ACTIVE_CONNECTIONS regardless of the publish bug this test targets.
+  acc.reset();
+
+  auto suspend_result = dbms.Suspend("protector_suspend_resume");
+  ASSERT_TRUE(suspend_result.has_value())
+      << "suspend itself must succeed for this test to probe anything: " << (int)suspend_result.error();
+
+  auto resume_result = dbms.Resume("protector_suspend_resume");
+  ASSERT_TRUE(resume_result.has_value()) << "resume itself must succeed for this test to probe anything: "
+                                         << (int)resume_result.error();
+
+  // The suspend destroyed the PREVIOUS Database (and its protector cell) -- any pointer taken from
+  // before the suspend is now dangling. Re-acquire a fresh accessor for the resumed generation instead
+  // of reusing `acc`/its old storage pointer.
+  memgraph::dbms::DatabaseAccess fresh_acc = std::move(resume_result.value().db);
+  {
+    // Scoped: DatabaseProtector (dbms/database_protector.hpp) holds its OWN internal DatabaseAccess, so
+    // an unreleased protector is itself a holder -- letting it outlive this block would pin the tenant
+    // at sole-accessor+1 and make the Delete() below take the deferred (never-converging-here) path.
+    auto fresh_protector = fresh_acc->storage()->make_database_protector();
+    EXPECT_NE(fresh_protector, nullptr)
+        << "a resumed tenant must still be protectable -- nullptr here means BuildDetached failed to "
+           "publish the new generation's gatekeeper handle into its own protector cell, silently stopping "
+           "TTL expiry and async index building on every resumed tenant";
+  }
+
+  fresh_acc.reset();
+  auto del = dbms.Delete("protector_suspend_resume");
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+  const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
     const auto all_detached = dbms.AllDetached();
-    return std::ranges::none_of(all_detached, [](auto const &d) { return d.name == "factory_race_target"; });
+    return std::ranges::none_of(all_detached, [](auto const &d) { return d.name == "protector_suspend_resume"; });
   });
+  EXPECT_TRUE(retired) << "protector_suspend_resume's row must retire once its accessor is released";
 }
 
 int main(int argc, char *argv[]) {
