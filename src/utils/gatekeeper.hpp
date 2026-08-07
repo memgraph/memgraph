@@ -347,11 +347,9 @@ struct Gatekeeper {
     return pimpl_->state_;
   }
 
-  // Returns the number of live Accessors at the instant of the call. INHERENTLY RACY as a decision
-  // input: an Accessor can be minted or released by any thread holding only pimpl_->mutex_ (e.g. the
-  // database-protector factory path, which takes no handler lock). Intended for diagnostics/reporting
-  // only — never as a precondition. Use try_delete()/try_begin_suspend(), which re-check count_ under
-  // this same mutex, when the count must actually gate something.
+  // Live-Accessor count at this instant — INHERENTLY RACY: Accessors mint/release under only
+  // pimpl_->mutex_ (e.g. the database-protector factory takes no handler lock). Diagnostics only;
+  // use try_delete()/try_begin_suspend(), which re-check count_ under this mutex, to actually gate.
   uint64_t holder_count() const {
     auto guard = std::unique_lock{pimpl_->mutex_};
     return pimpl_->count_;
