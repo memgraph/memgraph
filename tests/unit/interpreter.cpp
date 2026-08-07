@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <map>
 #include <set>
+#include <sstream>
 #include <thread>
 
 #include "communication/bolt/v1/value.hpp"
@@ -195,12 +196,14 @@ TYPED_TEST(InterpreterTest, ConstantReturnUsesAccessorFreeFastPath) {
 }
 
 // Queries that are not constant RETURNs must still take the normal, accessor-backed path (which
-// plans and therefore records "plan_execution_time").
+// plans and therefore records "plan_execution_time"). Arithmetic/comparison/logical/CASE/coalesce
+// expressions are accessor-free now (see ConstantExpressionReturnUsesAccessorFreeFastPath); a
+// Function call is not (IsConstantExpression default-rejects Function), so it is the control here.
 TYPED_TEST(InterpreterTest, NonConstantReturnTakesNormalPath) {
   {
-    auto stream = this->Interpret("RETURN 1 + 1 AS x");  // arithmetic is not a constant literal
+    auto stream = this->Interpret("RETURN abs(1) AS x");  // function call is not a constant expression
     ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
     EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
   }
   {
@@ -220,6 +223,91 @@ TYPED_TEST(InterpreterTest, NonConstantReturnTakesNormalPath) {
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
     EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+  }
+}
+
+// IsConstantExpression (interpreter.cpp) was broadened from literals-only to also recurse into
+// arithmetic/comparison/logical/unary operators, CASE (IfOperator) and coalesce; each of these must
+// now take the accessor-free fast path (no "plan_execution_time") and still return the right value.
+// `coalesce(...)` parses to a Coalesce AST node, not a Function call (see
+// cypher_main_visitor.cpp:3754), so it is fast-path eligible like the operators above.
+TYPED_TEST(InterpreterTest, ConstantExpressionReturnUsesAccessorFreeFastPath) {
+  {
+    auto stream = this->Interpret("RETURN 1 + 1 AS x");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("RETURN 2 > 1 AS b");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueBool(), true);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("RETURN CASE WHEN true THEN 10 ELSE 20 END AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 10);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("RETURN coalesce(null, 5) AS d");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 5);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("RETURN [1+1, 2*2] AS l");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueList().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueList()[0].ValueInt(), 2);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueList()[1].ValueInt(), 4);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("RETURN -5 AS n");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), -5);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("RETURN NOT false AS t");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueBool(), true);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+}
+
+// Parity: the accessor-free evaluator (PrimitiveLiteralExpressionEvaluator, dba=nullptr) must return
+// exactly what the normal, accessor-backed ExpressionEvaluator returns for the same expression. A
+// leading `WITH 1 AS ignored` makes the query multi-clause, which IsConstantReturnQuery's single-RETURN-
+// clause gate (interpreter.cpp) rejects, forcing the normal path -- giving an in-process baseline.
+// communication::bolt::Value has no operator== (see src/communication/bolt/v1/value.hpp), so the two
+// sides are compared via its operator<< string rendering instead.
+TYPED_TEST(InterpreterTest, ConstantExpressionFastPathMatchesNormalPath) {
+  auto render = [](const memgraph::communication::bolt::Value &value) {
+    std::ostringstream out;
+    out << value;
+    return out.str();
+  };
+  for (auto const *expr : {"1+1",
+                           "3*4-2",
+                           "7/2",
+                           "7%3",
+                           "2>1",
+                           "1=1",
+                           "true AND false",
+                           "NOT false",
+                           "-5",
+                           "CASE WHEN false THEN 1 ELSE 2 END"}) {
+    SCOPED_TRACE(expr);
+    auto fast = this->Interpret(std::string("RETURN ") + expr + " AS r");
+    auto normal = this->Interpret(std::string("WITH 1 AS ignored RETURN ") + expr + " AS r");
+    ASSERT_EQ(fast.GetSummary().count("plan_execution_time"), 0U);
+    ASSERT_EQ(normal.GetSummary().count("plan_execution_time"), 1U);
+    ASSERT_EQ(fast.GetResults().size(), 1U);
+    ASSERT_EQ(normal.GetResults().size(), 1U);
+    EXPECT_EQ(render(fast.GetResults()[0][0]), render(normal.GetResults()[0][0]));
   }
 }
 

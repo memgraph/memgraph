@@ -184,6 +184,135 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
     return {std::move(result), ctx_->memory};
   }
 
+  // Arithmetic/comparison/logical/unary/CASE/coalesce operators over constant operands. These bodies
+  // are copied verbatim from ExpressionEvaluator's BINARY_OPERATOR_VISITOR/UNARY_OPERATOR_VISITOR macro
+  // expansions and its AndOperator/OrOperator/ExponentiationOperator/IfOperator/IsNullOperator/Coalesce
+  // Visit()s (this file, ~line 320 onward) so semantics -- TypedValue operator overloads, null
+  // propagation, coercion, and exception messages -- stay identical to the normal (accessor-backed)
+  // path. The macros there are defined and #undef'd inside ExpressionEvaluator itself (a class defined
+  // further down in this same file), so they aren't visible here; hand-copy instead of reuse to avoid a
+  // forward dependency on a later class.
+  //
+  // None of these reference dba_, frame_, or a symbol table: IsConstantExpression (interpreter.cpp)
+  // only admits a matching AST node here after confirming every operand is itself constant, so nothing
+  // below ever needs to resolve an Identifier or touch storage.
+#define CONSTANT_BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                                           \
+  TypedValue Visit(OP_NODE &op) override {                                                                     \
+    auto val1 = op.expression1_->Accept(*this);                                                                \
+    auto val2 = op.expression2_->Accept(*this);                                                                \
+    try {                                                                                                      \
+      return val1 CPP_OP val2;                                                                                 \
+    } catch (const TypedValueException &) {                                                                    \
+      throw QueryRuntimeException("Invalid types: {} and {} for '{}'.", val1.type(), val2.type(), #CYPHER_OP); \
+    }                                                                                                          \
+  }
+
+#define CONSTANT_UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                     \
+  TypedValue Visit(OP_NODE &op) override {                                              \
+    auto val = op.expression_->Accept(*this);                                           \
+    try {                                                                               \
+      return CPP_OP val;                                                                \
+    } catch (const TypedValueException &) {                                             \
+      throw QueryRuntimeException("Invalid type {} for '{}'.", val.type(), #CYPHER_OP); \
+    }                                                                                   \
+  }
+
+  CONSTANT_BINARY_OPERATOR_VISITOR(XorOperator, ^, XOR);
+  CONSTANT_BINARY_OPERATOR_VISITOR(AdditionOperator, +, +);
+  CONSTANT_BINARY_OPERATOR_VISITOR(SubtractionOperator, -, -);
+  CONSTANT_BINARY_OPERATOR_VISITOR(MultiplicationOperator, *, *);
+  CONSTANT_BINARY_OPERATOR_VISITOR(DivisionOperator, /, /);
+  CONSTANT_BINARY_OPERATOR_VISITOR(ModOperator, %, %);
+
+  CONSTANT_BINARY_OPERATOR_VISITOR(NotEqualOperator, !=, <>);
+  CONSTANT_BINARY_OPERATOR_VISITOR(EqualOperator, ==, =);
+  CONSTANT_BINARY_OPERATOR_VISITOR(LessOperator, <, <);
+  CONSTANT_BINARY_OPERATOR_VISITOR(GreaterOperator, >, >);
+  CONSTANT_BINARY_OPERATOR_VISITOR(LessEqualOperator, <=, <=);
+  CONSTANT_BINARY_OPERATOR_VISITOR(GreaterEqualOperator, >=, >=);
+
+  CONSTANT_UNARY_OPERATOR_VISITOR(NotOperator, !, NOT);
+  CONSTANT_UNARY_OPERATOR_VISITOR(UnaryPlusOperator, +, +);
+  CONSTANT_UNARY_OPERATOR_VISITOR(UnaryMinusOperator, -, -);
+
+#undef CONSTANT_BINARY_OPERATOR_VISITOR
+#undef CONSTANT_UNARY_OPERATOR_VISITOR
+
+  TypedValue Visit(AndOperator &op) override {
+    auto value1 = op.expression1_->Accept(*this);
+    if (value1.IsBool() && !value1.ValueBool()) {
+      // If first expression is false, don't evaluate the second one.
+      return value1;
+    }
+    auto value2 = op.expression2_->Accept(*this);
+    try {
+      return value1 && value2;
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException("Invalid types: {} and {} for AND.", value1.type(), value2.type());
+    }
+  }
+
+  TypedValue Visit(OrOperator &op) override {
+    auto value1 = op.expression1_->Accept(*this);
+    if (value1.IsBool() && value1.ValueBool()) {
+      // If first expression is true, don't evaluate the second one.
+      return value1;
+    }
+    auto value2 = op.expression2_->Accept(*this);
+    try {
+      return value1 || value2;
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException("Invalid types: {} and {} for OR.", value1.type(), value2.type());
+    }
+  }
+
+  TypedValue Visit(ExponentiationOperator &op) override {
+    auto value1 = op.expression1_->Accept(*this);
+    auto value2 = op.expression2_->Accept(*this);
+    try {
+      return pow(value1, value2);
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException("Invalid types: {} and {} for ^.", value1.type(), value2.type());
+    }
+  }
+
+  TypedValue Visit(IfOperator &if_operator) override {
+    auto condition = if_operator.condition_->Accept(*this);
+    if (condition.IsNull()) {
+      return if_operator.else_expression_->Accept(*this);
+    }
+    if (condition.type() != TypedValue::Type::Bool) {
+      // At the moment IfOperator is used only in CASE construct.
+      throw QueryRuntimeException("CASE expected boolean expression, got {}.", condition.type());
+    }
+    if (condition.ValueBool()) {
+      return if_operator.then_expression_->Accept(*this);
+    }
+    return if_operator.else_expression_->Accept(*this);
+  }
+
+  TypedValue Visit(IsNullOperator &is_null) override {
+    auto value = is_null.expression_->Accept(*this);
+    return TypedValue(value.IsNull(), ctx_->memory);
+  }
+
+  TypedValue Visit(Coalesce &coalesce) override {
+    auto &exprs = coalesce.expressions_;
+
+    if (exprs.size() == 0) {
+      throw QueryRuntimeException("'coalesce' requires at least one argument.");
+    }
+
+    for (auto &expr : exprs) {
+      TypedValue val(expr->Accept(*this), ctx_->memory);
+      if (!val.IsNull()) {
+        return val;
+      }
+    }
+
+    return TypedValue(ctx_->memory);
+  }
+
   TypedValue Visit(Function &function) override {
     if (!dba_) {
       throw QueryRuntimeException("Function evaluation requires a database accessor.");
@@ -226,30 +355,10 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   }
 
   INVALID_VISIT(NamedExpression)
-  INVALID_VISIT(OrOperator)
-  INVALID_VISIT(XorOperator)
-  INVALID_VISIT(AndOperator)
-  INVALID_VISIT(NotOperator)
-  INVALID_VISIT(AdditionOperator)
-  INVALID_VISIT(SubtractionOperator)
-  INVALID_VISIT(MultiplicationOperator)
-  INVALID_VISIT(DivisionOperator)
-  INVALID_VISIT(ModOperator)
-  INVALID_VISIT(ExponentiationOperator)
-  INVALID_VISIT(NotEqualOperator)
-  INVALID_VISIT(EqualOperator)
-  INVALID_VISIT(LessOperator)
-  INVALID_VISIT(GreaterOperator)
-  INVALID_VISIT(LessEqualOperator)
-  INVALID_VISIT(GreaterEqualOperator)
   INVALID_VISIT(RangeOperator)
   INVALID_VISIT(InListOperator)
   INVALID_VISIT(SubscriptOperator)
   INVALID_VISIT(ListSlicingOperator)
-  INVALID_VISIT(IfOperator)
-  INVALID_VISIT(UnaryPlusOperator)
-  INVALID_VISIT(UnaryMinusOperator)
-  INVALID_VISIT(IsNullOperator)
   INVALID_VISIT(MapProjectionLiteral)
   INVALID_VISIT(PropertyLookup)
   INVALID_VISIT(AllPropertiesLookup)
@@ -257,7 +366,6 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(EdgeTypesTest)
   INVALID_VISIT(Aggregation)
   INVALID_VISIT(Reduce)
-  INVALID_VISIT(Coalesce)
   INVALID_VISIT(Extract)
   INVALID_VISIT(All)
   INVALID_VISIT(Single)
