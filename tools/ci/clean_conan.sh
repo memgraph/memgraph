@@ -20,5 +20,5 @@ if ! command -v conan &> /dev/null; then
 fi
 
 # remove all conan packages older than 1 week
-conan remove "*#*:*#*" --lru=$LRU_PERIOD -c # stale binaries first
-conan remove "*#*" --lru=$LRU_PERIOD -c # unused recipes second
+conan remove "*#*:*#*" --lru="$LRU_PERIOD" -c # stale binaries first
+conan remove "*#*" --lru="$LRU_PERIOD" -c # unused recipes second
