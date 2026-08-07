@@ -8,7 +8,9 @@ License:        @CPACK_RPM_PACKAGE_LICENSE@
 # Group field is deprecated
 # Group:          @CPACK_RPM_PACKAGE_GROUP@
 Vendor:         @CPACK_RPM_PACKAGE_VENDOR@
-BuildRequires: systemd
+# No systemd BuildRequires: it only supplied %%{_unitdir} and is unsatisfiable
+# when packaging the rpm on a Debian-family host; define the macro instead.
+%{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
 @TMP_RPM_URL@
 @TMP_RPM_REQUIRES@
