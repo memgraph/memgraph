@@ -632,6 +632,75 @@ TEST(DBMS_Handler, DroppedTenantWithNoHoldersLeavesNoDetachedRow) {
       << "a fast-path-dropped tenant must not appear under any status";
 }
 
+// Pins the uuid-keyed registry against name reuse: DROP x (held) -> CREATE x -> DROP x (held) again
+// must leave TWO rows in AllDetached() (one per uuid), while AllWithHotColdStatus() -- a name-keyed
+// listing -- still reports the name exactly once.
+TEST(DBMS_Handler, TwoDetachedTenantsCanShareANameAndAreCountedByUuid) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t1 = dbms.New("detached_reuse");
+  ASSERT_TRUE(new_t1.has_value()) << (int)new_t1.error();
+  memgraph::dbms::DatabaseAccess acc1 = std::move(new_t1.value());
+  const auto uuid1 = acc1->uuid();
+
+  auto del1 = dbms.Delete("detached_reuse");
+  ASSERT_TRUE(del1.has_value()) << (int)del1.error();
+  {
+    const auto all_detached = dbms.AllDetached();
+    EXPECT_TRUE(std::ranges::any_of(
+        all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == uuid1; }));
+  }
+
+  // The name is free again -- DeferDelete erased it from items_ unconditionally -- so re-creating it
+  // must succeed; that is itself load-bearing, since it's what forces two rows to share a name below.
+  auto new_t2 = dbms.New("detached_reuse");
+  ASSERT_TRUE(new_t2.has_value()) << (int)new_t2.error();
+  memgraph::dbms::DatabaseAccess acc2 = std::move(new_t2.value());
+  const auto uuid2 = acc2->uuid();
+  ASSERT_NE(uuid2, uuid1);
+
+  auto del2 = dbms.Delete("detached_reuse");
+  ASSERT_TRUE(del2.has_value()) << (int)del2.error();
+
+  {
+    const auto all_detached = dbms.AllDetached();
+    EXPECT_EQ(std::ranges::count_if(
+                  all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == uuid1; }),
+              1)
+        << "a name-keyed registry would have clobbered uuid1's row when uuid2 was recorded";
+    EXPECT_EQ(std::ranges::count_if(
+                  all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) { return d.uuid == uuid2; }),
+              1);
+  }
+  {
+    // AllWithHotColdStatus's own de-dup is load-bearing here: the interpreter push_backs one row per
+    // returned pair with no de-dup of its own, so an un-collapsed duplicate would render as two lines.
+    const auto statuses = dbms.AllWithHotColdStatus();
+    EXPECT_EQ(std::ranges::count_if(
+                  statuses, [](auto const &kv) { return kv.first == "detached_reuse" && kv.second == "DETACHED"; }),
+              1);
+  }
+
+  acc1.reset();
+  acc2.reset();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  bool retired = false;
+  do {
+    const auto all_detached = dbms.AllDetached();
+    retired = std::ranges::none_of(all_detached, [&](memgraph::dbms::DbmsHandler::DetachedTenant const &d) {
+      return d.uuid == uuid1 || d.uuid == uuid2;
+    });
+    if (retired) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline)
+        << "both detached_reuse rows must be retired once their drains complete";
+  } while (true);
+  EXPECT_TRUE(retired);
+
+  const auto statuses_after_drain = dbms.AllWithHotColdStatus();
+  EXPECT_TRUE(std::ranges::none_of(statuses_after_drain, [](auto const &kv) { return kv.first == "detached_reuse"; }));
+}
+
 int main(int argc, char *argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   // gtest takes ownership of the TestEnvironment ptr - we don't delete it.
