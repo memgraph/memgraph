@@ -4232,8 +4232,44 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
       .rw_type = RWType::NONE};
 }
 
+// Forward-declared so the per-operand recursion in the concrete-type helpers below can call back
+// into it; the real definition (with the full allowlist) follows the helpers.
+bool IsConstantExpression(Expression *expression);
+
+// Named per concrete leaf type -- deliberately NOT a check against the BinaryOperator/UnaryOperator
+// base class. Both InListOperator and SubscriptOperator also derive from BinaryOperator but touch
+// the graph, and a blanket base-class check would silently admit them (and any future subclass) into
+// the accessor-free path. Each helper is only ever instantiated with the arithmetic/comparison/logical
+// operators explicitly listed at the two call sites in IsConstantExpression, so exact-type Downcast
+// here is equivalent to an explicit allowlist.
+template <typename TOperator>
+bool IsConstantBinaryOperator(Expression *expression) {
+  auto *op = utils::Downcast<TOperator>(expression);
+  return op != nullptr && IsConstantExpression(op->expression1_) && IsConstantExpression(op->expression2_);
+}
+
+template <typename... TOperators>
+bool IsConstantBinaryOperatorOf(Expression *expression) {
+  return (IsConstantBinaryOperator<TOperators>(expression) || ...);
+}
+
+template <typename TOperator>
+bool IsConstantUnaryOperator(Expression *expression) {
+  auto *op = utils::Downcast<TOperator>(expression);
+  return op != nullptr && IsConstantExpression(op->expression_);
+}
+
+template <typename... TOperators>
+bool IsConstantUnaryOperatorOf(Expression *expression) {
+  return (IsConstantUnaryOperator<TOperators>(expression) || ...);
+}
+
 // Accessor-free: no storage transaction (NO_ACCESS) -- no main_lock_ hold, no active_transactions entry;
 // Lab issues these continuously; constant = evaluable by PrimitiveLiteralExpressionEvaluator with no DbAccessor.
+// Anything not explicitly listed here falls through (default-reject), including Function, InListOperator,
+// SubscriptOperator, ListSlicingOperator, RangeOperator, PropertyLookup, AllPropertiesLookup, LabelsTest,
+// Identifier and any pattern node -- all of those need a DbAccessor or a Frame/symbol table that this path
+// doesn't have.
 bool IsConstantExpression(Expression *expression) {
   if (expression == nullptr) return false;
   if (utils::Downcast<PrimitiveLiteral>(expression) != nullptr ||
@@ -4246,6 +4282,36 @@ bool IsConstantExpression(Expression *expression) {
   if (auto *map_literal = utils::Downcast<MapLiteral>(expression)) {
     return std::ranges::all_of(map_literal->elements_,
                                [](auto const &entry) { return IsConstantExpression(entry.second); });
+  }
+  // Arithmetic, comparison and logical BinaryOperator subclasses; recurses into both operands.
+  if (IsConstantBinaryOperatorOf<AdditionOperator,
+                                 SubtractionOperator,
+                                 MultiplicationOperator,
+                                 DivisionOperator,
+                                 ModOperator,
+                                 ExponentiationOperator,
+                                 EqualOperator,
+                                 NotEqualOperator,
+                                 LessOperator,
+                                 GreaterOperator,
+                                 LessEqualOperator,
+                                 GreaterEqualOperator,
+                                 AndOperator,
+                                 OrOperator,
+                                 XorOperator>(expression)) {
+    return true;
+  }
+  // NotOperator/UnaryPlusOperator/UnaryMinusOperator/IsNullOperator; recurses into the sole operand.
+  if (IsConstantUnaryOperatorOf<NotOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator>(expression)) {
+    return true;
+  }
+  if (auto *if_operator = utils::Downcast<IfOperator>(expression)) {
+    // Cypher CASE: the parser always synthesizes an else-branch, so all three are non-null.
+    return IsConstantExpression(if_operator->condition_) && IsConstantExpression(if_operator->then_expression_) &&
+           IsConstantExpression(if_operator->else_expression_);
+  }
+  if (auto *coalesce = utils::Downcast<Coalesce>(expression)) {
+    return std::ranges::all_of(coalesce->expressions_, IsConstantExpression);
   }
   return false;
 }
