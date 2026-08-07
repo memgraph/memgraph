@@ -58,15 +58,18 @@ set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
 #   libstdc++6 (>= 9)         — std::filesystem in plain libstdc++ since GCC 9
 #                                (Ubuntu 20.04 LTS has libstdc++6 10).
 #   libgcc-s1                 — provides libgcc_s.so.1 (Ubuntu 20.04+).
+#   libatomic1                — NEEDED libatomic.so.1; absent on minimal images.
 #   openssl                   — CLI; pulls libssl{3,1.1} transitively, name
 #                                stable across libssl3 / libssl3t64.
-#   python3 (>= 3.5.0)        — pulls libpython3 transitively. NOTE: the
-#                                binary's NEEDED libpython3.X.so.1.0 must
-#                                match a Python actually available on the
-#                                deploy distro — set MG_PYTHON_VERSION at
-#                                configure time to control this.
+#   python3 (>= 3.5.0)        — interpreter for tooling around query modules;
+#                                does NOT pull libpython3.X on Debian/Ubuntu.
+#   libpython3.14 | ... |3.10 — the binary links the unversioned abi3 SONAME
+#                                libpython3.so (needs >= 3.10); only versioned
+#                                runtime libs exist as packages, so pull one
+#                                and let postinst symlink libpython3.so to the
+#                                newest installed (t64 names Provide these).
 set(CPACK_DEBIAN_PACKAGE_DEPENDS
-    "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, openssl (>= 1.1.0), python3 (>= 3.5.0)")
+    "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, libatomic1, openssl (>= 1.1.0), python3 (>= 3.5.0), libpython3.14 | libpython3.13 | libpython3.12 | libpython3.11 | libpython3.10")
 
 # Setting architecture extension for rpm packages
 set(MG_ARCH_EXTENSION_RPM "noarch")
