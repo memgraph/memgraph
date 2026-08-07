@@ -18,14 +18,14 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <functional>
-#include <ranges>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <latch>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <system_error>
 #include <thread>
 #include <utility>
@@ -1275,9 +1275,9 @@ TEST(DBMS_Handler, AfterCommitTriggerTaskIsToldToStopBeforeThePoolIsJoined) {
 
   ASSERT_TRUE(del.has_value()) << (int)del.error();
 
-  ASSERT_TRUE(
-      WaitUntil(kSafetyNet + std::chrono::seconds(2), [&] { return task_done.load(std::memory_order_acquire); }))
-      << "the task must have finished (via the signal or its own safety net) by the time we check";
+  ASSERT_TRUE(WaitUntil(kSafetyNet + std::chrono::seconds(2), [&] {
+    return task_done.load(std::memory_order_acquire);
+  })) << "the task must have finished (via the signal or its own safety net) by the time we check";
   EXPECT_TRUE(left_via_signal.load(std::memory_order_acquire))
       << "the task must have left because StopAfterCommitTriggers() latched TERMINATED, not because its "
          "own 10s safety net expired -- this is exactly what fails if StopAfterCommitTriggers() were "
@@ -1334,8 +1334,8 @@ TEST(DBMS_Handler, CooperativeCancelRunsOffLockBeforeTheTenantIsTornDown) {
            "shut down when the callback ran";
   };
 
-  auto del = dbms.Delete("coop_cancel_off_lock", static_cast<memgraph::system::Transaction *>(nullptr),
-                         cooperative_cancel);
+  auto del =
+      dbms.Delete("coop_cancel_off_lock", static_cast<memgraph::system::Transaction *>(nullptr), cooperative_cancel);
   ASSERT_TRUE(del.has_value()) << (int)del.error();
   EXPECT_EQ(invocation_count.load(), 1) << "the cooperative-cancel callback must run exactly once for this drop";
 }
@@ -1361,8 +1361,8 @@ TEST(DBMS_Handler, CooperativeCancelReleasesAHolderAndTheDrainConverges) {
     parked.reset();  // releases the foreign holder pinning the tenant
   };
 
-  auto del = dbms.Delete("coop_cancel_converges", static_cast<memgraph::system::Transaction *>(nullptr),
-                         cooperative_cancel);
+  auto del =
+      dbms.Delete("coop_cancel_converges", static_cast<memgraph::system::Transaction *>(nullptr), cooperative_cancel);
   ASSERT_TRUE(del.has_value()) << (int)del.error();
 
   const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
@@ -1419,6 +1419,236 @@ TEST(DBMS_Handler, DropWithoutCooperativeCancelLeavesAHolderBehind) {
 }
 
 // ---------------------------------------------------------------------------
+// Force-abort bounded drain (DrainRequest / AwaitDrain_)
+// ---------------------------------------------------------------------------
+
+// PINS: a holder that needs LONGER than Handler<T>::DeferDelete's 100ms try_delete() default to let go
+// is still caught by AwaitDrain_'s bounded wait -- Delete_ converges and destroys the tenant INLINE in
+// Phase 3, instead of orphaning it to the deferred path. The assertion on AllDetached() runs
+// immediately after Delete() returns, with no WaitUntil around it: a WaitUntil there would also pass if
+// the defer pool cleaned the row up later on its own schedule, which is exactly the behaviour this test
+// exists to rule out.
+TEST(DBMS_Handler, ForceAbortWaitsForALateHolderAndDestroysTheTenantInline) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("force_abort_late_holder");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess initial_acc = std::move(new_t.value());
+  const auto tenant_uuid = initial_acc->uuid();
+
+  std::mutex parked_mtx;
+  std::optional<memgraph::dbms::DatabaseAccess> parked{std::move(initial_acc)};
+
+  std::atomic<bool> cancel_requested{false};
+  constexpr auto kReleaseDelay = std::chrono::milliseconds(300);
+
+  // Bounded on its own: if the cancel callback is somehow never invoked, this thread gives up instead
+  // of hanging, which just leaves `parked` held and degrades the drop to EXPIRED -- a test failure
+  // below, never a wedged suite.
+  std::thread releaser([&] {
+    if (!WaitUntil(std::chrono::seconds(5), [&] { return cancel_requested.load(std::memory_order_acquire); })) {
+      ADD_FAILURE() << "the cooperative-cancel callback was never invoked for force_abort_late_holder";
+      return;
+    }
+    std::this_thread::sleep_for(kReleaseDelay);
+    std::lock_guard<std::mutex> lock(parked_mtx);
+    parked.reset();  // releases the late holder, letting AwaitDrain_'s loop converge
+  });
+
+  memgraph::dbms::DbmsHandler::CooperativeCancelFn cooperative_cancel = [&] {
+    cancel_requested.store(true, std::memory_order_release);
+  };
+
+  memgraph::dbms::DbmsHandler::DrainReport report;
+  constexpr auto kDeadline = std::chrono::seconds(5);
+  memgraph::dbms::DbmsHandler::DrainRequest drain{.deadline = kDeadline, .probe = {}, .report = &report};
+
+  auto del = dbms.Delete(
+      "force_abort_late_holder", static_cast<memgraph::system::Transaction *>(nullptr), cooperative_cancel, &drain);
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+
+  EXPECT_EQ(report.outcome, memgraph::dbms::DbmsHandler::DrainOutcome::CONVERGED);
+  EXPECT_GE(report.waited, kReleaseDelay) << "the wait must actually span the late holder's hold time, not "
+                                             "return early on a stale holder_count() read";
+
+  const auto all_detached = dbms.AllDetached();
+  EXPECT_TRUE(std::ranges::none_of(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; }))
+      << "a converged drain must destroy the tenant INLINE in Phase 3 -- no DETACHED row may still exist "
+         "the instant Delete() returns";
+
+  releaser.join();
+}
+
+// PINS: expiry against a holder that never cooperates is bounded by `deadline`, degrades to today's
+// deferred-destruction behaviour (the drop still SUCCEEDS), and the report names what is still holding.
+// The probe here returns a canned DrainBlockers value -- the real probe needs a live Interpreter
+// registry, which this suite has none of; that path is exercised by review, not by this unit test.
+TEST(DBMS_Handler, ForceAbortExpiresAgainstANonCooperatingHolderAndReportsIt) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("force_abort_expires_noncoop");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess initial_acc = std::move(new_t.value());
+  const auto tenant_uuid = initial_acc->uuid();
+
+  std::mutex parked_mtx;
+  std::optional<memgraph::dbms::DatabaseAccess> parked{std::move(initial_acc)};
+
+  memgraph::dbms::DbmsHandler::DrainReport report;
+  constexpr auto kDeadline = std::chrono::milliseconds(300);
+  memgraph::dbms::DbmsHandler::DrainRequest drain{.deadline = kDeadline,
+                                                  .probe =
+                                                      [] {
+                                                        return memgraph::dbms::DbmsHandler::DrainBlockers{
+                                                            .transactions_asked_to_abort = 2, .probe_ran = true};
+                                                      },
+                                                  .report = &report};
+
+  // No cooperative-cancel callback: the parked holder is never asked to release, so it never does --
+  // this is the non-cooperating case the deadline exists for.
+  auto del = dbms.Delete("force_abort_expires_noncoop",
+                         static_cast<memgraph::system::Transaction *>(nullptr),
+                         memgraph::dbms::DbmsHandler::CooperativeCancelFn{},
+                         &drain);
+  ASSERT_TRUE(del.has_value()) << (int)del.error()
+                               << " -- expiry must degrade to the deferred path, never "
+                                  "fail the drop outright";
+
+  EXPECT_EQ(report.outcome, memgraph::dbms::DbmsHandler::DrainOutcome::EXPIRED);
+  EXPECT_GE(report.waited, kDeadline);
+  EXPECT_LT(report.waited, std::chrono::seconds(5))
+      << "a regression that made the wait unbounded must FAIL this assertion, not hang the suite";
+  EXPECT_EQ(report.holders_remaining, 1u) << "one foreign holder (the parked accessor) is still live";
+  EXPECT_TRUE(report.blockers.probe_ran);
+  EXPECT_EQ(report.blockers.transactions_asked_to_abort, 2u);
+
+  {
+    const auto all_detached = dbms.AllDetached();
+    const auto it = std::ranges::find_if(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
+    ASSERT_NE(it, all_detached.end())
+        << "an expired drain must still leave a DETACHED row -- the drop degrades to the deferred path, "
+           "it does not vanish";
+    EXPECT_EQ(it->phase, memgraph::dbms::DbmsHandler::TenantPhase::DETACHED);
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(parked_mtx);
+    parked.reset();
+  }
+
+  const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
+  });
+  EXPECT_TRUE(retired) << "releasing the parked accessor must let the deferred destruction complete, so "
+                          "nothing is left wedged for the suite's teardown";
+}
+
+// PINS the off-lock property of AwaitDrain_'s WAIT itself, as distinct from
+// DropDoesNotHoldTheHandlerLockDuringTeardown above (which pins the earlier, shorter
+// StopAllBackgroundTasks/streams()->DropAll() part of Phase 2). The cooperative-cancel callback's
+// invocation count is the witness that we are inside the wait loop: Phase 2 calls it once,
+// unconditionally, before AwaitDrain_ is even entered (RequestCooperativeCancel_ in Delete_, ahead of
+// the `if (drain) AwaitDrain_(...)` line) -- so only the SECOND and later invocations come from inside
+// the loop's own per-iteration sweep.
+TEST(DBMS_Handler, ForceAbortWaitDoesNotHoldTheHandlerLock) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("force_abort_offlock_target");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess initial_acc = std::move(new_t.value());
+
+  std::mutex parked_mtx;
+  std::optional<memgraph::dbms::DatabaseAccess> parked{std::move(initial_acc)};
+
+  std::atomic<int> cancel_invocations{0};
+  memgraph::dbms::DbmsHandler::CooperativeCancelFn cooperative_cancel = [&] {
+    cancel_invocations.fetch_add(1, std::memory_order_acq_rel);
+  };
+
+  memgraph::dbms::DbmsHandler::DrainReport report;
+  constexpr auto kDeadline = std::chrono::seconds(2);
+  memgraph::dbms::DbmsHandler::DrainRequest drain{.deadline = kDeadline, .probe = {}, .report = &report};
+
+  auto del_prom = std::make_shared<std::promise<memgraph::dbms::DbmsHandler::DeleteResult>>();
+  auto del_fut = del_prom->get_future();
+  std::thread dropper([&dbms, del_prom, cooperative_cancel, &drain] {
+    del_prom->set_value(dbms.Delete("force_abort_offlock_target",
+                                    static_cast<memgraph::system::Transaction *>(nullptr),
+                                    cooperative_cancel,
+                                    &drain));
+  });
+
+  bool cleaned_up = false;
+  auto cleanup = memgraph::utils::OnScopeExit{[&] {
+    if (cleaned_up) return;
+    {
+      std::lock_guard<std::mutex> lock(parked_mtx);
+      parked.reset();
+    }
+    if (del_fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
+      dropper.join();
+    } else {
+      dropper.detach();
+    }
+  }};
+
+  // >= 2, not == 1: invocation #1 is Phase 2's pre-existing pre-loop call; only #2 or later proves the
+  // wait loop itself is running. Bounded -- if the wait ever wedged, this simply times out and fails
+  // the ASSERT below instead of hanging the suite.
+  ASSERT_TRUE(WaitUntil(std::chrono::seconds(2), [&] {
+    return cancel_invocations.load(std::memory_order_acquire) >= 2;
+  })) << "the drain wait never reached a second cooperative-cancel sweep";
+
+  // The load-bearing check: a DIFFERENT tenant's New() (std::lock_guard{lock_}, exclusive) must complete
+  // well inside the remaining deadline while this drop's drain wait is still in flight. A regression
+  // that moved AwaitDrain_ under lock_ would hang this call instead of returning.
+  auto [other_ready, other_result] =
+      RunBounded(std::chrono::seconds(1), [&] { return dbms.New("force_abort_offlock_other"); });
+  EXPECT_TRUE(other_ready) << "a different tenant's New() must not block on lock_ while this drop's bounded "
+                              "drain wait is in flight";
+  if (other_ready) {
+    ASSERT_TRUE(other_result.has_value());
+    ASSERT_TRUE(other_result->has_value()) << (int)other_result->error();
+    // Release the accessor immediately: holding it alive would itself pin
+    // force_abort_offlock_other, making the cleanup Delete() below take the deferred path instead of
+    // converging -- unrelated to the property this test pins.
+    other_result.reset();
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(parked_mtx);
+    parked.reset();
+  }
+
+  const auto del_status = del_fut.wait_for(std::chrono::seconds(5));
+  if (del_status == std::future_status::ready) {
+    dropper.join();
+  } else {
+    dropper.detach();
+  }
+  cleaned_up = true;
+  ASSERT_EQ(del_status, std::future_status::ready) << "the drop must complete once the parked holder is released";
+  EXPECT_TRUE(del_fut.get().has_value()) << "the drop itself must still succeed";
+  EXPECT_EQ(report.outcome, memgraph::dbms::DbmsHandler::DrainOutcome::CONVERGED);
+
+  const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(all_detached, [](auto const &d) { return d.name == "force_abort_offlock_target"; });
+  });
+  EXPECT_TRUE(retired) << "force_abort_offlock_target's row must retire once its accessor is released";
+
+  // Clean up the extra tenant so the suite's later tests (and its teardown) see a clean slate.
+  auto del_other = dbms.Delete("force_abort_offlock_other");
+  EXPECT_TRUE(del_other.has_value()) << (int)del_other.error();
+  const bool other_retired = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(all_detached, [](auto const &d) { return d.name == "force_abort_offlock_other"; });
+  });
+  EXPECT_TRUE(other_retired) << "force_abort_offlock_other must not leak into later tests";
+}
+
+// ---------------------------------------------------------------------------
 // ProtectorStopsBackgroundWorkFromReArmingItself
 // ---------------------------------------------------------------------------
 // PINS dbms::DatabaseProtector::is_tenant_marked_for_deletion() as a sufficient convergence signal for
@@ -1464,9 +1694,8 @@ TEST(DBMS_Handler, ProtectorStopsBackgroundWorkFromReArmingItself) {
     auto next = held->clone();  // the re-arm: a fresh accessor, minted from nothing
     chain_pool.AddTask([step, next = std::move(next)]() mutable { (*step)(std::move(next)); });
   };
-  chain_pool.AddTask([step, first = memgraph::dbms::DatabaseProtector{acc}.clone()]() mutable {
-    (*step)(std::move(first));
-  });
+  chain_pool.AddTask(
+      [step, first = memgraph::dbms::DatabaseProtector{acc}.clone()]() mutable { (*step)(std::move(first)); });
 
   ASSERT_TRUE(WaitUntil(std::chrono::seconds(5), [&] { return rearms.load(std::memory_order_acquire) > 0; }))
       << "the re-arming chain must be running before the drop begins";
