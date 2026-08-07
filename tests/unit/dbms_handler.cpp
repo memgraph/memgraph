@@ -37,6 +37,8 @@
 #include "kvstore/kvstore.hpp"
 #include "memory/db_arena.hpp"
 #include "query/config.hpp"
+#include "query/context.hpp"
+#include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/memory_tracker.hpp"
@@ -1215,6 +1217,201 @@ TEST(DBMS_Handler, ForceDropOfADrainingTenantIsRetriableNotMissing) {
   cleaned_up = true;
   ASSERT_EQ(del_status, std::future_status::ready) << "the first drop must complete once the stall is released";
   EXPECT_TRUE(del_fut.get().has_value()) << "the first drop itself must still succeed once its stall is released";
+}
+
+// PINS RequestCooperativeCancel_'s phase order (dbms_handler.cpp): Database::StopAfterCommitTriggers()
+// must latch BEFORE StopAllBackgroundTasks() joins after_commit_trigger_pool_'s worker thread. Models
+// the real after-commit trigger shape a live Trigger::Execute call has: a task that holds its OWN
+// DatabaseAccess copy (this is what pins the tenant) and spins on StoppingContext::MustAbort() until it
+// reports TERMINATED. A 10s safety net (mirrors PhaseTwoStall's) releases the task anyway if the signal
+// never arrives, so a reversed order fails this test loudly -- via the recorded "left via the net, not
+// the signal" outcome and a slow Delete() -- instead of hanging the suite.
+TEST(DBMS_Handler, AfterCommitTriggerTaskIsToldToStopBeforeThePoolIsJoined) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("coop_cancel_trigger_order");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+
+  std::atomic<bool> task_running{false};
+  std::atomic<bool> left_via_signal{false};
+  std::atomic<bool> task_done{false};
+
+  // Safety net only: every path below actually releases via the TERMINATED signal well inside this
+  // bound; a test that forgot to wire the signal at all would otherwise hang the pool's join forever.
+  constexpr auto kSafetyNet = std::chrono::seconds(10);
+
+  // `mutable`: the captured DatabaseAccess must be non-const to reach the non-const
+  // after_commit_trigger_status(). The real path gets this for free -- RunTriggersAfterCommit takes
+  // its DatabaseAccess by value.
+  acc->AddTask([&, task_acc = acc]() mutable {
+    task_running.store(true, std::memory_order_release);
+    memgraph::query::StoppingContext stopping{.transaction_status = task_acc->after_commit_trigger_status()};
+    const auto deadline = std::chrono::steady_clock::now() + kSafetyNet;
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (stopping.MustAbort() == memgraph::query::AbortReason::TERMINATED) {
+        left_via_signal.store(true, std::memory_order_release);
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    task_done.store(true, std::memory_order_release);
+    // `task_acc` (this task's own DatabaseAccess copy) is destroyed with the lambda's captures right
+    // here, when the task returns -- nothing is left pinning the tenant once this task exits.
+  });
+
+  ASSERT_TRUE(WaitUntil(std::chrono::seconds(5), [&] { return task_running.load(std::memory_order_acquire); }))
+      << "the trigger-shaped task must start before the drop begins";
+
+  acc.reset();  // this test's own accessor; the task's own copy is what pins the tenant from here on
+
+  const auto start = std::chrono::steady_clock::now();
+  auto del = dbms.Delete("coop_cancel_trigger_order", static_cast<memgraph::system::Transaction *>(nullptr));
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+
+  ASSERT_TRUE(
+      WaitUntil(kSafetyNet + std::chrono::seconds(2), [&] { return task_done.load(std::memory_order_acquire); }))
+      << "the task must have finished (via the signal or its own safety net) by the time we check";
+  EXPECT_TRUE(left_via_signal.load(std::memory_order_acquire))
+      << "the task must have left because StopAfterCommitTriggers() latched TERMINATED, not because its "
+         "own 10s safety net expired -- this is exactly what fails if StopAfterCommitTriggers() were "
+         "moved to run after StopAllBackgroundTasks()'s join";
+  EXPECT_LT(elapsed, std::chrono::seconds(3))
+      << "Delete() must return promptly once the trigger is told to stop; a reversed phase order would "
+         "make this call block for close to the full safety-net window instead of returning quickly";
+}
+
+// PINS RequestCooperativeCancel_'s OFF-LOCK, PRE-TEARDOWN placement (dbms_handler.cpp): the
+// cooperative-cancel callback must run with `lock_` released and before the tenant's after-commit
+// trigger pool is shut down. Off-lock-ness is witnessed the same way DropDoesNotHoldTheHandlerLockDuring
+// Teardown witnesses it for Phase 2 as a whole (a different tenant's exclusive-lock_ New() completing
+// promptly); "pool not yet shut down" is witnessed by a marker task queued on the SAME tenant's pool
+// from inside the callback -- ThreadPool::AddTask silently drops a task once ShutDown() has run
+// (thread_pool.cpp), so a marker that runs is direct proof the pool was still alive when the callback
+// executed. The bounded wait for that marker happens INSIDE the callback, strictly before
+// StopAllBackgroundTasks() is even called (it only runs after this callback returns), so there is no
+// race against ThreadPool::ShutDown()'s own queue-clear.
+TEST(DBMS_Handler, CooperativeCancelRunsOffLockBeforeTheTenantIsTornDown) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("coop_cancel_off_lock");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  auto *database = acc.get();
+  // Not needed as an external holder: the drop's own drain_bypass accessor (minted in Delete_'s Phase 1)
+  // keeps `database` alive for exactly as long as the callback below needs it (Phase 2, before Delete_
+  // resets that accessor).
+  acc.reset();
+
+  std::atomic<int> invocation_count{0};
+  std::atomic<bool> marker_ran{false};
+
+  memgraph::dbms::DbmsHandler::CooperativeCancelFn cooperative_cancel = [&] {
+    invocation_count.fetch_add(1, std::memory_order_relaxed);
+
+    // lock_ must be free here: a different tenant's New() (exclusive lock_) must complete promptly.
+    auto [lock_free, new_other] =
+        RunBounded(std::chrono::seconds(2), [&] { return dbms.New("coop_cancel_off_lock_other"); });
+    EXPECT_TRUE(lock_free) << "the cooperative-cancel callback must run with lock_ released, not held -- a "
+                              "regression re-holding lock_ across Phase 2 would hang this New() instead of "
+                              "returning";
+    if (lock_free) {
+      ASSERT_TRUE(new_other.has_value());
+      EXPECT_TRUE(new_other->has_value()) << "the probe tenant's creation must actually succeed";
+    }
+
+    // The tenant's own trigger pool must not be shut down yet. No DatabaseAccess captured here -- the
+    // marker task itself returns immediately, so it cannot delay or pin the drop.
+    database->AddTask([&marker_ran] { marker_ran.store(true, std::memory_order_release); });
+    EXPECT_TRUE(WaitUntil(std::chrono::seconds(2), [&] { return marker_ran.load(std::memory_order_acquire); }))
+        << "the marker queued from inside the callback must actually run -- proof the pool was not yet "
+           "shut down when the callback ran";
+  };
+
+  auto del = dbms.Delete("coop_cancel_off_lock", static_cast<memgraph::system::Transaction *>(nullptr),
+                         cooperative_cancel);
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+  EXPECT_EQ(invocation_count.load(), 1) << "the cooperative-cancel callback must run exactly once for this drop";
+}
+
+// End-to-end convergence: a cooperative-cancel callback that releases a foreign holder must let the
+// drain actually finish, using the file's established convergence witness (see
+// DroppedTenantWithNoHoldersLeavesNoDetachedRow above) -- no DETACHED row survives for this tenant.
+// See DropWithoutCooperativeCancelLeavesAHolderBehind below for the built-in negative control that
+// makes this test non-vacuous.
+TEST(DBMS_Handler, CooperativeCancelReleasesAHolderAndTheDrainConverges) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("coop_cancel_converges");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess initial_acc = std::move(new_t.value());
+  const auto tenant_uuid = initial_acc->uuid();
+
+  std::mutex parked_mtx;
+  std::optional<memgraph::dbms::DatabaseAccess> parked{std::move(initial_acc)};
+
+  memgraph::dbms::DbmsHandler::CooperativeCancelFn cooperative_cancel = [&] {
+    std::lock_guard<std::mutex> lock(parked_mtx);
+    parked.reset();  // releases the foreign holder pinning the tenant
+  };
+
+  auto del = dbms.Delete("coop_cancel_converges", static_cast<memgraph::system::Transaction *>(nullptr),
+                         cooperative_cancel);
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+
+  const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
+  });
+  EXPECT_TRUE(retired) << "coop_cancel_converges must have no surviving DETACHED row once the "
+                          "cooperative-cancel callback releases its only foreign holder -- the drain "
+                          "must converge";
+}
+
+// Negative control for CooperativeCancelReleasesAHolderAndTheDrainConverges above: same parked holder,
+// but no cooperative-cancel callback to release it. The drop must still succeed (Delete_'s Phase 3 takes
+// DeferDelete's deferred branch instead of its inline one), and a DETACHED row must survive for this
+// tenant until the parked accessor is released below. Without this test, the convergence test above
+// passing would be equally consistent with convergence having nothing to do with the callback at all.
+TEST(DBMS_Handler, DropWithoutCooperativeCancelLeavesAHolderBehind) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("coop_cancel_negative_control");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess initial_acc = std::move(new_t.value());
+  const auto tenant_uuid = initial_acc->uuid();
+
+  std::mutex parked_mtx;
+  std::optional<memgraph::dbms::DatabaseAccess> parked{std::move(initial_acc)};
+
+  // No cooperative-cancel callback: the single-name overload's Delete_ call always passes the
+  // default-constructed CooperativeCancelFn ({}, a no-op), so `parked` stays held straight through
+  // Phase 2.
+  auto del = dbms.Delete("coop_cancel_negative_control");
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+
+  {
+    const auto all_detached = dbms.AllDetached();
+    const auto it = std::ranges::find_if(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
+    ASSERT_NE(it, all_detached.end())
+        << "with no cooperative-cancel callback, the parked accessor must still be pinning the tenant, so "
+           "the drop must have taken the deferred path and left a DETACHED row";
+    EXPECT_EQ(it->phase, memgraph::dbms::DbmsHandler::TenantPhase::DETACHED);
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(parked_mtx);
+    parked.reset();
+  }
+
+  const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
+  });
+  EXPECT_TRUE(retired) << "releasing the parked accessor must let the deferred destruction complete, so "
+                          "nothing is left wedged for the suite's teardown";
 }
 
 int main(int argc, char *argv[]) {
