@@ -38,23 +38,27 @@ MEMGRAPH_BUILD_DEPS=(
     git # source code control
     g++ libstdc++-14-dev # conan tool builds (ninja links -static-libstdc++)
     make cmake pkg-config # build system
-    curl wget # for downloading libs
+    curl wget tar gzip # for downloading and unpacking libs
     gperf # conan libseccomp source build
     libreadline-dev # optional readline support (manual tests)
     libpython3-dev python3-dev # for query modules
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
     libssl-dev # for mgconsole (cloned + built at package time)
-    netcat-traditional # tests are using nc to wait for memgraph
-    lsof # e2e test runners
-    python3 virtualenv python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
+    python3 python3-pip virtualenv python3-virtualenv python3-venv # for conan (runs in a venv) and build tooling
     python3-yaml # for the configuration generator
     custom-rust
-    zip unzip openjdk-25-jdk-headless openjdk-25-jre-headless custom-maven # for driver tests
-    dotnet-sdk-10.0 golang custom-golang nodejs npm # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     ninja-build
     libkrb5-dev # for building python gssapi (kerberos auth module)
+)
+
+# Extra packages on top of MEMGRAPH_BUILD_DEPS needed to run the test suites.
+MEMGRAPH_TEST_DEPS=(
+    netcat-traditional # tests are using nc to wait for memgraph
+    lsof # e2e test runners
+    zip unzip openjdk-25-jdk-headless openjdk-25-jre-headless custom-maven # for driver tests
+    dotnet-sdk-10.0 golang custom-golang nodejs npm # for driver tests
     libxmlsec1-dev xmlsec1 # pip xmlsec (SAML SSO) builds from source; no wheels since 1.3.15
     sudo adduser # stress tests set up passwordless sudo for mg (iptables)
 )
@@ -64,9 +68,6 @@ MEMGRAPH_RUN_DEPS=(
     libkrb5-3 # runtime for python gssapi (kerberos auth module)
 )
 
-NEW_DEPS=(
-    wget curl tar gzip
-)
 
 setup_repos() {
     # dotnet-sdk-10.0 comes from the Microsoft package repo

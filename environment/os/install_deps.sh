@@ -59,6 +59,9 @@ Commands:
 Dependency sets:
     TOOLCHAIN_RUN_DEPS       Dependencies required for the toolchain runtime.
     MEMGRAPH_BUILD_DEPS      Dependencies required for building Memgraph.
+    MEMGRAPH_TEST_DEPS       Extra dependencies (on top of MEMGRAPH_BUILD_DEPS)
+                             required to run the test suites.
+    MEMGRAPH_RUN_DEPS        Dependencies required to run a Memgraph package.
 
 Examples:
     sudo ./install_deps.sh prepare TOOLCHAIN_RUN_DEPS

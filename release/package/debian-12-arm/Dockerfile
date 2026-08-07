@@ -22,6 +22,8 @@ RUN git clone --branch ${GIT_REF} https://github.com/memgraph/memgraph.git \
     && cd memgraph \
     && ./environment/os/debian-12.sh install TOOLCHAIN_RUN_DEPS \
     && ./environment/os/debian-12.sh install MEMGRAPH_BUILD_DEPS \
+    && ./environment/os/debian-12.sh install MEMGRAPH_TEST_DEPS \
+    && ./environment/os/debian-12.sh install MEMGRAPH_RUN_DEPS \
     && cd .. && rm -rf memgraph
 
 # Create mg user and set as default

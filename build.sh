@@ -279,14 +279,21 @@ fi
 
 # run check for operating system dependencies
 if [[ "$skip_os_deps" = false ]]; then
-    if ! ./environment/os/install_deps.sh check TOOLCHAIN_RUN_DEPS; then
-        echo "Error: Dependency check failed for TOOLCHAIN_RUN_DEPS"
-        exit 1
-    fi
-    if ! ./environment/os/install_deps.sh check MEMGRAPH_BUILD_DEPS; then
-        echo "Error: Dependency check failed for MEMGRAPH_BUILD_DEPS"
-        exit 1
-    fi
+    # Hard requirements: without these the build itself fails.
+    for deps_group in TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; do
+        if ! ./environment/os/install_deps.sh check "$deps_group"; then
+            echo "Error: Dependency check failed for $deps_group"
+            exit 1
+        fi
+    done
+    # Not needed to compile — only to run the test suites / the built
+    # memgraph. Warn so the gap is visible, but don't block the build.
+    for deps_group in MEMGRAPH_TEST_DEPS MEMGRAPH_RUN_DEPS; do
+        if ! ./environment/os/install_deps.sh check "$deps_group"; then
+            echo "Warning: missing $deps_group packages (needed to run tests / memgraph itself);"
+            echo "         install with: sudo ./environment/os/install_deps.sh install $deps_group"
+        fi
+    done
 else
     echo "Skipping OS dependency checks"
 fi
