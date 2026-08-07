@@ -625,6 +625,11 @@ namespace {
 
 void RunExpand(Path::PathHelper &&helper, const mgp::Value &start_value, const mgp::RecordFactory &record_factory,
                const mgp::Graph &graph) {
+  // A null start has nowhere to walk from, so it yields no paths rather than an error.
+  if (start_value.IsNull()) {
+    return;
+  }
+
   Path::PathExpand path_expand{Path::PathData(std::move(helper), record_factory, graph)};
 
   if (!start_value.IsList()) {
@@ -789,10 +794,15 @@ void Path::SubgraphNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *
   const auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
   try {
+    auto start_value = arguments[0];
+    // A null start has nowhere to walk from, so it yields no nodes rather than an error.
+    if (start_value.IsNull()) {
+      return;
+    }
+
     auto config = arguments[1].ValueMap();
     PathSubgraph path_subgraph{PathData(PathHelper{config, graph}, record_factory, graph)};
 
-    auto start_value = arguments[0];
     if (!start_value.IsList()) {
       path_subgraph.Parse(start_value);
     } else {
@@ -820,10 +830,18 @@ void Path::SubgraphAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
   const auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
   try {
+    auto start_value = arguments[0];
+    // A null start yields the one record this procedure always returns, with both lists empty.
+    if (start_value.IsNull()) {
+      auto record = record_factory.NewRecord();
+      record.Insert(std::string(kResultNodesSubgraphAll).c_str(), mgp::List{});
+      record.Insert(std::string(kResultRelsSubgraphAll).c_str(), mgp::List{});
+      return;
+    }
+
     auto config = arguments[1].ValueMap();
     PathSubgraph path_subgraph{PathData(PathHelper{config, graph}, record_factory, graph)};
 
-    auto start_value = arguments[0];
     if (!start_value.IsList()) {
       path_subgraph.Parse(start_value);
     } else {
