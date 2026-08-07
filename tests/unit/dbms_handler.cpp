@@ -15,8 +15,11 @@
 #ifdef MG_ENTERPRISE
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
+#include <ranges>
 #include <cstdint>
 #include <filesystem>
 #include <future>
@@ -30,6 +33,7 @@
 #include <nlohmann/json.hpp>
 
 #include "dbms/constants.hpp"
+#include "dbms/database_protector.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "glue/auth_checker.hpp"
@@ -1430,6 +1434,81 @@ TEST(DBMS_Handler, DropWithoutCooperativeCancelLeavesAHolderBehind) {
   });
   EXPECT_TRUE(retired) << "releasing the parked accessor must let the deferred destruction complete, so "
                           "nothing is left wedged for the suite's teardown";
+}
+
+// ---------------------------------------------------------------------------
+// ProtectorStopsBackgroundWorkFromReArmingItself
+// ---------------------------------------------------------------------------
+// PINS dbms::DatabaseProtector::is_tenant_marked_for_deletion() as a sufficient convergence signal for
+// self-re-arming background work. The chain modelled here is ReplicationStorageClient's: a task holding
+// a cloned protector finishes, clones AGAIN, and enqueues its successor. That escapes the drop's mint
+// gate entirely -- clone() needs no mint -- so without a check the tenant is pinned forever. This is the
+// executable half of the replication fix; the four production call sites themselves need a live replica
+// and are covered by review, not by this test.
+//
+// The chain deliberately runs on its OWN pool, standing in for ReplicationClient::thread_pool_. Using
+// the tenant's after-commit-trigger pool instead would let Phase 2's join mask the very effect under
+// test.
+TEST(DBMS_Handler, ProtectorStopsBackgroundWorkFromReArmingItself) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("coop_cancel_rearm_chain");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  const auto tenant_uuid = acc->uuid();
+
+  // A live tenant must answer "no" -- otherwise the check below would be trivially satisfied and this
+  // test would prove nothing about the drop.
+  ASSERT_FALSE(memgraph::dbms::DatabaseProtector{acc}.is_tenant_marked_for_deletion());
+
+  std::atomic<int> rearms{0};
+  std::atomic<bool> chain_stopped{false};
+  // Safety net only, matching PhaseTwoStall's: a chain that never consults the protector still ends, so
+  // a missing check shows up as a SLOW convergence (assertion below) rather than a hung suite.
+  constexpr auto kSafetyNet = std::chrono::seconds(10);
+  const auto chain_deadline = std::chrono::steady_clock::now() + kSafetyNet;
+
+  memgraph::utils::ThreadPool chain_pool{1};
+  // shared_ptr so the step closure can own itself across re-arms; the last task drops the final
+  // reference along with its protector clone.
+  auto step = std::make_shared<std::function<void(memgraph::storage::DatabaseProtectorPtr)>>();
+  *step = [&, step](memgraph::storage::DatabaseProtectorPtr held) {
+    rearms.fetch_add(1, std::memory_order_acq_rel);
+    if (held->is_tenant_marked_for_deletion() || std::chrono::steady_clock::now() >= chain_deadline) {
+      chain_stopped.store(true, std::memory_order_release);
+      return;  // `held` dies here -- this is the release that lets the drain converge
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    auto next = held->clone();  // the re-arm: a fresh accessor, minted from nothing
+    chain_pool.AddTask([step, next = std::move(next)]() mutable { (*step)(std::move(next)); });
+  };
+  chain_pool.AddTask([step, first = memgraph::dbms::DatabaseProtector{acc}.clone()]() mutable {
+    (*step)(std::move(first));
+  });
+
+  ASSERT_TRUE(WaitUntil(std::chrono::seconds(5), [&] { return rearms.load(std::memory_order_acquire) > 0; }))
+      << "the re-arming chain must be running before the drop begins";
+
+  acc.reset();  // from here the chain's own clone is the only thing pinning the tenant
+
+  const auto start = std::chrono::steady_clock::now();
+  auto del = dbms.Delete("coop_cancel_rearm_chain", static_cast<memgraph::system::Transaction *>(nullptr));
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+
+  const bool retired = WaitUntil(std::chrono::seconds(5), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
+  });
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+
+  EXPECT_TRUE(chain_stopped.load(std::memory_order_acquire));
+  EXPECT_TRUE(retired) << "the chain must stop re-arming and release its clone, so the deferred "
+                          "destruction completes and no DETACHED row survives";
+  EXPECT_LT(elapsed, std::chrono::seconds(3))
+      << "convergence must come from the protector's answer, not from the chain's safety net expiring -- "
+         "this is what fails if is_tenant_marked_for_deletion() stops reporting the drop";
+
+  chain_pool.ShutDown();  // bounded: the chain has already stopped, so nothing is in flight
 }
 
 int main(int argc, char *argv[]) {
