@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,15 @@ using DatabaseProtectorPtr = std::unique_ptr<DatabaseProtector>;
 
 struct DatabaseProtector {
   virtual auto clone() const -> DatabaseProtectorPtr = 0;
+
+  /// A protector holds its tenant alive. Background work that intends to re-arm itself (enqueue
+  /// more work, clone() this protector again) must ask here first and stop instead -- otherwise it
+  /// keeps a tenant that has already been accepted for deletion alive indefinitely. `false` is the
+  /// honest default for a protector that does not represent a droppable tenant at all. A `true`
+  /// answer is only a cooperative request to stop: it never revokes the protector, which stays
+  /// valid and stays held by the caller until the caller itself lets it go.
+  virtual auto is_tenant_marked_for_deletion() const -> bool { return false; }
+
   virtual ~DatabaseProtector() = default;
 };
 

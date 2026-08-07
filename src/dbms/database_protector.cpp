@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,4 +18,6 @@ DatabaseProtector::DatabaseProtector(DatabaseAccess access) : access_(std::move(
 auto DatabaseProtector::clone() const -> storage::DatabaseProtectorPtr {
   return std::unique_ptr<storage::DatabaseProtector>{new DatabaseProtector{access_}};
 }
+
+auto DatabaseProtector::is_tenant_marked_for_deletion() const -> bool { return access_.is_marked_for_deletion(); }
 }  // namespace memgraph::dbms
