@@ -531,6 +531,15 @@ class DbmsHandler {
    * Suspend_ inserts into suspended_ under lock_ but calls finish_suspend() (which nulls value_) AFTER
    * releasing the lock. suspended_ takes precedence (the tenant is on its way COLD), so it is listed
    * once, as COLD — never duplicated.
+   *
+   * Also appends a DETACHED row for each tenant in detached_ whose name is not already taken by a HOT
+   * or COLD row. The suppression is deliberate: DROP x -> CREATE x while the first x is still draining
+   * means two live rows named x, and this function answers "which tenants can I address" — the
+   * addressable HOT/COLD row wins, the detached row is suppressed here. The suppressed tenant is still
+   * counted by TenantMemorySum()/AllDetached(), which are keyed by uuid and therefore complete.
+   * DETACHED is a normal, non-alertable state: a replica deliberately keeps deferring so a
+   * MAIN-ordered drop cannot kill an in-flight replica transaction, so no WARN/health-downgrade fires
+   * on this row.
    */
   std::vector<std::pair<std::string, std::string>> AllWithHotColdStatus() const {
     auto rd = std::shared_lock{lock_};
@@ -544,7 +553,74 @@ class DbmsHandler {
     for (auto &name : db_handler_.All()) {  // HOT names only (Handler::All() skips no-value shells)
       if (!suspended_.contains(name)) out.emplace_back(std::move(name), "HOT");
     }
+    auto dg = std::lock_guard{detached_lock_};
+    for (auto const &d : detached_) {
+      if (std::ranges::none_of(out, [&](auto const &kv) { return kv.first == d.name; })) {
+        out.emplace_back(d.name, "DETACHED");
+      }
+    }
     return out;
+  }
+
+  // Why a DROP can defer: at least one Accessor was live when the drop was attempted, so
+  // Handler<T>::DeferDelete could not destroy the Gatekeeper inline and handed it to a drain thread.
+  enum class DetachReason : uint8_t { DROP };
+
+  /**
+   * @brief Metadata for a tenant whose destruction is deferred: it has already left every by-name
+   *        surface (db_handler_ erased it — see Handler<T>::DeferDelete), so it is no longer
+   *        addressable, but its Database (and therefore its bytes in utils::graph_memory_tracker)
+   *        stays alive until the drain thread's last accessor is released.
+   *
+   * memory_at_detach is an AS-OF-DETACH snapshot, not a live figure — deliberately: a live read would
+   * need a raw Database* that the drain thread destroys with no lock held, which is exactly the UAF
+   * class this registry exists to avoid. This mirrors SuspendedEntry::cold_stats, the same as-of-event
+   * treatment used for a COLD tenant's SHOW STORAGE INFO figures.
+   *
+   * holders_at_detach is "the holder count observed just before the drop attempt", NOT "the count that
+   * forced the defer": Gatekeeper::holder_count() is read before DeferDelete's own try_delete()
+   * re-checks count_ under the gatekeeper mutex, and an Accessor can be minted or released in between
+   * by a thread holding no handler lock. Diagnostic only.
+   */
+  struct DetachedTenant {
+    std::string name;  //!< name at detach; may be re-taken by a new tenant while this one drains
+    utils::UUID uuid;  //!< identity; unique, survives name reuse
+    std::chrono::system_clock::time_point detached_at;
+    DetachReason reason;
+    uint64_t holders_at_detach;
+    int64_t memory_at_detach;
+  };
+
+  /// Metadata for every tenant whose destruction is still deferred. Mints NO accessor.
+  std::vector<DetachedTenant> AllDetached() const {
+    auto rd = std::shared_lock{lock_};
+    auto dg = std::lock_guard{detached_lock_};
+    return detached_;
+  }
+
+  struct TenantMemorySums {
+    int64_t hot;
+    int64_t detached;
+  };
+
+  /**
+   * @brief Sigma tenant memory, split into the addressable (HOT) and detached halves.
+   *
+   * db_handler_ alone under-reports: a force-dropped tenant leaves every by-name surface immediately
+   * (Handler<T>::DeferDelete's unconditional items_.erase), while its bytes stay parented into
+   * utils::graph_memory_tracker until the last accessor is released. The HOT half deliberately walks
+   * db_handler_ the same access()-gated way ForEach does (a COLD shell's access() is nullopt and
+   * contributes 0 — a COLD tenant has no in-memory storage, so that is correct, not an omission).
+   */
+  TenantMemorySums TenantMemorySum() {  // NOT const: the HOT half mints (and drops) accessors
+    auto rd = std::shared_lock{lock_};
+    TenantMemorySums sums{};
+    for (auto &[_, db_gk] : db_handler_) {
+      if (auto db_acc = db_gk.access()) sums.hot += (*db_acc)->DbMemoryUsage();
+    }
+    auto dg = std::lock_guard{detached_lock_};
+    for (auto const &d : detached_) sums.detached += d.memory_at_detach;
+    return sums;
   }
 
   /// Minimal projection of a COLD tenant for SHOW STORAGE INFO ON <cold> (previously this errored).
@@ -972,6 +1048,20 @@ class DbmsHandler {
   // path in that case. Caller must hold lock_ (write).
   std::optional<DeleteResult> TryDeleteColdFastPath_(std::string_view name, system::Transaction *transaction);
 
+  /// Publish a deferred-destruction row. Caller MUST hold lock_ exclusive (Delete_ does).
+  void RecordDetached_(DetachedTenant row) {
+    auto dg = std::lock_guard{detached_lock_};
+    detached_.push_back(std::move(row));
+  }
+
+  /// Retire the row once the destruction has actually completed. Runs on the drain thread with NO
+  /// lock held, or inline on the Delete_ thread with lock_ still held exclusive — so it may take
+  /// ONLY detached_lock_.
+  void ForgetDetached_(const utils::UUID &uuid) {
+    auto dg = std::lock_guard{detached_lock_};
+    std::erase_if(detached_, [&](DetachedTenant const &d) { return d.uuid == uuid; });
+  }
+
   // Refresh the global cold-databases gauge from the live suspended_ size. Caller MUST hold lock_
   // (every call site already does, or runs before any concurrent reader exists).
   void UpdateColdGauge_() const noexcept {
@@ -1109,7 +1199,27 @@ class DbmsHandler {
 #ifdef MG_ENTERPRISE
   mutable LockT lock_{utils::RWLock::Priority::READ};  //!< protective lock
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
-  DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
+  // LOAD-BEARING placement, three reasons, all tied to destruction order:
+  //  a) Members destruct in reverse declaration order, and ~Handler (inside db_handler_'s own
+  //     destruction, below) JOINS the per-destruction drain threads; each thread's post-delete
+  //     callback calls ForgetDetached_. detached_/detached_lock_ must therefore outlive that join,
+  //     i.e. stay declared BEFORE db_handler_. Mirrors the items_-before-deferred_ note in
+  //     handler.hpp. Do not move these below db_handler_, and do not insert another
+  //     callback-owning member between them.
+  //  b) A second mutex instead of reusing lock_: the post-delete callback runs INLINE on the Delete_
+  //     thread when Gatekeeper::Accessor::try_delete() succeeds, and Delete_ already holds lock_
+  //     EXCLUSIVE — lock_ is a non-recursive pthread rwlock, so a callback that took lock_ would
+  //     self-deadlock. detached_lock_ is takeable on both the inline path and the drain-thread path.
+  //  c) Lock order invariant: lock_ -> detached_lock_, never the reverse. Readers hold BOTH
+  //     simultaneously (lock_ shared, outermost) — that nesting is what makes the insert-then-
+  //     inline-erase pair on the fast path invisible to readers. Do not "optimize" a reader to take
+  //     detached_lock_ alone; that would momentarily expose a row for a tenant already destroyed
+  //     synchronously.
+  //  d) The post-delete callback captures a raw DbmsHandler*. Safe only because ~Handler's join runs
+  //     as part of ~DbmsHandler, so `this` is a live (if mid-destruction) object throughout the join.
+  mutable std::mutex detached_lock_;      //!< guards detached_; see lock-order note above
+  std::vector<DetachedTenant> detached_;  //!< metadata-only registry of deferred-destruction tenants
+  DatabaseHandler db_handler_;            //!< multi-tenancy storage handler
   // COLD tenant rebuild metadata; guarded by lock_. The transparent std::less<> comparator is LOAD-BEARING
   // for the Resume_ publish block's noexcept guarantee: that block does suspended_.find(name) (string_view,
   // no temporary std::string -> no allocation) AFTER the gatekeeper has been committed HOT, so it must not
