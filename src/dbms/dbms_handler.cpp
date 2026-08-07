@@ -599,12 +599,16 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
     if (old_val) {
       // The stored value is name-independent (only "uuid"/"rel_dir"/cold fields; the name lives in
       // the key), so move it verbatim instead of parsing and rewriting it.
-      if (durability_->Put(new_key, *old_val)) {
-        durability_->Delete(old_key);
-      } else {
-        // Only drop the old key once the new one is durably in place; otherwise the tenant would be
-        // left with no durability record under either name and vanish on the next restart.
-        spdlog::error("Failed to write durability record for renamed database {} (was {}).", new_name, old_name);
+      const std::map<std::string, std::string> to_put{{new_key, *old_val}};
+      const std::vector<std::string> to_delete{old_key};
+      // Single atomic batch: a separate Put-then-Delete would leave the tenant durably recorded under
+      // BOTH names if the process died (or Delete failed) between the two calls, and the next boot's
+      // restore loop would then restore the same uuid/data-dir twice.
+      if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) {
+        spdlog::error("Failed to persist rename of database {} to {}; still durably recorded as {}.",
+                      old_name,
+                      new_name,
+                      old_name);
       }
     }
   }
