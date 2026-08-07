@@ -2950,7 +2950,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       // consistent. Advance-only, since concurrent commits are barred by the UNIQUE main_lock_ hold but
       // the field is shared with the replication clients.
       atomic_struct_update<CommitTsInfo>(repl_storage_state_.commit_ts_info_,
-                                         [ldt = txn->last_durable_ts_](CommitTsInfo const &old_info) {
+                                         [ldt = *txn->last_durable_ts_](CommitTsInfo const &old_info) {
                                            return CommitTsInfo{.ldt_ = std::max(old_info.ldt_, ldt),
                                                                .num_committed_txns_ = old_info.num_committed_txns_};
                                          });
