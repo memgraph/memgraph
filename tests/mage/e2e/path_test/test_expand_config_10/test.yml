@@ -1,13 +1,12 @@
-# The walk recurses once per hop, so an unbounded upper bound is refused rather than left to
-# exhaust the stack and take the process down.
+# The walk recurses once per hop, so an unbounded upper bound is refused rather than left to exhaust
+# the stack and take the process down. Needs a chain longer than the cap to reach the guard at all.
 query: >
-  MATCH (a:Node {name: "A"})
-  CALL path.expand_config(a, {maxHops: -1})
+  MATCH (a:Deep),(b:Deep) WHERE b.i = a.i + 1 CREATE (a)-[:R]->(b)
+  WITH count(*) AS _
+  MATCH (start:Deep {i: 0})
+  CALL path.expand_config(start, {relationshipFilter: ['R>'], bfs: false})
   YIELD result
-  WITH result ORDER BY size(nodes(result)), [n IN nodes(result) | n.name]
-  RETURN [n IN nodes(result) | n.name] AS names;
+  RETURN count(*);
 
-output:
-  - names: ["A"]
-  - names: ["A", "B"]
-  - names: ["A", "B", "C"]
+exception_contains: >
+  Path expansion exceeded the maximum depth of 5000

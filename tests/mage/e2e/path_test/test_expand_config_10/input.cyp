@@ -1,1 +1,1 @@
-CREATE (a:Node {name:'A'}), (b:Node:MiddleLabelLongerThanSso {name:'B'}), (c:Node {name:'C'}) CREATE (a)-[:R]->(b), (b)-[:R]->(c);
+CREATE (:Deep {i: 0}) WITH 1 AS _ UNWIND range(1, 5001) AS i CREATE (:Deep {i: i});

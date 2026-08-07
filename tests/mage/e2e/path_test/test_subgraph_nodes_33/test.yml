@@ -1,0 +1,8 @@
+# '<>' has no type behind the markers, so it can never match; it is reported rather than silently
+# blocking every relationship.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {relationshipFilter: ['<>'], maxHops: 3})
+  YIELD nodes RETURN nodes;
+exception_contains: >
+  Invalid relationshipFilter entry '<>'
