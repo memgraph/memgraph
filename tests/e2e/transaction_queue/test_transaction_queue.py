@@ -33,6 +33,8 @@ def suppress_builtin_roles():
 # Utility functions
 # -------------------------
 
+LONG_QUERY = "CALL infinite_query.long_query() YIELD my_id RETURN my_id"
+
 
 def get_non_show_transaction_id(results):
     """Returns transaction id of the first transaction that is not SHOW TRANSACTIONS;"""
@@ -338,6 +340,177 @@ def test_user_cannot_see_admin_transaction(request):
     user_connection.close()
 
 
+def test_wildcard_admin_kills_all(request):
+    """An admin's TERMINATE TRANSACTIONS "*" kills every other transaction it can see."""
+    superadmin_cursor = connect().cursor()
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
+
+    request.addfinalizer(on_exit)
+
+    victim_connections = [connect(username="admin", password="") for _ in range(2)]
+    processes = [
+        multiprocessing.Process(
+            target=process_function,
+            args=(connection.cursor(), [LONG_QUERY]),
+        )
+        for connection in victim_connections
+    ]
+    for process in processes:
+        process.start()
+
+    admin_cursor = connect(username="admin", password="").cursor()
+    wait_for_transaction_count(admin_cursor, 3)  # two victims plus the SHOW itself
+
+    results = execute_and_fetch_all(admin_cursor, 'TERMINATE TRANSACTIONS "*"')
+    assert len(results) == 2
+    assert all(result[1] == True for result in results)
+    # Rows come back ordered by ascending transaction id, one row per distinct victim.
+    reported_ids = [result[0] for result in results]
+    assert reported_ids == sorted(reported_ids, key=int)
+    assert len(set(reported_ids)) == 2
+
+    # Only the sweeping session is left.
+    wait_for_transaction_count(admin_cursor, 1)
+
+    for connection in victim_connections:
+        connection.close()
+
+
+def test_wildcard_no_transactions_returns_empty():
+    """With nothing else running the sweep returns no rows, and the statement still succeeds
+    (its own transaction is excluded, so its commit is not aborted)."""
+    cursor = connect().cursor()
+    results = execute_and_fetch_all(cursor, 'TERMINATE TRANSACTIONS "*"')
+    assert len(results) == 0
+    # The session survived its own sweep.
+    assert len(execute_and_fetch_all(cursor, "SHOW TRANSACTIONS")) == 1
+
+
+def test_wildcard_unprivileged_kills_only_own(request):
+    """An unprivileged user's wildcard reaches only its own transactions, never anyone else's."""
+    superadmin_cursor = connect().cursor()
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
+    execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM user")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER user")
+
+    request.addfinalizer(on_exit)
+
+    admin_connection = connect(username="admin", password="")
+    user_victim_connection = connect(username="user", password="")
+    admin_process = multiprocessing.Process(
+        target=process_function,
+        args=(admin_connection.cursor(), [LONG_QUERY]),
+    )
+    user_process = multiprocessing.Process(
+        target=process_function,
+        args=(user_victim_connection.cursor(), [LONG_QUERY]),
+    )
+    admin_process.start()
+    user_process.start()
+
+    admin_observer_cursor = connect(username="admin", password="").cursor()
+    wait_for_transaction_count(admin_observer_cursor, 3)  # both victims plus the SHOW itself
+
+    def admin_long_query_id():
+        """The admin's long query, told apart from the observer's own SHOW row by its query text."""
+        return next(
+            result[1]
+            for result in execute_and_fetch_all(admin_observer_cursor, "SHOW TRANSACTIONS")
+            if result[0] == "admin" and result[2] == [LONG_QUERY]
+        )
+
+    admin_transaction_id = admin_long_query_id()
+
+    # The user sweeps: it kills its own long query and cannot touch the admin's.
+    user_cursor = connect(username="user", password="").cursor()
+    results = execute_and_fetch_all(user_cursor, 'TERMINATE TRANSACTIONS "*"')
+    assert len(results) == 1
+    assert results[0][1] == True
+    assert results[0][0] != admin_transaction_id
+
+    # The admin's transaction is untouched and still visible to the admin.
+    wait_for_transaction_count(admin_observer_cursor, 2)
+    assert admin_long_query_id() == admin_transaction_id
+
+    admin_connection.close()
+    user_victim_connection.close()
+
+
+def test_wildcard_across_databases(request):
+    """The wildcard is not scoped to the caller's database: one sweep kills transactions on
+    every database the caller has TRANSACTION_MANAGEMENT for."""
+    superadmin_cursor = connect().cursor()
+    execute_and_fetch_all(superadmin_cursor, "CREATE DATABASE wildcard_db_a")
+    execute_and_fetch_all(superadmin_cursor, "CREATE DATABASE wildcard_db_b")
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
+        execute_and_fetch_all(superadmin_cursor, "DROP DATABASE wildcard_db_a")
+        execute_and_fetch_all(superadmin_cursor, "DROP DATABASE wildcard_db_b")
+
+    request.addfinalizer(on_exit)
+
+    victim_connections = [connect(username="admin", password="") for _ in range(2)]
+    processes = [
+        multiprocessing.Process(
+            target=process_function,
+            args=(
+                connection.cursor(),
+                [f"USE DATABASE {db_name}", LONG_QUERY],
+            ),
+        )
+        for connection, db_name in zip(victim_connections, ["wildcard_db_a", "wildcard_db_b"])
+    ]
+    for process in processes:
+        process.start()
+
+    # The sweeping session stays on the default database.
+    admin_cursor = connect(username="admin", password="").cursor()
+    wait_for_transaction_count(admin_cursor, 3)
+
+    results = execute_and_fetch_all(admin_cursor, 'TERMINATE TRANSACTIONS "*"')
+    assert len(results) == 2
+    assert all(result[1] == True for result in results)
+    wait_for_transaction_count(admin_cursor, 1)
+
+    for connection in victim_connections:
+        connection.close()
+
+
+def test_wildcard_rejects_mixed_list():
+    """The wildcard must be the sole argument, so its meaning never depends on the rest."""
+    cursor = connect().cursor()
+    for query in [
+        "TERMINATE TRANSACTIONS \"*\", '1'",
+        "TERMINATE TRANSACTIONS '1', \"*\"",
+        'TERMINATE TRANSACTIONS "*", "*"',
+    ]:
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(cursor, query)
+
+
+def test_wildcard_as_parameter():
+    """Query stripping turns the literal into a parameter, so a parameterized wildcard is the
+    same statement and must behave identically."""
+    cursor = connect().cursor()
+    cursor.execute("TERMINATE TRANSACTIONS $id", {"id": "*"})
+    assert len(cursor.fetchall()) == 0
+
+
 def test_unauthorized_terminate_reports_not_killed(request):
     """An unprivileged user naming someone else's transaction id gets killed=false, and the
     transaction survives. Reporting killed=true would both lie and confirm the id exists."""
@@ -360,9 +533,7 @@ def test_unauthorized_terminate_reports_not_killed(request):
     user_cursor = user_connection.cursor()
 
     # Admin runs a long query; the admin's own second session reads its id.
-    process = multiprocessing.Process(
-        target=process_function, args=(admin_cursor, ["CALL infinite_query.long_query() YIELD my_id RETURN my_id"])
-    )
+    process = multiprocessing.Process(target=process_function, args=(admin_cursor, [LONG_QUERY]))
     process.start()
     admin_observer_cursor = connect(username="admin", password="").cursor()
     wait_for_transaction_count(admin_observer_cursor, 2)
