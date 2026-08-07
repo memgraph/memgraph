@@ -547,9 +547,24 @@ TEST(HotColdGatekeeper, DrainingTenantRefusesSuspend) {
   ASSERT_TRUE(gk.begin_drain());
 
   // count_==1 precondition is satisfied (only `acc` is live); the refusal must be the drain check.
-  EXPECT_FALSE(gk.try_begin_suspend(std::chrono::milliseconds(50)));
+  // Captured into a local (not asserted on directly): if the draining_ check regresses, this call
+  // succeeds and leaves state_ == SUSPENDING. SUSPENDING is not terminal for ~Gatekeeper's wait
+  // predicate, so asserting first and returning early would destruct `gk` mid-transition and wedge
+  // the destructor forever -- turning a named test failure into an opaque CI job timeout instead.
+  const bool suspend_began = gk.try_begin_suspend(std::chrono::milliseconds(50));
+
+  // Release the accessor before acting on the result: on the expected-false path state_ is still
+  // HOT and this is a no-op ordering-wise; on the regressed-true path count_ must reach 0 before
+  // abort_suspend() below hands the gatekeeper back a clean HOT state to destruct from.
+  acc->reset();
+
+  if (suspend_began) {
+    // Roll the transition back before the assertion below can return early.
+    gk.abort_suspend();
+  }
+  EXPECT_FALSE(suspend_began)
+      << "try_begin_suspend() succeeded on a draining gatekeeper -- the draining_ upfront check regressed";
   EXPECT_EQ(gk.state(), State::HOT);
 
-  acc->reset();
   gk.abort_drain();
 }
