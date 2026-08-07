@@ -75,10 +75,8 @@ SeededRoot MakeSeededRoot(std::string_view tag) {
 // rel_dir rooted at kMultiTenantDir/<uuid> as New_/UpdateDurability recompute it (dbms_handler.cpp:860).
 struct SeededHotEntry {
   memgraph::utils::UUID uuid;
-  // The exact bytes written for this entry. Needed by RenameMovesTenantDurabilityRecordVerbatim, which
-  // asserts the durability record survives RENAME byte-for-byte (VERBATIM), not merely "still present" --
-  // a parse-and-recompare wouldn't catch a rename that parses, mutates, and re-dumps the record. Callers
-  // that only need the uuid should just drop this field on the floor, not delete it as write-only.
+  // Bytes written for this entry; read back verbatim by RenameMovesTenantDurabilityRecordVerbatim to catch
+  // a rename that parses/mutates/re-dumps the record. Do not delete this field as write-only.
   std::string json_str;
 };
 
@@ -92,11 +90,9 @@ SeededHotEntry SeedHotEntry(memgraph::kvstore::KVStore &kv, std::string_view nam
   return {uuid, std::move(json_str)};
 }
 
-// Counts how many system actions actually get applied through a Transaction::Commit. Transaction::Commit
-// (system/transaction.hpp) early-returns via Abort() -- without ever calling ApplyAction -- when actions_ is
-// empty, so this is the one observable that discriminates "AddAction<RenameDatabase> ran" (applied == 1)
-// from "it was skipped" (applied == 0). CanReplicateInCommunity() cannot make that distinction: it reads
-// false both for zero actions and for one dbms action.
+// Counts actions applied via Transaction::Commit: Commit's early-return path (empty actions_) calls Abort(),
+// never ApplyAction, so applied==1 vs 0 discriminates "AddAction<RenameDatabase> ran" from "skipped" -- a
+// distinction CanReplicateInCommunity() can't make (false for both zero actions and one dbms action).
 struct CountingReplicationPolicy {
   int *applied;
 
