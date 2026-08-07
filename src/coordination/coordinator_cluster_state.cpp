@@ -13,6 +13,7 @@
 
 #include "coordination/coordinator_cluster_state.hpp"
 
+#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <libnuraft/buffer.hxx>
 #include <libnuraft/buffer_serializer.hxx>
@@ -41,6 +42,25 @@ auto DedupCoordinatorInstances(std::vector<CoordinatorInstanceContext> instances
     }
   }
   return result;
+}
+
+// Older versions accepted instance_health_check_frequency_sec = 0, so persisted state can contain a value the read
+// side treats as fatal: StartStateCheck() MG_ASSERTs on it, aborting every coordinator that recovers it, on every
+// restart. Clamping on the way in is a deterministic function of the log, so all coordinators running this version
+// still agree, and it lets a cluster that is already crash-looping come back up. An unpatched peer derives 0 instead
+// and keeps aborting — but that is what it does today regardless, so there is no divergence this creates.
+auto ClampInstanceHealthCheckFreqSec(uint32_t const check_freq_sec) -> uint32_t {
+  if (check_freq_sec >= kMinInstanceHealthCheckFreqSec) {
+    return check_freq_sec;
+  }
+  spdlog::warn(
+      "Recovered {}={}, which is below the supported minimum; using {} instead. Persist a valid value with "
+      "SET COORDINATOR SETTING '{}' TO '<value>'.",
+      kInstanceHealthCheckFreqSec,
+      check_freq_sec,
+      kMinInstanceHealthCheckFreqSec,
+      kInstanceHealthCheckFreqSec);
+  return kMinInstanceHealthCheckFreqSec;
 }
 }  // namespace
 
@@ -178,7 +198,8 @@ auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state)
   }
 
   if (delta_state.instance_health_check_frequency_sec_.has_value()) {
-    instance_health_check_frequency_sec_ = *delta_state.instance_health_check_frequency_sec_;
+    instance_health_check_frequency_sec_ =
+        ClampInstanceHealthCheckFreqSec(*delta_state.instance_health_check_frequency_sec_);
   }
 
   if (delta_state.global_read_only_.has_value()) {
@@ -325,7 +346,7 @@ void CoordinatorClusterState::SetInstanceDownTimeoutSec(uint32_t const timeout_s
 
 void CoordinatorClusterState::SetInstanceHealthCheckFreqSec(uint32_t const check_freq_sec) {
   auto lock = std::lock_guard{app_lock_};
-  instance_health_check_frequency_sec_ = check_freq_sec;
+  instance_health_check_frequency_sec_ = ClampInstanceHealthCheckFreqSec(check_freq_sec);
 }
 
 void CoordinatorClusterState::SetGlobalReadOnly(bool const global_read_only) {
@@ -404,7 +425,9 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
   }
 
   {
-    uint32_t const check_freq_sec = j.value(kInstanceHealthCheckFreqSec.data(), 1);
+    // The default covers a snapshot serialized before this key existed; an explicit out-of-range value is clamped by
+    // the setter, not by this default.
+    uint32_t const check_freq_sec = j.value(kInstanceHealthCheckFreqSec.data(), kMinInstanceHealthCheckFreqSec);
     instance_state.SetInstanceHealthCheckFreqSec(check_freq_sec);
   }
 

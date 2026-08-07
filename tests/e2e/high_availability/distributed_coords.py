@@ -2643,6 +2643,17 @@ def test_coord_settings(test_name):
     assert settings[instance_down_timeout_sec] == "15"
     assert settings[instance_health_check_frequency_sec] == "3"
 
+    # 0 is not the usual "disable the scheduler" value here: a coordinator that never health-checks cannot detect
+    # failure, and StartStateCheck() aborts on it. The rejection happens before the Raft commit, so the previously
+    # committed value must still be readable afterwards.
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'instance_health_check_frequency_sec' to '0'")
+    assert "Invalid argument detected while trying to update setting instance_health_check_frequency_sec" in str(
+        e.value
+    )
+    settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
+    assert settings[instance_health_check_frequency_sec] == "3"
+
 
 def test_update_config(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)

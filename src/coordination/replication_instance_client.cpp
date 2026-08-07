@@ -62,8 +62,9 @@ void ReplicationInstanceClient::StartStateCheck() {
     return;
   }
 
-  MG_ASSERT(instance_health_check_frequency_sec_ > std::chrono::seconds(0),
-            "Health check frequency must be greater than 0");
+  MG_ASSERT(instance_health_check_frequency_sec_ >= std::chrono::seconds{kMinInstanceHealthCheckFreqSec},
+            "Health check frequency must be at least {}s",
+            kMinInstanceHealthCheckFreqSec);
 
   instance_checker_.SetInterval(instance_health_check_frequency_sec_);
   instance_checker_.Run(instance_name_, [this] {

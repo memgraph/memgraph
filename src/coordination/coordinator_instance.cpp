@@ -1135,7 +1135,20 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     } else if (setting_name == kInstanceDownTimeoutSec) {
       delta_state.instance_down_timeout_sec_ = utils::ParseStringToUint<uint32_t>(setting_value);
     } else if (setting_name == kInstanceHealthCheckFreqSec) {
-      delta_state.instance_health_check_frequency_sec_ = utils::ParseStringToUint<uint32_t>(setting_value);
+      auto const freq_sec = utils::ParseStringToUint<uint32_t>(setting_value);
+      // Unlike other scheduler-backed settings (e.g. storage_snapshot_interval_sec), 0 has no "disabled"
+      // meaning here: StartStateCheck() MG_ASSERTs on freq < kMinInstanceHealthCheckFreqSec, so a committed 0
+      // aborts the coordinator on the next REGISTER INSTANCE or reconcile, and — since Raft replicates it —
+      // keeps doing so on restart. This guard only stops new 0s; a 0 already in the log or a snapshot is still
+      // applied verbatim on recovery.
+      if (freq_sec < kMinInstanceHealthCheckFreqSec) {
+        spdlog::error("Error occurred while trying to update {} to {}. Error: value must be >= {}.",
+                      setting_name,
+                      setting_value,
+                      kMinInstanceHealthCheckFreqSec);
+        return SetCoordinatorSettingStatus::INVALID_ARGUMENT;
+      }
+      delta_state.instance_health_check_frequency_sec_ = freq_sec;
     } else if (setting_name == kGlobalReadOnly) {
       delta_state.global_read_only_ = parse_bool(setting_value);
     }
