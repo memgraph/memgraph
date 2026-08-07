@@ -40,7 +40,7 @@ fi
 # TODO(gitbuda): Add --skip-gpg and somehow make gpg check configurable per OS.
 TOOLCHAIN_VERSION=8
 # package versions used
-GCC_VERSION=16.1.0
+GCC_VERSION=16.2.0
 BINUTILS_VERSION=2.47
 GDB_VERSION=17.2
 CMAKE_VERSION=4.4.1
