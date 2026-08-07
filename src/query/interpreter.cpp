@@ -4270,7 +4270,8 @@ PreparedQuery PrepareConstantReturnQuery(ParsedQuery parsed_query) {
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 }
 
 // Reads the module registry (shared lock, released before this returns) -- deliberately the LAST check
@@ -4343,7 +4344,8 @@ PreparedQuery PrepareBuiltinIntrospectionQuery(ParsedQuery parsed_query) {
         }
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
 }
 
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -4540,6 +4542,8 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
 }
 
 }  // namespace
+
+bool IsAccessorFreeQuery(const CypherQuery &query) { return ClassifyAccessorFreeQuery(query).has_value(); }
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {

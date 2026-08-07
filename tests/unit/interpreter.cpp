@@ -2403,8 +2403,26 @@ TYPED_TEST(InterpreterTest, LoadCsvClauseNotification) {
   ASSERT_EQ(notification["description"].ValueString(), "");
 }
 
-TYPED_TEST(InterpreterTest, CypherQueryPriorityIsLow) {
+// Accessor-free fast-path shapes (constant RETURN / builtin mg.* introspection) are Lab's health-check
+// pings, so both PrepareConstantReturnQuery and PrepareBuiltinIntrospectionQuery mark them HIGH
+// (interpreter.cpp) -- a normal Cypher query that opens an accessor stays LOW.
+TYPED_TEST(InterpreterTest, ConstantReturnQueryPriorityIsHigh) {
   auto [stream, qid] = this->Prepare("RETURN 1");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, ConstantExpressionReturnQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("RETURN 1+1");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, BuiltinIntrospectionQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("CALL mg.procedures() YIELD *");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, NonAccessorFreeCypherQueryPriorityIsLow) {
+  auto [stream, qid] = this->Prepare("MATCH (n) RETURN n");
   EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
 }
 
