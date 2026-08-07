@@ -46,7 +46,7 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
       continue;
     }
 
-    index_accessor.insert({std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, 0});
+    index_accessor.insert({std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, edge_ref.ptr->gid, 0});
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::EDGES);
     }
@@ -118,7 +118,8 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
       continue;
     }
 
-    index_accessor.insert({std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, tx.start_timestamp});
+    index_accessor.insert(
+        {std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, edge_ref.ptr->gid, tx.start_timestamp});
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::EDGES);
     }
@@ -126,6 +127,13 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
 }
 
 // Free function which advances the given iterator until the next valid entry is found.
+//
+// Dereferencing `Entry::edge` here is safe because of an ordering the GC upholds,
+// not because of anything this loop checks: an entry is removed from the index
+// before its edge is unlinked from the edge store, and the iterable's own pin
+// covers every edge unlinked after the scan began. The caller must therefore hold
+// that pin (Iterable/ChunkedIterable keep it in `pin_accessor_edge_`) for as long
+// as the returned accessor is used.
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_edge, EdgeAccessor &current_accessor,
                         PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
@@ -147,7 +155,12 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_
     // Visibility filters run after the value-bounds check: bounds depend only on the
     // entry value, so checking them first lets the scan stop at the bound instead of
     // walking past entries invisible to this transaction.
-    if (index_iterator->edge->gid >= max_gid) {
+    //
+    // Read the gid off the ENTRY, not through `entry.edge->gid`. That dereference
+    // was the first touch of the edge in this loop and needed the edge to still be
+    // alive just to discover its own identity -- the exact circularity the entry's
+    // own gid removes.
+    if (index_iterator->gid >= max_gid) {
       continue;
     }
 
@@ -155,6 +168,13 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_
       continue;
     }
 
+    // No liveness re-resolution here: the scan does not need one. An entry is
+    // removed from the index before its edge is unlinked (RemoveObsoleteEntries,
+    // against the doomed set the GC pass publishes), so an entry reachable from
+    // this iterator names an edge that is still linked, or one unlinked after our
+    // pin was taken -- which the pin then keeps alive for the whole scan. Both
+    // cases are dereferenceable, so the dereference below is the first and only
+    // touch, at no lookup cost.
     if (!CurrentVersionHasProperty(*index_iterator->edge, property, index_iterator->value, transaction, view)) {
       continue;
     }
@@ -337,6 +357,13 @@ uint64_t InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, 
 
   // Pin the edge store while sweeping: the loop dereferences raw Edge* the epoch GC could free.
   auto const edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
+  // The pin stops an edge deleted from now on from being freed under us. It cannot
+  // speak for an edge that was already gone when the pin was taken -- it protects
+  // nodes from the moment its accessor id was allocated, and an Entry holds an
+  // Edge* captured when the entry was indexed. That gap is closed on the other
+  // side instead: this sweep is what removes an entry before its edge is unlinked,
+  // so no entry ever outlives its edge and the gap has nothing to leak through.
+  auto const *mem_storage = static_cast<InMemoryStorage const *>(storage);
 
   uint64_t swept = 0;
   for (auto &[index, property] : *all_indices) {
@@ -352,6 +379,20 @@ uint64_t InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, 
       auto next_it = it;
       ++next_it;
 
+      // FIRST, ahead of every other test in this loop. An edge the in-flight GC
+      // pass is about to unlink takes its entries with it, unconditionally and
+      // without the edge being consulted at all: identity against the doomed set,
+      // O(1), no dereference. It has to come first because both tests below can
+      // `continue` past an entry -- the timestamp guard skips young entries
+      // outright, and AnyVersionHasProperty can answer `true` -- and an entry that
+      // survives this pass while its edge is unlinked is precisely a dangling
+      // pointer left in the index for a later scan to dereference.
+      if (mem_storage->IsEdgeDyingThisGcPass(it->edge)) {
+        edges_acc.remove(*it);
+        it = next_it;
+        continue;
+      }
+
       if (it->timestamp >= oldest_active_start_timestamp) {
         it = next_it;
         continue;
@@ -366,6 +407,8 @@ uint64_t InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, 
       const bool redundant_duplicate = has_next && it->value == next_it->value &&
                                        it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
                                        it->edge == next_it->edge;
+      // Every entry reaching here names an edge that is still linked (the doomed
+      // set was checked at the top of the loop), so dereferencing it is safe.
       if (redundant_duplicate ||
           !AnyVersionHasProperty(*it->edge, property, it->value, oldest_active_start_timestamp)) {
         edges_acc.remove(*it);
@@ -388,7 +431,11 @@ void InMemoryEdgeTypePropertyIndex::ActiveIndices::AbortEntries(
 
   auto acc = it->second->skiplist.access();
   for (const auto &[from_vertex, to_vertex, edge, value] : edges) {
-    acc.remove(Entry{value, from_vertex, to_vertex, edge, exact_start_timestamp});
+    // Dereferencing `edge` is safe HERE, unlike in a GC-concurrent read: this is
+    // the abort path for a transaction that still owns the edge it is undoing, so
+    // nothing can have reclaimed it yet. `gid` is not part of `operator<`, so it
+    // does not affect which entry `remove` finds.
+    acc.remove(Entry{value, from_vertex, to_vertex, edge, edge->gid, exact_start_timestamp});
   }
 }
 
@@ -405,7 +452,7 @@ void InMemoryEdgeTypePropertyIndex::ActiveIndices::UpdateOnSetProperty(Vertex *f
     return;
 
   auto acc = it->second->skiplist.access();
-  acc.insert({value, from_vertex, to_vertex, edge, timestamp});
+  acc.insert({value, from_vertex, to_vertex, edge, edge->gid, timestamp});
 }
 
 uint64_t InMemoryEdgeTypePropertyIndex::ActiveIndices::ApproximateEdgeCount(EdgeTypeId edge_type,
@@ -592,7 +639,7 @@ void InMemoryEdgeTypePropertyIndex::ActiveIndices::AbortEntries(EdgeTypeProperty
 
     auto acc = it->second->skiplist.access();
     for (const auto &[from_vertex, to_vertex, edge, value] : edges) {
-      acc.remove(Entry{std::move(value), from_vertex, to_vertex, edge, start_timestamp});
+      acc.remove(Entry{std::move(value), from_vertex, to_vertex, edge, edge->gid, start_timestamp});
     }
   }
 }

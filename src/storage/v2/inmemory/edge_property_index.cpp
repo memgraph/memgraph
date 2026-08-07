@@ -342,6 +342,7 @@ uint64_t InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint
 
   // Pin the edge store while sweeping: the loop dereferences raw Edge* the epoch GC could free.
   auto const edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
+  auto const *mem_storage = static_cast<InMemoryStorage const *>(storage);
 
   uint64_t swept = 0;
   for (auto &[property_id, index] : *cpy) {
@@ -356,6 +357,17 @@ uint64_t InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint
 
       auto next_it = it;
       ++next_it;
+
+      // An edge the in-flight GC pass is about to unlink takes its entries with
+      // it, ahead of every other test in this loop: identity against the doomed
+      // set, O(1), no dereference. Both tests below can `continue` past an entry,
+      // and an entry that survives while its edge is unlinked is a dangling
+      // pointer left in the index. See InMemoryStorage::IsEdgeDyingThisGcPass.
+      if (mem_storage->IsEdgeDyingThisGcPass(it->edge)) {
+        edges_acc.remove(*it);
+        it = next_it;
+        continue;
+      }
 
       if (it->timestamp >= oldest_active_start_timestamp) {
         it = next_it;
