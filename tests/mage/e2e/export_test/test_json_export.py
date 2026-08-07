@@ -23,6 +23,10 @@ import pytest
 MEMGRAPH_HOST = os.environ.get("MEMGRAPH_HOST", "127.0.0.1")
 MEMGRAPH_PORT = int(os.environ.get("MEMGRAPH_PORT", "7687"))
 
+# Written by the *server*, so it must be a path the server can reach — pytest's tmp_path is a path on the machine
+# running the tests, which in CI is the host while Memgraph runs in a container with no shared mount.
+SERVER_EXPORT_FILE = "/tmp/mage_export_json_e2e.json"
+
 # Collects every node and relationship in creation order, so the exported element order is
 # deterministic (the procedures preserve input list order).
 COLLECT_ALL = (
@@ -69,7 +73,9 @@ def conn():
     cursor.execute("CALL mg.procedures() YIELD name RETURN collect(name) AS names")
     names = cursor.fetchall()[0][0]
     if "export.json_data" not in names:
-        pytest.skip("the `export` query module is not loaded")
+        # fail, not skip: the module is built unconditionally, so its absence is a regression. A skip would exit 0 and
+        # turn a packaging or dlopen failure into a green run with zero coverage.
+        pytest.fail("the `export` query module is not loaded")
     yield connection
     connection.close()
 
@@ -116,6 +122,15 @@ def without_ids(element):
     if isinstance(element, list):
         return [without_ids(item) for item in element]
     return element
+
+
+def read_server_file(path):
+    """Returns the server-written file's text, or None when the server is on a different filesystem."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+    except OSError:
+        return None
 
 
 def parse(payload, canonicalize=True):
@@ -191,6 +206,22 @@ def test_empty_groups_are_emitted_for_json_formats(conn):
         "rels": [],
     }
     assert export(conn, "{stream: true, jsonFormat: 'JSON_ID_AS_KEYS'}")["data"]["rels"] == {}
+
+
+@pytest.mark.parametrize(
+    "json_format,expected",
+    [("JSON", {"nodes": [], "rels": []}), ("JSON_ID_AS_KEYS", {"nodes": {}, "rels": {}})],
+)
+def test_empty_export_still_emits_the_wrapper_for_object_formats(conn, json_format, expected):
+    # Only JSON_LINES collapses to "" — the object shapes must stay parseable, so json.loads(data)["nodes"] works on
+    # an empty result set instead of raising.
+    row = export(
+        conn,
+        call=f"export.json_data([], [], null, {{stream: true, jsonFormat: '{json_format}'}})",
+        collect="",
+    )
+    assert row["data"] == expected
+    assert (row["nodes"], row["relationships"], row["rows"]) == (0, 0, 0)
 
 
 @pytest.mark.parametrize("nodes,rels", [("null", "null"), ("[]", "[]")])
@@ -377,24 +408,30 @@ def test_json_graph_tolerates_missing_keys(conn, graph):
     assert row["data"] == ""
 
 
-def test_file_write_returns_null_data_and_matches_the_stream(conn, tmp_path):
+def test_file_write_returns_null_data(conn):
     execute(conn, SEED_MIXED)
-    path = tmp_path / "export.json"
-    row = export(conn, call=f"export.json_data(ns, rs, '{path}', {{}})")
-    assert row["file"] == str(path), "the file column echoes the argument"
+    row = export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
+    assert row["file"] == SERVER_EXPORT_FILE, "the file column echoes the argument"
     assert row["data"] is None, "data is null whenever the payload went to a file"
     assert row["nodes"] == 3, "the counters are unaffected by the sink"
-    assert parse(path.read_text()) == ALL_ELEMENTS
-    # The two sinks must not diverge: same graph, same bytes.
-    assert path.read_text() == export(conn)["raw_data"]
 
 
-def test_file_argument_wins_over_stream(conn, tmp_path):
+def test_file_argument_wins_over_stream(conn):
     execute(conn, SEED_MIXED)
-    path = tmp_path / "both.json"
-    row = export(conn, call=f"export.json_data(ns, rs, '{path}', {{stream: true}})")
-    assert row["data"] is None
-    assert parse(path.read_text()) == ALL_ELEMENTS
+    row = export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{stream: true}})")
+    assert row["data"] is None, "a file argument wins over stream"
+    assert row["nodes"] == 3
+
+
+def test_file_contents_match_the_stream(conn):
+    execute(conn, SEED_MIXED)
+    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
+    written = read_server_file(SERVER_EXPORT_FILE)
+    if written is None:
+        pytest.skip(f"{SERVER_EXPORT_FILE} is not reachable from the test process (server on another filesystem)")
+    assert parse(written) == ALL_ELEMENTS
+    # The two sinks must not diverge: same graph, same bytes.
+    assert written == export(conn)["raw_data"]
 
 
 def test_no_file_and_no_stream_discards_the_payload(conn):
@@ -412,14 +449,34 @@ def test_no_file_and_no_stream_discards_the_payload(conn):
         "{compression: 'gzip'}",
         "{charset: 'UTF-8'}",
         "{jsonFormat: 'NOPE'}",
-        "{stream: 'yes'}",
-        "{writeNodeProperties: 1}",
+        # Unrecognized booleans throw rather than reading as false, so a typo cannot silently discard the payload.
+        "{stream: 'ture'}",
+        "{writeNodeProperties: 2}",
     ],
 )
 def test_invalid_config_is_rejected(conn, config):
     execute(conn, SEED_MIXED)
     with pytest.raises(Exception):
         export(conn, config)
+
+
+@pytest.mark.parametrize("spelling", ["'JSON'", "'json'", "'Json'"])
+def test_json_format_is_case_insensitive(conn, spelling):
+    execute(conn, "CREATE (:Product {sku: 'S1'})")
+    assert export(conn, f"{{stream: true, jsonFormat: {spelling}}}")["data"]["rels"] == []
+
+
+@pytest.mark.parametrize("truthy", ["true", "'true'", "'yes'", "1"])
+def test_boolean_config_accepts_the_spellings_the_reference_coerces(conn, truthy):
+    execute(conn, SEED_MIXED)
+    assert export(conn, f"{{stream: {truthy}}}")["data"] == ALL_ELEMENTS
+
+
+@pytest.mark.parametrize("falsy", ["false", "'false'", "'no'", "0"])
+def test_falsy_config_spellings_suppress_properties(conn, falsy):
+    execute(conn, "CREATE (:Product {sku: 'S1'})")
+    row = export(conn, f"{{stream: true, writeNodeProperties: {falsy}}}")
+    assert row["data"] == [{"type": "node", "id": "n0", "labels": ["Product"]}]
 
 
 def test_unwritable_path_is_reported(conn):

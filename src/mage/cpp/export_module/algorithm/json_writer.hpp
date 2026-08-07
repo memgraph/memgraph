@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 #include <mgp.hpp>
 #include <nlohmann/json.hpp>
@@ -32,21 +33,21 @@ struct WriteConfig {
   bool write_relationship_properties{true};
 };
 
+// What mgp::Node::Properties() / mgp::Relationship::Properties() hand back. Passed around by pointer so callers can
+// fetch once and share the result between the counter and the serializer; the fetch deep-copies every value.
+using Properties = std::unordered_map<std::string, mgp::Value>;
+
 // Scalar/container property value -> JSON. Temporals become ISO-8601 strings, points become {crs, coords}.
 Json ValueToJson(const mgp::Value &value);
 
 // {"type":"node","id":"<id>","labels":[...sorted...],"properties":{...}}. `properties` is omitted when the node has
-// none, or when `write_properties` is false.
-Json NodeToJson(const mgp::Node &node, bool write_properties);
+// none, and null suppresses it entirely; when non-null it is consumed.
+Json NodeToJson(const mgp::Node &node, Properties *properties);
 
 // {"type":"relationship","id":"<id>","label":"T","properties":{...},"start":{...},"end":{...}}. Endpoints are always
 // inlined in full, whether or not they appear in the exported node set, and carry {id, labels, properties} only.
-Json RelationshipToJson(const mgp::Relationship &relationship, const WriteConfig &config);
-
-// Number of own properties, ignoring the write_*_properties flags — the reference counts what it saw, not what it
-// wrote.
-std::uint64_t CountProperties(const mgp::Node &node);
-std::uint64_t CountProperties(const mgp::Relationship &relationship);
+// `properties` is the relationship's own; null suppresses it, non-null is consumed.
+Json RelationshipToJson(const mgp::Relationship &relationship, Properties *properties, const WriteConfig &config);
 
 std::string_view SridToCrs(std::uint16_t srid);
 
@@ -65,8 +66,9 @@ class JsonWriter {
   void AddNode(const mgp::Node &node);
   void AddRelationship(const mgp::Relationship &relationship);
 
-  // Serialized payload in the configured format; "" when nothing was added.
-  std::string Dump() const;
+  // Serialized payload in the configured format; "" when nothing was added under JSON_LINES, an empty wrapper under
+  // the two object shapes. Consumes the accumulated elements, so call it once; the counters stay valid.
+  std::string Dump();
 
   std::uint64_t NodeCount() const { return node_count_; }
 

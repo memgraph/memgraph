@@ -46,14 +46,14 @@ constexpr int64_t kMicrosPerDay = 24 * kMicrosPerHour;
 
 // Property key order is not reproducible across implementations, so sort: `mgp` only exposes properties as an
 // unordered_map, and hash order would reshuffle as the map grows.
-std::vector<std::pair<std::string, mgp::Value>> SortedProperties(std::unordered_map<std::string, mgp::Value> &&props) {
+std::vector<std::pair<std::string, mgp::Value>> SortedProperties(Properties &&props) {
   std::vector<std::pair<std::string, mgp::Value>> sorted(std::make_move_iterator(props.begin()),
                                                          std::make_move_iterator(props.end()));
   std::ranges::sort(sorted, {}, &std::pair<std::string, mgp::Value>::first);
   return sorted;
 }
 
-Json PropertiesToJson(std::unordered_map<std::string, mgp::Value> &&props) {
+Json PropertiesToJson(Properties &&props) {
   Json object = Json::object();
   for (auto &[key, value] : SortedProperties(std::move(props))) {
     object[key] = ValueToJson(value);
@@ -61,12 +61,16 @@ Json PropertiesToJson(std::unordered_map<std::string, mgp::Value> &&props) {
   return object;
 }
 
-std::vector<std::string_view> SortedLabels(const mgp::Node &node) {
+// Returns owned strings, not views: mgp::Labels holds its own copy of the vertex and frees it on the way out, so a
+// string_view into it would dangle for a virtual node (whose label text lives in that copy rather than in the
+// long-lived name mapper).
+std::vector<std::string> SortedLabels(const mgp::Node &node) {
   const auto labels = node.Labels();
-  std::vector<std::string_view> sorted;
-  sorted.reserve(labels.Size());
+  const auto size = labels.Size();
+  std::vector<std::string> sorted;
+  sorted.reserve(size);
   // Indexed rather than range-for: mgp::Labels::begin() is non-const.
-  for (size_t i = 0; i < labels.Size(); ++i) {
+  for (size_t i = 0; i < size; ++i) {
     sorted.emplace_back(labels[i]);
   }
   std::ranges::sort(sorted);
@@ -255,42 +259,44 @@ Json ValueToJson(const mgp::Value &value) {
 namespace {
 
 // Appends {id, labels, properties} — the shape shared by a top-level node and an inlined relationship endpoint. Takes
-// the object by reference so a top-level node can put its "type" key first without a merge.
-void AppendNodeBody(Json &object, const mgp::Node &node, bool write_properties) {
+// the object by reference so a top-level node can put its "type" key first without a merge. `properties` is null when
+// property output is suppressed; otherwise it is consumed.
+void AppendNodeBody(Json &object, const mgp::Node &node, Properties *properties) {
   object[kKeyId] = std::to_string(node.Id().AsInt());
   object[kKeyLabels] = SortedLabels(node);
-  if (write_properties) {
-    // An empty `properties` is omitted entirely rather than emitted as {}.
-    if (auto properties = PropertiesToJson(node.Properties()); !properties.empty()) {
-      object[kKeyProperties] = std::move(properties);
-    }
+  // An empty `properties` is omitted entirely rather than emitted as {}.
+  if (properties != nullptr && !properties->empty()) {
+    object[kKeyProperties] = PropertiesToJson(std::move(*properties));
   }
 }
 
 Json NodeBody(const mgp::Node &node, bool write_properties) {
   Json object = Json::object();
-  AppendNodeBody(object, node, write_properties);
+  if (!write_properties) {
+    AppendNodeBody(object, node, nullptr);
+    return object;
+  }
+  auto properties = node.Properties();
+  AppendNodeBody(object, node, &properties);
   return object;
 }
 
 }  // namespace
 
-Json NodeToJson(const mgp::Node &node, bool write_properties) {
+Json NodeToJson(const mgp::Node &node, Properties *properties) {
   Json object = Json::object();
   object[kKeyType] = kTypeNode;
-  AppendNodeBody(object, node, write_properties);
+  AppendNodeBody(object, node, properties);
   return object;
 }
 
-Json RelationshipToJson(const mgp::Relationship &relationship, const WriteConfig &config) {
+Json RelationshipToJson(const mgp::Relationship &relationship, Properties *properties, const WriteConfig &config) {
   Json object = Json::object();
   object[kKeyType] = kTypeRelationship;
   object[kKeyId] = std::to_string(relationship.Id().AsInt());
   object[kKeyLabel] = std::string{relationship.Type()};
-  if (config.write_relationship_properties) {
-    if (auto properties = PropertiesToJson(relationship.Properties()); !properties.empty()) {
-      object[kKeyProperties] = std::move(properties);
-    }
+  if (properties != nullptr && !properties->empty()) {
+    object[kKeyProperties] = PropertiesToJson(std::move(*properties));
   }
   // Endpoints are inlined in full even when they are absent from the exported node set. `writeNodeProperties` governs
   // them; `writeRelationshipProperties` does not.
@@ -299,26 +305,28 @@ Json RelationshipToJson(const mgp::Relationship &relationship, const WriteConfig
   return object;
 }
 
-std::uint64_t CountProperties(const mgp::Node &node) { return node.Properties().size(); }
-
-std::uint64_t CountProperties(const mgp::Relationship &relationship) { return relationship.Properties().size(); }
-
 void JsonWriter::AddNode(const mgp::Node &node) {
-  nodes_.push_back(NodeToJson(node, config_.write_node_properties));
+  // Fetched once and reused: mgp hands properties over as a deep copy of every value, so counting them separately
+  // would materialize the whole property store a second time. The counter is inert to the write flags, so the fetch
+  // happens even when the properties are not written.
+  auto properties = node.Properties();
+  property_count_ += properties.size();
+  nodes_.push_back(NodeToJson(node, config_.write_node_properties ? &properties : nullptr));
   ++node_count_;
-  property_count_ += CountProperties(node);
 }
 
 void JsonWriter::AddRelationship(const mgp::Relationship &relationship) {
-  relationships_.push_back(RelationshipToJson(relationship, config_));
-  ++relationship_count_;
+  auto properties = relationship.Properties();
   // Only the relationship's own properties count; the inlined endpoints' do not.
-  property_count_ += CountProperties(relationship);
+  property_count_ += properties.size();
+  relationships_.push_back(
+      RelationshipToJson(relationship, config_.write_relationship_properties ? &properties : nullptr, config_));
+  ++relationship_count_;
 }
 
-std::string JsonWriter::Dump() const {
-  if (nodes_.empty() && relationships_.empty()) return "";
-
+std::string JsonWriter::Dump() {
+  // No empty-set short circuit: JSON_LINES falls out as "" on its own, while the two object shapes must still emit
+  // their wrappers ({"nodes":[],"rels":[]} / {"nodes":{},"rels":{}}) so an empty export stays parseable.
   switch (config_.format) {
     case JsonFormat::kJsonLines: {
       std::string result;
@@ -334,15 +342,18 @@ std::string JsonWriter::Dump() const {
     }
     case JsonFormat::kJson: {
       Json object = Json::object();
-      object[kKeyNodes] = nodes_;
-      object[kKeyRels] = relationships_;
+      object[kKeyNodes] = std::move(nodes_);
+      object[kKeyRels] = std::move(relationships_);
       return object.dump();
     }
     case JsonFormat::kJsonIdAsKeys: {
-      const auto by_id = [](const Json &elements) {
+      const auto by_id = [](Json &elements) {
         Json object = Json::object();
-        for (const auto &element : elements) {
-          object[element.at(kKeyId).get<std::string>()] = element;
+        for (auto &element : elements) {
+          // Key read into its own statement first: nlohmann's operator= takes its argument by value, and the RHS is
+          // sequenced before the LHS, so moving inline would empty `element` before the id could be read back out.
+          auto id = element.at(kKeyId).get<std::string>();
+          object[std::move(id)] = std::move(element);
         }
         return object;
       };
