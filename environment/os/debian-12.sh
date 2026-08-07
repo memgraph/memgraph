@@ -9,7 +9,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gnupg # used for archive signature verification
     tar gzip bzip2 xz-utils unzip # used for archive unpacking
     zlib1g-dev # zlib library used for all builds
-    libexpat1-dev libbabeltrace-dev liblzma-dev python3-dev texinfo # for gdb
+    libexpat1-dev liblzma-dev python3-dev texinfo # for gdb
     libcurl4-openssl-dev # for cmake
     libreadline-dev # for cmake and llvm
     libffi-dev libxml2-dev # for llvm

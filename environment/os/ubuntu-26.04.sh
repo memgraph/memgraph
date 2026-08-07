@@ -24,8 +24,6 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     libssl-dev pkg-config # for pulsar
     libsasl2-dev # for librdkafka
-    gdb lcov libbz2-dev libgdbm-dev libgdbm-compat-dev libncurses-dev # for building python
-    libreadline-dev libsqlite3-dev lzma tk-dev uuid-dev # for building python
     python3-pip # for conan
 )
 

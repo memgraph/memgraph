@@ -12,9 +12,10 @@
 #     NEW_DEPS=(...)
 #     main "$@"
 #
-# The filename is the OS name (fedora-44.sh, debian-13-arm.sh, ...); the -arm
-# suffix selects the aarch64 architecture check. MEMGRAPH_TEST_DEPS defaults
-# to MEMGRAPH_BUILD_DEPS unless the script sets it explicitly.
+# The filename is the OS name (fedora-44.sh, debian-13.sh, ...); one script
+# serves every architecture — anything arch-specific belongs in a hook that
+# inspects `uname -m`. MEMGRAPH_TEST_DEPS defaults to MEMGRAPH_BUILD_DEPS
+# unless the script sets it explicitly.
 #
 # Optional hooks, defined between `source lib.sh` and `main "$@"`:
 #   setup_repos()              enable extra repos before packages install
@@ -163,12 +164,8 @@ main() {
     local skip_check
     skip_check=$(parse_skip_check_flag "$@")
     if [[ "$skip_check" == "false" ]]; then
-        check_operating_system "${OS%-arm}"
-        if [[ "$OS" == *-arm ]]; then
-            check_architecture "arm64" "aarch64"
-        else
-            check_architecture "x86_64"
-        fi
+        check_operating_system "$OS"
+        check_architecture "x86_64" "arm64" "aarch64"
     else
         echo "Skipping checks for $OS"
     fi
