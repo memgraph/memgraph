@@ -30,6 +30,7 @@
 #include "kvstore/kvstore.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
+#include "system/system.hpp"
 #include "utils/uuid.hpp"
 
 namespace {
@@ -80,6 +81,42 @@ memgraph::utils::UUID SeedHotEntry(memgraph::kvstore::KVStore &kv, std::string_v
   kv.Put(std::string{kDBPrefixLiteral} + std::string{name}, j.dump());
   return uuid;
 }
+
+// Same shape as SeedHotEntry, but also hands back the exact bytes it wrote: needed by tests asserting that
+// a durability record survives an operation VERBATIM (byte-for-byte), not merely "still there".
+struct SeededHotEntry {
+  memgraph::utils::UUID uuid;
+  std::string json_str;
+};
+
+SeededHotEntry SeedHotEntryCapturingJson(memgraph::kvstore::KVStore &kv, std::string_view name) {
+  const memgraph::utils::UUID uuid;
+  nlohmann::json j;
+  j["uuid"] = uuid;
+  j["rel_dir"] = std::filesystem::path(std::string{memgraph::dbms::kMultiTenantDir}) / std::string{uuid};
+  auto json_str = j.dump();
+  kv.Put(std::string{kDBPrefixLiteral} + std::string{name}, json_str);
+  return {uuid, std::move(json_str)};
+}
+
+// Counts how many system actions actually get applied through a Transaction::Commit. Transaction::Commit
+// (system/transaction.hpp) early-returns via Abort() -- without ever calling ApplyAction -- when actions_ is
+// empty, so this is the one observable that discriminates "AddAction<RenameDatabase> ran" (applied == 1)
+// from "it was skipped" (applied == 0). CanReplicateInCommunity() cannot make that distinction: it reads
+// false both for zero actions and for one dbms action.
+struct CountingReplicationPolicy {
+  int *applied;
+
+  auto ApplyAction(const memgraph::system::ISystemAction & /*action*/, const memgraph::system::Transaction & /*txn*/)
+      -> memgraph::system::AllSyncReplicaStatus {
+    ++*applied;
+    return memgraph::system::AllSyncReplicaStatus::AllCommitsConfirmed;
+  }
+
+  auto FinalizeTransaction(const memgraph::system::Transaction & /*txn*/) -> memgraph::system::AllSyncReplicaStatus {
+    return memgraph::system::AllSyncReplicaStatus::AllCommitsConfirmed;
+  }
+};
 
 // Exact shape of Durability::GenColdVal (dbms_handler.cpp:150) minus `cold_stats`, which the restore loop
 // reads under `json.contains("cold_stats")` (dbms_handler.cpp:239) -- omitting it is still faithful.
@@ -709,6 +746,154 @@ TEST(DBMS_Handler, DropSucceedsDurablyWhenAttachedProfileJsonIsCorrupt) {
   EXPECT_FALSE(verify_kv2.Get(std::string{TenantProfiles::kDbMappingPrefix} + "victim").has_value())
       << "boot reconciliation (PruneDatabases) must collect the leftover mapping on the very next boot, "
          "even though the profile it names never parses";
+
+  fs::remove_all(sr.root);
+}
+
+// A corrupt attached tenant-profile record must not turn RENAME into a false failure, nor skip
+// txn->AddAction<RenameDatabase>. TenantProfiles::RenameDatabase used to parse the persisted profile record
+// with an unguarded nlohmann::json::parse, reached *after* DbmsHandler::Rename had already committed the
+// tenant rename both in memory and durably -- so the throw propagated out of Rename, telling the client the
+// RENAME had failed for an operation that had fully succeeded, and skipping AddAction<RenameDatabase>
+// (below the throw site), so the rename was never replicated. MAIN and the replica then permanently
+// disagreed on the tenant's name. Fixed by c4479c893 (catch json::exception in TenantProfiles::RenameDatabase,
+// return DURABILITY_ERROR instead) + 28b1e9046 (surface, but don't propagate, that error in Rename).
+TEST(DBMS_Handler, RenameSucceedsAndReplicatesWhenAttachedProfileJsonIsCorrupt) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+  using memgraph::dbms::TenantProfiles;
+
+  auto sr = MakeSeededRoot("rename_corrupt_profile");
+
+  memgraph::utils::UUID victim_uuid;
+  {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    ASSERT_TRUE(seed_kv.Put("version", "V2"));
+    victim_uuid = SeedHotEntry(seed_kv, "victim");
+    ASSERT_TRUE(seed_kv.Put(std::string{TenantProfiles::kDbMappingPrefix} + "victim", "p"));
+    // Deliberately broken JSON -- NOT via SeedProfile, which would write a well-formed tenant_profile:p row.
+    ASSERT_TRUE(seed_kv.Put(std::string{TenantProfiles::kPrefix} + "p", "{not json"));
+  }
+  fs::create_directories(TenantDataDir(sr, victim_uuid));
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::unique_ptr<DbmsHandler> handler;
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf));
+
+  // Drive the rename through a real system transaction so replication (AddAction<RenameDatabase>) is
+  // directly observable, rather than inferred.
+  memgraph::system::System sys;  // default ctor: no storage, no recovery
+  auto txn = sys.TryCreateTransaction();
+  ASSERT_TRUE(txn.has_value());
+
+  std::optional<DbmsHandler::RenameResult> res;
+  ASSERT_NO_THROW(res = handler->Rename("victim", "renamed", &*txn))
+      << "a corrupt attached tenant-profile record must not be able to throw a JSON exception out of RENAME";
+  ASSERT_TRUE(res.has_value());
+  ASSERT_TRUE(res->has_value())
+      << "RENAME must report SUCCESS even though the attached profile record is corrupt -- reporting failure "
+         "for an operation that fully succeeded is the exact bug";
+
+  int applied = 0;
+  txn->Commit(CountingReplicationPolicy{&applied});
+  EXPECT_EQ(applied, 1)
+      << "the RenameDatabase system action must have been recorded so the rename replicates -- pre-fix this "
+         "was 0 because the throw skipped AddAction, which is what made MAIN and the replica disagree on the "
+         "tenant name permanently";
+
+  const auto all = handler->All();
+  EXPECT_TRUE(std::find(all.begin(), all.end(), "renamed") != all.end()) << "'renamed' must be visible after RENAME";
+  EXPECT_TRUE(std::find(all.begin(), all.end(), "victim") == all.end())
+      << "'victim' must no longer be visible after RENAME";
+  handler.reset();
+
+  {
+    memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+    EXPECT_TRUE(verify_kv.Get(std::string{kDBPrefixLiteral} + "renamed").has_value())
+        << "database:renamed must exist -- the durability record must have moved to the new name";
+    EXPECT_FALSE(verify_kv.Get(std::string{kDBPrefixLiteral} + "victim").has_value())
+        << "database:victim must no longer exist";
+
+    auto mapping = verify_kv.Get(std::string{TenantProfiles::kDbMappingPrefix} + "victim");
+    EXPECT_TRUE(mapping.has_value())
+        << "the stale db_tenant_profile:victim mapping is deliberately left in place here -- the next boot's "
+           "PruneDatabases collects it, not this call";
+  }
+
+  {
+    std::unique_ptr<DbmsHandler> handler2;
+    ASSERT_NO_THROW(handler2 = std::make_unique<DbmsHandler>(conf));
+    handler2.reset();
+  }
+
+  memgraph::kvstore::KVStore verify_kv2{sr.durability_dir};
+  EXPECT_FALSE(verify_kv2.Get(std::string{TenantProfiles::kDbMappingPrefix} + "victim").has_value())
+      << "boot reconciliation (PruneDatabases) must collect the leftover db_tenant_profile:victim mapping on "
+         "the very next boot, even though the profile it names never parses";
+
+  fs::remove_all(sr.root);
+}
+
+// The tenant's own `database:` durability record must move VERBATIM on RENAME, not be parsed and rewritten.
+// Pre-fix, DbmsHandler::Rename did `json = parse(old_val); json["name"] = new_name; Put(new_key, json.dump())`.
+// Durability::GenVal never writes a "name" field, and nothing in the codebase ever reads one back -- the
+// tenant's name lives in the KEY, and the restore loop derives it via key.substr(kDBPrefix.size()) -- so that
+// write was pure litter added on every rename, and doubled as a second corrupt-record throw site (fixed
+// alongside the profile one by 28b1e9046). This test doubles as the healthy-rename negative control: it
+// proves the fix is not over-broad by checking a plain, non-corrupt rename still behaves.
+TEST(DBMS_Handler, RenameMovesTenantDurabilityRecordVerbatim) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+
+  auto sr = MakeSeededRoot("rename_verbatim");
+
+  auto seeded = [&] {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    seed_kv.Put("version", "V2");
+    return SeedHotEntryCapturingJson(seed_kv, "before");
+  }();
+  fs::create_directories(TenantDataDir(sr, seeded.uuid));
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::unique_ptr<DbmsHandler> handler;
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf));
+
+  auto res = handler->Rename("before", "after");
+  ASSERT_TRUE(res.has_value()) << "a plain, healthy rename must succeed";
+
+  const auto all = handler->All();
+  EXPECT_TRUE(std::find(all.begin(), all.end(), "after") != all.end());
+  EXPECT_TRUE(std::find(all.begin(), all.end(), "before") == all.end());
+  handler.reset();
+
+  {
+    memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+    auto new_val = verify_kv.Get(std::string{kDBPrefixLiteral} + "after");
+    ASSERT_TRUE(new_val.has_value()) << "database:after must exist";
+    EXPECT_EQ(*new_val, seeded.json_str)
+        << "the moved record must be byte-identical to what was seeded -- parsing and re-dumping it (the "
+           "pre-fix behavior) would not round-trip to the exact same bytes";
+    EXPECT_FALSE(verify_kv.Get(std::string{kDBPrefixLiteral} + "before").has_value())
+        << "database:before must no longer exist";
+
+    const auto entry_json = nlohmann::json::parse(*new_val);
+    EXPECT_FALSE(entry_json.contains("name"))
+        << "the pre-fix code injected a \"name\" field on every rename; Durability::GenVal never writes one "
+           "and nothing reads it back -- it was write-only litter";
+    EXPECT_TRUE(entry_json.contains("uuid"));
+    EXPECT_TRUE(entry_json.contains("rel_dir"));
+  }
+
+  {
+    std::unique_ptr<DbmsHandler> handler2;
+    ASSERT_NO_THROW(handler2 = std::make_unique<DbmsHandler>(conf));
+    const auto all2 = handler2->All();
+    EXPECT_TRUE(std::find(all2.begin(), all2.end(), "after") != all2.end())
+        << "a fresh boot must restore the tenant under its renamed name";
+    handler2.reset();
+  }
+
+  EXPECT_TRUE(fs::exists(TenantDataDir(sr, seeded.uuid))) << "the tenant's data directory must be untouched by RENAME";
 
   fs::remove_all(sr.root);
 }
