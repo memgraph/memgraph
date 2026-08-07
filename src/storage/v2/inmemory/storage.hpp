@@ -16,6 +16,9 @@
 #include <optional>
 #include <string_view>
 #include <utility>
+
+#include <absl/container/flat_hash_set.h>
+
 #include "memory/db_arena_fwd.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "storage/v2/commit_log.hpp"
@@ -921,7 +924,28 @@ class InMemoryStorage final : public Storage {
   // heavy, so (unlike MakeEdgePin) there is no light-mode variant.
   [[nodiscard]] auto MakeVertexPin() const { return vertices_.access(); }
 
+  // The edges the in-flight GC pass is about to unlink from `edges_`, published
+  // for the duration of that pass's index sweep and empty at every other moment.
+  //
+  // An index Entry holds a borrowed Edge*, so the only thing that keeps it
+  // dereferenceable is that no entry ever outlives its edge. CollectGarbage is
+  // the single site that unlinks an edge, and it sweeps the indices immediately
+  // beforehand -- so publishing the doomed set across that sweep lets the sweep
+  // recognise those entries by POINTER IDENTITY and drop them unconditionally,
+  // without deciding their fate from the edge's own MVCC state and without
+  // re-resolving anything. That is what makes the ordering an invariant rather
+  // than a consequence of AnyVersionHasProperty happening to say `false`.
+  //
+  // Written and read only from the GC pass, which is serialised against itself
+  // by the caller of CollectGarbage; hence a plain set, no lock.
+  [[nodiscard]] bool IsEdgeDyingThisGcPass(Edge const *edge) const noexcept {
+    return !gc_dying_edges_.empty() && gc_dying_edges_.contains(edge);
+  }
+
   utils::SkipListDb<Edge> edges_;
+  // See IsEdgeDyingThisGcPass. Populated by CollectGarbage immediately before the
+  // index sweep and cleared once the unlink loop below it has run.
+  absl::flat_hash_set<Edge const *> gc_dying_edges_;
   // Present iff salient.items.enable_edges_metadata && salient.items.properties_on_edges.
   std::optional<EdgeMetadataIndex> edges_metadata_index_;
 

@@ -1813,20 +1813,12 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                                   *transaction_.active_indices_,
                                   transaction_.start_timestamp,
                                   mem_storage->name_id_mapper_.get());
-    // EDGES METADATA (has ptr to Vertices, must be before removing verticies).
-    // Heavy edges are removed from the edges_ skiplist below and never re-enter
-    // GC, so abort is their single metadata-removal site. Light edges instead
-    // ride deleted_edges_ into CollectGarbage, which is THEIR single removal site
-    // (OnEdgesDeleted at the transactional GC light arm) — calling OnEdgesDeleted
-    // here too would double-remove the gid and trip the MG_ASSERT in
-    // EdgeMetadataIndex::OnEdgesDeleted. So gate this to heavy only.
-    // my_deleted_edges holds Edge* for edges this aborting txn created (abort-of-create);
-    // they remain in `edges_` until the remove loop below, so reading ->gid here is safe.
-    if (!my_deleted_edges.empty() && !mem_storage->config_.salient.items.storage_light_edge) {
-      if (auto &idx = mem_storage->edges_metadata_index_) {
-        idx->OnEdgesDeleted(my_deleted_edges | std::ranges::views::transform(&Edge::gid));
-      }
-    }
+    // EDGES METADATA: nothing to do here for either edge kind. Both now ride
+    // deleted_edges_ into CollectGarbage, which is the single site that removes an
+    // edge from `edges_` and therefore the single site that must retire its index
+    // entries first; OnEdgesDeleted runs there, for heavy and light alike. Doing it
+    // here as well would double-remove the gid and trip the MG_ASSERT in
+    // EdgeMetadataIndex::OnEdgesDeleted.
 
     // VERTICES (has ptr to Edges, must be before removing edges)
     if (!my_deleted_vertices.empty()) {
@@ -1837,33 +1829,29 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     }
 
     // EDGES / LIGHT EDGES
-    // Both heavy and light edges defer to deleted_edges_ here. Light edges must
-    // NOT be pushed to the light_edge_graveyard_ at abort time: the graveyard
-    // watermark (guard_epoch) is snapped at GC-COLLECTION time so that any
-    // post-abort reader is ordered before it. Riding deleted_edges_ into
-    // CollectGarbage also runs the index cleanup (OnEdgesDeleted +
-    // RemoveEdgesFromVectorEdgeIndices) before the graveyard push, exactly like
-    // heavy. Light edges have no skiplist node, so the heavy edges_acc.remove
-    // call is skipped for them; only the deleted_edges_ routing applies.
-    // Heavy behaviour is unchanged.
     if (!my_deleted_edges.empty()) {
-      if (mem_storage->config_.salient.items.storage_light_edge) {
-        // Do NOT push to light_edge_graveyard_ here: snapping guard_epoch at abort
-        // time, before any post-commit index iterable opens, would let
-        // DrainLightEdgeGraveyard free the Edge* under a live iterable (UAF). Mirror
-        // the heavy deferral (the skiplist GC frees a marked node only once its
-        // accessor watermark clears) by routing light edges through deleted_edges_
-        // into CollectGarbage, which snaps the graveyard watermark at GC-collection
-        // time.
-        // O(1) splice under the SpinLock — never an O(batch) copy while locked.
-        mem_storage->deleted_edges_.WithLock(
-            [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), my_deleted_edges); });
-      } else {
-        auto edges_acc = mem_storage->edges_.access();
-        for (auto *edge : my_deleted_edges) {
-          edges_acc.remove(edge->gid);
-        }
-      }
+      // Both kinds defer to deleted_edges_; neither is unlinked here. Riding it
+      // into CollectGarbage is what puts them through the index cleanup
+      // (OnEdgesDeleted + RemoveEdgesFromVectorEdgeIndices + the edge-index sweep)
+      // before anything reclaims them.
+      //
+      // Light edges must not be pushed to light_edge_graveyard_ at abort time:
+      // snapping guard_epoch before any post-commit index iterable opens would let
+      // DrainLightEdgeGraveyard free the Edge* under a live iterable (UAF).
+      //
+      // Heavy edges used to be removed from `edges_` right here, which made abort a
+      // SECOND unlink site — one that runs no index sweep. Any index entry naming
+      // one of these edges that AbortEntries did not match exactly (it removes by
+      // exact key: value, endpoints, timestamp) outlived its edge, and the entry was
+      // then a dangling pointer for the next scan or sweep to dereference. Deferring
+      // to deleted_edges_ makes CollectGarbage the only unlink site for both kinds,
+      // which is what lets the sweep there retire every entry BEFORE the edge goes
+      // (see InMemoryStorage::IsEdgeDyingThisGcPass) and lets readers dereference
+      // Entry::edge under nothing but their pin.
+      //
+      // O(1) splice under the SpinLock — never an O(batch) copy while locked.
+      mem_storage->deleted_edges_.WithLock(
+          [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), my_deleted_edges); });
     }
   }
 
@@ -3454,6 +3442,19 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // This operation is very expensive as it traverses through all of the items
   // in every index every time.
   gc_progress_.SetPhase(GcPhase::INDEX_CLEANUP);
+
+  // Publish the edges this pass will unlink, so the sweep below can drop their
+  // index entries by pointer identity instead of inferring staleness from each
+  // edge's MVCC state. The window closes after the unlink loop further down; an
+  // OnScopeExit rather than a plain clear() because everything between here and
+  // there can throw, and a set left published would make a later sweep discard
+  // live entries for edges that were never unlinked.
+  auto const unpublish_dying_edges = utils::OnScopeExit{[this] { gc_dying_edges_.clear(); }};
+  if (!current_deleted_edges.empty() && !config_.salient.items.storage_light_edge) {
+    gc_dying_edges_.reserve(current_deleted_edges.size());
+    gc_dying_edges_.insert(current_deleted_edges.begin(), current_deleted_edges.end());
+  }
+
   if (auto token = stop_source.get_token(); !token.stop_requested()) {
     uint64_t swept = 0;
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
