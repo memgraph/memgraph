@@ -4449,6 +4449,7 @@ antlrcpp::Any CypherMainVisitor::visitDropDatabase(MemgraphCypher::DropDatabaseC
   mdb_query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
   mdb_query->action_ = MultiDatabaseQuery::Action::DROP;
   mdb_query->force_ = ctx->FORCE() != nullptr;
+  mdb_query->force_abort_ = ctx->ABORT() != nullptr;
   query_ = mdb_query;
   return mdb_query;
 }
