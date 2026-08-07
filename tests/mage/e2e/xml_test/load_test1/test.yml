@@ -1,6 +1,6 @@
 query: >
     WITH "https://www.w3schools.com/xml/note.xml" AS xmlUrl
-    CALL xml_module.load(xmlUrl, false, "", "", {}) YIELD output_map as file
+    CALL xml_module.load(xmlUrl, false, "", "", {`User-Agent`: "Memgraph-XML-Module-Test/1.0"}) YIELD output_map as file
     RETURN file
 
 output:
