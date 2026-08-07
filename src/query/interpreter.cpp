@@ -4215,6 +4215,239 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
       .rw_type = RWType::NONE};
 }
 
+// Forward-declared so the per-operand recursion in the concrete-type helpers below can call back
+// into it; the real definition (with the full allowlist) follows the helpers.
+bool IsConstantExpression(Expression *expression);
+
+// Named per concrete leaf type -- deliberately NOT a check against the BinaryOperator/UnaryOperator
+// base class. Both InListOperator and SubscriptOperator also derive from BinaryOperator but touch
+// the graph, and a blanket base-class check would silently admit them (and any future subclass) into
+// the accessor-free path. Each helper is only ever instantiated with the arithmetic/comparison/logical
+// operators explicitly listed at the two call sites in IsConstantExpression, so exact-type Downcast
+// here is equivalent to an explicit allowlist.
+template <typename TOperator>
+bool IsConstantBinaryOperator(Expression *expression) {
+  auto *op = utils::Downcast<TOperator>(expression);
+  return op != nullptr && IsConstantExpression(op->expression1_) && IsConstantExpression(op->expression2_);
+}
+
+template <typename... TOperators>
+bool IsConstantBinaryOperatorOf(Expression *expression) {
+  return (IsConstantBinaryOperator<TOperators>(expression) || ...);
+}
+
+template <typename TOperator>
+bool IsConstantUnaryOperator(Expression *expression) {
+  auto *op = utils::Downcast<TOperator>(expression);
+  return op != nullptr && IsConstantExpression(op->expression_);
+}
+
+template <typename... TOperators>
+bool IsConstantUnaryOperatorOf(Expression *expression) {
+  return (IsConstantUnaryOperator<TOperators>(expression) || ...);
+}
+
+// Accessor-free: no storage transaction (NO_ACCESS) -- no main_lock_ hold, no active_transactions entry;
+// Lab issues these continuously; constant = evaluable by PrimitiveLiteralExpressionEvaluator with no DbAccessor.
+// Anything not explicitly listed here falls through (default-reject), including Function, InListOperator,
+// SubscriptOperator, ListSlicingOperator, RangeOperator, PropertyLookup, AllPropertiesLookup, LabelsTest,
+// Identifier and any pattern node -- all of those need a DbAccessor or a Frame/symbol table that this path
+// doesn't have.
+bool IsConstantExpression(Expression *expression) {
+  if (expression == nullptr) return false;
+  if (utils::Downcast<PrimitiveLiteral>(expression) != nullptr ||
+      utils::Downcast<ParameterLookup>(expression) != nullptr) {
+    return true;
+  }
+  if (auto *list_literal = utils::Downcast<ListLiteral>(expression)) {
+    return std::ranges::all_of(list_literal->elements_, IsConstantExpression);
+  }
+  if (auto *map_literal = utils::Downcast<MapLiteral>(expression)) {
+    return std::ranges::all_of(map_literal->elements_,
+                               [](auto const &entry) { return IsConstantExpression(entry.second); });
+  }
+  // Arithmetic, comparison and logical BinaryOperator subclasses; recurses into both operands.
+  if (IsConstantBinaryOperatorOf<AdditionOperator,
+                                 SubtractionOperator,
+                                 MultiplicationOperator,
+                                 DivisionOperator,
+                                 ModOperator,
+                                 ExponentiationOperator,
+                                 EqualOperator,
+                                 NotEqualOperator,
+                                 LessOperator,
+                                 GreaterOperator,
+                                 LessEqualOperator,
+                                 GreaterEqualOperator,
+                                 AndOperator,
+                                 OrOperator,
+                                 XorOperator>(expression)) {
+    return true;
+  }
+  // NotOperator/UnaryPlusOperator/UnaryMinusOperator/IsNullOperator; recurses into the sole operand.
+  if (IsConstantUnaryOperatorOf<NotOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator>(expression)) {
+    return true;
+  }
+  if (auto *if_operator = utils::Downcast<IfOperator>(expression)) {
+    // Cypher CASE: the parser always synthesizes an else-branch, so all three are non-null.
+    return IsConstantExpression(if_operator->condition_) && IsConstantExpression(if_operator->then_expression_) &&
+           IsConstantExpression(if_operator->else_expression_);
+  }
+  if (auto *coalesce = utils::Downcast<Coalesce>(expression)) {
+    return std::ranges::all_of(coalesce->expressions_, IsConstantExpression);
+  }
+  return false;
+}
+
+// Memory limit and `USING` pre-query directives (index hints, hops limit, commit frequency, parallel
+// execution) aren't honoured by the accessor-free preparers, so a query setting any of them must not qualify.
+bool HasNoQueryLevelModifiers(const CypherQuery &query) {
+  auto const &directives = query.pre_query_directives_;
+  return query.memory_limit_ == nullptr && directives.index_hints_.empty() && directives.hops_limit_ == nullptr &&
+         directives.commit_frequency_ == nullptr && !directives.parallel_execution_ &&
+         directives.num_threads_ == nullptr;
+}
+
+// Recognizes `RETURN <constant expressions>` with no DISTINCT/ORDER BY/SKIP/LIMIT/`*`/UNION -- covers
+// Lab's `RETURN 1 AS APP_INTERNAL_EXEC_VAR` connection check and `RETURN 1` probe; anything else falls through.
+bool IsConstantReturnQuery(const CypherQuery &query) {
+  if (query.single_query_ == nullptr || !query.cypher_unions_.empty()) return false;
+  if (!HasNoQueryLevelModifiers(query)) return false;
+  auto const &clauses = query.single_query_->clauses_;
+  if (clauses.size() != 1) return false;
+  auto *return_clause = utils::Downcast<Return>(clauses.front());
+  if (return_clause == nullptr) return false;
+  auto const &body = return_clause->body_;
+  if (body.distinct || body.all_identifiers || !body.order_by.empty() || body.skip != nullptr ||
+      body.limit != nullptr || body.named_expressions.empty()) {
+    return false;
+  }
+  return std::ranges::all_of(body.named_expressions, [](NamedExpression *named_expression) {
+    return named_expression != nullptr && IsConstantExpression(named_expression->expression_);
+  });
+}
+
+// Evaluates the constant expressions with no DbAccessor and streams the single row. Header derivation
+// mirrors PrepareCypherQuery's (interpreter.cpp:4004) so the column names are byte-identical.
+PreparedQuery PrepareConstantReturnQuery(ParsedQuery parsed_query) {
+  auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+  MG_ASSERT(cypher_query && cypher_query->single_query_, "Constant RETURN query expects a cypher single query");
+  auto *return_clause = utils::Downcast<Return>(cypher_query->single_query_->clauses_.front());
+  MG_ASSERT(return_clause, "Constant RETURN query expects a RETURN clause");
+  auto const &named_expressions = return_clause->body_.named_expressions;
+
+  std::vector<std::string> header;
+  header.reserve(named_expressions.size());
+  for (auto *named_expression : named_expressions) {
+    header.push_back(utils::FindOr(parsed_query.stripped_query.named_expressions(),
+                                   named_expression->token_position_,
+                                   std::string{named_expression->name_})
+                         .first);
+  }
+
+  EvaluationContext evaluation_context;
+  // No DB memory tracker without an accessor; use the process allocator (matches PrepareBuiltinIntrospectionQuery).
+  evaluation_context.memory = utils::NewDeleteResource();
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parsed_query.parameters;
+  PrimitiveLiteralExpressionEvaluator evaluator{evaluation_context, /*dba=*/nullptr};
+
+  std::vector<TypedValue> row;
+  row.reserve(named_expressions.size());
+  for (auto *named_expression : named_expressions) {
+    row.emplace_back(named_expression->expression_->Accept(evaluator));
+  }
+  std::vector<std::vector<TypedValue>> rows;
+  rows.push_back(std::move(row));
+
+  return PreparedQuery{
+      .header = std::move(header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [pull_plan = std::make_shared<PullPlanVector>(std::move(rows))](
+                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::NOTHING;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
+}
+
+// Reads the module registry (shared lock, released before this returns) -- deliberately the LAST check
+// in IsBuiltinIntrospectionQuery so it can't deadlock against mg.procedures, which takes the lock exclusively.
+bool ProcedureIsAccessorFreeEligible(std::string_view procedure_name) {
+  return procedure::ProcedureIsAccessorFreeEligible(procedure::gModuleRegistry, procedure_name);
+}
+
+// Recognizes a standalone accessor-free-eligible `CALL <proc>() YIELD ...` (e.g. Lab's
+// `CALL mg.procedures() YIELD *`); checks are ordered cheapest-first so the registry lookup runs last.
+bool IsBuiltinIntrospectionQuery(const CypherQuery &query) {
+  if (query.single_query_ == nullptr || !query.cypher_unions_.empty()) return false;
+  if (!HasNoQueryLevelModifiers(query)) return false;
+  auto const &clauses = query.single_query_->clauses_;
+  if (clauses.size() != 1) return false;
+  auto *call_procedure = utils::Downcast<CallProcedure>(clauses.front());
+  if (call_procedure == nullptr) return false;
+  if (!call_procedure->arguments_.empty() || call_procedure->result_fields_.empty()) return false;
+  // A YIELD ... WHERE is held on the CallProcedure clause itself (the clause count stays 1), and the
+  // accessor-free preparer does not filter, so accepting one here would silently drop the predicate.
+  if (call_procedure->where_ != nullptr) return false;
+  // Likewise a per-call `PROCEDURE MEMORY LIMIT`, which the accessor-free path does not install.
+  if (call_procedure->memory_limit_ != nullptr) return false;
+  // Cheap AST-level read check: the parser stamps this from the registry at parse time.
+  if (call_procedure->is_write_) return false;
+  return ProcedureIsAccessorFreeEligible(call_procedure->procedure_name_);
+}
+
+enum class AccessorFreeQueryKind : uint8_t { kConstantReturn, kBuiltinIntrospection };
+
+// Computed once and threaded through: both the transaction-requirements visitor and the Prepare dispatch
+// need this answer, and IsBuiltinIntrospectionQuery takes the module-registry lock, so it isn't recomputed.
+std::optional<AccessorFreeQueryKind> ClassifyAccessorFreeQuery(const CypherQuery &query) {
+  if (IsConstantReturnQuery(query)) return AccessorFreeQueryKind::kConstantReturn;
+  if (IsBuiltinIntrospectionQuery(query)) return AccessorFreeQueryKind::kBuiltinIntrospection;
+  return std::nullopt;
+}
+
+// Skips CallProcedure telemetry (owned by CallProcedureCursor, bypassed here) since Lab's polling isn't
+// workload. Only validation (proc exists / not write / no_graph_access / not batched) runs in Prepare, so
+// those errors surface on RUN; `cb` itself is deferred to first Pull, like a normal query, so cb errors
+// surface on PULL and the query stays abortable while cb runs.
+PreparedQuery PrepareBuiltinIntrospectionQuery(ParsedQuery parsed_query) {
+  auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+  MG_ASSERT(cypher_query && cypher_query->single_query_, "Introspection query expects a cypher single query");
+  auto *call_procedure = utils::Downcast<CallProcedure>(cypher_query->single_query_->clauses_.front());
+  MG_ASSERT(call_procedure, "Introspection query expects a CALL clause");
+
+  std::vector<std::string> header;
+  header.reserve(call_procedure->result_identifiers_.size());
+  for (auto *identifier : call_procedure->result_identifiers_) {
+    header.push_back(identifier->name_);
+  }
+
+  auto validated = plan::FindAndValidateNoGraphReadProcedure(call_procedure->procedure_name_);
+
+  return PreparedQuery{
+      .header = std::move(header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [validated = std::move(validated),
+                        result_fields = call_procedure->result_fields_,
+                        pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (UNLIKELY(!pull_plan)) {
+          pull_plan = std::make_shared<PullPlanVector>(
+              plan::ExecuteNoGraphReadProcedure(validated, result_fields, utils::NewDeleteResource()));
+        }
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::NOTHING;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE,
+      .priority = utils::Priority::HIGH};
+}
+
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
                                   InterpreterContext *interpreter_context, Interpreter &interpreter,
@@ -4409,6 +4642,8 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
 }
 
 }  // namespace
+
+bool IsAccessorFreeQuery(const CypherQuery &query) { return ClassifyAccessorFreeQuery(query).has_value(); }
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
@@ -10160,8 +10395,11 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   using QueryVisitor<void>::Visit;
 
   QueryTransactionRequirements(bool is_schema_assert_query, bool is_cypher_read,
-                               std::optional<storage::StorageMode> storage_mode)
-      : is_schema_assert_query_(is_schema_assert_query), is_cypher_read_(is_cypher_read), storage_mode_(storage_mode) {}
+                               std::optional<storage::StorageMode> storage_mode, bool is_accessor_free_cypher)
+      : is_schema_assert_query_(is_schema_assert_query),
+        is_cypher_read_(is_cypher_read),
+        storage_mode_(storage_mode),
+        is_accessor_free_cypher_(is_accessor_free_cypher) {}
 
   // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
   // case for use database which overwrites the current database)
@@ -10291,6 +10529,11 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Write access required
   void Visit(CypherQuery & /*unused*/) override {
+    // is_accessor_free_cypher_ (from ClassifyAccessorFreeQuery) leaves accessor_type_ unset here, i.e.
+    // NO_ACCESS, so Prepare skips SetupDatabaseTransaction for constant RETURN / accessor-free CALL queries.
+    if (is_accessor_free_cypher_) {
+      return;
+    }
     could_commit_ = true;
     accessor_type_ = cypher_access_type();
   }
@@ -10366,6 +10609,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   bool const is_schema_assert_query_;
   bool const is_cypher_read_;
   std::optional<storage::StorageMode> storage_mode_;
+  // Precomputed by the caller: this CypherQuery can run with no storage accessor at all.
+  bool const is_accessor_free_cypher_;
 
   bool could_commit_ = false;
   // Whether storage_mode_ fed accessor_type_ or isolation_level_override_. Only then does the
@@ -10535,12 +10780,23 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 #endif
 
+    // Classified once here and reused by the dispatch below. Only implicit transactions are eligible:
+    // inside BEGIN...COMMIT the accessor is already open, so the query must take the normal path.
+    std::optional<AccessorFreeQueryKind> accessor_free_kind;
+    if (!in_explicit_transaction_) {
+      if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
+        accessor_free_kind = ClassifyAccessorFreeQuery(*cypher_query);
+      }
+    }
+
     if (!in_explicit_transaction_) {
       auto storage_mode = current_db_.db_acc_
                               ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
                               : std::nullopt;
-      auto transaction_requirements = QueryTransactionRequirements{
-          parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
+      auto transaction_requirements = QueryTransactionRequirements{parse_info.parsed_query.using_schema_assert,
+                                                                   parsed_query.is_cypher_read,
+                                                                   storage_mode,
+                                                                   accessor_free_kind.has_value()};
       parsed_query.query->Accept(transaction_requirements);
 
       // Fail-closed gate for broken databases (those that failed durability recovery and
@@ -10643,21 +10899,29 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #endif
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query = PrepareCypherQuery(std::move(parsed_query),
-                                          &query_execution->summary,
-                                          interpreter_context_,
-                                          current_db_,
-                                          memory_resource,
-                                          &query_execution->notifications,
-                                          user_or_role_,
-                                          make_stopping_context(),
-                                          *this,
-                                          &*frame_change_collector_
+      // Accessor-free queries must not reach PrepareCypherQuery, which MG_ASSERTs a current DB transaction
+      // (interpreter.cpp:3939); accessor_free_kind is nullopt whenever accessor_type_ was left unset above.
+      if (accessor_free_kind == AccessorFreeQueryKind::kConstantReturn) {
+        prepared_query = PrepareConstantReturnQuery(std::move(parsed_query));
+      } else if (accessor_free_kind == AccessorFreeQueryKind::kBuiltinIntrospection) {
+        prepared_query = PrepareBuiltinIntrospectionQuery(std::move(parsed_query));
+      } else {
+        prepared_query = PrepareCypherQuery(std::move(parsed_query),
+                                            &query_execution->summary,
+                                            interpreter_context_,
+                                            current_db_,
+                                            memory_resource,
+                                            &query_execution->notifications,
+                                            user_or_role_,
+                                            make_stopping_context(),
+                                            *this,
+                                            &*frame_change_collector_
 #ifdef MG_ENTERPRISE
-                                          ,
-                                          user_resource_
+                                            ,
+                                            user_resource_
 #endif
-      );
+        );
+      }
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(
           std::move(parsed_query), &query_execution->notifications, interpreter_context_, *this, current_db_);
@@ -11036,6 +11300,28 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
   session_log_ctx_.SetTxId(tx_id);
   metadata_ = GenOptional(extras.metadata_pv);
+}
+
+void Interpreter::FinishAutocommitNothing() {
+  // Mirrors Abort()'s clean_status: CAS ACTIVE->IDLE, spin-waiting out a
+  // concurrent ShowTransactions/TerminateTransactions CAS to VERIFYING before clearing the fields below.
+  // Must be a CAS, not an unconditional store, or it could race that concurrent VERIFYING transition.
+  auto expected = TransactionStatus::ACTIVE;
+  while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+    if (expected == TransactionStatus::VERIFYING) {
+      expected = TransactionStatus::ACTIVE;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      continue;
+    }
+    // TERMINATED, or already IDLE because a concurrent kill finished the job: force IDLE to complete
+    // disposal without spinning, exactly as Abort()/Commit() do on an unexpected state.
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+    break;
+  }
+  // Status is now IDLE -- no concurrent ShowTransactions reader will access these fields.
+  current_transaction_.reset();
+  metadata_ = std::nullopt;
+  session_log_ctx_.ClearTxId();
 }
 
 std::vector<TypedValue> Interpreter::GetQueries() {

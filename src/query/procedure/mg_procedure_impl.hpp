@@ -1045,6 +1045,12 @@ struct ProcedureInfo {
   bool is_write{false};
   bool is_batched{false};
   std::optional<memgraph::query::AuthQuery::Privilege> required_privilege = std::nullopt;
+  /// True only if the procedure never touches its `mgp_graph *`; lets `CALL mg.<introspection>()`
+  /// run with no storage accessor open. Declaring this falsely is unrecoverable: the accessor-free
+  /// path hands the procedure a graph with a null `DbAccessor *`, which `mgp_graph_*` accessors
+  /// dereference without a null check. INTERNAL: set only on the builtin `mg.*` procedures; not
+  /// reachable via the public module API. Defaults to false so existing registrations are unaffected.
+  bool no_graph_access{false};
 };
 
 struct mgp_proc {

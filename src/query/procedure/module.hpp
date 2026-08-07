@@ -151,6 +151,25 @@ using find_result = std::optional<std::pair<std::shared_ptr<Module>, const T *>>
 find_result<mgp_proc> FindProcedure(const ModuleRegistry &module_registry,
                                     std::string_view fully_qualified_procedure_name);
 
+/// True iff `fully_qualified_procedure_name` resolves to a procedure that may run on the interpreter's
+/// accessor-free fast path: a read procedure (`!is_write`) that declares `ProcedureInfo::no_graph_access`
+/// AND requires no privilege (`!required_privilege`). False if the procedure does not resolve or fails
+/// any of these -- so an unknown, undeclared, write, or privileged procedure always takes the normal,
+/// accessor-backed path.
+///
+/// The privilege condition is defense-in-depth, not the primary control: `CheckAuthorized` (invoked
+/// from `SessionHL::InterpretPrepare`, right after `Prepare`) already validates a `CALL`'s full
+/// `required_privileges` -- which include the procedure's own `required_privilege` via
+/// `PrivilegeExtractor::PreVisit(CallProcedure&)` -- before any `Pull`, and the accessor-free callback
+/// is itself deferred to first `Pull`. Excluding privileged procedures (e.g. `mg.get_module_files`,
+/// which needs MODULE_READ) keeps them on the single, uniformly-audited normal path rather than
+/// relying on that Prepare/Pull ordering staying intact under future changes.
+///
+/// Lives here rather than in the interpreter because the registry is the authority on what a
+/// procedure does, and because `mgp_proc` is an incomplete type outside the procedure layer.
+bool ProcedureIsAccessorFreeEligible(const ModuleRegistry &module_registry,
+                                     std::string_view fully_qualified_procedure_name);
+
 /// Return the ModulePtr and `mgp_trans *` of the found transformation after resolving
 /// `fully_qualified_transformation_name`. `memory` is used for temporary allocations
 /// inside this function. ModulePtr must be kept alive to make sure it won't be

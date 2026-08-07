@@ -42,6 +42,10 @@ target_link_libraries(${test_prefix}plan_v2_extract mg-query)
 add_benchmark(query/profile.cpp)
 target_link_libraries(${test_prefix}profile mg-query)
 
+add_benchmark(query/accessor_free_dispatch.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+target_link_libraries(${test_prefix}accessor_free_dispatch mg-query mg-communication mg-glue mg-dbms mg-license)
+target_include_directories(${test_prefix}accessor_free_dispatch PRIVATE ${CMAKE_SOURCE_DIR}/tests/unit)
+
 add_benchmark(query/stripped.cpp)
 target_link_libraries(${test_prefix}stripped mg-query)
 

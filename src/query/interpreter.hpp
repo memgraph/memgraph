@@ -45,6 +45,11 @@ namespace memgraph::query {
 
 class FineGrainedAuthChecker;
 struct CachedFineGrainedAuth;
+class CypherQuery;
+
+/// True if `query` is an accessor-free fast-path shape (constant RETURN or builtin mg.* introspection).
+/// Used to prioritize Lab's health-check pings; mirrors the classification the Prepare dispatch uses.
+bool IsAccessorFreeQuery(const CypherQuery &query);
 
 struct QueryAllocator {
   explicit QueryAllocator(utils::MemoryTracker *db_query_tracker = nullptr)
@@ -673,6 +678,8 @@ class Interpreter final {
 
   PreparedQuery PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum, QueryExtras const &extras = {});
   void Commit();
+  // Resets tx-tracking left ACTIVE by SetupInterpreterTransaction when NOTHING skips Commit()/Abort()'s cleanup.
+  void FinishAutocommitNothing();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
@@ -784,10 +791,11 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
             Abort();
             break;
           case QueryHandlerResult::NOTHING: {
-            // The only cases in which we have nothing to do are those where
-            // we're either in an explicit transaction or the query is such that
-            // a transaction wasn't started on a call to `Prepare()`.
+            // NOTHING means no storage transaction was opened on `Prepare()` (this switch only runs
+            // for autocommit queries -- it is inside `if (!in_explicit_transaction_)`).
             MG_ASSERT(!current_db_.db_transactional_accessor_);
+            // Unlike COMMIT/ABORT, NOTHING must dispose the ACTIVE state itself or the session stays active.
+            FinishAutocommitNothing();
             break;
           }
         }

@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <map>
 #include <set>
+#include <sstream>
 #include <thread>
 
 #include "communication/bolt/v1/value.hpp"
@@ -149,6 +150,339 @@ class InterpreterTest : public ::testing::Test {
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(InterpreterTest, StorageTypes);
+
+// Lab's connection-check / probe queries are constant RETURNs and take the accessor-free fast
+// path; absence of "plan_execution_time" in the summary is the proxy for "no accessor was opened".
+TYPED_TEST(InterpreterTest, ConstantReturnUsesAccessorFreeFastPath) {
+  {
+    auto stream = this->Interpret("RETURN 1 AS APP_INTERNAL_EXEC_VAR");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "APP_INTERNAL_EXEC_VAR");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("RETURN 1");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "1");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    // Multiple constants, mixed types, alias vs. no alias.
+    auto stream = this->Interpret("RETURN 1, 'x' AS s, true AS b");
+    ASSERT_EQ(stream.GetHeader().size(), 3U);
+    EXPECT_EQ(stream.GetHeader()[0], "1");
+    EXPECT_EQ(stream.GetHeader()[1], "s");
+    EXPECT_EQ(stream.GetHeader()[2], "b");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetResults()[0][1].ValueString(), "x");
+    EXPECT_EQ(stream.GetResults()[0][2].ValueBool(), true);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    // List/map built solely from constants are still constant.
+    auto stream = this->Interpret("RETURN [1, 2] AS l, {a: 1} AS m");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueList().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueList()[0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetResults()[0][1].ValueMap().at("a").ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+}
+
+// Queries that are not constant RETURNs must still take the normal, accessor-backed path (which
+// plans and therefore records "plan_execution_time"). Arithmetic/comparison/logical/CASE/coalesce
+// expressions are accessor-free now (see ConstantExpressionReturnUsesAccessorFreeFastPath); a
+// Function call is not (IsConstantExpression default-rejects Function), so it is the control here.
+TYPED_TEST(InterpreterTest, NonConstantReturnTakesNormalPath) {
+  {
+    auto stream = this->Interpret("RETURN abs(1) AS x");  // function call is not a constant expression
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN abs(-3) AS x");  // function call needs the normal path
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+  }
+  {
+    auto stream = this->Interpret("MATCH (n) RETURN count(n) AS c");  // reads the graph
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN DISTINCT 1 AS x");  // DISTINCT excludes the fast path
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+  }
+}
+
+// IsConstantExpression (interpreter.cpp) was broadened from literals-only to also recurse into
+// arithmetic/comparison/logical/unary operators, CASE (IfOperator) and coalesce; each of these must
+// now take the accessor-free fast path (no "plan_execution_time") and still return the right value.
+// `coalesce(...)` parses to a Coalesce AST node, not a Function call (see
+// cypher_main_visitor.cpp:3754), so it is fast-path eligible like the operators above.
+TYPED_TEST(InterpreterTest, ConstantExpressionReturnUsesAccessorFreeFastPath) {
+  {
+    auto stream = this->Interpret("RETURN 1 + 1 AS x");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("RETURN 2 > 1 AS b");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueBool(), true);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("RETURN CASE WHEN true THEN 10 ELSE 20 END AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 10);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("RETURN coalesce(null, 5) AS d");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 5);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("RETURN [1+1, 2*2] AS l");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueList().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueList()[0].ValueInt(), 2);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueList()[1].ValueInt(), 4);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("RETURN -5 AS n");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), -5);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("RETURN NOT false AS t");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueBool(), true);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+}
+
+// Parity: the accessor-free evaluator (PrimitiveLiteralExpressionEvaluator, dba=nullptr) must return
+// exactly what the normal, accessor-backed ExpressionEvaluator returns for the same expression. A
+// leading `WITH 1 AS ignored` makes the query multi-clause, which IsConstantReturnQuery's single-RETURN-
+// clause gate (interpreter.cpp) rejects, forcing the normal path -- giving an in-process baseline.
+// communication::bolt::Value has no operator== (see src/communication/bolt/v1/value.hpp), so the two
+// sides are compared via its operator<< string rendering instead.
+TYPED_TEST(InterpreterTest, ConstantExpressionFastPathMatchesNormalPath) {
+  auto render = [](const memgraph::communication::bolt::Value &value) {
+    std::ostringstream out;
+    out << value;
+    return out.str();
+  };
+  for (auto const *expr : {"1+1",
+                           "3*4-2",
+                           "7/2",
+                           "7%3",
+                           "2>1",
+                           "1=1",
+                           "true AND false",
+                           "NOT false",
+                           "-5",
+                           "CASE WHEN false THEN 1 ELSE 2 END"}) {
+    SCOPED_TRACE(expr);
+    auto fast = this->Interpret(std::string("RETURN ") + expr + " AS r");
+    auto normal = this->Interpret(std::string("WITH 1 AS ignored RETURN ") + expr + " AS r");
+    ASSERT_EQ(fast.GetSummary().count("plan_execution_time"), 0U);
+    ASSERT_EQ(normal.GetSummary().count("plan_execution_time"), 1U);
+    ASSERT_EQ(fast.GetResults().size(), 1U);
+    ASSERT_EQ(normal.GetResults().size(), 1U);
+    EXPECT_EQ(render(fast.GetResults()[0][0]), render(normal.GetResults()[0][0]));
+  }
+}
+
+// Lab's `CALL mg.procedures() YIELD *` and sibling mg.* introspection calls read only the module
+// registry, so they also take the accessor-free fast path.
+TYPED_TEST(InterpreterTest, BuiltinIntrospectionUsesAccessorFreeFastPath) {
+  {
+    // YIELD * exposes all result fields in the procedure's (alphabetical) map order.
+    auto stream = this->Interpret("CALL mg.procedures() YIELD *");
+    ASSERT_EQ(stream.GetHeader().size(), 5U);
+    EXPECT_EQ(stream.GetHeader()[0], "is_editable");
+    EXPECT_EQ(stream.GetHeader()[1], "is_write");
+    EXPECT_EQ(stream.GetHeader()[2], "name");
+    EXPECT_EQ(stream.GetHeader()[3], "path");
+    EXPECT_EQ(stream.GetHeader()[4], "signature");
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+    // mg.procedures must list itself, and it is a read procedure.
+    bool found_self = false;
+    for (auto &row : stream.GetResults()) {
+      if (row[2].ValueString() == "mg.procedures") {
+        found_self = true;
+        EXPECT_FALSE(row[1].ValueBool());
+      }
+    }
+    EXPECT_TRUE(found_self);
+  }
+  {
+    auto stream = this->Interpret("CALL mg.functions() YIELD name");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "name");
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+  {
+    auto stream = this->Interpret("CALL mg.procedures() YIELD name AS n");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "n");
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+}
+
+// The accessor-free fast path must return exactly the rows the normal (planned) path would. A
+// trailing RETURN forces the normal path, giving a baseline to diff against.
+TYPED_TEST(InterpreterTest, BuiltinIntrospectionMatchesNormalPath) {
+  auto sorted_names = [](auto &stream) {
+    std::vector<std::string> out;
+    out.reserve(stream.GetResults().size());
+    for (auto &row : stream.GetResults()) out.push_back(row[0].ValueString());
+    std::sort(out.begin(), out.end());
+    return out;
+  };
+  auto fast = this->Interpret("CALL mg.procedures() YIELD name");
+  auto normal = this->Interpret("CALL mg.procedures() YIELD name RETURN name");
+  EXPECT_EQ(fast.GetSummary().count("plan_execution_time"), 0U);
+  EXPECT_EQ(normal.GetSummary().count("plan_execution_time"), 1U);
+  EXPECT_FALSE(sorted_names(fast).empty());
+  EXPECT_EQ(sorted_names(fast), sorted_names(normal));
+}
+
+// Column headers from the accessor-free path must be byte-identical to the normal path's (clients
+// rely on stable column names); the two paths derive them via different code (AST names vs. output
+// symbols), so this pins the cases where they could drift.
+TYPED_TEST(InterpreterTest, AccessorFreePathHeaderParity) {
+  using Headers = std::vector<std::string>;
+  auto header_of = [this](const std::string &query,
+                          const memgraph::storage::ExternalPropertyValue::map_t &params = {}) {
+    auto stream = this->Interpret(query, params);
+    // Guard that we actually exercised the accessor-free path, so this stays a fast-path parity test.
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U) << query;
+    return stream.GetHeader();
+  };
+  // Constant RETURN: unaliased literal keeps its stripped-query spelling; aliases and $param too.
+  EXPECT_EQ(header_of("RETURN 1"), Headers({"1"}));
+  EXPECT_EQ(header_of("RETURN 1 AS APP_INTERNAL_EXEC_VAR"), Headers({"APP_INTERNAL_EXEC_VAR"}));
+  EXPECT_EQ(header_of("RETURN 1, 'x' AS s, true AS b"), Headers({"1", "s", "b"}));
+  EXPECT_EQ(header_of("RETURN [1, 2] AS l, {a: 1} AS m"), Headers({"l", "m"}));
+  {
+    memgraph::storage::ExternalPropertyValue::map_t params;
+    params.emplace("p", memgraph::storage::ExternalPropertyValue(int64_t{7}));
+    EXPECT_EQ(header_of("RETURN $p", params), Headers({"$p"}));
+  }
+  // Introspection: YIELD * exposes the fields in the procedure's map order; explicit and aliased
+  // YIELD use the yielded names / aliases, in order.
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD *"),
+            Headers({"is_editable", "is_write", "name", "path", "signature"}));
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD name"), Headers({"name"}));
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD name AS n"), Headers({"n"}));
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD name, is_write, path"), Headers({"name", "is_write", "path"}));
+}
+
+// SetupInterpreterTransaction stamps a fresh transaction id / ACTIVE status for every autocommit
+// query, including accessor-free ones whose handler returns NOTHING; NOTHING must dispose that
+// tracking state itself (Commit/Abort do it for their paths) or the session is left permanently
+// mid-transaction.
+TYPED_TEST(InterpreterTest, AccessorFreePathClearsTransactionTracking) {
+  auto &interpreter = this->default_interpreter.interpreter;
+  for (auto const *query : {"RETURN 1",
+                            "RETURN 1 AS APP_INTERNAL_EXEC_VAR",
+                            "CALL mg.procedures() YIELD name",
+                            "CALL mg.functions() YIELD name"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    // Confirm we took the fast path, otherwise this isn't exercising the NOTHING cleanup at all.
+    ASSERT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+    EXPECT_EQ(interpreter.GetTransactionId(), std::nullopt);
+  }
+}
+
+// The accessor-free path neither filters nor installs a memory tracker nor honours USING directives,
+// so a query carrying any of those must fall through to the normal path instead of silently dropping
+// the modifier.
+TYPED_TEST(InterpreterTest, AccessorFreePathRejectsUnhonouredModifiers) {
+  {
+    // A YIELD ... WHERE stays on the CallProcedure clause (clause count 1), so the accessor-free
+    // preparer -- which does not filter -- would otherwise accept it and silently drop the predicate.
+    //
+    // NOTE: only the path is asserted, not the row count. The bare form (no trailing RETURN) is
+    // believed to already return 0 rows for any predicate on the normal path on master -- a separate,
+    // deliberately-unasserted pre-existing issue; master's tests (procedure_call.feature,
+    // query_plan.cpp) only cover the trailing-RETURN form.
+    SCOPED_TRACE("YIELD ... WHERE must take the normal path");
+    auto unfiltered = this->Interpret("CALL mg.procedures() YIELD name");
+    auto filtered = this->Interpret("CALL mg.procedures() YIELD name WHERE name = 'mg.procedures'");
+    EXPECT_EQ(unfiltered.GetSummary().count("plan_execution_time"), 0U);
+    EXPECT_EQ(filtered.GetSummary().count("plan_execution_time"), 1U);
+    EXPECT_GT(unfiltered.GetResults().size(), 1U);
+    // The trailing-RETURN form does filter correctly, and must also take the normal path.
+    auto filtered_with_return =
+        this->Interpret("CALL mg.procedures() YIELD name WHERE name = 'mg.procedures' RETURN name");
+    EXPECT_EQ(filtered_with_return.GetSummary().count("plan_execution_time"), 1U);
+    ASSERT_EQ(filtered_with_return.GetResults().size(), 1U);
+    EXPECT_EQ(filtered_with_return.GetResults()[0][0].ValueString(), "mg.procedures");
+  }
+  {
+    // The normal path enforces the limit; 1 KB is far too small for mg.procedures.
+    SCOPED_TRACE("per-call PROCEDURE MEMORY LIMIT is honoured, not dropped");
+    ASSERT_THROW(this->Interpret("CALL mg.procedures() PROCEDURE MEMORY LIMIT 1 KB YIELD name"),
+                 memgraph::query::QueryRuntimeException);
+    // A limit generous enough to succeed still takes the normal path.
+    auto stream = this->Interpret("CALL mg.procedures() PROCEDURE MEMORY LIMIT 100 MB YIELD name");
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+    EXPECT_GT(stream.GetResults().size(), 1U);
+  }
+  {
+    SCOPED_TRACE("query-level QUERY MEMORY LIMIT takes the normal path");
+    auto stream = this->Interpret("RETURN 1 QUERY MEMORY LIMIT 1 KB");
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+  {
+    SCOPED_TRACE("USING pre-query directives take the normal path");
+    auto stream = this->Interpret("USING INDEX :Foo RETURN 1");
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+}
+
+// The accessor-free path is gated on procedure metadata (no_graph_access AND no required privilege),
+// not on the procedure name.
+TYPED_TEST(InterpreterTest, AccessorFreePathRequiresDeclaredNoGraphAccess) {
+  for (auto const *query :
+       {"CALL mg.procedures() YIELD name", "CALL mg.functions() YIELD name", "CALL mg.transformations() YIELD name"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 0U);
+  }
+}
+
+// mg.get_module_files declares no_graph_access but requires MODULE_READ, so it is not accessor-free
+// eligible: the fast path would invoke the callback during Prepare, before the auth check.
+TYPED_TEST(InterpreterTest, AccessorFreePathExcludesPrivilegedProcedures) {
+  auto stream = this->Interpret("CALL mg.get_module_files() YIELD path");
+  EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+}
 
 TYPED_TEST(InterpreterTest, MultiplePulls) {
   {
@@ -1518,19 +1852,20 @@ TYPED_TEST(InterpreterTest, LoadCsvClause) {
 }
 
 TYPED_TEST(InterpreterTest, CacheableQueries) {
-  // This should be cached
+  // A constant RETURN is served by the accessor-free fast path, which never plans. Its AST is still
+  // cached, but no plan is produced, so the plan cache stays empty.
   {
-    SCOPED_TRACE("Cacheable query");
+    SCOPED_TRACE("Constant RETURN is AST-cached but not plan-cached");
     this->Interpret("RETURN 1");
     EXPECT_EQ(this->AstCacheSize(), 1U);
-    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   }
 
   {
     SCOPED_TRACE("Cacheable procedure query");
     this->Interpret("CALL mg.procedures() YIELD name RETURN name");
     EXPECT_EQ(this->AstCacheSize(), 2U);
-    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 2U);
+    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   }
 }
 
@@ -2068,8 +2403,26 @@ TYPED_TEST(InterpreterTest, LoadCsvClauseNotification) {
   ASSERT_EQ(notification["description"].ValueString(), "");
 }
 
-TYPED_TEST(InterpreterTest, CypherQueryPriorityIsLow) {
+// Accessor-free fast-path shapes (constant RETURN / builtin mg.* introspection) are Lab's health-check
+// pings, so both PrepareConstantReturnQuery and PrepareBuiltinIntrospectionQuery mark them HIGH
+// (interpreter.cpp) -- a normal Cypher query that opens an accessor stays LOW.
+TYPED_TEST(InterpreterTest, ConstantReturnQueryPriorityIsHigh) {
   auto [stream, qid] = this->Prepare("RETURN 1");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, ConstantExpressionReturnQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("RETURN 1+1");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, BuiltinIntrospectionQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("CALL mg.procedures() YIELD *");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, NonAccessorFreeCypherQueryPriorityIsLow) {
+  auto [stream, qid] = this->Prepare("MATCH (n) RETURN n");
   EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
 }
 
