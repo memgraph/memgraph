@@ -73,23 +73,16 @@ SeededRoot MakeSeededRoot(std::string_view tag) {
 
 // Exact shape of Durability::GenVal (dbms_handler.cpp:114): {"uuid": <uuid>, "rel_dir": <path>}, with
 // rel_dir rooted at kMultiTenantDir/<uuid> as New_/UpdateDurability recompute it (dbms_handler.cpp:860).
-memgraph::utils::UUID SeedHotEntry(memgraph::kvstore::KVStore &kv, std::string_view name) {
-  const memgraph::utils::UUID uuid;
-  nlohmann::json j;
-  j["uuid"] = uuid;
-  j["rel_dir"] = std::filesystem::path(std::string{memgraph::dbms::kMultiTenantDir}) / std::string{uuid};
-  kv.Put(std::string{kDBPrefixLiteral} + std::string{name}, j.dump());
-  return uuid;
-}
-
-// Same shape as SeedHotEntry, but also hands back the exact bytes it wrote: needed by tests asserting that
-// a durability record survives an operation VERBATIM (byte-for-byte), not merely "still there".
 struct SeededHotEntry {
   memgraph::utils::UUID uuid;
+  // The exact bytes written for this entry. Needed by RenameMovesTenantDurabilityRecordVerbatim, which
+  // asserts the durability record survives RENAME byte-for-byte (VERBATIM), not merely "still present" --
+  // a parse-and-recompare wouldn't catch a rename that parses, mutates, and re-dumps the record. Callers
+  // that only need the uuid should just drop this field on the floor, not delete it as write-only.
   std::string json_str;
 };
 
-SeededHotEntry SeedHotEntryCapturingJson(memgraph::kvstore::KVStore &kv, std::string_view name) {
+SeededHotEntry SeedHotEntry(memgraph::kvstore::KVStore &kv, std::string_view name) {
   const memgraph::utils::UUID uuid;
   nlohmann::json j;
   j["uuid"] = uuid;
@@ -527,7 +520,7 @@ TEST(DBMS_Handler, SweepReclaimsOrphanedTenantDirectoryButKeepsLiveOne) {
   {
     memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
     ASSERT_TRUE(seed_kv.Put("version", "V2"));
-    live_uuid = SeedHotEntry(seed_kv, "live");
+    live_uuid = SeedHotEntry(seed_kv, "live").uuid;
   }
 
   const auto live_dir = TenantDataDir(sr, live_uuid);
@@ -569,7 +562,7 @@ TEST(DBMS_Handler, StaleTenantProfileMappingIsPrunedOnStartup) {
   {
     memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
     ASSERT_TRUE(seed_kv.Put("version", "V2"));
-    live_uuid = SeedHotEntry(seed_kv, "live");
+    live_uuid = SeedHotEntry(seed_kv, "live").uuid;
     // "gone" has NO `database:gone` durability key -- exactly the state a lost DetachFromDatabase leaves.
     SeedProfile(seed_kv, "p", /*memory_limit=*/1000, {"live", "gone"});
   }
@@ -651,7 +644,7 @@ TEST(DBMS_Handler, ExistingV2DurabilityStoreBootsUnchanged) {
   {
     memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
     ASSERT_TRUE(seed_kv.Put("version", "V2"));
-    live_uuid = SeedHotEntry(seed_kv, "live");
+    live_uuid = SeedHotEntry(seed_kv, "live").uuid;
   }
   fs::create_directories(TenantDataDir(sr, live_uuid));
 
@@ -699,7 +692,7 @@ TEST(DBMS_Handler, DropSucceedsDurablyWhenAttachedProfileJsonIsCorrupt) {
   {
     memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
     ASSERT_TRUE(seed_kv.Put("version", "V2"));
-    victim_uuid = SeedHotEntry(seed_kv, "victim");
+    victim_uuid = SeedHotEntry(seed_kv, "victim").uuid;
     // Point "victim" at profile "p", but write "p"'s durable record as deliberately broken JSON --
     // NOT via SeedProfile, which would also write a well-formed tenant_profile:p row.
     ASSERT_TRUE(seed_kv.Put(std::string{TenantProfiles::kDbMappingPrefix} + "victim", "p"));
@@ -769,7 +762,7 @@ TEST(DBMS_Handler, RenameSucceedsAndReplicatesWhenAttachedProfileJsonIsCorrupt) 
   {
     memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
     ASSERT_TRUE(seed_kv.Put("version", "V2"));
-    victim_uuid = SeedHotEntry(seed_kv, "victim");
+    victim_uuid = SeedHotEntry(seed_kv, "victim").uuid;
     ASSERT_TRUE(seed_kv.Put(std::string{TenantProfiles::kDbMappingPrefix} + "victim", "p"));
     // Deliberately broken JSON -- NOT via SeedProfile, which would write a well-formed tenant_profile:p row.
     ASSERT_TRUE(seed_kv.Put(std::string{TenantProfiles::kPrefix} + "p", "{not json"));
@@ -850,7 +843,7 @@ TEST(DBMS_Handler, RenameMovesTenantDurabilityRecordVerbatim) {
   auto seeded = [&] {
     memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
     seed_kv.Put("version", "V2");
-    return SeedHotEntryCapturingJson(seed_kv, "before");
+    return SeedHotEntry(seed_kv, "before");
   }();
   fs::create_directories(TenantDataDir(sr, seeded.uuid));
 
