@@ -36,10 +36,9 @@ bool ThreadPool::AddTask(TaskSignature new_task) {
 }
 
 size_t ThreadPool::ShutDown() {
-  // Declared here, destroyed last (after thread_pool_.clear() below): destroying a task can run
-  // arbitrary user destructors (for the after-commit trigger pool, a storage accessor's
-  // Abort/FinalizeTransaction and a gatekeeper accessor release), so it must not happen under
-  // `pool_lock_`, nor concurrently with a worker still finishing its in-flight task.
+  // Declared first so it's destroyed last -- after thread_pool_.clear() joins the workers, and not
+  // under `pool_lock_` -- because destroying a discarded task runs arbitrary user destructors, e.g.
+  // the after-commit trigger pool's storage-accessor Abort/FinalizeTransaction and gatekeeper release.
   auto discarded = std::queue<TaskSignature>{};
   {
     auto guard = std::unique_lock{pool_lock_};
