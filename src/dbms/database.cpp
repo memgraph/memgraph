@@ -184,7 +184,7 @@ void Database::StopAllBackgroundTasks() {
   if (discarded != 0) {
     spdlog::warn(
         "Database '{}': shutting down background tasks discarded {} queued after commit trigger execution(s); "
-        "these triggers belong to already-committed transactions and will never run.",
+        "these triggers will not run.",
         name(),
         discarded);
   }
