@@ -485,3 +485,13 @@ Feature: Server-side descriptions
             SET DESCRIPTION ON PROPERTY p VALUE null "x"
             """
         Then an error should be raised
+
+    Scenario: A NaN VALUE is rejected
+        Given an empty graph
+        And parameters are:
+            | nan | .nan |
+        When executing query:
+            """
+            SET DESCRIPTION ON PROPERTY p VALUE [1.0, $nan] "x"
+            """
+        Then an error should be raised

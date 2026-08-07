@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -6967,6 +6968,17 @@ PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_expl
       .rw_type = RWType::NONE};
 }
 
+namespace {
+// property-value descriptions are keyed in an ordered std::map; a NaN would violate strict-weak-ordering
+bool DescriptionValueContainsNaN(storage::ExternalPropertyValue const &value) {
+  if (value.IsDouble()) return std::isnan(value.ValueDouble());
+  if (value.IsList()) return std::ranges::any_of(value.ValueList(), DescriptionValueContainsNaN);
+  if (value.IsMap())
+    return std::ranges::any_of(value.ValueMap(), [](auto const &kv) { return DescriptionValueContainsNaN(kv.second); });
+  return false;
+}
+}  // namespace
+
 PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Description query expects a current DB");
   auto *desc_query = utils::Downcast<DescriptionQuery>(parsed_query.query);
@@ -6990,6 +7002,9 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
     value = static_cast<storage::ExternalPropertyValue>(desc_query->value_->Accept(value_evaluator));
     if (value.IsNull()) {
       throw QueryException("A property-value description VALUE must not be null.");
+    }
+    if (DescriptionValueContainsNaN(value)) {
+      throw QueryException("A property-value description VALUE must not contain NaN.");
     }
   }
   auto current_db_name = current_db.db_acc_->get()->name();
