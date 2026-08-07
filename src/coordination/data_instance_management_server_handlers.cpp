@@ -382,6 +382,7 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
     case SUCCESS: {
       coordination::UnregisterReplicaRes const rpc_res{true};
       rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+      spdlog::info("Replica {} successfully unregistered.", req.arg_);
       break;
     }
     case NOT_MAIN: {
@@ -415,7 +416,6 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
       break;
     }
   }
-  spdlog::info("Replica {} successfully unregistered.", req.arg_);
 }
 
 void DataInstanceManagementServerHandlers::UpdateDataInstanceConfigHandler(
