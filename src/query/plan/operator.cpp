@@ -8579,6 +8579,12 @@ std::vector<std::vector<TypedValue>> ExecuteNoGraphReadProcedure(const Validated
   const auto *proc = validated.proc;
   const std::string_view procedure_name = validated.procedure_name;
 
+  // Precondition (guaranteed by FindAndValidateNoGraphReadProcedure): the callback runs against a
+  // graph-less stub with a null DbAccessor, so a graph-touching proc here would null-deref. This guards
+  // a future caller that forgets to validate; it does NOT catch a proc mis-declared no_graph_access
+  // (that needs the mgp_graph no-graph variant -- see mg_procedure_impl.hpp).
+  MG_ASSERT(proc->info.no_graph_access, "ExecuteNoGraphReadProcedure requires a no_graph_access procedure");
+
   mgp_result result{memory};
   BuildProcedureResultSignature(result, *proc, result_fields, procedure_name);
 
