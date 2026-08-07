@@ -115,9 +115,8 @@ std::vector<TenantProfiles::Profile> TenantProfiles::GetAll() const {
     try {
       result.push_back(FromJson(nlohmann::json::parse(value), name));
     } catch (const nlohmann::json::exception &e) {
-      // Base json::exception, not parse_error: FromJson's .get<int64_t>() on a wrong-typed persisted field
-      // throws type_error, a sibling of parse_error, and this runs on the ctor's startup path with no
-      // enclosing try/catch up to main().
+      // Base json::exception, not parse_error: a wrong-typed field makes FromJson's .get<int64_t>() throw
+      // sibling type_error, and GetAll runs on the boot path with no enclosing catch up to main().
       spdlog::warn("Failed to parse tenant profile '{}': {}", name, e.what());
     }
   }
@@ -241,10 +240,8 @@ std::expected<void, TenantProfiles::RenameError> TenantProfiles::RenameDatabase(
     to_put.emplace(ProfileKey(profile.name), ProfileToJson(profile).dump());
     to_put.emplace(DbMappingKey(new_name), *profile_name);
   } catch (const nlohmann::json::exception &e) {
-    // Corrupt reads the same as unreadable to the caller, so reuse DURABILITY_ERROR rather than add a new
-    // variant. The old mapping key is deliberately left in place: the caller (DbmsHandler::Rename) still
-    // completes and replicates the rename, and the next boot's PruneDatabases collects the now-stale
-    // mapping once the old database name is no longer in the live set.
+    // Corrupt reads the same as unreadable to the caller, so reuse DURABILITY_ERROR. DbmsHandler::Rename
+    // still completes/replicates regardless; the old mapping key is left for PruneDatabases to collect.
     spdlog::warn("Tenant profile '{}' durable entry is corrupt ({}); failed to rename database '{}' to '{}'.",
                  *profile_name,
                  e.what(),
