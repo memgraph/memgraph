@@ -465,10 +465,19 @@ void Path::Create(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
     auto start_node{arguments[0].ValueNode()};
     auto relationships{arguments[1].ValueMap()};
 
+    // At() yields a null value for a missing key, where operator[] yields a null handle that the
+    // conversion below would dereference, taking the whole process down. A missing key means no
+    // relationships to append -- which is what the declared default for this argument holds.
+    const auto relationships_value = relationships.At("rel");
+    if (!relationships_value.IsNull() && !relationships_value.IsList()) {
+      throw mgp::ValueException("The 'rel' entry needs to be a list of relationships.");
+    }
+    const auto relationship_list = relationships_value.IsNull() ? mgp::List{} : relationships_value.ValueList();
+
     // Each entry scans an endpoint's relationships, so a long list over dense nodes needs polling too.
     uint64_t abort_poll_counter = 0;
     mgp::Path path{start_node};
-    for (const auto &relationship : relationships["rel"].ValueList()) {
+    for (const auto &relationship : relationship_list) {
       PollAbort(graph, abort_poll_counter);
       if (relationship.IsNull()) {
         break;
