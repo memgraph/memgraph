@@ -501,6 +501,14 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
     return *cold_res;
   }
 
+  // Same DRAINING race TryDelete guards above (see its comment): a concurrent drop already accepted
+  // this tenant, so the GetConfig check just below would otherwise misreport NON_EXISTENT instead of
+  // the accurate, retriable USING. This is the FORCE path (DROP DATABASE ... FORCE), so the race is
+  // just as reachable here as it is through TryDelete's non-FORCE path.
+  if (auto *gk = db_handler_.GetGatekeeper(db_name); gk && gk->is_draining()) {
+    return std::unexpected{DeleteError::USING};
+  }
+
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
   if (!conf) {
