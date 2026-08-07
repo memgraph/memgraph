@@ -13,6 +13,7 @@
 
 #include <iterator>
 #include <ranges>
+#include <type_traits>
 
 namespace memgraph::storage {
 
@@ -100,6 +101,18 @@ auto FormatReplicationError(ReplicationError const &error) -> std::string {
   }
 
   return msg;
+}
+
+auto TransactionWasCommitted(StorageManipulationError const &error) -> bool {
+  return std::visit(
+      []<typename T>(T const &arg) {
+        if constexpr (std::is_same_v<std::remove_cvref_t<T>, ReplicationError>) {
+          return arg.transaction_committed;
+        } else {
+          return false;
+        }
+      },
+      error);
 }
 
 }  // namespace memgraph::storage
