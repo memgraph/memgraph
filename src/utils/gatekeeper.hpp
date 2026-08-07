@@ -182,7 +182,7 @@ struct Gatekeeper {
     friend Gatekeeper;
 
    private:
-    explicit Accessor(Gatekeeper *owner) : owner_{owner->pimpl_.get()} { ++owner_->count_; }
+    explicit Accessor(GKInternals<T> *internals) : owner_{internals} { ++owner_->count_; }
 
    public:
     // CONTRACT: copying bumps count_ but does NOT re-check state_. Copying the *sole* live accessor
@@ -348,11 +348,12 @@ struct Gatekeeper {
   };
 
  private:
-  // Shared mint condition for both access() overloads below; caller must hold pimpl_->mutex_.
-  // Factored out so the plain and drain_bypass_t overloads cannot drift apart.
-  std::optional<Accessor> access_locked(bool bypass_drain) {
-    if (pimpl_->value_ && pimpl_->state_ == GatekeeperState::HOT && (bypass_drain || !pimpl_->draining_)) {
-      return Accessor{this};
+  // Shared mint condition for access(), access(drain_bypass_t), and access_via() below; caller must
+  // hold internals->mutex_. Factored out so the plain, drain_bypass_t, and by-handle routes cannot
+  // drift apart — the draining_ gate has exactly one definition.
+  static std::optional<Accessor> mint_locked(GKInternals<T> *internals, bool bypass_drain) {
+    if (internals->value_ && internals->state_ == GatekeeperState::HOT && (bypass_drain || !internals->draining_)) {
+      return Accessor{internals};
     }
     return std::nullopt;
   }
@@ -371,7 +372,7 @@ struct Gatekeeper {
     // Handler::Get -> here) from re-arming TTL and async-index work on a tenant that is being dropped
     // — without this refusal the drain would never converge, because freshly-minted work would keep
     // the tenant HOT and its own Accessor count above the drop's single-flight expectations forever.
-    return access_locked(/*bypass_drain=*/false);
+    return mint_locked(pimpl_.get(), /*bypass_drain=*/false);
   }
 
   // Bypasses the draining_ refusal above. Restricted to deletion/teardown machinery:
@@ -386,7 +387,25 @@ struct Gatekeeper {
   // that is exactly why Handler<T>::TryDelete stays gated on the non-bypass overload above.
   std::optional<Accessor> access(drain_bypass_t /*tag*/) {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    return access_locked(/*bypass_drain=*/true);
+    return mint_locked(pimpl_.get(), /*bypass_drain=*/true);
+  }
+
+  // By-handle mint route: takes a GKInternals<T>* directly instead of a Gatekeeper&, so a caller
+  // living INSIDE internals->value_ (T itself, or something T owns — concretely
+  // dbms::Database's storage-owned database-protector factory) can mint its own accessor without
+  // looking itself up in any container. That removes an unsynchronized container read from
+  // background threads (e.g. TTL, async indexing); it does not add a lock beyond mutex_ itself.
+  //
+  // PRECONDITION, and the only thing that makes `internals` safe to dereference here: the caller's
+  // own lifetime must be nested inside internals->value_. value_ being alive is what proves
+  // *internals is alive. A caller that can outlive value_ MUST NOT use this.
+  //
+  // Deliberately the plain drain-gated route, never drain_bypass: a draining tenant must stay
+  // unmintable through this route, because re-arming background work on a tenant being dropped
+  // would hold the accessor count above zero and stop the drain from converging.
+  static std::optional<Accessor> access_via(GKInternals<T> *internals) {
+    auto guard = std::unique_lock{internals->mutex_};
+    return mint_locked(internals, /*bypass_drain=*/false);
   }
 
   std::optional<bool> is_marked_for_deletion() const {
@@ -396,6 +415,17 @@ struct Gatekeeper {
     }
     return std::nullopt;
   }
+
+  // Hands the stable GKInternals<T> handle to a nested owner (see access_via() above) for later use
+  // there. The returned pointer must not be stored by anything that can outlive value_.
+  //
+  // Survives move-CONSTRUCTION of this Gatekeeper (a unique_ptr pointer transfer — see
+  // Handler<T>::Rename at src/dbms/handler.hpp:295-297) but is INVALIDATED by move-ASSIGNMENT
+  // (operator=(Gatekeeper&&) resets the old pimpl_, destroying the old GKInternals — see the
+  // load-bearing note on that operator, and the RESUME publish `*gk = std::move(fresh)` at
+  // src/dbms/dbms_handler.cpp:1583, whose target is a COLD/RESUMING shell with value_ == nullopt, so
+  // no live nested owner can hold a handle to the GKInternals destroyed there).
+  GKInternals<T> *internals() { return pimpl_.get(); }
 
   // Returns the current lifecycle state (locks mutex_).
   GatekeeperState state() const {
