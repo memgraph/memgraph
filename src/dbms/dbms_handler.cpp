@@ -442,9 +442,8 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
     return *cold_res;
   }
 
-  // A tenant already accepted by a concurrent drop is DRAINING: draining_ makes GetConfig's Get()
-  // refuse it, so the GetConfig check just below would otherwise misreport the far more confusing
-  // NON_EXISTENT for a tenant that in fact still exists. Surface the accurate, retriable USING.
+  // A DRAINING tenant is still real: GetConfig's Get() refuses it, so the check just below would
+  // otherwise misreport NON_EXISTENT. Surface the accurate, retriable USING instead.
   if (auto *gk = db_handler_.GetGatekeeper(db_name); gk && gk->is_draining()) {
     return std::unexpected{DeleteError::USING};
   }
@@ -501,10 +500,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
     return *cold_res;
   }
 
-  // Same DRAINING race TryDelete guards above (see its comment): a concurrent drop already accepted
-  // this tenant, so the GetConfig check just below would otherwise misreport NON_EXISTENT instead of
-  // the accurate, retriable USING. This is the FORCE path (DROP DATABASE ... FORCE), so the race is
-  // just as reachable here as it is through TryDelete's non-FORCE path.
+  // Same DRAINING race TryDelete guards above (see its comment) -- just as reachable here on the
+  // FORCE path (DROP DATABASE ... FORCE).
   if (auto *gk = db_handler_.GetGatekeeper(db_name); gk && gk->is_draining()) {
     return std::unexpected{DeleteError::USING};
   }
@@ -515,9 +512,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
     return std::unexpected{DeleteError::NON_EXISTENT};
   }
 
-  // Force delete. `conf` is a BY-VALUE copy (DatabaseHandler::GetConfig), so it stays valid across
-  // Delete_'s internal unlock/relock of `wr` -- unlike a raw pointer/reference into db_handler_, it
-  // cannot dangle even though the map itself may be mutated by another thread while `wr` is released.
+  // `conf` is a by-value copy (DatabaseHandler::GetConfig), so unlike a pointer/reference into
+  // db_handler_ it stays valid across Delete_'s internal unlock/relock of `wr`.
   const auto res = Delete_(db_name, wr);
   if (res) {
     // Success; save delta
@@ -550,9 +546,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
   }
   auto it = FindHotByUuid_(uuid);
   if (it == db_handler_.end()) return std::unexpected{DeleteError::NON_EXISTENT};
-  // `it->first` is a view into a db_handler_ map key -- exactly why Delete_'s Phase 1 copies it into
-  // an owned std::string before releasing `wr` for Phase 2. Do not read `it` again after this call:
-  // once `wr` is released internally, a concurrent structural change to db_handler_ can invalidate it.
+  // `it->first` is a view into a db_handler_ map key (Delete_'s Phase 1 copies it before releasing
+  // `wr` -- see its comment). Do not read `it` again after this call.
   return Delete_(it->first, wr);
 }
 
@@ -819,10 +814,8 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
 }
 
 DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::unique_lock<LockT> &lock) {
-  // ===============================================================================================
-  // PHASE 1 — under `lock`. Brief: in-memory bookkeeping only, no blocking call, no thread join, no
-  // disk I/O below this point until Phase 3.
-  // ===============================================================================================
+  // PHASE 1 — under `lock`: in-memory bookkeeping only, no blocking call, no thread join, no disk
+  // I/O below this point until Phase 3.
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
     return std::unexpected{DeleteError::DEFAULT_DB};
@@ -831,19 +824,17 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   // Own the name NOW, ahead of every lookup below: Delete(uuid) passes `it->first`, a view into a
   // db_handler_ map key; once `lock` is released below for Phase 2, that view can dangle if another
   // thread structurally mutates db_handler_ (heap-UAF). DeleteCold_ documents the identical hazard
-  // at cpp:777-779.
+  // right before its own erase().
   const std::string name{db_name};
 
   auto *gk = db_handler_.GetGatekeeper(name);
   if (!gk) return std::unexpected{DeleteError::NON_EXISTENT};
 
   // Non-HOT (mid-SUSPEND/RESUME) is retriable USING, never NON_EXISTENT — mirrors the Rename guard
-  // and DeleteCold_'s sibling COLD-only check. Identity (GetGatekeeper) and state MUST be resolved
-  // before anything that depends on the tenant being mintable (StorageDir_/GetConfig, below, is
-  // drain-gated on the plain access() and would itself report NON_EXISTENT for a tenant that is only
-  // mid-SUSPEND, not gone — see Handler<T>::GetConfig's comment). This is diagnostic only:
-  // begin_drain() below re-checks the identical HOT condition atomically with setting draining_, and
-  // on its own would collapse "not HOT" and "already draining" into the same bare `false`.
+  // and DeleteCold_'s COLD-only check; identity/state must be resolved before anything drain-gated
+  // (see the accessor-read comment below). Diagnostic only: begin_drain() below re-checks the same
+  // HOT condition atomically with draining_, collapsing "not HOT" and "already draining" into one
+  // bare `false`.
   if (gk->state() != utils::GatekeeperState::HOT) return std::unexpected{DeleteError::USING};
 
   // Single-flight: false means a concurrent DROP already owns this drain (the state() check above
@@ -868,11 +859,11 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   std::optional<utils::UUID> detached_row_uuid;
   auto rollback_drain = utils::OnScopeExit{[&] {
     // Phase 2 below runs with `lock` unlocked. If the throw came from there, `lock` is not held here,
-    // yet db_handler_ (GetGatekeeper) has no internal synchronization of its own -- every access relies
-    // on the caller already holding `lock` (see DatabaseHandler::GetGatekeeper's doc). Re-locking during
-    // unwind is a blocking call on `lock` (a reader-preferring pthread rwlock), same cost any other
-    // writer pays to get in; touching db_handler_ without it would be a data race instead, which is
-    // strictly worse on an already-exceptional path.
+    // yet db_handler_'s items_ carries no mutex of its own (unlike defer_lock_ for deferred_) -- every
+    // access relies on the caller already holding `lock`. Re-locking during unwind is a blocking call
+    // on `lock` (a reader-preferring pthread rwlock), same cost any other writer pays to get in;
+    // touching db_handler_ without it would be a data race instead, which is strictly worse on an
+    // already-exceptional path.
     if (!lock.owns_lock()) lock.lock();
     // Fresh by-name lookup, never the Phase 1 `gk` pointer above: the off-lock Phase 2 window could
     // have let a concurrent structural change invalidate it. is_draining() guards abort_drain()'s own
@@ -895,9 +886,10 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
 
   auto *database = acc->get();
   // Read from the accessor we already hold, not through StorageDir_/GetConfig: those go through the
-  // drain-gated plain access() (Handler<T>::GetConfig), which begin_drain() just above made refuse on
-  // THIS gatekeeper too -- calling StorageDir_(name) here would itself now (mis)report NON_EXISTENT.
-  // `acc` is drain_bypass-minted and live, so this field read cannot race a concurrent teardown.
+  // drain-gated plain access() (DatabaseHandler::GetConfig), which begin_drain() just above made
+  // refuse on THIS gatekeeper too -- calling StorageDir_(name) here would itself now (mis)report
+  // NON_EXISTENT. `acc` is drain_bypass-minted and live, so this field read cannot race a concurrent
+  // teardown.
   const auto storage_path = database->config().durability.storage_directory;
   const auto tenant_uuid = database->uuid();
   const auto memory_at_detach = database->DbMemoryUsage();
@@ -930,22 +922,17 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   // on failure), no row was actually published, so there is nothing for the guard to retire.
   detached_row_uuid = tenant_uuid;
 
-  // ===============================================================================================
   // PHASE 2 — `lock` released. The unbounded part: two thread joins that used to run under lock_.
   // Nothing reachable from here may take `lock` (a non-recursive pthread rwlock) — StopAllBackgroundTasks
   // and streams()->DropAll() provably don't: they ran under lock_ HELD EXCLUSIVE a moment ago (the code
   // this replaces), so a self-deadlock there would have already been a live bug, not a latent one.
   // `gk`/`acc` are the only handles we still trust past this point; `name`/`storage_path` are owned copies.
-  // ===============================================================================================
   lock.unlock();
   database->StopAllBackgroundTasks();
   database->streams()->DropAll();
   acc.reset();  // release the drop's own accessor so Phase 3's DeferDelete -> try_delete() can win
   lock.lock();
 
-  // ===============================================================================================
-  // PHASE 3 — under `lock` again.
-  // ===============================================================================================
   // Re-validate; do not trust the Phase 1 pointer or guards. DeferDelete is void and silently no-ops
   // on a name miss, so a lost/renamed node here would otherwise let us promote the registry row (and
   // return success) for a tenant that Phase 2's off-lock window let something else destroy or rename
@@ -989,7 +976,6 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   // idempotent/self-guarding), but redundant code with no behavior of its own to justify existing.
   db_handler_.DeferDelete(name, [this, tenant_uuid, storage_path, name]() {
     ForgetDetached_(tenant_uuid);
-    // Delete disk storage
     std::error_code ec;
     (void)std::filesystem::remove_all(storage_path, ec);
     if (ec) {
