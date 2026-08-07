@@ -45,6 +45,11 @@ namespace memgraph::query {
 
 class FineGrainedAuthChecker;
 struct CachedFineGrainedAuth;
+class CypherQuery;
+
+/// True if `query` is an accessor-free fast-path shape (constant RETURN or builtin mg.* introspection).
+/// Used to prioritize Lab's health-check pings; mirrors the classification the Prepare dispatch uses.
+bool IsAccessorFreeQuery(const CypherQuery &query);
 
 struct QueryAllocator {
   explicit QueryAllocator(utils::MemoryTracker *db_query_tracker = nullptr)
