@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -7326,6 +7327,24 @@ std::vector<TypedValue> BuildGcTransactionRow(storage::GcRunInfoView const &info
       "gc", "GARBAGE COLLECTION", std::move(metadata), info.start_time_us, info.start_steady_ms);
 }
 
+namespace {
+// Transaction ids arrive as string literals, so the whole string must parse; a partial
+// parse would silently target a different transaction than the one named.
+uint64_t ParseTransactionId(TypedValue const &value) {
+  if (!value.IsString()) {
+    throw QueryRuntimeException("Transaction id must be a string.");
+  }
+  auto const &id_string = value.ValueString();
+  auto const *const end = id_string.data() + id_string.size();
+  uint64_t transaction_id{};
+  auto const [parse_end, ec] = std::from_chars(id_string.data(), end, transaction_id);
+  if (ec != std::errc{} || parse_end != end) {
+    throw QueryRuntimeException("'{}' is not a valid transaction id.", std::string_view{id_string});
+  }
+  return transaction_id;
+}
+}  // namespace
+
 Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                      std::shared_ptr<QueryUserOrRole> user_or_role, const Parameters &parameters,
                                      InterpreterContext *interpreter_context) {
@@ -7372,16 +7391,10 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
       auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       std::vector<uint64_t> maybe_kill_transaction_ids;
-      std::ranges::transform(transaction_query->transaction_id_list_,
-                             std::back_inserter(maybe_kill_transaction_ids),
-                             [&evaluator](Expression *expression) {
-                               try {
-                                 auto value = expression->Accept(evaluator);
-                                 return std::stoul(value.ValueString().c_str());  // NOLINT
-                               } catch (std::exception & /* unused */) {
-                                 return std::numeric_limits<uint64_t>::max();
-                               }
-                             });
+      std::ranges::transform(
+          transaction_query->transaction_id_list_,
+          std::back_inserter(maybe_kill_transaction_ids),
+          [&evaluator](Expression *expression) { return ParseTransactionId(expression->Accept(evaluator)); });
       callback.header = {"transaction_id", "killed"};
       callback.fn = [interpreter_context,
                      maybe_kill_transaction_ids = std::move(maybe_kill_transaction_ids),

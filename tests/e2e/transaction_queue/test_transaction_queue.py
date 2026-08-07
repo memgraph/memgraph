@@ -47,6 +47,16 @@ def show_transactions_test(cursor, expected_num_results: int):
     return results
 
 
+def wait_for_transaction_count(cursor, expected_num_results: int, timeout_s: int = 10):
+    """Polls SHOW TRANSACTIONS until the expected number of transactions is visible."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if len(execute_and_fetch_all(cursor, "SHOW TRANSACTIONS")) == expected_num_results:
+            return
+        time.sleep(0.1)
+    assert False, f"Timed out waiting for {expected_num_results} transactions"
+
+
 def process_function(cursor, queries: List[str]):
     try:
         for query in queries:
@@ -326,6 +336,61 @@ def test_user_cannot_see_admin_transaction(request):
     admin_connection_1.close()
     admin_connection_2.close()
     user_connection.close()
+
+
+def test_unauthorized_terminate_reports_not_killed(request):
+    """An unprivileged user naming someone else's transaction id gets killed=false, and the
+    transaction survives. Reporting killed=true would both lie and confirm the id exists."""
+    superadmin_cursor = connect().cursor()
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
+    execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM user")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER user")
+
+    request.addfinalizer(on_exit)
+
+    admin_connection = connect(username="admin", password="")
+    admin_cursor = admin_connection.cursor()
+    user_connection = connect(username="user", password="")
+    user_cursor = user_connection.cursor()
+
+    # Admin runs a long query; the admin's own second session reads its id.
+    process = multiprocessing.Process(
+        target=process_function, args=(admin_cursor, ["CALL infinite_query.long_query() YIELD my_id RETURN my_id"])
+    )
+    process.start()
+    admin_observer_cursor = connect(username="admin", password="").cursor()
+    wait_for_transaction_count(admin_observer_cursor, 2)
+    admin_transaction_id = get_non_show_transaction_id(show_transactions_test(admin_observer_cursor, 2))
+
+    # The unprivileged user cannot kill it, and must not be told it exists.
+    results = execute_and_fetch_all(user_cursor, f"TERMINATE TRANSACTIONS '{admin_transaction_id}'")
+    assert len(results) == 1
+    assert results[0][0] == admin_transaction_id
+    assert results[0][1] == False  # not killed, indistinguishable from a missing id
+
+    # The transaction survived and is still visible to the admin.
+    assert get_non_show_transaction_id(show_transactions_test(admin_observer_cursor, 2)) == admin_transaction_id
+
+    # The admin can still kill it.
+    results = execute_and_fetch_all(admin_observer_cursor, f"TERMINATE TRANSACTIONS '{admin_transaction_id}'")
+    assert results[0][1] == True
+
+    admin_connection.close()
+    user_connection.close()
+
+
+def test_terminate_rejects_malformed_ids():
+    """Ids must parse in full; a numeric prefix must not silently target another transaction."""
+    cursor = connect().cursor()
+    for bad_id in ["'1abc'", "'ALL'", "''", "'0x10'", "'1 '", "123"]:
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(cursor, f"TERMINATE TRANSACTIONS {bad_id}")
 
 
 def test_killing_non_existing_transaction():

@@ -20,6 +20,7 @@
 #include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
 #include "query/context.hpp"
+#include "query/exceptions.hpp"
 #include "query/interpreter_context.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -244,6 +245,29 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateCommittingTransactionNotFound) {
   // Restore to IDLE
   this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::IDLE,
                                                                   std::memory_order_release);
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, StrictIdParsing) {
+  // A transaction id must parse in full. Previously a trailing-garbage id parsed as its
+  // numeric prefix and silently terminated a different transaction, while an unparseable
+  // id reported a kill attempt on a bogus UINT64_MAX id.
+  this->running_interpreter.Interpret("BEGIN");
+  std::string const tx_id = std::to_string(this->running_interpreter.interpreter.GetTransactionId().value());
+
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS '" + tx_id + "abc'"),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS 'ALL'"),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS ''"), memgraph::query::QueryRuntimeException);
+  // Non-string literals are rejected rather than degrading to a bogus id. A real id can't be
+  // used unquoted here: ids start at 1<<63, which overflows an integer literal.
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS 123"), memgraph::query::QueryRuntimeException);
+
+  // The victim survived every rejected attempt.
+  auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
+  ASSERT_EQ(show_stream.GetResults().size(), 2U);
+
+  this->running_interpreter.Abort();
 }
 
 TYPED_TEST(TransactionQueueSimpleTest, ShowTransactionsAfterCommit) {

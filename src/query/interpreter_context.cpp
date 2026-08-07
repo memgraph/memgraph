@@ -86,9 +86,6 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
 
     auto it = std::find(maybe_kill_transaction_ids.begin(), not_found_midpoint, transaction_id);
     if (it != not_found_midpoint) {
-      // update the maybe_kill_transaction_ids (partitioning not found + killed)
-      --not_found_midpoint;
-      std::iter_swap(it, not_found_midpoint);
       auto get_interpreter_db_name = [&]() -> std::string {
         return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : "";
       };
@@ -101,6 +98,10 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
 
       if (same_user(interpreter->user_or_role_, user_or_role) ||
           privilege_checker(user_or_role, get_interpreter_db_name())) {
+        // Only authorized kills join the killed partition. An unauthorized match stays in the
+        // not-found partition so it reports killed=false and its existence isn't leaked.
+        --not_found_midpoint;
+        std::iter_swap(it, not_found_midpoint);
         killed = true;  // Note: this is used by the above `clean_status` (OnScopeExit)
         spdlog::warn("Transaction {} successfully killed", transaction_id);
       } else {
