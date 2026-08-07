@@ -97,7 +97,11 @@ mg_split_debug(memgraph INSTALL_DESTINATION lib/memgraph)
 # Emit the once-per-build configure-time warnings so the developer knows why
 # the rewrite was skipped (the helper itself is silent on the skip).
 find_program(PATCHELF_EXECUTABLE patchelf)
-find_library(MG_LIBPYTHON3_SO python3)
+# NO_CMAKE_FIND_ROOT_PATH: must match mg_apply_python_abi3_rewrite — the probe
+# asks what the RUNTIME linker can resolve, so the sysroot's own libpython3.so
+# (GDB python's abi3 stub, invisible to ld.so) must not count.
+find_library(MG_LIBPYTHON3_SO python3 NO_CMAKE_FIND_ROOT_PATH
+    PATHS /usr/lib/${CMAKE_SYSTEM_PROCESSOR}-linux-gnu /usr/lib64 /usr/lib)
 if(MG_PYTHON_REWRITE_DT_NEEDED AND NOT (PATCHELF_EXECUTABLE AND MG_LIBPYTHON3_SO))
         if(NOT PATCHELF_EXECUTABLE)
                 message(WARNING "patchelf not found; skipping DT_NEEDED rewrite. "

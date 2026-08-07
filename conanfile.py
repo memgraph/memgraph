@@ -98,6 +98,12 @@ class Memgraph(ConanFile):
         self.requires("boost/1.88.0-memgraph", force=True)
         self.requires("fmt/11.2.0")
         self.requires("nlohmann_json/3.11.3-memgraph")
+        # libuuid was previously picked up implicitly from /usr/include on the
+        # host; with the toolchain's sysroot the host headers aren't visible,
+        # so it must be an explicit dep built against our glibc 2.31 sysroot.
+        # Needed by BOTH build modes: src/utils/uuid.hpp (memgraph) and MAGE's
+        # uuid_generator query module link it.
+        self.requires("libuuid/1.0.3")
 
         if self.options.mage_only:
             return
@@ -117,6 +123,13 @@ class Memgraph(ConanFile):
         self.requires("libbcrypt/1.0-memgraph")
         self.requires("librdkafka/2.6.1")
         self.requires("librdtsc/0.3-memgraph")
+        # libseccomp was previously picked up implicitly from /usr/include on
+        # the host; with the toolchain's sysroot the host headers aren't
+        # visible, so it must be an explicit dep built against our glibc 2.31
+        # sysroot. src/auth/module.cpp uses seccomp-bpf for syscall sandboxing
+        # of the auth module subprocess. Vendored recipe under
+        # conan_recipes/recipes/libseccomp.
+        self.requires("libseccomp/2.6.0")
         self.requires("mgclient/1.4.3")
         self.requires("nuraft/2.1.0-memgraph")
         has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
@@ -142,7 +155,7 @@ class Memgraph(ConanFile):
         self.requires("snappy/1.2.1", override=True)
 
     def build_requirements(self):
-        self.tool_requires("cmake/[>=4 <5]")
+        self.tool_requires("cmake/4.3.3")
         self.tool_requires("ninja/[>=1.13 <2]")
         self.tool_requires("ccache/4.12.3-memgraph")
 

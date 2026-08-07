@@ -167,6 +167,27 @@ target_link_libraries(mg-query-cppm PUBLIC mg-aws mg::storage)
 
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
     set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
+elseif(NOT DEFINED Python3_ROOT_DIR)
+    # The toolchain sysroot ships a Python install solely for GDB --with-python.
+    # Without a hint, FindPython3 picks it up first (sysroot leads
+    # CMAKE_FIND_ROOT_PATH) and the resulting binary's NEEDED libpython is the
+    # toolchain's, not the host's — cmake even warns about the runtime shadow.
+    # Force the host Python (matches what the deploy distro will ship).
+    set(Python3_ROOT_DIR "/usr")
+endif()
+set(Python3_FIND_STRATEGY LOCATION)
+
+# FindPython3 hints go through find_path/find_library, which re-root absolute
+# paths against CMAKE_FIND_ROOT_PATH — so Python3_ROOT_DIR=/usr gets re-rooted
+# to ${SYSROOT}/usr and the sysroot Python wins anyway. Flip include/library
+# find modes to NEVER for the duration of this find_package so /usr stays /usr.
+set(_mg_saved_include_mode "${CMAKE_FIND_ROOT_PATH_MODE_INCLUDE}")
+set(_mg_saved_library_mode "${CMAKE_FIND_ROOT_PATH_MODE_LIBRARY}")
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY NEVER)
+
+if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
+    set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
 endif()
 
 # Build against the Python stable ABI (abi3) so the resulting binary works
@@ -178,6 +199,9 @@ if("${MG_PYTHON_VERSION}" STREQUAL "")
 else()
     find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
 endif()
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE "${_mg_saved_include_mode}")
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY "${_mg_saved_library_mode}")
+
 
 # Hex form of the floor version: 3.10 = 0x030a0000.
 # 3.10 is the earliest floor where `Py_TYPE`, `Py_INCREF`, and `Py_DECREF` are
@@ -199,8 +223,28 @@ set(MG_PYTHON_STABLE_ABI_FLOOR "0x030a0000" CACHE STRING
 # then loads against any libpython3 >= the floor at runtime.
 set(MG_PYTHON_LINK_TARGET Python3::Python)
 
+# The host libpython was built against the HOST glibc, which may be newer than
+# the sysroot's pinned glibc — its undefined symbols (pthread_create@GLIBC_2.34,
+# ...) then can't resolve at link time and lld's --no-allow-shlib-undefined
+# rejects the link (observed with Arch's libpython3.14). At runtime this is
+# moot: the DT_NEEDED rewrite loads the target machine's own python, which
+# always matches that machine's glibc. Relax the check for consumers.
+target_link_options(Python3::Python INTERFACE "-Wl,--allow-shlib-undefined")
+
 target_compile_definitions(mg-query PUBLIC
     "Py_LIMITED_API=${MG_PYTHON_STABLE_ABI_FLOOR}")
+
+# Debian/Ubuntu split pyconfig.h between /usr/include/pythonX.Y/pyconfig.h
+# (a redirect) and /usr/include/<triple>/pythonX.Y/pyconfig.h (the real one).
+# cmake's FindPython3 returns only the first path, and our toolchain sysroot
+# blocks the redirect's <triple>/pythonX.Y/pyconfig.h fallback through the
+# default /usr/include search. -idirafter appends host /usr/include to the
+# tail of the search path, so it's only consulted for headers the sysroot
+# doesn't have (i.e. just the multiarch pyconfig redirect target).
+if(EXISTS "/usr/include/x86_64-linux-gnu/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/pyconfig.h"
+    OR EXISTS "/usr/include/aarch64-linux-gnu/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/pyconfig.h")
+    target_compile_options(Python3::Python INTERFACE -idirafter /usr/include)
+endif()
 
 target_link_libraries(mg-query
     PUBLIC

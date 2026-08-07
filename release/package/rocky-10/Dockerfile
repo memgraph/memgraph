@@ -8,10 +8,10 @@ RUN yum -y update \
 # Do NOT be smart here and clean the cache because the container is used in the
 # stateful context.
 
-RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOLCHAIN_VERSION}/toolchain-${TOOLCHAIN_VERSION}-binaries-rocky-10-x86_64.tar.gz \
-    -O toolchain-${TOOLCHAIN_VERSION}-binaries-rocky-10-x86_64.tar.gz \
-    && tar xzvf toolchain-${TOOLCHAIN_VERSION}-binaries-rocky-10-x86_64.tar.gz -C /opt \
-    && rm toolchain-${TOOLCHAIN_VERSION}-binaries-rocky-10-x86_64.tar.gz
+RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOLCHAIN_VERSION}/toolchain-${TOOLCHAIN_VERSION}-binaries-x86_64.tar.gz \
+    -O toolchain-${TOOLCHAIN_VERSION}-binaries-x86_64.tar.gz \
+    && tar xzvf toolchain-${TOOLCHAIN_VERSION}-binaries-x86_64.tar.gz -C /opt \
+    && rm toolchain-${TOOLCHAIN_VERSION}-binaries-x86_64.tar.gz
 
 # Install toolchain run deps and memgraph build deps
 ARG GIT_REF
@@ -20,6 +20,8 @@ RUN git clone --branch ${GIT_REF} https://github.com/memgraph/memgraph.git \
     && cd memgraph \
     && ./environment/os/rocky-10.sh install TOOLCHAIN_RUN_DEPS \
     && ./environment/os/rocky-10.sh install MEMGRAPH_BUILD_DEPS \
+    && ./environment/os/rocky-10.sh install MEMGRAPH_TEST_DEPS \
+    && ./environment/os/rocky-10.sh install MEMGRAPH_RUN_DEPS \
     && cd .. && rm -rf memgraph
 
 # Create mg user and set as default

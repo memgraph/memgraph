@@ -65,7 +65,7 @@ on:
         value: ${{ jobs.PackageAndUpload.outputs.package_s3_url }}
 
 env:
-  TOOLCHAIN: v7
+  TOOLCHAIN: v8
   GENERATE_SBOM: ${{ inputs.generate_sbom }}
   ARCH: ${{ inputs.arch }}
   BUILD_TYPE: ${{ inputs.build_type }}
@@ -285,15 +285,6 @@ jobs:
             --wheels-dir build/output/smoke-wheels
           echo "SMOKE_IMAGE_TAG=$image_tag" >> $GITHUB_ENV
           echo "Resolved SMOKE_IMAGE_TAG=$image_tag"
-
-      - name: "Build heaptrack"
-        if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os "$OS" \
-          --arch $ARCH \
-          build-heaptrack
 
       - name: "Copy heaptrack"
         if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}

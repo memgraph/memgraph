@@ -44,10 +44,15 @@ fi
 # Install pre-commit hooks only outside CI.
 if [[ "$ci" == "false" ]]; then
   echo "Installing pre-commit hooks"
+  # Python >= 3.10 required; resolve_python honors $MG_PYTHON (exported by
+  # build.sh) and falls back to versioned binaries on distros whose default
+  # python3 is older (e.g. centos-9).
+  source "$DIR/environment/util.sh"
+  PYTHON="$(resolve_python)"
   export PIP_BREAK_SYSTEM_PACKAGES=1
   # Upgrading pip is best-effort: a Homebrew/distro-managed pip can't uninstall
   # itself (no RECORD file), so don't let a failed upgrade abort the script.
-  python3 -m pip install --upgrade pip || true
-  python3 -m pip install pre-commit black==26.5.0 isort==5.12.*
-  python3 -m pre_commit install
+  "$PYTHON" -m pip install --upgrade pip || true
+  "$PYTHON" -m pip install pre-commit black==26.5.0 isort==5.12.*
+  "$PYTHON" -m pre_commit install
 fi

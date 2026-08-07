@@ -152,7 +152,13 @@ function(mg_apply_python_abi3_rewrite target_name)
     endif()
 
     find_program(PATCHELF_EXECUTABLE patchelf)
-    find_library(MG_LIBPYTHON3_SO python3)
+    # This probe must reflect what the RUNTIME linker can resolve, so bypass
+    # the toolchain sysroot re-rooting: the sysroot ships its own libpython3.so
+    # (the GDB python's abi3 stub) that ld.so never sees at runtime. Explicit
+    # PATHS cover the host layouts (Debian multiarch, RPM lib64) since the
+    # sysroot'd compiler may not report a multiarch CMAKE_LIBRARY_ARCHITECTURE.
+    find_library(MG_LIBPYTHON3_SO python3 NO_CMAKE_FIND_ROOT_PATH
+        PATHS /usr/lib/${CMAKE_SYSTEM_PROCESSOR}-linux-gnu /usr/lib64 /usr/lib)
     if(NOT PATCHELF_EXECUTABLE OR NOT MG_LIBPYTHON3_SO)
         # Warning is emitted once from src/CMakeLists.txt — don't spam here.
         return()

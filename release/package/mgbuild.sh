@@ -6,39 +6,20 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 MGBUILD_HOME_DIR="/home/mg"
 MGBUILD_ROOT_DIR="$MGBUILD_HOME_DIR/memgraph"
 
-DEFAULT_TOOLCHAIN="v7"
+DEFAULT_TOOLCHAIN="v8"
 SUPPORTED_TOOLCHAINS=(
-    v4 v5 v6 v7
+    v7 v8
 )
 DEFAULT_OS="all"
 
 SUPPORTED_OS=(
     all
     centos-9 centos-10
-    debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
-    fedora-36 fedora-38 fedora-39 fedora-41
-    rocky-9.3
-    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm ubuntu-24.04 ubuntu-24.04-arm
-)
-SUPPORTED_OS_V4=(
-    centos-9
-    debian-10 debian-11 debian-11-arm
-    fedora-36
-    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
-)
-SUPPORTED_OS_V5=(
-    centos-9
-    debian-11 debian-11-arm debian-12 debian-12-arm
-    fedora-38 fedora-39
-    rocky-9.3
-    ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm ubuntu-24.04 ubuntu-24.04-arm
-)
-
-SUPPORTED_OS_V6=(
-    centos-9 centos-10
-    debian-11 debian-11-arm debian-12 debian-12-arm
-    fedora-41
+    debian-12 debian-12-arm debian-13 debian-13-arm
+    fedora-42 fedora-42-arm fedora-43 fedora-43-arm
+    rocky-10
     ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
+    ubuntu-26.04 ubuntu-26.04-arm
 )
 
 SUPPORTED_OS_V7=(
@@ -47,6 +28,15 @@ SUPPORTED_OS_V7=(
     fedora-42 fedora-42-arm
     rocky-10
     ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
+)
+
+SUPPORTED_OS_V8=(
+    centos-9 centos-10
+    debian-12 debian-12-arm debian-13 debian-13-arm
+    fedora-42 fedora-42-arm fedora-43 fedora-43-arm
+    rocky-10
+    ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
+    ubuntu-26.04 ubuntu-26.04-arm
 )
 
 DEFAULT_BUILD_TYPE="Release"
@@ -293,14 +283,14 @@ check_support() {
       fi
     ;;
     os)
-      for e in "${SUPPORTED_OS_V7[@]}"; do
+      for e in "${SUPPORTED_OS[@]}"; do
         if [[ "$e" == "$2" ]]; then
           is_supported=true
           break
         fi
       done
       if [[ "$is_supported" == false ]]; then
-        echo -e "Error: OS $2 isn't supported!\nChoose from  ${SUPPORTED_OS_V7[*]}"
+        echo -e "Error: OS $2 isn't supported!\nChoose from  ${SUPPORTED_OS[*]}"
         exit 1
       fi
     ;;
@@ -317,14 +307,10 @@ check_support() {
       fi
     ;;
     os_toolchain_combo)
-      if [[ "$3" == "v4" ]]; then
-        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V4[@]}")
-      elif [[ "$3" == "v5" ]]; then
-        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V5[@]}")
-      elif [[ "$3" == "v6" ]]; then
-        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V6[@]}")
-      elif [[ "$3" == "v7" ]]; then
+      if [[ "$3" == "v7" ]]; then
         local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V7[@]}")
+      elif [[ "$3" == "v8" ]]; then
+        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V8[@]}")
       else
         echo -e "Error: $3 isn't a supported toolchain_version!\nChoose from ${SUPPORTED_TOOLCHAINS[*]}"
         exit 1
@@ -506,9 +492,6 @@ install_python_from_deadsnakes () {
   fi
   echo "Installing Python $version from the deadsnakes PPA ..."
   docker exec -u root "$build_container" bash -c "export DEBIAN_FRONTEND=noninteractive && \
-    apt-get update && \
-    apt-get install -y software-properties-common && \
-    add-apt-repository -y ppa:deadsnakes/ppa && \
     apt-get update && \
     apt-get install -y python${version} python${version}-dev python${version}-venv"
   point_libpython3_so "$version"
@@ -692,23 +675,24 @@ build_memgraph () {
     copy_project_files
   fi
 
-  # Ubuntu and Debian builds fail because of missing xmlsec since the Python package xmlsec==1.3.15
-  if [[ "$os" == debian* || "$os" == ubuntu* ]]; then
-    if [[ "$os" == debian-11* ]]; then
-      # this should blacklist that version of xmlsec for debian-11
-      docker exec -u root "$build_container" bash -c "echo 'xmlsec!=1.3.15' > /etc/pip_constraints.txt"
-      docker exec -u root "$build_container" bash -c "echo '[global]' > /etc/pip.conf && echo 'constraint = /etc/pip_constraints.txt' >> /etc/pip.conf"
-    else
-      docker exec -u root "$build_container" bash -c "apt update && apt install -y libxmlsec1-dev xmlsec1"
-    fi
+  local env_script="$MGBUILD_ROOT_DIR/environment/os/${os%-arm}.sh"
+  local deps_group
+  echo "Installing dependencies using '$env_script' script..."
+  for deps_group in TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS MEMGRAPH_TEST_DEPS MEMGRAPH_RUN_DEPS; do
+    docker exec -u root "$build_container" bash -c "$env_script check $deps_group || $env_script install $deps_group"
+  done
+
+  # check rust version installed matches
+  local installed_rust_ver_str="$(docker exec -u mg $build_container bash -c 'source $HOME/.cargo/env && cargo --version 2>/dev/null || echo ""')"
+  local installed_rust_ver=""
+  if [[ $installed_rust_ver_str =~ v?([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+    installed_rust_ver="${BASH_REMATCH[1]}"
+    echo "Found Rust version ${installed_rust_ver} in the build container"
   fi
-
-  echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
-  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
-  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
-
-  echo "Installing Rust $DEFAULT_RUST_VERSION..."
-  docker exec -u mg "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && retry_install install_rust $DEFAULT_RUST_VERSION"
+  if [[ "$installed_rust_ver" != "$DEFAULT_RUST_VERSION" ]]; then
+    echo "Installing Rust $DEFAULT_RUST_VERSION..."
+    docker exec -u mg "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && retry_install install_rust $DEFAULT_RUST_VERSION"
+  fi
 
   # Install the requested build-time Python (--python-build-version) from deadsnakes
   # and point libpython3.so at it, so the build links against exactly that
@@ -809,7 +793,11 @@ build_memgraph () {
     echo "UBSAN enabled"
   fi
 
-  local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_v7 $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+  # The host profile must match --toolchain: the v8 profile carries the
+  # --sysroot/--gcc-toolchain conf that pins compiles to the toolchain's
+  # glibc; with the wrong profile, memgraph compiles against the container's
+  # host glibc and the binary won't run on older distros.
+  local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_${toolchain_version} $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
 
   # MAGE-only: trim the conan graph; the generated toolchain then also sets
   # MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON (see conanfile.py).
@@ -984,7 +972,6 @@ build_memgraph () {
 init_tests() {
   echo "Initializing tests..."
   local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
-  docker exec -u root "$build_container" bash -c "apt update && apt install -y python3-venv"
   docker exec -u mg "$build_container" bash -c "$SETUP_MGDEPS_CACHE_ENDPOINT && cd $MGBUILD_ROOT_DIR && ./init-test --ci"
   echo "...Done"
 }
@@ -1062,22 +1049,12 @@ package_memgraph() {
 
 package_docker() {
   # TODO(gitbuda): Write the below ifs in a better way (make it automatic with new toolchain versions).
-  if [[ "$toolchain_version" == "v4" ]]; then
-    if [[ "$os" != "debian-11" && "$os" != "debian-11-arm" ]]; then
-      echo -e "Error: When passing '--toolchain v4' the 'docker' command accepts only '--os debian-11' and '--os debian-11-arm'"
-      exit 1
-    fi
-  elif [[ "$toolchain_version" == "v5" ]]; then
-    if [[ "$os" != "debian-12" && "$os" != "debian-12-arm" ]]; then
-      echo -e "Error: When passing '--toolchain v5' the 'docker' command accepts only '--os debian-12' and '--os debian-12-arm'"
-      exit 1
-    fi
-  else
-    if [[ "$os" != "ubuntu-24.04" && "$os" != "ubuntu-24.04-arm" ]]; then
-      echo -e "Error: When passing '--toolchain v6' the 'docker' command accepts only '--os ubuntu-24.04' and '--os ubuntu-24.04-arm'"
-      exit 1
-    fi
+
+  if [[ "$os" != "ubuntu-24.04" && "$os" != "ubuntu-24.04-arm" ]]; then
+    echo -e "Error: When packaging docker only '--os ubuntu-24.04' and '--os ubuntu-24.04-arm' are supported"
+    exit 1
   fi
+
   local package_dir="$PROJECT_ROOT/build/output/$os"
   local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
   local malloc=false
@@ -1694,8 +1671,8 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=standalone/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
     ;;
     stress-native-ha)
-      # Set up passwordless sudo for mg user (needed by stress tests that use iptables)
-      docker exec -u root $build_container bash -c "apt-get update -qq && apt-get install -y -qq sudo && adduser mg sudo && echo 'mg ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers"
+      # Passwordless sudo for mg (stress tests use iptables)
+      docker exec -u root $build_container bash -c "echo 'mg ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/mg && chmod 440 /etc/sudoers.d/mg"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_AWS_KEY_ID && $EXPORT_AWS_SECRET_KEY && export REPLICATION_MODE=${REPLICATION_MODE:-sync} && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=ha/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
     ;;
     stress-docker-ha)
@@ -1947,7 +1924,6 @@ test_memgraph() {
     ;;
     e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
-      docker exec -u root $build_container bash -c "apt-get update && apt-get install -y lsof" # TODO(matt): install within mgbuild container
       local pycmd="python${python_runtime_version:-3}"
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user networkx==2.5.1"
@@ -2016,15 +1992,10 @@ test_memgraph() {
 }
 
 
-build_heaptrack() {
-  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  docker exec -i -u root $build_container bash -c "apt-get update && apt-get install -y libdw-dev libboost-all-dev"
-  docker exec -i -u root $build_container bash -c "mkdir -p /tmp/heaptrack && chown mg:mg /tmp/heaptrack"
-
-  docker cp tools/ci/build-heaptrack.sh $build_container:$MGBUILD_HOME_DIR/build-heaptrack.sh
-  docker exec -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd $MGBUILD_HOME_DIR && ./build-heaptrack.sh"
-}
-
+# heaptrack ships inside the toolchain (built by
+# environment/toolchain/v8/build.sh). Stage its runtime files from the
+# toolchain prefix into a self-contained /tmp/heaptrack tree (the layout the
+# docker images expect: `cp -r heaptrack/* /usr/`) and copy it out.
 copy_heaptrack() {
   local dest_dir="release/docker"
   while [[ $# -gt 0 ]]; do
@@ -2039,6 +2010,16 @@ copy_heaptrack() {
         exit 1
     esac
   done
+  local tc="/opt/toolchain-${toolchain_version}"
+  docker exec -i -u root $build_container bash -c "
+    set -euo pipefail
+    rm -rf /tmp/heaptrack
+    mkdir -p /tmp/heaptrack/bin /tmp/heaptrack/include /tmp/heaptrack/lib/heaptrack/libexec
+    cp $tc/bin/heaptrack $tc/bin/heaptrack_print /tmp/heaptrack/bin/
+    cp $tc/include/heaptrack_api.h /tmp/heaptrack/include/
+    cp $tc/lib/heaptrack/libheaptrack_inject.so $tc/lib/heaptrack/libheaptrack_preload.so /tmp/heaptrack/lib/heaptrack/
+    cp $tc/lib/heaptrack/libexec/heaptrack_env $tc/lib/heaptrack/libexec/heaptrack_interpret /tmp/heaptrack/lib/heaptrack/libexec/
+  "
   docker cp $build_container:/tmp/heaptrack/ $dest_dir
 }
 
@@ -3366,9 +3347,6 @@ case $command in
     ;;
     package-smoke-image)
       package_smoke_image $@
-    ;;
-    build-heaptrack)
-      build_heaptrack $@
     ;;
     copy-heaptrack)
       copy_heaptrack $@

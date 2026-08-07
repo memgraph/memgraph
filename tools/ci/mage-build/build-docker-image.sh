@@ -135,10 +135,7 @@ fi
   build-gssapi
 
 if [[ "$PACKAGE_FLAVOUR" == "debug" ]]; then
-  ./release/package/mgbuild.sh \
-    ${MGBUILD_ARGS[*]} \
-    build-heaptrack
-
+  # heaptrack is prebuilt in the toolchain; copy-heaptrack stages it out.
   ./release/package/mgbuild.sh \
     ${MGBUILD_ARGS[*]} \
     copy-heaptrack \
