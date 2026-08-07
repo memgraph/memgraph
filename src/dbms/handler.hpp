@@ -186,6 +186,14 @@ class Handler {
    */
   bool TryDelete(std::string_view name) {
     if (auto itr = items_.find(name); itr != items_.end()) {
+      // Deliberately the plain, drain-gated access() -- NOT utils::drain_bypass. This does not
+      // participate in the drain protocol at all: its only caller (DbmsHandler::TryDelete) already
+      // fails earlier at its own GetConfig lookup for a tenant under drop. More importantly, a
+      // bypassed mint here could win Accessor::try_delete() behind an in-flight FORCE drop's back --
+      // during that drop's off-lock phase its own accessor is released, so count_ can be exactly 1,
+      // letting this path destroy value_ and erase the entry out from under the drop, which would
+      // then falsely promote its registry row and roll back a drain on a gatekeeper that no longer
+      // exists.
       auto db_acc = itr->second.access();
       if (db_acc && db_acc->try_delete()) {
         db_acc->reset();
@@ -209,7 +217,13 @@ class Handler {
     auto itr = items_.find(name);
     if (itr == items_.end()) return;
 
-    auto db_acc = itr->second.access();
+    // utils::drain_bypass is mandatory here, not a convenience: DeferDelete is the drop path itself,
+    // so it owns whatever drain it (or its caller) already declared on this gatekeeper -- and
+    // items_.erase(itr) below is unconditional, reached whether the accessor mints or not. A
+    // drain-gated access() failing here would `return` before that erase, stranding the tenant in
+    // items_ forever: unreachable by name (its own access() refuses), never destroyed, its name
+    // permanently unusable.
+    auto db_acc = itr->second.access(utils::drain_bypass);
     if (!db_acc) return;
 
     if (db_acc->try_delete()) {
