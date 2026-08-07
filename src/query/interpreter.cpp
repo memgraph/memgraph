@@ -8687,27 +8687,39 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                 // in_explicit_transaction_) is asked to stop while that still helps. The old placement
                 // ran this sweep only after Delete() had already returned -- after Phase 3 and
                 // DeferDelete -- so such a transaction was never asked at all. One consequence: the sweep
-                // now also runs if this drop attempt fails and Delete() is retried; that is deliberate and
-                // benign (a post-acceptance failure is retriable by design, and terminating transactions on
-                // a retried drop is harmless), and it is the price of asking early enough to matter.
+                // can now also run when this very drop attempt itself goes on to fail (it runs before
+                // Phase 3's re-validation), not only across a later retry; that is deliberate and benign
+                // (terminating transactions ahead of a failed or retried drop is harmless), and it is the
+                // price of asking early enough to matter.
                 // Best effort approach, if it fails, user will continue using the db until they commit/abort.
-                // Safe to invoke more than once (Delete_ may retry it): TerminateTransactions already is --
-                // it re-CASes each interpreter's status and restores it via an OnScopeExit.
+                // Safe to invoke repeatedly, as CooperativeCancelFn's contract requires:
+                // TerminateTransactions already is -- it re-CASes each interpreter's status and restores it
+                // via an OnScopeExit.
+                // Must swallow, not propagate: privilege_checker's IsAuthorized() can throw and isn't
+                // confined to Memgraph's exception hierarchy (hence catch(...)). A throw partway through
+                // the interpreter loop would leave already-visited interpreters TERMINATED while unwinding
+                // Delete_'s rollback_drain guard, so the tenant survives -- sessions killed for a drop
+                // that never happened. Swallowing lets the drop proceed, which makes those terminations
+                // correct after the fact.
                 auto cooperative_cancel = [db_name, interpreter_context, interpreter]() {
-                  interpreter_context->interpreters.WithLock(
-                      [db_name, interpreter_context, interpreter](auto &interpreters) {
-                        auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
-                          return user_or_role &&
-                                 user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
-                                                            db_name,
-                                                            &query::up_to_date_policy);
-                        };
-                        interpreter_context->TerminateTransactions(
-                            interpreters,
-                            InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
-                            interpreter->user_or_role_.get(),
-                            privilege_checker);
-                      });
+                  try {
+                    interpreter_context->interpreters.WithLock(
+                        [db_name, interpreter_context, interpreter](auto &interpreters) {
+                          auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
+                            return user_or_role &&
+                                   user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
+                                                              db_name,
+                                                              &query::up_to_date_policy);
+                          };
+                          interpreter_context->TerminateTransactions(
+                              interpreters,
+                              InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
+                              interpreter->user_or_role_.get(),
+                              privilege_checker);
+                        });
+                  } catch (...) {
+                    spdlog::warn("Cooperative cancel of transactions using {} failed; continuing drop.", db_name);
+                  }
                 };
                 success = db_handler->Delete(db_name, &*interpreter->system_transaction_, cooperative_cancel);
               } else {
