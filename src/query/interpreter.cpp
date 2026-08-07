@@ -8681,26 +8681,21 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
               // Remove database
               dbms::DbmsHandler::DeleteResult success;
               if (force) {
-                // Runs from Delete_'s Phase 2 -- before the tenant's trigger pool and stream consumers
-                // are joined -- so a transaction pinning the tenant (e.g. an explicit transaction, which
-                // keeps its DatabaseAccess because Prepare() skips ResetInterpreter() while
-                // in_explicit_transaction_) is asked to stop while that still helps. The old placement
-                // ran this sweep only after Delete() had already returned -- after Phase 3 and
-                // DeferDelete -- so such a transaction was never asked at all. One consequence: the sweep
-                // can now also run when this very drop attempt itself goes on to fail (it runs before
-                // Phase 3's re-validation), not only across a later retry; that is deliberate and benign
-                // (terminating transactions ahead of a failed or retried drop is harmless), and it is the
-                // price of asking early enough to matter.
-                // Best effort approach, if it fails, user will continue using the db until they commit/abort.
-                // Safe to invoke repeatedly, as CooperativeCancelFn's contract requires:
-                // TerminateTransactions already is -- it re-CASes each interpreter's status and restores it
-                // via an OnScopeExit.
-                // Must swallow, not propagate: privilege_checker's IsAuthorized() can throw and isn't
-                // confined to Memgraph's exception hierarchy (hence catch(...)). A throw partway through
-                // the interpreter loop would leave already-visited interpreters TERMINATED while unwinding
-                // Delete_'s rollback_drain guard, so the tenant survives -- sessions killed for a drop
-                // that never happened. Swallowing lets the drop proceed, which makes those terminations
-                // correct after the fact.
+                // Runs from Delete_'s Phase 2, before the trigger pool/stream consumers are joined, so a
+                // transaction still pinning the tenant (e.g. an explicit transaction, which keeps its
+                // DatabaseAccess because Prepare() skips ResetInterpreter() while in_explicit_transaction_)
+                // is asked to stop while that still helps -- the old post-Delete() placement asked too late.
+                // Consequence: it can also fire on a drop attempt that later fails Phase 3's re-validation,
+                // which is harmless.
+                // Best effort: on failure the user keeps using the db until commit/abort.
+                // Safe to invoke repeatedly: TerminateTransactions only CASes interpreters still ACTIVE and
+                // restores ACTIVE for the ones it doesn't kill, so a repeat call can't disturb an
+                // already-terminated one.
+                // Must swallow: privilege_checker's IsAuthorized() can throw outside Memgraph's exception
+                // hierarchy (hence catch(...)); letting that escape mid-sweep would unwind past
+                // rollback_drain with some interpreters already TERMINATED while the drop itself rolls
+                // back -- sessions killed for a drop that never happened. Swallowing lets the drop proceed,
+                // making those terminations correct after the fact.
                 auto cooperative_cancel = [db_name, interpreter_context, interpreter]() {
                   try {
                     interpreter_context->interpreters.WithLock(
@@ -11422,14 +11417,12 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                             TriggerContext original_trigger_context, std::shared_ptr<QueryUserOrRole> triggering_user) {
   // Run the triggers
   //
-  // `db_acc->after_commit_trigger_status()` is a member of the Database this task itself pins via its
-  // captured `db_acc`, so it stays valid for the whole loop and observes a store made later by another
-  // thread (e.g. a drop's StopAfterCommitTriggers()) -- including for a trigger that was already running
-  // when the drop started. A TERMINATED read makes the running trigger's own periodic MustAbort() throw
-  // HintedAbortError, a utils::BasicException caught by the handler right below, so it can't escape into
-  // this thread-pool worker. The loop-top break below is what makes that abort actually save time: once
-  // caught, the handler falls straight into the next trigger's Access(WRITE), an untimeboxed wait on the
-  // storage lock, so skipping the remaining triggers is the only way to leave promptly.
+  // db_acc->after_commit_trigger_status() is a member of the Database this task pins via its captured
+  // db_acc, so it stays valid for the whole loop even for a trigger already running when a drop calls
+  // StopAfterCommitTriggers(): the running trigger's periodic MustAbort() throws HintedAbortError (a
+  // utils::BasicException), caught right below so it can't escape into this thread-pool worker. The
+  // loop-top break exists because the catch handler would otherwise fall into the next trigger's
+  // untimeboxed Access(WRITE) wait on the storage lock.
   for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
     if (db_acc->after_commit_trigger_status()->load(std::memory_order_acquire) == TransactionStatus::TERMINATED) {
       break;
