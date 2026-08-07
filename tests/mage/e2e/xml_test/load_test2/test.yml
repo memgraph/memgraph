@@ -1,6 +1,6 @@
 query: >
     WITH "https://www.w3schools.com/xml/plant_catalog.xml" AS xmlUrl
-    CALL xml_module.load(xmlUrl, false, "", './/ZONE[.="4"]', {}) YIELD output_map as plants
+    CALL xml_module.load(xmlUrl, false, "", './/ZONE[.="4"]', {`User-Agent`: "Memgraph-XML-Module-Test/1.0"}) YIELD output_map as plants
     RETURN count(plants) AS count
 
 output:

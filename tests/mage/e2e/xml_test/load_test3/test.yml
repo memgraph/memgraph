@@ -1,6 +1,6 @@
 query: >
     WITH "https://www.w3schools.com/xml/simple.xml" AS xmlUrl
-    CALL xml_module.load(xmlUrl, true, "", '', {}) YIELD output_map as value
+    CALL xml_module.load(xmlUrl, true, "", '', {`User-Agent`: "Memgraph-XML-Module-Test/1.0"}) YIELD output_map as value
     RETURN value
 
 output:
