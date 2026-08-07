@@ -5,5 +5,5 @@ query: >
   YIELD result
   RETURN result;
 
-exception: >
+exception_contains: >
   Unrecognized config key 'uniqueness'.

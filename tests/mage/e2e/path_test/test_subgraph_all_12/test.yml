@@ -5,5 +5,5 @@ query: >
   YIELD nodes, rels
   RETURN size(nodes) AS node_count, size(rels) AS rel_count;
 
-exception: >
+exception_contains: >
   Unrecognized config key 'endNodes'.

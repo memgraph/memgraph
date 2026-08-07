@@ -5,5 +5,5 @@ query: >
   YIELD nodes
   RETURN nodes.name AS name ORDER BY name ASC;
 
-exception: >
+exception_contains: >
   Config keys 'maxHops' and 'maxLevel' mean the same thing; supply only one.

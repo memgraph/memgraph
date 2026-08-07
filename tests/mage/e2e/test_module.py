@@ -21,6 +21,7 @@ class TestConstants:
     ABSOLUTE_TOLERANCE = 1e-3
 
     EXCEPTION = "exception"
+    EXCEPTION_CONTAINS = "exception_contains"
     INPUT_FILE = "input.cyp"
     OUTPUT = "output"
     QUERY = "query"
@@ -170,7 +171,7 @@ def _run_test(test_dict: Dict, db: Memgraph):
     """
     test_query = test_dict[TestConstants.QUERY]
     output_test = TestConstants.OUTPUT in test_dict
-    exception_test = TestConstants.EXCEPTION in test_dict
+    exception_test = TestConstants.EXCEPTION in test_dict or TestConstants.EXCEPTION_CONTAINS in test_dict
 
     if not (output_test ^ exception_test):
         pytest.fail("Test file has no valid format.")
@@ -185,9 +186,16 @@ def _run_test(test_dict: Dict, db: Memgraph):
         assert result == expected
 
     if exception_test:
-        # TODO: Implement for different kinds of errors
-        with pytest.raises(Exception):
+        # `exception` only asserts that something was raised -- the many tests using it predate any
+        # message being pinned, and their expected strings have drifted. `exception_contains` opts a
+        # test in to also checking the message, so a test named after one guard cannot pass because a
+        # different one happened to fire.
+        with pytest.raises(Exception) as exc_info:
             db.execute(test_query)
+
+        expected_message = test_dict.get(TestConstants.EXCEPTION_CONTAINS)
+        if expected_message is not None:
+            assert expected_message.strip() in str(exc_info.value)
 
 
 def _get_nodes_and_relationships(nodes_query: str, relationships_query: str, db: Memgraph):

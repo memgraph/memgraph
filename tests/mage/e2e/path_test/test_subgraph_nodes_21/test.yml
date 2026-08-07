@@ -5,5 +5,5 @@ query: >
   YIELD nodes
   RETURN nodes.name AS name ORDER BY name ASC;
 
-exception: >
+exception_contains: >
   Node filter list entries need to be a node or an integer ID.

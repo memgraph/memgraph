@@ -5,5 +5,5 @@ query: >
   YIELD nodes
   RETURN nodes.name AS name;
 
-exception: >
+exception_contains: >
   Invalid labelFilter entry ''

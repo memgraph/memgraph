@@ -6,5 +6,5 @@ query: >
   YIELD nodes
   RETURN nodes.name AS name ORDER BY name ASC;
 
-exception: >
+exception_contains: >
   Unrecognized config key 'limit'.
