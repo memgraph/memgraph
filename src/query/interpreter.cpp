@@ -6846,6 +6846,9 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
     const EvaluationContext eval_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
     PrimitiveLiteralExpressionEvaluator value_evaluator{eval_context};
     value = static_cast<storage::ExternalPropertyValue>(desc_query->value_->Accept(value_evaluator));
+    if (value.IsNull()) {
+      throw QueryException("A property-value description VALUE must not be null.");
+    }
   }
   auto current_db_name = current_db.db_acc_->get()->name();
 

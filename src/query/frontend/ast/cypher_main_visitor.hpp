@@ -914,11 +914,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitListLiteral(MemgraphCypher::ListLiteralContext *ctx) override;
 
   /**
-   * @return Expression*
-   */
-  antlrcpp::Any visitPropertyValueLiteral(MemgraphCypher::PropertyValueLiteralContext *ctx) override;
-
-  /**
    * @return PropertyIx
    */
   antlrcpp::Any visitPropertyKeyName(MemgraphCypher::PropertyKeyNameContext *ctx) override;
