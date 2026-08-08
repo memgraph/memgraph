@@ -90,14 +90,13 @@ auto RunBounded(std::chrono::milliseconds timeout, F f) -> std::pair<bool, std::
   return {false, std::nullopt};
 }
 
-// Bounded, retrying cleanup for a tenant a test created under `name`: retries Delete() (a single call
-// can lose a benign USING/NON_EXISTENT race against another in-flight delete, e.g. a churn loop's own
-// best-effort attempt) until it either succeeds or reports NON_EXISTENT -- both mean the name is free
-// again -- then bounded-waits for AllDetached() to retire that row. Skipping either half leaves a
-// tenant genuinely present (poisoning the NEXT --gtest_repeat iteration's New()/Rename() with
-// EXISTS/ALREADY_EXISTS) or a stale DRAINING/DETACHED row visible to that iteration's own assertions.
-// Callers must release every DatabaseAccess for `name` first -- an outstanding accessor makes every
-// Delete() attempt report USING until the timeout, same as any other Delete() call in this file.
+// Bounded, retrying cleanup for a tenant created under `name`: retries Delete() past a benign
+// USING/NON_EXISTENT race with another in-flight delete, then waits for AllDetached() to retire the
+// row -- skipping either half leaves a tenant that poisons a later --gtest_repeat iteration's
+// New()/Rename() (EXISTS/ALREADY_EXISTS) or leaves a stale DRAINING/DETACHED row behind. Callers must
+// release every DatabaseAccess for `name` first: Delete() itself still succeeds with one outstanding,
+// but the deferred teardown it starts won't retire the row until the holder is gone, so the second
+// wait times out instead.
 bool DropAndWait(memgraph::dbms::DbmsHandler &dbms, std::string_view name) {
   const bool dropped = WaitUntil(std::chrono::seconds(10), [&] {
     const auto del = dbms.Delete(name);
@@ -1256,13 +1255,12 @@ TEST(DBMS_Handler, ForceDropOfADrainingTenantIsRetriableNotMissing) {
 }
 
 // PINS: MakeDatabaseProtectorFactory (database_handler.hpp) must keep resolving its own tenant across a
-// RENAME. If the factory captures the tenant's NAME at construction time and re-looks it up through
-// Handler<T>::Get on every call, the lookup goes stale the moment the name changes -- items_ is now keyed
-// under the NEW name -- and make_database_protector() starts returning nullptr forever. Both consumers
-// (storage/v2/ttl.cpp and storage/v2/async_indexer.cpp) treat a nullptr protector as "the database was
-// dropped, stop this worker", so this would silently and permanently kill TTL expiry and async index
-// building for any tenant that is ever renamed, with no error, no log, and no recovery short of a
-// process restart. Exercises the real seam (Storage::make_database_protector()), not a hand-rolled lookup.
+// RENAME. A factory that captured the tenant's NAME instead and re-looked it up via Handler<T>::Get
+// would go stale the moment items_ re-keys under the new name, making make_database_protector() return
+// nullptr forever -- both consumers (storage/v2/ttl.cpp, storage/v2/async_indexer.cpp) treat that as
+// "database dropped, stop this worker", silently and permanently killing TTL expiry and async index
+// building for any renamed tenant, with no error, log, or recovery short of a restart. Exercises the
+// real seam (Storage::make_database_protector()), not a hand-rolled lookup.
 TEST(DBMS_Handler, ProtectorFactorySurvivesRename) {
   auto &dbms = *TestEnvironment::get();
 
@@ -1277,7 +1275,7 @@ TEST(DBMS_Handler, ProtectorFactorySurvivesRename) {
   // rename left factory_rename_src HOT and held by `acc` for the rest of the process, and a later
   // --gtest_repeat iteration's dbms.New("factory_rename_src") would fail with EXISTS before ever
   // reaching the rename this test means to probe. `acc` must be released here (not left to its own
-  // destructor) since DropAndWait's Delete() reports USING for as long as any accessor is outstanding;
+  // destructor) since DropAndWait's retire-wait won't converge while any accessor is outstanding;
   // declaring this guard after `acc` means it runs first on unwind, while `acc` is still valid to reset.
   // Whichever of src/dst the tenant currently answers to, the other DropAndWait() is a cheap expected
   // NON_EXISTENT no-op.
@@ -1367,13 +1365,10 @@ TEST(DBMS_Handler, ProtectorFactoryConcurrentWithHandlerMapMutation) {
     return true;
   });
   if (!reader_done) {
-    // RunBounded's own worker thread is the one stuck inside reader.join() (it gets detached, but that
-    // does not unstick it), so `reader` itself is still joinable here. A joinable std::thread's
-    // destructor calls std::terminate() unconditionally, and `reader` is about to go out of scope --
-    // without detaching it first, the very hang this test exists to catch would kill the whole test
-    // binary instead of just failing this one assertion. Detach rather than block this thread
-    // indefinitely (mirrors this file's established idiom for a wedged background operation, e.g.
-    // DropDoesNotHoldTheHandlerLockDuringTeardown's dropper.detach()).
+    // Only RunBounded's own worker got detached above; `reader` itself is still joinable, and a
+    // joinable std::thread's destructor calls std::terminate() -- detach it (this file's idiom for a
+    // wedged op, e.g. DropDoesNotHoldTheHandlerLockDuringTeardown's dropper.detach()) so the hang this
+    // test exists to catch fails the assertion instead of killing the whole test binary.
     ADD_FAILURE() << "the reader thread failed to join within the bound -- possible hang in the seam under test";
     reader.detach();
   }
@@ -1382,12 +1377,10 @@ TEST(DBMS_Handler, ProtectorFactoryConcurrentWithHandlerMapMutation) {
 
   acc.reset();
 
-  // Both names this test creates must be deterministically gone before returning: under
-  // --gtest_repeat, a name left behind here makes the NEXT iteration's dbms.New() for that same name
-  // fail with EXISTS instead of re-exercising the race. factory_race_target was previously only
-  // detach-waited, never actually dropped (so the wait was trivially true and it stayed HOT forever);
-  // factory_race_other's churn loop only ever deletes it best-effort, so its very last iteration (or
-  // one that lost a benign USING/NON_EXISTENT race) can leave it behind too.
+  // Both names must be gone before returning, or a later --gtest_repeat iteration's dbms.New() for
+  // that name sees EXISTS instead of re-exercising the race: factory_race_target is only ever created
+  // here, and factory_race_other's churn loop only deletes it best-effort, so a straggler from its
+  // last iteration (or one that lost a benign USING/NON_EXISTENT race) can survive too.
   EXPECT_TRUE(DropAndWait(dbms, "factory_race_target"))
       << "factory_race_target must end up dropped and retired so a later --gtest_repeat iteration does "
          "not see EXISTS (still there) or a stale detached row";
@@ -1397,13 +1390,11 @@ TEST(DBMS_Handler, ProtectorFactoryConcurrentWithHandlerMapMutation) {
 }
 
 // PINS: DatabaseHandler::BuildDetached (database_handler.hpp) -- the hot/cold RESUME path -- must
-// publish the freshly rebuilt generation's OWN GKInternals<Database>* into that generation's own
-// protector cell, exactly as DatabaseHandler::New does for a brand-new tenant. Suspend destroys the
-// previous Database (and with it the previous cell), so every generation must be self-published; a
-// missed publish here fails CLOSED and silently -- both consumers (storage/v2/ttl.cpp and
-// storage/v2/async_indexer.cpp) read a nullptr protector as "database dropped, stop this worker", so
-// TTL expiry and async index building would quietly stop on every resumed tenant, with no error, no
-// log, and no recovery short of a process restart.
+// publish the freshly rebuilt generation's OWN GKInternals<Database>* into its own protector cell,
+// exactly as New() does for a brand-new tenant: Suspend destroys the previous Database (and its cell),
+// so every generation must be self-published. A missed publish fails CLOSED and silently -- both
+// consumers (storage/v2/ttl.cpp, storage/v2/async_indexer.cpp) read nullptr as "database dropped, stop
+// this worker", quietly killing TTL expiry and async indexing on every resumed tenant until a restart.
 TEST(DBMS_Handler, ProtectorFactorySurvivesSuspendResume) {
   auto &dbms = *TestEnvironment::get();
 
