@@ -102,9 +102,12 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
         atom->Accept(*this);
       }
     } else if (exists.HasSubquery()) {
-      // For subqueries, we need to collect symbols from the subquery
-      auto *single_query = exists.GetSubquery()->single_query_;
-      if (single_query) {
+      // Collect free (outer) symbols referenced by the subquery. Newly introduced MATCH
+      // variables are marked user_declared_=false by SymbolGenerator and are skipped by Visit.
+      // RETURN/WITH expressions must also be visited so that e.g. EXISTS { RETURN n } waits for
+      // outer `n` to be bound (and does not crash / mis-order the filter). See #4485.
+      auto collect_from_single_query = [this](SingleQuery *single_query) {
+        if (!single_query) return;
         for (auto *clause : single_query->clauses_) {
           if (auto *match = utils::Downcast<Match>(clause)) {
             for (auto *pattern : match->patterns_) {
@@ -112,8 +115,34 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
                 atom->Accept(*this);
               }
             }
+            if (match->where_) {
+              match->where_->expression_->Accept(*this);
+            }
+          } else if (auto *ret = utils::Downcast<Return>(clause)) {
+            for (auto *named_expr : ret->body_.named_expressions) {
+              if (named_expr->expression_) {
+                named_expr->expression_->Accept(*this);
+              }
+            }
+          } else if (auto *with = utils::Downcast<With>(clause)) {
+            for (auto *named_expr : with->body_.named_expressions) {
+              if (named_expr->expression_) {
+                named_expr->expression_->Accept(*this);
+              }
+            }
+            if (with->where_) {
+              with->where_->expression_->Accept(*this);
+            }
+          } else if (auto *where = utils::Downcast<Where>(clause)) {
+            where->expression_->Accept(*this);
           }
         }
+      };
+
+      auto *cypher_query = exists.GetSubquery();
+      collect_from_single_query(cypher_query->single_query_);
+      for (auto *cypher_union : cypher_query->cypher_unions_) {
+        collect_from_single_query(cypher_union->single_query_);
       }
     } else {
       throw SemanticException(

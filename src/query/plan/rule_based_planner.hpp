@@ -496,8 +496,15 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         }
       }
 
+      // EXISTS subqueries may end with a null plan if they only had an omitted RETURN and no
+      // prior clauses produced an operator (defensive; GenReturn should already supply Once).
+      if (!input_op && context.in_exists_subquery) {
+        input_op = std::make_unique<Once>(
+            std::vector<Symbol>(context.bound_symbols.begin(), context.bound_symbols.end()));
+      }
+
       // Is this the only situation that should be covered
-      if (input_op->OutputSymbols(*context.symbol_table).empty() && !context.in_exists_subquery) {
+      if (input_op && input_op->OutputSymbols(*context.symbol_table).empty() && !context.in_exists_subquery) {
         if (has_periodic_commit && is_root_query) {
           // this periodic commit is from USING PERIODIC COMMIT
           input_op = std::make_unique<PeriodicCommit>(std::move(input_op), query_parts.commit_frequency);
@@ -1618,6 +1625,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             context_->bound_symbols.clear();
             context_->bound_symbols.insert(std::make_move_iterator(outer_scope_bound_symbols.begin()),
                                            std::make_move_iterator(outer_scope_bound_symbols.end()));
+
+            // RETURN-only EXISTS subqueries must still produce a row source (Once).
+            // Guard against a null plan so Limit/EvaluatePatternFilter never see nullptr.
+            if (!last_op) {
+              last_op = std::make_unique<Once>(std::vector<Symbol>(bound_symbols.begin(), bound_symbols.end()));
+            }
 
             // Add a Limit operator to ensure we only need one result
             last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));

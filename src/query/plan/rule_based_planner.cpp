@@ -980,8 +980,15 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                            PatternComprehensionContext &pc_ctx, Expression *commit_frequency,
                                            bool in_exists_subquery) {
-  // In existential subqueries, we should omit any return clauses as per Neo4j documentation
+  // In existential subqueries, we should omit any return clauses as per Neo4j documentation.
+  // EXISTS only cares whether the subquery produces a row, not what it returns.
+  // When the subquery is RETURN-only (no MATCH/WITH/etc.), there is no input operator yet —
+  // supply Once so the plan is valid and EXISTS can evaluate to true when outer symbols exist.
+  // See: https://github.com/memgraph/memgraph/issues/4485
   if (in_exists_subquery) {
+    if (!input_op) {
+      return std::make_unique<Once>(std::vector<Symbol>(bound_symbols.begin(), bound_symbols.end()));
+    }
     return input_op;
   }
 

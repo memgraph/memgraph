@@ -4819,6 +4819,45 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnion) {
   DeleteListContent(&exists_union_plan);
 }
 
+// Regression: EXISTS { RETURN n } (RETURN-only subquery) must not crash during planning.
+// Previously Plan() left input_op as nullptr and dereferenced it (SIGSEGV). See #4485.
+TYPED_TEST(TestPlanner, ExistsSubqueryReturnOnly) {
+  FakeDbAccessor dba;
+
+  auto *exists_subquery = QUERY(SINGLE_QUERY(RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // RETURN is omitted in EXISTS; Once (implicit, not checked) supplies the single row.
+  std::list<BaseOpChecker *> filter_tree{new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{filter_tree}),
+            ExpectProduce());
+
+  DeleteListContent(&filter_tree);
+}
+
+// Regression: EXISTS { RETURN 1 } inside a pattern comprehension filter (#4478).
+TYPED_TEST(TestPlanner, ExistsSubqueryReturnOnlyInPatternComprehension) {
+  FakeDbAccessor dba;
+
+  auto *exists_subquery = QUERY(SINGLE_QUERY(RETURN(LITERAL(1), AS("x"))));
+  // RETURN [(n)-[r]->(m) WHERE EXISTS { RETURN 1 } | m]
+  auto *pc = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("r"), NODE("m")), WHERE(EXISTS_SUBQUERY(exists_subquery)), IDENT("m"));
+  auto *query = QUERY(SINGLE_QUERY(RETURN(pc, AS("result"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  // Planning must succeed without SIGSEGV / null dereference.
+  EXPECT_NO_THROW({
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    (void)planner.plan();
+  });
+}
+
 TYPED_TEST(TestPlanner, MatchKShortest) {
   // Test MATCH (n), (m) WITH n, m MATCH (n) -[r:type *kshortest..10]-> (m) RETURN r
   FakeDbAccessor dba;
