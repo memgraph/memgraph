@@ -424,7 +424,7 @@ struct Gatekeeper {
   // Handler<T>::Rename at src/dbms/handler.hpp:295-297) but is INVALIDATED by move-ASSIGNMENT
   // (operator=(Gatekeeper&&) resets the old pimpl_, destroying the old GKInternals — see the
   // load-bearing note on that operator, and the RESUME publish `*gk = std::move(fresh)` at
-  // src/dbms/dbms_handler.cpp:1583, whose target is a COLD/RESUMING shell with value_ == nullopt, so
+  // src/dbms/dbms_handler.cpp:1584, whose target is a COLD/RESUMING shell with value_ == nullopt, so
   // no live nested owner can hold a handle to the GKInternals destroyed there).
   GKInternals<T> *internals() { return pimpl_.get(); }
 
