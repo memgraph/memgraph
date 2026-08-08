@@ -111,6 +111,34 @@ TEST(SessionRegistryTest, DeregisterUnknownUuidIsNoOp) {
   EXPECT_EQ(registry.Size(), baseline);
 }
 
+// A uuid collision (e.g. two rapid connect/disconnect cycles reusing the same generated uuid
+// before the first session's destructor runs) leaves the map entry pointing at the second
+// session. The first session's destructor must not evict that still-live entry -- if Deregister
+// were a bare erase(uuid) instead of the expired-or-owner-equal guard, the first Find() below
+// would come back null.
+TEST(SessionRegistryTest, DeregisterDoesNotEvictAnotherSessionsEntry) {
+  auto &registry = SessionRegistry::Instance();
+  const auto baseline = registry.Size();
+  const std::string uuid = UniqueUuid("DeregisterDoesNotEvictAnotherSessionsEntry");
+
+  auto s1 = std::make_shared<FakeSession>(uuid);
+  registry.Register(uuid, s1);
+
+  auto s2 = std::make_shared<FakeSession>(uuid);
+  registry.Register(uuid, s2);  // last writer wins: the map entry now points at s2
+
+  s1.reset();  // ~FakeSession -> Deregister(uuid, s1.get()); stored weak_ptr resolves to s2 != s1
+
+  auto found = registry.Find(uuid);
+  ASSERT_NE(found, nullptr);
+  EXPECT_EQ(found.get(), s2.get());
+  found.reset();
+
+  s2.reset();  // entry is genuinely stale now; this Deregister must still reclaim it
+  EXPECT_EQ(registry.Find(uuid), nullptr);
+  EXPECT_EQ(registry.Size(), baseline);
+}
+
 // 10k register/destroy cycles must leave the map exactly where it started; deleting the erase
 // in Deregister turns this into an unbounded leak.
 TEST(SessionRegistryTest, NoLeakAcrossChurn) {
