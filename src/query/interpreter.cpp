@@ -8606,10 +8606,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, std::vector<No
             }
 
             std::vector<std::vector<TypedValue>> status;
-            // Written only inside the `force` branch below (left NOT_REQUESTED otherwise); read after the
-            // try/catch to decide whether the operator-facing DETACHED warning is due. Declared out here,
-            // rather than beside `drain` below, so it is still in scope once the try block has exited
-            // (Delete() itself is synchronous, so the report is always fully written before that point).
+            // Declared here, not inside `force`, so it survives the try/catch, where its outcome gates
+            // the notification below; Delete() runs synchronously, so it's fully written by then (else NOT_REQUESTED).
             dbms::DbmsHandler::DrainReport drain_report;
 
             try {
@@ -8652,13 +8650,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, std::vector<No
                   }
                 };
 
-                // Diagnostic-only holder breakdown for the operator-facing report on drain expiry (see
-                // DrainRequest's doc on DbmsHandler::Delete). Reuses the exact same verifier-protected
-                // enumeration the cooperative_cancel sweep above already uses -- ShowTransactionsUsingDBName
-                // goes through Interpreter::TryAcquireForVerification() -- so this adds no new cross-thread
-                // read. Must swallow for the same reason cooperative_cancel does: a diagnostic can never be
-                // allowed to turn an expired-but-otherwise-honoured drop into a failed one (AwaitDrain_ also
-                // guards this call itself; this is belt-and-braces on the layer that owns the operator text).
+                // Reuses cooperative_cancel's verifier-protected enumeration (TryAcquireForVerification), so
+                // this diagnostic adds no new cross-thread read; swallows because AwaitDrain_ already guards this call
+                // too.
                 auto holder_probe = [db_name, interpreter_context]() -> dbms::DbmsHandler::DrainBlockers {
                   try {
                     const auto asked_to_abort =
@@ -8677,8 +8671,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, std::vector<No
                   drain.emplace(dbms::DbmsHandler::DrainRequest{
                       .deadline = dbms::DbmsHandler::kDrainDeadline, .probe = holder_probe, .report = &drain_report});
                 }
-                // Plain FORCE must stay on today's exact path: drain is nullptr unless FORCE ABORT asked
-                // for the bounded wait.
                 success = db_handler->Delete(
                     db_name, &*interpreter->system_transaction_, cooperative_cancel, drain ? &*drain : nullptr);
               } else {
@@ -8705,10 +8697,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, std::vector<No
               throw QueryRuntimeException(e.what());
             }
 
-            // Only on EXPIRED: on CONVERGED the outcome is identical to plain FORCE's, and stays silent so
-            // FORCE ABORT is a drop-in (dbms already spdlog::warn's the expiry; this is the operator-facing
-            // half of that same event). Reaching here at all implies the drop itself threw nothing, i.e.
-            // Phase 3 accepted the DETACHED state -- the wording below states that as fact, not hope.
+            // Stays silent on CONVERGED so FORCE ABORT is a drop-in for plain FORCE; dbms already spdlog::warn's
+            // EXPIRED, this is just the operator-facing half. No throw reached here, so Phase 3 did land DETACHED.
             if (notifications != nullptr && drain_report.outcome == dbms::DbmsHandler::DrainOutcome::EXPIRED) {
               const auto asked_to_abort = drain_report.blockers.transactions_asked_to_abort;
               const auto residual = drain_report.holders_remaining > asked_to_abort
