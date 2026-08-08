@@ -1,0 +1,388 @@
+# Copyright 2022 Memgraph Ltd.
+#
+# Use of this software is governed by the Business Source License
+# included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+# License, and you may not use this file except in compliance with the Business Source License.
+#
+# As of the Change Date specified in that file, in accordance with
+# the Business Source License, use of this software will be governed
+# by the Apache License, Version 2.0, included in the file
+# licenses/APL.txt.
+
+import multiprocessing
+import sys
+import time
+import uuid
+from queue import Empty
+
+import mgclient
+import pytest
+from common import (
+    assert_connection_alive,
+    connect,
+    execute_and_fetch_all,
+    get_own_session_uuid,
+    get_session_uuid_by_username,
+    wait_until,
+    wait_until_terminated,
+)
+
+# Tests
+# -------------------------
+#
+# No module-level "suppress the first user's auto-privileges" fixture: every test below drops all
+# the users it creates in its own finalizer, so between tests the instance genuinely has zero
+# users, and AuthQueryHandler::CreateUser (src/glue/auth_handler.cpp) auto-promotes whichever user
+# happens to be created while HasUsers() == false to a full superuser -- there is no way to durably
+# suppress that without keeping a permanent user around, and a permanent user is not an option here:
+# once ANY user exists, mgclient's anonymous connect() (used by every superadmin_cursor bootstrap
+# connection below) is refused outright with "Authentication failure" -- confirmed empirically
+# against this instance; that is a Bolt-handshake-level rule, not the later per-query
+# CheckAuthorized bypass. Nor does `CREATE ROLE` first help (transaction_queue's identically-named
+# fixture does this, and it looked like it worked here by coincidence): Auth::CreateBuiltinRoles
+# skips creating the "admin"/"readonly"/"readwrite" roles once ANY role already exists, so a
+# pre-existing dummy role only changes *how* the first user gets promoted (direct permission grants
+# vs. builtin-role membership) -- not *whether* it does. The one test that needs a genuinely
+# unprivileged user (test_unprivileged_user_refused) instead strips both forms explicitly, right
+# after creating that user, regardless of which one it received.
+
+
+def test_idle_session_terminated(request):
+    """An idle session (no query in flight) is still discoverable and killable by an admin.
+
+    The admin cursor must itself be an AUTHENTICATED connection: TerminateSessions' per-target
+    check is `same_user(target, caller) || privilege_checker(caller, ...)`, and an anonymous
+    caller (user_or_role_ == nullptr) fails both halves once a real user (idle_bob) exists --
+    see InterpreterContext::TerminateSessions in src/query/interpreter_context.cpp. The bootstrap
+    connection (superadmin_cursor) stays anonymous on purpose: CheckAuthorized exempts anonymous
+    callers from the general privilege gate, which is what lets it CREATE USER/GRANT at all.
+    """
+    superadmin_cursor = connect().cursor()
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER idle_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO idle_admin")
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER idle_bob")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER idle_admin")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER idle_bob")
+
+    request.addfinalizer(on_exit)
+
+    admin_cursor = connect(username="idle_admin", password="").cursor()
+
+    bob_connection = connect(username="idle_bob", password="")
+    bob_cursor = bob_connection.cursor()
+    execute_and_fetch_all(bob_cursor, "RETURN 1")  # bob is now idle
+
+    bob_uuid = get_session_uuid_by_username(admin_cursor, "idle_bob")
+
+    results = execute_and_fetch_all(admin_cursor, f"TERMINATE SESSIONS '{bob_uuid}'")
+    assert results == [(bob_uuid, True)]
+
+    wait_until_terminated(bob_cursor)
+
+    wait_until(
+        lambda: bob_uuid not in [row[1] for row in execute_and_fetch_all(admin_cursor, "SHOW ACTIVE USERS INFO")],
+        message="terminated session's uuid is still listed in SHOW ACTIVE USERS INFO",
+    )
+
+
+def _run_long_query(outcome_queue: multiprocessing.Queue) -> None:
+    """Runs CALL infinite_query.long_query() to completion or abort, in its OWN OS process.
+
+    Must NOT be a thread: mgclient's Cursor.execute() is a synchronous C extension call that blocks
+    on the socket without releasing the GIL for the call's entire duration (confirmed empirically --
+    a pure-Python timing loop on another thread does not get scheduled at all while a sibling thread
+    blocks inside a long-running execute()). A `threading.Thread` running this call would therefore
+    starve every other cursor in the same Python process -- including the admin's own TERMINATE
+    SESSIONS call -- for as long as the query runs, which is exactly what hung the whole module.
+    tests/e2e/transaction_queue/test_transaction_queue.py hits the same constraint and works around
+    it the same way, with multiprocessing.Process instead of threading.Thread.
+    """
+    connection = connect(username="busy_bob", password="")
+    cursor = connection.cursor()
+    try:
+        rows = execute_and_fetch_all(cursor, "CALL infinite_query.long_query() YIELD my_id RETURN my_id")
+        outcome_queue.put(("rows", rows))
+    except mgclient.Error as exc:
+        outcome_queue.put(("error", str(exc)))
+
+
+def test_busy_session_terminated(request):
+    """A session with a query in flight is cooperatively aborted, and the connection itself closes.
+
+    Same admin-must-be-authenticated requirement as test_idle_session_terminated -- see its
+    docstring for why an anonymous caller cannot terminate a real user's session.
+    """
+    superadmin_cursor = connect().cursor()
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER busy_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO busy_admin")
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER busy_bob")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER busy_admin")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER busy_bob")
+
+    request.addfinalizer(on_exit)
+
+    admin_cursor = connect(username="busy_admin", password="").cursor()
+
+    outcome_queue = multiprocessing.Queue()
+    # daemon=True: if a bug below leaves this process blocked forever, it must not also block the
+    # test process itself from exiting.
+    query_process = multiprocessing.Process(target=_run_long_query, args=(outcome_queue,), daemon=True)
+    query_process.start()
+
+    def ensure_long_query_stopped():
+        """Safety net, always run (LIFO, before on_exit drops the users): an assertion failure
+        below must not leave CALL infinite_query.long_query() occupying a server worker forever --
+        that starved worker is what turned one failing test into the whole module hanging.
+        """
+        try:
+            bob_uuid = get_session_uuid_by_username(admin_cursor, "busy_bob")
+            execute_and_fetch_all(admin_cursor, f"TERMINATE SESSIONS '{bob_uuid}'")
+        except (mgclient.Error, AssertionError):
+            pass  # already terminated by the test body, or busy_bob's session is already gone
+        query_process.join(timeout=10)
+        if query_process.is_alive():
+            query_process.terminate()
+            query_process.join(timeout=5)
+
+    request.addfinalizer(ensure_long_query_stopped)
+
+    wait_until(
+        lambda: any(row[0] == "busy_bob" for row in execute_and_fetch_all(admin_cursor, "SHOW ACTIVE USERS INFO")),
+        message="busy_bob's session never showed up in SHOW ACTIVE USERS INFO",
+    )
+    bob_uuid = get_session_uuid_by_username(admin_cursor, "busy_bob")
+
+    results = execute_and_fetch_all(admin_cursor, f"TERMINATE SESSIONS '{bob_uuid}'")
+    assert results == [(bob_uuid, True)]
+
+    query_process.join(timeout=10)
+    assert not query_process.is_alive(), "busy_bob's long query never returned after TERMINATE SESSIONS"
+    try:
+        outcome_kind, outcome_detail = outcome_queue.get(timeout=5)
+    except Empty:
+        pytest.fail("busy_bob's long query process exited without reporting an outcome")
+    assert (
+        outcome_kind == "error"
+    ), f"busy_bob's long query completed successfully instead of being terminated: {outcome_detail}"
+
+    wait_until(
+        lambda: not any(row[0] == "busy_bob" for row in execute_and_fetch_all(admin_cursor, "SHOW ACTIVE USERS INFO")),
+        message="busy_bob's session is still listed in SHOW ACTIVE USERS INFO after TERMINATE SESSIONS",
+    )
+
+
+def test_cannot_terminate_own_session():
+    """Terminating the caller's own session is refused, and the caller keeps working."""
+    cursor = connect().cursor()
+    own_uuid = get_own_session_uuid(cursor)
+
+    results = execute_and_fetch_all(cursor, f"TERMINATE SESSIONS '{own_uuid}'")
+    assert results == [(own_uuid, False)]
+
+    assert_connection_alive(cursor)
+
+
+def test_empty_session_id_refused():
+    """An empty session id is refused and must not touch any other live connection.
+
+    Guards a real footgun: interpreters are registered before authentication completes, so a
+    mid-handshake session carries an empty uuid; without the empty-id guard, TERMINATE SESSIONS ''
+    would match every such session at once.
+    """
+    admin_cursor = connect().cursor()
+    survivor_cursor = connect().cursor()
+    execute_and_fetch_all(survivor_cursor, "RETURN 1")  # goes idle
+
+    results = execute_and_fetch_all(admin_cursor, "TERMINATE SESSIONS ''")
+    assert results == [("", False)]
+
+    assert_connection_alive(survivor_cursor)
+
+
+def test_unknown_session_id():
+    """A session id that matches nothing is reported as not-killed, without raising."""
+    cursor = connect().cursor()
+    unknown_uuid = str(uuid.uuid4())
+
+    results = execute_and_fetch_all(cursor, f"TERMINATE SESSIONS '{unknown_uuid}'")
+    assert results == [(unknown_uuid, False)]
+
+
+def test_unprivileged_user_refused(request):
+    """Authorization is per target: same-user always works, cross-user needs TRANSACTION_MANAGEMENT.
+
+    Mirrors TERMINATE TRANSACTIONS's own idiom on purpose -- there is deliberately no statement-level
+    privilege for TERMINATE SESSIONS either.
+    """
+    superadmin_cursor = connect().cursor()
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER unpriv_actor")
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER unpriv_target")
+    # unpriv_actor must start genuinely unprivileged for the "cross-user, unprivileged: refused"
+    # assertion below to mean anything. If the instance currently has zero *other* users, CREATE
+    # USER auto-promotes the new user to a superuser (see the module-level comment above) -- either
+    # as direct permission grants or, once a builtin "admin" role already exists from an earlier
+    # such promotion, as membership in that role. Strip both forms unconditionally: which one (if
+    # either) actually applied depends on this instance's history, not on this test.
+    execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM unpriv_actor")
+    execute_and_fetch_all(superadmin_cursor, "CLEAR ROLE FOR unpriv_actor")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER unpriv_actor")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER unpriv_target")
+
+    request.addfinalizer(on_exit)
+
+    actor_connection_1 = connect(username="unpriv_actor", password="")
+    actor_cursor_1 = actor_connection_1.cursor()
+    actor_connection_2 = connect(username="unpriv_actor", password="")
+    actor_cursor_2 = actor_connection_2.cursor()
+    execute_and_fetch_all(actor_cursor_2, "RETURN 1")  # goes idle
+
+    target_connection = connect(username="unpriv_target", password="")
+    target_cursor = target_connection.cursor()
+    execute_and_fetch_all(target_cursor, "RETURN 1")  # goes idle
+
+    # SHOW ACTIVE USERS INFO requires the STATS privilege (required_privileges.cpp), which
+    # unpriv_actor was just stripped of -- so the uuid lookups below go through superadmin_cursor
+    # (anonymous callers bypass CheckAuthorized entirely) rather than actor_cursor_1. SET SESSION
+    # TRACE OFF, used by get_own_session_uuid, needs no privilege at all and works on either.
+    actor_own_uuid = get_own_session_uuid(actor_cursor_1)
+    actor_second_uuid = get_session_uuid_by_username(superadmin_cursor, "unpriv_actor", exclude_uuid=actor_own_uuid)
+    target_uuid = get_session_uuid_by_username(superadmin_cursor, "unpriv_target")
+
+    # Cross-user, unprivileged: refused, target untouched.
+    results = execute_and_fetch_all(actor_cursor_1, f"TERMINATE SESSIONS '{target_uuid}'")
+    assert results == [(target_uuid, False)]
+    assert_connection_alive(target_cursor)
+
+    # Same-user, unprivileged: allowed -- identical to TERMINATE TRANSACTIONS's own-transaction rule.
+    results = execute_and_fetch_all(actor_cursor_1, f"TERMINATE SESSIONS '{actor_second_uuid}'")
+    assert results == [(actor_second_uuid, True)]
+    wait_until_terminated(actor_cursor_2)
+
+    # Cross-user, now privileged via TRANSACTION_MANAGEMENT: succeeds against the same target.
+    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO unpriv_actor")
+    results = execute_and_fetch_all(actor_cursor_1, f"TERMINATE SESSIONS '{target_uuid}'")
+    assert results == [(target_uuid, True)]
+    wait_until_terminated(target_cursor)
+
+
+def _run_drop_fa_db(outcome_queue: multiprocessing.Queue) -> None:
+    """Runs DROP DATABASE fa_db FORCE ABORT to completion, in its OWN OS process.
+
+    Must NOT be a thread, for the same reason as _run_long_query above: this call blocks the GIL
+    for as long as the drain takes (up to kDrainDeadline), which would starve the test's own
+    watch_cursor -- and therefore its TERMINATE SESSIONS call -- if they shared a process. That
+    would make the drop always pay the full drain deadline instead of converging early, defeating
+    the entire point of this test.
+    """
+    connection = connect(username="fa_admin", password="")
+    cursor = connection.cursor()
+    started = time.time()
+    try:
+        rows = execute_and_fetch_all(cursor, "DROP DATABASE fa_db FORCE ABORT")
+        outcome_queue.put(("rows", rows, time.time() - started))
+    except mgclient.Error as exc:
+        outcome_queue.put(("error", str(exc), time.time() - started))
+
+
+def test_force_abort_converges_after_terminate(request):
+    """Headline case: DROP DATABASE ... FORCE ABORT can only converge once TERMINATE SESSIONS
+    releases an idle holder's accessor -- the drop's own cooperative-cancel sweep cannot reach it.
+
+    fa_bob pins fa_db by running USE DATABASE and then going idle: he never starts a transaction, so
+    InterpreterContext::TerminateTransactions (the drop's best-effort cooperative-cancel step) never
+    matches him -- GetTransactionId() is only set while a query/transaction is actually running. The
+    drop's Phase-2 drain wait is bounded at 10 s (dbms_handler.hpp's kDrainDeadline): left alone it
+    would still eventually "succeed" (the tenant is dropped and DETACHED either way, per
+    NotificationCode::DROP_DATABASE_DETACHED), but only after paying that full deadline. Terminating
+    fa_bob's session while the drop is mid-wait must make it converge quickly instead.
+    """
+    superadmin_cursor = connect().cursor()
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER fa_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO fa_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO fa_admin")
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER fa_bob")
+
+    def on_exit():
+        try:
+            execute_and_fetch_all(superadmin_cursor, "DROP DATABASE fa_db")
+        except mgclient.Error:
+            pass  # expected once the test itself already dropped it
+        execute_and_fetch_all(superadmin_cursor, "DROP USER fa_admin")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER fa_bob")
+
+    request.addfinalizer(on_exit)
+
+    admin_cursor = connect(username="fa_admin", password="").cursor()
+    # DROP DATABASE ... FORCE ABORT runs in its own process (see _run_drop_fa_db); watching and
+    # terminating needs its own socket regardless, since the drop's own connection is unusable
+    # until DROP DATABASE returns.
+    watch_cursor = connect(username="fa_admin", password="").cursor()
+
+    execute_and_fetch_all(admin_cursor, "CREATE DATABASE fa_db")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE fa_db TO fa_bob")
+    execute_and_fetch_all(superadmin_cursor, "GRANT MULTI_DATABASE_USE TO fa_bob")
+
+    bob_connection = connect(username="fa_bob", password="")
+    bob_cursor = bob_connection.cursor()
+    execute_and_fetch_all(bob_cursor, "USE DATABASE fa_db")  # bob now idles, pinning fa_db's accessor
+
+    outcome_queue = multiprocessing.Queue()
+    # daemon=True: a stuck DROP DATABASE must not also keep the test process alive past this test.
+    drop_process = multiprocessing.Process(target=_run_drop_fa_db, args=(outcome_queue,), daemon=True)
+    drop_process.start()
+
+    def ensure_fa_bob_terminated():
+        """Safety net, always run (LIFO, before on_exit drops the database/users): if the in-test
+        TERMINATE SESSIONS call below is never reached (an earlier assertion failed), fa_bob would
+        otherwise still be idling inside fa_db, and on_exit's DROP DATABASE would pay the full
+        drain deadline -- or hang altogether if _run_drop_fa_db above is still mid-flight.
+        """
+        try:
+            fa_bob_uuid = get_session_uuid_by_username(watch_cursor, "fa_bob")
+            execute_and_fetch_all(watch_cursor, f"TERMINATE SESSIONS '{fa_bob_uuid}'")
+        except (mgclient.Error, AssertionError):
+            pass  # already terminated by the test body, or fa_bob's session is already gone
+        drop_process.join(timeout=15)
+        if drop_process.is_alive():
+            drop_process.terminate()
+            drop_process.join(timeout=5)
+
+    request.addfinalizer(ensure_fa_bob_terminated)
+
+    wait_until(
+        lambda: any(
+            row[0] == "fa_db" and row[1] == "DRAINING" for row in execute_and_fetch_all(watch_cursor, "SHOW DATABASES")
+        ),
+        message="DROP DATABASE ... FORCE ABORT never reached its bounded drain wait",
+    )
+
+    bob_uuid = get_session_uuid_by_username(watch_cursor, "fa_bob")
+    terminate_rows = execute_and_fetch_all(watch_cursor, f"TERMINATE SESSIONS '{bob_uuid}'")
+    assert terminate_rows == [(bob_uuid, True)]
+
+    drop_process.join(timeout=15)
+    assert not drop_process.is_alive(), "DROP DATABASE ... FORCE ABORT never returned after TERMINATE SESSIONS"
+    try:
+        outcome_kind, outcome_detail, elapsed = outcome_queue.get(timeout=5)
+    except Empty:
+        pytest.fail("DROP DATABASE ... FORCE ABORT process exited without reporting an outcome")
+    assert outcome_kind == "rows", f"DROP DATABASE ... FORCE ABORT raised: {outcome_detail}"
+    assert outcome_detail == [("Successfully deleted fa_db",)]
+    # kDrainDeadline is 10 s; converging well under that is the only way to tell "released promptly"
+    # apart from "timed out anyway" -- both eventually return the same STATUS row.
+    assert elapsed < 5.0, (
+        f"drop took {elapsed:.1f}s -- looks like it paid the full drain deadline "
+        "instead of converging once fa_bob's session was torn down"
+    )
+
+    assert not any(row[0] == "fa_db" for row in execute_and_fetch_all(watch_cursor, "SHOW DATABASES"))
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-rA"]))
