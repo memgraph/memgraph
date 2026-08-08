@@ -268,23 +268,28 @@ struct CurrentDB {
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // do we lock here?
+    current_db_name_ = new_db->name();
     db_acc_ = std::move(new_db);
     in_explicit_db_ = in_explicit_db;
   }
 
   void ResetDB() {
     db_acc_.reset();
+    current_db_name_.reset();
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
   }
 
-  std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
+  std::string name() const { return db_acc_ ? db_acc_->get()->name() : current_db_name_.value_or(""); }
 
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
   // DatabaseAccess
   //       hence, explict bolt "use DB" in metadata wouldn't necessarily get access unless query required it.
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;  // Current db (TODO: expand to support multiple)
+  // Session's database identity; outlives db_acc_, which a background sweep may
+  // release between queries.
+  std::optional<std::string> current_db_name_;
   std::unique_ptr<storage::Storage::Accessor> db_transactional_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
@@ -688,6 +693,13 @@ class Interpreter final {
   void SetupInterpreterTransaction(const QueryExtras &extras);
   void SetupDatabaseTransaction(bool couldCommit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
+
+#ifdef MG_ENTERPRISE
+  // Re-acquires db_acc_ if a background sweep released it between statements; a no-op if
+  // still held or if there is no db identity to re-acquire. Goes through Get(), not Resume(),
+  // so a suspended tenant still reports "run RESUME DATABASE" instead of silently reheating.
+  void EnsureDbAccessForQuery();
+#endif
 };
 
 template <typename TStream>

@@ -3891,6 +3891,9 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         if (in_explicit_transaction_) {
           throw ExplicitTransactionUsageException("Nested transactions are not supported.");
         }
+#ifdef MG_ENTERPRISE
+        EnsureDbAccessForQuery();
+#endif
         SetupInterpreterTransaction(extras);
         // Multiple paths can lead to transaction BEGIN, so we need to reset the timer in the handler
         current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
@@ -3938,7 +3941,10 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           throw ExplicitTransactionUsageException("No current transaction to rollback.");
         }
 
-        (*current_db_.db_acc_)->metric_handles()->rolled_back_transactions.Increment();
+        // db_acc_ can be disengaged once a background sweep may release it between statements.
+        if (current_db_.db_acc_) {
+          (*current_db_.db_acc_)->metric_handles()->rolled_back_transactions.Increment();
+        }
 
         Abort();
         expect_rollback_ = false;
@@ -7335,9 +7341,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       continue;
     }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
-    auto get_interpreter_db_name = [&]() -> std::string {
-      return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : "";
-    };
+    auto get_interpreter_db_name = [&]() -> std::string { return interpreter->current_db_.name(); };
     auto same_user = [](const auto &lv, const auto &rv) {
       if (lv.get() == rv) return true;
       if (lv && rv) return *lv == *rv;
@@ -8876,11 +8880,11 @@ PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curr
   return PreparedQuery{
       .header = {"Current"},
       .privileges = std::move(parsed_query.required_privileges),
-      .query_handler = [db_acc = current_db.db_acc_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+      .query_handler = [current_name = current_db.name(), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         if (!pull_plan) {
           std::vector<std::vector<TypedValue>> results;
-          auto db_name = db_acc ? TypedValue{db_acc->get()->storage()->name()} : TypedValue{};
+          auto db_name = current_name.empty() ? TypedValue{} : TypedValue{current_name};
           results.push_back({std::move(db_name)});
           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
         }
@@ -10198,6 +10202,19 @@ void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
   // do we lock here?
   current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(db_name), in_explicit_db);
 }
+
+void Interpreter::EnsureDbAccessForQuery() {
+  if (current_db_.db_acc_) return;
+  if (!current_db_.current_db_name_) return;
+  // Best-effort: the database may have been dropped or suspended mid-session. Leaving db_acc_
+  // disengaged reproduces the base's behaviour; per-query machinery already reports "no current
+  // database" for queries that need one.
+  try {
+    current_db_.db_acc_ = interpreter_context_->dbms_handler->Get(*current_db_.current_db_name_);
+  } catch (const dbms::UnknownDatabaseException &) {
+    // leave disengaged
+  }
+}
 #else
 // Default database only
 void Interpreter::SetCurrentDB() { current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(), false); }
@@ -10525,6 +10542,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     AdvanceCommand();
   } else {
     ResetInterpreter();
+#ifdef MG_ENTERPRISE
+    EnsureDbAccessForQuery();
+    if (current_db_.db_acc_ && !db_arena_scope) db_arena_scope.emplace(current_db_.db_acc_->get());
+#endif
     transaction_queries_->push_back(parsed_query.query_string);
     if (current_db_.db_transactional_accessor_ /* && !in_explicit_transaction_*/) {
       // If we're not in an explicit transaction block and we have an open
