@@ -48,6 +48,10 @@ enum class TransactionStatus {
   TERMINATED,
   STARTED_COMMITTING,
   STARTED_ROLLBACK,
+  // Transient ownership claims over current_db_.db_acc_, CAS-exchanged between the session
+  // thread and the background accessor-release sweep. Never a state a user transaction rests in.
+  PREPARING,
+  REAPING,
 };
 
 struct Scope {

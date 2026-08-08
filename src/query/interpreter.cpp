@@ -7288,6 +7288,10 @@ auto TransactionStatusToString(TransactionStatus status) -> char const * {
       return "committing";
     case TransactionStatus::STARTED_ROLLBACK:
       return "aborting";
+    case TransactionStatus::PREPARING:
+      return "preparing";
+    case TransactionStatus::REAPING:
+      return "reaping";
   }
   return "unknown";
 }
