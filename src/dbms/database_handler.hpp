@@ -69,13 +69,11 @@ class DatabaseHandler : public Handler<Database> {
   }
 
  private:
-  // A GKInternals<Database>* cannot be known when the factory closure is built: the Database (and
-  // thus the closure captured inside it) is constructed *inside* GKInternals, before that
-  // GKInternals has a stable address of its own (New()'s map node, or BuildDetached()'s
-  // soon-to-be-returned Gatekeeper). This cell is published into after construction succeeds, once
-  // the address exists -- see New() and BuildDetached() below. It must be an atomic, not a plain
-  // pointer: a background thread (e.g. the TTL scheduler, which WAL replay during recovery can
-  // spawn from inside the Storage constructor) may already be calling the factory before publish.
+  // GKInternals<Database>* isn't known when this closure is built -- the Database (and the closure
+  // inside it) is constructed *inside* GKInternals, before GKInternals has a stable address (New()'s
+  // map node, BuildDetached()'s Gatekeeper). `cell` is published once that address exists. Must be
+  // atomic: a background thread (e.g. TTL, spawned from inside the Storage ctor during WAL replay)
+  // may call the factory before publish.
   using ProtectorCell = std::shared_ptr<std::atomic<utils::GKInternals<Database> *>>;
 
   struct ProtectorFactoryHandle {
@@ -91,9 +89,8 @@ class DatabaseHandler : public Handler<Database> {
   /// -- the plain, drain-gated mint, never utils::drain_bypass -- and it shares its `mint_locked`
   /// predicate with both Gatekeeper::access() overloads, so a draining tenant is refused here exactly
   /// as it would be through Get(). The closure holds no DatabaseHandler pointer, no name, and no
-  /// tenant registry -- only `cell` -- so it still has no other route to a tenant; that structural
-  /// absence (now: it never touches items_ at all, on either the background TTL/async-indexer
-  /// threads or otherwise) is what makes the guarantee hold by construction. Its two consumers --
+  /// tenant registry -- only `cell` -- so it has no other route to a tenant; that structural absence
+  /// is what makes the guarantee hold by construction. Its two consumers --
   /// storage::ttl::TTL (src/storage/v2/ttl.cpp) and the async indexer (src/storage/v2/async_indexer.cpp),
   /// both via Storage::make_database_protector() -- check the result for null and return/stop rather
   /// than commit. So no new DatabaseProtector can be armed for a tenant being dropped: a re-armed one
@@ -106,8 +103,8 @@ class DatabaseHandler : public Handler<Database> {
   /// null protector, but the async indexer's worker thread returns from its lambda and exits for
   /// good (src/storage/v2/async_indexer.cpp) -- so a null protector must never actually reach it here.
   /// It can't: InMemoryStorage's ctor installs a deny-everything ttl_.SetUserCheck BEFORE RecoverData
-  /// (src/storage/v2/inmemory/storage.cpp), and ttl_job's first statement returns on that check
-  /// (src/storage/v2/ttl.cpp), so TTL can't call this factory during recovery, and the async indexer's
+  /// (src/storage/v2/inmemory/storage.cpp), and ttl_job returns on that check before it can reach this
+  /// factory (src/storage/v2/ttl.cpp), so TTL can't call it during recovery, and the async indexer's
   /// queue is only fed from TTL or a live commit, neither of which runs during that window either. If
   /// a future Enqueue call site bypasses that user check, this window stops being safe.
   ProtectorFactoryHandle MakeDatabaseProtectorFactory() {
