@@ -51,6 +51,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/isolation_level.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/uuid.hpp"
 
@@ -243,24 +244,37 @@ class DbmsHandler {
 
     spdlog::debug("Different UUIDs");
 
-    // TODO: Fix this hack
+    // The default DB cannot be deleted and recreated (its storage directory is the root data
+    // directory), so we mutate the UUID in place. Suspend first to drain all in-flight sessions;
+    // without this, a concurrent transaction could commit after the UUID swap, writing data
+    // under the wrong identity that will never be replicated.
     if (*name_view == kDefaultDB) {
+      auto *gk = db_handler_.GetGatekeeper(kDefaultDB);
+      if (!gk || !gk->try_begin_suspend(std::chrono::seconds(2))) {
+        spdlog::debug("Cannot suspend default DB for UUID update, will retry...");
+        return std::unexpected{NewError::GENERIC};
+      }
+      auto rollback = utils::OnScopeExit{[&] { gk->abort_suspend(); }};
+
       const memory::DbArenaScope db_arena_scope{db.get()};
       auto *storage = db->storage();
-      spdlog::debug("Last commit timestamp for DB {} is {}",
-                    kDefaultDB,
-                    storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
-      // This seems correct, if database made progress
+      // After demotion + suspend, no active transactions remain. If the storage has already
+      // committed data, the instance was used as MAIN before joining; the coordinator should
+      // not be sending a UUID change for a non-clean replica.
       if (storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ !=
-          storage::kTimestampInitialId) {
+          storage::kTimestampInitialId) [[unlikely]] {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
-        return std::unexpected{NewError::GENERIC};  // Update error
+        return std::unexpected{NewError::GENERIC};
       }
-      spdlog::debug("Updated default db's UUID");
-      // Default db cannot be deleted and remade, have to just update the UUID
+      if (storage->config_.register_metrics) {
+        storage->RebindMetricHandles({});
+        auto new_handles = metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
+        storage->RebindMetricHandles(new_handles);
+        db->RebindMetrics(config.uuid, new_handles);
+      }
       storage->config_.salient.uuid = config.uuid;
-      metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
       UpdateDurability(storage->config_, ".");
+
       return db;
     }
 

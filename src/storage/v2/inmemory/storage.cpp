@@ -678,6 +678,22 @@ InMemoryStorage::~InMemoryStorage() {
   }
 }
 
+void InMemoryStorage::RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) {
+  gc_runner_.Pause();
+  snapshot_runner_.Pause();
+  ttl_.Pause();
+  auto resume = utils::OnScopeExit{[&] {
+    ttl_.Resume();
+    snapshot_runner_.Resume();
+    gc_runner_.Resume();
+  }};
+  std::lock_guard const gc_guard{gc_lock_};
+  metric_handles_ = new_handles;
+  indices_.RebindMetricHandles(new_handles);
+  constraints_.RebindMetricHandles(new_handles);
+  ttl_.RebindMetricHandles(new_handles.deleted_nodes, new_handles.deleted_edges);
+}
+
 void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change) {
   if (config_.track_label_counts) {
     auto label_counts_acc = label_counts_.Lock();

@@ -31,6 +31,8 @@ struct Constraints {
   Constraints &operator=(Constraints &&) = delete;
   ~Constraints() = default;
 
+  void RebindMetricHandles(metrics::DatabaseMetricHandles const &handles);
+
   void DropGraphClearConstraints();
 
   std::unique_ptr<ExistenceConstraints> existence_constraints_;
