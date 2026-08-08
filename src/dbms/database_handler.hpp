@@ -101,6 +101,15 @@ class DatabaseHandler : public Handler<Database> {
   /// which would stop the drain from ever converging. A null `cell` (pre-publish) fails the same way
   /// and is not a special case: it matches the pre-existing behaviour of looking up a not-yet-inserted
   /// tenant.
+  ///
+  /// Why the pre-publish window is safe rather than merely fail-closed: TTL retries next tick on a
+  /// null protector, but the async indexer's worker thread returns from its lambda and exits for
+  /// good (src/storage/v2/async_indexer.cpp) -- so a null protector must never actually reach it here.
+  /// It can't: InMemoryStorage's ctor installs a deny-everything ttl_.SetUserCheck BEFORE RecoverData
+  /// (src/storage/v2/inmemory/storage.cpp), and ttl_job's first statement returns on that check
+  /// (src/storage/v2/ttl.cpp), so TTL can't call this factory during recovery, and the async indexer's
+  /// queue is only fed from TTL or a live commit, neither of which runs during that window either. If
+  /// a future Enqueue call site bypasses that user check, this window stops being safe.
   ProtectorFactoryHandle MakeDatabaseProtectorFactory() {
     auto cell = std::make_shared<std::atomic<utils::GKInternals<Database> *>>(nullptr);
     auto factory = [cell]() -> storage::DatabaseProtectorPtr {
@@ -149,6 +158,9 @@ class DatabaseHandler : public Handler<Database> {
     if (result.has_value()) {
       // Caller (DbmsHandler::New_) holds lock_ exclusive, so items_ cannot have moved this node yet.
       auto *gk = GetGatekeeper(*config.salient.name.str_view());
+      MG_ASSERT(gk,
+                "Database {} not found immediately after HandlerT::New emplaced it under lock_.",
+                *config.salient.name.str_view());
       handle.cell->store(gk->internals(), std::memory_order_release);
     }
     return result;
