@@ -26,6 +26,7 @@
 #include <mutex>
 #include <optional>
 #include <ranges>
+#include <stdexcept>
 #include <system_error>
 #include <thread>
 #include <utility>
@@ -1646,6 +1647,80 @@ TEST(DBMS_Handler, ForceAbortWaitDoesNotHoldTheHandlerLock) {
     return std::ranges::none_of(all_detached, [](auto const &d) { return d.name == "force_abort_offlock_other"; });
   });
   EXPECT_TRUE(other_retired) << "force_abort_offlock_other must not leak into later tests";
+}
+
+// PINS the try/catch AwaitDrain_ wraps around its in-loop RequestCooperativeCancel_ call (dbms_handler.cpp
+// ~880-885): that guard exists because, by the time the loop runs, Phase 2's joins/DropAll() have already
+// torn down TTL/async-indexer/trigger-pool/streams, so an escaping throw there would strand a live tenant
+// missing that machinery -- unlike Phase 2's OWN pre-loop call (~1016), which is deliberately left
+// unguarded because nothing is latched yet and a throw there can still unwind cleanly into rollback_drain.
+// The callback below tells the two calls apart by invocation order, not by any hook into Delete_ itself:
+// invocation #1 succeeds (pinning that the unguarded Phase-2 call must never be made to throw here, or
+// this test would degrade the drop to FAIL and defeat its own purpose), every later invocation throws.
+// Without a test exercising the throwing branch, the try/catch could be deleted (or its `continue`
+// replaced by a rethrow) with nothing in the suite noticing.
+TEST(DBMS_Handler, ForceAbortSurvivesAThrowingCancelSweepAndStillConverges) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("force_abort_throwing_cancel");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess initial_acc = std::move(new_t.value());
+  const auto tenant_uuid = initial_acc->uuid();
+
+  std::mutex parked_mtx;
+  std::optional<memgraph::dbms::DatabaseAccess> parked{std::move(initial_acc)};
+
+  std::atomic<int> cancel_invocations{0};
+  memgraph::dbms::DbmsHandler::CooperativeCancelFn cooperative_cancel = [&] {
+    // fetch_add returns the PRE-increment value: 0 on the very first call.
+    const auto invocation = cancel_invocations.fetch_add(1, std::memory_order_acq_rel);
+    if (invocation == 0) return;  // Phase 2's unguarded pre-loop call -- must succeed
+    // Every later invocation is one of AwaitDrain_'s in-loop sweeps -- the guarded half this test pins.
+    // The production catch is catch(...), so the concrete exception type carries no meaning here; a
+    // std::runtime_error is used only because it is a convenient, distinct, non-trivial throw.
+    throw std::runtime_error("synthetic cooperative-cancel failure");
+  };
+
+  constexpr auto kReleaseDelay = std::chrono::milliseconds(300);
+  // Bounded on its own: if the loop never reaches a second sweep, this thread gives up instead of
+  // hanging, which just leaves `parked` held and degrades the drop to EXPIRED -- a test failure below,
+  // never a wedged suite.
+  std::thread releaser([&] {
+    if (!WaitUntil(std::chrono::seconds(5), [&] { return cancel_invocations.load(std::memory_order_acquire) >= 2; })) {
+      ADD_FAILURE() << "the drain wait never reached a second (throwing) cooperative-cancel sweep for "
+                       "force_abort_throwing_cancel";
+      return;
+    }
+    std::this_thread::sleep_for(kReleaseDelay);
+    std::lock_guard<std::mutex> lock(parked_mtx);
+    parked.reset();  // releases the late holder, letting AwaitDrain_'s loop converge despite the throws
+  });
+
+  memgraph::dbms::DbmsHandler::DrainReport report;
+  constexpr auto kDeadline = std::chrono::seconds(5);
+  memgraph::dbms::DbmsHandler::DrainRequest drain{.deadline = kDeadline, .probe = {}, .report = &report};
+
+  auto del = dbms.Delete(
+      "force_abort_throwing_cancel", static_cast<memgraph::system::Transaction *>(nullptr), cooperative_cancel, &drain);
+  ASSERT_TRUE(del.has_value()) << (int)del.error() << " -- a throwing diagnostic sweep must never fail the drop";
+
+  EXPECT_EQ(report.outcome, memgraph::dbms::DbmsHandler::DrainOutcome::CONVERGED)
+      << "the wait must survive the throwing sweeps and keep polling, not abort on the first exception";
+  EXPECT_GE(cancel_invocations.load(std::memory_order_acquire), 2)
+      << "without at least one THROWING (2nd+) invocation actually having run, this assertion -- and the "
+         "whole test -- would pass vacuously even if the loop stopped calling the sweep after catching "
+         "the first exception";
+
+  // No WaitUntil here, deliberately: a converged drain destroys the tenant INLINE in Phase 3, so the row
+  // must already be gone the instant Delete() returns. A WaitUntil would also pass if the defer pool
+  // cleaned it up later on its own schedule, which is exactly the inline-destruction property this
+  // assertion exists to rule out.
+  const auto all_detached = dbms.AllDetached();
+  EXPECT_TRUE(std::ranges::none_of(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; }))
+      << "a converged drain must destroy the tenant INLINE in Phase 3 -- no DETACHED row may still exist "
+         "the instant Delete() returns";
+
+  releaser.join();
 }
 
 // ---------------------------------------------------------------------------
