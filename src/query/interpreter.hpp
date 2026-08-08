@@ -347,7 +347,9 @@ class Interpreter final {
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
   SessionInfo session_info_;
-  bool in_explicit_transaction_{false};
+  // Atomic: read by the background accessor-release sweep on another thread while the session
+  // thread writes it at transaction boundaries.
+  std::atomic<bool> in_explicit_transaction_{false};
   CurrentDB current_db_;
 
   bool expect_rollback_{false};
