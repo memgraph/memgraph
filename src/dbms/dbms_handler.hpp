@@ -322,11 +322,11 @@ class DbmsHandler {
   /// Phase 3, both of which run under `lock_`. Its job is to *ask* current holders of the tenant's
   /// DatabaseAccess to release it (e.g. terminate the sessions/transactions pinning it); it must never
   /// revoke one itself -- a trigger cursor or a Bolt session mid-Prepare/Pull would use-after-free if
-  /// its accessor were released out from under it. Today Delete_ calls it exactly once; it must
-  /// nonetheless be idempotent, because a bounded-wait loop that re-asks each iteration is the intended
-  /// next step and because a retried drop calls it again on the same tenant. May throw: a throw unwinds
-  /// through Delete_'s `rollback_drain` guard, which makes the drop retriable, so this must run before
-  /// anything about the drop is latched.
+  /// its accessor were released out from under it. Called once from Phase 2, then again on every
+  /// AwaitDrain_ poll iteration -- up to roughly deadline/kDrainPollSlice times (about 200 at the 10 s
+  /// default and the 50 ms slice) -- and again on any retried drop of the same tenant, so it must be
+  /// idempotent. May throw: RequestCooperativeCancel_'s doc covers how the two call sites differ on
+  /// that -- in short, the looped call's throw is swallowed by the caller and the wait continues.
   ///
   /// This is a per-call parameter, not a SetOnSuspend-style member hook, because the query layer's
   /// sweep is scoped to the dropping user's privileges (it needs a QueryUserOrRole* and a
@@ -1114,10 +1114,13 @@ class DbmsHandler {
                        CooperativeCancelFn const &cooperative_cancel = {}, DrainRequest const *drain = nullptr);
 
   // Phase-2 helper: ask `cooperative_cancel` (if any) to release outside holders, then latch this
-  // tenant's after-commit triggers stopped. Order is load-bearing: step 1 can throw, and at the point
-  // it runs nothing about the drop is latched yet, so Delete_'s `rollback_drain` guard can still make
-  // the drop retriable; step 2 is noexcept and one-way, so it must run last. May be called more than
-  // once for the same `database` (see CooperativeCancelFn's idempotence requirement).
+  // tenant's after-commit triggers stopped. Order is load-bearing: step 1 can throw; step 2 is
+  // noexcept and one-way, so it must run last. The two call sites handle that throw differently:
+  // Delete_'s Phase 2 pre-loop call is unguarded, because nothing about the drop is latched yet there,
+  // so a throw correctly unwinds into `rollback_drain` and the drop stays retriable; AwaitDrain_'s
+  // poll-loop call runs after Phase 2's teardown, which `rollback_drain` cannot undo, so it is
+  // caller-guarded (try/catch) instead. May be called more than once for the same `database` (see
+  // CooperativeCancelFn's idempotence requirement).
   static void RequestCooperativeCancel_(Database *database, CooperativeCancelFn const &cooperative_cancel);
 
   // Phase-2 helper: bounded wait for `drain.deadline`, re-sweeping `cooperative_cancel` every

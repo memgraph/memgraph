@@ -874,7 +874,7 @@ void DbmsHandler::AwaitDrain_(utils::Gatekeeper<Database> *gk, Database *databas
           blockers.transactions_asked_to_abort);
       return;
     }
-    // Guarded here, unlike the pre-loop call above: Phase 2's joins/DropAll already ran and
+    // Guarded here, unlike the pre-loop call in Delete_'s Phase 2: Phase 2's joins/DropAll already ran and
     // rollback_drain can't undo them, so an escaping throw would strand a live tenant missing that
     // machinery. Swallow and keep waiting -- `expiry` still bounds the loop.
     try {
