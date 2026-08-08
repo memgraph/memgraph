@@ -1367,10 +1367,15 @@ TEST(DBMS_Handler, ProtectorFactoryConcurrentWithHandlerMapMutation) {
     return true;
   });
   if (!reader_done) {
-    // RunBounded already ran `reader.join()` on its own worker thread; if that worker itself is stuck,
-    // detach rather than block this thread indefinitely (mirrors this file's established idiom for a
-    // wedged background operation, e.g. DropDoesNotHoldTheHandlerLockDuringTeardown's dropper.detach()).
+    // RunBounded's own worker thread is the one stuck inside reader.join() (it gets detached, but that
+    // does not unstick it), so `reader` itself is still joinable here. A joinable std::thread's
+    // destructor calls std::terminate() unconditionally, and `reader` is about to go out of scope --
+    // without detaching it first, the very hang this test exists to catch would kill the whole test
+    // binary instead of just failing this one assertion. Detach rather than block this thread
+    // indefinitely (mirrors this file's established idiom for a wedged background operation, e.g.
+    // DropDoesNotHoldTheHandlerLockDuringTeardown's dropper.detach()).
     ADD_FAILURE() << "the reader thread failed to join within the bound -- possible hang in the seam under test";
+    reader.detach();
   }
 
   EXPECT_GT(reader_iterations.load(), 0u) << "the reader must have completed at least one iteration";
