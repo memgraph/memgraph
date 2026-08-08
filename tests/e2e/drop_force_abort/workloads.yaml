@@ -1,0 +1,14 @@
+drop_force_abort_cluster: &drop_force_abort_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "drop_force_abort.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Drop database force abort"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["drop_force_abort/drop_force_abort.py"]
+    <<: *drop_force_abort_cluster

@@ -1,0 +1,3 @@
+copy_e2e_python_files(drop_force_abort drop_force_abort.py)
+
+copy_e2e_files(drop_force_abort workloads.yaml)
