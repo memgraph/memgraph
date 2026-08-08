@@ -368,10 +368,11 @@ struct Gatekeeper {
     // waiting ~Gatekeeper proceeds. Adding a marked check here is NOT a correctness requirement.
     //
     // draining_ is different: it IS a hard refusal, not advisory. It is the single choke point that
-    // stops the database-protector factory (dbms::DatabaseHandler::MakeDatabaseProtectorFactory ->
-    // Handler::Get -> here) from re-arming TTL and async-index work on a tenant that is being dropped
-    // — without this refusal the drain would never converge, because freshly-minted work would keep
-    // the tenant HOT and its own Accessor count above the drop's single-flight expectations forever.
+    // stops the database-protector factory (dbms::DatabaseHandler::MakeDatabaseProtectorFactory's
+    // closure -> access_via() below, which shares this same mint_locked gate) from re-arming TTL and
+    // async-index work on a tenant that is being dropped — without this refusal the drain would never
+    // converge, because freshly-minted work would keep the tenant HOT and its own Accessor count above
+    // the drop's single-flight expectations forever.
     return mint_locked(pimpl_.get(), /*bypass_drain=*/false);
   }
 
