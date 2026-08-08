@@ -126,7 +126,14 @@ def force_abort_drop(db_name):
 
 def test_force_abort_converges_against_idle_connection(make_database):
     db_name = make_database("converges")
-    pin_database_idle(db_name)
+    idle = pin_database_idle(db_name)
+    idle_cursor = idle.cursor()
+
+    # `idle` must outlive the timed section below: an unreferenced mgclient.Connection is closed by
+    # CPython refcounting as soon as pin_database_idle returns, which releases the accessor on its
+    # own and makes the drop converge for the wrong reason regardless of the fix under test. This
+    # query proves the connection is still alive right before the clock starts.
+    assert fetch_all(idle_cursor, "MATCH (n) RETURN count(n)")[0][0] == 1
 
     elapsed = force_abort_drop(db_name)
 
@@ -136,6 +143,12 @@ def test_force_abort_converges_against_idle_connection(make_database):
         f"milliseconds; anything this slow means the drain expired against kDrainDeadline (10s) "
         f"instead of converging."
     )
+
+    # `idle` is read here on purpose, after the timing assertion: this is what keeps the reference
+    # alive across the timed section above, so a later "unused variable" tidy-up can't silently
+    # reintroduce the vacuity this guards against.
+    with pytest.raises(mgclient.DatabaseError):
+        fetch_all(idle_cursor, "MATCH (n) RETURN n LIMIT 1")
 
 
 def test_idle_session_after_drop_is_usable(make_database):
