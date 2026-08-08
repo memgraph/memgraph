@@ -44,6 +44,7 @@
 #include "auth/exceptions.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "communication/cluster_tls.hpp"
+#include "communication/v2/session_registry.hpp"
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_cert_reloader.hpp"
 #include "coordination/coordinator_ops_status.hpp"
@@ -7445,8 +7446,16 @@ uint64_t ParseTransactionId(TypedValue const &value) {
 
 Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                      std::shared_ptr<QueryUserOrRole> user_or_role, const Parameters &parameters,
-                                     InterpreterContext *interpreter_context, Interpreter const *self) {
+                                     InterpreterContext *interpreter_context, Interpreter const *self,
+                                     std::string caller_session_uuid) {
   auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
+    return user_or_role &&
+           user_or_role->IsAuthorized(
+               {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name, &query::up_to_date_policy);
+  };
+  // Terminating a connection is instance-scoped, not per-database: a session can USE DATABASE at any
+  // time, so there is no single db_name to check against.
+  auto session_privilege_checker = [](QueryUserOrRole *user_or_role, std::optional<std::string_view> db_name) {
     return user_or_role &&
            user_or_role->IsAuthorized(
                {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name, &query::up_to_date_policy);
@@ -7527,17 +7536,57 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
       };
       break;
     }
+    case TransactionQueueQuery::Action::TERMINATE_SESSIONS: {
+      auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      std::vector<std::string> session_ids;
+      std::ranges::transform(transaction_query->session_id_list_,
+                             std::back_inserter(session_ids),
+                             [&evaluator](Expression *expression) -> std::string {
+                               try {
+                                 auto value = expression->Accept(evaluator);
+                                 return std::string{value.ValueString()};
+                               } catch (std::exception & /* unused */) {
+                                 return std::string{};
+                               }
+                             });
+      callback.header = {"session_id", "killed"};
+      callback.fn = [interpreter_context,
+                     session_ids = std::move(session_ids),
+                     user_or_role = std::move(user_or_role),
+                     session_privilege_checker = std::move(session_privilege_checker),
+                     caller_session_uuid = std::move(caller_session_uuid)]() mutable {
+        auto result = interpreter_context->interpreters.WithLock([&](auto &interpreters) {
+          return interpreter_context->TerminateSessions(
+              interpreters, session_ids, user_or_role.get(), session_privilege_checker, caller_session_uuid);
+        });
+        // Closing a connection runs that session's destructor chain, which re-enters
+        // InterpreterContext::interpreters -- so it must happen only after the lock above is released.
+        for (auto const &uuid : result.to_close) {
+          if (auto session = communication::v2::SessionRegistry::Instance().Find(uuid)) {
+            session->RequestTermination();
+          }
+        }
+        return std::move(result.rows);
+      };
+      break;
+    }
   }
 
   return callback;
 }
 
 PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, std::shared_ptr<QueryUserOrRole> user_or_role,
-                                           InterpreterContext *interpreter_context, Interpreter const *self) {
+                                           InterpreterContext *interpreter_context, Interpreter const *self,
+                                           std::string caller_session_uuid) {
   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
   MG_ASSERT(transaction_queue_query);
-  auto callback = HandleTransactionQueueQuery(
-      transaction_queue_query, std::move(user_or_role), parsed_query.parameters, interpreter_context, self);
+  auto callback = HandleTransactionQueueQuery(transaction_queue_query,
+                                              std::move(user_or_role),
+                                              parsed_query.parameters,
+                                              interpreter_context,
+                                              self,
+                                              std::move(caller_session_uuid));
 
   return PreparedQuery{
       .header = std::move(callback.header),
@@ -10951,7 +11000,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       if (in_explicit_transaction_) {
         throw TransactionQueueInMulticommandTxException();
       }
-      prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), user_or_role_, interpreter_context_, this);
+      prepared_query = PrepareTransactionQueueQuery(
+          std::move(parsed_query), user_or_role_, interpreter_context_, this, session_info_.uuid);
     } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw MultiDatabaseQueryInMulticommandTxException();

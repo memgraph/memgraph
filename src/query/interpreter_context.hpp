@@ -55,6 +55,11 @@ class AuthChecker;
 class Interpreter;
 struct QueryUserOrRole;
 
+struct TerminateSessionsResult {
+  std::vector<std::vector<TypedValue>> rows;  // one {session_id, killed} row per requested id, input order
+  std::vector<std::string> to_close;          // uuids the CALLER must hand to the session registry
+};
+
 /**
  * Holds data shared between multiple `Interpreter` instances (which might be
  * running concurrently).
@@ -110,6 +115,18 @@ struct InterpreterContext {
   static std::vector<std::vector<TypedValue>> TerminateAllTransactions(
       const std::unordered_set<Interpreter *> &interpreters, Interpreter const *self, QueryUserOrRole *user_or_role,
       std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
+
+  // Marks the named sessions for termination. Returns the per-id result rows and, separately, the uuids whose
+  // connection the caller must actually close.
+  //
+  // The close is deliberately NOT done here: it runs the target session's destructor chain, which re-enters
+  // InterpreterContext::interpreters. Callers must invoke this inside interpreters.WithLock(...) and then close
+  // `to_close` AFTER that lock has been released, or they self-deadlock.
+  TerminateSessionsResult TerminateSessions(
+      const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
+      QueryUserOrRole *user_or_role,
+      std::function<bool(QueryUserOrRole *, std::optional<std::string_view>)> privilege_checker,
+      std::string_view caller_session_uuid);
 
   static std::vector<uint64_t> ShowTransactionsUsingDBName(const std::unordered_set<Interpreter *> &interpreters,
                                                            std::string_view db_name);

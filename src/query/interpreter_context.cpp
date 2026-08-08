@@ -178,6 +178,79 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateAllTransaction
   return results;
 }
 
+TerminateSessionsResult InterpreterContext::TerminateSessions(
+    const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
+    QueryUserOrRole *user_or_role,
+    std::function<bool(QueryUserOrRole *, std::optional<std::string_view>)> privilege_checker,
+    std::string_view caller_session_uuid) {
+  auto same_user = [](const auto &lv, const auto &rv) {
+    if (lv.get() == rv) return true;
+    if (lv && rv) return *lv == *rv;
+    return false;
+  };
+
+  TerminateSessionsResult result;
+  result.rows.reserve(session_ids.size());
+
+  for (const auto &id : session_ids) {
+    // A connection is registered into `interpreters` before authentication completes, so a mid-handshake
+    // session carries an empty uuid; without this guard an empty id would match every such session at once.
+    if (id.empty()) {
+      result.rows.push_back({TypedValue(id), TypedValue(false)});
+      continue;
+    }
+
+    // Refuse to sever the caller's own control channel mid-statement -- the response couldn't be delivered
+    // afterwards anyway. Reported as a row (not silently dropped) so the refusal is visible.
+    if (id == caller_session_uuid) {
+      result.rows.push_back({TypedValue(id), TypedValue(false)});
+      spdlog::warn("Cannot terminate the session that issued the command");
+      continue;
+    }
+
+    Interpreter *target = nullptr;
+    for (Interpreter *interpreter : interpreters) {
+      if (!interpreter->session_info_.uuid.empty() && interpreter->session_info_.uuid == id) {
+        target = interpreter;
+        break;
+      }
+    }
+
+    if (!target) {
+      result.rows.push_back({TypedValue(id), TypedValue(false)});
+      spdlog::warn("Session {} not found", id);
+      continue;
+    }
+
+    // Privilege is checked against std::nullopt, not the target's current database:
+    // (a) a connection isn't scoped to a database (it can USE DATABASE at will), so "privilege on the
+    //     target's current db" isn't a meaningful boundary for killing the whole connection -- this is an
+    //     instance-scoped operation; and
+    // (b) TerminateTransactions may read current_db_.db_acc_ only because it first CASes the target into
+    //     VERIFYING. The primary target here is an idle session, which can't be claimed that way, and
+    //     CurrentDB::SetCurrentDB/ResetDB mutate db_acc_ outside any claim, so reading it unclaimed here
+    //     would be a data race.
+    if (!same_user(target->user_or_role_, user_or_role) && !privilege_checker(user_or_role, std::nullopt)) {
+      result.rows.push_back({TypedValue(id), TypedValue(false)});
+      spdlog::warn("Not enough rights to kill the session");
+      continue;
+    }
+
+    TransactionStatus alive_status = TransactionStatus::ACTIVE;
+    if (target->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
+      target->transaction_status_.store(TransactionStatus::TERMINATED, std::memory_order_release);
+    }
+    // Unlike TerminateTransactions, a failed CAS here must NOT skip termination -- the primary target of this
+    // feature is an IDLE session, for which the CAS above is expected to fail.
+
+    result.to_close.push_back(id);
+    result.rows.push_back({TypedValue(id), TypedValue(true)});
+    spdlog::warn("Session {} successfully killed", id);
+  }
+
+  return result;
+}
+
 std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
     const std::unordered_set<Interpreter *> &interpreters, std::string_view db_name) {
   std::vector<uint64_t> results;
