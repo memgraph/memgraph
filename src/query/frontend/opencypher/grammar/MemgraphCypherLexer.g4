@@ -193,6 +193,7 @@ SERVER_SIDE_PARAMETERS  : S E R V E R UNDERSCORE S I D E UNDERSCORE P A R A M E 
 SERVER                  : S E R V E R ;
 SERVICE_URL             : S E R V I C E UNDERSCORE U R L ;
 SESSION                 : S E S S I O N ;
+SESSIONS                : S E S S I O N S ;
 SETTING                 : S E T T I N G ;
 SETTINGS                : S E T T I N G S ;
 PARAMETER               : P A R A M E T E R ;
