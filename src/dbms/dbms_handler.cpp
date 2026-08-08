@@ -1363,9 +1363,10 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // Stop this tenant's background tasks (stream consumers, after-commit trigger pool, storage's TTL
   // scheduler + async indexer) HERE — while the gatekeeper mutex is NOT held. finish_suspend() below
   // takes that mutex and holds it across ~Database -> ~InMemoryStorage, whose StopAllBackgroundTasks()
-  // JOINS the TTL / async-indexer threads. Those threads call make_database_protector() ->
-  // DatabaseHandler::Get() -> Gatekeeper::access(), which blocks acquiring the very mutex finish_suspend()
-  // holds -> the join would deadlock (joiner holds the lock the joinee waits on). By stopping them now,
+  // JOINS the TTL / async-indexer threads. Those threads call make_database_protector() -> the
+  // protector factory closure -> Gatekeeper<Database>::access_via(internals), which blocks acquiring
+  // the very mutex finish_suspend() holds -> the join would deadlock (joiner holds the lock the
+  // joinee waits on). By stopping them now,
   // that in-destructor join is a no-op. The WAL-finalize-under-mutex suspend->resume directory handoff
   // that finish_suspend() protects is unaffected: only the thread joins move earlier; FinalizeWal still
   // runs under the mutex inside finish_suspend(). Placed AFTER rollback.Disable() (the point of no
