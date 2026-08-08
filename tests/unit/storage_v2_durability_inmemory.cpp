@@ -5347,6 +5347,7 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
       acc->SetEdgeTypePropertyDescription("KNOWS", "since", "When they met");
       acc->SetDatabaseDescription("Test database");
       acc->SetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels, "Person knows person");
+      acc->SetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"1"}}, "Male");
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
@@ -5362,7 +5363,9 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
       ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
       ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
       ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
-      ASSERT_EQ(acc->GetAllDescriptions().size(), 7);
+      ASSERT_EQ(acc->GetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"1"}}),
+                "Male");
+      ASSERT_EQ(acc->GetAllDescriptions().size(), 8);
     }
   }
 
@@ -5388,7 +5391,9 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
     ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
     ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
     ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
-    ASSERT_EQ(acc->GetAllDescriptions().size(), 7);
+    ASSERT_EQ(acc->GetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"1"}}),
+              "Male");
+    ASSERT_EQ(acc->GetAllDescriptions().size(), 8);
   }
 }
 
@@ -5416,6 +5421,14 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
       acc->SetEdgeTypePropertyDescription("KNOWS", "since", "When they met");
       acc->SetDatabaseDescription("Test database");
       acc->SetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels, "Person knows person");
+      acc->SetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"1"}}, "Male");
+      acc->SetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"2"}}, "Female");
+      acc->SetPropertyValueDescription(
+          "tags",
+          memgraph::storage::ExternalPropertyValue{
+              memgraph::storage::ExternalPropertyValue::list_t{memgraph::storage::ExternalPropertyValue{int64_t{1}},
+                                                               memgraph::storage::ExternalPropertyValue{int64_t{2}}}},
+          "Pair");
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
@@ -5424,6 +5437,8 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
       auto acc = db.Access(memgraph::storage::WRITE);
       std::vector<std::string> person_labels{"Person"};
       ASSERT_TRUE(acc->DeleteLabelDescription(person_labels));
+      ASSERT_TRUE(
+          acc->DeletePropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"2"}}));
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
@@ -5448,7 +5463,17 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
     ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
     ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
     ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
-    ASSERT_EQ(acc->GetAllDescriptions().size(), 5);
+    ASSERT_EQ(acc->GetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"1"}}),
+              "Male");
+    ASSERT_EQ(acc->GetPropertyValueDescription("gender", memgraph::storage::ExternalPropertyValue{std::string{"2"}}),
+              std::nullopt);
+    ASSERT_EQ(acc->GetPropertyValueDescription(
+                  "tags",
+                  memgraph::storage::ExternalPropertyValue{memgraph::storage::ExternalPropertyValue::list_t{
+                      memgraph::storage::ExternalPropertyValue{int64_t{1}},
+                      memgraph::storage::ExternalPropertyValue{int64_t{2}}}}),
+              "Pair");
+    ASSERT_EQ(acc->GetAllDescriptions().size(), 7);
   }
 }
 

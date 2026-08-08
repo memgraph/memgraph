@@ -1136,6 +1136,42 @@ class Accessor {
     return storage_->description_store_.GetProperty(storage_->NameToProperty(prop_name));
   }
 
+  void SetPropertyValueDescription(std::string_view prop_name, ExternalPropertyValue const &value,
+                                   std::string_view desc) {
+    auto prop = storage_->NameToProperty(prop_name);
+    storage_->description_store_.SetPropertyValue(prop, value, desc);
+    transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                        DescriptionTargetKind::PROPERTY_VALUE,
+                                        std::vector<LabelId>{},
+                                        EdgeTypeId{},
+                                        prop,
+                                        std::string{desc},
+                                        std::vector<LabelId>{},
+                                        std::vector<LabelId>{},
+                                        value);
+  }
+
+  bool DeletePropertyValueDescription(std::string_view prop_name, ExternalPropertyValue const &value) {
+    auto prop = storage_->NameToProperty(prop_name);
+    bool deleted = storage_->description_store_.DeletePropertyValue(prop, value);
+    if (deleted) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                          DescriptionTargetKind::PROPERTY_VALUE,
+                                          std::vector<LabelId>{},
+                                          EdgeTypeId{},
+                                          prop,
+                                          std::vector<LabelId>{},
+                                          std::vector<LabelId>{},
+                                          value);
+    }
+    return deleted;
+  }
+
+  std::optional<std::string> GetPropertyValueDescription(std::string_view prop_name,
+                                                         ExternalPropertyValue const &value) const {
+    return storage_->description_store_.GetPropertyValue(storage_->NameToProperty(prop_name), value);
+  }
+
   void SetEdgeTypePatternDescription(std::span<std::string const> from_label_names, std::string_view edge_type_name,
                                      std::span<std::string const> to_label_names, std::string_view desc) {
     auto from_labels = ResolveLabels(from_label_names);

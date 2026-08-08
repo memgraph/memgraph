@@ -4821,6 +4821,25 @@ antlrcpp::Any CypherMainVisitor::visitDescriptionQuery(MemgraphCypher::Descripti
   return description_query;
 }
 
+namespace {
+// VALUE reuses the general `literal` rule, whose list/map alternatives admit arbitrary expressions. A property-value
+// code must be a constant, so reject anything that is not a literal (or a stripped-literal ParameterLookup) — otherwise
+// a non-constant would reach the prepare-time constant evaluator and terminate / evaluate to null.
+bool IsConstantLiteralExpression(Expression *expr) {
+  if (utils::Downcast<PrimitiveLiteral>(expr) != nullptr || utils::Downcast<ParameterLookup>(expr) != nullptr) {
+    return true;
+  }
+  if (auto *list = utils::Downcast<ListLiteral>(expr)) {
+    return std::ranges::all_of(list->elements_, IsConstantLiteralExpression);
+  }
+  if (auto *map = utils::Downcast<MapLiteral>(expr)) {
+    return std::ranges::all_of(map->elements_,
+                               [](auto const &entry) { return IsConstantLiteralExpression(entry.second); });
+  }
+  return false;
+}
+}  // namespace
+
 void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetContext *ctx,
                                               DescriptionQuery *description_query) {
   if (ctx->LABEL() && ctx->PROPERTY()) {
@@ -4866,6 +4885,13 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
     description_query->target_kind_ = storage::DescriptionTargetKind::LABEL;
     for (auto *label : ctx->labelName()) {
       description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+  } else if (ctx->PROPERTY() && ctx->VALUE()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY_VALUE;
+    description_query->properties_.emplace_back(std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this)));
+    description_query->value_ = std::any_cast<Expression *>(ctx->literal()->accept(this));
+    if (!IsConstantLiteralExpression(description_query->value_)) {
+      throw SemanticException("A property-value description VALUE must be a constant literal (scalar, list, or map).");
     }
   } else if (ctx->PROPERTY()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY;
