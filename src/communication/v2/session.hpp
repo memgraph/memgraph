@@ -257,7 +257,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     ws.binary(true);
 
     // Accept the websocket handshake
+    read_armed_ = true;
     ws.async_accept(req, boost::asio::bind_executor(strand_, [self = shared_from_this()](boost::beast::error_code ec) {
+                      self->read_armed_ = false;
+                      if (self->terminate_requested_.load(std::memory_order_acquire)) {
+                        self->DoShutdown();
+                        return;
+                      }
                       if (ec) {
                         return self->OnError(ec);
                       }
@@ -511,6 +517,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return;
     }
     if (auto *socket = std::get_if<SSLSocket>(&socket_); socket) {
+      read_armed_ = true;
       socket->async_handshake(
           boost::asio::ssl::stream_base::server,
           boost::asio::bind_executor(strand_, std::bind_front(&Session::OnSSLHandshake, shared_from_this())));
@@ -518,6 +525,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnSSLHandshake(const boost::system::error_code &ec) {
+    read_armed_ = false;
+    if (terminate_requested_.load(std::memory_order_acquire)) {
+      DoShutdown();
+      return;
+    }
     if (ec) {
       return OnError(ec);
     }
@@ -570,8 +582,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   // parks for a read.
   std::atomic_bool terminate_requested_{false};
   // STRAND-CONFINED (only strand_ reads or writes this, so it needs no atomicity/synchronisation).
-  // true: a read is parked and the strand is the socket's sole owner. false: a worker thread may
-  // be inside Execute()/Write() right now and the socket must not be touched from elsewhere.
+  // true: an async op (SSL handshake, websocket upgrade, or read) is pending and the strand is the
+  // socket's sole owner, so it is safe to close from the strand. false: a worker thread may be
+  // inside Execute()/Write() right now and the socket must not be touched from elsewhere.
   bool read_armed_{false};
 };
 }  // namespace memgraph::communication::v2
