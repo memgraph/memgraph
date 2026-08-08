@@ -217,11 +217,7 @@ std::string SessionHL::GetCurrentUser() const {
 }
 #endif
 
-std::string SessionHL::GetCurrentDB() const {
-  if (!interpreter_.current_db_.db_acc_) return "";
-  const auto *db = interpreter_.current_db_.db_acc_->get();
-  return db->name();
-}
+std::string SessionHL::GetCurrentDB() const { return interpreter_.current_db_.name(); }
 
 std::optional<std::string> SessionHL::GetServerNameForInit() {
   const auto &name = flags::run_time::GetServerName();
@@ -478,6 +474,11 @@ void SessionHL::LogOff() {
 void SessionHL::Abort() {
   interpreter_.ResetCachedFga();
   interpreter_.Abort();
+#ifdef MG_ENTERPRISE
+  // Bolt RESET is the point where the session is genuinely idle on its own thread; release the db accessor here
+  // rather than inside Interpreter::Abort(), which also runs mid-Pull and on ~Interpreter where it's still in use.
+  interpreter_.ReleaseDbAccessBetweenQueries();
+#endif
 }
 
 bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
@@ -521,7 +522,6 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
 void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    auto &db = interpreter_.current_db_.db_acc_;
     const auto &user_or_role = interpreter_.user_or_role_;
     // Coordinator sessions authorize by Raft-replicated role and never build a QueryUserOrRole, so fall back to the
     // principal recorded at login; without it every control-plane query would be audited with an empty username.
@@ -531,7 +531,7 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
                        username,
                        query,
                        params,
-                       db ? db->get()->name() : "");
+                       interpreter_.current_db_.name());
   }
 #endif
 

@@ -269,6 +269,7 @@ struct CurrentDB {
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // do we lock here?
     current_db_name_ = new_db->name();
+    current_db_uuid_ = new_db->uuid();
     db_acc_ = std::move(new_db);
     in_explicit_db_ = in_explicit_db;
   }
@@ -276,9 +277,13 @@ struct CurrentDB {
   void ResetDB() {
     db_acc_.reset();
     current_db_name_.reset();
+    current_db_uuid_.reset();
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
+    // Decrements the gauge backing active_transactions; CleanupDBTransaction already does this on
+    // the abort/commit path, but ResetDB is also reachable without going through it.
+    transaction_gauge_ = {};
   }
 
   std::string name() const { return db_acc_ ? db_acc_->get()->name() : current_db_name_.value_or(""); }
@@ -287,9 +292,12 @@ struct CurrentDB {
   // DatabaseAccess
   //       hence, explict bolt "use DB" in metadata wouldn't necessarily get access unless query required it.
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;  // Current db (TODO: expand to support multiple)
-  // Session's database identity; outlives db_acc_, which a background sweep may
-  // release between queries.
+  // Session's database identity; outlives db_acc_, which is released between queries
+  // (see Interpreter::ReleaseDbAccessBetweenQueries) and re-acquired by EnsureDbAccessForQuery.
   std::optional<std::string> current_db_name_;
+  // Identifies which tenant current_db_name_ refers to, so a re-acquire-by-name after a name got
+  // recycled (drop X, create new X) fails closed instead of silently attaching to the new tenant.
+  std::optional<utils::UUID> current_db_uuid_;
   std::unique_ptr<storage::Storage::Accessor> db_transactional_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
@@ -476,6 +484,13 @@ class Interpreter final {
   void CommitTransaction();
 
   void RollbackTransaction();
+
+#ifdef MG_ENTERPRISE
+  // Releases current_db_.db_acc_ between queries so a pending DROP DATABASE ... FORCE ABORT can converge
+  // against an idle connection instead of waiting out its accessor's lease. Silent no-op unless every
+  // precondition needed to safely re-mint the accessor by name later also holds (see definition).
+  void ReleaseDbAccessBetweenQueries();
+#endif
 
   void SetNextTransactionIsolationLevel(storage::IsolationLevel isolation_level);
   void SetSessionIsolationLevel(storage::IsolationLevel isolation_level);
@@ -683,6 +698,10 @@ class Interpreter final {
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
+  // CAS transaction_status_ from expected_from down to IDLE, retrying through a VERIFYING window held by
+  // a foreign ShowTransactions/TerminateTransactions reader, then clears current_transaction_/metadata_.
+  // Shared tail of Abort() and the QueryHandlerResult::NOTHING path in Pull(), which never call Abort().
+  void SettleTransactionStatusToIdle(TransactionStatus expected_from);
 
   size_t ActiveQueryExecutions() {
     return std::ranges::count_if(query_executions_,
@@ -802,6 +821,13 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
             // we're either in an explicit transaction or the query is such that
             // a transaction wasn't started on a call to `Prepare()`.
             MG_ASSERT(!current_db_.db_transactional_accessor_);
+#ifdef MG_ENTERPRISE
+            // Unlike COMMIT/ABORT above, nothing else settles transaction_status_ back to IDLE on this
+            // path, so it would otherwise sit ACTIVE for the rest of the idle connection. That matters
+            // once ReleaseDbAccessBetweenQueries below can run concurrently with a foreign verifier.
+            SettleTransactionStatusToIdle(TransactionStatus::ACTIVE);
+            session_log_ctx_.ClearTxId();
+#endif
             break;
           }
         }
@@ -858,6 +884,15 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       memgraph::logging::EmitSlowQueryLog(
           session_log_ctx_.user(), db_name, captured_query_string, slow_query_duration_ms, plan_view);
     }
+
+#ifdef MG_ENTERPRISE
+    // Must die before the accessor it was scoped to: ~DbArenaScope releases back to the Database's
+    // ArenaPool, and if that release loses the race with a converging DROP DATABASE, the pool is
+    // gone. Resetting here (rather than relying on the optional's unwind after `return`) guarantees
+    // the ordering; the destructor would otherwise run after ReleaseDbAccessBetweenQueries below.
+    plan_cache_db_arena_scope.reset();
+    ReleaseDbAccessBetweenQueries();
+#endif
 
     // return the execution summary
     maybe_summary->insert_or_assign("has_more", false);

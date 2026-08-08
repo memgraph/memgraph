@@ -7294,10 +7294,6 @@ auto TransactionStatusToString(TransactionStatus status) -> char const * {
       return "committing";
     case TransactionStatus::STARTED_ROLLBACK:
       return "aborting";
-    case TransactionStatus::PREPARING:
-      return "preparing";
-    case TransactionStatus::REAPING:
-      return "reaping";
   }
   return "unknown";
 }
@@ -10143,12 +10139,18 @@ void Interpreter::CommitTransaction() {
   auto prepared_query = PrepareTransactionQuery(TransactionQuery::COMMIT);
   prepared_query.query_handler(nullptr, {});
   ResetInterpreter();
+#ifdef MG_ENTERPRISE
+  ReleaseDbAccessBetweenQueries();
+#endif
 }
 
 void Interpreter::RollbackTransaction() {
   auto prepared_query = PrepareTransactionQuery(TransactionQuery::ROLLBACK);
   prepared_query.query_handler(nullptr, {});
   ResetInterpreter();
+#ifdef MG_ENTERPRISE
+  ReleaseDbAccessBetweenQueries();
+#endif
 }
 
 #ifdef MG_ENTERPRISE
@@ -10210,10 +10212,32 @@ void Interpreter::EnsureDbAccessForQuery() {
   // disengaged reproduces the base's behaviour; per-query machinery already reports "no current
   // database" for queries that need one.
   try {
-    current_db_.db_acc_ = interpreter_context_->dbms_handler->Get(*current_db_.current_db_name_);
+    auto acc = interpreter_context_->dbms_handler->Get(*current_db_.current_db_name_);
+    // The name may have been recycled (DROP then CREATE of the same name) while db_acc_ was
+    // disengaged; re-attaching by bare name would silently move this session onto a different
+    // tenant. Leave db_acc_ disengaged so the session's next query surfaces "no current database"
+    // instead, and it must re-select with USE DATABASE.
+    if (current_db_.current_db_uuid_ && *current_db_.current_db_uuid_ != acc->uuid()) return;
+    current_db_.db_acc_ = std::move(acc);
   } catch (const dbms::UnknownDatabaseException &) {
     // leave disengaged
   }
+}
+
+void Interpreter::ReleaseDbAccessBetweenQueries() {
+  // Nothing to re-mint the accessor from later. This is also what keeps stream/query-module
+  // interpreters (built via the DatabaseAccess constructor, which never sets current_db_name_)
+  // safe: they dereference db_acc_ unguarded per message batch, and EnsureDbAccessForQuery would
+  // never restore a release for them.
+  if (!current_db_.current_db_name_) return;
+  // An explicit transaction's db_acc_ must outlive the statement that released it.
+  if (in_explicit_transaction_) return;
+  // A partial PULL (has_more == true) leaves these live with in_explicit_transaction_ == false.
+  if (current_db_.db_transactional_accessor_ || current_db_.execution_db_accessor_) return;
+  // Only IDLE proves no foreign verifier (TryAcquireForVerification) is inside, or can enter, its
+  // critical section over db_acc_ -- the status only ever leaves IDLE on this same thread.
+  if (transaction_status_.load(std::memory_order_acquire) != TransactionStatus::IDLE) return;
+  current_db_.db_acc_.reset();
 }
 #else
 // Default database only
@@ -10229,6 +10253,11 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
   }
 #else
   MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
+#endif
+#ifdef MG_ENTERPRISE
+  // Re-acquire before Parse reads the DB for the trace UUID / per-DB failed_query counter below;
+  // idempotent, so the call in Prepare's autocommit arm still covers the case this one missed.
+  EnsureDbAccessForQuery();
 #endif
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
@@ -11182,6 +11211,26 @@ std::vector<TypedValue> Interpreter::GetQueries() {
   return typed_queries;
 }
 
+// CAS expected_from -> IDLE, retrying through a VERIFYING window a ShowTransactions/TerminateTransactions
+// reader may hold. Once IDLE is visible no such reader can enter its critical section for this
+// interpreter, so current_transaction_/metadata_ are safe to clear here.
+void Interpreter::SettleTransactionStatusToIdle(TransactionStatus expected_from) {
+  auto expected = expected_from;
+  while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+    if (expected == TransactionStatus::VERIFYING) {
+      expected = expected_from;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      continue;
+    }
+    // Unexpected state - force IDLE to avoid deadlock
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+    break;
+  }
+  // Status is now IDLE - no concurrent ShowTransactions reader will access our fields
+  current_transaction_.reset();
+  metadata_ = std::nullopt;
+}
+
 void Interpreter::Abort() {
 #ifdef MG_ENTERPRISE
   // Note: if the storage layer already aborted the transaction internally (e.g. PeriodicCommit
@@ -11221,22 +11270,8 @@ void Interpreter::Abort() {
   // Cleanup: transition to IDLE, then clear fields.
   // Spin-wait if ShowTransactions has CAS'd us to VERIFYING - it will restore STARTED_ROLLBACK
   // when done reading, allowing us to proceed.
-  const utils::OnScopeExit clean_status([this]() {
-    auto expected = TransactionStatus::STARTED_ROLLBACK;
-    while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
-      if (expected == TransactionStatus::VERIFYING) {
-        expected = TransactionStatus::STARTED_ROLLBACK;
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        continue;
-      }
-      // Unexpected state - force IDLE to avoid deadlock
-      transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
-      break;
-    }
-    // Status is now IDLE - no concurrent ShowTransactions reader will access our fields
-    current_transaction_.reset();
-    metadata_ = std::nullopt;
-  });
+  const utils::OnScopeExit clean_status(
+      [this]() { SettleTransactionStatusToIdle(TransactionStatus::STARTED_ROLLBACK); });
 
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
