@@ -90,6 +90,26 @@ auto RunBounded(std::chrono::milliseconds timeout, F f) -> std::pair<bool, std::
   return {false, std::nullopt};
 }
 
+// Bounded, retrying cleanup for a tenant a test created under `name`: retries Delete() (a single call
+// can lose a benign USING/NON_EXISTENT race against another in-flight delete, e.g. a churn loop's own
+// best-effort attempt) until it either succeeds or reports NON_EXISTENT -- both mean the name is free
+// again -- then bounded-waits for AllDetached() to retire that row. Skipping either half leaves a
+// tenant genuinely present (poisoning the NEXT --gtest_repeat iteration's New()/Rename() with
+// EXISTS/ALREADY_EXISTS) or a stale DRAINING/DETACHED row visible to that iteration's own assertions.
+// Callers must release every DatabaseAccess for `name` first -- an outstanding accessor makes every
+// Delete() attempt report USING until the timeout, same as any other Delete() call in this file.
+bool DropAndWait(memgraph::dbms::DbmsHandler &dbms, std::string_view name) {
+  const bool dropped = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto del = dbms.Delete(name);
+    return del.has_value() || del.error() == memgraph::dbms::DeleteError::NON_EXISTENT;
+  });
+  if (!dropped) return false;
+  return WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(all_detached, [&](auto const &d) { return d.name == name; });
+  });
+}
+
 // Wedges a tenant's after-commit-trigger thread pool mid-task so a concurrent Delete()'s Phase 2
 // (Database::StopAllBackgroundTasks() -> ThreadPool::ShutDown() -> its jthread vector's destructor;
 // see dbms_handler.cpp's Delete_ Phase 2, database.cpp's StopAllBackgroundTasks, and
@@ -1235,6 +1255,24 @@ TEST(DBMS_Handler, ProtectorFactorySurvivesRename) {
   memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
   auto *storage = acc->storage();
 
+  // Runs even on an early ASSERT_TRUE return (e.g. the rename itself failing) -- without this, a failed
+  // rename left factory_rename_src HOT and held by `acc` for the rest of the process, and a later
+  // --gtest_repeat iteration's dbms.New("factory_rename_src") would fail with EXISTS before ever
+  // reaching the rename this test means to probe. `acc` must be released here (not left to its own
+  // destructor) since DropAndWait's Delete() reports USING for as long as any accessor is outstanding;
+  // declaring this guard after `acc` means it runs first on unwind, while `acc` is still valid to reset.
+  // Whichever of src/dst the tenant currently answers to, the other DropAndWait() is a cheap expected
+  // NON_EXISTENT no-op.
+  auto cleanup = memgraph::utils::OnScopeExit{[&] {
+    acc.reset();
+    EXPECT_TRUE(DropAndWait(dbms, "factory_rename_src"))
+        << "factory_rename_src must not survive this test (e.g. after a rename that never happened) to "
+           "poison a later --gtest_repeat iteration's New()";
+    EXPECT_TRUE(DropAndWait(dbms, "factory_rename_dst"))
+        << "factory_rename_dst must not survive this test (e.g. after a successful rename) to poison a "
+           "later --gtest_repeat iteration's Rename()";
+  }};
+
   {
     auto p0 = storage->make_database_protector();
     EXPECT_NE(p0, nullptr) << "a HOT tenant must be protectable before the rename -- if this already "
@@ -1250,17 +1288,6 @@ TEST(DBMS_Handler, ProtectorFactorySurvivesRename) {
                             "consumers (storage/v2/ttl.cpp:315 and storage/v2/async_indexer.cpp:96) read "
                             "nullptr as 'database dropped, stop this worker', silently killing TTL expiry "
                             "and async index building until process restart";
-
-  acc.reset();
-  const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
-    const auto all_detached = dbms.AllDetached();
-    return std::ranges::none_of(all_detached, [](auto const &d) { return d.name == "factory_rename_dst"; });
-  });
-  if (!retired) {
-    // Best-effort: don't leave the shared TestEnvironment polluted, but don't hang the binary over it
-    // either -- this cleanup path is not what this test is pinning.
-    RunBounded(std::chrono::seconds(2), [&] { return dbms.Delete("factory_rename_dst"); });
-  }
 }
 
 // PINS: Handler<T>::Get's items_.find (handler.hpp) has no synchronization of its own against
@@ -1335,27 +1362,15 @@ TEST(DBMS_Handler, ProtectorFactoryConcurrentWithHandlerMapMutation) {
   // Both names this test creates must be deterministically gone before returning: under
   // --gtest_repeat, a name left behind here makes the NEXT iteration's dbms.New() for that same name
   // fail with EXISTS instead of re-exercising the race. factory_race_target was previously only
-  // detach-waited, never actually dropped (so the wait below was trivially true and it stayed HOT
-  // forever); factory_race_other's churn loop only ever deletes it best-effort, so its very last
-  // iteration (or one that lost a benign USING/NON_EXISTENT race) can leave it behind too. Retry
-  // Delete() itself (not just the AllDetached wait) since a single call can race a USING report from
-  // the churn loop's own in-flight delete.
-  auto drop_and_wait = [&](std::string_view name) {
-    const bool dropped = WaitUntil(std::chrono::seconds(10), [&] {
-      const auto del = dbms.Delete(name);
-      return del.has_value() || del.error() == memgraph::dbms::DeleteError::NON_EXISTENT;
-    });
-    EXPECT_TRUE(dropped) << name
-                         << " must end up dropped (or already gone) so a later --gtest_repeat "
-                            "iteration's New() for this name does not fail with EXISTS";
-    const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
-      const auto all_detached = dbms.AllDetached();
-      return std::ranges::none_of(all_detached, [&](auto const &d) { return d.name == name; });
-    });
-    EXPECT_TRUE(retired) << name << "'s detached row must retire before this test returns";
-  };
-  drop_and_wait("factory_race_target");
-  drop_and_wait("factory_race_other");
+  // detach-waited, never actually dropped (so the wait was trivially true and it stayed HOT forever);
+  // factory_race_other's churn loop only ever deletes it best-effort, so its very last iteration (or
+  // one that lost a benign USING/NON_EXISTENT race) can leave it behind too.
+  EXPECT_TRUE(DropAndWait(dbms, "factory_race_target"))
+      << "factory_race_target must end up dropped and retired so a later --gtest_repeat iteration does "
+         "not see EXISTS (still there) or a stale detached row";
+  EXPECT_TRUE(DropAndWait(dbms, "factory_race_other"))
+      << "factory_race_other must end up dropped and retired so a later --gtest_repeat iteration does "
+         "not see EXISTS (still there) or a stale detached row";
 }
 
 // PINS: DatabaseHandler::BuildDetached (database_handler.hpp) -- the hot/cold RESUME path -- must
