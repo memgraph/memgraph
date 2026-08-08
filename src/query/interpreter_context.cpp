@@ -222,14 +222,10 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
       continue;
     }
 
-    // Privilege is checked against std::nullopt, not the target's current database:
-    // (a) a connection isn't scoped to a database (it can USE DATABASE at will), so "privilege on the
-    //     target's current db" isn't a meaningful boundary for killing the whole connection -- this is an
-    //     instance-scoped operation; and
-    // (b) TerminateTransactions may read current_db_.db_acc_ only because it first CASes the target into
-    //     VERIFYING. The primary target here is an idle session, which can't be claimed that way, and
-    //     CurrentDB::SetCurrentDB/ResetDB mutate db_acc_ outside any claim, so reading it unclaimed here
-    //     would be a data race.
+    // std::nullopt, not the target's db: (a) a connection isn't scoped to one (USE DATABASE can change it), so
+    // this is an instance-scoped check; (b) reading target->current_db_.db_acc_ unclaimed would race -- unlike
+    // TerminateTransactions, the target here (often an idle session) can't be claimed via the CAS below, and
+    // CurrentDB::SetCurrentDB/ResetDB mutate db_acc_ without any claim.
     if (!same_user(target->user_or_role_, user_or_role) && !privilege_checker(user_or_role, std::nullopt)) {
       result.rows.push_back({TypedValue(id), TypedValue(false)});
       spdlog::warn("Not enough rights to kill the session");

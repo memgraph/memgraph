@@ -281,9 +281,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                     }));
   }
 
-  // Must run on strand_: it is the sole place that arms an async_read_some, so funnelling
-  // DoRead/DoReadAsio/DoFirstRead through it is what keeps the socket single-owner (see
-  // read_armed_). Arms the next read, or honours a pending termination instead of arming it.
+  // Must run on strand_: the sole async_read_some site (DoRead/DoReadAsio/DoFirstRead funnel here),
+  // so honouring terminate_requested_ instead of arming the read keeps the socket single-owner.
   template <typename OnReadFn>
   void ArmRead_(OnReadFn on_read) {
     if (!IsConnected()) {
@@ -302,10 +301,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoRead() {
-    // dispatch, not post: DoRead is called from a priority worker thread once it finishes
-    // Execute()/Write(), and this is what moves the async_read_some initiation back onto the
-    // strand instead of racing the strand there. When already on the strand (the other two
-    // call sites) dispatch runs inline, so the ASIO scheduler pays nothing extra.
+    // dispatch, not post: DoRead runs on a priority worker thread (after Execute()/Write()), so this
+    // moves async_read_some's arming onto the strand; the other two call sites are already on it.
     boost::asio::dispatch(strand_,
                           [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnRead, self)); });
   }
@@ -462,9 +459,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   // Runs on strand_.
   void TerminateIfIdle_() {
-    // read_armed_ == false means a worker thread may currently own the socket inside
-    // Execute()/Write(); closing it here would race that thread. terminate_requested_ stays set,
-    // so ArmRead_ closes it instead the next time the session parks on the strand for a read.
+    // Deferred: read_armed_ == false means a worker may own the socket (Execute()/Write()); leave
+    // terminate_requested_ set and let ArmRead_ close it on the next read-arm instead of racing here.
     if (!read_armed_) {
       return;
     }
@@ -576,15 +572,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
-  // Set by any thread via RequestTermination, only ever set -- never cleared. Read on the strand
-  // at every read-arm (ArmRead_), which is what makes a termination requested while a worker
-  // thread owns the socket impossible to lose: the strand honours it as soon as the socket next
-  // parks for a read.
+  // Set by any thread via RequestTermination; only ever set, never cleared. Checked on the strand
+  // at every read-arm (ArmRead_), so a request made while a worker owns the socket can't be lost.
   std::atomic_bool terminate_requested_{false};
-  // STRAND-CONFINED (only strand_ reads or writes this, so it needs no atomicity/synchronisation).
-  // true: an async op (SSL handshake, websocket upgrade, or read) is pending and the strand is the
-  // socket's sole owner, so it is safe to close from the strand. false: a worker thread may be
-  // inside Execute()/Write() right now and the socket must not be touched from elsewhere.
+  // STRAND-CONFINED. true: an async op (handshake/upgrade/read) is pending and the strand solely
+  // owns the socket; false: a worker may be inside Execute()/Write(), so don't touch it elsewhere.
   bool read_armed_{false};
 };
 }  // namespace memgraph::communication::v2
