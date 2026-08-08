@@ -360,8 +360,7 @@ class Interpreter final {
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
   SessionInfo session_info_;
-  // Atomic: read by the background accessor-release sweep on another thread while the session
-  // thread writes it at transaction boundaries.
+  // Only ever read/written from the session's own thread; no other thread touches it.
   std::atomic<bool> in_explicit_transaction_{false};
   CurrentDB current_db_;
 
@@ -821,13 +820,11 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
             // we're either in an explicit transaction or the query is such that
             // a transaction wasn't started on a call to `Prepare()`.
             MG_ASSERT(!current_db_.db_transactional_accessor_);
-#ifdef MG_ENTERPRISE
             // Unlike COMMIT/ABORT above, nothing else settles transaction_status_ back to IDLE on this
-            // path, so it would otherwise sit ACTIVE for the rest of the idle connection. That matters
-            // once ReleaseDbAccessBetweenQueries below can run concurrently with a foreign verifier.
+            // path, so it would otherwise sit ACTIVE for the rest of the idle connection, which a
+            // concurrent ShowTransactions/TerminateTransactions verifier can observe.
             SettleTransactionStatusToIdle(TransactionStatus::ACTIVE);
             session_log_ctx_.ClearTxId();
-#endif
             break;
           }
         }
@@ -891,6 +888,8 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // gone. Resetting here (rather than relying on the optional's unwind after `return`) guarantees
     // the ordering; the destructor would otherwise run after ReleaseDbAccessBetweenQueries below.
     plan_cache_db_arena_scope.reset();
+    // db_acc_ is gone after this, so maybe_summary must not hold a Vertex/Edge/Path/Graph field: the
+    // caller's DecodeSummary converts it with a null storage and glue::ToBoltValue throws.
     ReleaseDbAccessBetweenQueries();
 #endif
 

@@ -3941,7 +3941,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           throw ExplicitTransactionUsageException("No current transaction to rollback.");
         }
 
-        // db_acc_ can be disengaged once a background sweep may release it between statements.
+        // db_acc_ can be disengaged: the session's own thread releases it between statements.
         if (current_db_.db_acc_) {
           (*current_db_.db_acc_)->metric_handles()->rolled_back_transactions.Increment();
         }
@@ -10213,10 +10213,8 @@ void Interpreter::EnsureDbAccessForQuery() {
   // database" for queries that need one.
   try {
     auto acc = interpreter_context_->dbms_handler->Get(*current_db_.current_db_name_);
-    // The name may have been recycled (DROP then CREATE of the same name) while db_acc_ was
-    // disengaged; re-attaching by bare name would silently move this session onto a different
-    // tenant. Leave db_acc_ disengaged so the session's next query surfaces "no current database"
-    // instead, and it must re-select with USE DATABASE.
+    // Name may have been recycled (DROP then CREATE) while disengaged; a UUID mismatch means don't
+    // reattach, force USE DATABASE again.
     if (current_db_.current_db_uuid_ && *current_db_.current_db_uuid_ != acc->uuid()) return;
     current_db_.db_acc_ = std::move(acc);
   } catch (const dbms::UnknownDatabaseException &) {
@@ -10225,10 +10223,8 @@ void Interpreter::EnsureDbAccessForQuery() {
 }
 
 void Interpreter::ReleaseDbAccessBetweenQueries() {
-  // Nothing to re-mint the accessor from later. This is also what keeps stream/query-module
-  // interpreters (built via the DatabaseAccess constructor, which never sets current_db_name_)
-  // safe: they dereference db_acc_ unguarded per message batch, and EnsureDbAccessForQuery would
-  // never restore a release for them.
+  // Also excludes stream/query-module interpreters, which never set current_db_name_ and
+  // dereference db_acc_ unguarded per message batch.
   if (!current_db_.current_db_name_) return;
   // An explicit transaction's db_acc_ must outlive the statement that released it.
   if (in_explicit_transaction_) return;
@@ -11211,9 +11207,7 @@ std::vector<TypedValue> Interpreter::GetQueries() {
   return typed_queries;
 }
 
-// CAS expected_from -> IDLE, retrying through a VERIFYING window a ShowTransactions/TerminateTransactions
-// reader may hold. Once IDLE is visible no such reader can enter its critical section for this
-// interpreter, so current_transaction_/metadata_ are safe to clear here.
+// CAS expected_from -> IDLE, retrying through a VERIFYING window a ShowTransactions reader may hold.
 void Interpreter::SettleTransactionStatusToIdle(TransactionStatus expected_from) {
   auto expected = expected_from;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
