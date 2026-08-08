@@ -919,18 +919,16 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
 #undef read_skip
 }
 
-}  // namespace
-
-// Function used to read information about the WAL file.
-WalInfo ReadWalInfo(const std::filesystem::path &path) {
+// Consumes the offsets and metadata sections, leaving the decoder positioned at the first delta. Shared by
+// ReadWalHeader and ReadWalInfo so that both agree on what a valid header is.
+WalHeader DecodeWalHeader(Decoder &wal, const std::filesystem::path &path, uint64_t &version) {
   // Check magic and version.
-  Decoder wal;
-  auto version = wal.Initialize(path, kWalMagic);
-  if (!version) throw RecoveryFailure("Couldn't read WAL magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid WAL version {}!", *version);
+  auto maybe_version = wal.Initialize(path, kWalMagic);
+  if (!maybe_version) throw RecoveryFailure("Couldn't read WAL magic and/or version!");
+  if (!IsVersionSupported(*maybe_version)) throw RecoveryFailure("Invalid WAL version {}!", *maybe_version);
+  version = *maybe_version;
 
-  // Prepare return value.
-  WalInfo info;
+  WalHeader header;
 
   // Read offsets.
   {
@@ -948,8 +946,8 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
       return offset;
     };
 
-    info.offset_metadata = read_offset();
-    info.offset_deltas = read_offset();
+    header.offset_metadata = read_offset();
+    header.offset_deltas = read_offset();
   }
 
   // Read metadata.
@@ -959,27 +957,75 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
 
     auto maybe_uuid = wal.ReadString();
     if (!maybe_uuid) throw RecoveryFailure(kInvalidWalErrorMessage);
-    info.uuid = std::move(*maybe_uuid);
+    header.uuid = std::move(*maybe_uuid);
 
     auto maybe_epoch_id = wal.ReadString();
     if (!maybe_epoch_id) throw RecoveryFailure(kInvalidWalErrorMessage);
-    info.epoch_id = std::move(*maybe_epoch_id);
+    header.epoch_id = std::move(*maybe_epoch_id);
 
     auto maybe_seq_num = wal.ReadUint();
     if (!maybe_seq_num) throw RecoveryFailure(kInvalidWalErrorMessage);
-    info.seq_num = *maybe_seq_num;
+    header.seq_num = *maybe_seq_num;
   }
 
   if (version >= kCrcProtection) {
     wal.ReadUint();
     if (!utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
-      throw RecoveryFailure("Durability mismatch in WAL header");
+      throw RecoveryFailure("Durability mismatch in the header of WAL file {}", path);
     }
   }
 
+  // The summary follows the metadata's CRC trailer and carries a CRC of its own, so FinalizeWal overwriting it can
+  // never invalidate the identity above. It has exactly two legitimate states, and both verify: the zeros the
+  // constructor reserved, meaning the file was never finalized, and the values FinalizeWal filled in. The region is one
+  // sector-sized write, so it cannot tear into anything else - a summary that doesn't verify is real corruption.
+  if (version >= k37) {
+    wal.ResetCrcAcc();
+    auto const from_timestamp = wal.ReadUint();
+    auto const to_timestamp = wal.ReadUint();
+    auto const num_deltas = wal.ReadUint();
+    auto const crc_trailer = wal.ReadUint();  // folded into the accumulator by reading it
+
+    if (!from_timestamp || !to_timestamp || !num_deltas || !crc_trailer ||
+        !utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+      throw RecoveryFailure("Durability mismatch in the summary of WAL file {}", path);
+    }
+
+    // A file that was never finalized has no summary to offer; its deltas have to be parsed.
+    if (*num_deltas != 0) {
+      header.summary =
+          WalSummary{.from_timestamp = *from_timestamp, .to_timestamp = *to_timestamp, .num_deltas = *num_deltas};
+    }
+  }
+
+  return header;
+}
+
+}  // namespace
+
+WalHeader ReadWalHeader(const std::filesystem::path &path) {
+  Decoder wal;
+  uint64_t version{};
+  return DecodeWalHeader(wal, path, version);
+}
+
+// Function used to read information about the WAL file.
+WalInfo ReadWalInfo(const std::filesystem::path &path) {
+  Decoder wal;
+  uint64_t version{};
+
+  auto header = DecodeWalHeader(wal, path, version);
+
+  WalInfo info;
+  info.offset_metadata = header.offset_metadata;
+  info.offset_deltas = header.offset_deltas;
+  info.uuid = std::move(header.uuid);
+  info.epoch_id = std::move(header.epoch_id);
+  info.seq_num = header.seq_num;
+
   // Read deltas.
   info.num_deltas = 0;
-  auto validate_delta = [&wal, version = *version]() -> std::optional<std::pair<uint64_t, bool>> {
+  auto validate_delta = [&wal, version]() -> std::optional<std::pair<uint64_t, bool>> {
     try {
       auto timestamp = ReadWalDeltaHeader(&wal);
       auto is_transaction_end = SkipWalDeltaData(&wal, version);
@@ -1266,7 +1312,8 @@ WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   return {.crc_wal_pos_ = crc_wal_pos, .stored_crc_ = txn_crc};
 }
 
-// CRC verification is done in ReadWalInfo and is not needed later on
+// Each transaction's CRC is verified as it is replayed, so a finalized file - which states its own extent - never
+// has to be parsed twice.
 std::optional<RecoveryInfo> LoadWal(
     const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
     const std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipListDb<Vertex> *vertices,
@@ -1277,28 +1324,50 @@ std::optional<RecoveryInfo> LoadWal(
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
-  auto version = wal.Initialize(path, kWalMagic);
-  if (!version) throw RecoveryFailure("Couldn't read WAL magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid WAL version!");
+  uint64_t version{};
+  auto const header = DecodeWalHeader(wal, path, version);
 
-  // Read wal info.
-  auto info = ReadWalInfo(path);
+  // A finalized file states how much it holds, and it was fsynced before being renamed, so replaying that count is
+  // safe: coming up short means the bytes rotted, not that a write was interrupted, and that must not be papered
+  // over. A file with no summary was never finalized and its tail may legitimately be torn, so the dry run finds
+  // the last whole transaction and replay stops there.
+  uint64_t to_timestamp{0};
+  uint64_t num_deltas{0};
+  if (header.summary) {
+    to_timestamp = header.summary->to_timestamp;
+    num_deltas = header.summary->num_deltas;
+  } else {
+    auto const info = ReadWalInfo(path);
+    to_timestamp = info.to_timestamp;
+    num_deltas = info.num_deltas;
+  }
 
   // Check timestamp.
-  if (last_applied_delta_timestamp && info.to_timestamp <= *last_applied_delta_timestamp) {
-    spdlog::info(
-        "Skip loading WAL file because it is too old. {} <= {}", info.to_timestamp, *last_applied_delta_timestamp);
+  if (last_applied_delta_timestamp && to_timestamp <= *last_applied_delta_timestamp) {
+    spdlog::info("Skip loading WAL file because it is too old. {} <= {}", to_timestamp, *last_applied_delta_timestamp);
     return std::nullopt;
   }
 
   std::optional<RecoveryInfo> ret;
 
-  // Recover deltas
-  wal.SetPosition(info.offset_deltas);
+  // Recover deltas, verifying each transaction's CRC as it is replayed. For a file replayed from its summary this
+  // is the only verification there is, and a failure has to be fatal: stopping early would leave a gap that the
+  // WAL files after this one then build on, which is a wrong dataset rather than a stale one.
+  wal.SetPosition(header.offset_deltas);
+  wal.ResetCrcAcc();
+  auto const verify_txn_crc = [&wal, &path, version](bool const is_transaction_end) {
+    if (!is_transaction_end) return;
+    if (version >= kCrcProtection && !utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+      throw RecoveryFailure("Durability CRC mismatch in WAL file {}", path);
+    }
+    wal.ResetCrcAcc();
+  };
+
   uint64_t deltas_applied = 0;
+  bool last_delta_was_txn_end = false;
   auto edge_acc = edges->access();
   auto vertex_acc = vertices->access();
-  spdlog::info("WAL file contains {} deltas.", info.num_deltas);
+  spdlog::info("WAL file contains {} deltas.", num_deltas);
   spdlog::info("WAL recovery: properties_on_edges={}, storage_light_edge={}",
                items.properties_on_edges,
                items.storage_light_edge);
@@ -2090,20 +2159,17 @@ std::optional<RecoveryInfo> LoadWal(
       },
   };
 
-  for (uint64_t i = 0; i < info.num_deltas; ++i) {
+  for (uint64_t i = 0; i < num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
     if (auto delta_ts = ReadWalDeltaHeader(&wal);
         (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
       // This delta should be loaded.
-      auto delta = ReadWalDeltaData(&wal, *version);
+      auto delta = ReadWalDeltaData(&wal, version);
       // We should always check if the delta is WalTransactionStart to update should_commit
       if (auto *txn_start = std::get_if<WalTransactionStart>(&delta.data_)) {
         should_commit = txn_start->commit.value_or(true);
         ++deltas_applied;
-        continue;
-      }
-
-      if (should_commit) {
+      } else if (should_commit) {
         // First delta which is not WalTransactionStart -> allocate RecoveryInfo
         if (!ret) {
           ret.emplace(RecoveryInfo{.next_timestamp = delta_ts + 1, .last_durable_timestamp = delta_ts});
@@ -2116,16 +2182,26 @@ std::optional<RecoveryInfo> LoadWal(
         ++deltas_applied;
       }
 
+      last_delta_was_txn_end = IsWalDeltaDataTransactionEnd(delta, version);
     } else {
-      SkipWalDeltaData(&wal, *version);
+      last_delta_was_txn_end = SkipWalDeltaData(&wal, version);
     }
+    verify_txn_crc(last_delta_was_txn_end);
+  }
+
+  // The delta count a finalized file states is only ever advanced by a transaction end, so the last delta replayed
+  // has to be one. If it isn't, the marker that ended the transaction rotted into another delta of the same encoded
+  // length - the deltas just replayed belong to a transaction whose CRC trailer was never reached, so nothing
+  // verified them.
+  if (num_deltas > 0 && !last_delta_was_txn_end) {
+    throw RecoveryFailure("WAL file {} ends mid-transaction", path);
   }
 
   spdlog::info(
       "Applied {} deltas from WAL. Skipped {} deltas, because they were too old or because 2PC protocol decided to "
       "abort txn but deltas were already made durable.",
       deltas_applied,
-      info.num_deltas - deltas_applied);
+      num_deltas - deltas_applied);
 
   return ret;
 }
@@ -2167,7 +2243,20 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   wal_.WriteMarker(Marker::TYPE_INT);
   auto const crc_metadata = wal_.CrcAccValue();  // crc(metadata + trailer TYPE_INT marker)
   uint64_t const crc_metadata_len = wal_.GetPosition() - offset_metadata;
-  offset_deltas = offset_header_crc + sizeof(Marker) + sizeof(uint64_t);
+
+  // The summary sits after the metadata's CRC trailer, with a CRC of its own, so that FinalizeWal overwriting it
+  // can never invalidate the identity above: a torn rewrite fails the summary's CRC and reads as no summary at all,
+  // which is the same thing an unfinalized file reports. Placeholders now, real values at FinalizeWal.
+  offset_summary_ = offset_header_crc + sizeof(Marker) + sizeof(uint64_t);
+  wal_.SetPosition(offset_summary_);
+  wal_.ResetCrcAcc();
+  wal_.WriteUint(0);
+  wal_.WriteUint(0);
+  wal_.WriteUint(0);
+  wal_.WriteCrc();
+
+  offset_deltas = offset_summary_ + kSummaryBytes;
+  MG_ASSERT(wal_.GetPosition() == offset_deltas, "WAL summary must occupy exactly kSummaryBytes in {}", path_);
 
   // Back-patch the offsets with their final values, capturing crc(offsets) from a clean accumulator.
   wal_.SetPosition(offset_offsets);
@@ -2181,7 +2270,7 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   auto const crc_prefix_offsets = utils::CrcAccumulator::Combine(crc_header_prefix, crc_offsets, kOffsetsBytes);
   auto const header_crc = utils::CrcAccumulator::Combine(crc_prefix_offsets, crc_metadata, crc_metadata_len);
 
-  // Patch the reserved trailer with the final header CRC.
+  // Patch the reserved trailer with the final header CRC. This is the last time the metadata section is written.
   wal_.WriteCrcAt(offset_header_crc, header_crc);
 
   wal_.SetPosition(offset_deltas);
@@ -2191,22 +2280,26 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   wal_.Sync();
 }
 
-WalFile::WalFile(std::filesystem::path current_wal_path, SalientConfig::Items items, NameIdMapper *name_id_mapper,
-                 uint64_t seq_num, uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
-                 utils::FileRetainer *file_retainer)
-    : items_(items),
-      name_id_mapper_(name_id_mapper),
-      path_(std::move(current_wal_path)),
-      from_timestamp_(from_timestamp),
-      to_timestamp_(to_timestamp),
-      count_(count),
-      seq_num_(seq_num),
-      file_retainer_(file_retainer) {
-  MG_ASSERT(wal_.OpenExisting(path_), "Failed to open existing WAL file {}", path_);
+void WalFile::WriteSummary() {
+  // Remember where appending should resume; GetPosition also flushes the buffer.
+  auto const end_pos = wal_.GetPosition();
+
+  // Overwrite the placeholders reserved by the constructor. Nothing between the seek and the CRC flushes, so the
+  // whole region reaches the file in a single write - and even a torn one only costs the summary, because the
+  // identity above it and its CRC are not touched.
+  wal_.SetPosition(offset_summary_);
+  wal_.ResetCrcAcc();
+  wal_.WriteUint(from_timestamp_);
+  wal_.WriteUint(to_timestamp_);
+  wal_.WriteUint(num_deltas_);
+  wal_.WriteCrc();
+
+  wal_.SetPosition(end_pos);
 }
 
 void WalFile::FinalizeWal() {
   if (count_ != 0) {
+    WriteSummary();
     wal_.Finalize();
     wal_.Close();
     // Rename file.
@@ -2276,6 +2369,8 @@ void WalFile::UpdateCommitStatus(WalTxnDataPos const &wal_positions) {
 WalTxnEndPos WalFile::AppendTransactionEnd(uint64_t timestamp) {
   auto const txn_end_pos = EncodeTransactionEnd(&wal_, timestamp);
   UpdateStats(timestamp);
+  // Everything appended so far now belongs to a completed transaction.
+  num_deltas_ = count_;
   return txn_end_pos;
 }
 

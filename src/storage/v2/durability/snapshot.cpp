@@ -13820,12 +13820,20 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!item.is_regular_file()) continue;
     try {
-      auto info = ReadWalInfo(item.path());
-      if (info.uuid != uuid) {
+      // Only from_timestamp decides what gets deleted below, and a finalized file states it in its header, so the
+      // deltas are parsed only for a file that doesn't - one the writer never finalized, or one predating k37.
+      auto header = ReadWalHeader(item.path());
+      if (header.uuid != uuid) {
         file_retainer->DeleteFile(item.path());
         continue;
       }
-      wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
+      if (header.summary) {
+        wal_files.emplace_back(
+            header.seq_num, header.summary->from_timestamp, header.summary->to_timestamp, item.path());
+      } else {
+        auto const info = ReadWalInfo(item.path());
+        wal_files.emplace_back(header.seq_num, info.from_timestamp, info.to_timestamp, item.path());
+      }
     } catch (const RecoveryFailure &e) {
       // We want to find out what happened with the corrupted snapshot file, not delete it
       spdlog::warn("Found a corrupt WAL file {} because of: {}. WAL file will NOT be deleted.", item.path(), e.what());

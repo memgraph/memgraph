@@ -2538,6 +2538,84 @@ TEST_P(DurabilityTest, WalBasic) {
   }
 }
 
+// With no snapshot to take the storage UUID from, recovery adopts the UUID of the most recently created WAL file
+// and ignores every file belonging to another storage. "Most recent" has to be decided by file name, not by
+// sequence number, because sequence numbers restart from 0 whenever the UUID changes.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, WalMixedUUID) {
+  // Create unrelated WALs, with no snapshot so that recovery has to fall back to the WAL files for the UUID.
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
+    };
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto acc = db.Access(memgraph::storage::WRITE);
+    for (uint64_t i = 0; i < 1000; ++i) {
+      acc->CreateVertex();
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  // Starting without recovery moves the unrelated WALs aside and writes new ones under a fresh UUID.
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
+    };
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    CreateBaseDataset(db.storage(), GetParam());
+    CreateExtendedDataset(db.storage());
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetBackupWalsList().size(), 1);
+
+  // Put the unrelated WALs back, so the directory holds two storages' files and no snapshot at all.
+  RestoreBackups();
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 2);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Recovery must pick the newer storage and skip the unrelated files entirely.
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
+
+  // Try to use the storage.
+  {
+    auto acc = db.Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, WalBackup) {
   // Create WALs.
@@ -3478,7 +3556,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_P(DurabilityTest, WalCorruptLastTransaction) {
+TEST_P(DurabilityTest, WalFinalizedFileCorruptLastTransactionCrashes) {
   // Create WALs
   {
     memgraph::storage::Config config{
@@ -3512,30 +3590,24 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
     DestroyWalSuffix(wal_file);
   }
 
-  // Recover WALs.
-  memgraph::storage::Config config{
-      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(),
-                            .enable_schema_info = true,
-                            .storage_light_edge = GetParam().light_edge}},
-  };
-  memgraph::dbms::Database db{config};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  // The extended dataset shouldn't be recovered because its WAL transaction was
-  // corrupt.
-  VerifyDataset(db.storage(),
-                DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS,
-                GetParam(),
-                config.salient.items.enable_schema_info);
-
-  // Try to use the storage.
-  {
-    auto acc = db.Access(memgraph::storage::WRITE);
-    auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
+  // The damaged file was finalized, which means it had been fsynced before being renamed, so its transactions were
+  // durable and acknowledged. Coming up short of what its header states is media damage, not an interrupted write,
+  // and recovering only the prefix would silently drop acknowledged data - worse still if a later WAL file in the
+  // chain then built on it. Recovery therefore refuses.
+  //
+  // The graceful case, a tail torn by a crash, leaves an unfinalized file with no summary and is covered by
+  // WalDeathResilience.
+  ASSERT_THROW(([&]() {
+                 memgraph::storage::Config config{
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                     .salient = {.items = {.properties_on_edges = GetParam(),
+                                           .enable_schema_info = true,
+                                           .storage_light_edge = GetParam().light_edge}},
+                 };
+                 memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+               }()),
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
