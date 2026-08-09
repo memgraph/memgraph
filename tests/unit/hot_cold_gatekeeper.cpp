@@ -571,19 +571,13 @@ TEST(HotColdGatekeeper, DrainingTenantRefusesSuspend) {
   gk.abort_drain();
 }
 
-// ---------------------------------------------------------------------------
-// TryDeleteJoinWorkerProbe / TryDeleteDoesNotDeadlockOnAccessViaJoinedFromDtor  (F24 regression)
-// ---------------------------------------------------------------------------
-// Accessor::try_delete() (gatekeeper.hpp:295-307) takes GKInternals::mutex_ and destroys the managed T
-// while still holding it. This is a Gatekeeper-level contract test, deliberately NOT a DbmsHandler
-// test: it isolates try_delete()'s locking discipline from Database/DbmsHandler machinery, using a
-// stub T that reproduces just enough shape to hit the deadlock. It models two real production
-// destructors that join a background worker which must call Gatekeeper<T>::access_via() -- through the
-// very same GKInternals::mutex_ -- before the join can return: the async indexer
-// (src/storage/v2/async_indexer.cpp:95, joined via AsyncIndexer::Shutdown() from ~InMemoryStorage's
-// StopAllBackgroundTasks()) and the TTL scheduler (src/storage/v2/ttl.cpp:314, joined via
-// Scheduler::Stop()'s bare thread_.join()). Both are an AB-BA cycle: the thread destroying T holds
-// GKInternals::mutex_ and waits (via join) for a thread that itself waits on that same mutex.
+// F24 regression (see the AB-BA rationale at Accessor::try_delete()'s declaration,
+// gatekeeper.hpp:290-297). Deliberately a Gatekeeper-level test, not a DbmsHandler one: this stub
+// isolates try_delete()'s locking discipline from Database/DbmsHandler machinery. It models the two
+// real production destructors that join a background worker which mints via
+// Gatekeeper<T>::access_via(): the async indexer (src/storage/v2/async_indexer.cpp:95, joined from
+// ~InMemoryStorage's StopAllBackgroundTasks()) and the TTL scheduler (src/storage/v2/ttl.cpp:314,
+// joined via Scheduler::Stop()'s bare thread_.join()).
 namespace {
 struct TryDeleteJoinWorkerProbe {
   using Internals = GKInternals<TryDeleteJoinWorkerProbe>;
@@ -598,10 +592,8 @@ struct TryDeleteJoinWorkerProbe {
         std::unique_lock lock{gate_mutex_};
         gate_cv_.wait(lock, [this] { return dtor_entered_; });
       }
-      // On the base, try_delete() only reaches ~TryDeleteJoinWorkerProbe (unblocking this wait) while
-      // its own guard still holds GKInternals::mutex_, so this call blocks forever -- the deadlock
-      // under test. On the fix, that mutex_ has already been released by the time ~T runs, so
-      // access_via() returns promptly with nullopt (value_ is already gone).
+      // On the base this blocks forever (the deadlock under test); on the fix it returns promptly
+      // with nullopt, since mutex_ is released before ~T runs.
       auto acc = Gatekeeper<TryDeleteJoinWorkerProbe>::access_via(cell_->load(std::memory_order_acquire));
       minted_out_->store(acc.has_value(), std::memory_order_release);
     });
@@ -618,7 +610,8 @@ struct TryDeleteJoinWorkerProbe {
       dtor_entered_ = true;
     }
     gate_cv_.notify_all();
-    worker_.join();  // The exact shape of AsyncIndexer::Shutdown() / Scheduler::Stop()'s bare join().
+    worker_.join();  // Mirrors Scheduler::Stop()'s bare thread_.join() (ttl.cpp); AsyncIndexer::Shutdown()
+                     // blocks on a condition variable instead, but with the same net effect.
   }
 
   std::atomic<Internals *> *cell_;
@@ -633,16 +626,16 @@ struct TryDeleteJoinWorkerProbe {
 TEST(HotColdGatekeeper, TryDeleteDoesNotDeadlockOnAccessViaJoinedFromDtor) {
   using ProbeGK = Gatekeeper<TryDeleteJoinWorkerProbe>;
 
-  // Everything below is heap-allocated and, on the timeout path, deliberately never freed: a wedged
-  // `deleter` thread (parked inside try_delete() -> ~TryDeleteJoinWorkerProbe -> worker_.join()) and a
-  // wedged worker thread (parked inside access_via()) can both still be running when this function
-  // returns. Freeing or stack-allocating anything either can still reach would turn a clean test
-  // failure into UB / a crashed binary -- the trap a sibling branch's test hit.
+  // Heap-allocated and, on the timeout path, deliberately never freed: the wedged `deleter` thread and
+  // the probe's own worker_ it is transitively joining may both still be running when this function
+  // returns, so anything they can reach must outlive it. Stack-allocating or freeing it would turn a
+  // clean test failure into UB or a crashed binary -- exactly what database_protector_test.cpp's
+  // equivalent trap did before it moved its state to the heap (commit e86fe6314).
   auto *cell = new std::atomic<TryDeleteJoinWorkerProbe::Internals *>{nullptr};
   auto *worker_minted = new std::atomic<bool>{false};
   auto *gk = new ProbeGK{cell, worker_minted};
-  // Publish-after-construct, exactly MakeDatabaseProtectorFactory's pattern (database_handler.hpp:110-
-  // 118): the worker cannot read `cell` before `dtor_entered_` is signalled, so there is no race here.
+  // Publish-after-construct, matching New()/BuildDetached()'s cell->store() calls (database_handler.hpp:
+  // 161,182): the worker cannot read `cell` before `dtor_entered_` is signalled, so there is no race here.
   cell->store(gk->internals(), std::memory_order_release);
 
   // Sole accessor: try_delete()'s count_==1 gate must pass without waiting out its own timeout.
@@ -669,18 +662,15 @@ TEST(HotColdGatekeeper, TryDeleteDoesNotDeadlockOnAccessViaJoinedFromDtor) {
                      "holding GKInternals::mutex_, and T's destructor here joins a worker blocked in "
                      "Gatekeeper<T>::access_via() on that very same mutex -- the AB-BA cycle "
                      "AsyncIndexer::Shutdown()/Scheduler::Stop() hit against a real Database.";
-    // `deleter`, and the probe's own worker_ thread it is transitively joining, are presumed wedged
-    // forever. Detach and leak every heap object either can still reach -- do not join, delete, or
-    // otherwise touch `gk`, `acc`, `cell`, `worker_minted`, `delete_done`, or `delete_result` again.
+    // Do not join, delete, or otherwise touch `gk`, `acc`, `cell`, `worker_minted`, `delete_done`, or
+    // `delete_result` again -- see the leak rationale above.
     deleter.detach();
     return;
   }
 
   deleter.join();
   EXPECT_TRUE(delete_result->load(std::memory_order_acquire));
-  // The worker can only reach access_via() after ~TryDeleteJoinWorkerProbe has already started, which
-  // (on the fix) is after value_ has already been moved out from under the mutex -- so it must observe
-  // "already gone" rather than mint a fresh accessor on a value that is mid-destruction.
+  // Must observe "already gone", not mint a fresh accessor on a value mid-destruction.
   EXPECT_FALSE(worker_minted->load(std::memory_order_acquire));
 
   (*acc)->reset();  // Drop count_ to 0 so ~Gatekeeper below sees a drained, terminal (HOT) state.
