@@ -696,3 +696,132 @@ TYPED_TEST(TransactionQueueSimpleTest, SameUserIsStillAllowedWithoutAnyPrivilege
   EXPECT_THAT(result.to_close, ::testing::ElementsAre("target-session-uuid"));
   EXPECT_FALSE(checker_called);
 }
+
+// This is the authorization half of the use-after-free fix: a foreign reader that observes a torn
+// `user_or_role_` can conclude "same user" and skip both the empty-database refusal and the privilege
+// checker entirely -- an authorization bypass, not merely a memory-safety bug. The published snapshot
+// (foreign_user_view_/foreign_session_view_, see their declaration in interpreter.hpp) is what makes the
+// identity TerminateSessions compares stable against that torn read.
+//
+// Honesty note: on an unfixed tree the failure this test looks for is probabilistic -- a torn read has to
+// land during the narrow window between the writer thread's SetSessionInfo/SetUser/ResetUser calls, so this
+// test can pass by luck even without the fix. TSan against TerminateSessionsRacingIdentityChurnIsDataRaceFree
+// below is the deterministic instrument for the same race.
+TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsCannotBeTrickedIntoSkippingThePrivilegeCheck) {
+  this->db->storage()->config_.salient.name = "tenant_a";  // see PassesTheTargetSessionsDatabaseToThePrivilegeChecker
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  // "admin" is a username the writer thread below never sets on the target ("bob", or logged-off in between),
+  // so SameUser must be false on every single iteration -- there is no legitimate path to a kill here.
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+  // Publish the target's session identity once, from this thread, before the writer starts. Without this,
+  // foreign_session_view_ is still null for however many reader iterations run before the writer's own first
+  // SetSessionInfo call lands; TerminateSessions then takes the not-found branch and never reaches the
+  // checker, so checker_call_count below would measure that startup gap instead of the invariant. The
+  // writer's own repeated SetSessionInfo calls simply republish the same uuid -- that is the churn under
+  // test, and it never makes the target unfindable.
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+
+  int checker_call_count = 0;
+  auto checker = [&checker_call_count](memgraph::query::QueryUserOrRole *, std::string const &) {
+    ++checker_call_count;
+    return false;  // always refuse; a kill can only happen here by skipping this call entirely
+  };
+
+  constexpr int kIterations = 2000;
+  std::atomic<int> writer_iterations{0};
+  bool saw_unauthorized_kill = false;
+  bool saw_nonempty_to_close = false;
+
+  {
+    // jthread: joins unconditionally on scope exit -- including through a failed EXPECT below -- so a bad
+    // run can never leave a detached thread still churning the target's identity.
+    std::jthread writer([this, &target, &writer_iterations] {
+      for (int i = 0; i < kIterations; ++i) {
+        target.SetSessionInfo("target-session-uuid", "bob", "ts");
+        target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+        target.ResetUser();
+        writer_iterations.fetch_add(1, std::memory_order_relaxed);
+      }
+    });
+
+    for (int i = 0; i < kIterations; ++i) {
+      // Not EXPECT/ASSERT here on purpose -- this runs 2000 times per test. Accumulate into plain flags and
+      // assert once after the loop.
+      auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+        return this->interpreter_context.TerminateSessions(
+            interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+      });
+      if (!result.rows.empty() && result.rows[0][1].ValueBool()) saw_unauthorized_kill = true;
+      if (!result.to_close.empty()) saw_nonempty_to_close = true;
+    }
+  }
+
+  // The loop actually ran the full count, so the assertions below cannot be passing vacuously.
+  EXPECT_EQ(writer_iterations.load(std::memory_order_relaxed), kIterations);
+  // The checker was consulted on every single iteration: no branch (including the empty-database refusal --
+  // the target here always holds "tenant_a") returned a decision that bypassed it.
+  EXPECT_EQ(checker_call_count, kIterations);
+  // The invariant this test exists to pin: caller != target on every iteration and the checker always
+  // refuses, so nothing may ever be killed and nothing may ever be handed back for the caller to close. A
+  // single killed==true or non-empty to_close means a torn read of the target's identity was mistaken for
+  // "same user" and both the privilege check and the empty-database refusal were skipped -- the bypass.
+  EXPECT_FALSE(saw_unauthorized_kill);
+  EXPECT_FALSE(saw_nonempty_to_close);
+}
+
+// Under a normal (non-TSan) build this test asserts almost nothing about outcomes -- its value is that it is
+// the workload TSan is run against. It exercises TerminateSessions concurrently with a writer thread churning
+// the target's identity (SetSessionInfo/SetUser/ResetUser) the same way
+// TerminateSessionsCannotBeTrickedIntoSkippingThePrivilegeCheck above does. Without the published-snapshot
+// fix, TSan reports a data race on Interpreter::user_or_role_ / Interpreter::session_info_ here.
+//
+// InterpreterContext::ShowTransactionsUsingDBName was considered for this test as a second foreign-read path,
+// but its implementation (src/query/interpreter_context.cpp) only reads current_db_ and
+// transaction_status_/GetTransactionId, guarded by TryAcquireForVerification's CAS -- it never touches
+// user_or_role_ or session_info_ at all, so it would not exercise the race this test is for. Dropped rather
+// than wired in for its own sake; TerminateSessions alone already reads both racy fields.
+TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsRacingIdentityChurnIsDataRaceFree) {
+  this->db->storage()->config_.salient.name = "tenant_a";  // see PassesTheTargetSessionsDatabaseToThePrivilegeChecker
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+  // Publish once before the writer starts, same reasoning as the test above: otherwise the target is
+  // unfindable until the writer's first SetSessionInfo call, and TerminateSessions exercises far less of
+  // itself (the not-found early-exit) instead of the racy identity-comparison path this test is for.
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+
+  auto checker = [](memgraph::query::QueryUserOrRole *, std::string const &) { return false; };
+
+  constexpr int kIterations = 2000;
+  std::atomic<int> writer_iterations{0};
+  int reader_iterations = 0;
+
+  {
+    // jthread: joins unconditionally on scope exit, same reasoning as the test above.
+    std::jthread writer([this, &target, &writer_iterations] {
+      for (int i = 0; i < kIterations; ++i) {
+        target.SetSessionInfo("target-session-uuid", "bob", "ts");
+        target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+        target.ResetUser();
+        writer_iterations.fetch_add(1, std::memory_order_relaxed);
+      }
+    });
+
+    for (int i = 0; i < kIterations; ++i) {
+      this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+        return this->interpreter_context.TerminateSessions(
+            interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+      });
+      ++reader_iterations;
+    }
+  }
+
+  // The only claim here: both loops ran to completion and the process is still standing. The outcome's
+  // correctness is not this test's job (see the test above) -- reaching this line without TSan aborting the
+  // binary is the actual assertion.
+  EXPECT_EQ(writer_iterations.load(std::memory_order_relaxed), kIterations);
+  EXPECT_EQ(reader_iterations, kIterations);
+}

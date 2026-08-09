@@ -28,6 +28,17 @@
 
 namespace memgraph::query {
 
+namespace {
+// True if lv and rv denote the same authenticated identity: same shared_ptr target, or equal QueryUserOrRole
+// values. False whenever exactly one side is null (lv.get() == rv is false, and the lv && rv guard skips the
+// value compare), so an unauthenticated/null snapshot never reads as "same user" as a live caller.
+bool SameUser(const std::shared_ptr<QueryUserOrRole> &lv, QueryUserOrRole *rv) {
+  if (lv.get() == rv) return true;
+  if (lv && rv) return *lv == *rv;
+  return false;
+}
+}  // namespace
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::optional<InterpreterContext> InterpreterContextHolder::instance{};
 
@@ -95,12 +106,11 @@ bool TryTerminateInterpreter(Interpreter *interpreter, ShouldKill &&should_kill)
 /// TRANSACTION_MANAGEMENT for.
 bool MayTerminate(Interpreter const *interpreter, QueryUserOrRole *user_or_role,
                   std::function<bool(QueryUserOrRole *, std::string const &)> const &privilege_checker) {
-  auto same_user = [](const auto &lv, const auto &rv) {
-    if (lv.get() == rv) return true;
-    if (lv && rv) return *lv == *rv;
-    return false;
-  };
-  if (same_user(interpreter->user_or_role_, user_or_role)) return true;
+  // interpreter->user_or_role_ is owning-thread state -- SetUser/ResetUser can run concurrently on it from
+  // interpreter's own thread. foreign_user_view_.load() copies the shared_ptr, which keeps the pointee alive
+  // for the whole comparison below, instead of racing a bare reference to it.
+  auto const user_snapshot = interpreter->foreign_user_view_.load();
+  if (SameUser(user_snapshot, user_or_role)) return true;
 
   auto const db_name = interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : "";
   return privilege_checker(user_or_role, db_name);
@@ -183,12 +193,6 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
     const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
     QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
     std::string_view caller_session_uuid) {
-  auto same_user = [](const auto &lv, const auto &rv) {
-    if (lv.get() == rv) return true;
-    if (lv && rv) return *lv == *rv;
-    return false;
-  };
-
   TerminateSessionsResult result;
   result.rows.reserve(session_ids.size());
 
@@ -210,7 +214,12 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
 
     Interpreter *target = nullptr;
     for (Interpreter *interpreter : interpreters) {
-      if (!interpreter->session_info_.uuid.empty() && interpreter->session_info_.uuid == id) {
+      // interpreter->session_info_ is owning-thread state, written by SetSessionInfo on interpreter's own
+      // thread; foreign_session_view_ is the published snapshot for foreign readers. A null snapshot means
+      // SetSessionInfo has not run yet (not authenticated), which also cannot carry a non-empty uuid, so
+      // skipping it here preserves the original `!session_info_.uuid.empty()` guard.
+      auto const session_snapshot = interpreter->foreign_session_view_.load();
+      if (session_snapshot && !session_snapshot->uuid.empty() && session_snapshot->uuid == id) {
         target = interpreter;
         break;
       }
@@ -228,7 +237,12 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
     // across to the termination below, so the target may USE DATABASE in between. That closes the systematic
     // cross-tenant hole (a db-A admin can no longer terminate any db-B session); it is not transactional
     // enforcement.
-    if (!same_user(target->user_or_role_, user_or_role)) {
+    // target->user_or_role_ is owning-thread state the target's own thread can concurrently rewrite via
+    // SetUser/ResetUser; foreign_user_view_.load() is the published snapshot. This comparison precedes every
+    // CAS in this function (the transaction_status_ CAS below runs only after this decision, only to mark
+    // TERMINATED), so it has zero synchronisation with the target's thread in any other state.
+    auto const target_user_snapshot = target->foreign_user_view_.load();
+    if (!SameUser(target_user_snapshot, user_or_role)) {
       // A dbless target has no tenant to scope against; see the declaration comment for why
       // dbms::kDefaultDB is the fallback rather than a refusal.
       auto target_db = target->current_db_.foreign_db_view().name;

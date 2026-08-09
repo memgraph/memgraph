@@ -6644,7 +6644,15 @@ std::vector<Interpreter::SessionInfo> GetActiveUsersInfo(InterpreterContext *int
         std::vector<Interpreter::SessionInfo> info;
         info.reserve(interpreters_.size());
         for (const auto &interpreter : interpreters_) {
-          info.push_back(interpreter->session_info_);
+          // interpreter->session_info_ is owning-thread state; interpreter's own thread can
+          // concurrently rewrite it via SetSessionInfo. foreign_session_view_ is the published
+          // snapshot. A null snapshot means SetSessionInfo has not run yet for this session (still
+          // mid-login, before even a no-auth/anonymous identity is recorded), so there is no row to
+          // report yet -- skip it rather than push a default-constructed SessionInfo{} that would
+          // render as a spurious blank row.
+          auto const session_snapshot = interpreter->foreign_session_view_.load();
+          if (!session_snapshot) continue;
+          info.push_back(*session_snapshot);
         }
 
         return info;
@@ -7399,21 +7407,24 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       if (lv && rv) return *lv == *rv;
       return false;
     };
-    if (transaction_id.has_value() && (same_user(interpreter->user_or_role_, user_or_role) ||
-                                       privilege_checker(user_or_role, get_interpreter_db_name()))) {
+    // interpreter->user_or_role_ is owning-thread state; interpreter's own thread can concurrently
+    // rewrite it via SetUser/ResetUser. Load foreign_user_view_ once and reuse it for both the
+    // identity check and the username column below -- reading the live field twice would let the
+    // two reads disagree (e.g. observe a user for the check, then a reset user_or_role_ for the
+    // column).
+    auto const user_snapshot = interpreter->foreign_user_view_.load();
+    if (transaction_id.has_value() &&
+        (same_user(user_snapshot, user_or_role) || privilege_checker(user_or_role, get_interpreter_db_name()))) {
       auto const runtime_status = verifier->status();
       if (!status_filter.empty()) {
         auto const sf = ToStatusFilter(runtime_status);
         if (!sf || !std::ranges::contains(status_filter, *sf)) continue;
       }
       const auto &typed_queries = interpreter->GetQueries();
-      results.push_back(
-          {TypedValue(interpreter->user_or_role_
-                          ? (interpreter->user_or_role_->username() ? *interpreter->user_or_role_->username() : "")
-                          : ""),
-           TypedValue(std::to_string(transaction_id.value())),
-           TypedValue(typed_queries),
-           TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
+      results.push_back({TypedValue(user_snapshot ? (user_snapshot->username() ? *user_snapshot->username() : "") : ""),
+                         TypedValue(std::to_string(transaction_id.value())),
+                         TypedValue(typed_queries),
+                         TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
       // metadata_ is safe to read - we hold CAS protection (status is VERIFYING,
       // cleanup paths spin-wait before modifying fields)
       std::map<std::string, TypedValue> metadata_tv;
@@ -11844,6 +11855,10 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
                           std::shared_ptr<utils::UserResources> user_resource) {
   ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
+  // Foreign threads observe this session's identity only through foreign_user_view_ (see its
+  // declaration in interpreter.hpp), so publish right after the assignment above -- before the
+  // session-limit throw below -- so the snapshot can never disagree with user_or_role_.
+  foreign_user_view_.store(user_or_role_);
   session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
                                                                         : std::string{});
   // Pre-existsing user resource; decrement session (since it is not being used anymore)
@@ -11863,6 +11878,7 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
   ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
+  foreign_user_view_.store(user_or_role_);
   session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
                                                                         : std::string{});
 }
@@ -11872,10 +11888,12 @@ void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::st
   session_log_ctx_.SetSessionUuid(uuid);
   session_info_ = {
       .uuid = std::move(uuid), .username = std::move(username), .login_timestamp = std::move(login_timestamp)};
+  foreign_session_view_.store(std::make_shared<const SessionInfo>(session_info_));
 }
 
 void Interpreter::ResetUser() {
   user_or_role_.reset();
+  foreign_user_view_.store(nullptr);
   session_log_ctx_.ClearUser();
 #ifdef MG_ENTERPRISE
   if (user_resource_) {
