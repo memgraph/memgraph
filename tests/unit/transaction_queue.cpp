@@ -549,11 +549,16 @@ TYPED_TEST(TransactionQueueSimpleTest, PassesTheTargetSessionsDatabaseToThePrivi
         interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
   });
 
-  // The whole point of the fix: authorization is scoped to the target's tenant, and to nothing else.
+  // The whole point of the fix: authorization is scoped to the target's tenant, and to nothing else. Asserted
+  // against the literal rather than this->db->name(), which would only re-read the name written above and so would
+  // still hold if the callee echoed back whatever name it was handed.
   ASSERT_EQ(checked_db_names.size(), 1U);
-  EXPECT_EQ(checked_db_names[0], this->db->name());
+  EXPECT_EQ(checked_db_names[0], "tenant_a");
+  // The outcome too: a checker that grants must actually kill, or "right name, refused anyway" would pass here.
   ASSERT_EQ(result.rows.size(), 1U);
   EXPECT_EQ(result.rows[0][0].ValueString(), "target-session-uuid");
+  EXPECT_TRUE(result.rows[0][1].ValueBool());
+  EXPECT_THAT(result.to_close, ::testing::ElementsAre("target-session-uuid"));
 }
 
 TYPED_TEST(TransactionQueueSimpleTest, RefusesWhenTheCheckerDeniesTheTargetsDatabase) {
@@ -590,10 +595,9 @@ TYPED_TEST(TransactionQueueSimpleTest, AllowsWhenTheCheckerGrantsTheTargetsDatab
   target.SetSessionInfo("target-session-uuid", "bob", "ts");
   caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
 
-  auto const target_db_name = this->db->name();
-  auto checker = [&target_db_name](memgraph::query::QueryUserOrRole *, std::string const &db_name) {
-    return db_name == target_db_name;
-  };
+  // Literal, not this->db->name(): the grant must be pinned to the name this test wrote, not to whatever name the
+  // callee happens to pass back.
+  auto checker = [](memgraph::query::QueryUserOrRole *, std::string const &db_name) { return db_name == "tenant_a"; };
 
   auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
     return this->interpreter_context.TerminateSessions(
