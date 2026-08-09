@@ -492,5 +492,132 @@ def test_database_scoped_admin_confined_to_own_tenant(request):
     wait_until_terminated(victim_a_cursor)
 
 
+def test_dbless_session_refused_even_for_full_admin(request):
+    """Pins an ACCEPTED, deliberate fail-closed refusal: a session holding NO database cannot be
+    terminated by anybody but the same user -- not even by a maximally privileged admin.
+
+    TERMINATE SESSIONS authorizes every target against *that target's own* current database, so a
+    session in no tenant offers nothing for a database-scoped privilege to be evaluated against.
+    InterpreterContext::TerminateSessions (src/query/interpreter_context.cpp) therefore refuses such
+    a target outright instead of falling back to an unscoped check. That refusal is deliberate, and
+    it is not free: a dbless session is effectively unevictable by administration -- only another
+    connection of the same user can close it, and on the route below that is nobody at all, because
+    every connection of that user wedges the same way and so cannot issue TERMINATE SESSIONS either
+    (see assert_victim_still_registered). This test records that cost rather than endorsing it; if the
+    refusal is ever relaxed into some scoped fallback, this is the test that must be revisited.
+
+    The dbless state is reached through a real production route, not a synthetic one. TryDefaultDB
+    (src/glue/SessionHL.cpp) asks GetDefaultDB for the user's main database; when Databases::GetMain
+    throws because the user has no access to it, GetDefaultDB returns nullopt and TryDefaultDB calls
+    interpreter_.ResetDB() and lets the connection through regardless ("Support non-db connection").
+    REVOKE DATABASE * is what arms that path: Databases::RevokeAll (src/auth/models.cpp) clears the
+    grants and blanks main_db_ in one go. The session still authenticates and still gets its uuid --
+    SetSessionInfo runs before TryDefaultDB -- so it stays findable while holding nothing. Findable
+    is all it is: that login is the only place the AuthException is swallowed, so the session can
+    never run a single query afterwards, which is what both probes below have to work around.
+
+    Enterprise only: the entire multi-database surface used here is MG_ENTERPRISE-gated.
+    """
+    superadmin_cursor = connect().cursor()
+
+    # full_admin is created first on purpose: that makes nodb_victim a non-first user, so its dbless
+    # state below is produced by the explicit REVOKE rather than having to fight first-user
+    # auto-promotion (see the module-level comment). Any auto-promotion full_admin itself receives
+    # only reinforces what the two explicit grants already give it.
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER full_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO full_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO full_admin")
+
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER nodb_victim")
+    execute_and_fetch_all(superadmin_cursor, "REVOKE DATABASE * FROM nodb_victim")
+
+    # nodb_control keeps the `memgraph` grant auth::Databases' constructor hands every fresh user, so
+    # it differs from nodb_victim in exactly one respect: it holds a database.
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER nodb_control")
+
+    def on_exit():
+        for user in ("full_admin", "nodb_victim", "nodb_control"):
+            execute_and_fetch_all(superadmin_cursor, f"DROP USER {user}")
+
+    request.addfinalizer(on_exit)
+
+    admin_connection = connect(username="full_admin", password="")
+    admin_cursor = admin_connection.cursor()
+
+    victim_connection = connect(username="nodb_victim", password="")
+    victim_cursor = victim_connection.cursor()
+
+    control_connection = connect(username="nodb_control", password="")
+    control_cursor = control_connection.cursor()
+    execute_and_fetch_all(control_cursor, "RETURN 1")  # goes idle, inside `memgraph`
+
+    def release_sessions():
+        """Safety net, always run (LIFO, before on_exit drops the users): the refusal under test is
+        precisely that nothing can evict nodb_victim, so leaving it connected would leak a live
+        session into every later test's SHOW ACTIVE USERS INFO. Closing the client sockets releases
+        them, but the server tears the sessions down on their own strands -- poll for that.
+        """
+        for connection in (admin_connection, victim_connection, control_connection):
+            with suppress(mgclient.Error):
+                connection.close()
+        wait_until(
+            lambda: not any(
+                row[0] in ("full_admin", "nodb_victim", "nodb_control")
+                for row in execute_and_fetch_all(superadmin_cursor, "SHOW ACTIVE USERS INFO")
+            ),
+            message="sessions were still registered after their connections closed",
+        )
+
+    request.addfinalizer(release_sessions)
+
+    # SHOW ACTIVE USERS INFO reports (username, session uuid, login timestamp) and no database
+    # column, so the dbless state has to be established by probing the session itself, below.
+    victim_uuid = get_session_uuid_by_username(superadmin_cursor, "nodb_victim")
+    control_uuid = get_session_uuid_by_username(superadmin_cursor, "nodb_control")
+
+    def assert_victim_is_dbless():
+        """Dblessness proven by the error the session raises: holding no database, every query fails
+        while resolving one instead of executing.
+        """
+        with pytest.raises(mgclient.DatabaseError, match="No access to the set default database"):
+            execute_and_fetch_all(victim_cursor, "RETURN 1")
+
+    def assert_victim_still_registered():
+        """The victim's liveness probe, necessarily observed from outside the session itself.
+
+        common.py's assert_connection_alive cannot serve here: it runs RETURN 1, and this session
+        cannot execute *any* query. Every Bolt RUN re-enters SessionHL::Configure ->
+        RuntimeConfig::Configure (src/glue/SessionHL.cpp), whose "Step 3: Determine final target
+        database" re-resolves the user's default database through session_user_or_role_->
+        GetDefaultDB() with no try/catch -- and for a REVOKE DATABASE * user that is
+        Databases::GetMain throwing AuthException. Only login's TryDefaultDB catches it, so the
+        connection is registered and wedged at once. Liveness is therefore read off SHOW ACTIVE USERS
+        INFO on another connection: the uuid is still listed, i.e. the session was not torn down.
+        """
+        rows = execute_and_fetch_all(superadmin_cursor, "SHOW ACTIVE USERS INFO")
+        assert any(row[1] == victim_uuid for row in rows), f"session {victim_uuid} is no longer registered"
+
+    # Assumption checks, before anything is asserted about the refusal: nodb_victim really did log
+    # in, really is registered, and really holds no database. Without these the refusal below would
+    # pass just as happily against a session that simply could not be found.
+    assert_victim_is_dbless()
+    assert_victim_still_registered()
+
+    # The refusal itself: the most privileged caller the instance can produce, and it still cannot
+    # reach a target that sits in no tenant.
+    results = execute_and_fetch_all(admin_cursor, f"TERMINATE SESSIONS '{victim_uuid}'")
+    assert results == [(victim_uuid, False)]
+    # No poll needed for the survival check: False means RequestTermination was never posted onto the
+    # target's strand, so unlike a successful termination there is no asynchronous teardown in flight.
+    assert_victim_still_registered()
+
+    # Control, same caller and same statement, against a target whose only difference is that it holds
+    # a database. Without it the refusal above would be satisfied just as well by a full_admin that
+    # cannot terminate anything at all.
+    results = execute_and_fetch_all(admin_cursor, f"TERMINATE SESSIONS '{control_uuid}'")
+    assert results == [(control_uuid, True)]
+    wait_until_terminated(control_cursor)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
