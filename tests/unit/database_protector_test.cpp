@@ -369,6 +369,15 @@ struct TryDeleteTrap {
   // Set by try_delete()'s predicate -- which gatekeeper.hpp:302 invokes while still holding
   // GKInternals::mutex_ -- releasing the trapped worker at the exact instant that mutex is held.
   std::atomic<bool> go{false};
+
+  // Completion signal for the `deleter` thread below. Lives here (not as stack locals in the test
+  // body) for the same reason `reached`/`go` do: on the timeout path the wedged `deleter` thread is
+  // detached and the test function returns while that thread still holds a reference to whatever it
+  // captured, so anything it can touch must outlive the function, not just outlive the happy path.
+  std::mutex done_mutex;
+  std::condition_variable done_cv;
+  std::atomic<bool> try_delete_done{false};
+  std::atomic<bool> try_delete_result{false};
 };
 
 TEST_F(DatabaseProtectorTest, TryDeleteDeadlocksUnderRealAsyncIndexer) {
@@ -432,12 +441,7 @@ TEST_F(DatabaseProtectorTest, TryDeleteDeadlocksUnderRealAsyncIndexer) {
         << "Async indexer worker never reached the factory trap within 5s";
   }
 
-  std::atomic<bool> try_delete_done{false};
-  std::atomic<bool> try_delete_result{false};
-  std::mutex done_mutex;
-  std::condition_variable done_cv;
-
-  std::thread deleter([&] {
+  std::thread deleter([acc, trap] {
     auto predicate = [trap](Storage & /*storage*/) {
       {
         std::lock_guard<std::mutex> lock(trap->mutex);
@@ -452,18 +456,19 @@ TEST_F(DatabaseProtectorTest, TryDeleteDeadlocksUnderRealAsyncIndexer) {
     // AsyncIndexer::mutex_ -- held by the worker thread now blocked on the same GKInternals::mutex_
     // inside access_via(). Neither side can make progress: a textbook AB-BA deadlock.
     bool const result = acc->try_delete(std::chrono::seconds(3), predicate);
-    try_delete_result = result;
+    trap->try_delete_result = result;
     {
-      std::lock_guard<std::mutex> lock(done_mutex);
-      try_delete_done = true;
+      std::lock_guard<std::mutex> lock(trap->done_mutex);
+      trap->try_delete_done = true;
     }
-    done_cv.notify_all();
+    trap->done_cv.notify_all();
   });
 
   bool finished_in_time = false;
   {
-    std::unique_lock<std::mutex> lock(done_mutex);
-    finished_in_time = done_cv.wait_for(lock, std::chrono::seconds(10), [&] { return try_delete_done.load(); });
+    std::unique_lock<std::mutex> lock(trap->done_mutex);
+    finished_in_time =
+        trap->done_cv.wait_for(lock, std::chrono::seconds(10), [trap] { return trap->try_delete_done.load(); });
   }
 
   if (!finished_in_time) {
@@ -483,7 +488,7 @@ TEST_F(DatabaseProtectorTest, TryDeleteDeadlocksUnderRealAsyncIndexer) {
   }
 
   deleter.join();
-  EXPECT_TRUE(try_delete_result) << "try_delete() should report success once the predicate accepted the drop";
+  EXPECT_TRUE(trap->try_delete_result) << "try_delete() should report success once the predicate accepted the drop";
 
   acc->reset();
   delete acc;
