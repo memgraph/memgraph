@@ -10,8 +10,13 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
+#include <string>
+#include <thread>
+#include <vector>
 
 #include "license/license.hpp"
 #include "utils/memory_tracker.hpp"
@@ -586,4 +591,82 @@ TEST_F(LicenseTest, Decode_RejectsUnknownLicenseTypeByte) {
   const auto crafted = memgraph::license::License{"Memgraph", 0, 0, static_cast<memgraph::license::LicenseType>(0xFF)};
   const auto encoded = memgraph::license::Encode(crafted);
   EXPECT_FALSE(memgraph::license::Decode(encoded).has_value());
+}
+
+// ===========================================================================
+// Concurrent revalidation vs. fast-path race
+// ===========================================================================
+
+TEST_F(LicenseTest, ConcurrentRevalidationRacesLicenseTypeWithFastCheck) {
+  const std::string org{"Memgraph"};
+  // Both keys are individually valid (so is_valid_ stays true for the whole run) but differ in
+  // tier, so only license_type_ flips underneath a concurrent reader -- exactly the field the
+  // release/acquire handshake on is_valid_ does not cover once it is already true.
+  const memgraph::license::License enterprise_lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
+  const memgraph::license::License oem_community_lic{org, 0, 0, memgraph::license::LicenseType::OEM_COMMUNITY};
+  const std::string enterprise_key = memgraph::license::Encode(enterprise_lic);
+  const std::string oem_community_key = memgraph::license::Encode(oem_community_lic);
+
+  settings->SetValue(std::string{memgraph::license::kOrganizationNameSettingKey}, org);
+
+  constexpr int kNumWriters = 2;
+  constexpr int kNumReaders = 4;
+  std::atomic<bool> stop{false};
+  std::vector<std::size_t> writer_iterations(kNumWriters, 0);
+  std::vector<char> reader_saw_true(kNumReaders, 0);
+  std::vector<char> reader_saw_false(kNumReaders, 0);
+
+  std::vector<std::thread> writers;
+  for (int i = 0; i < kNumWriters; ++i) {
+    writers.emplace_back([&, i] {
+      std::size_t iterations = 0;
+      while (!stop.load(std::memory_order_relaxed)) {
+        const auto &key = (iterations % 2 == 0) ? enterprise_key : oem_community_key;
+        settings->SetValue(std::string{memgraph::license::kEnterpriseLicenseSettingKey}, key);
+        ++iterations;
+      }
+      writer_iterations[i] = iterations;
+    });
+  }
+
+  std::vector<std::thread> readers;
+  for (int i = 0; i < kNumReaders; ++i) {
+    readers.emplace_back([&, i] {
+      bool saw_true = false;
+      bool saw_false = false;
+      while (!stop.load(std::memory_order_relaxed)) {
+        if (license_checker->IsEnterpriseValidFast()) {
+          saw_true = true;
+        } else {
+          saw_false = true;
+        }
+      }
+      reader_saw_true[i] = saw_true;
+      reader_saw_false[i] = saw_false;
+    });
+  }
+
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  stop.store(true, std::memory_order_relaxed);
+
+  for (auto &t : writers) t.join();
+  for (auto &t : readers) t.join();
+
+  for (int i = 0; i < kNumWriters; ++i) {
+    ASSERT_GT(writer_iterations[i], 10U);
+  }
+
+  bool any_saw_true = false;
+  bool any_saw_false = false;
+  for (int i = 0; i < kNumReaders; ++i) {
+    any_saw_true = any_saw_true || reader_saw_true[i];
+    any_saw_false = any_saw_false || reader_saw_false[i];
+  }
+  ASSERT_TRUE(any_saw_true);
+  ASSERT_TRUE(any_saw_false);
+
+  settings->SetValue(std::string{memgraph::license::kEnterpriseLicenseSettingKey}, enterprise_key);
+  ASSERT_TRUE(license_checker->IsEnterpriseValidFast());
+  settings->SetValue(std::string{memgraph::license::kEnterpriseLicenseSettingKey}, oem_community_key);
+  ASSERT_FALSE(license_checker->IsEnterpriseValidFast());
 }
