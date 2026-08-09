@@ -7512,13 +7512,6 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
            user_or_role->IsAuthorized(
                {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name, &query::up_to_date_policy);
   };
-  // Terminating a connection is instance-scoped, not per-database: a session can USE DATABASE at any
-  // time, so there is no single db_name to check against.
-  auto session_privilege_checker = [](QueryUserOrRole *user_or_role, std::optional<std::string_view> db_name) {
-    return user_or_role &&
-           user_or_role->IsAuthorized(
-               {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name, &query::up_to_date_policy);
-  };
 
   Callback callback;
   switch (transaction_query->action_) {
@@ -7613,11 +7606,11 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
       callback.fn = [interpreter_context,
                      session_ids = std::move(session_ids),
                      user_or_role = std::move(user_or_role),
-                     session_privilege_checker = std::move(session_privilege_checker),
+                     privilege_checker = std::move(privilege_checker),
                      caller_session_uuid = std::move(caller_session_uuid)]() mutable {
         auto result = interpreter_context->interpreters.WithLock([&](auto &interpreters) {
           return interpreter_context->TerminateSessions(
-              interpreters, session_ids, user_or_role.get(), session_privilege_checker, caller_session_uuid);
+              interpreters, session_ids, user_or_role.get(), privilege_checker, caller_session_uuid);
         });
         // Closing a connection runs that session's destructor chain, which re-enters
         // InterpreterContext::interpreters -- so it must happen only after the lock above is released.

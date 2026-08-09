@@ -122,10 +122,14 @@ struct InterpreterContext {
   // The close is deliberately NOT done here: it runs the target session's destructor chain, which re-enters
   // InterpreterContext::interpreters. Callers must invoke this inside interpreters.WithLock(...) and then close
   // `to_close` AFTER that lock has been released, or they self-deadlock.
+  //
+  // Authorization: each session is authorized against *that session's own* current database, because roles and
+  // privileges in Memgraph are database-specific -- TRANSACTION_MANAGEMENT on db A must not reach a session on
+  // db B. A target holding no database is refused outright: there is no tenant against which a database-scoped
+  // privilege could be evaluated. A caller may always terminate its own other connections.
   TerminateSessionsResult TerminateSessions(
       const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
-      QueryUserOrRole *user_or_role,
-      std::function<bool(QueryUserOrRole *, std::optional<std::string_view>)> privilege_checker,
+      QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
       std::string_view caller_session_uuid);
 
   static std::vector<uint64_t> ShowTransactionsUsingDBName(const std::unordered_set<Interpreter *> &interpreters,
