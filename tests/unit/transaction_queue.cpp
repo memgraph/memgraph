@@ -517,3 +517,149 @@ TYPED_TEST(TransactionQueueSimpleTest, ShowFilteredTransactionsExcludesNonMatchi
 }
 
 // ShowFilteredTransactionsWithTerminated removed
+
+// TERMINATE SESSIONS authorization.
+//
+// The privilege checker is injected instead of driven through a real auth backend on purpose. In production it is a
+// one-line forward to QueryUserOrRole::IsAuthorized(TRANSACTION_MANAGEMENT, db_name) (see HandleTransactionQueueQuery
+// in src/query/interpreter.cpp), and what these tests pin is not what that backend decides -- it is *which database
+// name reaches it*. Calling the checker directly makes that argument observable and keeps the tests independent of
+// auth's own logic, which has its own coverage.
+
+TYPED_TEST(TransactionQueueSimpleTest, PassesTheTargetSessionsDatabaseToThePrivilegeChecker) {
+  // The fixture's Config leaves salient.name empty, which a real tenant never is; without a name the target would
+  // short-circuit into the "holds no database" refusal and never reach the checker. Named the way
+  // DbmsHandler::Rename does it.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+
+  std::vector<std::string> checked_db_names;
+  auto checker = [&checked_db_names](memgraph::query::QueryUserOrRole *, std::string const &db_name) {
+    checked_db_names.push_back(db_name);
+    return true;
+  };
+
+  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+    return this->interpreter_context.TerminateSessions(
+        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+  });
+
+  // The whole point of the fix: authorization is scoped to the target's tenant, and to nothing else.
+  ASSERT_EQ(checked_db_names.size(), 1U);
+  EXPECT_EQ(checked_db_names[0], this->db->name());
+  ASSERT_EQ(result.rows.size(), 1U);
+  EXPECT_EQ(result.rows[0][0].ValueString(), "target-session-uuid");
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, RefusesWhenTheCheckerDeniesTheTargetsDatabase) {
+  this->db->storage()->config_.salient.name = "tenant_a";  // see PassesTheTargetSessionsDatabaseToThePrivilegeChecker
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+
+  // Authorized on some other tenant only -- i.e. exactly the admin that used to get through.
+  auto checker = [](memgraph::query::QueryUserOrRole *, std::string const &db_name) {
+    return db_name == "some_other_tenant";
+  };
+
+  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+    return this->interpreter_context.TerminateSessions(
+        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+  });
+
+  ASSERT_EQ(result.rows.size(), 1U);
+  EXPECT_EQ(result.rows[0][0].ValueString(), "target-session-uuid");
+  EXPECT_FALSE(result.rows[0][1].ValueBool());
+  EXPECT_TRUE(result.to_close.empty());
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, AllowsWhenTheCheckerGrantsTheTargetsDatabase) {
+  this->db->storage()->config_.salient.name = "tenant_a";  // see PassesTheTargetSessionsDatabaseToThePrivilegeChecker
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+
+  auto const target_db_name = this->db->name();
+  auto checker = [&target_db_name](memgraph::query::QueryUserOrRole *, std::string const &db_name) {
+    return db_name == target_db_name;
+  };
+
+  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+    return this->interpreter_context.TerminateSessions(
+        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+  });
+
+  ASSERT_EQ(result.rows.size(), 1U);
+  EXPECT_EQ(result.rows[0][0].ValueString(), "target-session-uuid");
+  EXPECT_TRUE(result.rows[0][1].ValueBool());
+  EXPECT_THAT(result.to_close, ::testing::ElementsAre("target-session-uuid"));
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, RefusesATargetHoldingNoDatabaseWithoutConsultingTheChecker) {
+  // Named first, so the refusal below can only come from the ResetDB and not from a fixture that never had a name.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+  target.current_db_.ResetDB();
+
+  bool checker_called = false;
+  auto checker = [&checker_called](memgraph::query::QueryUserOrRole *, std::string const &) {
+    checker_called = true;
+    return true;  // would grant anything, so only a refusal *before* the call can deny here
+  };
+
+  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+    return this->interpreter_context.TerminateSessions(
+        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+  });
+
+  // Fail closed: with no tenant there is no database-scoped privilege that could authorize the kill, so the
+  // decision must not be delegated to the checker at all.
+  ASSERT_EQ(result.rows.size(), 1U);
+  EXPECT_FALSE(result.rows[0][1].ValueBool());
+  EXPECT_TRUE(result.to_close.empty());
+  EXPECT_FALSE(checker_called);
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, SameUserIsStillAllowedWithoutAnyPrivilege) {
+  // Named, so the target does hold a tenant and the deny below is a real deny -- the kill must succeed anyway.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("admin", {}));
+  target.SetSessionInfo("target-session-uuid", "admin", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+
+  bool checker_called = false;
+  auto checker = [&checker_called](memgraph::query::QueryUserOrRole *, std::string const &) {
+    checker_called = true;
+    return false;
+  };
+
+  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+    return this->interpreter_context.TerminateSessions(
+        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+  });
+
+  // A user may always terminate their own other connections; the privilege check is never reached.
+  ASSERT_EQ(result.rows.size(), 1U);
+  EXPECT_TRUE(result.rows[0][1].ValueBool());
+  EXPECT_THAT(result.to_close, ::testing::ElementsAre("target-session-uuid"));
+  EXPECT_FALSE(checker_called);
+}
