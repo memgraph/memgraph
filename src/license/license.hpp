@@ -41,8 +41,6 @@ constexpr bool IsEnterpriseTier(LicenseType type) noexcept {
 
 // Validity and tier are published together as one atomic value, so a reader always observes a pair
 // that was actually stored together, never a mix of an old type with a new validity (or vice versa).
-// This replaced a release-store/acquire-load handshake over is_valid_ plus a separate non-atomic
-// license_type_, which only ordered the first false->true transition of is_valid_.
 struct LicenseState {
   bool valid{false};
   LicenseType type{LicenseType::ENTERPRISE};
@@ -143,6 +141,9 @@ struct LicenseChecker {
   std::atomic<bool> enterprise_enabled_{false};
   std::atomic<LicenseState> state_{};
   static_assert(std::atomic<LicenseState>::is_always_lock_free);
+  // Serialises state_ mutators (RevalidateLicense/EnableTesting/DisableTesting), not IsEnterpriseValidFast()
+  // (lock-free, per-row hot path). Order: revalidate_mutex_ -> settings_lock_ -> previous_license_info_;
+  // reverse can't happen since Settings::SetValue releases settings_lock_ before invoking its callback.
   std::mutex revalidate_mutex_;
   utils::Scheduler scheduler_;
 

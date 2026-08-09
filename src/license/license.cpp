@@ -253,7 +253,6 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
     }
   }
 
-  // Single release publish: validity and tier become visible to readers as one atomic pair.
   state_.store(LicenseState{true, winner.license.type}, std::memory_order_release);
 }
 
@@ -454,7 +453,6 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
 }
 
 bool LicenseChecker::IsEnterpriseValidFast() const {
-  // Single acquire load, lock-free, hot path.
   const auto s = state_.load(std::memory_order_acquire);
   return s.valid && IsEnterpriseTier(s.type);
 }
