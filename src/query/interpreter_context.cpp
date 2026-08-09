@@ -180,8 +180,7 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateAllTransaction
 
 TerminateSessionsResult InterpreterContext::TerminateSessions(
     const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
-    QueryUserOrRole *user_or_role,
-    std::function<bool(QueryUserOrRole *, std::optional<std::string_view>)> privilege_checker,
+    QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
     std::string_view caller_session_uuid) {
   auto same_user = [](const auto &lv, const auto &rv) {
     if (lv.get() == rv) return true;
@@ -222,14 +221,24 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
       continue;
     }
 
-    // std::nullopt, not the target's db: (a) a connection isn't scoped to one (USE DATABASE can change it), so
-    // this is an instance-scoped check; (b) reading target->current_db_.db_acc_ unclaimed would race -- unlike
-    // TerminateTransactions, the target here (often an idle session) can't be claimed via the CAS below, and
-    // CurrentDB::SetCurrentDB/ResetDB mutate db_acc_ without any claim.
-    if (!same_user(target->user_or_role_, user_or_role) && !privilege_checker(user_or_role, std::nullopt)) {
-      result.rows.push_back({TypedValue(id), TypedValue(false)});
-      spdlog::warn("Not enough rights to kill the session");
-      continue;
+    // foreign_db_view(), not current_db_.name(): the target is typically IDLE, which the verifier CAS below can
+    // never claim, so the unlocked read name() performs would be a data race here.
+    // This authorizes against the database the session held *at the time of the check* -- no claim is carried
+    // across to the termination below, so the target may USE DATABASE in between. That closes the systematic
+    // cross-tenant hole (a db-A admin can no longer terminate any db-B session); it is not transactional
+    // enforcement.
+    if (!same_user(target->user_or_role_, user_or_role)) {
+      auto const target_db = target->current_db_.foreign_db_view().name;
+      if (target_db.empty()) {
+        result.rows.push_back({TypedValue(id), TypedValue(false)});
+        spdlog::warn("Session {} holds no database; no database-scoped privilege can authorize killing it", id);
+        continue;
+      }
+      if (!privilege_checker(user_or_role, target_db)) {
+        result.rows.push_back({TypedValue(id), TypedValue(false)});
+        spdlog::warn("Not enough rights to kill the session");
+        continue;
+      }
     }
 
     TransactionStatus alive_status = TransactionStatus::ACTIVE;
