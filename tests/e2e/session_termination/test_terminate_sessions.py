@@ -13,6 +13,7 @@ import multiprocessing
 import sys
 import time
 import uuid
+from contextlib import suppress
 from queue import Empty
 
 import mgclient
@@ -382,6 +383,113 @@ def test_force_abort_converges_after_terminate(request):
     )
 
     assert not any(row[0] == "fa_db" for row in execute_and_fetch_all(watch_cursor, "SHOW DATABASES"))
+
+
+def test_database_scoped_admin_confined_to_own_tenant(request):
+    """Regression: a database-scoped admin must not be able to terminate a session in another tenant.
+
+    TERMINATE SESSIONS used to authorize with std::nullopt as the database scope, which auth::models
+    reads as "unfiltered": User::GetPermissions skips the HasAccess gate entirely, and
+    Roles::GetFilteredRoles returns every role regardless of which databases those roles are granted
+    on. A tenant_a-scoped admin could therefore kill a session living in tenant_b. The check now runs
+    against the target session's own current database -- see InterpreterContext::TerminateSessions.
+
+    Both halves are asserted on purpose. The cross-tenant refusal on its own would pass just as
+    happily if TERMINATE SESSIONS were simply broken for everyone; the same-tenant kill that follows
+    is what proves the new check is *scoped* rather than merely denying.
+    """
+    superadmin_cursor = connect().cursor()
+
+    # CREATE DATABASE needs MULTI_DATABASE_EDIT, which scoped_admin must not have -- so the tenant
+    # DDL goes through a separate fully privileged user, as in test_force_abort_converges_after_
+    # terminate. Creating it first also means scoped_admin is never this instance's first user, and
+    # so is never auto-promoted (see the module-level comment); the explicit stripping below makes
+    # that guarantee independent of ordering anyway.
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER tenant_ddl_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO tenant_ddl_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO tenant_ddl_admin")
+
+    ddl_cursor = connect(username="tenant_ddl_admin", password="").cursor()
+    execute_and_fetch_all(ddl_cursor, "CREATE DATABASE tenant_a")
+    execute_and_fetch_all(ddl_cursor, "CREATE DATABASE tenant_b")
+
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER scoped_admin")
+    execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM scoped_admin")
+    execute_and_fetch_all(superadmin_cursor, "CLEAR ROLE FOR scoped_admin")
+    # Do not rely on the default database grant: auth::Databases' constructor grants every fresh user
+    # the `memgraph` database, and a first user is granted *all* of them (allow_all_). Either would
+    # blur what "scoped to tenant_a" means here, so revoke the lot and grant back exactly tenant_a.
+    # RevokeAll() also blanks the user's main database, and Databases::GetMain() throws for a main it
+    # has no access to -- so main has to be re-pointed at tenant_a before this user can log in.
+    execute_and_fetch_all(superadmin_cursor, "REVOKE DATABASE * FROM scoped_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE tenant_a TO scoped_admin")
+    execute_and_fetch_all(superadmin_cursor, "SET MAIN DATABASE tenant_a FOR scoped_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO scoped_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT MULTI_DATABASE_USE TO scoped_admin")
+
+    # Two distinct usernames, one session each, so get_session_uuid_by_username stays unambiguous.
+    for victim, tenant in (("victim_a", "tenant_a"), ("victim_b", "tenant_b")):
+        execute_and_fetch_all(superadmin_cursor, f"CREATE USER {victim}")
+        execute_and_fetch_all(superadmin_cursor, f"GRANT DATABASE {tenant} TO {victim}")
+        execute_and_fetch_all(superadmin_cursor, f"GRANT MULTI_DATABASE_USE TO {victim}")
+
+    def on_exit():
+        for db in ("tenant_a", "tenant_b"):
+            try:
+                execute_and_fetch_all(ddl_cursor, f"DROP DATABASE {db}")
+            except mgclient.Error:
+                pass  # an earlier assertion failed and left a session parked inside the tenant
+        for user in ("scoped_admin", "victim_a", "victim_b", "tenant_ddl_admin"):
+            execute_and_fetch_all(superadmin_cursor, f"DROP USER {user}")
+
+    request.addfinalizer(on_exit)
+
+    admin_connection = connect(username="scoped_admin", password="")
+    admin_cursor = admin_connection.cursor()
+
+    victim_a_connection = connect(username="victim_a", password="")
+    victim_a_cursor = victim_a_connection.cursor()
+    execute_and_fetch_all(victim_a_cursor, "USE DATABASE tenant_a")  # now idles inside tenant_a
+
+    victim_b_connection = connect(username="victim_b", password="")
+    victim_b_cursor = victim_b_connection.cursor()
+    execute_and_fetch_all(victim_b_cursor, "USE DATABASE tenant_b")  # now idles inside tenant_b
+
+    def release_tenants():
+        """Safety net, always run (LIFO, before on_exit drops the databases): a session idling inside
+        a tenant pins that tenant's accessor, so on_exit's plain DROP DATABASE would pay the drain
+        deadline or fail outright. Closing the client sockets is enough to release them, but the
+        server tears the sessions down on their own strands -- poll for that rather than assume it.
+        """
+        for connection in (admin_connection, victim_a_connection, victim_b_connection):
+            with suppress(mgclient.Error):
+                connection.close()
+        wait_until(
+            lambda: not any(
+                row[0] in ("scoped_admin", "victim_a", "victim_b")
+                for row in execute_and_fetch_all(superadmin_cursor, "SHOW ACTIVE USERS INFO")
+            ),
+            message="tenant_a/tenant_b sessions were still registered after their connections closed",
+        )
+
+    request.addfinalizer(release_tenants)
+
+    # SHOW ACTIVE USERS INFO requires the STATS privilege, which scoped_admin deliberately lacks, so
+    # the uuid lookups go through superadmin_cursor -- exactly as in test_unprivileged_user_refused.
+    victim_a_uuid = get_session_uuid_by_username(superadmin_cursor, "victim_a")
+    victim_b_uuid = get_session_uuid_by_username(superadmin_cursor, "victim_b")
+
+    # Cross-tenant: scoped_admin has TRANSACTION_MANAGEMENT but no access to tenant_b, so it cannot
+    # reach a session sitting there. This is the regression itself.
+    results = execute_and_fetch_all(admin_cursor, f"TERMINATE SESSIONS '{victim_b_uuid}'")
+    assert results == [(victim_b_uuid, False)]
+    assert_connection_alive(victim_b_cursor)
+
+    # Own tenant: same admin, same statement, target inside tenant_a -- must still work. Without this
+    # half, the assertion above would be satisfied by a TERMINATE SESSIONS that never kills anything.
+    results = execute_and_fetch_all(admin_cursor, f"TERMINATE SESSIONS '{victim_a_uuid}'")
+    assert results == [(victim_a_uuid, True)]
+    wait_until_terminated(victim_a_cursor)
 
 
 if __name__ == "__main__":
