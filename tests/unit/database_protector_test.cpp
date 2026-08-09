@@ -454,10 +454,11 @@ TEST_F(DatabaseProtectorTest, TryDeleteDeadlocksUnderRealAsyncIndexer) {
 
   if (!finished_in_time) {
     ADD_FAILURE() << "F24 AB-BA deadlock reproduced: try_delete() did not return within 10s. It is blocked "
-                     "destroying InMemoryStorage while holding GKInternals::mutex_ (gatekeeper.hpp:291-307), "
-                     "waiting on AsyncIndexer::mutex_ (via ~InMemoryStorage -> StopAllBackgroundTasks() -> "
-                     "AsyncIndexer::Shutdown(), async_indexer.cpp:147-152) that the async indexer worker "
-                     "holds while it blocks on the same GKInternals::mutex_ inside access_via().";
+                     "destroying InMemoryStorage while holding GKInternals::mutex_ (gatekeeper.hpp:299-323, "
+                     "Accessor::try_delete()), waiting to acquire AsyncIndexer::mutex_ (via ~InMemoryStorage -> "
+                     "StopAllBackgroundTasks() -> AsyncIndexer::Shutdown(), async_indexer.cpp:147-152, which "
+                     "blocks on that mutex rather than joining a thread) that the async indexer worker holds "
+                     "while it blocks on the same GKInternals::mutex_ inside access_via().";
     // gk and acc would deadlock too: their destructors want the same GKInternals::mutex_ the wedged
     // threads hold. Detach the wedged thread and leak the rest so exactly one test fails, not the binary.
     deleter.detach();
