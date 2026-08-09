@@ -329,21 +329,11 @@ TEST_F(DatabaseProtectorTest, AsyncIndexerCompletesBeforeShutdown) {
   EXPECT_LT(shutdown_time, 500) << "Storage shutdown should be fast when async indexer completed";
 }
 
-// ---------------------------------------------------------------------------------------------
-// F24 regression: utils::Gatekeeper<T>::Accessor::try_delete() (src/utils/gatekeeper.hpp:291-307)
-// destroys the managed T while still holding GKInternals::mutex_. For T = InMemoryStorage,
-// destruction runs StopAllBackgroundTasks() -> AsyncIndexer::Shutdown() (async_indexer.cpp:147-152),
-// which waits unboundedly on AsyncIndexer::mutex_; the indexer worker holds that mutex across its
-// whole loop body (async_indexer.cpp:66) and calls make_database_protector() -> access_via(), which
-// blocks on the very GKInternals::mutex_ the dropper holds. AB-BA deadlock, reachable from a plain
-// non-FORCE DROP DATABASE. This substitutes utils::Gatekeeper<InMemoryStorage> for
-// utils::Gatekeeper<dbms::Database> so the real AsyncIndexer, the real ~InMemoryStorage destructor
-// chain and the real Gatekeeper are all exercised without pulling in MG_ENTERPRISE's dbms::Database.
-// ---------------------------------------------------------------------------------------------
+// F24 regression test: reproduces try_delete()'s destroy-under-mutex deadlock (gatekeeper.hpp:290-297)
+// using the real AsyncIndexer, via Gatekeeper<InMemoryStorage> instead of MG_ENTERPRISE's dbms::Database.
 
-// Mirrors dbms::DatabaseProtector (src/dbms/database_protector.hpp:26-32): owns a live
-// Gatekeeper::Accessor and clone()s it, so the accessor-count bookkeeping try_delete()'s
-// count_ == 1 gate relies on is faithfully modeled instead of stubbed out.
+// Mirrors dbms::DatabaseProtector (database_protector.hpp:26-32): owns a live Accessor so
+// try_delete()'s count_ == 1 gate is exercised faithfully, not stubbed out.
 struct StorageGatekeeperProtector : memgraph::storage::DatabaseProtector {
   using Access = memgraph::utils::Gatekeeper<memgraph::storage::InMemoryStorage>::Accessor;
 
@@ -357,23 +347,20 @@ struct StorageGatekeeperProtector : memgraph::storage::DatabaseProtector {
   Access access_;
 };
 
-// Deliberately heap-allocated and (on the deadlock/failure path) never freed: the async indexer
-// worker thread and the try_delete() caller thread both reference this after the test function has
-// returned, so it must outlive the test. See TryDeleteDeadlocksUnderRealAsyncIndexer below.
+// Deliberately heap-allocated and, on the deadlock path, never freed: the indexer worker and the
+// try_delete() caller both keep referencing this after the test function returns, so it must outlive it.
 struct TryDeleteTrap {
   std::mutex mutex;
   std::condition_variable cv;
   // Set once the async indexer worker is parked inside AsyncIndexer::mutex_ with no protector minted,
   // i.e. provably about to call GK::access_via(internals).
   std::atomic<bool> reached{false};
-  // Set by try_delete()'s predicate -- which gatekeeper.hpp:302 invokes while still holding
+  // Set by try_delete()'s predicate -- which gatekeeper.hpp:312 invokes while still holding
   // GKInternals::mutex_ -- releasing the trapped worker at the exact instant that mutex is held.
   std::atomic<bool> go{false};
 
-  // Completion signal for the `deleter` thread below. Lives here (not as stack locals in the test
-  // body) for the same reason `reached`/`go` do: on the timeout path the wedged `deleter` thread is
-  // detached and the test function returns while that thread still holds a reference to whatever it
-  // captured, so anything it can touch must outlive the function, not just outlive the happy path.
+  // Completion signal for `deleter` below; lives here for the same reason as `reached`/`go` above --
+  // on the timeout path the detached thread still holds a reference to it after the test returns.
   std::mutex done_mutex;
   std::condition_variable done_cv;
   std::atomic<bool> try_delete_done{false};
@@ -388,8 +375,7 @@ TEST_F(DatabaseProtectorTest, TryDeleteDeadlocksUnderRealAsyncIndexer) {
   // Leaked deliberately on the failure path (see below); harmless to leak unconditionally.
   auto *trap = new TryDeleteTrap();
 
-  // std::shared_ptr<std::atomic<GKInternals<Storage>*>>, published after construction: byte-for-byte
-  // the route DatabaseHandler::MakeDatabaseProtectorFactory builds (database_handler.hpp:110-121).
+  // Mirrors the route DatabaseHandler::MakeDatabaseProtectorFactory builds (database_handler.hpp:110-121).
   auto cell = std::make_shared<std::atomic<Internals *>>(nullptr);
 
   auto factory = [cell, trap]() -> memgraph::storage::DatabaseProtectorPtr {
@@ -421,13 +407,11 @@ TEST_F(DatabaseProtectorTest, TryDeleteDeadlocksUnderRealAsyncIndexer) {
   // CreateVerticesWithLabel below enqueues work, so the factory cannot be called before this store.
   cell->store(gk->internals(), std::memory_order_release);
 
-  // Mint the sole accessor (count_ == 1) and immediately move it off the stack: on the timeout path
-  // below this test returns without ever destroying it, because ~Accessor's reset() (gatekeeper.hpp:
-  // 314-323) would itself block forever on the same GKInternals::mutex_ the wedged deleter thread
-  // holds -- exactly the "stack locals mean UB and a crashed binary" trap the plan calls out.
+  // Moved off the stack: on the timeout path this test returns without destroying it, and ~Accessor's
+  // reset() (gatekeeper.hpp:333-342) would itself block on the same mutex the wedged deleter holds.
   auto minted = gk->access();
   ASSERT_TRUE(minted.has_value()) << "Fresh HOT gatekeeper must mint its first accessor";
-  auto *acc = new GK::Accessor(std::move(*minted));  // minted's Accessor is now owner_ == nullptr
+  auto *acc = new GK::Accessor(std::move(*minted));
 
   auto *storage_ptr = acc->get();
   auto label = storage_ptr->NameToLabel("TestLabel");
@@ -450,11 +434,8 @@ TEST_F(DatabaseProtectorTest, TryDeleteDeadlocksUnderRealAsyncIndexer) {
       trap->cv.notify_all();
       return true;
     };
-    // On the current (unfixed) base this call never returns: it holds GKInternals::mutex_ across
-    // `owner_->value_ = std::nullopt` (gatekeeper.hpp:305), which runs ~InMemoryStorage ->
-    // StopAllBackgroundTasks() -> AsyncIndexer::Shutdown(), which blocks unboundedly on
-    // AsyncIndexer::mutex_ -- held by the worker thread now blocked on the same GKInternals::mutex_
-    // inside access_via(). Neither side can make progress: a textbook AB-BA deadlock.
+    // Deadlocks on a pre-fix try_delete() that destroyed InMemoryStorage while still holding
+    // GKInternals::mutex_ (gatekeeper.hpp:290-297) -- see the banner above for the full AB-BA chain.
     bool const result = acc->try_delete(std::chrono::seconds(3), predicate);
     trap->try_delete_result = result;
     {
@@ -477,12 +458,8 @@ TEST_F(DatabaseProtectorTest, TryDeleteDeadlocksUnderRealAsyncIndexer) {
                      "waiting on AsyncIndexer::mutex_ (via ~InMemoryStorage -> StopAllBackgroundTasks() -> "
                      "AsyncIndexer::Shutdown(), async_indexer.cpp:147-152) that the async indexer worker "
                      "holds while it blocks on the same GKInternals::mutex_ inside access_via().";
-    // `deleter` is wedged forever inside try_delete(), still holding GKInternals::mutex_; the async
-    // indexer worker thread (owned inside `gk`) is wedged forever on that same mutex_ inside
-    // access_via(). Touching `gk`, `acc`, `cell`, or `trap` from this thread from here on would block
-    // forever too (their destructors/methods all eventually want GKInternals::mutex_ or trap->mutex).
-    // Detach the wedged thread and leak everything else so exactly one test fails instead of the whole
-    // binary hanging.
+    // gk and acc would deadlock too: their destructors want the same GKInternals::mutex_ the wedged
+    // threads hold. Detach the wedged thread and leak the rest so exactly one test fails, not the binary.
     deleter.detach();
     return;  // gk, acc, cell (captured by the leaked factory closure), and trap are intentionally leaked.
   }

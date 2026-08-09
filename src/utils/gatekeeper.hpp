@@ -305,8 +305,14 @@ struct Gatekeeper {
     }
 
     // Completely invalidates the accessor if it returns true.
-    // ~T runs AFTER mutex_ is released: ~Database->StopAllBackgroundTasks() joins threads that call
-    // access() — holding mutex_ here is an AB-BA deadlock. Do NOT move destruction back under lock.
+    //
+    // ~T runs AFTER mutex_ is released (see the pointer move below), never under it: ~T (e.g.
+    // ~Database -> ~InMemoryStorage -> StopAllBackgroundTasks()) blocks until background threads
+    // (async indexer, TTL scheduler) exit, and those threads re-enter this gatekeeper through
+    // access_via()/access() to mint their own Accessor before exiting. If the destroying thread
+    // still held mutex_ here, that mint would block on the very mutex the destroyer holds while
+    // waiting for them to exit -- an AB-BA deadlock reachable from a plain, non-FORCE DROP DATABASE.
+    // Do NOT move the destruction back under the lock.
     template <typename Func = decltype([](T &) { return true; })>
     [[nodiscard]] bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100),
                                   Func &&predicate = {}) {
@@ -325,7 +331,7 @@ struct Gatekeeper {
       }  // <-- mutex_ released here
       // Opt-in lifetime guard around object destruction.
       [[maybe_unused]] typename GatekeeperGuardFor<T>::type arena_guard;
-      dying.reset();  // ~T runs unlocked; its thread joins can now complete
+      dying.reset();  // ~T runs unlocked; the background threads blocked on it can now exit
       return true;
     }
 
@@ -460,9 +466,8 @@ struct Gatekeeper {
     auto guard = std::unique_lock{pimpl_->mutex_};
     // draining_ is refused upfront, alongside the HOT check, NOT folded into the wait_for predicate
     // below (which must stay count_ == 1 only): a tenant already accepted for deletion must not be
-    // frozen out from under the drop by a competing suspend. value_ is refused too: try_delete()
-    // briefly holds count_ == 1 / state_ == HOT / draining_ == false while ~T runs unlocked after
-    // moving value_ out, and a gatekeeper with nothing to suspend must not enter SUSPENDING.
+    // frozen out from under the drop by a competing suspend. value_ is refused too: see
+    // try_exclusively() above -- a gatekeeper with nothing to suspend must not enter SUSPENDING.
     if (!pimpl_->value_ || pimpl_->state_ != GatekeeperState::HOT || pimpl_->draining_) return false;
     if (!pimpl_->cv_.wait_for(guard, timeout, [this] { return pimpl_->count_ == 1; })) {
       return false;
@@ -560,7 +565,7 @@ struct Gatekeeper {
   // drop or a mid-transition tenant is a legal race that the caller turns into a retriable error.
   bool begin_drain() {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    // value_ term: see try_begin_suspend() above -- you cannot drain a gatekeeper that holds nothing.
+    // value_ term: see try_exclusively() above -- you cannot drain a gatekeeper that holds nothing.
     if (!pimpl_->value_ || pimpl_->state_ != GatekeeperState::HOT || pimpl_->draining_) return false;
     pimpl_->draining_ = true;
     pimpl_->cv_.notify_all();
