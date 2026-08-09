@@ -258,6 +258,7 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
 }
 
 void LicenseChecker::EnableTesting(const LicenseType license_type) {
+  std::lock_guard revalidate_guard{revalidate_mutex_};
   enterprise_enabled_ = true;
   {
     auto locked = previous_license_info_.Lock();
@@ -270,6 +271,7 @@ void LicenseChecker::EnableTesting(const LicenseType license_type) {
 }
 
 void LicenseChecker::DisableTesting() {
+  std::lock_guard revalidate_guard{revalidate_mutex_};
   enterprise_enabled_ = false;
   {
     auto locked = previous_license_info_.Lock();
