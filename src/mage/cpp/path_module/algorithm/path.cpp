@@ -502,9 +502,15 @@ void Path::PathHelper::ParseRelationships(const mgp::List &list_of_relationships
       }
     }
 
-    // Nothing left means the entry names a direction only, and so applies to every type. An entry with
-    // neither a type nor a marker was rejected as empty above, so one of the two flags always holds.
+    // Nothing left means the entry names a direction only, and so applies to every type -- but only if
+    // a marker is what emptied it. An entry of separators alone names neither a type nor a direction,
+    // and would otherwise leave both wildcard flags clear and every type unlisted, filtering out every
+    // relationship in the graph.
     if (type.empty()) {
+      if (!incoming && !outgoing) {
+        throw mgp::ValueException("Invalid relationshipFilter entry '" + std::string(entry) +
+                                  "': expected a relationship type, optionally marked with '<' or '>'.");
+      }
       config_.any_incoming = config_.any_incoming || incoming;
       config_.any_outgoing = config_.any_outgoing || outgoing;
       continue;
@@ -772,9 +778,9 @@ void Path::PathExpand::StartAlgorithm(const mgp::Node &node) {
 
 void Path::PathExpand::Parse(const mgp::Value &value) {
   if (value.IsNode()) {
-    path_data_.start_nodes_.insert((value.ValueNode()));
+    path_data_.AddStartNode(value.ValueNode());
   } else if (value.IsInt()) {
-    path_data_.start_nodes_.insert((path_data_.graph_.GetNodeById(mgp::Id::FromInt(value.ValueInt()))));
+    path_data_.AddStartNode(path_data_.graph_.GetNodeById(mgp::Id::FromInt(value.ValueInt())));
   } else {
     throw mgp::ValueException("Invalid start type. Expected Node, Int, List[Node, Int]");
   }
@@ -887,10 +893,10 @@ void Path::PathSubgraph::Parse(const mgp::Value &value) {
     throw mgp::ValueException("The first argument needs to be a node, an integer ID, or a list thereof.");
   }
   if (value.IsNode()) {
-    path_data_.start_nodes_.insert(value.ValueNode());
+    path_data_.AddStartNode(value.ValueNode());
     return;
   }
-  path_data_.start_nodes_.insert(path_data_.graph_.GetNodeById(mgp::Id::FromInt(value.ValueInt())));
+  path_data_.AddStartNode(path_data_.graph_.GetNodeById(mgp::Id::FromInt(value.ValueInt())));
 }
 
 void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int64_t> &pair,

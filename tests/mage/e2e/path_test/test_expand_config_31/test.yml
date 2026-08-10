@@ -1,0 +1,11 @@
+# A marker is what lets an entry stand for every type, so a bare '<' still names the incoming filter
+# even though stripping it leaves nothing behind.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {relationshipFilter: '<', maxHops: 1})
+  YIELD result
+  WITH result ORDER BY [n IN nodes(result) | n.name]
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["A"]

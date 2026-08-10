@@ -1,0 +1,11 @@
+# A relationship filter entry of separators alone names neither a type nor a direction. Stripping them
+# leaves an empty type, which would list no type and set no wildcard -- filtering out every
+# relationship in the graph rather than none of them.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {relationshipFilter: ':', maxHops: 3})
+  YIELD result
+  RETURN result;
+
+exception_contains: >
+  Invalid relationshipFilter entry ':'
