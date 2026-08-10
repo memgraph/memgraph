@@ -18,6 +18,7 @@
 
 #include "query/interpreter_context.hpp"
 
+#include "dbms/constants.hpp"
 #include "parameters/parameters.hpp"
 #include "query/interpreter.hpp"
 #include "query/query_user.hpp"
@@ -228,11 +229,11 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
     // cross-tenant hole (a db-A admin can no longer terminate any db-B session); it is not transactional
     // enforcement.
     if (!same_user(target->user_or_role_, user_or_role)) {
-      auto const target_db = target->current_db_.foreign_db_view().name;
+      // A dbless target has no tenant to scope against; see the declaration comment for why
+      // dbms::kDefaultDB is the fallback rather than a refusal.
+      auto target_db = target->current_db_.foreign_db_view().name;
       if (target_db.empty()) {
-        result.rows.push_back({TypedValue(id), TypedValue(false)});
-        spdlog::warn("Session {} holds no database; no database-scoped privilege can authorize killing it", id);
-        continue;
+        target_db = std::string{dbms::kDefaultDB};
       }
       if (!privilege_checker(user_or_role, target_db)) {
         result.rows.push_back({TypedValue(id), TypedValue(false)});
