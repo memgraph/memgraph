@@ -824,8 +824,10 @@ jobs:
         run: |
           docker network create $MEMGRAPH_NETWORK || true
 
-          # 1777 because memgraph runs as a non-root user in the image but the runner does not.
-          mkdir -p $MAGE_E2E_SHARED_DIR && chmod 1777 $MAGE_E2E_SHARED_DIR
+          # 777 and deliberately NOT sticky: memgraph runs as a different user inside the image than
+          # the runner does outside it, and the sticky bit would stop each from replacing the other's
+          # files — including the temporary-rename an export legitimately performs over its target.
+          mkdir -p $MAGE_E2E_SHARED_DIR && chmod 777 $MAGE_E2E_SHARED_DIR
 
           docker run -d \
             --network $MEMGRAPH_NETWORK \
@@ -938,7 +940,7 @@ jobs:
         run: |
           docker network create $MEMGRAPH_NETWORK || true
 
-          mkdir -p $MAGE_E2E_SHARED_DIR && chmod 1777 $MAGE_E2E_SHARED_DIR
+          mkdir -p $MAGE_E2E_SHARED_DIR && chmod 777 $MAGE_E2E_SHARED_DIR
 
           docker run -d \
             --rm \
