@@ -497,6 +497,27 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInListNonexistentValue) {
   EXPECT_COST(CostParam::kMinimumCost);
 }
 
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesMultipleInLists) {
+  AddVertices(100, 30, 20);
+  // Composite index on (prop_c, prop_a, prop_b). All three properties are set to the same
+  // value i for each vertex, so only diagonal entries (i,i,i) exist.
+  // prop_c = 5 (resolved), prop_a IN [5, 10] (unresolved), prop_b IN [5, 10] (unresolved).
+  // True matches: only (5,5,5). Independence estimate: S_a * S_b / T = 1 * 1 / 1 = 1.
+  // Without the fix, this falls back to VerticesCount(label, props) * 0.25 = 20 * 0.25 = 5.
+  auto *list_a = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
+  auto *list_b = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
+  auto *sym_a = storage_.Create<Identifier>("anon_a");
+  auto *sym_b = storage_.Create<Identifier>("anon_b");
+  MakeOp<ScanAllByLabelProperties>(
+      nullptr,
+      NextSymbol(),
+      label,
+      std::vector{ms::PropertyPath{prop_c}, ms::PropertyPath{prop_a}, ms::PropertyPath{prop_b}},
+      std::vector{
+          ExpressionRange::Equal(Literal(5)), ExpressionRange::In(sym_a, list_a), ExpressionRange::In(sym_b, list_b)});
+  EXPECT_COST(1 * CostParam::kScanAllByLabelProperties);
+}
+
 #undef TEST_OP
 #undef EXPECT_COST
 

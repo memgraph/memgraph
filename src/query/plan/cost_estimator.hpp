@@ -762,9 +762,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     std::unreachable();
   }
 
-  // For an expression of the form `x IN [lst]`, resolve the IN membership list
-  // by summing per-element VerticesCount. Returns `nullopt` if any element
-  // cannot be resolved at plan time.
+  // Compute the marginal sum for a single IN slot: temporarily mark the slot as
+  // IsNotNull for other callers, iterate its elements, sum VerticesCount.
+  // All other slots in resolved_ranges must already be non-nullopt.
   auto EstimateInListCardinality(storage::LabelId label, std::vector<storage::PropertyPath> const &properties,
                                  ListLiteral const &list, size_t slot,
                                  std::vector<std::optional<storage::PropertyValueRange>> &resolved_ranges)
@@ -776,7 +776,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters, mapper);
       if (!resolved) return std::nullopt;
       resolved_ranges[slot] = *resolved;
-      if (ranges::any_of(resolved_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) return std::nullopt;
       auto pvrs = resolved_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) | ranges::to_vector;
       sum += db_accessor_->VerticesCount(label, properties, pvrs);
     }
@@ -798,18 +797,49 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       return db_accessor_->VerticesCount(label, properties, pvrs);
     }
 
+    // Collect unresolved IN slots
+    std::vector<size_t> in_slots;
     for (size_t i = 0; i < expression_ranges.size(); ++i) {
-      if (maybe_ranges[i] || !expression_ranges[i].membership_list_) continue;
-      if (auto sum =
-              EstimateInListCardinality(label, properties, *expression_ranges[i].membership_list_, i, maybe_ranges)) {
-        maybe_ranges[i] = storage::PropertyValueRange::IsNotNull();
-        if (ranges::none_of(maybe_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
-          return *sum;
-        }
-      }
+      if (!maybe_ranges[i] && expression_ranges[i].membership_list_) in_slots.push_back(i);
     }
 
-    return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
+    if (in_slots.empty()) {
+      return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
+    }
+
+    // Temporarily set all IN slots to IsNotNull so each can be estimated independently
+    for (auto slot : in_slots) {
+      maybe_ranges[slot] = storage::PropertyValueRange::IsNotNull();
+    }
+
+    // If non-IN slots are still unresolved, fall back
+    if (ranges::any_of(maybe_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
+      return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
+    }
+
+    if (in_slots.size() == 1) {
+      // Single IN: exact per-element sum
+      auto sum = EstimateInListCardinality(
+          label, properties, *expression_ranges[in_slots[0]].membership_list_, in_slots[0], maybe_ranges);
+      return sum.value_or(db_accessor_->VerticesCount(label, properties) * CardParam::kFilter);
+    }
+
+    // Multiple IN slots: independence assumption. S_0 * S_1 * ... / T^(k-1)
+    auto const total =
+        db_accessor_->VerticesCount(label, properties, maybe_ranges | ranges::views::transform([](auto const &opt) {
+                                                         return *opt;
+                                                       }) | ranges::to_vector);
+    if (total == 0) return 0.0;
+
+    double result = 1.0;
+    for (auto slot : in_slots) {
+      auto marginal =
+          EstimateInListCardinality(label, properties, *expression_ranges[slot].membership_list_, slot, maybe_ranges);
+      if (!marginal) return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
+      result *= *marginal;
+    }
+    result /= std::pow(static_cast<double>(total), static_cast<double>(in_slots.size() - 1));
+    return std::min(result, static_cast<double>(total));
   }
 
   // Helper function to estimate cardinality for point-based queries.
