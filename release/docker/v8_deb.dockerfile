@@ -78,7 +78,10 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     echo "# Include all memgraph documentation files (licenses, etc.)" >> /etc/dpkg/dpkg.cfg.d/excludes && \
     echo "path-include=/usr/share/doc/memgraph/*" >> /etc/dpkg/dpkg.cfg.d/excludes; \
   fi && \
-  dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && \
+  # MG_SKIP_PYTHON_DEPS: the postinst would pip-install the query-module
+  # python deps into the image layer, duplicating what the python-base
+  # stage already provides (COPYed into /home/memgraph/.local below).
+  MG_SKIP_PYTHON_DEPS=1 dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && \
   apt remove adduser -y && \
   apt autoremove -y && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
