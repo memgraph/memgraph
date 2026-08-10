@@ -1,4 +1,5 @@
-# A bare '<' or '>' is a real any-direction filter and stays valid, unlike '<>'.
+# A bare '>' stays valid and means every type, outgoing -- X hangs off an inbound edge and must
+# stay out.
 query: >
   MATCH (a:Node {name: "A"})
   CALL path.subgraph_nodes(a, {relationshipFilter: ['>'], maxHops: 5})

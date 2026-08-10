@@ -1,7 +1,7 @@
 # denylistNodes with an incoming filter: '<R>' carries both markers and '<' wins, so only B->A is
-# followed out of A. Denying C stops the walk at B, and D becomes unreachable. Both A-B
-# relationships are returned, because the cover reports every relationship between returned nodes
-# regardless of the direction the walk crossed.
+# followed out of A -- X hangs off an outgoing-only edge and must stay out. Denying C stops the walk
+# at B, and D becomes unreachable. Both A-B relationships are returned, because the cover reports
+# every relationship between returned nodes regardless of the direction the walk crossed.
 query: >
   MATCH (c:C)
   WITH collect(c) AS deny

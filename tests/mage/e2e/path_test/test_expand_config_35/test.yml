@@ -1,0 +1,12 @@
+# Empty pieces are dropped rather than widened into a wildcard, so a leading, doubled or trailing
+# separator leaves the filter naming just the one type -- E stays unreachable over its OTHER edge.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {relationshipFilter: '|R>||', maxHops: 1})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["A"]
+  - names: ["A", "B"]
