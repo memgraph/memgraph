@@ -1,4 +1,5 @@
 *.build
+bin/
 *.tar.gz*
 get_helm.sh
 kubectl

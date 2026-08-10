@@ -45,24 +45,20 @@ helm repo update
 helm repo list
 # helm install my-release memgraph/memgraph # TODO: Fails if it's already there -> figure out how to skip.
 
-# NOTE: Downloading and compiling that last mgconsole.
-# rm -rf $SCRIPT_DIR/mgconsole.build # To download and rebuild everything.
-if [ ! -d "$SCRIPT_DIR/mgconsole.build" ]; then
-  git clone git@github.com:memgraph/mgconsole.git "$SCRIPT_DIR/mgconsole.build"
-fi
-MG_CONSOLE_TAG="master"
-MG_CONSOLE_BINARY="$SCRIPT_DIR/mgconsole.build/build/src/mgconsole"
+# NOTE: Downloading the last released mgconsole (macos universal binary).
+# rm -rf $SCRIPT_DIR/bin # To download it again.
+MG_CONSOLE_VERSION="v1.7.0"
+MG_CONSOLE_BINARY="$SCRIPT_DIR/bin/mgconsole"
 if [ ! -f "$MG_CONSOLE_BINARY" ]; then
-  cd "$SCRIPT_DIR/mgconsole.build"
-  git checkout $MG_CONSOLE_TAG
-  mkdir -p build && cd build
-  cmake -DCMAKE_RELEASE_TYPE=Release ..
-  make -j8
+  mkdir -p "$SCRIPT_DIR/bin"
+  curl -fL "https://download.memgraph.com/mgconsole/$MG_CONSOLE_VERSION/macos/mgconsole" \
+    -o "$MG_CONSOLE_BINARY"
+  chmod +x "$MG_CONSOLE_BINARY"
 fi
 if [ -x "$MG_CONSOLE_BINARY" ]; then
-  echo "mgconsole available"
+  echo "$("$MG_CONSOLE_BINARY" --version) available at $MG_CONSOLE_BINARY"
 else
-  echo "failed to build mgconsole"
+  echo "failed to download mgconsole"
 fi
 
 rm $SCRIPT_DIR/get_helm.sh || true

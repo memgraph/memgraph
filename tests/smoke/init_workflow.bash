@@ -51,24 +51,20 @@ helm repo add memgraph https://memgraph.github.io/helm-charts
 helm repo update
 helm repo list
 
-# Last mgconsole.
-# rm -rf $SCRIPT_DIR/mgconsole.build # To download and rebuild everything.
-if [ ! -d "$SCRIPT_DIR/mgconsole.build" ]; then
-  git clone https://github.com/memgraph/mgconsole.git "$SCRIPT_DIR/mgconsole.build"
-fi
-MG_CONSOLE_TAG="master"
-MG_CONSOLE_BINARY="$SCRIPT_DIR/mgconsole.build/build/src/mgconsole"
+# Last released mgconsole.
+# rm -rf $SCRIPT_DIR/bin # To download it again.
+MG_CONSOLE_VERSION="v1.7.0"
+MG_CONSOLE_BINARY="$SCRIPT_DIR/bin/mgconsole"
 if [ ! -f "$MG_CONSOLE_BINARY" ]; then
-  cd "$SCRIPT_DIR/mgconsole.build"
-  git checkout $MG_CONSOLE_TAG
-  mkdir -p build && cd build
-  cmake -DCMAKE_RELEASE_TYPE=Release ..
-  make -j8
+  mkdir -p "$SCRIPT_DIR/bin"
+  curl -fL "https://download.memgraph.com/mgconsole/$MG_CONSOLE_VERSION/linux-$(uname -m)/mgconsole" \
+    -o "$MG_CONSOLE_BINARY"
+  chmod +x "$MG_CONSOLE_BINARY"
 fi
 if [ -x "$MG_CONSOLE_BINARY" ]; then
-  echo "mgconsole available"
+  echo "$("$MG_CONSOLE_BINARY" --version) available at $MG_CONSOLE_BINARY"
 else
-  echo "failed to build mgconsole"
+  echo "failed to download mgconsole"
   exit 1
 fi
 
