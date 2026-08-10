@@ -19,8 +19,11 @@ Run with:
 Requires a running Memgraph with the `export` query module loaded.
 """
 
+import glob
 import json
 import os
+import stat
+import threading
 
 import mgclient
 import pytest
@@ -459,12 +462,44 @@ def test_json_graph_composes_with_project(conn):
     assert (row["nodes"], row["relationships"]) == (3, 2)
 
 
-@pytest.mark.parametrize("graph", ["{}", "{nodes: null, relationships: null}"])
-def test_json_graph_tolerates_missing_keys(conn, graph):
+@pytest.mark.parametrize(
+    "graph,missing",
+    [
+        ("{}", "nodes"),
+        ("{nodes: null, relationships: null}", "nodes"),
+        ("{node: ns, rels: rs}", "nodes"),  # both keys mistyped
+        ("{nodes: ns}", "relationships"),
+        ("{nodes: ns, relationships: null}", "relationships"),
+    ],
+)
+def test_json_graph_requires_both_halves(conn, graph, missing):
+    # Silence here means exporting half a graph — or none of it — under `done: true`, which is exactly what a
+    # mistyped key produces. The reference throws for either half missing.
     execute(conn, SEED_MIXED)
-    row = export(conn, call=f"export.json_graph({graph}, null, {{stream: true}})", collect="")
-    assert (row["nodes"], row["relationships"], row["rows"]) == (0, 0, 0)
-    assert row["data"] == ""
+    with pytest.raises(Exception, match=f"no '{missing}' key"):
+        export(conn, call=f"export.json_graph({graph}, null, {{stream: true}})")
+
+
+def test_json_graph_accepts_an_explicitly_empty_relationship_list(conn):
+    # Distinct from the key being absent: `relationships: []` says "no relationships", and is honoured.
+    execute(conn, SEED_MIXED)
+    row = export(conn, call="export.json_graph({nodes: ns, relationships: []}, null, {stream: true})")
+    assert (row["nodes"], row["relationships"]) == (3, 0)
+
+
+def test_json_graph_empty_relationships_does_not_shadow_edges(conn):
+    # An empty list counts as absent when choosing between the two spellings, so a stray `relationships: []` cannot
+    # silently drop a populated `edges`.
+    execute(conn, SEED_MIXED)
+    row = export(conn, call="export.json_graph({nodes: ns, relationships: [], edges: rs}, null, {stream: true})")
+    assert (row["nodes"], row["relationships"]) == (3, 2)
+
+
+def test_json_graph_refuses_two_populated_relationship_keys(conn):
+    # Picking one and ignoring the other would silently discard half the caller's input.
+    execute(conn, SEED_MIXED)
+    with pytest.raises(Exception, match="both 'relationships' and 'edges'"):
+        export(conn, call="export.json_graph({nodes: ns, relationships: rs, edges: rs}, null, {stream: true})")
 
 
 def test_file_write_returns_null_data(conn):
@@ -604,3 +639,110 @@ def test_enum_property_is_refused(conn):
     execute(conn, "CREATE (:E {v: ExportTestEnum::Active})")
     with pytest.raises(Exception):
         export(conn)
+
+
+def test_sinkless_export_validates_exactly_like_one_with_a_sink(conn):
+    # With no file and no stream the payload goes nowhere, but the elements are still built: the value checks live on
+    # that path, so skipping it would let a dry run report `done: true` for a graph the very same call cannot export.
+    if "ExportTestEnum" not in [row["Enum Name"] for row in execute(conn, "SHOW ENUMS")]:
+        execute(conn, "CREATE ENUM ExportTestEnum VALUES { Active, Done }")
+    execute(conn, "CREATE (:E {v: ExportTestEnum::Active})")
+    with pytest.raises(Exception, match="Cannot export an enum property"):
+        export(conn, call="export.json_data(ns, rs, null, {})")
+
+
+def test_sinkless_export_still_reports_its_counters(conn):
+    execute(conn, SEED_MIXED)
+    row = export(conn, call="export.json_data(ns, rs, null, {})")
+    assert (row["nodes"], row["relationships"], row["properties"], row["rows"]) == (3, 2, 9, 5)
+    assert row["data"] is None, "nothing was retained, so there is no payload to return"
+
+
+def test_successful_export_leaves_no_temporary_behind(conn):
+    execute(conn, SEED_MIXED)
+    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
+    if read_server_file(SERVER_EXPORT_FILE) is None:
+        pytest.skip(f"{SERVER_EXPORT_FILE} is not reachable from the test process (server on another filesystem)")
+    leftovers = glob.glob(f"{SERVER_EXPORT_FILE}.*")
+    assert leftovers == [], f"the temporary was not renamed or cleaned up: {leftovers}"
+
+
+def test_export_preserves_the_target_file_mode(conn):
+    # The payload goes to a temporary that is renamed over the target, which replaces the target's inode. Without
+    # carrying the mode across, an export the operator had restricted would silently widen on every rewrite.
+    execute(conn, SEED_MIXED)
+    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
+    if read_server_file(SERVER_EXPORT_FILE) is None:
+        pytest.skip(f"{SERVER_EXPORT_FILE} is not reachable from the test process (server on another filesystem)")
+    os.chmod(SERVER_EXPORT_FILE, 0o600)
+    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
+    mode = stat.S_IMODE(os.stat(SERVER_EXPORT_FILE).st_mode)
+    assert mode == 0o600, f"the rewrite widened the mode to {oct(mode)}"
+
+
+def test_export_refuses_a_read_only_target(conn):
+    # Renaming a temporary into place needs write permission on the directory, not on the target, so a read-only
+    # target would otherwise be replaced without an error.
+    execute(conn, SEED_MIXED)
+    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
+    before = read_server_file(SERVER_EXPORT_FILE)
+    if before is None:
+        pytest.skip(f"{SERVER_EXPORT_FILE} is not reachable from the test process (server on another filesystem)")
+    os.chmod(SERVER_EXPORT_FILE, 0o444)
+    try:
+        with pytest.raises(Exception, match="Cannot open"):
+            export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
+        assert read_server_file(SERVER_EXPORT_FILE) == before, "a refused export must not have touched the target"
+    finally:
+        os.chmod(SERVER_EXPORT_FILE, 0o644)
+
+
+def test_export_writes_through_a_symlink(conn):
+    # `latest.json -> dumps/<date>.json` is an ordinary layout; renaming over the link would replace it with a
+    # regular file and leave what it pointed at stale.
+    real = SERVER_EXPORT_FILE + ".real"
+    link = SERVER_EXPORT_FILE + ".link"
+    execute(conn, SEED_MIXED)
+    export(conn, call=f"export.json_data(ns, rs, '{real}', {{}})")
+    if read_server_file(real) is None:
+        pytest.skip(f"{real} is not reachable from the test process (server on another filesystem)")
+    try:
+        os.remove(real)
+        with open(real, "w", encoding="utf-8") as handle:
+            handle.write("stale")
+        os.symlink(real, link)
+        export(conn, call=f"export.json_data(ns, rs, '{link}', {{}})")
+        assert os.path.islink(link), "the symlink was replaced by a regular file"
+        assert read_server_file(real) != "stale", "the export did not land on what the link pointed at"
+    finally:
+        for path in (link, real):
+            if os.path.lexists(path):
+                os.remove(path)
+
+
+def test_concurrent_exports_to_one_path_leave_one_complete_file(conn):
+    # The temporary is named per writer. A shared name let two exports truncate, publish and delete each other's
+    # work, so the caller's path ended up holding a spliced, unparseable mix of both while one query said done.
+    execute(conn, SEED_MIXED)
+    other = mgclient.connect(host=MEMGRAPH_HOST, port=MEMGRAPH_PORT)
+    other.autocommit = True
+    try:
+        for _ in range(5):
+            thread = threading.Thread(
+                target=export,
+                args=(other,),
+                kwargs={"call": f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{jsonFormat: 'JSON'}})"},
+            )
+            thread.start()
+            export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{jsonFormat: 'JSON'}})")
+            thread.join()
+
+            written = read_server_file(SERVER_EXPORT_FILE)
+            if written is None:
+                pytest.skip(f"{SERVER_EXPORT_FILE} is not reachable (server on another filesystem)")
+            # Either export may win the rename, but the survivor must be one whole document, not a splice of both.
+            document = json.loads(written)
+            assert len(document["nodes"]) == 3 and len(document["rels"]) == 2
+            assert glob.glob(f"{SERVER_EXPORT_FILE}.*") == [], "a temporary was left behind"
+    finally:
+        other.close()
