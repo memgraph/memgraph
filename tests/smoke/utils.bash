@@ -17,7 +17,7 @@ MEMGRAPH_ENTERPRISE_LICENSE="${MEMGRAPH_ENTERPRISE_LICENSE:-provide_licanse_stri
 MEMGRAPH_ORGANIZATION_NAME="${MEMGRAPH_ORGANIZATION_NAME:-provide_organization_name_string}"
 MEMGRAPH_DOCKERHUB_IMAGE="${MEMGRAPH_DOCKERHUB_IMAGE:-provide_dockerhub_image_name}"
 MEMGRAPH_RC_DIRECT_DOCKER_IMAGE_ARM="${MEMGRAPH_RC_DIRECT_DOCKER_IMAGE_ARM:-provide_https_download_link}"
-MEMGRAPH_RC_DIRECT_DOCKER_IMAGE_X86="${MEMGRAPH_RC_DIRECT_DOCKER_IMAGE_X86:-provide_https_donwload_link}"
+MEMGRAPH_RC_DIRECT_DOCKER_IMAGE_X86="${MEMGRAPH_RC_DIRECT_DOCKER_IMAGE_X86:-provide_https_download_link}"
 
 print_help_and_exit_unsuccessfully() {
   echo "It's required to define the following environment variables:"

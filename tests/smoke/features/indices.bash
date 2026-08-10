@@ -3,7 +3,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../utils.bash"
 
 test_composite_indices() {
-  echo "FEATURE: Label Property Composit Index"
+  echo "FEATURE: Label Property Composite Index"
   run_query "CREATE INDEX ON :Label(prop1, prop2);"
   run_query "CREATE (:Label {prop1:0, prop2: 1});"
   run_query "EXPLAIN MATCH (n:Label {prop1:0, prop2: 1}) RETURN n;" | grep -E "ScanAllByLabelProperties \(n :Label \{prop1, prop2\}\)"

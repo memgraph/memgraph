@@ -135,8 +135,8 @@ test_k8s_help() {
 }
 
 cleanup_k8s_all() {
-  # NOTE: An attempt to cleanup any leftovers from kubectl port-forward...
-  pkill -9 kubectl || true
+  # NOTE: Leftover port-forwards, only the ones this suite starts.
+  pkill -9 -f "kubectl port-forward memgraph" || true
   if helm status myhadb > /dev/null 2>&1; then
     helm uninstall myhadb
   fi

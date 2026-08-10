@@ -21,7 +21,7 @@ done
 run_feature_tests() {
   __image_type="${1:-mage}"
   __deployment="${2:-docker}"
-  test_auth_roles
+  # NOTE: test_auth_roles runs in run_auth_feature_tests, once the users exist.
   test_basic_auth
   test_query
   test_query_modules $__image_type
