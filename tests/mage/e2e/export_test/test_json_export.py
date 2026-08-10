@@ -1,6 +1,11 @@
 """E2E tests for export.json_data / json_all / json_graph.
 
-Every expectation here was measured against the reference implementation; none of it is inferred.
+Expectations were measured against the reference implementation unless a comment says otherwise —
+the exceptions are the handful of cases where the two engines cannot agree because the *input*
+differs (Memgraph binds a trailing `Z` to the named zone `Etc/UTC`, and stores a duration as a
+single microsecond count) and the two config values we deliberately reject rather than coerce.
+Those are marked individually.
+
 Two things are deliberately not asserted:
 
 * Element *id values* differ per database, so ids are rewritten to first-appearance order
@@ -24,8 +29,13 @@ MEMGRAPH_HOST = os.environ.get("MEMGRAPH_HOST", "127.0.0.1")
 MEMGRAPH_PORT = int(os.environ.get("MEMGRAPH_PORT", "7687"))
 
 # Written by the *server*, so it must be a path the server can reach — pytest's tmp_path is a path on the machine
-# running the tests, which in CI is the host while Memgraph runs in a container with no shared mount.
-SERVER_EXPORT_FILE = "/tmp/mage_export_json_e2e.json"
+# running the tests, which in CI is the host while Memgraph runs in a container with no shared mount. The pid keeps
+# a native run from leaving a file behind that a later containerised run on the same host would compare against.
+SERVER_EXPORT_FILE = f"/tmp/mage_export_json_e2e_{os.getpid()}.json"
+
+# Always fails mid-write: every write succeeds in appearance but stores nothing, so a payload smaller than the
+# stream buffer only surfaces when the file is closed.
+UNWRITABLE_DEVICE = "/dev/full"
 
 # Collects every node and relationship in creation order, so the exported element order is
 # deterministic (the procedures preserve input list order).
@@ -96,11 +106,23 @@ def execute(conn, query):
     return [dict(zip(columns, row)) for row in rows]
 
 
+def id_space(element):
+    """`n` for a node, `r` for a relationship, None for anything else (a property map, say).
+
+    A top-level element carries `type`. An inlined endpoint does not, and is always a node — recognised by its key
+    set rather than by `labels`, which is absent when the node has none.
+    """
+    if "type" in element:
+        return {"node": "n", "relationship": "r"}.get(element["type"])
+    if "id" in element and set(element) <= {"id", "labels", "properties"}:
+        return "n"
+    return None
+
+
 def canonical_ids(element, seen):
     """Rewrites ids to first-appearance order. Nodes and relationships have separate id spaces."""
     if isinstance(element, dict):
-        # `labels` marks a node (top-level or an inlined endpoint); `label` marks a relationship.
-        prefix = "n" if "labels" in element else "r" if "label" in element else None
+        prefix = id_space(element)
         out = {}
         for key, value in element.items():
             if key == "id" and prefix:
@@ -269,6 +291,21 @@ def test_labels_are_sorted_and_empty_properties_omitted(conn):
     assert export(conn)["data"] == [{"type": "node", "id": "n0", "labels": ["Apple", "Mango", "Zebra"]}]
 
 
+@pytest.mark.parametrize("json_format", ["JSON_LINES", "JSON", "JSON_ID_AS_KEYS"])
+def test_unlabeled_node_omits_the_labels_key(conn, json_format):
+    # `labels` follows the same omit-when-empty rule as `properties`, for the element and for an inlined endpoint.
+    execute(conn, "CREATE (a {p: 1}), (b:Lbl {q: 2}), (a)-[:R]->(b)")
+    row = export(conn, f"{{stream: true, jsonFormat: '{json_format}'}}")
+    elements = row["data"] if json_format == "JSON_LINES" else [*row["data"]["nodes"], *row["data"]["rels"]]
+    if json_format == "JSON_ID_AS_KEYS":
+        elements = [*row["data"]["nodes"].values(), *row["data"]["rels"].values()]
+    bare, labelled, relationship = elements
+    assert bare == {"type": "node", "id": "n0", "properties": {"p": 1}}
+    assert labelled["labels"] == ["Lbl"]
+    assert relationship["start"] == {"id": "n0", "properties": {"p": 1}}, "endpoints follow the same rule"
+    assert relationship["end"]["labels"] == ["Lbl"]
+
+
 def test_write_node_properties_false_drops_node_and_endpoint_properties(conn):
     execute(conn, SEED_MIXED)
     row = export(conn, "{stream: true, writeNodeProperties: false}")
@@ -325,6 +362,9 @@ def test_use_types_is_accepted_and_inert(conn):
         # An offset-only zone has no name, so no bracket. A zero offset renders as `Z`.
         ("datetime('2020-01-01T10:00:00+02:00')", "2020-01-01T10:00+02:00"),
         ("datetime('2020-06-01T10:00:00-05:30')", "2020-06-01T10:00-05:30"),
+        # Diverges from the reference (`2020-01-01T10:00Z`) on the *input* side, not here: Memgraph binds a trailing
+        # `Z` to the named zone Etc/UTC, so the "bracket iff named" rule then applies. The `+00:00` row above, where
+        # both engines store an anonymous offset, is byte-identical on both.
         ("datetime('2020-01-01T10:00:00Z')", "2020-01-01T10:00Z[Etc/UTC]"),
         # Durations carry a sign per component and strip trailing fraction zeros.
         ("duration('PT0S')", "PT0S"),
@@ -400,6 +440,25 @@ def test_json_graph_takes_a_single_map(conn):
     assert row["data"] == ALL_ELEMENTS
 
 
+@pytest.mark.parametrize("key", ["relationships", "edges"])
+def test_json_graph_accepts_edges_as_an_alias_for_relationships(conn, key):
+    # `edges` is the key project() produces, and reading only `relationships` silently exported none of them.
+    execute(conn, SEED_MIXED)
+    row = export(conn, call=f"export.json_graph({{nodes: ns, {key}: rs}}, null, {{stream: true}})")
+    assert (row["nodes"], row["relationships"]) == (3, 2)
+    assert row["data"] == ALL_ELEMENTS
+
+
+def test_json_graph_composes_with_project(conn):
+    execute(conn, SEED_MIXED)
+    row = export(
+        conn,
+        call="export.json_graph({nodes: g.nodes, edges: g.edges}, null, {stream: true})",
+        collect="MATCH p = ()-[]->() WITH project(p) AS g ",
+    )
+    assert (row["nodes"], row["relationships"]) == (3, 2)
+
+
 @pytest.mark.parametrize("graph", ["{}", "{nodes: null, relationships: null}"])
 def test_json_graph_tolerates_missing_keys(conn, graph):
     execute(conn, SEED_MIXED)
@@ -449,7 +508,8 @@ def test_no_file_and_no_stream_discards_the_payload(conn):
         "{compression: 'gzip'}",
         "{charset: 'UTF-8'}",
         "{jsonFormat: 'NOPE'}",
-        # Unrecognized booleans throw rather than reading as false, so a typo cannot silently discard the payload.
+        # Deliberate divergence: the reference coerces an unrecognized value to *true*, so `stream: 'ture'` there
+        # quietly turns streaming on. A typo is reported rather than guessed at in either direction.
         "{stream: 'ture'}",
         "{writeNodeProperties: 2}",
     ],
@@ -466,13 +526,13 @@ def test_json_format_is_case_insensitive(conn, spelling):
     assert export(conn, f"{{stream: true, jsonFormat: {spelling}}}")["data"]["rels"] == []
 
 
-@pytest.mark.parametrize("truthy", ["true", "'true'", "'yes'", "1"])
+@pytest.mark.parametrize("truthy", ["true", "'true'", "'yes'", "1", "'1'"])
 def test_boolean_config_accepts_the_spellings_the_reference_coerces(conn, truthy):
     execute(conn, SEED_MIXED)
     assert export(conn, f"{{stream: {truthy}}}")["data"] == ALL_ELEMENTS
 
 
-@pytest.mark.parametrize("falsy", ["false", "'false'", "'no'", "0"])
+@pytest.mark.parametrize("falsy", ["false", "'false'", "'no'", "0", "'0'", "''"])
 def test_falsy_config_spellings_suppress_properties(conn, falsy):
     execute(conn, "CREATE (:Product {sku: 'S1'})")
     row = export(conn, f"{{stream: true, writeNodeProperties: {falsy}}}")
@@ -483,3 +543,42 @@ def test_unwritable_path_is_reported(conn):
     execute(conn, SEED_MIXED)
     with pytest.raises(Exception):
         export(conn, call="export.json_data(ns, rs, '/proc/nope/x.json', {})")
+
+
+def test_write_failure_after_open_is_reported(conn):
+    # The payload here is far smaller than the stream buffer, so the failure only becomes visible when the file is
+    # closed. Reporting `done: true` for it would mean a silently empty export — and the sink is truncated first,
+    # so the previous export is already gone by then.
+    execute(conn, SEED_MIXED)
+    with pytest.raises(Exception):
+        export(conn, call=f"export.json_data(ns, rs, '{UNWRITABLE_DEVICE}', {{}})")
+
+
+def test_empty_file_argument_means_no_file(conn):
+    execute(conn, SEED_MIXED)
+    row = export(conn, call="export.json_data(ns, rs, '', {stream: true})")
+    assert row["file"] == "", "the file column still echoes the argument"
+    assert row["data"] == ALL_ELEMENTS, "an empty path is not a path; the payload still streams"
+
+
+def test_null_config_is_accepted(conn):
+    execute(conn, SEED_MIXED)
+    row = export(conn, call="export.json_data(ns, rs, null, null)")
+    assert (row["nodes"], row["relationships"]) == (3, 2)
+    assert row["data"] is None
+
+
+def test_non_finite_doubles_serialize_as_strings(conn):
+    # JSON has no non-finite literals, and emitting null would be indistinguishable from a stored null.
+    execute(conn, "CREATE (:N {pos: 1e308 * 10.0, neg: -1e308 * 10.0, nan: 0.0 / 0.0})")
+    assert export(conn)["data"][0]["properties"] == {"pos": "Infinity", "neg": "-Infinity", "nan": "NaN"}
+
+
+def test_enum_property_is_refused(conn):
+    # The property path cannot resolve enum names, so the only thing this could write is "::".
+    # Enums are not stored data and survive the per-test wipe, so creating one twice is an error, not a fresh start.
+    if "ExportTestEnum" not in [row["Enum Name"] for row in execute(conn, "SHOW ENUMS")]:
+        execute(conn, "CREATE ENUM ExportTestEnum VALUES { Active, Done }")
+    execute(conn, "CREATE (:E {v: ExportTestEnum::Active})")
+    with pytest.raises(Exception):
+        export(conn)
