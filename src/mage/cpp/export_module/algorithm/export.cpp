@@ -15,7 +15,6 @@
 #include <cctype>
 #include <chrono>
 #include <cstdint>
-#include <fstream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -126,15 +125,9 @@ Options ParseOptions(const mgp::Value &file_arg, const mgp::Value &config_arg) {
   return options;
 }
 
-void WriteFile(const std::string &path, const std::string &payload) {
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  if (!out) throw mgp::ValueException(fmt::format("Cannot open '{}' for writing", path));
-  out << payload;
-  // Closed explicitly: anything still buffered is flushed here, and the destructor could not report a failure. Without
-  // this, a payload smaller than the stream buffer reports success on a full disk having written nothing.
-  out.close();
-  if (!out) throw mgp::ValueException(fmt::format("Failed writing to '{}'", path));
-}
+// `data` carries the payload only when there is no file and streaming was asked for; a file argument wins over
+// `stream` (measured). This also decides whether the writer needs to retain anything at all.
+bool Streaming(const Options &options) { return !options.file && options.stream; }
 
 // Non-owning view of one argument. `mgp::List(args)` would deep-copy the entire argument list — every node and
 // relationship in it included — before a byte is serialized, and `Value::ValueList()` would copy the element list a
@@ -196,16 +189,13 @@ void InsertNullable(mgp_result_record *record, const char *field, const std::opt
   mgp::result_record_insert(record, field, wrapped.ptr());
 }
 
-// Renders the payload to its sink and emits the 12-column row. `data` carries the payload only when there is no file
-// and streaming was asked for; a file argument wins over `stream` (measured).
-void EmitResult(mgp_result *result, JsonWriter &writer, const Options &options, std::string_view source_prefix,
+// Closes the writer's sink and emits the 12-column row. The elements were serialized as they arrived, so this only
+// finishes the output — for a file that means flushing and renaming the temporary into place.
+void EmitResult(mgp_result *result, JsonWriter &&writer, const Options &options, std::string_view source_prefix,
                 std::chrono::steady_clock::time_point started_at) {
-  const bool streaming = !options.file && options.stream;
-  // Rendered only when it has somewhere to go: with neither a file nor streaming the row carries counters alone, and
-  // those do not come from the payload.
+  auto retained = std::move(writer).Finish();
   std::optional<std::string> payload;
-  if (options.file || streaming) payload = std::move(writer).Dump();
-  if (options.file) WriteFile(*options.file, *payload);
+  if (Streaming(options)) payload = std::move(retained);
 
   const auto elapsed =
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started_at);
@@ -224,8 +214,6 @@ void EmitResult(mgp_result *result, JsonWriter &writer, const Options &options, 
   record.Insert(kReturnBatchSize, kBatchSize);
   record.Insert(kReturnBatches, kBatches);
   record.Insert(kReturnDone, true);
-  // `data` carries the payload only when it was streamed; a file sink reports null.
-  if (!streaming) payload.reset();
   InsertNullable(raw_record, kReturnData, payload);
 }
 
@@ -239,10 +227,10 @@ void JsonData(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp
   try {
     const auto options = ParseOptions(Argument(args, 2), Argument(args, 3));
     const mgp::Graph graph{memgraph_graph};
-    JsonWriter writer(options.write);
+    JsonWriter writer(options.write, options.file, Streaming(options));
     AddNodes(writer, graph, OptionalList(Argument(args, 0), kArgumentNodes), kArgumentNodes);
     AddRelationships(writer, graph, OptionalList(Argument(args, 1), kArgumentRelationships), kArgumentRelationships);
-    EmitResult(result, writer, options, kSourcePrefixData, started_at);
+    EmitResult(result, std::move(writer), options, kSourcePrefixData, started_at);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
   }
@@ -256,7 +244,7 @@ void JsonAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_
   try {
     const auto options = ParseOptions(Argument(args, 0), Argument(args, 1));
     const mgp::Graph graph{memgraph_graph};
-    JsonWriter writer(options.write);
+    JsonWriter writer(options.write, options.file, Streaming(options));
     // Unlike json_data/json_graph the input here is unbounded, so honour cancellation and the query timeout.
     for (const auto node : graph.Nodes()) {
       graph.CheckMustAbort();
@@ -266,7 +254,7 @@ void JsonAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_
       graph.CheckMustAbort();
       writer.AddRelationship(relationship);
     }
-    EmitResult(result, writer, options, kSourcePrefixDatabase, started_at);
+    EmitResult(result, std::move(writer), options, kSourcePrefixDatabase, started_at);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
   }
@@ -283,7 +271,7 @@ void JsonGraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
     if (!graph_arg.IsMap()) throw mgp::ValueException("Argument 'graph' must be a map");
     auto *graph_map = mgp::value_get_map(graph_arg.ptr());
     const mgp::Graph graph{memgraph_graph};
-    JsonWriter writer(options.write);
+    JsonWriter writer(options.write, options.file, Streaming(options));
     const char *relationships_key = nullptr;
     const auto relationships = GraphRelationships(graph_map, relationships_key);
     auto *nodes = mgp::map_at(graph_map, kGraphKeyNodes);
@@ -293,7 +281,7 @@ void JsonGraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
              OptionalList(nodes != nullptr ? mgp::Value(mgp::ref_type, nodes) : mgp::Value(), kGraphKeyNodes),
              kGraphKeyNodes);
     AddRelationships(writer, graph, OptionalList(relationships, relationships_key), relationships_key);
-    EmitResult(result, writer, options, kSourcePrefixGraph, started_at);
+    EmitResult(result, std::move(writer), options, kSourcePrefixGraph, started_at);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
   }

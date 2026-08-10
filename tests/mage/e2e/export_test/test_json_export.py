@@ -547,11 +547,33 @@ def test_unwritable_path_is_reported(conn):
 
 def test_write_failure_after_open_is_reported(conn):
     # The payload here is far smaller than the stream buffer, so the failure only becomes visible when the file is
-    # closed. Reporting `done: true` for it would mean a silently empty export — and the sink is truncated first,
-    # so the previous export is already gone by then.
+    # closed. Reporting `done: true` for it would mean a silently empty export.
+    # This also covers writing to a device: those cannot be renamed into place, so they are written directly rather
+    # than through the temporary a regular file gets.
     execute(conn, SEED_MIXED)
     with pytest.raises(Exception):
         export(conn, call=f"export.json_data(ns, rs, '{UNWRITABLE_DEVICE}', {{}})")
+
+
+def test_failed_export_leaves_the_previous_file_intact(conn):
+    # The elements are serialized as they are written, so a failure part-way through must not be able to leave a
+    # truncated file behind: the export goes to a temporary that is renamed into place only on success.
+    execute(conn, SEED_MIXED)
+    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
+    good = read_server_file(SERVER_EXPORT_FILE)
+    if good is None:
+        pytest.skip(f"{SERVER_EXPORT_FILE} is not reachable from the test process (server on another filesystem)")
+
+    # An enum property is refused mid-export, after some elements have already been written.
+    if "ExportTestEnum" not in [row["Enum Name"] for row in execute(conn, "SHOW ENUMS")]:
+        execute(conn, "CREATE ENUM ExportTestEnum VALUES { Active, Done }")
+    execute(conn, "MATCH (n) DETACH DELETE n")
+    execute(conn, "CREATE (:Plain {a: 1}), (:WithEnum {v: ExportTestEnum::Active})")
+    with pytest.raises(Exception):
+        export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
+
+    assert read_server_file(SERVER_EXPORT_FILE) == good, "the previous export survives a failed one"
+    assert read_server_file(SERVER_EXPORT_FILE + ".part") is None, "no partial file is left behind"
 
 
 def test_empty_file_argument_means_no_file(conn):

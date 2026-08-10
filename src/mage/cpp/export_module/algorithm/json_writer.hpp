@@ -12,9 +12,12 @@
 #pragma once
 
 #include <cstdint>
+#include <fstream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <mgp.hpp>
 #include <nlohmann/json.hpp>
@@ -57,19 +60,31 @@ std::string LocalDateTimeToString(const mgp::LocalDateTime &local_date_time);
 std::string ZonedDateTimeToString(const mgp::ZonedDateTime &zoned_date_time);
 std::string DurationToString(const mgp::Duration &duration);
 
-// Accumulates serialized elements and renders them in the configured shape. Nodes and relationships are kept apart
-// because JSON and JSON_ID_AS_KEYS group them under separate "nodes"/"rels" keys.
+// Serializes elements straight to their sink as they arrive, so peak memory is one element rather than the whole
+// export — the accumulated document this replaced measured about 5x the rendered payload.
+//
+// The two object shapes wrap their elements in "nodes"/"rels" groups, which streaming can only produce because every
+// caller adds all of its nodes before any of its relationships. AddRelationship closes the node group, so adding a
+// node afterwards is rejected rather than silently producing malformed JSON.
 class JsonWriter {
  public:
-  explicit JsonWriter(WriteConfig config) : config_(config) {}
+  // With `file` the payload is streamed to that path, via a temporary renamed into place on success, so a failure
+  // part-way through leaves any previous export intact. Otherwise `retain` keeps the payload in memory for the `data`
+  // column. With neither, nothing is serialized at all and only the counters are produced.
+  JsonWriter(WriteConfig config, std::optional<std::string> file, bool retain);
+  JsonWriter(const JsonWriter &) = delete;
+  JsonWriter &operator=(const JsonWriter &) = delete;
+  JsonWriter(JsonWriter &&) = delete;
+  JsonWriter &operator=(JsonWriter &&) = delete;
+  ~JsonWriter();
 
   void AddNode(const mgp::Node &node);
   void AddRelationship(const mgp::Relationship &relationship);
 
-  // Serialized payload in the configured format; "" when nothing was added under JSON_LINES, an empty wrapper under
-  // the two object shapes. Consumes the accumulated elements — hence rvalue-qualified, so a second call cannot
-  // compile. The counters stay valid afterwards.
-  std::string Dump() &&;
+  // Closes the open groups, commits the file if there is one, and returns the retained payload: "" when nothing was
+  // retained or when nothing was added under JSON_LINES, an empty wrapper under the two object shapes. Rvalue-
+  // qualified because it finishes the sink; the counters stay valid afterwards.
+  std::string Finish() &&;
 
   std::uint64_t NodeCount() const { return node_count_; }
 
@@ -78,9 +93,27 @@ class JsonWriter {
   std::uint64_t PropertyCount() const { return property_count_; }
 
  private:
+  enum class Group : std::uint8_t { kNone, kNodes, kRelationships };
+
+  // True when the payload has anywhere to go; when it does not, building the elements would be pure waste.
+  bool Serializing() const { return out_.is_open() || retain_; }
+
+  void Emit(std::string_view bytes);
+  void EnterGroup(Group group);
+  void EmitElement(const Json &element);
+
   WriteConfig config_;
-  Json nodes_ = Json::array();
-  Json relationships_ = Json::array();
+  std::optional<std::string> file_;
+  std::string temp_path_;
+  std::ofstream out_;
+  bool retain_;
+  std::string payload_;
+  Group group_{Group::kNone};
+  bool wrote_any_{false};
+  bool group_has_elements_{false};
+  // JSON_ID_AS_KEYS only: ids are object keys there, so a duplicated element can only be one entry. Holds ids, not
+  // documents, and is cleared between groups because nodes and relationships have separate id spaces.
+  std::unordered_set<std::string> emitted_ids_;
   std::uint64_t node_count_{0};
   std::uint64_t relationship_count_{0};
   std::uint64_t property_count_{0};
