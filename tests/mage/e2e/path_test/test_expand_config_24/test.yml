@@ -1,5 +1,6 @@
-# Reaching a given depth means re-walking from the start, so a mode that marks a node or relationship
-# for the whole traversal would block the next pass. It is reported rather than quietly losing paths.
+# The expand walk can only honour the two path-scoped modes: it reaches a depth by re-walking from the
+# start, so a mode that marked a node or relationship for the whole traversal would block the next pass.
+# A mode it cannot honour is named as unrecognized rather than silently answered as a different one.
 query: >
   MATCH (a:Node {name: "A"})
   CALL path.expand_config(a, {maxHops: 2, uniqueness: 'NODE_GLOBAL'})
@@ -7,4 +8,4 @@ query: >
   RETURN result;
 
 exception_contains: >
-  A global uniqueness mode needs 'bfs: false'
+  Unrecognized uniqueness 'NODE_GLOBAL'. Expected one of: RELATIONSHIP_PATH, NODE_PATH.

@@ -1,10 +1,14 @@
-# The subgraph walk is breadth-first by construction, which is what makes a node's hop count its
-# shortest distance. Accepting bfs:false would silently ignore it.
+# `bfs` and `uniqueness` describe what this walk already does -- it is breadth-first, so a node's hop
+# count is its shortest distance, and it visits each node once. Any value for either is accepted and
+# ignored, including one that contradicts the walk, rather than failing a query for asking for the
+# behaviour it was going to get.
 query: >
   MATCH (a:Node {name: "A"})
-  CALL path.subgraph_nodes(a, {maxHops: 2, bfs: false})
+  CALL path.subgraph_nodes(a, {maxHops: 2, bfs: false, uniqueness: 'NODE_PATH'})
   YIELD nodes
-  RETURN nodes;
+  RETURN nodes.name AS name ORDER BY name;
 
-exception_contains: >
-  Config key 'bfs' cannot be false here
+output:
+  - name: "A"
+  - name: "B"
+  - name: "C"

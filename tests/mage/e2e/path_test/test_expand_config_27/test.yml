@@ -1,0 +1,11 @@
+# An unrestricted walk is not offered: it would have to forbid re-crossing the relationship it just
+# arrived on to terminate at all, and a walk that forbids nothing ping-pongs across a single
+# relationship until the depth cap stops it.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {maxHops: 2, uniqueness: 'NONE'})
+  YIELD result
+  RETURN result;
+
+exception_contains: >
+  Unrecognized uniqueness 'NONE'. Expected one of: RELATIONSHIP_PATH, NODE_PATH.

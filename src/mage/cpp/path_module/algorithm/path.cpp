@@ -52,8 +52,11 @@ Path::PathHelper::PathHelper(const mgp::List &labels, const mgp::List &relations
 
 namespace {
 
-// Every config key the path procedures honour. An unrecognized key is rejected rather than ignored:
-// silently dropping something like `limit` or `endNodes` returns a different result set than was asked for.
+// Every config key the path procedures accept. An unrecognized key is rejected rather than ignored:
+// silently dropping something like `limit` or `endNodes` returns a different result set than was asked
+// for. A few keys are accepted and ignored instead, because a walk here has only the one behaviour they
+// could ask for: `bfs` and `uniqueness` on the subgraph procedures, and `beginSequenceAtStart`, which
+// only means something alongside a relationship `sequence` that these procedures do not implement.
 constexpr std::array<std::string_view, 17> kConfigKeys{"minHops",
                                                        "maxHops",
                                                        "minLevel",
@@ -156,7 +159,10 @@ mgp::List FilterEntries(const mgp::Value &value, std::string_view key) {
   return entries;
 }
 
-// Accepts the uniqueness mode by name, case-insensitively.
+// Accepts the uniqueness mode by name, case-insensitively. Only the two path-scoped modes: the expand
+// walk reaches a depth by re-walking from the start, so a mode that marked a node or relationship for
+// the whole traversal would block the next pass. An unsupported mode is named rather than silently
+// answered as a different one.
 Path::Uniqueness ParseUniqueness(std::string_view name) {
   std::string upper;
   upper.reserve(name.size());
@@ -166,13 +172,9 @@ Path::Uniqueness ParseUniqueness(std::string_view name) {
 
   if (upper == "RELATIONSHIP_PATH") return Path::Uniqueness::kRelationshipPath;
   if (upper == "NODE_PATH") return Path::Uniqueness::kNodePath;
-  if (upper == "RELATIONSHIP_GLOBAL") return Path::Uniqueness::kRelationshipGlobal;
-  if (upper == "NODE_GLOBAL") return Path::Uniqueness::kNodeGlobal;
-  if (upper == "NONE") return Path::Uniqueness::kNone;
 
   throw mgp::ValueException("Unrecognized uniqueness '" + std::string(name) +
-                            "'. Expected one of: RELATIONSHIP_PATH, NODE_PATH, RELATIONSHIP_GLOBAL, "
-                            "NODE_GLOBAL, NONE.");
+                            "'. Expected one of: RELATIONSHIP_PATH, NODE_PATH.");
 }
 
 // Collects node IDs from a node, an integer ID, or a list thereof. A null value collects nothing.
@@ -217,10 +219,15 @@ Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph, co
   require_type(min_hops_value.key, min_hops_value.value, mgp::Type::Int, "an integer");
   require_type(max_hops_value.key, max_hops_value.value, mgp::Type::Int, "an integer");
   require_type("filterStartNode", config.At("filterStartNode"), mgp::Type::Bool, "a boolean");
-  require_type("beginSequenceAtStart", config.At("beginSequenceAtStart"), mgp::Type::Bool, "a boolean");
-  require_type("bfs", config.At("bfs"), mgp::Type::Bool, "a boolean");
   require_type("limit", config.At("limit"), mgp::Type::Int, "an integer");
-  require_type("uniqueness", config.At("uniqueness"), mgp::Type::String, "a string");
+  // `bfs` and `uniqueness` only say something the expand walk can act on, so only it checks them. The
+  // subgraph walk is a queue breadth-first search that visits each node once, which is what both keys
+  // can ask for and all they can ask for -- so whatever was passed is accepted and ignored, rather
+  // than failing a query for describing the behaviour it was going to get anyway.
+  if (kind == ProcedureKind::kExpand) {
+    require_type("bfs", config.At("bfs"), mgp::Type::Bool, "a boolean");
+    require_type("uniqueness", config.At("uniqueness"), mgp::Type::String, "a string");
+  }
 
   if (!max_hops_value.value.IsNull()) {
     config_.max_hops = MaxHopsOrNoLimit(max_hops_value.value.ValueInt());
@@ -249,38 +256,18 @@ Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph, co
   value = config.At("filterStartNode");
   config_.filter_start_node = value.IsNull() ? false : value.ValueBool();
 
-  value = config.At("beginSequenceAtStart");
-  config_.begin_sequence_at_start = value.IsNull() ? true : value.ValueBool();
-
-  value = config.At("bfs");
-  config_.bfs = value.IsNull() ? true : value.ValueBool();
-  // The subgraph walk is breadth-first by construction -- a node's hop count is its shortest distance,
-  // which is what makes minHops meaningful there. Accepting bfs:false would silently ignore it, which
-  // is the failure this module's key validation exists to prevent, so say so instead.
-  if (kind == ProcedureKind::kSubgraph && !config_.bfs) {
-    throw mgp::ValueException("Config key 'bfs' cannot be false here: the subgraph traversal is always breadth-first.");
-  }
-
-  value = config.At("uniqueness");
-  if (!value.IsNull()) {
-    config_.uniqueness = ParseUniqueness(value.ValueString());
-  } else if (kind == ProcedureKind::kSubgraph) {
+  if (kind == ProcedureKind::kSubgraph) {
+    // Neither key is read by the subgraph walk: it is always breadth-first, so a node's hop count is
+    // its shortest distance, and it always visits a node once.
     config_.uniqueness = Uniqueness::kNodeGlobal;
-  }
-  // A subgraph is a set of distinct nodes, so visiting one twice has no meaning here. Any other mode
-  // would have to be silently ignored, which is the failure the key validation exists to prevent.
-  if (kind == ProcedureKind::kSubgraph && config_.uniqueness != Uniqueness::kNodeGlobal) {
-    throw mgp::ValueException(
-        "Config key 'uniqueness' must be 'NODE_GLOBAL' here: the subgraph traversal visits each node once.");
-  }
-  // The breadth-first driver reaches a given depth by re-walking from the start, so anything it marked
-  // for good would block the next pass from walking back through it. Say so rather than quietly
-  // returning a subset of the paths.
-  if (kind == ProcedureKind::kExpand && config_.bfs && !IsPathUniqueness(config_.uniqueness) &&
-      config_.uniqueness != Uniqueness::kNone) {
-    throw mgp::ValueException(
-        "A global uniqueness mode needs 'bfs: false'; breadth-first expansion supports "
-        "'RELATIONSHIP_PATH', 'NODE_PATH' and 'NONE'.");
+  } else {
+    value = config.At("bfs");
+    config_.bfs = value.IsNull() ? true : value.ValueBool();
+
+    value = config.At("uniqueness");
+    if (!value.IsNull()) {
+      config_.uniqueness = ParseUniqueness(value.ValueString());
+    }
   }
 
   ParseNodeFilters(config, graph);
@@ -331,7 +318,10 @@ Path::LabelBools Path::PathHelper::GetLabelBools(const mgp::Node &node) const {
 // The label filter on its own. First match wins, in this order: deny, terminator, end, allow.
 Path::Evaluation Path::PathHelper::EvaluateLabels(const mgp::Node &node, const int64_t depth) const {
   // An unfiltered start node bypasses the label filter entirely -- its own labels are never consulted.
-  if (depth == 0 && (!config_.filter_start_node || !config_.begin_sequence_at_start)) {
+  // `filterStartNode` is the only thing that decides this, here and in the two filters evaluated
+  // alongside: one key answering for another would make a start node filtered by identity and
+  // unfiltered by label in the same call.
+  if (depth == 0 && !config_.filter_start_node) {
     return {.include = !EndNodesOnly(), .expand = true};
   }
 
@@ -685,16 +675,12 @@ int64_t Path::PathExpand::UniquenessKey(const mgp::Relationship &relationship, c
 
 void Path::PathExpand::ExpandPath(mgp::Path &path, const mgp::Relationship &relationship, int64_t path_size,
                                   const int64_t uniqueness_key) {
-  const auto uniqueness = path_data_.helper_.GetUniqueness();
   path.Expand(relationship);
-  if (uniqueness != Uniqueness::kNone) {
-    path_data_.visited_.insert(uniqueness_key);
-  }
+  path_data_.visited_.insert(uniqueness_key);
   DFS(path, path_size + 1);
-  // Released on the way back out only for the per-path modes; a global mode keeps it marked.
-  if (IsPathUniqueness(uniqueness)) {
-    path_data_.visited_.erase(uniqueness_key);
-  }
+  // Both modes this walk accepts are path-scoped, so what it marked is released on the way back out --
+  // the node or relationship stays available to every other path.
+  path_data_.visited_.erase(uniqueness_key);
   path.Pop();
 }
 
@@ -716,7 +702,7 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationshi
 
     const int64_t uniqueness_key = UniquenessKey(relationship, outgoing);
     if ((wanted_direction == RelDirection::kNone && !path_data_.helper_.AnyDirected(outgoing)) ||
-        (path_data_.helper_.GetUniqueness() != Uniqueness::kNone && path_data_.visited_.contains(uniqueness_key))) {
+        path_data_.visited_.contains(uniqueness_key)) {
       continue;
     }
 
@@ -774,13 +760,12 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
 void Path::PathExpand::StartAlgorithm(const mgp::Node &node) {
   mgp::Path path = mgp::Path(node);
   // A node-keyed uniqueness rule has to count the start node too, or a walk could return to it.
-  const auto uniqueness = path_data_.helper_.GetUniqueness();
-  const bool mark_start = IsNodeUniqueness(uniqueness);
+  const bool mark_start = IsNodeUniqueness(path_data_.helper_.GetUniqueness());
   if (mark_start) {
     path_data_.visited_.insert(node.Id().AsInt());
   }
   DFS(path, 0);
-  if (mark_start && IsPathUniqueness(uniqueness)) {
+  if (mark_start) {
     path_data_.visited_.erase(node.Id().AsInt());
   }
 }
@@ -928,10 +913,8 @@ void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int6
     const std::string_view type = relationship.Type();
     const auto wanted_direction = path_data_.helper_.GetDirection(type);
 
-    if (path_data_.helper_.IsNotStartOrFilterStartRel(pair.second == 0)) {
-      if (wanted_direction == RelDirection::kNone && !path_data_.helper_.AnyDirected(outgoing)) {
-        continue;
-      }
+    if (wanted_direction == RelDirection::kNone && !path_data_.helper_.AnyDirected(outgoing)) {
+      continue;
     }
 
     if (wanted_direction == RelDirection::kAny || curr_direction == wanted_direction ||

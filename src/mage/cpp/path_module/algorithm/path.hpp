@@ -115,19 +115,17 @@ struct LabelBoolsStatus {
 
 enum class RelDirection { kNone = -1, kAny = 0, kIncoming = 1, kOutgoing = 2 };
 
-// What may not repeat during a walk. The `*Path` forms forbid a repeat within the current path only,
-// so a node or relationship can still appear in other paths; the `*Global` forms forbid it for the
-// whole traversal. kNone allows everything, and relies on the upper hop bound to terminate.
-enum class Uniqueness { kRelationshipPath, kNodePath, kRelationshipGlobal, kNodeGlobal, kNone };
+// What may not repeat during a walk. Both `*Path` forms forbid a repeat within the current path only,
+// so a node or relationship can still appear in other paths; what a walk marks is released again when
+// it backtracks. Those two are what the expand walk offers, and the only values it accepts: it reaches
+// a depth by re-walking from the start, so anything marked for the whole traversal would block the next
+// pass. kNodeGlobal is the subgraph walk's own rule, not something a caller can select -- it records
+// what that walk does rather than configuring it.
+enum class Uniqueness { kRelationshipPath, kNodePath, kNodeGlobal };
 
 // Whether a uniqueness mode is keyed on nodes rather than relationships.
 [[nodiscard]] constexpr bool IsNodeUniqueness(Uniqueness uniqueness) {
   return uniqueness == Uniqueness::kNodePath || uniqueness == Uniqueness::kNodeGlobal;
-}
-
-// Whether what a walk marked is released again when it backtracks.
-[[nodiscard]] constexpr bool IsPathUniqueness(Uniqueness uniqueness) {
-  return uniqueness == Uniqueness::kRelationshipPath || uniqueness == Uniqueness::kNodePath;
 }
 
 // Which procedure a config map was handed to. The two families accept different keys and honour
@@ -174,7 +172,6 @@ struct Config {
   bool any_incoming = false;
   bool any_outgoing = false;
   bool filter_start_node = false;
-  bool begin_sequence_at_start = true;
   // Emit every path of one length before any longer one, so a `limit` returns the shortest paths
   // rather than whichever branch happened to be walked first. Only the config form defaults to this:
   // the positional `expand` cannot express `bfs`, and the breadth-first driver costs a re-walk per
@@ -191,10 +188,6 @@ class PathHelper {
   LabelBools GetLabelBools(const mgp::Node &node) const;
 
   bool AnyDirected(bool outgoing) const { return outgoing ? config_.any_outgoing : config_.any_incoming; }
-
-  bool IsNotStartOrFiltersStartNode(bool is_start) const { return (config_.filter_start_node || !is_start); }
-
-  bool IsNotStartOrFilterStartRel(bool is_start) const { return (config_.begin_sequence_at_start || !is_start); }
 
   // The whole verdict on a node at `depth`: whether to return it and whether to walk on through it.
   [[nodiscard]] Evaluation Evaluate(const mgp::Node &node, int64_t depth) const;
