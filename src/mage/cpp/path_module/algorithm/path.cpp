@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <limits>
 #include <ranges>
 #include <string>
@@ -42,13 +43,18 @@ Path::PathHelper::PathHelper(const mgp::List &labels, const mgp::List &relations
   ParseRelationships(relationships);
   config_.min_hops = min_hops;
   config_.max_hops = MaxHopsOrNoLimit(max_hops);
+  // This form has no `bfs` argument, so a caller who wanted depth-first could not ask for it. The
+  // breadth-first driver re-walks once per depth, which costs a factor of the depth on a chain-shaped
+  // graph -- so defaulting it on here would slow down every existing caller with no way out. The
+  // config form, where `bfs` can be set, keeps the breadth-first default.
+  config_.bfs = false;
 }
 
 namespace {
 
 // Every config key the path procedures honour. An unrecognized key is rejected rather than ignored:
 // silently dropping something like `limit` or `endNodes` returns a different result set than was asked for.
-constexpr std::array<std::string_view, 13> kConfigKeys{"minHops",
+constexpr std::array<std::string_view, 17> kConfigKeys{"minHops",
                                                        "maxHops",
                                                        "minLevel",
                                                        "maxLevel",
@@ -57,6 +63,10 @@ constexpr std::array<std::string_view, 13> kConfigKeys{"minHops",
                                                        "filterStartNode",
                                                        "beginSequenceAtStart",
                                                        "bfs",
+                                                       "limit",
+                                                       "uniqueness",
+                                                       "endNodes",
+                                                       "terminatorNodes",
                                                        "allowlistNodes",
                                                        "denylistNodes",
                                                        "whitelistNodes",
@@ -80,18 +90,25 @@ void ValidateConfigKeys(const mgp::Map &config) {
   }
 }
 
+// A config value together with the key the caller actually wrote, so an error about it can name that
+// key rather than whichever of the two spellings the code happens to treat as canonical.
+struct AliasedConfigValue {
+  mgp::Value value;
+  std::string_view key;
+};
+
 // Reads `key`, falling back to its alias. Supplying both is ambiguous, so it throws instead of picking one.
-mgp::Value AliasedValue(const mgp::Map &config, std::string_view key, std::string_view alias) {
+AliasedConfigValue AliasedValue(const mgp::Map &config, std::string_view key, std::string_view alias) {
   auto value = config.At(key);
   auto alias_value = config.At(alias);
   if (value.IsNull()) {
-    return alias_value;
+    return {std::move(alias_value), alias};
   }
   if (!alias_value.IsNull()) {
     throw mgp::ValueException("Config keys '" + std::string(key) + "' and '" + std::string(alias) +
                               "' mean the same thing; supply only one.");
   }
-  return value;
+  return {std::move(value), key};
 }
 
 int64_t NodeFilterId(const mgp::Value &value, const mgp::Graph &graph, std::string_view type_error) {
@@ -110,7 +127,57 @@ int64_t NodeFilterId(const mgp::Value &value, const mgp::Graph &graph, std::stri
   throw mgp::ValueException(std::string(type_error));
 }
 
+// A filter may be given one entry per list element, or as a single '|'-separated string. Empty pieces
+// are dropped, so a trailing separator is not an error and an all-blank filter means "no filter".
+mgp::List FilterEntries(const mgp::Value &value, std::string_view key) {
+  if (value.IsNull()) {
+    return mgp::List{};
+  }
+  if (value.IsList()) {
+    return value.ValueList();
+  }
+  if (!value.IsString()) {
+    throw mgp::ValueException("Config key '" + std::string(key) + "' needs to be a string or a list of strings.");
+  }
+
+  const std::string_view text = value.ValueString();
+  mgp::List entries;
+  for (size_t start = 0; start <= text.size();) {
+    const size_t separator = text.find('|', start);
+    const size_t end = separator == std::string_view::npos ? text.size() : separator;
+    if (end > start) {
+      entries.AppendExtend(mgp::Value(std::string(text.substr(start, end - start))));
+    }
+    if (separator == std::string_view::npos) {
+      break;
+    }
+    start = separator + 1;
+  }
+  return entries;
+}
+
+// Accepts the uniqueness mode by name, case-insensitively.
+Path::Uniqueness ParseUniqueness(std::string_view name) {
+  std::string upper;
+  upper.reserve(name.size());
+  for (const char character : name) {
+    upper.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(character))));
+  }
+
+  if (upper == "RELATIONSHIP_PATH") return Path::Uniqueness::kRelationshipPath;
+  if (upper == "NODE_PATH") return Path::Uniqueness::kNodePath;
+  if (upper == "RELATIONSHIP_GLOBAL") return Path::Uniqueness::kRelationshipGlobal;
+  if (upper == "NODE_GLOBAL") return Path::Uniqueness::kNodeGlobal;
+  if (upper == "NONE") return Path::Uniqueness::kNone;
+
+  throw mgp::ValueException("Unrecognized uniqueness '" + std::string(name) +
+                            "'. Expected one of: RELATIONSHIP_PATH, NODE_PATH, RELATIONSHIP_GLOBAL, "
+                            "NODE_GLOBAL, NONE.");
+}
+
 // Collects node IDs from a node, an integer ID, or a list thereof. A null value collects nothing.
+// A caller-supplied list can be arbitrarily long and each integer entry costs a lookup, so this polls
+// too -- otherwise a large node filter is a stretch of query time that nothing can interrupt.
 std::unordered_set<int64_t> CollectNodeIds(const mgp::Value &value, const mgp::Graph &graph) {
   std::unordered_set<int64_t> ids;
   if (value.IsNull()) {
@@ -120,7 +187,9 @@ std::unordered_set<int64_t> CollectNodeIds(const mgp::Value &value, const mgp::G
     ids.insert(NodeFilterId(value, graph, "Node filters need to be a node, an integer ID, or a list thereof."));
     return ids;
   }
+  uint64_t abort_poll_counter = 0;
   for (const auto &item : value.ValueList()) {
+    Path::PollAbort(graph, abort_poll_counter);
     ids.insert(NodeFilterId(item, graph, "Node filter list entries need to be a node or an integer ID."));
   }
   return ids;
@@ -128,7 +197,7 @@ std::unordered_set<int64_t> CollectNodeIds(const mgp::Value &value, const mgp::G
 
 }  // namespace
 
-Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph) {
+Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph, const ProcedureKind kind) {
   ValidateConfigKeys(config);
 
   // Naming the offending key beats a blanket "see the documentation": with a dozen keys accepted, the
@@ -144,35 +213,38 @@ Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph) {
   const auto min_hops_value = AliasedValue(config, "minHops", "minLevel");
   const auto max_hops_value = AliasedValue(config, "maxHops", "maxLevel");
 
-  require_type("minHops", min_hops_value, mgp::Type::Int, "an integer");
-  require_type("maxHops", max_hops_value, mgp::Type::Int, "an integer");
-  require_type("relationshipFilter", config.At("relationshipFilter"), mgp::Type::List, "a list of strings");
-  require_type("labelFilter", config.At("labelFilter"), mgp::Type::List, "a list of strings");
+  // Report the alias the caller wrote, not the spelling this code treats as canonical.
+  require_type(min_hops_value.key, min_hops_value.value, mgp::Type::Int, "an integer");
+  require_type(max_hops_value.key, max_hops_value.value, mgp::Type::Int, "an integer");
   require_type("filterStartNode", config.At("filterStartNode"), mgp::Type::Bool, "a boolean");
   require_type("beginSequenceAtStart", config.At("beginSequenceAtStart"), mgp::Type::Bool, "a boolean");
   require_type("bfs", config.At("bfs"), mgp::Type::Bool, "a boolean");
+  require_type("limit", config.At("limit"), mgp::Type::Int, "an integer");
+  require_type("uniqueness", config.At("uniqueness"), mgp::Type::String, "a string");
 
-  if (!max_hops_value.IsNull()) {
-    config_.max_hops = MaxHopsOrNoLimit(max_hops_value.ValueInt());
+  if (!max_hops_value.value.IsNull()) {
+    config_.max_hops = MaxHopsOrNoLimit(max_hops_value.value.ValueInt());
   }
-  if (!min_hops_value.IsNull()) {
-    config_.min_hops = min_hops_value.ValueInt();
-  }
-
-  auto value = config.At("relationshipFilter");
-  if (!value.IsNull()) {
-    ParseRelationships(value.ValueList());
-  } else {
-    ParseRelationships(mgp::List());
+  if (!min_hops_value.value.IsNull()) {
+    config_.min_hops = min_hops_value.value.ValueInt();
   }
 
-  value = config.At("labelFilter");
-  if (!value.IsNull()) {
-    ParseLabels(value.ValueList());
-  } else {
-    ParseLabels(mgp::List());
+  // -1 is the documented "no limit"; any other negative bound would silently return nothing.
+  auto limit_value = config.At("limit");
+  if (!limit_value.IsNull()) {
+    const int64_t limit = limit_value.ValueInt();
+    if (limit < kNoLimit) {
+      throw mgp::ValueException("Config key 'limit' needs to be non-negative, or -1 for no limit, got " +
+                                std::to_string(limit) + ".");
+    }
+    config_.limit = limit;
   }
+
+  ParseRelationships(FilterEntries(config.At("relationshipFilter"), "relationshipFilter"));
+  ParseLabels(FilterEntries(config.At("labelFilter"), "labelFilter"));
   FilterLabelBoolStatus();
+
+  mgp::Value value{};
 
   value = config.At("filterStartNode");
   config_.filter_start_node = value.IsNull() ? false : value.ValueBool();
@@ -182,6 +254,34 @@ Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph) {
 
   value = config.At("bfs");
   config_.bfs = value.IsNull() ? true : value.ValueBool();
+  // The subgraph walk is breadth-first by construction -- a node's hop count is its shortest distance,
+  // which is what makes minHops meaningful there. Accepting bfs:false would silently ignore it, which
+  // is the failure this module's key validation exists to prevent, so say so instead.
+  if (kind == ProcedureKind::kSubgraph && !config_.bfs) {
+    throw mgp::ValueException("Config key 'bfs' cannot be false here: the subgraph traversal is always breadth-first.");
+  }
+
+  value = config.At("uniqueness");
+  if (!value.IsNull()) {
+    config_.uniqueness = ParseUniqueness(value.ValueString());
+  } else if (kind == ProcedureKind::kSubgraph) {
+    config_.uniqueness = Uniqueness::kNodeGlobal;
+  }
+  // A subgraph is a set of distinct nodes, so visiting one twice has no meaning here. Any other mode
+  // would have to be silently ignored, which is the failure the key validation exists to prevent.
+  if (kind == ProcedureKind::kSubgraph && config_.uniqueness != Uniqueness::kNodeGlobal) {
+    throw mgp::ValueException(
+        "Config key 'uniqueness' must be 'NODE_GLOBAL' here: the subgraph traversal visits each node once.");
+  }
+  // The breadth-first driver reaches a given depth by re-walking from the start, so anything it marked
+  // for good would block the next pass from walking back through it. Say so rather than quietly
+  // returning a subset of the paths.
+  if (kind == ProcedureKind::kExpand && config_.bfs && !IsPathUniqueness(config_.uniqueness) &&
+      config_.uniqueness != Uniqueness::kNone) {
+    throw mgp::ValueException(
+        "A global uniqueness mode needs 'bfs: false'; breadth-first expansion supports "
+        "'RELATIONSHIP_PATH', 'NODE_PATH' and 'NONE'.");
+  }
 
   ParseNodeFilters(config, graph);
 }
@@ -198,6 +298,17 @@ void Path::PathHelper::ParseNodeFilters(const mgp::Map &config, const mgp::Graph
   config_.denylist_nodes = CollectNodeIds(config.At("denylistNodes"), graph);
   if (config_.denylist_nodes.empty()) {
     config_.denylist_nodes = CollectNodeIds(config.At("blacklistNodes"), graph);
+  }
+
+  config_.end_nodes = CollectNodeIds(config.At("endNodes"), graph);
+  config_.terminator_nodes = CollectNodeIds(config.At("terminatorNodes"), graph);
+
+  // An allowlist that did not mention the end and terminator nodes would starve the very filter it is
+  // paired with, so they are allowlisted implicitly. Only meaningful when an allowlist is in force --
+  // an empty one already admits everything.
+  if (!config_.allowlist_nodes.empty()) {
+    config_.allowlist_nodes.insert(config_.end_nodes.begin(), config_.end_nodes.end());
+    config_.allowlist_nodes.insert(config_.terminator_nodes.begin(), config_.terminator_nodes.end());
   }
 }
 
@@ -217,38 +328,81 @@ Path::LabelBools Path::PathHelper::GetLabelBools(const mgp::Node &node) const {
   return label_bools;
 }
 
-bool Path::PathHelper::AreLabelsValid(const LabelBools &label_bools) const {
-  return !label_bools.blacklisted &&
-         ((label_bools.end_node && config_.label_bools_status.end_node_activated) || label_bools.terminated ||
-          (!config_.label_bools_status.termination_activated && !config_.label_bools_status.end_node_activated &&
-           Whitelisted(label_bools.whitelisted)));
-}
-
-bool Path::PathHelper::ContinueExpanding(const LabelBools &label_bools, size_t path_size) const {
-  return (std::cmp_less_equal(path_size, config_.max_hops) &&
-          ((!label_bools.blacklisted && !label_bools.terminated &&
-            (label_bools.end_node || Whitelisted(label_bools.whitelisted))) ||
-           (path_size == 1 && !config_.filter_start_node)));
-}
-
-// Evaluated independently of the label filters: a node the lists reject is never returned nor expanded through.
-bool Path::PathHelper::NodeFilterAllows(const mgp::Node &node, const bool is_start) const {
-  if (config_.allowlist_nodes.empty() && config_.denylist_nodes.empty()) {
-    return true;
+// The label filter on its own. First match wins, in this order: deny, terminator, end, allow.
+Path::Evaluation Path::PathHelper::EvaluateLabels(const mgp::Node &node, const int64_t depth) const {
+  // An unfiltered start node bypasses the label filter entirely -- its own labels are never consulted.
+  if (depth == 0 && (!config_.filter_start_node || !config_.begin_sequence_at_start)) {
+    return {.include = !EndNodesOnly(), .expand = true};
   }
 
+  const LabelBools label_bools = GetLabelBools(node);
+  // Below the lower hop bound a node cannot be returned, but the walk must still pass through it --
+  // including through a terminator, which ends the walk only once it could actually be returned.
+  const bool below_min_hops = depth < config_.min_hops;
+
+  if (label_bools.blacklisted) {
+    return {.include = false, .expand = false};
+  }
+  if (label_bools.terminated) {
+    return {.include = !below_min_hops, .expand = below_min_hops};
+  }
+  if (label_bools.end_node) {
+    return {.include = !below_min_hops, .expand = true};
+  }
+  if (Whitelisted(label_bools.whitelisted)) {
+    // With an end or termination label in play, only those nodes are returned; the rest are walked through.
+    return {.include = !(EndNodesOnly() || below_min_hops), .expand = true};
+  }
+  return {.include = false, .expand = false};
+}
+
+// The identity counterpart of the '>' and '/' label sets: with either list in play only the nodes it
+// names are returned, and a terminator node ends the walk.
+Path::Evaluation Path::PathHelper::EvaluateEndAndTerminatorNodes(const mgp::Node &node, const int64_t depth) const {
+  if ((depth == 0 && !config_.filter_start_node) || depth < config_.min_hops) {
+    return {.include = false, .expand = true};
+  }
+  const auto id = node.Id().AsInt();
+  const bool is_terminator = config_.terminator_nodes.contains(id);
+  return {.include = is_terminator || config_.end_nodes.contains(id), .expand = !is_terminator};
+}
+
+// allowlistNodes / denylistNodes: a node either list rejects is neither returned nor expanded through.
+Path::Evaluation Path::PathHelper::EvaluateNodeLists(const mgp::Node &node, const int64_t depth) const {
   // Exempt by walk position, not by node identity: an unfiltered start node is exempt here exactly as
   // it is for the label filters, but that same node re-entered deeper in the walk is filtered.
-  if (!IsNotStartOrFiltersStartNode(is_start)) {
-    return true;
+  if (depth == 0 && !config_.filter_start_node) {
+    return {};
   }
 
   const auto id = node.Id().AsInt();
-  return !config_.denylist_nodes.contains(id) &&
-         (config_.allowlist_nodes.empty() || config_.allowlist_nodes.contains(id));
+  if (config_.denylist_nodes.contains(id)) {
+    return {.include = false, .expand = false};
+  }
+  if (!config_.allowlist_nodes.empty() && !config_.allowlist_nodes.contains(id)) {
+    return {.include = false, .expand = false};
+  }
+  return {};
+}
+
+// Independent filters, combined the way the reference implementation stacks its evaluators: every one
+// must agree before a node is returned, and any one of them may stop the walk.
+Path::Evaluation Path::PathHelper::Evaluate(const mgp::Node &node, const int64_t depth) const {
+  Evaluation evaluation = EvaluateLabels(node, depth);
+  if (!config_.end_nodes.empty() || !config_.terminator_nodes.empty()) {
+    evaluation &= EvaluateEndAndTerminatorNodes(node, depth);
+  }
+  if (!config_.allowlist_nodes.empty() || !config_.denylist_nodes.empty()) {
+    evaluation &= EvaluateNodeLists(node, depth);
+  }
+  return evaluation;
 }
 
 bool Path::PathHelper::PathSizeOk(const int64_t path_size) const {
+  // Each breadth-first pass emits its own depth and nothing else, so the passes partition the results.
+  if (config_.pass_depth >= 0 && path_size != config_.pass_depth) {
+    return false;
+  }
   return (path_size <= config_.max_hops) && (path_size >= config_.min_hops);
 }
 
@@ -337,56 +491,39 @@ void Path::PathHelper::ParseRelationships(const mgp::List &list_of_relationships
     if (rel.Type() != mgp::Type::String) {
       throw mgp::ValueException("Relationship filter entries need to be strings.");
     }
-    const std::string rel_type{std::string(rel.ValueString())};
-    // Reject an entry with no type behind the direction markers: it can never match, so it would silently
-    // block every relationship instead of reporting the mistake. A bare '<' or '>' is a real any-direction
-    // filter and stays valid; an empty *list* already means "no filter" and is handled above.
-    if (rel_type.empty() || rel_type == "<>") {
+    const std::string_view entry{rel.ValueString()};
+    // An empty *list* already means "no filter"; an empty entry inside one is a mistake worth naming.
+    if (entry.empty()) {
       throw mgp::ValueException(
-          "Invalid relationshipFilter entry '" + rel_type +
-          "': expected a relationship type, optionally wrapped in '<' and '>', or a bare '<' or '>'.");
-    }
-    std::string_view type{rel_type};
-    RelDirection direction = RelDirection::kAny;
-
-    if (type.size() == 1) {  // a bare marker: every type, in that direction
-      if (type.front() == '<') {
-        config_.any_incoming = true;
-        continue;
-      }
-      if (type.front() == '>') {
-        config_.any_outgoing = true;
-        continue;
-      }
-    } else if (type.starts_with('<') && type.ends_with('>')) {  // <type>
-      direction = RelDirection::kBoth;
-      type = type.substr(1, type.size() - 2);
-    } else if (type.starts_with('<')) {  // <type
-      direction = RelDirection::kIncoming;
-      type.remove_prefix(1);
-    } else if (type.starts_with('>')) {  // >type -- the outgoing marker may lead as well as trail
-      direction = RelDirection::kOutgoing;
-      type.remove_prefix(1);
-      if (type.ends_with('>')) {  // >type>
-        type.remove_suffix(1);
-      }
-    } else if (type.ends_with('>')) {  // type>
-      direction = RelDirection::kOutgoing;
-      type = type.substr(0, type.size() - 1);
+          "Invalid relationshipFilter entry '': expected a relationship type, optionally marked with '<' or '>'.");
     }
 
-    // Stripping a leading marker can leave another one behind ('>>', '><'), which is the bare-marker
-    // form again: every type, in the direction the remaining marker names.
-    if (type == "<") {
-      config_.any_incoming = true;
-      continue;
+    // A marker decides the direction wherever it appears, so '<R', 'R<' and '<R>' all name the same
+    // incoming filter; '<' wins when both markers are present.
+    const bool incoming = entry.contains('<');
+    const bool outgoing = !incoming && entry.contains('>');
+
+    // The type is whatever is left once the markers are stripped from anywhere in the entry.
+    std::string type;
+    type.reserve(entry.size());
+    for (const char character : entry) {
+      if (character != '<' && character != '>' && character != ':') {
+        type.push_back(character);
+      }
     }
-    if (type == ">" || type.empty()) {
-      config_.any_outgoing = true;
+
+    // Nothing left means the entry names a direction only, and so applies to every type. An entry with
+    // neither a type nor a marker was rejected as empty above, so one of the two flags always holds.
+    if (type.empty()) {
+      config_.any_incoming = config_.any_incoming || incoming;
+      config_.any_outgoing = config_.any_outgoing || outgoing;
       continue;
     }
 
-    AddRelationshipDirection(std::string(type), direction);
+    AddRelationshipDirection(std::move(type),
+                             incoming   ? RelDirection::kIncoming
+                             : outgoing ? RelDirection::kOutgoing
+                                        : RelDirection::kAny);
   }
 }
 
@@ -395,11 +532,9 @@ void Path::PathHelper::ParseRelationships(const mgp::List &list_of_relationships
 // silently drop one of the two directions, and which one would depend on the order they were listed in.
 void Path::PathHelper::AddRelationshipDirection(std::string type, RelDirection direction) {
   const auto [it, inserted] = config_.relationship_sets.try_emplace(std::move(type), direction);
-  if (inserted || it->second == direction) {
-    return;
+  if (!inserted && it->second != direction) {
+    it->second = RelDirection::kAny;
   }
-  // The reciprocal mode is not a direction, so it has nothing to merge with; keep the later entry.
-  it->second = (it->second == RelDirection::kBoth || direction == RelDirection::kBoth) ? direction : RelDirection::kAny;
 }
 
 void Path::Elements(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
@@ -474,7 +609,15 @@ void Path::Create(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
   const auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    auto start_node{arguments[0].ValueNode()};
+    const auto start_value = arguments[0];
+    // A null start has nothing to build a path from, so it yields no rows rather than an error.
+    if (start_value.IsNull()) {
+      return;
+    }
+    if (!start_value.IsNode()) {
+      throw mgp::ValueException("The start node needs to be a node.");
+    }
+    auto start_node{start_value.ValueNode()};
     auto relationships{arguments[1].ValueMap()};
 
     // At() yields a null value for a missing key, where operator[] yields a null handle that the
@@ -533,47 +676,68 @@ void Path::Create(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
   }
 }
 
-void Path::PathExpand::ExpandPath(mgp::Path &path, const mgp::Relationship &relationship, int64_t path_size) {
+int64_t Path::PathExpand::UniquenessKey(const mgp::Relationship &relationship, const bool outgoing) const {
+  if (IsNodeUniqueness(path_data_.helper_.GetUniqueness())) {
+    return (outgoing ? relationship.To() : relationship.From()).Id().AsInt();
+  }
+  return relationship.Id().AsInt();
+}
+
+void Path::PathExpand::ExpandPath(mgp::Path &path, const mgp::Relationship &relationship, int64_t path_size,
+                                  const int64_t uniqueness_key) {
+  const auto uniqueness = path_data_.helper_.GetUniqueness();
   path.Expand(relationship);
-  path_data_.visited_.insert(relationship.Id().AsInt());
+  if (uniqueness != Uniqueness::kNone) {
+    path_data_.visited_.insert(uniqueness_key);
+  }
   DFS(path, path_size + 1);
-  path_data_.visited_.erase(relationship.Id().AsInt());
+  // Released on the way back out only for the per-path modes; a global mode keeps it marked.
+  if (IsPathUniqueness(uniqueness)) {
+    path_data_.visited_.erase(uniqueness_key);
+  }
   path.Pop();
 }
 
 void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationships relationships, bool outgoing,
-                                               int64_t path_size, std::set<std::pair<std::string, int64_t>> &seen) {
+                                               int64_t path_size) {
+  const RelDirection curr_direction = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
+
   for (const auto relationship : relationships) {
+    if (path_data_.LimitReached()) {
+      return;
+    }
     // A node whose relationships are all filtered out does no other work, so without a poll here the
     // walk is unstoppable for the whole adjacency list of a supernode.
     path_data_.MaybeAbort();
 
-    // string_view keeps the GetDirection lookup allocation-free; `seen` below owns its key.
+    // string_view keeps the GetDirection lookup allocation-free.
     const std::string_view type = relationship.Type();
-    auto wanted_direction = path_data_.helper_.GetDirection(type);
+    const auto wanted_direction = path_data_.helper_.GetDirection(type);
 
+    const int64_t uniqueness_key = UniquenessKey(relationship, outgoing);
     if ((wanted_direction == RelDirection::kNone && !path_data_.helper_.AnyDirected(outgoing)) ||
-        path_data_.visited_.contains(relationship.Id().AsInt())) {
+        (path_data_.helper_.GetUniqueness() != Uniqueness::kNone && path_data_.visited_.contains(uniqueness_key))) {
       continue;
     }
 
-    const RelDirection curr_direction = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
-
     if (wanted_direction == RelDirection::kAny || curr_direction == wanted_direction ||
         path_data_.helper_.AnyDirected(outgoing)) {
-      ExpandPath(path, relationship, path_size);
-    } else if (wanted_direction == RelDirection::kBoth) {
-      if (outgoing && seen.contains({std::string(type), relationship.To().Id().AsInt()})) {
-        ExpandPath(path, relationship, path_size);
-      } else {
-        seen.insert({std::string(type), relationship.From().Id().AsInt()});
-      }
+      ExpandPath(path, relationship, path_size, uniqueness_key);
     }
   }
 }
 
+void Path::PathExpand::Emit(const mgp::Path &path) {
+  auto record = path_data_.record_factory_.NewRecord();
+  record.Insert(std::string(kResultExpand).c_str(), path);
+  ++path_data_.emitted_;
+}
+
 /*function used for traversal and filtering*/
 void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
+  if (path_data_.LimitReached()) {
+    return;
+  }
   // The walk enumerates paths, not nodes, so it can run far longer than the graph is big -- and with a
   // high enough minHops it does so without emitting anything, where no memory limit can stop it.
   path_data_.MaybeAbort();
@@ -586,36 +750,39 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
 
   const mgp::Node node{path.GetNodeAt(path_size)};
 
-  // A node the identity filters reject ends the walk here: no record and no expansion.
-  if (!path_data_.helper_.NodeFilterAllows(node, path_size == 0)) {
-    return;
-  }
-
+  // Every node the walk enters counts, whether or not the filters keep it: this is what tells the
+  // breadth-first driver that a deeper pass still has somewhere to go.
   deepest_reached_ = std::max(deepest_reached_, path_size);
 
-  const LabelBools label_bools = path_data_.helper_.GetLabelBools(node);
-  const LabelBools &inclusion_bools = path_data_.helper_.InclusionLabelBools(label_bools, path_size == 0);
+  const Evaluation evaluation = path_data_.helper_.Evaluate(node, path_size);
 
-  if (path_data_.helper_.PathSizeOk(path_size) && path_data_.helper_.AreLabelsValid(inclusion_bools)) {
-    auto record = path_data_.record_factory_.NewRecord();
-    record.Insert(std::string(kResultExpand).c_str(), path);
+  if (evaluation.include && path_data_.helper_.PathSizeOk(path_size)) {
+    Emit(path);
+    if (path_data_.LimitReached()) {
+      return;
+    }
   }
 
-  // Expansion uses the real labels. That is equivalent to passing inclusion_bools today, because the two
-  // differ only at an unfiltered start, where ContinueExpanding's `path_size == 1 && !filter_start_node`
-  // clause already decides the answer -- but it stops being equivalent if that clause is ever removed.
-  if (!path_data_.helper_.ContinueExpanding(label_bools, path_size + 1)) {
+  if (!evaluation.expand || std::cmp_greater(path_size + 1, path_data_.helper_.ExpansionCeiling())) {
     return;
   }
 
-  std::set<std::pair<std::string, int64_t>> seen;
-  this->ExpandFromRelationships(path, node.InRelationships(), false, path_size, seen);
-  this->ExpandFromRelationships(path, node.OutRelationships(), true, path_size, seen);
+  this->ExpandFromRelationships(path, node.InRelationships(), false, path_size);
+  this->ExpandFromRelationships(path, node.OutRelationships(), true, path_size);
 }
 
 void Path::PathExpand::StartAlgorithm(const mgp::Node &node) {
   mgp::Path path = mgp::Path(node);
+  // A node-keyed uniqueness rule has to count the start node too, or a walk could return to it.
+  const auto uniqueness = path_data_.helper_.GetUniqueness();
+  const bool mark_start = IsNodeUniqueness(uniqueness);
+  if (mark_start) {
+    path_data_.visited_.insert(node.Id().AsInt());
+  }
   DFS(path, 0);
+  if (mark_start && IsPathUniqueness(uniqueness)) {
+    path_data_.visited_.erase(node.Id().AsInt());
+  }
 }
 
 void Path::PathExpand::Parse(const mgp::Value &value) {
@@ -630,6 +797,9 @@ void Path::PathExpand::Parse(const mgp::Value &value) {
 
 void Path::PathExpand::RunAllStarts() {
   for (const auto &node : path_data_.start_nodes_) {
+    if (path_data_.LimitReached()) {
+      return;
+    }
     StartAlgorithm(node);
   }
 }
@@ -652,16 +822,17 @@ void Path::PathExpand::RunAlgorithm() {
 
   for (int64_t depth = std::max(min_hops, int64_t{0}); depth <= max_hops; ++depth) {
     deepest_reached_ = -1;
-    path_data_.helper_.SetHopBounds(depth, depth);
+    path_data_.helper_.SetPassDepth(depth);
     RunAllStarts();
-    // Nothing reached this depth, so nothing can reach a greater one. This is what terminates the
-    // loop when no upper hop bound was given.
-    if (deepest_reached_ < depth) {
+    // Stop once the caller has all the records it asked for -- which, walking shortest-first, is what
+    // keeps a `limit` from paying for the whole graph. Otherwise stop when nothing reached this depth,
+    // since nothing can then reach a greater one; that is what bounds the loop with no upper hop bound.
+    if (path_data_.LimitReached() || deepest_reached_ < depth) {
       break;
     }
   }
 
-  path_data_.helper_.SetHopBounds(min_hops, max_hops);
+  path_data_.helper_.ClearPassDepth();
 }
 
 namespace {
@@ -678,7 +849,10 @@ void RunExpand(Path::PathHelper &&helper, const mgp::Value &start_value, const m
   if (!start_value.IsList()) {
     path_expand.Parse(start_value);
   } else {
+    // The start list is caller-supplied and each entry may cost a lookup, so it polls like the walk does.
+    uint64_t abort_poll_counter = 0;
     for (const auto &list_item : start_value.ValueList()) {
+      Path::PollAbort(graph, abort_poll_counter);
       path_expand.Parse(list_item);
     }
   }
@@ -715,7 +889,7 @@ void Path::ExpandConfig(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
     const auto graph = mgp::Graph(memgraph_graph);
     const auto config = arguments[1].ValueMap();
 
-    RunExpand(PathHelper{config, graph}, arguments[0], record_factory, graph);
+    RunExpand(PathHelper{config, graph, ProcedureKind::kExpand}, arguments[0], record_factory, graph);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -736,8 +910,9 @@ void Path::PathSubgraph::Parse(const mgp::Value &value) {
 
 void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int64_t> &pair,
                                                  const mgp::Relationships relationships, bool outgoing,
-                                                 std::queue<std::pair<mgp::Node, int64_t>> &queue,
-                                                 std::set<std::pair<std::string, int64_t>> &seen) {
+                                                 std::queue<std::pair<mgp::Node, int64_t>> &queue) {
+  const RelDirection curr_direction = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
+
   for (const auto relationship : relationships) {
     // As in the expand walk: a supernode whose relationships are all filtered out would otherwise be
     // traversed without ever reaching the dequeue poll above.
@@ -749,9 +924,9 @@ void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int6
       continue;
     }
 
-    // string_view keeps the GetDirection lookup allocation-free; `seen` below owns its key.
+    // string_view keeps the GetDirection lookup allocation-free.
     const std::string_view type = relationship.Type();
-    auto wanted_direction = path_data_.helper_.GetDirection(type);
+    const auto wanted_direction = path_data_.helper_.GetDirection(type);
 
     if (path_data_.helper_.IsNotStartOrFilterStartRel(pair.second == 0)) {
       if (wanted_direction == RelDirection::kNone && !path_data_.helper_.AnyDirected(outgoing)) {
@@ -759,32 +934,24 @@ void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int6
       }
     }
 
-    const RelDirection curr_direction = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
-
     if (wanted_direction == RelDirection::kAny || curr_direction == wanted_direction ||
         path_data_.helper_.AnyDirected(outgoing)) {
+      // Enqueue only; TryInsertNode emits it once on dequeue with the hop and filter checks applied.
       path_data_.visited_.insert(next_node.Id().AsInt());
       queue.emplace(std::move(next_node), pair.second + 1);
-    } else if (wanted_direction == RelDirection::kBoth) {
-      if (outgoing && seen.contains({std::string(type), relationship.To().Id().AsInt()})) {
-        // Enqueue only; TryInsertNode emits it once on dequeue with hop/label filters applied.
-        path_data_.visited_.insert(next_node.Id().AsInt());
-        queue.emplace(std::move(next_node), pair.second + 1);
-      } else {
-        seen.insert({std::string(type), relationship.From().Id().AsInt()});
-      }
     }
   }
 }
 
-void Path::PathSubgraph::TryInsertNode(const mgp::Node &node, int64_t hop_count, const LabelBools &label_bools) {
+void Path::PathSubgraph::TryInsertNode(const mgp::Node &node, int64_t hop_count, const Evaluation &evaluation) {
   // Nodes closer than minHops are still traversed but must not be returned.
   if (!path_data_.helper_.PathSizeOk(hop_count)) {
     return;
   }
 
-  if (path_data_.helper_.AreLabelsValid(path_data_.helper_.InclusionLabelBools(label_bools, hop_count == 0))) {
+  if (evaluation.include) {
     to_be_returned_nodes_.AppendExtend(mgp::Value(node));
+    ++path_data_.emitted_;
   }
 }
 
@@ -797,6 +964,9 @@ mgp::List Path::PathSubgraph::BFS() {
   }
 
   while (!queue.empty()) {
+    if (path_data_.LimitReached()) {
+      break;
+    }
     path_data_.MaybeAbort();
 
     auto pair = std::move(queue.front());
@@ -806,19 +976,14 @@ mgp::List Path::PathSubgraph::BFS() {
       continue;
     }
 
-    if (!path_data_.helper_.NodeFilterAllows(pair.first, pair.second == 0)) {
+    const Evaluation evaluation = path_data_.helper_.Evaluate(pair.first, pair.second);
+    TryInsertNode(pair.first, pair.second, evaluation);
+    if (!evaluation.expand || std::cmp_greater(pair.second + 1, path_data_.helper_.MaxHops())) {
       continue;
     }
 
-    LabelBools label_bools = path_data_.helper_.GetLabelBools(pair.first);
-    TryInsertNode(pair.first, pair.second, label_bools);
-    if (!path_data_.helper_.ContinueExpanding(label_bools, pair.second + 1)) {
-      continue;
-    }
-
-    std::set<std::pair<std::string, int64_t>> seen;
-    this->ExpandFromRelationships(pair, pair.first.InRelationships(), false, queue, seen);
-    this->ExpandFromRelationships(pair, pair.first.OutRelationships(), true, queue, seen);
+    this->ExpandFromRelationships(pair, pair.first.InRelationships(), false, queue);
+    this->ExpandFromRelationships(pair, pair.first.OutRelationships(), true, queue);
   }
 
   return to_be_returned_nodes_;
@@ -830,19 +995,25 @@ void Path::SubgraphNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *
   const auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
   try {
+    // Read the config before the start node is looked at: a null start must not decide whether a
+    // misspelled or ill-typed key is reported, or the same call would fail only on some rows.
+    auto config = arguments[1].ValueMap();
+    PathHelper helper{config, graph, ProcedureKind::kSubgraph};
+
     auto start_value = arguments[0];
     // A null start has nowhere to walk from, so it yields no nodes rather than an error.
     if (start_value.IsNull()) {
       return;
     }
 
-    auto config = arguments[1].ValueMap();
-    PathSubgraph path_subgraph{PathData(PathHelper{config, graph}, record_factory, graph)};
+    PathSubgraph path_subgraph{PathData(std::move(helper), record_factory, graph)};
 
     if (!start_value.IsList()) {
       path_subgraph.Parse(start_value);
     } else {
+      uint64_t abort_poll_counter = 0;
       for (const auto &list_item : start_value.ValueList()) {
+        PollAbort(graph, abort_poll_counter);
         path_subgraph.Parse(list_item);
       }
     }
@@ -866,6 +1037,11 @@ void Path::SubgraphAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
   const auto graph = mgp::Graph(memgraph_graph);
   const auto record_factory = mgp::RecordFactory(result);
   try {
+    // Read the config before the start node is looked at: a null start must not decide whether a
+    // misspelled or ill-typed key is reported, or the same call would fail only on some rows.
+    auto config = arguments[1].ValueMap();
+    PathHelper helper{config, graph, ProcedureKind::kSubgraph};
+
     auto start_value = arguments[0];
     // A null start yields the one record this procedure always returns, with both lists empty.
     if (start_value.IsNull()) {
@@ -875,13 +1051,14 @@ void Path::SubgraphAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
       return;
     }
 
-    auto config = arguments[1].ValueMap();
-    PathSubgraph path_subgraph{PathData(PathHelper{config, graph}, record_factory, graph)};
+    PathSubgraph path_subgraph{PathData(std::move(helper), record_factory, graph)};
 
     if (!start_value.IsList()) {
       path_subgraph.Parse(start_value);
     } else {
+      uint64_t abort_poll_counter = 0;
       for (const auto &list_item : start_value.ValueList()) {
+        PollAbort(graph, abort_poll_counter);
         path_subgraph.Parse(list_item);
       }
     }
@@ -899,6 +1076,9 @@ void Path::SubgraphAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
     uint64_t abort_poll_counter = 0;
     mgp::List to_be_returned_rels;
     for (auto node : to_be_returned_nodes) {
+      // A node with no outgoing relationships never reaches the inner poll, so a result set of sinks
+      // would otherwise walk to the end uninterruptibly.
+      PollAbort(graph, abort_poll_counter);
       for (auto rel : node.ValueNode().OutRelationships()) {
         PollAbort(graph, abort_poll_counter);
         if (to_be_returned_nodes_searchable.contains(rel.To())) {

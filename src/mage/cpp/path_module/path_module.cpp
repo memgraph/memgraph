@@ -58,15 +58,14 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     auto empty_list = mgp::Value(mgp::List{});
     auto empty_map = mgp::Map{};
     empty_map.Insert("key", empty_list);
+    auto default_relationships = mgp::Value(std::move(empty_map));
 
-    AddProcedure(Path::Create,
-                 Path::kProcedureCreate,
-                 mgp::ProcedureType::Read,
-                 {mgp::Parameter(Path::kCreateArg1, mgp::Type::Node),
-                  mgp::Parameter(Path::kCreateArg2, {mgp::Type::Map, mgp::Type::List}, mgp::Value(empty_map))},
-                 {mgp::Return(Path::kResultCreate, mgp::Type::Path)},
-                 module,
-                 memory);
+    // Nullable for the same reason as the traversal procedures: a start node that came from an
+    // OPTIONAL MATCH is a normal thing to pass, and rejecting it forces every caller to guard.
+    auto *create = mgp::module_add_read_procedure(module, Path::kProcedureCreate.data(), Path::Create);
+    mgp::proc_add_arg(create, Path::kCreateArg1.data(), mgp::type_nullable(mgp::type_any()));
+    mgp::proc_add_opt_arg(create, Path::kCreateArg2.data(), mgp::type_map(), default_relationships.ptr());
+    mgp::proc_add_result(create, Path::kResultCreate.data(), mgp::type_path());
 
     auto *subgraph_nodes =
         mgp::module_add_read_procedure(module, Path::kProcedureSubgraphNodes.data(), Path::SubgraphNodes);
