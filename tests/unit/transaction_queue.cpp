@@ -265,10 +265,26 @@ TYPED_TEST(TransactionQueueSimpleTest, StrictIdParsing) {
   // Non-string literals are rejected rather than degrading to a bogus id. A real id can't be
   // used unquoted here: ids start at 1<<63, which overflows an integer literal.
   EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS 123"), memgraph::query::QueryRuntimeException);
+  // Ids are unsigned, so a sign is never part of a valid id — whether it leads or is embedded.
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS '-" + tx_id + "'"),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS '+" + tx_id + "'"),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS '" + tx_id + "+1'"),
+               memgraph::query::QueryRuntimeException);
+  // 2^64, the first value that no longer fits an id, is rejected instead of wrapping.
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS '18446744073709551616'"),
+               memgraph::query::QueryRuntimeException);
 
   // The victim survived every rejected attempt.
   auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
   ASSERT_EQ(show_stream.GetResults().size(), 2U);
+
+  // Leading zeros are digits, so the id still parses in full and names the same transaction.
+  auto terminate_stream = this->main_interpreter.Interpret("TERMINATE TRANSACTIONS '00" + tx_id + "'");
+  ASSERT_EQ(terminate_stream.GetResults().size(), 1U);
+  EXPECT_EQ(terminate_stream.GetResults()[0][0].ValueString(), tx_id);
+  EXPECT_TRUE(terminate_stream.GetResults()[0][1].ValueBool());
 
   this->running_interpreter.Abort();
 }
