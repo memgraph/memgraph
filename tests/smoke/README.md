@@ -14,9 +14,6 @@ There are two paths:
   memgraph helm charts), both a single instance and an HA cluster. MANUAL only,
   not run in CI. Install the tooling once with `./k8s/init.bash`.
 
-Upgrade/backwards-compatibility testing is NOT done here, it lives under
-`tests/issu`.
-
 NOTE: GQLAlchemy version is not fixed on purpose.
 NOTE: GQLAlchmey uses an old version of the neo client -> the neo4j version is fixed.
 
@@ -33,10 +30,7 @@ are run against the plain binary, not a full package).
 * Plain memgraph binary
 * Linux packages (.deb, .rpm)
 * Docker images.
-
-## Delivery Types (manual)
-
-* Helm charts (see `./test_k8s.bash`).
+* Helm charts (manually, using `./test_k8s.bash`).
 
 ## Environments
 

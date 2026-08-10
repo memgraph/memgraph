@@ -44,6 +44,3 @@ cleanup_k8s_all
 # runs against Docker); the HA cluster is checked at the cluster level.
 test_k8s_single "$IMAGE_TYPE"
 test_k8s_ha -n 1
-
-# NOTE: Upgrade testing (running one version, then recovering the same PVCs
-# under the next one) is NOT done here -> see tests/issu.

@@ -1,9 +1,6 @@
 #!/bin/bash
 # NOTE: Every feature test file sources this one -> the guard keeps the checks
 # below from running (and printing) dozens of times per run.
-# IMPORTANT: SCRIPT_DIR is (re)set on every source, also when the guard hits,
-# because the scripts here have always relied on that side effect. Do NOT use it
-# to resolve paths at test run time -> use SMOKE_DIR (see below).
 if [ -n "${MEMGRAPH_SMOKE_UTILS_LOADED:-}" ]; then
   SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
   return 0
@@ -11,13 +8,10 @@ fi
 MEMGRAPH_SMOKE_UTILS_LOADED=1
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-# NOTE: SMOKE_DIR always points at tests/smoke, no matter what the caller did to
-# SCRIPT_DIR. Tests that need a path (validator.py, tools/ci/..., ...) must use
-# it -> SCRIPT_DIR is whatever the script that runs them last set it to.
+# NOTE: SMOKE_DIR always points at tests/smoke.
 SMOKE_DIR="$SCRIPT_DIR"
 
 MEMGRAPH_BUILD_PATH="${MEMGRAPH_BUILD_PATH:-/tmp/memgraph/build}"
-# NOTE: The init*.bash scripts download a released mgconsole under bin/.
 MEMGRAPH_CONSOLE_BINARY="${MEMGRAPH_CONSOLE_BINARY:-$SCRIPT_DIR/bin/mgconsole}"
 MEMGRAPH_ENTERPRISE_LICENSE="${MEMGRAPH_ENTERPRISE_LICENSE:-provide_licanse_string}"
 MEMGRAPH_ORGANIZATION_NAME="${MEMGRAPH_ORGANIZATION_NAME:-provide_organization_name_string}"
@@ -57,8 +51,6 @@ MEMGRAPH_FULL_PROPERTIES_SET="{id:0, name:\"tester\", age:37, height:175.0, merr
 MEMGRAPH_PROPERTY_COMPRESSION_FLAGS="--storage-property-store-compression-enabled=true --storage-property-store-compression-level=mid"
 MEMGRAPH_SHOW_SCHEMA_INFO_FLAG="--schema-info-enabled=true"
 MEMGRAPH_SESSION_TRACE_FLAG="--query-log-directory=/var/log/memgraph/session_traces"
-# How to run a command inside the running Memgraph. The Docker tests exec into
-# the container; the k8s tests override this with `kubectl exec ... --`.
 MEMGRAPH_EXEC="${MEMGRAPH_EXEC:-docker exec -u memgraph memgraph_smoke}"
 MEMGRAPH_DEFAULT_HOST="localhost"
 MEMGRAPH_DEFAULT_PORT="7687"
