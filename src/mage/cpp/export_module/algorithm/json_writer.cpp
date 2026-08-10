@@ -14,7 +14,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -306,20 +308,6 @@ std::string DumpElement(const Json &element) {
   }
 }
 
-// Same, for a whole document: on failure the elements are re-dumped one by one so the message can name the offender.
-std::string DumpDocument(const Json &document) {
-  try {
-    return document.dump();
-  } catch (const nlohmann::json::exception &e) {
-    for (const auto &group : {kKeyNodes, kKeyRels}) {
-      for (const auto &element : document.at(group)) {
-        DumpElement(element);
-      }
-    }
-    throw mgp::ValueException(fmt::format("Cannot serialize the export: {}", e.what()));
-  }
-}
-
 Json NodeBody(const mgp::Node &node, bool write_properties) {
   Json object = Json::object();
   if (!write_properties) {
@@ -355,65 +343,118 @@ Json RelationshipToJson(const mgp::Relationship &relationship, Properties *prope
   return object;
 }
 
+JsonWriter::JsonWriter(WriteConfig config, std::optional<std::string> file, bool retain)
+    : config_(config), file_(std::move(file)), retain_(retain) {
+  if (!file_) return;
+  // A device or fifo cannot be renamed into place and has no previous contents to protect, so it is written directly.
+  // Everything else goes through a temporary beside the target — same filesystem, so the rename in Finish() is atomic
+  // — which keeps a failure part-way through from destroying the export the caller already had.
+  std::error_code error;
+  const auto status = std::filesystem::status(*file_, error);
+  const bool writes_in_place = !error && std::filesystem::exists(status) && !std::filesystem::is_regular_file(status);
+  if (!writes_in_place) temp_path_ = *file_ + ".part";
+
+  out_.open(writes_in_place ? *file_ : temp_path_, std::ios::binary | std::ios::trunc);
+  if (!out_) throw mgp::ValueException(fmt::format("Cannot open '{}' for writing", *file_));
+}
+
+JsonWriter::~JsonWriter() {
+  if (temp_path_.empty()) return;
+  // Finish() was never reached, so the export failed: drop the partial file.
+  out_.close();
+  std::error_code ignored;
+  std::filesystem::remove(temp_path_, ignored);
+}
+
+void JsonWriter::Emit(std::string_view bytes) {
+  if (out_.is_open()) {
+    out_.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    if (!out_) throw mgp::ValueException(fmt::format("Failed writing to '{}'", *file_));
+  } else if (retain_) {
+    payload_.append(bytes);
+  }
+}
+
+void JsonWriter::EnterGroup(Group group) {
+  if (group_ == group) return;
+  if (group == Group::kNodes && group_ == Group::kRelationships) {
+    throw mgp::ValueException("Cannot export a node after a relationship: the output groups them");
+  }
+  if (config_.format != JsonFormat::kJsonLines) {
+    // JSON_LINES has no wrappers. The object shapes open "nodes" on first use and close it when relationships start,
+    // so an export with no nodes at all still emits an empty node group.
+    const bool keyed = config_.format == JsonFormat::kJsonIdAsKeys;
+    if (group_ == Group::kNone) Emit(fmt::format("{{\"{}\":{}", kKeyNodes, keyed ? '{' : '['));
+    if (group == Group::kRelationships) {
+      Emit(fmt::format("{},\"{}\":{}", keyed ? '}' : ']', kKeyRels, keyed ? '{' : '['));
+    }
+  }
+  group_ = group;
+  group_has_elements_ = false;
+  emitted_ids_.clear();
+}
+
+void JsonWriter::EmitElement(const Json &element) {
+  const auto text = DumpElement(element);
+  if (config_.format == JsonFormat::kJsonIdAsKeys) {
+    auto id = element.at(kKeyId).get<std::string>();
+    if (!emitted_ids_.insert(id).second) return;
+    if (group_has_elements_) Emit(",");
+    Emit(Json(id).dump());
+    Emit(":");
+  } else if (config_.format == JsonFormat::kJson) {
+    if (group_has_elements_) Emit(",");
+  } else if (wrote_any_) {
+    Emit("\n");
+  }
+  Emit(text);
+  wrote_any_ = true;
+  group_has_elements_ = true;
+}
+
 void JsonWriter::AddNode(const mgp::Node &node) {
   // Fetched once and reused: mgp hands properties over as a deep copy of every value, so counting them separately
   // would materialize the whole property store a second time. The counter is inert to the write flags, so the fetch
   // happens even when the properties are not written.
   auto properties = node.Properties();
   property_count_ += properties.size();
-  nodes_.push_back(NodeToJson(node, config_.write_node_properties ? &properties : nullptr));
   ++node_count_;
+  if (!Serializing()) return;
+  EnterGroup(Group::kNodes);
+  EmitElement(NodeToJson(node, config_.write_node_properties ? &properties : nullptr));
 }
 
 void JsonWriter::AddRelationship(const mgp::Relationship &relationship) {
   auto properties = relationship.Properties();
   // Only the relationship's own properties count; the inlined endpoints' do not.
   property_count_ += properties.size();
-  relationships_.push_back(
-      RelationshipToJson(relationship, config_.write_relationship_properties ? &properties : nullptr, config_));
   ++relationship_count_;
+  if (!Serializing()) return;
+  EnterGroup(Group::kRelationships);
+  EmitElement(RelationshipToJson(relationship, config_.write_relationship_properties ? &properties : nullptr, config_));
 }
 
-std::string JsonWriter::Dump() && {
-  // No empty-set short circuit: JSON_LINES falls out as "" on its own, while the two object shapes must still emit
-  // their wrappers ({"nodes":[],"rels":[]} / {"nodes":{},"rels":{}}) so an empty export stays parseable.
-  switch (config_.format) {
-    case JsonFormat::kJsonLines: {
-      std::string result;
-      const auto append_lines = [&result](const Json &elements) {
-        for (const auto &element : elements) {
-          if (!result.empty()) result += '\n';
-          result += DumpElement(element);
-        }
-      };
-      append_lines(nodes_);
-      append_lines(relationships_);
-      return result;
-    }
-    case JsonFormat::kJson: {
-      Json object = Json::object();
-      object[kKeyNodes] = std::move(nodes_);
-      object[kKeyRels] = std::move(relationships_);
-      return DumpDocument(object);
-    }
-    case JsonFormat::kJsonIdAsKeys: {
-      const auto by_id = [](Json &elements) {
-        Json object = Json::object();
-        for (auto &element : elements) {
-          // Key read into its own statement first: nlohmann's operator= takes its argument by value, and the RHS is
-          // sequenced before the LHS, so moving inline would empty `element` before the id could be read back out.
-          auto id = element.at(kKeyId).get<std::string>();
-          object[std::move(id)] = std::move(element);
-        }
-        return object;
-      };
-      Json object = Json::object();
-      object[kKeyNodes] = by_id(nodes_);
-      object[kKeyRels] = by_id(relationships_);
-      return DumpDocument(object);
+std::string JsonWriter::Finish() && {
+  // Normalising to the relationship group emits whatever wrappers were never opened, so an empty export still comes
+  // out as {"nodes":[],"rels":[]} / {"nodes":{},"rels":{}} — and as "" under JSON_LINES.
+  EnterGroup(Group::kRelationships);
+  if (config_.format != JsonFormat::kJsonLines) {
+    Emit(config_.format == JsonFormat::kJsonIdAsKeys ? "}}" : "]}");
+  }
+
+  if (out_.is_open()) {
+    // Closed explicitly: anything still buffered is flushed here, and the destructor could not report a failure.
+    // Without this a payload smaller than the stream buffer reports success on a full disk having written nothing.
+    out_.close();
+    if (!out_) throw mgp::ValueException(fmt::format("Failed writing to '{}'", *file_));
+    if (!temp_path_.empty()) {
+      std::error_code error;
+      std::filesystem::rename(temp_path_, *file_, error);
+      if (error) throw mgp::ValueException(fmt::format("Cannot write '{}': {}", *file_, error.message()));
+      temp_path_.clear();
     }
   }
-  throw mgp::ValueException("Unhandled JSON output format");
+  return std::move(payload_);
 }
 
 }  // namespace Export
