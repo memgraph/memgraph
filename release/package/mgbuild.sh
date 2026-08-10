@@ -17,6 +17,7 @@ SUPPORTED_OS=(
     centos-9 centos-10
     debian-12 debian-12-arm debian-13 debian-13-arm
     fedora-42 fedora-42-arm fedora-43 fedora-43-arm
+    fedora-44 fedora-44-arm fedora-45 fedora-45-arm
     rocky-10
     ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
     ubuntu-26.04 ubuntu-26.04-arm
@@ -33,7 +34,7 @@ SUPPORTED_OS_V7=(
 SUPPORTED_OS_V8=(
     centos-9 centos-10
     debian-12 debian-12-arm debian-13 debian-13-arm
-    fedora-42 fedora-42-arm fedora-43 fedora-43-arm
+    fedora-43 fedora-43-arm fedora-44 fedora-44-arm fedora-45 fedora-45-arm
     rocky-10
     ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
     ubuntu-26.04 ubuntu-26.04-arm
@@ -184,6 +185,9 @@ print_help () {
   echo -e "  --custom-mirror bool          Use custom APT mirror (default false)"
   echo -e "  --cuda bool                   CUDA variant (default false)"
   echo -e "  --package-flavour string        Docker package flavour: 'prod' or 'debug' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and uses the relwithdebinfo dockerfile target."
+
+  echo -e "\npackage-memgraph options:"
+  echo -e "  --format string               Package format(s) to build: 'deb', 'rpm' or 'both' (default: the container OS's native format)."
 
   echo -e "\npackage-smoke-image options:"
   echo -e "  --src-dir string              Relative path inside memgraph directory containing the .deb/.rpm package."
@@ -982,69 +986,112 @@ package_memgraph() {
   local format=""
   local lint_command=""
 
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format)
+        format=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  # Container prep and lint config are keyed on the container OS. The package
+  # format defaults to the container's native one, but the packages are
+  # host-agnostic so any container can build either (or both) via --format.
+  local native_format=""
   if [[ "$os" == "centos-10" ]]; then
       # install much newer rpmlint than what ships with centos-10
       docker exec -u root "$build_container" bash -c "dnf remove -y rpmlint --noautoremove"
       docker exec -u root "$build_container" bash -c "pip install rpmlint==2.8.0 --user"
-      format="rpm"
+      native_format="rpm"
   elif [[ "$os" =~ ^"fedora".* ]]; then
-      format="rpm"
+      native_format="rpm"
       lint_command="rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph-[0-9]*.rpm"
   elif [[ "$os" == "rocky-10" ]]; then
-      format="rpm"
+      native_format="rpm"
       lint_command="rpmlint --file='../../release/rpm/rpmlintrc_rocky' memgraph-[0-9]*.rpm"
   elif [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"amzn".* ]] || [[ "$os" =~ ^"rocky".* ]]; then
-      format="rpm"
+      native_format="rpm"
       lint_command="rpmlint --file='../../release/rpm/rpmlintrc' memgraph-[0-9]*.rpm"
   elif [[ "$os" =~ ^"debian".* ]]; then
       docker exec -u root "$build_container" bash -c "apt --allow-releaseinfo-change -y update"
-      format="deb"
+      native_format="deb"
   elif [[ "$os" =~ ^"ubuntu".* ]]; then
       docker exec -u root "$build_container" bash -c "apt update"
-      format="deb"
+      native_format="deb"
   else
       echo -e "${RED_BOLD}Error: package_memgraph: unsupported os '$os'${RESET}" >&2
       exit 1
   fi
 
-  docker exec -u root "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && ./package.sh memgraph $format"
-  if [[ -n "$lint_command" ]]; then
-    docker exec -u root "$build_container" bash -c "cd $container_output_dir && $lint_command"
+  local formats=""
+  case "${format:-$native_format}" in
+    deb|rpm) formats="${format:-$native_format}" ;;
+    both) formats="deb rpm" ;;
+    *)
+      echo -e "${RED_BOLD}Error: --format must be 'deb', 'rpm' or 'both' (got '$format')${RESET}" >&2
+      exit 1
+    ;;
+  esac
+
+  # Cross-format tooling: deb-family containers don't ship rpmbuild (and
+  # rpm-family ones don't ship dpkg-deb); install on demand.
+  if [[ "$formats" == *"rpm"* && "$native_format" == "deb" ]]; then
+    docker exec -u root "$build_container" bash -c "command -v rpmbuild >/dev/null || apt install -y rpm"
   fi
-  if [[ "$os" == "centos-10" ]]; then
-    docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph-[0-9]*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
+  if [[ "$formats" == *"deb"* && "$native_format" == "rpm" ]]; then
+    docker exec -u root "$build_container" bash -c "command -v dpkg-deb >/dev/null || dnf install -y dpkg"
   fi
 
-  # check for mgconsole inside package
-  if [[ "$os" =~ ^"ubuntu".* || "$os" =~ ^"debian".* ]]; then
-    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph_*.deb")"
-    check_output="$(docker exec -u mg $build_container bash -c "dpkg -c $package_name")"
-  else
-    # memgraph-[0-9]*.rpm matches the main package; excludes memgraph-debuginfo-*.rpm.
-    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph-[0-9]*.rpm")"
-    check_output="$(docker exec -u mg $build_container bash -c "rpm -ql $package_name")"
-  fi
-  if ! grep -q "mgconsole" <<< "$check_output"; then
-    echo "Error: mgconsole not found in package"
-    echo "Package: $package_name"
-    echo "Check output: $check_output"
-    exit 1
-  fi
-  echo "mgconsole found in package"
+  for fmt in $formats; do
+    docker exec -u root "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && ./package.sh memgraph $fmt"
+  done
 
-  # check that the package has the required licenses
-  licenses=(
+  if [[ "$formats" == *"rpm"* ]]; then
+    if [[ -n "$lint_command" ]]; then
+      docker exec -u root "$build_container" bash -c "cd $container_output_dir && $lint_command"
+    fi
+    if [[ "$os" == "centos-10" ]]; then
+      docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph-[0-9]*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
+    fi
+  fi
+
+  # check each produced package for mgconsole and the required licenses
+  local licenses=(
     "MEL.pdf"
     "BSL.txt"
     "APL.txt"
   )
-  for license in "${licenses[@]}"; do
-    if ! grep -q "$license" <<< "$check_output"; then
-      echo "Error: $license license not found in package"
+  for fmt in $formats; do
+    if [[ "$fmt" == "deb" ]]; then
+      package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph_*.deb")"
+      check_output="$(docker exec -u mg $build_container bash -c "dpkg -c $package_name")"
+    else
+      # memgraph-[0-9]*.rpm matches the main package; excludes memgraph-debuginfo-*.rpm.
+      package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph-[0-9]*.rpm")"
+      check_output="$(docker exec -u mg $build_container bash -c "rpm -ql $package_name")"
+    fi
+    if ! grep -q "mgconsole" <<< "$check_output"; then
+      echo "Error: mgconsole not found in package"
+      echo "Package: $package_name"
+      echo "Check output: $check_output"
       exit 1
     fi
+    echo "mgconsole found in package ($fmt)"
+
+    for license in "${licenses[@]}"; do
+      if ! grep -q "$license" <<< "$check_output"; then
+        echo "Error: $license license not found in package ($fmt)"
+        exit 1
+      fi
+    done
+    echo "Package has the required licenses ($fmt)"
   done
-  echo "Package has the required licenses"
 }
 
 package_docker() {
@@ -1168,46 +1215,41 @@ package_smoke_image() {
     exit 1
   fi
 
-  local package_name=$(cd "$package_dir" && ls -t memgraph_*.deb memgraph-[0-9]*.rpm 2>/dev/null | head -1)
-  if [[ -z "$package_name" ]]; then
-    echo "Error: No memgraph package found in $package_dir" >&2
-    exit 1
-  fi
-  echo "Building smoke image from package: $package_dir/$package_name"
-
   local base_image=""
   local pkg_format=""
-  local libpython_pkg=""
-  # numpy 1.26.4 / scipy 1.13.0 have no prebuilt wheels for Python 3.13, and
-  # the source builds fail inside the smoke image (no compiler/headers).
-  # Distros that ship Python 3.13 as the default (debian-13, fedora-41+) need
-  # numpy 2.1.0 / scipy 1.15.0.
-  local numpy_version="1.26.4"
-  local scipy_version="1.13.0"
-  local networkx_version="3.4.2"
   case "$os" in
-    ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb"; libpython_pkg="libpython3.12" ;;
-    ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb"; libpython_pkg="libpython3.10" ;;
-    debian-12*)    base_image="debian:12";    pkg_format="deb"; libpython_pkg="libpython3.11" ;;
-    debian-13*)    base_image="debian:13";    pkg_format="deb"; libpython_pkg="libpython3.13"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
+    ubuntu-26.04*) base_image="ubuntu:26.04"; pkg_format="deb" ;;
+    ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb" ;;
+    ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb" ;;
+    debian-12*)    base_image="debian:12";    pkg_format="deb" ;;
+    debian-13*)    base_image="debian:13";    pkg_format="deb" ;;
     centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm" ;;
     centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
     rocky-10*)     base_image="rockylinux/rockylinux:10";  pkg_format="rpm" ;;
-    fedora-42*)    base_image="fedora:42"; pkg_format="rpm"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
+    fedora-43*)    base_image="fedora:43"; pkg_format="rpm" ;;
+    fedora-44*)    base_image="fedora:44"; pkg_format="rpm" ;;
+    fedora-45*)    base_image="fedora:45"; pkg_format="rpm" ;;
     *)
       echo "Error: Unsupported OS for package-smoke-image: $os" >&2
       exit 1
     ;;
   esac
 
-  # Python packages installed globally so memgraph's embedded Python can
-  # import them when loading bundled query modules (node2vec_online,
-  # mgp_networkx, nxalg, wcc, graph_analyzer, etc.). Mirrors the pip
-  # installs in release/docker/v7_deb.dockerfile. gssapi has no PyPI wheels
-  # so it must be supplied as a pre-built wheel via --wheels-dir.
-  local pip_packages="cryptography==50.0.0 PyJWT==2.13.0 requests==2.32.5 \
-ldap3==2.6 pyyaml==6.0.1 python3-saml==1.16.0 lxml==6.1.0 xmlsec==1.3.16 \
-gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==${networkx_version}"
+  # Pick the package matching the target's format — a single build produces
+  # both formats, so the source dir may hold a .deb and an .rpm side by side.
+  # `|| true` keeps set -e/pipefail from silently killing the script when the
+  # glob matches nothing; the empty-name check below reports it properly.
+  local package_name=""
+  if [[ "$pkg_format" == "deb" ]]; then
+    package_name=$(cd "$package_dir" && ls -t memgraph_*.deb 2>/dev/null | head -1 || true)
+  else
+    package_name=$(cd "$package_dir" && ls -t memgraph-[0-9]*.rpm 2>/dev/null | head -1 || true)
+  fi
+  if [[ -z "$package_name" ]]; then
+    echo "Error: No memgraph $pkg_format package found in $package_dir" >&2
+    exit 1
+  fi
+  echo "Building smoke image from package: $package_dir/$package_name"
 
   local build_dir
   build_dir=$(mktemp -d)
@@ -1229,6 +1271,17 @@ gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==${netwo
     fi
   fi
 
+  # The package's own postinst/%post installs the query-module python deps
+  # (as the memgraph user), so the smoke image exercises the real install
+  # path instead of pre-installing them here. Only gssapi is extra: it has
+  # no PyPI wheels, so install the wheel built in the mgbuild container when
+  # it matches the target's python; on a mismatch skip it — exactly what a
+  # customer install without build tooling does.
+  local gssapi_cmd="echo 'no gssapi wheel supplied; skipping'"
+  if [[ -n "$pip_find_links" ]]; then
+    gssapi_cmd="runuser -l memgraph -c 'PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --no-cache-dir --no-warn-script-location --no-index --find-links=/wheels gssapi==1.11.1' || echo 'no matching gssapi wheel for this python; skipping'"
+  fi
+
   local install_cmd
   if [[ "$pkg_format" == "deb" ]]; then
     # Ubuntu Docker base images filter /usr/share/doc/* via
@@ -1236,42 +1289,26 @@ gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==${netwo
     # (MEL.pdf/BSL.txt/APL.txt) which the smoke license check verifies.
     # Add a path-include exception before installing the package, matching
     # the workaround in release/docker/v7_deb.dockerfile.
+    # libcurl4/libseccomp2 are runtime deps of mgconsole/memgraph that the
+    # package does not declare; everything else comes from its Depends.
     install_cmd="export DEBIAN_FRONTEND=noninteractive && \
-      export PIP_BREAK_SYSTEM_PACKAGES=1 && \
       apt-get update && \
-      apt-get install -y --no-install-recommends \
-        libcurl4 libseccomp2 python3 ${libpython_pkg} python3-pip \
-        libatomic1 adduser ca-certificates libkrb5-3 && \
-      apt-get install -y libxmlsec1 && \
+      apt-get install -y --no-install-recommends libcurl4 libseccomp2 && \
       if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then \
         echo '' >> /etc/dpkg/dpkg.cfg.d/excludes && \
         echo '# Include all memgraph documentation files (licenses, etc.)' >> /etc/dpkg/dpkg.cfg.d/excludes && \
         echo 'path-include=/usr/share/doc/memgraph/*' >> /etc/dpkg/dpkg.cfg.d/excludes; \
       fi && \
       apt-get install -y --no-install-recommends /pkg/$package_name && \
-      pip3 install --no-cache-dir ${pip_find_links} ${pip_packages} && \
+      ($gssapi_cmd) && \
       rm -rf /var/lib/apt/lists/*"
   else
     # Fedora/CentOS/Rocky minimal docker images set tsflags=nodocs in
     # /etc/dnf/dnf.conf, which strips memgraph's license files in
     # /usr/share/doc/memgraph/. Override on the dnf install line so the
     # smoke license check passes.
-    #
-    # By default the deps go to the distro python3 via pip3. CentOS Stream 9 is
-    # the exception: memgraph there embeds python 3.12 (built with
-    # MG_PYTHON_VERSION=3.12), not the distro-default 3.9, so its bundled query
-    # modules import from python3.12's site-packages — install the deps with
-    # python3.12's pip, not pip3 (which would be 3.9 and thus invisible to
-    # memgraph).
-    local rpm_python_pkgs="python3-libs python3-pip"
-    local pip_cmd="pip3"
-    if [[ "$os" == centos-9* ]]; then
-      rpm_python_pkgs="python3.12 python3.12-pip"
-      pip_cmd="python3.12 -m pip"
-    fi
-    install_cmd="export PIP_BREAK_SYSTEM_PACKAGES=1 && \
-      dnf install -y --setopt=tsflags='' xmlsec1 libseccomp libatomic ${rpm_python_pkgs} krb5-libs /pkg/$package_name && \
-      ${pip_cmd} install --no-cache-dir ${pip_find_links} ${pip_packages} && \
+    install_cmd="dnf install -y --setopt=tsflags='' libseccomp /pkg/$package_name && \
+      ($gssapi_cmd) && \
       dnf clean all"
   fi
 

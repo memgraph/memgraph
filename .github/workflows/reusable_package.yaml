@@ -5,7 +5,7 @@ on:
     inputs:
       os:
         type: string
-        description: "Target os. Default value is ubuntu-24.04."
+        description: "OS of the mgbuild container the build runs in (not a target OS — the deb/rpm packages produced are distro-agnostic). Default value is ubuntu-24.04."
         default: ubuntu-24.04
       arch:
         type: string
@@ -55,6 +55,10 @@ on:
         type: boolean
         description: "Run smoke tests on images after building"
         default: false
+      package_smoke_os:
+        type: string
+        description: "Distro(s) to smoke test the built packages on: 'all', 'all deb', 'all rpm', or a space-separated list of distros (e.g. 'debian-13 fedora-45'). Empty means the build container's OS."
+        default: ''
       upload_debug_symbols:
         type: boolean
         description: "Upload .debug sidecars to the debuginfod-layout S3 bucket."
@@ -75,6 +79,7 @@ env:
   SPLIT_DEBUG: ${{ inputs.build_type == 'RelWithDebInfo' && 'true' || 'false' }}
   BUILD_DOCKER_IMAGE: ${{ inputs.build_docker_image }}
   OS: ${{ inputs.os }}
+  PACKAGE_SMOKE_OS: ${{ inputs.package_smoke_os }}
   ADDITIONAL_BUILD_ARGS: ${{ inputs.additional_build_args }}
   PUSH_TO_GITHUB: ${{ inputs.push_to_github }}
   PUSH_TO_S3: ${{ inputs.push_to_s3 }}
@@ -209,12 +214,14 @@ jobs:
 
       - name: "Make package"
         run: |
+          # One build produces both formats — the packages are distro-agnostic,
+          # so the deb and rpm are built from the same binaries in one job.
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          package-memgraph
+          package-memgraph --format both
 
       - name: "Copy package"
         run: |
@@ -269,22 +276,53 @@ jobs:
             build-gssapi \
             --dest-dir build/output/smoke-wheels
 
+      - name: "Resolve package smoke OS list"
+        if: ${{ inputs.run_smoke_tests }}
+        run: |
+          DEB_OSES="debian-12 debian-13 ubuntu-22.04 ubuntu-24.04 ubuntu-26.04"
+          RPM_OSES="centos-9 centos-10 fedora-43 fedora-44 fedora-45 rocky-10"
+          # Accepts 'all', 'all deb'/'all-deb', 'all rpm'/'all-rpm', or a
+          # space-separated list of distros (what a PR with several package
+          # labels produces); empty means the build container's distro.
+          spec="${PACKAGE_SMOKE_OS//all deb/all-deb}"
+          spec="${spec//all rpm/all-rpm}"
+          [[ -z "$spec" ]] && spec="$OS"
+          list=""
+          for tok in $spec; do
+            case "$tok" in
+              all) list="$list $DEB_OSES $RPM_OSES" ;;
+              all-deb) list="$list $DEB_OSES" ;;
+              all-rpm) list="$list $RPM_OSES" ;;
+              *)
+                if [[ " $DEB_OSES $RPM_OSES " != *" $tok "* ]]; then
+                  echo "Error: unsupported package_smoke_os entry '$tok'" >&2
+                  exit 1
+                fi
+                list="$list $tok"
+              ;;
+            esac
+          done
+          list="$(echo "$list" | tr ' ' '\n' | awk 'NF && !seen[$0]++' | tr '\n' ' ')"
+          echo "SMOKE_OS_LIST=$list" >> $GITHUB_ENV
+          echo "Resolved SMOKE_OS_LIST=$list"
+
       - name: "Build smoke image from package"
         if: ${{ inputs.run_smoke_tests }}
         run: |
-          # Tag is fixed/derivable so the Run smoke tests step below can
-          # reference it without an extra env handoff.
-          image_tag="smoke-${OS}-${ARCH}-${BUILD_TYPE}"
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os "$OS" \
-            --arch $ARCH \
-            package-smoke-image \
-            --src-dir $PACKAGE_ARTIFACT_DIR \
-            --image-tag "$image_tag" \
-            --wheels-dir build/output/smoke-wheels
-          echo "SMOKE_IMAGE_TAG=$image_tag" >> $GITHUB_ENV
-          echo "Resolved SMOKE_IMAGE_TAG=$image_tag"
+          # Tags are fixed/derivable so the Run smoke tests step below can
+          # reference them without an extra env handoff.
+          for smoke_os in $SMOKE_OS_LIST; do
+            image_tag="smoke-${smoke_os}-${ARCH}-${BUILD_TYPE}"
+            ./release/package/mgbuild.sh \
+              --toolchain $TOOLCHAIN \
+              --os "$smoke_os" \
+              --arch $ARCH \
+              package-smoke-image \
+              --src-dir $PACKAGE_ARTIFACT_DIR \
+              --image-tag "$image_tag" \
+              --wheels-dir build/output/smoke-wheels
+            echo "Built smoke image memgraph/memgraph:$image_tag"
+          done
 
       - name: "Copy heaptrack"
         if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
@@ -523,14 +561,22 @@ jobs:
           MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
           MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
         run: |
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os $OS \
-            --arch $ARCH \
-            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-            test-memgraph smoke \
-            --image "memgraph/memgraph:${SMOKE_IMAGE_TAG}"
+          # Tags mirror the Build smoke image step. Each mgbuild invocation's
+          # cleanup removes the last-version image, so docker re-pulls it on
+          # the following iteration.
+          for smoke_os in $SMOKE_OS_LIST; do
+            image_tag="smoke-${smoke_os}-${ARCH}-${BUILD_TYPE}"
+            echo "::group::Smoke tests on $smoke_os"
+            ./release/package/mgbuild.sh \
+              --toolchain $TOOLCHAIN \
+              --os "$smoke_os" \
+              --arch $ARCH \
+              --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+              --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+              test-memgraph smoke \
+              --image "memgraph/memgraph:${image_tag}"
+            echo "::endgroup::"
+          done
 
       - name: "Rename Package"
         if: ${{ inputs.daily_build }}
@@ -539,30 +585,31 @@ jobs:
           # PR number + commit). All non-daily callers keep get_version.py
           # naming via the default (false).
 
-          old_debuginfo=""
-          new_debuginfo=""
-          if [[ "$OS" == *"debian"* || "$OS" == *"ubuntu"* ]]; then
-            core="$(tools/ci/get_master_package_version.sh)"
-            old_name="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph_*.deb 2>/dev/null | head -n 1)"
-            new_name="memgraph_${core}-1_${ARCH}64.deb"
-            old_debuginfo="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-debuginfo_*.deb 2>/dev/null | head -n 1)"
-            new_debuginfo="memgraph-debuginfo_${core}-1_${ARCH}64.deb"
-          else
-            core="$(tools/ci/get_master_package_version.sh rpm)"
-            old_name="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-[0-9]*.rpm 2>/dev/null | head -n 1)"
-            if [[ "$ARCH" == "amd" ]]; then
-              arch_str="x86_64"
-            else
-              arch_str="aarch64"
-            fi
-            new_name="memgraph-${core}-1.${arch_str}.rpm"
-            old_debuginfo="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-debuginfo-*.rpm 2>/dev/null | head -n 1)"
-            new_debuginfo="memgraph-debuginfo-${core}-1.${arch_str}.rpm"
+          # A single build produces both formats, so rename whichever are
+          # present (debuginfo sidecars only exist for split-debug builds).
+          deb_core="$(tools/ci/get_master_package_version.sh)"
+          old_name="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph_*.deb 2>/dev/null | head -n 1)"
+          if [[ -n "$old_name" ]]; then
+            mv -v "$old_name" "$PACKAGE_ARTIFACT_DIR/memgraph_${deb_core}-1_${ARCH}64.deb"
           fi
-          mv -v "$old_name" "$PACKAGE_ARTIFACT_DIR/$new_name"
-          # Sidecar only exists for split-debug (RelWithDebInfo) builds.
+          old_debuginfo="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-debuginfo_*.deb 2>/dev/null | head -n 1)"
           if [[ -n "$old_debuginfo" ]]; then
-            mv -v "$old_debuginfo" "$PACKAGE_ARTIFACT_DIR/$new_debuginfo"
+            mv -v "$old_debuginfo" "$PACKAGE_ARTIFACT_DIR/memgraph-debuginfo_${deb_core}-1_${ARCH}64.deb"
+          fi
+
+          rpm_core="$(tools/ci/get_master_package_version.sh rpm)"
+          if [[ "$ARCH" == "amd" ]]; then
+            arch_str="x86_64"
+          else
+            arch_str="aarch64"
+          fi
+          old_name="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-[0-9]*.rpm 2>/dev/null | head -n 1)"
+          if [[ -n "$old_name" ]]; then
+            mv -v "$old_name" "$PACKAGE_ARTIFACT_DIR/memgraph-${rpm_core}-1.${arch_str}.rpm"
+          fi
+          old_debuginfo="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-debuginfo-*.rpm 2>/dev/null | head -n 1)"
+          if [[ -n "$old_debuginfo" ]]; then
+            mv -v "$old_debuginfo" "$PACKAGE_ARTIFACT_DIR/memgraph-debuginfo-${rpm_core}-1.${arch_str}.rpm"
           fi
 
           if [[ "$BUILD_DOCKER_IMAGE" != "none" ]]; then
