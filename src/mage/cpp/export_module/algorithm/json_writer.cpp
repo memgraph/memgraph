@@ -12,7 +12,9 @@
 #include "algorithm/json_writer.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -213,8 +215,14 @@ Json ValueToJson(const mgp::Value &value) {
       return value.ValueBool();
     case mgp::Type::Int:
       return value.ValueInt();
-    case mgp::Type::Double:
-      return value.ValueDouble();
+    case mgp::Type::Double: {
+      const auto number = value.ValueDouble();
+      // JSON has no non-finite literals and the JSON library renders them as `null`, which is indistinguishable from
+      // a stored null. Emit the textual forms instead, as the reference does.
+      if (std::isnan(number)) return "NaN";
+      if (std::isinf(number)) return number > 0 ? "Infinity" : "-Infinity";
+      return number;
+    }
     case mgp::Type::String:
       return std::string{value.ValueString()};
     case mgp::Type::List: {
@@ -249,8 +257,16 @@ Json ValueToJson(const mgp::Value &value) {
       const auto point = value.ValuePoint3d();
       return PointToJson(point.X(), point.Y(), point.Z(), point.Srid());
     }
-    case mgp::Type::Enum:
-      return value.ValueEnum().ToString();
+    case mgp::Type::Enum: {
+      // The property path hands enums over with empty type and value names — resolving them needs a database
+      // accessor the C API does not carry there — so the only thing this could serialize is "::". Refuse rather
+      // than write that into an export file.
+      auto enum_value = value.ValueEnum();
+      if (enum_value.TypeName().empty() || enum_value.ValueName().empty()) {
+        throw mgp::ValueException("Cannot export an enum property: its type and value names are not available here");
+      }
+      return enum_value.ToString();
+    }
     default:
       throw mgp::ValueException("Cannot export a property of this type to JSON");
   }
@@ -263,10 +279,44 @@ namespace {
 // property output is suppressed; otherwise it is consumed.
 void AppendNodeBody(Json &object, const mgp::Node &node, Properties *properties) {
   object[kKeyId] = std::to_string(node.Id().AsInt());
-  object[kKeyLabels] = SortedLabels(node);
-  // An empty `properties` is omitted entirely rather than emitted as {}.
+  // `labels` and `properties` are both omitted entirely when empty rather than emitted as [] / {}.
+  if (auto labels = SortedLabels(node); !labels.empty()) {
+    object[kKeyLabels] = std::move(labels);
+  }
   if (properties != nullptr && !properties->empty()) {
     object[kKeyProperties] = PropertiesToJson(std::move(*properties));
+  }
+}
+
+// Names the element a failed serialization came from. The library reports "invalid UTF-8 byte" with no idea which of
+// a whole database's elements carried it, which is unactionable on anything but a toy graph.
+std::string Describe(const Json &element) {
+  const auto text = [&element](const char *key) {
+    const auto it = element.find(key);
+    return it != element.end() && it->is_string() ? it->get<std::string>() : std::string{"?"};
+  };
+  return fmt::format("{} with id {}", text(kKeyType), text(kKeyId));
+}
+
+std::string DumpElement(const Json &element) {
+  try {
+    return element.dump();
+  } catch (const nlohmann::json::exception &e) {
+    throw mgp::ValueException(fmt::format("Cannot serialize the {}: {}", Describe(element), e.what()));
+  }
+}
+
+// Same, for a whole document: on failure the elements are re-dumped one by one so the message can name the offender.
+std::string DumpDocument(const Json &document) {
+  try {
+    return document.dump();
+  } catch (const nlohmann::json::exception &e) {
+    for (const auto &group : {kKeyNodes, kKeyRels}) {
+      for (const auto &element : document.at(group)) {
+        DumpElement(element);
+      }
+    }
+    throw mgp::ValueException(fmt::format("Cannot serialize the export: {}", e.what()));
   }
 }
 
@@ -324,7 +374,7 @@ void JsonWriter::AddRelationship(const mgp::Relationship &relationship) {
   ++relationship_count_;
 }
 
-std::string JsonWriter::Dump() {
+std::string JsonWriter::Dump() && {
   // No empty-set short circuit: JSON_LINES falls out as "" on its own, while the two object shapes must still emit
   // their wrappers ({"nodes":[],"rels":[]} / {"nodes":{},"rels":{}}) so an empty export stays parseable.
   switch (config_.format) {
@@ -333,7 +383,7 @@ std::string JsonWriter::Dump() {
       const auto append_lines = [&result](const Json &elements) {
         for (const auto &element : elements) {
           if (!result.empty()) result += '\n';
-          result += element.dump();
+          result += DumpElement(element);
         }
       };
       append_lines(nodes_);
@@ -344,7 +394,7 @@ std::string JsonWriter::Dump() {
       Json object = Json::object();
       object[kKeyNodes] = std::move(nodes_);
       object[kKeyRels] = std::move(relationships_);
-      return object.dump();
+      return DumpDocument(object);
     }
     case JsonFormat::kJsonIdAsKeys: {
       const auto by_id = [](Json &elements) {
@@ -360,7 +410,7 @@ std::string JsonWriter::Dump() {
       Json object = Json::object();
       object[kKeyNodes] = by_id(nodes_);
       object[kKeyRels] = by_id(relationships_);
-      return object.dump();
+      return DumpDocument(object);
     }
   }
   throw mgp::ValueException("Unhandled JSON output format");

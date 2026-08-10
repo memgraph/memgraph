@@ -15,10 +15,11 @@
 
 namespace {
 
-// `file` is nullable (null means "stream or discard"), and so is `data` (null whenever the payload went to a file).
+// `file` is nullable (null means "stream or discard"), `config` is nullable (null means "no config", as on the
+// reference), and so is `data` (null whenever the payload went to a file).
 void AddSignature(mgp_proc *proc, mgp_value *default_config) {
   mgp::proc_add_arg(proc, Export::kArgumentFile, mgp::type_nullable(mgp::type_string()));
-  mgp::proc_add_opt_arg(proc, Export::kArgumentConfig, mgp::type_map(), default_config);
+  mgp::proc_add_opt_arg(proc, Export::kArgumentConfig, mgp::type_nullable(mgp::type_map()), default_config);
 
   mgp::proc_add_result(proc, Export::kReturnFile, mgp::type_nullable(mgp::type_string()));
   mgp::proc_add_result(proc, Export::kReturnSource, mgp::type_string());

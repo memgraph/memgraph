@@ -27,7 +27,8 @@ constexpr const char *kArgumentGraph = "graph";
 constexpr const char *kArgumentFile = "file";
 constexpr const char *kArgumentConfig = "config";
 
-// The reference's 12 columns, in order.
+// The reference's 12 columns. Declaration order only survives an explicit `YIELD file, source, ...` — `YIELD *`
+// returns them alphabetically, because the kernel keeps a procedure's results in an ordered map.
 constexpr const char *kReturnFile = "file";
 constexpr const char *kReturnSource = "source";
 constexpr const char *kReturnFormat = "format";
@@ -41,9 +42,11 @@ constexpr const char *kReturnBatches = "batches";
 constexpr const char *kReturnDone = "done";
 constexpr const char *kReturnData = "data";
 
-// Keys the `graph` map argument of json_graph is read from.
+// Keys the `graph` map argument of json_graph is read from. `edges` is accepted as an alias for `relationships`
+// because that is the key project() produces.
 constexpr const char *kGraphKeyNodes = "nodes";
 constexpr const char *kGraphKeyRelationships = "relationships";
+constexpr const char *kGraphKeyEdges = "edges";
 
 void JsonData(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void JsonAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);

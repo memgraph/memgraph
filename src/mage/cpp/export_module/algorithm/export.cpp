@@ -44,8 +44,11 @@ constexpr const char *kSourcePrefixDatabase = "database";
 constexpr const char *kSourcePrefixGraph = "graph";
 
 struct Options {
-  // `file` is written verbatim: Memgraph has no import-directory concept to resolve a relative path against.
+  // `file` is written verbatim: Memgraph has no import-directory concept to resolve a relative path against. It is
+  // unset for an empty path, which means "no file" — but `echoed_file` still reports the argument as given, because
+  // the `file` result column echoes it rather than reporting the sink.
   std::optional<std::string> file;
+  std::optional<std::string> echoed_file;
   bool stream{false};
   WriteConfig write;
 };
@@ -66,9 +69,10 @@ JsonFormat ParseJsonFormat(std::string_view name) {
       fmt::format("Unknown jsonFormat '{}'; expected one of JSON_LINES, JSON, JSON_ID_AS_KEYS", name));
 }
 
-// Accepts the unambiguous spellings the reference coerces ('true'/'yes'/1, 'false'/'no'/0) so ported queries keep
-// working, but throws on anything else rather than silently reading an unrecognized value as false the way the
-// reference does — a typo'd `stream` should not quietly discard the payload.
+// Accepts the unambiguous spellings the reference coerces ('true'/'yes'/'1'/1, 'false'/'no'/'0'/0/'') so ported
+// queries keep working, but throws on anything else. The reference instead coerces every unrecognized value to
+// *true* — so `{stream: 'ture'}` there quietly turns streaming on rather than off — and a typo should be reported,
+// not guessed at in either direction.
 bool ConfigBool(const mgp::Map &config, const char *key, bool fallback) {
   const auto value = config.At(key);
   if (value.IsNull()) return fallback;
@@ -78,15 +82,19 @@ bool ConfigBool(const mgp::Map &config, const char *key, bool fallback) {
     if (number == 0 || number == 1) return number == 1;
   } else if (value.IsString()) {
     const auto upper = Upper(value.ValueString());
-    if (upper == "TRUE" || upper == "YES") return true;
-    if (upper == "FALSE" || upper == "NO") return false;
+    if (upper == "TRUE" || upper == "YES" || upper == "1") return true;
+    if (upper == "FALSE" || upper == "NO" || upper == "0" || upper.empty()) return false;
   }
   throw mgp::ValueException(fmt::format("Config '{}' must be a boolean (or one of true/false/yes/no/1/0)", key));
 }
 
 // Unrecognized keys are ignored, matching the reference's leniency — `useTypes` in particular is measured to be a
 // no-op for these procedures, so rejecting it would break otherwise-portable queries.
-Options ParseOptions(const mgp::Value &file_arg, const mgp::Map &config) {
+Options ParseOptions(const mgp::Value &file_arg, const mgp::Value &config_arg) {
+  // An explicit null config means "no config", as it does on the reference; the registered type allows it.
+  if (!config_arg.IsNull() && !config_arg.IsMap()) throw mgp::ValueException("Argument 'config' must be a map or null");
+  const auto config = config_arg.IsNull() ? mgp::Map{} : config_arg.ValueMap();
+
   for (const auto *unsupported : {kConfigCompression, kConfigCharset}) {
     // Rejected rather than ignored: a caller asking for gzip must not silently receive plaintext.
     if (!config.At(unsupported).IsNull()) {
@@ -97,7 +105,11 @@ Options ParseOptions(const mgp::Value &file_arg, const mgp::Map &config) {
   Options options;
   if (!file_arg.IsNull()) {
     if (!file_arg.IsString()) throw mgp::ValueException("Argument 'file' must be a string or null");
-    options.file = std::string{file_arg.ValueString()};
+    const auto file = std::string{file_arg.ValueString()};
+    options.echoed_file = file;
+    // An empty path means "no file", matching the reference and the procedures this one supersedes, whose `path`
+    // argument defaulted to "".
+    if (!file.empty()) options.file = file;
   }
   options.stream = ConfigBool(config, kConfigStream, false);
   options.write.write_node_properties = ConfigBool(config, kConfigWriteNodeProperties, true);
@@ -118,6 +130,9 @@ void WriteFile(const std::string &path, const std::string &payload) {
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   if (!out) throw mgp::ValueException(fmt::format("Cannot open '{}' for writing", path));
   out << payload;
+  // Closed explicitly: anything still buffered is flushed here, and the destructor could not report a failure. Without
+  // this, a payload smaller than the stream buffer reports success on a full disk having written nothing.
+  out.close();
   if (!out) throw mgp::ValueException(fmt::format("Failed writing to '{}'", path));
 }
 
@@ -128,19 +143,32 @@ mgp::List OptionalList(const mgp::Value &value, const char *name) {
   return value.ValueList();
 }
 
-void AddNodes(JsonWriter &writer, const mgp::List &nodes, const char *name) {
+void AddNodes(JsonWriter &writer, const mgp::Graph &graph, const mgp::List &nodes, const char *name) {
   for (const auto value : nodes) {
+    graph.CheckMustAbort();
     if (!value.IsNode()) throw mgp::ValueException(fmt::format("Argument '{}' must contain only nodes", name));
     writer.AddNode(value.ValueNode());
   }
 }
 
-void AddRelationships(JsonWriter &writer, const mgp::List &relationships, const char *name) {
+void AddRelationships(JsonWriter &writer, const mgp::Graph &graph, const mgp::List &relationships, const char *name) {
   for (const auto value : relationships) {
+    graph.CheckMustAbort();
     if (!value.IsRelationship())
       throw mgp::ValueException(fmt::format("Argument '{}' must contain only relationships", name));
     writer.AddRelationship(value.ValueRelationship());
   }
+}
+
+// The relationship half of a graph map. `relationships` is the documented key; `edges` is what Memgraph's own
+// project() produces, and reading only the former turned that into a silent, complete loss of the relationships.
+mgp::Value GraphRelationships(const mgp::Map &graph_map, const char *&name) {
+  if (const auto relationships = graph_map.At(kGraphKeyRelationships); !relationships.IsNull()) {
+    name = kGraphKeyRelationships;
+    return relationships;
+  }
+  name = kGraphKeyEdges;
+  return graph_map.At(kGraphKeyEdges);
 }
 
 // mgp::Record::Insert has no Type::Null case, and `file`/`data` are both nullable columns, so those two go in through
@@ -156,15 +184,19 @@ void InsertNullable(mgp_result_record *record, const char *field, const std::opt
 // and streaming was asked for; a file argument wins over `stream` (measured).
 void EmitResult(mgp_result *result, JsonWriter &writer, const Options &options, std::string_view source_prefix,
                 std::chrono::steady_clock::time_point started_at) {
-  auto payload = writer.Dump();
-  if (options.file) WriteFile(*options.file, payload);
+  const bool streaming = !options.file && options.stream;
+  // Rendered only when it has somewhere to go: with neither a file nor streaming the row carries counters alone, and
+  // those do not come from the payload.
+  std::optional<std::string> payload;
+  if (options.file || streaming) payload = std::move(writer).Dump();
+  if (options.file) WriteFile(*options.file, *payload);
 
   const auto elapsed =
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started_at);
 
   auto *raw_record = mgp::result_new_record(result);
   mgp::Record record{raw_record};
-  InsertNullable(raw_record, kReturnFile, options.file);
+  InsertNullable(raw_record, kReturnFile, options.echoed_file);
   record.Insert(kReturnSource,
                 fmt::format("{}: nodes({}), rels({})", source_prefix, writer.NodeCount(), writer.RelationshipCount()));
   record.Insert(kReturnFormat, kFormatJson);
@@ -176,23 +208,25 @@ void EmitResult(mgp_result *result, JsonWriter &writer, const Options &options, 
   record.Insert(kReturnBatchSize, kBatchSize);
   record.Insert(kReturnBatches, kBatches);
   record.Insert(kReturnDone, true);
-  const bool streaming = !options.file && options.stream;
-  InsertNullable(raw_record, kReturnData, streaming ? std::optional{std::move(payload)} : std::nullopt);
+  // `data` carries the payload only when it was streamed; a file sink reports null.
+  if (!streaming) payload.reset();
+  InsertNullable(raw_record, kReturnData, payload);
 }
 
 }  // namespace
 
-void JsonData(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+void JsonData(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
   const auto started_at = std::chrono::steady_clock::now();
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
   try {
-    const auto options = ParseOptions(arguments[2], arguments[3].ValueMap());
+    const auto options = ParseOptions(arguments[2], arguments[3]);
+    const mgp::Graph graph{memgraph_graph};
     JsonWriter writer(options.write);
-    AddNodes(writer, OptionalList(arguments[0], kArgumentNodes), kArgumentNodes);
-    AddRelationships(writer, OptionalList(arguments[1], kArgumentRelationships), kArgumentRelationships);
+    AddNodes(writer, graph, OptionalList(arguments[0], kArgumentNodes), kArgumentNodes);
+    AddRelationships(writer, graph, OptionalList(arguments[1], kArgumentRelationships), kArgumentRelationships);
     EmitResult(result, writer, options, kSourcePrefixData, started_at);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -206,7 +240,7 @@ void JsonAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_
   const auto record_factory = mgp::RecordFactory(result);
 
   try {
-    const auto options = ParseOptions(arguments[0], arguments[1].ValueMap());
+    const auto options = ParseOptions(arguments[0], arguments[1]);
     const mgp::Graph graph{memgraph_graph};
     JsonWriter writer(options.write);
     // Unlike json_data/json_graph the input here is unbounded, so honour cancellation and the query timeout.
@@ -224,20 +258,22 @@ void JsonAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_
   }
 }
 
-void JsonGraph(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
+void JsonGraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
   const auto started_at = std::chrono::steady_clock::now();
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
   try {
-    const auto options = ParseOptions(arguments[1], arguments[2].ValueMap());
+    const auto options = ParseOptions(arguments[1], arguments[2]);
     const auto graph_map = arguments[0].ValueMap();
+    const mgp::Graph graph{memgraph_graph};
     JsonWriter writer(options.write);
+    const char *relationships_key = nullptr;
+    const auto relationships = GraphRelationships(graph_map, relationships_key);
     // Named for the map keys, not the json_data argument names: the offending thing here is graph['relationships'].
-    AddNodes(writer, OptionalList(graph_map.At(kGraphKeyNodes), kGraphKeyNodes), kGraphKeyNodes);
-    AddRelationships(
-        writer, OptionalList(graph_map.At(kGraphKeyRelationships), kGraphKeyRelationships), kGraphKeyRelationships);
+    AddNodes(writer, graph, OptionalList(graph_map.At(kGraphKeyNodes), kGraphKeyNodes), kGraphKeyNodes);
+    AddRelationships(writer, graph, OptionalList(relationships, relationships_key), relationships_key);
     EmitResult(result, writer, options, kSourcePrefixGraph, started_at);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());

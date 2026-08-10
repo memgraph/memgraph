@@ -40,8 +40,8 @@ using Properties = std::unordered_map<std::string, mgp::Value>;
 // Scalar/container property value -> JSON. Temporals become ISO-8601 strings, points become {crs, coords}.
 Json ValueToJson(const mgp::Value &value);
 
-// {"type":"node","id":"<id>","labels":[...sorted...],"properties":{...}}. `properties` is omitted when the node has
-// none, and null suppresses it entirely; when non-null it is consumed.
+// {"type":"node","id":"<id>","labels":[...sorted...],"properties":{...}}. `labels` and `properties` are each omitted
+// when empty; a null `properties` suppresses the key entirely, and a non-null one is consumed.
 Json NodeToJson(const mgp::Node &node, Properties *properties);
 
 // {"type":"relationship","id":"<id>","label":"T","properties":{...},"start":{...},"end":{...}}. Endpoints are always
@@ -67,8 +67,9 @@ class JsonWriter {
   void AddRelationship(const mgp::Relationship &relationship);
 
   // Serialized payload in the configured format; "" when nothing was added under JSON_LINES, an empty wrapper under
-  // the two object shapes. Consumes the accumulated elements, so call it once; the counters stay valid.
-  std::string Dump();
+  // the two object shapes. Consumes the accumulated elements — hence rvalue-qualified, so a second call cannot
+  // compile. The counters stay valid afterwards.
+  std::string Dump() &&;
 
   std::uint64_t NodeCount() const { return node_count_; }
 
