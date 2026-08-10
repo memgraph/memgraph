@@ -1587,8 +1587,34 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
           return db_->VerticesCount(scan_op->label_, scan_op->properties_, propertyvalue_ranges);
         }
-        // no values, but we still have the label + properties
-        // use basic count without property ranges (ranges depend on runtime parameters)
+        // Try resolving IN membership lists element-by-element
+        auto *mapper = db_->GetStorageAccessor()->GetNameIdMapper();
+        for (size_t i = 0; i < scan_op->expression_ranges_.size(); ++i) {
+          if (maybe_propertyvalue_ranges[i] || !scan_op->expression_ranges_[i].membership_list_) continue;
+          auto &list = *scan_op->expression_ranges_[i].membership_list_;
+          auto saved = maybe_propertyvalue_ranges[i];
+          double sum = 0.0;
+          bool ok = true;
+          for (auto *elem : list.elements_) {
+            auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters_, mapper);
+            if (!resolved) {
+              ok = false;
+              break;
+            }
+            maybe_propertyvalue_ranges[i] = *resolved;
+            if (ranges::any_of(maybe_propertyvalue_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
+              ok = false;
+              break;
+            }
+            auto pvrs = maybe_propertyvalue_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) |
+                        ranges::to_vector;
+            sum += db_->VerticesCount(scan_op->label_, scan_op->properties_, pvrs);
+          }
+          maybe_propertyvalue_ranges[i] = ok ? storage::PropertyValueRange::IsNotNull() : saved;
+          if (ok && ranges::none_of(maybe_propertyvalue_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
+            return sum;
+          }
+        }
         return db_->VerticesCount(scan_op->label_, scan_op->properties_);
       });
       return static_cast<double>(cardinality);
@@ -1605,6 +1631,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           return static_cast<double>(db_->VerticesCount(scan_op->property_, pvr->lower_->value()));
         }
         return static_cast<double>(db_->VerticesCount(scan_op->property_, pvr->lower_, pvr->upper_));
+      }
+      if (auto *list = scan_op->expression_range_.membership_list_) {
+        double sum = 0.0;
+        for (auto *elem : list->elements_) {
+          auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters_, mapper);
+          if (!resolved) return static_cast<double>(db_->VerticesCount(scan_op->property_));
+          sum += db_->VerticesCount(scan_op->property_, resolved->lower_->value());
+        }
+        return sum;
       }
       return static_cast<double>(db_->VerticesCount(scan_op->property_));
     }
