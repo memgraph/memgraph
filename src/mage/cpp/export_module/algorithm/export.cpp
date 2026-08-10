@@ -165,19 +165,46 @@ void AddRelationships(JsonWriter &writer, const mgp::Graph &graph, mgp_list *rel
   }
 }
 
+mgp::Value GraphKey(mgp_map *graph_map, const char *key) {
+  auto *value = mgp::map_at(graph_map, key);
+  return value != nullptr ? mgp::Value(mgp::ref_type, value) : mgp::Value();
+}
+
+bool IsEmptyList(const mgp::Value &value) {
+  return value.IsList() && mgp::list_size(mgp::value_get_list(value.ptr())) == 0;
+}
+
 // The relationship half of a graph map. `relationships` is the documented key; `edges` is what Memgraph's own
 // project() produces, and reading only the former turned that into a silent, complete loss of the relationships.
+// An empty list counts as absent when choosing between them, so a stray `relationships: []` cannot shadow a populated
+// `edges`; two populated keys are refused rather than silently resolved one way.
 mgp::Value GraphRelationships(mgp_map *graph_map, const char *&name) {
-  const auto at = [graph_map](const char *key) {
-    auto *value = mgp::map_at(graph_map, key);
-    return value != nullptr ? mgp::Value(mgp::ref_type, value) : mgp::Value();
-  };
-  if (auto relationships = at(kGraphKeyRelationships); !relationships.IsNull()) {
-    name = kGraphKeyRelationships;
-    return relationships;
+  auto relationships = GraphKey(graph_map, kGraphKeyRelationships);
+  auto edges = GraphKey(graph_map, kGraphKeyEdges);
+  const bool has_relationships = !relationships.IsNull() && !IsEmptyList(relationships);
+  const bool has_edges = !edges.IsNull() && !IsEmptyList(edges);
+  if (has_relationships && has_edges) {
+    throw mgp::ValueException(fmt::format(
+        "Argument 'graph' has both '{}' and '{}'; provide only one", kGraphKeyRelationships, kGraphKeyEdges));
   }
-  name = kGraphKeyEdges;
-  return at(kGraphKeyEdges);
+  if (has_edges) {
+    name = kGraphKeyEdges;
+    return edges;
+  }
+  name = relationships.IsNull() && !edges.IsNull() ? kGraphKeyEdges : kGraphKeyRelationships;
+  return relationships.IsNull() ? std::move(edges) : std::move(relationships);
+}
+
+// The reference throws when either half is missing, and silence here means exporting half a graph — or none of it —
+// under `done: true`, which is exactly what a mistyped key produces.
+void RequireGraphKeys(mgp_map *graph_map) {
+  const auto present = [graph_map](const char *key) { return !GraphKey(graph_map, key).IsNull(); };
+  if (!present(kGraphKeyNodes)) {
+    throw mgp::ValueException(fmt::format("Argument 'graph' has no '{}' key", kGraphKeyNodes));
+  }
+  if (!present(kGraphKeyRelationships) && !present(kGraphKeyEdges)) {
+    throw mgp::ValueException(fmt::format("Argument 'graph' has no '{}' key", kGraphKeyRelationships));
+  }
 }
 
 // mgp::Record::Insert has no Type::Null case, and `file`/`data` are both nullable columns, so those two go in through
@@ -270,6 +297,7 @@ void JsonGraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
     const auto graph_arg = Argument(args, 0);
     if (!graph_arg.IsMap()) throw mgp::ValueException("Argument 'graph' must be a map");
     auto *graph_map = mgp::value_get_map(graph_arg.ptr());
+    RequireGraphKeys(graph_map);
     const mgp::Graph graph{memgraph_graph};
     JsonWriter writer(options.write, options.file, Streaming(options));
     const char *relationships_key = nullptr;

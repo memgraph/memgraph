@@ -70,7 +70,7 @@ class JsonWriter {
  public:
   // With `file` the payload is streamed to that path, via a temporary renamed into place on success, so a failure
   // part-way through leaves any previous export intact. Otherwise `retain` keeps the payload in memory for the `data`
-  // column. With neither, nothing is serialized at all and only the counters are produced.
+  // column. With neither, the elements are still built and validated, but the bytes go nowhere.
   JsonWriter(WriteConfig config, std::optional<std::string> file, bool retain);
   JsonWriter(const JsonWriter &) = delete;
   JsonWriter &operator=(const JsonWriter &) = delete;
@@ -95,8 +95,9 @@ class JsonWriter {
  private:
   enum class Group : std::uint8_t { kNone, kNodes, kRelationships };
 
-  // True when the payload has anywhere to go; when it does not, building the elements would be pure waste.
-  bool Serializing() const { return out_.is_open() || retain_; }
+  // Names the file an error is about. The temporary is an implementation detail, but hiding it entirely sends an
+  // operator to check permissions on a path that is not the one that failed.
+  std::string SinkDescription() const;
 
   void Emit(std::string_view bytes);
   void EnterGroup(Group group);
@@ -104,6 +105,10 @@ class JsonWriter {
 
   WriteConfig config_;
   std::optional<std::string> file_;
+  // Where the rename lands: `file_` with any symlink resolved, so a link is written through rather than replaced.
+  std::string target_path_;
+  // Unique per writer, and empty when writing in place. A deterministic name would let two exports to the same
+  // target share one file, each truncating, publishing and then deleting the other's work.
   std::string temp_path_;
   std::ofstream out_;
   bool retain_;
