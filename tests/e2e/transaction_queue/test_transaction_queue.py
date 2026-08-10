@@ -52,11 +52,13 @@ def show_transactions_test(cursor, expected_num_results: int):
 def wait_for_transaction_count(cursor, expected_num_results: int, timeout_s: int = 10):
     """Polls SHOW TRANSACTIONS until the expected number of transactions is visible."""
     deadline = time.time() + timeout_s
-    while time.time() < deadline:
-        if len(execute_and_fetch_all(cursor, "SHOW TRANSACTIONS")) == expected_num_results:
+    while True:
+        results = execute_and_fetch_all(cursor, "SHOW TRANSACTIONS")
+        if len(results) == expected_num_results:
             return
+        if time.time() >= deadline:
+            assert False, f"Timed out waiting for {expected_num_results} transactions, saw {results}"
         time.sleep(0.1)
-    assert False, f"Timed out waiting for {expected_num_results} transactions"
 
 
 def process_function(cursor, queries: List[str]):
@@ -377,6 +379,8 @@ def test_wildcard_admin_kills_all(request):
     # Only the sweeping session is left.
     wait_for_transaction_count(admin_cursor, 1)
 
+    for process in processes:
+        process.join()
     for connection in victim_connections:
         connection.close()
 
@@ -443,6 +447,13 @@ def test_wildcard_unprivileged_kills_only_own(request):
     wait_for_transaction_count(admin_observer_cursor, 2)
     assert admin_long_query_id() == admin_transaction_id
 
+    # The survivor has to be killed here: the long query runs in a forked child, so closing the
+    # connection from this process would leave it running and later tests would count it.
+    execute_and_fetch_all(admin_observer_cursor, f"TERMINATE TRANSACTIONS '{admin_transaction_id}'")
+    wait_for_transaction_count(admin_observer_cursor, 1)
+
+    admin_process.join()
+    user_process.join()
     admin_connection.close()
     user_victim_connection.close()
 
@@ -487,6 +498,9 @@ def test_wildcard_across_databases(request):
     assert all(result[1] == True for result in results)
     wait_for_transaction_count(admin_cursor, 1)
 
+    # The victim sessions have to be gone before the databases they used can be dropped.
+    for process in processes:
+        process.join()
     for connection in victim_connections:
         connection.close()
 
@@ -503,12 +517,21 @@ def test_wildcard_rejects_mixed_list():
             execute_and_fetch_all(cursor, query)
 
 
-def test_wildcard_as_parameter():
-    """Query stripping turns the literal into a parameter, so a parameterized wildcard is the
-    same statement and must behave identically."""
+def test_wildcard_and_id_share_the_cached_query():
+    """Query stripping replaces the id literal with a parameter, so the wildcard and a named id
+    strip to the same query and share one cached AST. Each execution must follow its own literal
+    instead of the one that populated the cache."""
     cursor = connect().cursor()
-    cursor.execute("TERMINATE TRANSACTIONS $id", {"id": "*"})
-    assert len(cursor.fetchall()) == 0
+    assert len(execute_and_fetch_all(cursor, 'TERMINATE TRANSACTIONS "*"')) == 0
+
+    # Same cache entry, different parameter: read as a named id, not as a sweep.
+    results = execute_and_fetch_all(cursor, "TERMINATE TRANSACTIONS '1'")
+    assert len(results) == 1
+    assert results[0][0] == "1"
+    assert results[0][1] == False
+
+    # And back, so a wildcard decision cached from the first execution would show up here.
+    assert len(execute_and_fetch_all(cursor, 'TERMINATE TRANSACTIONS "*"')) == 0
 
 
 def test_unauthorized_terminate_reports_not_killed(request):
@@ -551,6 +574,7 @@ def test_unauthorized_terminate_reports_not_killed(request):
     # The admin can still kill it.
     results = execute_and_fetch_all(admin_observer_cursor, f"TERMINATE TRANSACTIONS '{admin_transaction_id}'")
     assert results[0][1] == True
+    wait_for_transaction_count(admin_observer_cursor, 1)
 
     admin_connection.close()
     user_connection.close()
