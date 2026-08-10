@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -7351,9 +7352,35 @@ std::vector<TypedValue> BuildGcTransactionRow(storage::GcRunInfoView const &info
       "gc", "GARBAGE COLLECTION", std::move(metadata), info.start_time_us, info.start_steady_ms);
 }
 
+namespace {
+// TERMINATE TRANSACTIONS "*" terminates every transaction the caller may kill. Matched
+// exactly: near-misses are rejected by ParseTransactionId rather than silently ignored.
+constexpr std::string_view kTerminateAllWildcard = "*";
+
+bool IsTerminateAllWildcard(TypedValue const &value) {
+  return value.IsString() && std::string_view{value.ValueString()} == kTerminateAllWildcard;
+}
+
+// Transaction ids arrive as string literals, so the whole string must parse; a partial
+// parse would silently target a different transaction than the one named.
+uint64_t ParseTransactionId(TypedValue const &value) {
+  if (!value.IsString()) {
+    throw QueryRuntimeException("Transaction id must be a string.");
+  }
+  auto const &id_string = value.ValueString();
+  auto const *const end = id_string.data() + id_string.size();
+  uint64_t transaction_id{};
+  auto const [parse_end, ec] = std::from_chars(id_string.data(), end, transaction_id);
+  if (ec != std::errc{} || parse_end != end) {
+    throw QueryRuntimeException("'{}' is not a valid transaction id.", std::string_view{id_string});
+  }
+  return transaction_id;
+}
+}  // namespace
+
 Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                      std::shared_ptr<QueryUserOrRole> user_or_role, const Parameters &parameters,
-                                     InterpreterContext *interpreter_context) {
+                                     InterpreterContext *interpreter_context, Interpreter const *self) {
   auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
     return user_or_role &&
            user_or_role->IsAuthorized(
@@ -7396,18 +7423,34 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
     case TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS: {
       auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-      std::vector<uint64_t> maybe_kill_transaction_ids;
+      std::vector<TypedValue> id_values;
       std::ranges::transform(transaction_query->transaction_id_list_,
-                             std::back_inserter(maybe_kill_transaction_ids),
-                             [&evaluator](Expression *expression) {
-                               try {
-                                 auto value = expression->Accept(evaluator);
-                                 return std::stoul(value.ValueString().c_str());  // NOLINT
-                               } catch (std::exception & /* unused */) {
-                                 return std::numeric_limits<uint64_t>::max();
-                               }
-                             });
+                             std::back_inserter(id_values),
+                             [&evaluator](Expression *expression) { return expression->Accept(evaluator); });
+
       callback.header = {"transaction_id", "killed"};
+
+      if (std::ranges::any_of(id_values, IsTerminateAllWildcard)) {
+        // Mixing would make the wildcard's meaning depend on the rest of the list: a named id
+        // that the wildcard skips (the caller's own) would silently not be terminated.
+        if (id_values.size() != 1) {
+          throw QueryRuntimeException("The '{}' wildcard cannot be combined with transaction ids.",
+                                      kTerminateAllWildcard);
+        }
+        callback.fn = [interpreter_context,
+                       self,
+                       user_or_role = std::move(user_or_role),
+                       privilege_checker = std::move(privilege_checker)]() mutable {
+          return interpreter_context->interpreters.WithLock([&](auto &interpreters) mutable {
+            return InterpreterContext::TerminateAllTransactions(
+                interpreters, self, user_or_role.get(), std::move(privilege_checker));
+          });
+        };
+        break;
+      }
+
+      std::vector<uint64_t> maybe_kill_transaction_ids;
+      std::ranges::transform(id_values, std::back_inserter(maybe_kill_transaction_ids), ParseTransactionId);
       callback.fn = [interpreter_context,
                      maybe_kill_transaction_ids = std::move(maybe_kill_transaction_ids),
                      user_or_role = std::move(user_or_role),
@@ -7425,11 +7468,11 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
 }
 
 PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, std::shared_ptr<QueryUserOrRole> user_or_role,
-                                           InterpreterContext *interpreter_context) {
+                                           InterpreterContext *interpreter_context, Interpreter const *self) {
   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
   MG_ASSERT(transaction_queue_query);
   auto callback = HandleTransactionQueueQuery(
-      transaction_queue_query, std::move(user_or_role), parsed_query.parameters, interpreter_context);
+      transaction_queue_query, std::move(user_or_role), parsed_query.parameters, interpreter_context, self);
 
   return PreparedQuery{
       .header = std::move(callback.header),
@@ -10843,7 +10886,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       if (in_explicit_transaction_) {
         throw TransactionQueueInMulticommandTxException();
       }
-      prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), user_or_role_, interpreter_context_);
+      prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), user_or_role_, interpreter_context_, this);
     } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw MultiDatabaseQueryInMulticommandTxException();

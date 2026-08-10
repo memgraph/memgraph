@@ -9,10 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <chrono>
+#include <memory>
 #include <stop_token>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include "gmock/gmock.h"
@@ -20,6 +23,7 @@
 #include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
 #include "query/context.hpp"
+#include "query/exceptions.hpp"
 #include "query/interpreter_context.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -244,6 +248,129 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateCommittingTransactionNotFound) {
   // Restore to IDLE
   this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::IDLE,
                                                                   std::memory_order_release);
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, StrictIdParsing) {
+  // A transaction id must parse in full. Previously a trailing-garbage id parsed as its
+  // numeric prefix and silently terminated a different transaction, while an unparseable
+  // id reported a kill attempt on a bogus UINT64_MAX id.
+  this->running_interpreter.Interpret("BEGIN");
+  std::string const tx_id = std::to_string(this->running_interpreter.interpreter.GetTransactionId().value());
+
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS '" + tx_id + "abc'"),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS 'ALL'"),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS ''"), memgraph::query::QueryRuntimeException);
+  // Non-string literals are rejected rather than degrading to a bogus id. A real id can't be
+  // used unquoted here: ids start at 1<<63, which overflows an integer literal.
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS 123"), memgraph::query::QueryRuntimeException);
+  // Ids are unsigned, so a sign is never part of a valid id — whether it leads or is embedded.
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS '-" + tx_id + "'"),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS '+" + tx_id + "'"),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS '" + tx_id + "+1'"),
+               memgraph::query::QueryRuntimeException);
+  // 2^64, the first value that no longer fits an id, is rejected instead of wrapping.
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS '18446744073709551616'"),
+               memgraph::query::QueryRuntimeException);
+
+  // The victim survived every rejected attempt.
+  auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
+  ASSERT_EQ(show_stream.GetResults().size(), 2U);
+
+  // Leading zeros are digits, so the id still parses in full and names the same transaction.
+  auto terminate_stream = this->main_interpreter.Interpret("TERMINATE TRANSACTIONS '00" + tx_id + "'");
+  ASSERT_EQ(terminate_stream.GetResults().size(), 1U);
+  EXPECT_EQ(terminate_stream.GetResults()[0][0].ValueString(), tx_id);
+  EXPECT_TRUE(terminate_stream.GetResults()[0][1].ValueBool());
+
+  this->running_interpreter.Abort();
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, WildcardTerminatesOther) {
+  this->running_interpreter.Interpret("BEGIN");
+  this->running_interpreter.Interpret("CREATE (:Person {prop: 1})");
+  std::string const victim_id = std::to_string(this->running_interpreter.interpreter.GetTransactionId().value());
+
+  auto terminate_stream = this->main_interpreter.Interpret("TERMINATE TRANSACTIONS \"*\"");
+  ASSERT_EQ(terminate_stream.GetResults().size(), 1U);
+  EXPECT_EQ(terminate_stream.GetResults()[0][0].ValueString(), victim_id);
+  EXPECT_TRUE(terminate_stream.GetResults()[0][1].ValueBool());
+  EXPECT_EQ(this->running_interpreter.interpreter.transaction_status_.load(std::memory_order_acquire),
+            memgraph::query::TransactionStatus::TERMINATED);
+
+  this->running_interpreter.Abort();
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, WildcardExcludesSelf) {
+  // Nothing else is running, so the sweep finds nothing. Crucially the statement itself
+  // succeeds: had it terminated its own transaction, its commit would have thrown and the
+  // caller would never learn what it killed.
+  auto terminate_stream = this->main_interpreter.Interpret("TERMINATE TRANSACTIONS \"*\"");
+  EXPECT_EQ(terminate_stream.GetResults().size(), 0U);
+
+  // The issuing interpreter is still usable.
+  auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
+  EXPECT_EQ(show_stream.GetResults().size(), 1U);
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, WildcardRowsSortedAscending) {
+  auto victim_2 = std::make_unique<InterpreterFaker>(&this->interpreter_context, this->db);
+  auto victim_3 = std::make_unique<InterpreterFaker>(&this->interpreter_context, this->db);
+
+  this->running_interpreter.Interpret("BEGIN");
+  victim_2->Interpret("BEGIN");
+  victim_3->Interpret("BEGIN");
+
+  auto terminate_stream = this->main_interpreter.Interpret("TERMINATE TRANSACTIONS \"*\"");
+  ASSERT_EQ(terminate_stream.GetResults().size(), 3U);
+
+  std::vector<uint64_t> reported_ids;
+  for (const auto &row : terminate_stream.GetResults()) {
+    EXPECT_TRUE(row[1].ValueBool());
+    reported_ids.push_back(std::stoull(row[0].ValueString()));
+  }
+  EXPECT_TRUE(std::ranges::is_sorted(reported_ids));
+
+  this->running_interpreter.Abort();
+  victim_2->Abort();
+  victim_3->Abort();
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, WildcardSkipsCommitting) {
+  this->running_interpreter.Interpret("BEGIN");
+  this->running_interpreter.Interpret("CREATE (:Person {prop: 1})");
+
+  // Only an ACTIVE transaction can be pinned for termination, so a committing one is skipped.
+  this->running_interpreter.interpreter.transaction_status_.store(
+      memgraph::query::TransactionStatus::STARTED_COMMITTING, std::memory_order_release);
+
+  auto terminate_stream = this->main_interpreter.Interpret("TERMINATE TRANSACTIONS \"*\"");
+  EXPECT_EQ(terminate_stream.GetResults().size(), 0U);
+
+  this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::IDLE,
+                                                                  std::memory_order_release);
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, WildcardRejectsMixedList) {
+  this->running_interpreter.Interpret("BEGIN");
+  std::string const victim_id = std::to_string(this->running_interpreter.interpreter.GetTransactionId().value());
+
+  // Mixing is rejected in either order, and a repeated wildcard is still a list.
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS \"*\", '" + victim_id + "'"),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS '" + victim_id + "', \"*\""),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(this->main_interpreter.Interpret("TERMINATE TRANSACTIONS \"*\", \"*\""),
+               memgraph::query::QueryRuntimeException);
+
+  // The victim survived every rejected attempt.
+  EXPECT_EQ(this->running_interpreter.interpreter.transaction_status_.load(std::memory_order_acquire),
+            memgraph::query::TransactionStatus::ACTIVE);
+
+  this->running_interpreter.Abort();
 }
 
 TYPED_TEST(TransactionQueueSimpleTest, ShowTransactionsAfterCommit) {
