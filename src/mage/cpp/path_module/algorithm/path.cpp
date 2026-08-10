@@ -94,13 +94,13 @@ AliasedConfigValue AliasedValue(const mgp::Map &config, std::string_view key, st
   auto value = config.At(key);
   auto alias_value = config.At(alias);
   if (value.IsNull()) {
-    return {std::move(alias_value), alias};
+    return {.value = std::move(alias_value), .key = alias};
   }
   if (!alias_value.IsNull()) {
     throw mgp::ValueException("Config keys '" + std::string(key) + "' and '" + std::string(alias) +
                               "' mean the same thing; supply only one.");
   }
-  return {std::move(value), key};
+  return {.value = std::move(value), .key = key};
 }
 
 int64_t NodeFilterId(const mgp::Value &value, const mgp::Graph &graph, std::string_view type_error) {
@@ -486,10 +486,13 @@ void Path::PathHelper::ParseRelationships(const mgp::List &list_of_relationships
       continue;
     }
 
-    AddRelationshipDirection(std::move(type),
-                             incoming   ? RelDirection::kIncoming
-                             : outgoing ? RelDirection::kOutgoing
-                                        : RelDirection::kAny);
+    auto direction = RelDirection::kAny;
+    if (incoming) {
+      direction = RelDirection::kIncoming;
+    } else if (outgoing) {
+      direction = RelDirection::kOutgoing;
+    }
+    AddRelationshipDirection(std::move(type), direction);
   }
 }
 
@@ -632,7 +635,7 @@ void Path::Create(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
     }
 
     auto record = record_factory.NewRecord();
-    record.Insert(std::string(kResultCreate).c_str(), path);
+    record.Insert(kResultCreate, path);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -687,7 +690,7 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationshi
 
 void Path::PathExpand::Emit(const mgp::Path &path) {
   auto record = path_data_.record_factory_.NewRecord();
-  record.Insert(std::string(kResultExpand).c_str(), path);
+  record.Insert(kResultExpand, path);
   ++path_data_.emitted_;
 }
 
@@ -970,7 +973,7 @@ void Path::SubgraphNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *
 
     for (const auto &node : to_be_returned_nodes) {
       auto record = record_factory.NewRecord();
-      record.Insert(std::string(kResultSubgraphNodes).c_str(), node);
+      record.Insert(kResultSubgraphNodes, node);
     }
 
   } catch (const std::exception &e) {
@@ -994,8 +997,8 @@ void Path::SubgraphAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
     // This procedure always returns one record; here it is the empty one.
     if (start_value.IsNull()) {
       auto record = record_factory.NewRecord();
-      record.Insert(std::string(kResultNodesSubgraphAll).c_str(), mgp::List{});
-      record.Insert(std::string(kResultRelsSubgraphAll).c_str(), mgp::List{});
+      record.Insert(kResultNodesSubgraphAll, mgp::List{});
+      record.Insert(kResultRelsSubgraphAll, mgp::List{});
       return;
     }
 
@@ -1034,8 +1037,8 @@ void Path::SubgraphAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
     }
 
     auto record = record_factory.NewRecord();
-    record.Insert(std::string(kResultNodesSubgraphAll).c_str(), to_be_returned_nodes);
-    record.Insert(std::string(kResultRelsSubgraphAll).c_str(), to_be_returned_rels);
+    record.Insert(kResultNodesSubgraphAll, to_be_returned_nodes);
+    record.Insert(kResultRelsSubgraphAll, to_be_returned_rels);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());

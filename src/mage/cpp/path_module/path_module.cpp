@@ -40,19 +40,18 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
 
     // Low-level API: mgp::Parameter cannot express a nullable type, and a null start has to reach the
     // body to return no rows rather than be rejected as a type error.
-    auto *expand = mgp::module_add_read_procedure(module, Path::kProcedureExpand.data(), Path::Expand);
-    mgp::proc_add_arg(expand, Path::kArgumentStartExpand.data(), mgp::type_nullable(mgp::type_any()));
-    mgp::proc_add_arg(expand, Path::kArgumentRelationshipsExpand.data(), mgp::type_list(mgp::type_string()));
-    mgp::proc_add_arg(expand, Path::kArgumentLabelsExpand.data(), mgp::type_list(mgp::type_string()));
-    mgp::proc_add_arg(expand, Path::kArgumentMinHopsExpand.data(), mgp::type_int());
-    mgp::proc_add_arg(expand, Path::kArgumentMaxHopsExpand.data(), mgp::type_int());
-    mgp::proc_add_result(expand, Path::kResultExpand.data(), mgp::type_path());
+    auto *expand = mgp::module_add_read_procedure(module, Path::kProcedureExpand, Path::Expand);
+    mgp::proc_add_arg(expand, Path::kArgumentStartExpand, mgp::type_nullable(mgp::type_any()));
+    mgp::proc_add_arg(expand, Path::kArgumentRelationshipsExpand, mgp::type_list(mgp::type_string()));
+    mgp::proc_add_arg(expand, Path::kArgumentLabelsExpand, mgp::type_list(mgp::type_string()));
+    mgp::proc_add_arg(expand, Path::kArgumentMinHopsExpand, mgp::type_int());
+    mgp::proc_add_arg(expand, Path::kArgumentMaxHopsExpand, mgp::type_int());
+    mgp::proc_add_result(expand, Path::kResultExpand, mgp::type_path());
 
-    auto *expand_config =
-        mgp::module_add_read_procedure(module, Path::kProcedureExpandConfig.data(), Path::ExpandConfig);
-    mgp::proc_add_arg(expand_config, Path::kArgumentStartExpand.data(), mgp::type_nullable(mgp::type_any()));
-    mgp::proc_add_arg(expand_config, Path::kArgumentConfigExpandConfig.data(), mgp::type_map());
-    mgp::proc_add_result(expand_config, Path::kResultExpand.data(), mgp::type_path());
+    auto *expand_config = mgp::module_add_read_procedure(module, Path::kProcedureExpandConfig, Path::ExpandConfig);
+    mgp::proc_add_arg(expand_config, Path::kArgumentStartExpand, mgp::type_nullable(mgp::type_any()));
+    mgp::proc_add_arg(expand_config, Path::kArgumentConfigExpandConfig, mgp::type_map());
+    mgp::proc_add_result(expand_config, Path::kResultExpand, mgp::type_path());
 
     auto empty_list = mgp::Value(mgp::List{});
     auto empty_map = mgp::Map{};
@@ -60,22 +59,21 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     auto default_relationships = mgp::Value(std::move(empty_map));
 
     // Nullable for the same reason: a start node from an OPTIONAL MATCH is normal to pass.
-    auto *create = mgp::module_add_read_procedure(module, Path::kProcedureCreate.data(), Path::Create);
-    mgp::proc_add_arg(create, Path::kCreateArg1.data(), mgp::type_nullable(mgp::type_any()));
-    mgp::proc_add_opt_arg(create, Path::kCreateArg2.data(), mgp::type_map(), default_relationships.ptr());
-    mgp::proc_add_result(create, Path::kResultCreate.data(), mgp::type_path());
+    auto *create = mgp::module_add_read_procedure(module, Path::kProcedureCreate, Path::Create);
+    mgp::proc_add_arg(create, Path::kCreateArg1, mgp::type_nullable(mgp::type_any()));
+    mgp::proc_add_opt_arg(create, Path::kCreateArg2, mgp::type_map(), default_relationships.ptr());
+    mgp::proc_add_result(create, Path::kResultCreate, mgp::type_path());
 
-    auto *subgraph_nodes =
-        mgp::module_add_read_procedure(module, Path::kProcedureSubgraphNodes.data(), Path::SubgraphNodes);
-    mgp::proc_add_arg(subgraph_nodes, Path::kArgumentsStart.data(), mgp::type_nullable(mgp::type_any()));
-    mgp::proc_add_arg(subgraph_nodes, Path::kArgumentsConfig.data(), mgp::type_map());
-    mgp::proc_add_result(subgraph_nodes, Path::kReturnSubgraphNodes.data(), mgp::type_node());
+    auto *subgraph_nodes = mgp::module_add_read_procedure(module, Path::kProcedureSubgraphNodes, Path::SubgraphNodes);
+    mgp::proc_add_arg(subgraph_nodes, Path::kArgumentsStart, mgp::type_nullable(mgp::type_any()));
+    mgp::proc_add_arg(subgraph_nodes, Path::kArgumentsConfig, mgp::type_map());
+    mgp::proc_add_result(subgraph_nodes, Path::kReturnSubgraphNodes, mgp::type_node());
 
-    auto *subgraph_all = mgp::module_add_read_procedure(module, Path::kProcedureSubgraphAll.data(), Path::SubgraphAll);
-    mgp::proc_add_arg(subgraph_all, Path::kArgumentsStart.data(), mgp::type_nullable(mgp::type_any()));
-    mgp::proc_add_arg(subgraph_all, Path::kArgumentsConfig.data(), mgp::type_map());
-    mgp::proc_add_result(subgraph_all, Path::kReturnNodesSubgraphAll.data(), mgp::type_list(mgp::type_node()));
-    mgp::proc_add_result(subgraph_all, Path::kReturnRelsSubgraphAll.data(), mgp::type_list(mgp::type_relationship()));
+    auto *subgraph_all = mgp::module_add_read_procedure(module, Path::kProcedureSubgraphAll, Path::SubgraphAll);
+    mgp::proc_add_arg(subgraph_all, Path::kArgumentsStart, mgp::type_nullable(mgp::type_any()));
+    mgp::proc_add_arg(subgraph_all, Path::kArgumentsConfig, mgp::type_map());
+    mgp::proc_add_result(subgraph_all, Path::kReturnNodesSubgraphAll, mgp::type_list(mgp::type_node()));
+    mgp::proc_add_result(subgraph_all, Path::kReturnRelsSubgraphAll, mgp::type_list(mgp::type_relationship()));
 
   } catch (const std::exception &e) {
     return 1;

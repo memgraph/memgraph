@@ -27,52 +27,52 @@
 namespace Path {
 
 /* elements constants */
-constexpr const std::string_view kProcedureElements = "elements";
-constexpr const std::string_view kElementsArg1 = "path";
+constexpr const char *kProcedureElements = "elements";
+constexpr const char *kElementsArg1 = "path";
 
 /* combine constants */
-constexpr const std::string_view kProcedureCombine = "combine";
-constexpr const std::string_view kCombineArg1 = "first";
-constexpr const std::string_view kCombineArg2 = "second";
+constexpr const char *kProcedureCombine = "combine";
+constexpr const char *kCombineArg1 = "first";
+constexpr const char *kCombineArg2 = "second";
 
 /* slice constants */
-constexpr const std::string_view kProcedureSlice = "slice";
-constexpr const std::string_view kSliceArg1 = "path";
-constexpr const std::string_view kSliceArg2 = "offset";
-constexpr const std::string_view kSliceArg3 = "length";
+constexpr const char *kProcedureSlice = "slice";
+constexpr const char *kSliceArg1 = "path";
+constexpr const char *kSliceArg2 = "offset";
+constexpr const char *kSliceArg3 = "length";
 
 /* create constants */
-constexpr const std::string_view kProcedureCreate = "create";
-constexpr const std::string_view kCreateArg1 = "start_node";
-constexpr const std::string_view kCreateArg2 = "relationships";
-constexpr const std::string_view kResultCreate = "path";
+constexpr const char *kProcedureCreate = "create";
+constexpr const char *kCreateArg1 = "start_node";
+constexpr const char *kCreateArg2 = "relationships";
+constexpr const char *kResultCreate = "path";
 
 /* expand constants */
-constexpr std::string_view kProcedureExpand = "expand";
-constexpr std::string_view kArgumentStartExpand = "start";
-constexpr std::string_view kArgumentRelationshipsExpand = "relationships";
-constexpr std::string_view kArgumentLabelsExpand = "labels";
-constexpr std::string_view kArgumentMinHopsExpand = "min_hops";
-constexpr std::string_view kArgumentMaxHopsExpand = "max_hops";
-constexpr std::string_view kResultExpand = "result";
+constexpr const char *kProcedureExpand = "expand";
+constexpr const char *kArgumentStartExpand = "start";
+constexpr const char *kArgumentRelationshipsExpand = "relationships";
+constexpr const char *kArgumentLabelsExpand = "labels";
+constexpr const char *kArgumentMinHopsExpand = "min_hops";
+constexpr const char *kArgumentMaxHopsExpand = "max_hops";
+constexpr const char *kResultExpand = "result";
 
 /* expand_config constants */
-constexpr std::string_view kProcedureExpandConfig = "expand_config";
-constexpr std::string_view kArgumentConfigExpandConfig = "config";
+constexpr const char *kProcedureExpandConfig = "expand_config";
+constexpr const char *kArgumentConfigExpandConfig = "config";
 
 /* subgraph_nodes constants */
-constexpr std::string_view kReturnSubgraphNodes = "nodes";
-constexpr std::string_view kProcedureSubgraphNodes = "subgraph_nodes";
-constexpr std::string_view kArgumentsStart = "start_node";
-constexpr std::string_view kArgumentsConfig = "config";
-constexpr std::string_view kResultSubgraphNodes = "nodes";
+constexpr const char *kReturnSubgraphNodes = "nodes";
+constexpr const char *kProcedureSubgraphNodes = "subgraph_nodes";
+constexpr const char *kArgumentsStart = "start_node";
+constexpr const char *kArgumentsConfig = "config";
+constexpr const char *kResultSubgraphNodes = "nodes";
 
 /* subgraph_all constants */
-constexpr std::string_view kReturnNodesSubgraphAll = "nodes";
-constexpr std::string_view kReturnRelsSubgraphAll = "rels";
-constexpr std::string_view kProcedureSubgraphAll = "subgraph_all";
-constexpr std::string_view kResultNodesSubgraphAll = "nodes";
-constexpr std::string_view kResultRelsSubgraphAll = "rels";
+constexpr const char *kReturnNodesSubgraphAll = "nodes";
+constexpr const char *kReturnRelsSubgraphAll = "rels";
+constexpr const char *kProcedureSubgraphAll = "subgraph_all";
+constexpr const char *kResultNodesSubgraphAll = "nodes";
+constexpr const char *kResultRelsSubgraphAll = "rels";
 
 // Heterogeneous lookup: find by string_view without allocating a string.
 struct TransparentStringHash {
@@ -114,20 +114,20 @@ struct LabelBoolsStatus {
   bool termination_activated = false;
 };
 
-enum class RelDirection { kNone = -1, kAny = 0, kIncoming = 1, kOutgoing = 2 };
+enum class RelDirection : std::int8_t { kNone = -1, kAny = 0, kIncoming = 1, kOutgoing = 2 };
 
 // What may not repeat during a walk. The `*Path` forms forbid a repeat within the current path only,
 // and are the only values the expand walk accepts: it reaches a depth by re-walking from the start, so
 // anything marked for the whole traversal would block the next pass. kNodeGlobal is the subgraph walk's
 // own rule, not a caller-selectable one.
-enum class Uniqueness { kRelationshipPath, kNodePath, kNodeGlobal };
+enum class Uniqueness : std::uint8_t { kRelationshipPath, kNodePath, kNodeGlobal };
 
 [[nodiscard]] constexpr bool IsNodeUniqueness(Uniqueness uniqueness) {
   return uniqueness == Uniqueness::kNodePath || uniqueness == Uniqueness::kNodeGlobal;
 }
 
 // Which procedure got the config map: the two families accept different keys.
-enum class ProcedureKind { kExpand, kSubgraph };
+enum class ProcedureKind : std::uint8_t { kExpand, kSubgraph };
 
 // One filter's answer about a node. Combined with `&=`: every filter must agree to include it, and
 // any one of them may stop the walk.
