@@ -4,11 +4,11 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_spatial() {
   echo "FEATURE: Spatial data types and functionalities"
-  run_next "MATCH (n) DETACH DELETE n;"
-  run_next "CREATE (n {xy: point({x:1, y:2})}) RETURN n.xy.x;"
-  run_next "CREATE (n {xy: point({x:1, y:2})}) RETURN n;"
-  run_next "CREATE POINT INDEX ON :School(location);"
-  run_next "SHOW INDEX INFO;"
+  run_query "MATCH (n) DETACH DELETE n;"
+  run_query "CREATE (n {xy: point({x:1, y:2})}) RETURN n.xy.x;"
+  run_query "CREATE (n {xy: point({x:1, y:2})}) RETURN n;"
+  run_query "CREATE POINT INDEX ON :School(location);"
+  run_query "SHOW INDEX INFO;"
 }
 
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then

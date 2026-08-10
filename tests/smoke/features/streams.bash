@@ -4,7 +4,7 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_streams() {
   echo "FEATURE: Graph streams"
-  run_next "SHOW STREAMS;"
+  run_query "SHOW STREAMS;"
 }
 
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then

@@ -6,8 +6,8 @@ test_storage() {
   echo "FEATURE: Storage: IN_MEMORY_TRANSACTIONAL"
   echo "SUBFEATURE: Property compression"
   # TODO(gitbuda): Under the CI, under test_single_mage.bash, the property compression is not enabled.
-  run_next "CREATE (n:Label $MEMGRAPH_FULL_PROPERTIES_SET)-[:Edge $MEMGRAPH_FULL_PROPERTIES_SET]->(:Label);"
-  run_next "MATCH (n) RETURN n;"
+  run_query "CREATE (n:Label $MEMGRAPH_FULL_PROPERTIES_SET)-[:Edge $MEMGRAPH_FULL_PROPERTIES_SET]->(:Label);"
+  run_query "MATCH (n) RETURN n;"
 }
 
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then

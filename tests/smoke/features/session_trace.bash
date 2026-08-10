@@ -5,9 +5,9 @@ source "$SCRIPT_DIR/../utils.bash"
 test_session_trace() {
   echo "FEATURE: Inspection"
   echo "SUBFEATURE: Session trace"
-  run_next "SET SESSION TRACE ON;"
-  run_next "CREATE (n);"
-  run_next "MATCH (n) RETURN n;"
+  run_query "SET SESSION TRACE ON;"
+  run_query "CREATE (n);"
+  run_query "MATCH (n) RETURN n;"
 }
 
 # NOTE: No extra functions to not polute the namespace, flags could be different for each mgconsole test.
@@ -21,11 +21,11 @@ if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then
     docker)
       trap cleanup_docker_exit EXIT
       cleanup_docker
-      docker run -d --rm -p $MEMGRAPH_NEXT_DATA_BOLT_PORT:7687 --name memgraph_next_data \
-        $ENTERPRISE_DOCKER_ENVS_UNLIMITED $MEMGRAPH_NEXT_DOCKERHUB_IMAGE $MEMGRAPH_GENERAL_FLAGS \
+      docker run -d --rm -p $MEMGRAPH_BOLT_PORT:7687 --name memgraph_smoke \
+        $ENTERPRISE_DOCKER_ENVS_UNLIMITED $MEMGRAPH_DOCKERHUB_IMAGE $MEMGRAPH_GENERAL_FLAGS \
         $MEMGRAPH_PROPERTY_COMPRESSION_FLAGS $MEMGRAPH_SHOW_SCHEMA_INFO_FLAG $MEMGRAPH_SESSION_TRACE_FLAG
       sleep 2
-      test_session_trace localhost $MEMGRAPH_NEXT_DATA_BOLT_PORT
+      test_session_trace localhost $MEMGRAPH_BOLT_PORT
     ;;
     *)
       exit 1

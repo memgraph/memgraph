@@ -4,7 +4,7 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_or_expression_for_labels() {
   echo "FEATURE: OR expression for labels"
-  run_next "EXPLAIN MATCH (n:Label1|Label2) RETURN n;"
+  run_query "EXPLAIN MATCH (n:Label1|Label2) RETURN n;"
 }
 
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then

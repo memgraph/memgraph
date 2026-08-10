@@ -5,8 +5,8 @@ source "$SCRIPT_DIR/../utils.bash"
 test_text_search() {
   echo "FEATURE: Indexing: Text Search"
 
-  run_next "CREATE TEXT INDEX index_name ON :Label(prop1, prop2, prop3);"
-  run_next "SHOW INDEX INFO;"
+  run_query "CREATE TEXT INDEX index_name ON :Label(prop1, prop2, prop3);"
+  run_query "SHOW INDEX INFO;"
 
   echo "Text search and text property indices testing completed successfully"
 }

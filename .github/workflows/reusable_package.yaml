@@ -53,7 +53,7 @@ on:
         default: false
       run_smoke_tests:
         type: boolean
-        description: "Run smoke tests on images after building (tests against previous tagged image)"
+        description: "Run smoke tests on images after building"
         default: false
       upload_debug_symbols:
         type: boolean
@@ -496,15 +496,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ env.S3_REGION }}
 
-      - name: "Resolve previous release tag"
-        if: ${{ inputs.run_smoke_tests }}
-        run: |
-          last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
-          last_version="${last_version#v}"
-          echo "LAST_VERSION=$last_version" >> $GITHUB_ENV
-          echo "Resolved LAST_VERSION=$last_version"
-          docker pull "memgraph/memgraph:${last_version}"
-
       - name: "Run smoke tests (prod docker)"
         if: ${{ inputs.run_smoke_tests && (inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both') }}
         env:
@@ -518,8 +509,7 @@ jobs:
             --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
             --organization-name $MEMGRAPH_ORGANIZATION_NAME \
             test-memgraph smoke \
-            --next-image "memgraph/memgraph:${PROD_IMAGE_TAG}" \
-            --last-image "memgraph/memgraph:${LAST_VERSION}"
+            --image "memgraph/memgraph:${PROD_IMAGE_TAG}"
 
       - name: "Run smoke tests (debug docker)"
         if: ${{ inputs.run_smoke_tests && (inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both') }}
@@ -534,8 +524,7 @@ jobs:
             --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
             --organization-name $MEMGRAPH_ORGANIZATION_NAME \
             test-memgraph smoke \
-            --next-image "memgraph/memgraph:${DEBUG_IMAGE_TAG}" \
-            --last-image "memgraph/memgraph:${LAST_VERSION}"
+            --image "memgraph/memgraph:${DEBUG_IMAGE_TAG}"
 
       - name: "Run smoke tests (package smoke image)"
         if: ${{ inputs.run_smoke_tests }}
@@ -550,8 +539,7 @@ jobs:
             --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
             --organization-name $MEMGRAPH_ORGANIZATION_NAME \
             test-memgraph smoke \
-            --next-image "memgraph/memgraph:${SMOKE_IMAGE_TAG}" \
-            --last-image "memgraph/memgraph:${LAST_VERSION}"
+            --image "memgraph/memgraph:${SMOKE_IMAGE_TAG}"
 
       - name: "Rename Package"
         if: ${{ inputs.daily_build }}

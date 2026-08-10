@@ -16,11 +16,10 @@ if [[ "$IMAGE_TYPE" != "mage" && "$IMAGE_TYPE" != "memgraph" ]]; then
 fi
 echo "Testing container with image type: $IMAGE_TYPE"
 
-# NOTE: 1st arg is how to pull LAST image, 2nd arg is how to pull NEXT image.
-spinup_and_cleanup_memgraph_dockers Dockerhub RC
+# NOTE: The arg is how to pull the image under test.
+spinup_and_cleanup_memgraph_docker RC
 echo "Waiting for memgraph to initialize..."
-wait_for_memgraph $MEMGRAPH_DEFAULT_HOST $MEMGRAPH_LAST_DATA_BOLT_PORT
-wait_for_memgraph $MEMGRAPH_DEFAULT_HOST $MEMGRAPH_NEXT_DATA_BOLT_PORT
+wait_for_memgraph $MEMGRAPH_DEFAULT_HOST $MEMGRAPH_BOLT_PORT
 echo "Memgraph is up and running!"
 
 # check memgraph logs inside the container for errors loading query modules
@@ -76,10 +75,10 @@ test_mgconsole "1.6"
 # container), all the auth test have to come after all tests that assume there
 # are no users.
 # Add all the users to be able to perform the tests.
-echo "CREATE USER admin IDENTIFIED BY 'admin1234'; GRANT ALL PRIVILEGES TO admin;" | $MGCONSOLE_NEXT_DEFAULT
-echo "CREATE USER tester IDENTIFIED BY 'tester1234'; GRANT CREATE TO tester; GRANT CREATE ON NODES CONTAINING LABELS * TO tester; GRANT DELETE ON NODES CONTAINING LABELS * TO tester; GRANT READ, SET PROPERTY {*} ON NODES CONTAINING LABELS * TO tester; GRANT READ, SET PROPERTY {*} ON EDGES OF TYPE * TO tester; GRANT DATABASE memgraph TO tester;" | $MGCONSOLE_NEXT_ADMIN
-echo "SHOW USERS;" | $MGCONSOLE_NEXT_ADMIN
-echo "SHOW ACTIVE USERS;" | $MGCONSOLE_NEXT_ADMIN
+echo "CREATE USER admin IDENTIFIED BY 'admin1234'; GRANT ALL PRIVILEGES TO admin;" | $MGCONSOLE_DEFAULT
+echo "CREATE USER tester IDENTIFIED BY 'tester1234'; GRANT CREATE TO tester; GRANT CREATE ON NODES CONTAINING LABELS * TO tester; GRANT DELETE ON NODES CONTAINING LABELS * TO tester; GRANT READ, SET PROPERTY {*} ON NODES CONTAINING LABELS * TO tester; GRANT READ, SET PROPERTY {*} ON EDGES OF TYPE * TO tester; GRANT DATABASE memgraph TO tester;" | $MGCONSOLE_ADMIN
+echo "SHOW USERS;" | $MGCONSOLE_ADMIN
+echo "SHOW ACTIVE USERS;" | $MGCONSOLE_ADMIN
 echo "NOTE: admin and tester users are created for testing purposes."
 
 test_show_database_settings

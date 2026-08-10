@@ -6,7 +6,7 @@ test_durability() {
   echo "FEATURE: Durability and Persistence"
 
   echo "SUBFEATURE: Create snapshot query"
-  run_next "CREATE SNAPSHOT;"
+  run_query "CREATE SNAPSHOT;"
 
   echo "Durability testing completed successfully"
 }

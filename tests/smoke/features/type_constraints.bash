@@ -4,11 +4,11 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_type_constraints() {
   echo "FEATURE: Constraints: Data type"
-  run_next "MATCH (n) DETACH DELETE n;"
-  run_next "CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED STRING;"
+  run_query "MATCH (n) DETACH DELETE n;"
+  run_query "CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED STRING;"
 
   set +e
-  run_next "CREATE (n:Node {prop:23});"
+  run_query "CREATE (n:Node {prop:23});"
   if [ $? -eq 0 ]; then
     echo "ERROR: Constraint violation not detected."
     exit 1

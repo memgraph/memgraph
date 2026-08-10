@@ -4,8 +4,8 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_show_schema_info() {
   echo "FEATURE: Fast Graph Schema"
-  run_next "CREATE (:Node {prop: 1});"
-  data=$(echo "SHOW SCHEMA INFO;" | $MGCONSOLE_NEXT_DEFAULT --output-format=csv --csv-doublequote=true)
+  run_query "CREATE (:Node {prop: 1});"
+  data=$(echo "SHOW SCHEMA INFO;" | $MGCONSOLE_DEFAULT --output-format=csv --csv-doublequote=true)
   schema=$(echo "$data" | sed 1d)
   echo $schema
 

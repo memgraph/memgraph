@@ -4,5 +4,5 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_impersonate_user() {
   echo "FEATURE: Impersonate User"
-  run_next_admin "GRANT IMPERSONATE_USER * TO admin;"
+  run_query_admin "GRANT IMPERSONATE_USER * TO admin;"
 }

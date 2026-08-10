@@ -4,13 +4,13 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_show_database_settings() {
   echo "FEATURE: Show Database Settings"
-  run_next_admin "SHOW DATABASE SETTINGS;"
+  run_query_admin "SHOW DATABASE SETTINGS;"
 }
 
 test_auth_roles() {
   echo "FEATURE: Auth Roles"
-  run_next_admin "CREATE ROLE IF NOT EXISTS test_reader;"
-  run_next_admin "SHOW ROLES;"
+  run_query_admin "CREATE ROLE IF NOT EXISTS test_reader;"
+  run_query_admin "SHOW ROLES;"
 }
 
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then

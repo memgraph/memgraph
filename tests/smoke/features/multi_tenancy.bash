@@ -4,5 +4,5 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_multi_tenancy() {
   echo "FEATURE: Multi-tenancy basic check"
-  run_next "SHOW DATABASES;"
+  run_query "SHOW DATABASES;"
 }

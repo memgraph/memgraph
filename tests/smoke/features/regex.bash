@@ -4,9 +4,9 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_regex() {
   echo "FEATURE: Regex"
-  run_next "CREATE (:Hero {name: 'xSPIDERy'});"
-  run_next "CREATE (:Hero {name: 'test'});"
-  run_next "MATCH (h:Hero) WHERE h.name =~ \".*SPIDER.+\" RETURN h.name as PotentialSpiderDude ORDER BY PotentialSpiderDude;"
+  run_query "CREATE (:Hero {name: 'xSPIDERy'});"
+  run_query "CREATE (:Hero {name: 'test'});"
+  run_query "MATCH (h:Hero) WHERE h.name =~ \".*SPIDER.+\" RETURN h.name as PotentialSpiderDude ORDER BY PotentialSpiderDude;"
 }
 
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then

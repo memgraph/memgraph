@@ -4,7 +4,7 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_basic_auth() {
   echo "FEATURE: Basic Authentication"
-  run_next "SHOW ACTIVE USERS INFO;"
+  run_query "SHOW ACTIVE USERS INFO;"
 }
 
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then

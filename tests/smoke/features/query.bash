@@ -6,11 +6,11 @@ test_query() {
   echo "FEATURE: Cypher query engine"
 
   echo "SUBFEATURE: Peridic commit"
-  run_next "MATCH (n) DETACH DELETE n;"
-  run_next "UNWIND range(1, 10) as x CALL { WITH x CREATE (n:Label {id: x}) RETURN n } IN TRANSACTIONS OF 1 ROWS;"
-  run_next "MATCH (n) RETURN n;"
-  run_next "USING PERIODIC COMMIT 1 MATCH (n) DETACH DELETE n;"
-  run_next "MATCH (n) RETURN n;"
+  run_query "MATCH (n) DETACH DELETE n;"
+  run_query "UNWIND range(1, 10) as x CALL { WITH x CREATE (n:Label {id: x}) RETURN n } IN TRANSACTIONS OF 1 ROWS;"
+  run_query "MATCH (n) RETURN n;"
+  run_query "USING PERIODIC COMMIT 1 MATCH (n) DETACH DELETE n;"
+  run_query "MATCH (n) RETURN n;"
 }
 
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then

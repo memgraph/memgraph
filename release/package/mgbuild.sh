@@ -1970,16 +1970,11 @@ test_memgraph() {
     ;;
     smoke)
       shift 1
-      next_image=""
-      last_image=""
+      smoke_image=""
       while [[ $# -gt 0 ]]; do
         case "$1" in
-          --next-image)
-            next_image=$2
-            shift 2
-          ;;
-          --last-image)
-            last_image=$2
+          --image)
+            smoke_image=$2
             shift 2
           ;;
           *)
@@ -1989,14 +1984,11 @@ test_memgraph() {
           ;;
         esac
       done
-      export MEMGRAPH_NEXT_DOCKERHUB_IMAGE=$next_image
-      export MEMGRAPH_LAST_DOCKERHUB_IMAGE=$last_image
+      export MEMGRAPH_DOCKERHUB_IMAGE=$smoke_image
       cleanup() {
         local status=$?
         rm -rf env || true
-        rm -rf "$HOME/go-install" || true
-        docker rmi -f $next_image || true
-        docker rmi -f $last_image || true
+        docker rmi -f $smoke_image || true
         exit $status
       }
       trap cleanup EXIT INT TERM
@@ -2600,16 +2592,11 @@ test_mage() {
     ;;
     smoke)
       shift 1
-      next_image=""
-      last_image=""
+      smoke_image=""
       while [[ $# -gt 0 ]]; do
         case "$1" in
-          --next-image)
-            next_image=$2
-            shift 2
-          ;;
-          --last-image)
-            last_image=$2
+          --image)
+            smoke_image=$2
             shift 2
           ;;
           *)
@@ -2619,14 +2606,11 @@ test_mage() {
           ;;
         esac
       done
-      export MEMGRAPH_NEXT_DOCKERHUB_IMAGE=$next_image
-      export MEMGRAPH_LAST_DOCKERHUB_IMAGE=$last_image
+      export MEMGRAPH_DOCKERHUB_IMAGE=$smoke_image
       cleanup() {
         local status=$?
         rm -rf env || true
-        rm -rf "$HOME/go-install" || true
-        docker rmi -f $next_image || true
-        docker rmi -f $last_image || true
+        docker rmi -f $smoke_image || true
         exit $status
       }
       trap cleanup EXIT INT TERM

@@ -1,7 +1,3 @@
-*.build
 bin/
-*.tar.gz*
-get_helm.sh
-kubectl
-kubectl.sha256
 dist/
+*.tar.gz*

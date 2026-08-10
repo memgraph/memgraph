@@ -12,14 +12,14 @@ test_mgconsole() {
     # Pipe through `realpath` so UsrMerge distros (Fedora, modern RHEL) where
     # /usr/sbin is a symlink to /usr/bin resolve to the canonical path
     # regardless of PATH ordering.
-    path="$(docker exec -u memgraph memgraph_next_data bash -c 'realpath "$(command -v mgconsole)"')"
+    path="$(docker exec -u memgraph memgraph_smoke bash -c 'realpath "$(command -v mgconsole)"')"
     if [ "$path" != "$expected_path" ]; then
         echo "Error: mgconsole binary not found inside container PATH"
         echo "Expected path: $expected_path"
         echo "Actual path: $path"
         exit 1
     fi
-    version="$(docker exec -u memgraph memgraph_next_data mgconsole --version)"
+    version="$(docker exec -u memgraph memgraph_smoke mgconsole --version)"
     if [[ "$version" != *"$expected_version"* ]]; then
         echo "Error: mgconsole version not found at $version"
         exit 1

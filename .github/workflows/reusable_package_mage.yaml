@@ -36,7 +36,7 @@ on:
         default: false
       run_smoke_tests:
         type: boolean
-        description: "Run smoke tests on images after building (tests against previous tagged image)"
+        description: "Run smoke tests on images after building"
         default: false
       upload_debug_symbols:
         type: boolean
@@ -1065,61 +1065,35 @@ jobs:
             du -h output/${DEBUG_ARTIFACT_NAME}.tar.gz
           fi
 
-      - name: "Resolve previous release tag(s)"
-        if: ${{ inputs.run_smoke_tests == true }}
-        run: |
-          last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
-          last_version="${last_version#v}"
-          suffix=""
-          if [[ "$MALLOC" == "true" ]]; then
-            suffix="${suffix}-malloc"
-          fi
-          if [[ "$CUDA" == "true" ]]; then
-            suffix="${suffix}-cuda"
-          fi
-          echo "LAST_PROD_VERSION=${last_version}${suffix}" >> $GITHUB_ENV
-          echo "LAST_DEBUG_VERSION=${last_version}-relwithdebinfo${suffix}" >> $GITHUB_ENV
-          echo "Resolved LAST_PROD_VERSION=${last_version}${suffix}"
-          echo "Resolved LAST_DEBUG_VERSION=${last_version}-relwithdebinfo${suffix}"
-
       - name: "Run Docker smoke tests (prod)"
         if: ${{ inputs.run_smoke_tests == true && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |
-          docker pull "${DOCKER_REPOSITORY_NAME}:${LAST_PROD_VERSION}"
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os $OS \
             --arch $ARCH \
             test-mage smoke \
-            --next-image "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}" \
-            --last-image "${DOCKER_REPOSITORY_NAME}:${LAST_PROD_VERSION}"
+            --image "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}"
 
       - name: "Run Docker smoke tests (debug)"
         if: ${{ inputs.run_smoke_tests == true && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |
-          docker pull "${DOCKER_REPOSITORY_NAME}:${LAST_DEBUG_VERSION}"
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os $OS \
             --arch $ARCH \
             test-mage smoke \
-            --next-image "${DOCKER_REPOSITORY_NAME}:${DEBUG_IMAGE_TAG}" \
-            --last-image "${DOCKER_REPOSITORY_NAME}:${LAST_DEBUG_VERSION}"
+            --image "${DOCKER_REPOSITORY_NAME}:${DEBUG_IMAGE_TAG}"
 
       - name: "Run Docker smoke tests (rpm)"
-        # Smoke the freshly-built rpm image (next) against the usual published
-        # prod image (last) — there is no prior rpm image to diff against, so the
-        # standard prod image stands in as the baseline.
         if: ${{ inputs.run_smoke_tests && startsWith(inputs.os, 'centos') && !inputs.cugraph && !inputs.cuda }}
         run: |
-          docker pull "${DOCKER_REPOSITORY_NAME}:${LAST_PROD_VERSION}"
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os $OS \
             --arch $ARCH \
             test-mage smoke \
-            --next-image "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}-${OS}" \
-            --last-image "${DOCKER_REPOSITORY_NAME}:${LAST_PROD_VERSION}"
+            --image "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}-${OS}"
 
       - name: Push DEB package to GitHub
         if: ${{ inputs.push_to_github && env.PACKAGE_MAGE == 'true' && (startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-')) }}

@@ -4,7 +4,7 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_template() {
   echo "FEATURE: ABC"
-  run_next "RETURN 1;"
+  run_query "RETURN 1;"
 }
 
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then
