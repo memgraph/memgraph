@@ -784,10 +784,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // If resolution failed, check if any expression range has an original IN list
     // whose elements we can resolve individually and sum their cardinalities.
     for (size_t i = 0; i < expression_ranges.size(); ++i) {
-      if (maybe_propertyvalue_ranges[i] || !expression_ranges[i].original_in_list_) continue;
+      if (maybe_propertyvalue_ranges[i] || !expression_ranges[i].membership_list_) continue;
 
-      auto *list = utils::Downcast<ListLiteral>(expression_ranges[i].original_in_list_);
-      if (!list) continue;
+      auto *list = expression_ranges[i].membership_list_;
 
       double sum = 0.0;
       bool all_resolved = true;
@@ -801,9 +800,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
         // Build a full property-value-ranges vector, substituting this element for position i
         auto per_elem_ranges = maybe_propertyvalue_ranges;
         per_elem_ranges[i] = *resolved;
-        if (ranges::none_of(per_elem_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
-          auto pvrs =
-              per_elem_ranges | ranges::views::transform([](auto &&optional) { return *optional; }) | ranges::to_vector;
+        if (ranges::none_of(per_elem_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
+          auto pvrs = per_elem_ranges | ranges::views::transform([](auto const &optional) { return *optional; }) |
+                      ranges::to_vector;
           sum += db_accessor_->VerticesCount(label, properties, pvrs);
         } else {
           all_resolved = false;
@@ -814,7 +813,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
         maybe_propertyvalue_ranges[i] = storage::PropertyValueRange::IsNotNull();  // mark as resolved
         // Replace the full estimate with the sum
         // If all other ranges are already resolved, return the sum directly
-        if (ranges::none_of(maybe_propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
+        if (ranges::none_of(maybe_propertyvalue_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
           return sum;
         }
       }

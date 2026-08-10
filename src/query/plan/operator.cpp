@@ -130,16 +130,17 @@ ExpressionRange::ExpressionRange(ExpressionRange const &other, AstStorage &stora
       upper_{other.upper_
                  ? std::make_optional(utils::Bound(other.upper_->value()->Clone(&storage), other.upper_->type()))
                  : std::nullopt},
-      original_in_list_{other.original_in_list_ ? other.original_in_list_->Clone(&storage) : nullptr} {}
+      membership_list_{other.membership_list_ ? static_cast<ListLiteral *>(other.membership_list_->Clone(&storage))
+                                              : nullptr} {}
 
 auto ExpressionRange::Equal(Expression *value) -> ExpressionRange {
   // Only store lower bound, Evaluate will only use the lower bound
   return {Type::EQUAL, utils::MakeBoundInclusive(value), std::nullopt};
 }
 
-auto ExpressionRange::In(Expression *runtime_value, Expression *original_list) -> ExpressionRange {
+auto ExpressionRange::In(Expression *runtime_value, ListLiteral *membership_list) -> ExpressionRange {
   auto er = ExpressionRange{Type::EQUAL, utils::MakeBoundInclusive(runtime_value), std::nullopt};
-  er.original_in_list_ = original_list;
+  er.membership_list_ = membership_list;
   return er;
 }
 
