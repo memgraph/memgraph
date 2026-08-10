@@ -38,9 +38,8 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      module,
                      memory);
 
-    // The start node is registered through the low-level API because mgp::Parameter cannot express a
-    // nullable type, and a null start has to reach the procedure body to return no rows rather than
-    // being rejected as a type error.
+    // Low-level API: mgp::Parameter cannot express a nullable type, and a null start has to reach the
+    // body to return no rows rather than be rejected as a type error.
     auto *expand = mgp::module_add_read_procedure(module, Path::kProcedureExpand.data(), Path::Expand);
     mgp::proc_add_arg(expand, Path::kArgumentStartExpand.data(), mgp::type_nullable(mgp::type_any()));
     mgp::proc_add_arg(expand, Path::kArgumentRelationshipsExpand.data(), mgp::type_list(mgp::type_string()));
@@ -60,8 +59,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     empty_map.Insert("key", empty_list);
     auto default_relationships = mgp::Value(std::move(empty_map));
 
-    // Nullable for the same reason as the traversal procedures: a start node that came from an
-    // OPTIONAL MATCH is a normal thing to pass, and rejecting it forces every caller to guard.
+    // Nullable for the same reason: a start node from an OPTIONAL MATCH is normal to pass.
     auto *create = mgp::module_add_read_procedure(module, Path::kProcedureCreate.data(), Path::Create);
     mgp::proc_add_arg(create, Path::kCreateArg1.data(), mgp::type_nullable(mgp::type_any()));
     mgp::proc_add_opt_arg(create, Path::kCreateArg2.data(), mgp::type_map(), default_relationships.ptr());

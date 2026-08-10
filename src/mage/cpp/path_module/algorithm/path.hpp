@@ -74,14 +74,14 @@ constexpr std::string_view kProcedureSubgraphAll = "subgraph_all";
 constexpr std::string_view kResultNodesSubgraphAll = "nodes";
 constexpr std::string_view kResultRelsSubgraphAll = "rels";
 
-// Enables heterogeneous string_view lookup so labels and relationship types can be looked up without allocating.
+// Heterogeneous lookup: find by string_view without allocating a string.
 struct TransparentStringHash {
   using is_transparent = void;
 
   [[nodiscard]] size_t operator()(std::string_view sv) const noexcept { return std::hash<std::string_view>{}(sv); }
 };
 
-// Owning: the parsed config outlives the mgp::List the labels were read from, so a view into it would dangle.
+// Owning: the config outlives the mgp::List the labels came from, so a view would dangle.
 using LabelSet = std::unordered_set<std::string, TransparentStringHash, std::equal_to<>>;
 
 struct LabelSets {
@@ -116,27 +116,21 @@ struct LabelBoolsStatus {
 
 enum class RelDirection { kNone = -1, kAny = 0, kIncoming = 1, kOutgoing = 2 };
 
-// What may not repeat during a walk. Both `*Path` forms forbid a repeat within the current path only,
-// so a node or relationship can still appear in other paths; what a walk marks is released again when
-// it backtracks. Those two are what the expand walk offers, and the only values it accepts: it reaches
-// a depth by re-walking from the start, so anything marked for the whole traversal would block the next
-// pass. kNodeGlobal is the subgraph walk's own rule, not something a caller can select -- it records
-// what that walk does rather than configuring it.
+// What may not repeat during a walk. The `*Path` forms forbid a repeat within the current path only,
+// and are the only values the expand walk accepts: it reaches a depth by re-walking from the start, so
+// anything marked for the whole traversal would block the next pass. kNodeGlobal is the subgraph walk's
+// own rule, not a caller-selectable one.
 enum class Uniqueness { kRelationshipPath, kNodePath, kNodeGlobal };
 
-// Whether a uniqueness mode is keyed on nodes rather than relationships.
 [[nodiscard]] constexpr bool IsNodeUniqueness(Uniqueness uniqueness) {
   return uniqueness == Uniqueness::kNodePath || uniqueness == Uniqueness::kNodeGlobal;
 }
 
-// Which procedure a config map was handed to. The two families accept different keys and honour
-// `bfs` differently, so a key that would silently do nothing can be rejected instead.
+// Which procedure got the config map: the two families accept different keys.
 enum class ProcedureKind { kExpand, kSubgraph };
 
-// One filter's answer about a node, mirroring the traversal evaluations the reference implementation
-// composes: `include` decides whether the node is returned, `expand` whether the walk continues
-// through it. Independent filters are combined with `&=`, i.e. every filter must agree to include,
-// and any filter may stop the walk.
+// One filter's answer about a node. Combined with `&=`: every filter must agree to include it, and
+// any one of them may stop the walk.
 struct Evaluation {
   bool include = true;
   bool expand = true;
@@ -148,35 +142,29 @@ struct Evaluation {
   }
 };
 
-// No upper bound on the number of emitted records.
 inline constexpr int64_t kNoLimit = -1;
 
 struct Config {
   LabelBoolsStatus label_bools_status;
   std::unordered_map<std::string, RelDirection, TransparentStringHash, std::equal_to<>> relationship_sets;
   LabelSets label_sets;
-  // Node-identity filters, kept separate from the label filters they are evaluated alongside.
   std::unordered_set<int64_t> allowlist_nodes;
   std::unordered_set<int64_t> denylist_nodes;
-  // Identity counterparts of the '>' and '/' label sets: end nodes are returned and expanded through,
-  // terminator nodes are returned and end the walk.
+  // Identity counterparts of the '>' and '/' label sets.
   std::unordered_set<int64_t> end_nodes;
   std::unordered_set<int64_t> terminator_nodes;
   int64_t min_hops = 0;
   int64_t max_hops = std::numeric_limits<int64_t>::max();
   int64_t limit = kNoLimit;
-  // The single depth the breadth-first driver is currently walking, or -1 outside it. It narrows which
-  // paths are emitted and how far the walk goes, and deliberately does not touch min_hops: the label
-  // filters read that to decide whether a terminator node still ends the walk.
+  // The depth the breadth-first driver is walking, or -1 outside it. Deliberately does not touch
+  // min_hops, which the label filters read to decide whether a terminator ends the walk.
   int64_t pass_depth = -1;
   Uniqueness uniqueness = Uniqueness::kRelationshipPath;
   bool any_incoming = false;
   bool any_outgoing = false;
   bool filter_start_node = false;
-  // Emit every path of one length before any longer one, so a `limit` returns the shortest paths
-  // rather than whichever branch happened to be walked first. Only the config form defaults to this:
-  // the positional `expand` cannot express `bfs`, and the breadth-first driver costs a re-walk per
-  // depth, so defaulting it there would slow every existing caller down with no way to opt out.
+  // Shortest paths first, so a `limit` returns those. Only the config form defaults to it: the
+  // positional `expand` cannot express `bfs`, so it would pay the re-walk with no way to opt out.
   bool bfs = true;
 };
 
@@ -190,7 +178,7 @@ class PathHelper {
 
   bool AnyDirected(bool outgoing) const { return outgoing ? config_.any_outgoing : config_.any_incoming; }
 
-  // The whole verdict on a node at `depth`: whether to return it and whether to walk on through it.
+  // Whether to return the node, and whether to walk on through it.
   [[nodiscard]] Evaluation Evaluate(const mgp::Node &node, int64_t depth) const;
 
   bool PathSizeOk(int64_t path_size) const;
@@ -209,18 +197,15 @@ class PathHelper {
 
   [[nodiscard]] Uniqueness GetUniqueness() const { return config_.uniqueness; }
 
-  // Used to walk one depth at a time; see PathExpand::RunAlgorithm.
   void SetPassDepth(int64_t depth) { config_.pass_depth = depth; }
 
   void ClearPassDepth() { config_.pass_depth = -1; }
 
-  // How deep the walk may go right now: the configured upper bound, narrowed to the depth the
-  // breadth-first driver is currently walking.
+  // The upper hop bound, narrowed to the depth being walked.
   [[nodiscard]] int64_t ExpansionCeiling() const {
     return config_.pass_depth < 0 ? config_.max_hops : std::min(config_.max_hops, config_.pass_depth);
   }
 
-  // methods for parsing config
   void FilterLabelBoolStatus();
   void FilterLabel(std::string_view label, LabelBools &label_bools) const;
   void ParseLabels(const mgp::List &list_of_labels);
@@ -229,11 +214,9 @@ class PathHelper {
   void ParseNodeFilters(const mgp::Map &config, const mgp::Graph &graph);
 
  private:
-  // The label filter on its own, mirroring the reference matcher's first-match-wins order.
+  // First match wins: deny, terminator, end, allow.
   [[nodiscard]] Evaluation EvaluateLabels(const mgp::Node &node, int64_t depth) const;
-  // The identity counterpart of the '>' / '/' label sets.
   [[nodiscard]] Evaluation EvaluateEndAndTerminatorNodes(const mgp::Node &node, int64_t depth) const;
-  // allowlistNodes / denylistNodes.
   [[nodiscard]] Evaluation EvaluateNodeLists(const mgp::Node &node, int64_t depth) const;
 
   [[nodiscard]] bool EndNodesOnly() const {
@@ -243,13 +226,12 @@ class PathHelper {
   Config config_;
 };
 
-// A traversal can run for a long time without allocating anything, so nothing else can stop it: the
-// memory tracker only fires on allocation, and the query timeout, TERMINATE TRANSACTIONS and shutdown
-// are only observed by a procedure that polls for them. Poll every kAbortPollInterval steps -- the
-// check is a few atomic loads, which would otherwise dominate the per-relationship test it guards.
+// A walk can run for a long time without allocating, so the memory tracker cannot stop it and only
+// polling observes the timeout, TERMINATE TRANSACTIONS and shutdown. Poll every N steps so the check
+// does not dominate the per-relationship test it guards.
 inline constexpr uint64_t kAbortPollInterval = 64;
 
-// Throws if the query is being terminated, has timed out, or the server is shutting down.
+// Throws if the query is terminated, timed out, or the server is shutting down.
 inline void PollAbort(const mgp::Graph &graph, uint64_t &poll_counter) {
   if (poll_counter++ % kAbortPollInterval == 0) {
     graph.CheckMustAbort();
@@ -262,12 +244,11 @@ struct PathData {
 
   void MaybeAbort() { PollAbort(graph_, abort_poll_counter_); }
 
-  // True once as many records have been produced as the caller asked for.
   [[nodiscard]] bool LimitReached() const {
     return helper_.HasLimit() && std::cmp_greater_equal(emitted_, helper_.Limit());
   }
 
-  // Records a start node the first time it is named, keeping the order the caller listed them in.
+  // Keeps the caller's order, ignoring a repeat.
   void AddStartNode(mgp::Node node) {
     if (start_ids_.insert(node.Id().AsInt()).second) {
       start_nodes_.push_back(std::move(node));
@@ -278,9 +259,8 @@ struct PathData {
   const mgp::RecordFactory &record_factory_;
   const mgp::Graph &graph_;
   std::unordered_set<int64_t> visited_;
-  // Ordered, not a set: `limit` stops the walk early, so which start nodes were walked first decides
-  // which paths come back. Hash order would make that answer depend on the ids the graph happens to
-  // hold. `start_ids_` only keeps a repeated start from being walked twice.
+  // Ordered, not a set: `limit` stops early, so the order the caller listed decides which paths come
+  // back. `start_ids_` only stops a repeated start being walked twice.
   std::vector<mgp::Node> start_nodes_;
   std::unordered_set<int64_t> start_ids_;
   uint64_t abort_poll_counter_ = 0;
@@ -291,7 +271,7 @@ class PathExpand {
  public:
   explicit PathExpand(PathData &&path_data) : path_data_(std::move(path_data)) {}
 
-  // The id the uniqueness rule keys on when crossing `relationship` towards `next_node`.
+  // The id the uniqueness rule keys on when crossing `relationship`.
   [[nodiscard]] int64_t UniquenessKey(const mgp::Relationship &relationship, bool outgoing) const;
 
   void ExpandPath(mgp::Path &path, const mgp::Relationship &relationship, int64_t path_size, int64_t uniqueness_key);
@@ -306,8 +286,7 @@ class PathExpand {
   void Emit(const mgp::Path &path);
 
   PathData path_data_;
-  // Deepest path reached in the current pass; tells the breadth-first driver when it has run out of
-  // depth to explore, which is what bounds it when no upper hop bound was given.
+  // Deepest path reached this pass; bounds the driver when no upper hop bound was given.
   int64_t deepest_reached_ = -1;
 };
 
