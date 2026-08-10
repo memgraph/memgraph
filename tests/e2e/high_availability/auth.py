@@ -1369,6 +1369,7 @@ def test_sso_privilege_enforcement(test_name):
         "reader",
         "writer",
     ]
+    assert len(sso_run(leader_port, "oidc", "reader", "SHOW VERSION")) == 1
     # ... but every mutating query is denied.
     try:
         sso_run(leader_port, "oidc", "reader", "CREATE ROLE from_reader")

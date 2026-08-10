@@ -1316,7 +1316,8 @@ auth::Permission RequiredCoordinatorPermission(Query *query) {
     return setting_query->action_ == SettingQuery::Action::SET_SETTING ? auth::Permission::COORDINATOR_WRITE
                                                                        : auth::Permission::COORDINATOR_READ;
   }
-  if (utils::Downcast<ShowConfigQuery>(query) || utils::Downcast<SystemInfoQuery>(query)) {
+  if (utils::Downcast<ShowConfigQuery>(query) || utils::Downcast<SystemInfoQuery>(query) ||
+      utils::Downcast<VersionQuery>(query)) {
     return auth::Permission::COORDINATOR_READ;
   }
   if (auto *auth_query = utils::Downcast<AuthQuery>(query)) {
@@ -10516,7 +10517,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator() &&
         !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query) &&
         !utils::Downcast<ReloadSSLQuery>(parsed_query.query) && !utils::Downcast<ShowConfigQuery>(parsed_query.query) &&
-        !utils::Downcast<SystemInfoQuery>(parsed_query.query) && !is_coordinator_auth_query(parsed_query.query)) {
+        !utils::Downcast<SystemInfoQuery>(parsed_query.query) && !utils::Downcast<VersionQuery>(parsed_query.query) &&
+        !is_coordinator_auth_query(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only coordinator queries!");
     }
 
