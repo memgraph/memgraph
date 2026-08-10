@@ -139,6 +139,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       run_package: ${{ steps.setup.outputs.run_package }}
+      run_package_arm: ${{ steps.setup.outputs.run_package_arm }}
       package_os: ${{ steps.setup.outputs.package_os }}
       package_arch: ${{ steps.setup.outputs.package_arch }}
       workflow_input_push_to_s3: ${{ steps.setup.outputs.workflow_input_push_to_s3 }}
@@ -148,7 +149,9 @@ jobs:
       workflow_input_generate_sbom: ${{ steps.setup.outputs.workflow_input_generate_sbom }}
       workflow_input_run_smoke_tests: ${{ steps.setup.outputs.workflow_input_run_smoke_tests }}
       workflow_input_package_smoke_os: ${{ steps.setup.outputs.workflow_input_package_smoke_os }}
+      workflow_input_package_smoke_os_arm: ${{ steps.setup.outputs.workflow_input_package_smoke_os_arm }}
       workflow_input_build_docker_image: ${{ steps.setup.outputs.workflow_input_build_docker_image }}
+      workflow_input_build_docker_image_arm: ${{ steps.setup.outputs.workflow_input_build_docker_image_arm }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
       GH_CONTEXT_FILE_NAME: github_context.json
@@ -185,4 +188,28 @@ jobs:
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
       run_smoke_tests: ${{ needs.PackageSetup.outputs.workflow_input_run_smoke_tests == 'true' }}
       package_smoke_os: ${{ needs.PackageSetup.outputs.workflow_input_package_smoke_os }}
+    secrets: inherit
+
+  # ARM counterpart, driven by the '-arm' PR labels (e.g.
+  # CI -package=ubuntu-24.04-arm, docker-arm); it runs alongside Package
+  # when both amd and arm labels are present. Dispatch runs pick arm via
+  # the os input instead, which routes through the Package job.
+  Package-arm:
+    needs: PackageSetup
+    if: ${{ needs.PackageSetup.outputs.run_package_arm == 'true' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: ${{ needs.PackageSetup.outputs.package_os }}
+      arch: "arm"
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_build_docker_image_arm }}
+      push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
+      push_to_github: false
+      additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
+      s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: ${{ needs.PackageSetup.outputs.workflow_input_run_smoke_tests == 'true' }}
+      package_smoke_os: ${{ needs.PackageSetup.outputs.workflow_input_package_smoke_os_arm }}
     secrets: inherit

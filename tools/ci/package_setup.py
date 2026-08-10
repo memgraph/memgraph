@@ -35,8 +35,11 @@ class PackageSetup:
     def __init__(self, gh_context_path: str):
         self._gh_context_path = gh_context_path
         self._run_package = False
+        self._run_package_arm = False
         self._os = DEFAULT_OS
         self._build_docker_image = "none"
+        self._build_docker_image_arm = "none"
+        self._package_smoke_os_arm = ""
         self._workflow_inputs = {}
         self._load_gh_context()
 
@@ -71,19 +74,34 @@ class PackageSetup:
         print(f"PR labels: {pr_labels}")
         values = [label[len(LABEL_PREFIX) :] for label in pr_labels if label.startswith(LABEL_PREFIX)]
 
+        # An '-arm' suffix on any label value routes it to the arm package
+        # job: 'ubuntu-24.04-arm' smoke tests the arm packages on ubuntu
+        # 24.04, 'all-deb-arm' on every deb distro, 'docker-arm' builds the
+        # arm docker image.
         smoke_tokens = []
+        arm_smoke_tokens = []
         for value in values:
             if value == "docker":
                 self._build_docker_image = "prod"
-            elif value in SMOKE_GROUPS or value in SMOKE_TARGETS:
-                smoke_tokens.append(value)
+                continue
+            if value == "docker-arm":
+                self._build_docker_image_arm = "prod"
+                continue
+            base, tokens = value, smoke_tokens
+            if value.endswith("-arm"):
+                base, tokens = value[: -len("-arm")], arm_smoke_tokens
+            if base in SMOKE_GROUPS or base in SMOKE_TARGETS:
+                tokens.append(base)
             else:
                 print(f"Warning: ignoring unknown package label value '{value}'")
 
-        # Any package label runs the (single) package job; the smoke token
-        # labels define where the packages get smoke tested.
-        self._run_package = bool(values)
+        # The smoke token labels define where the packages get smoke tested;
+        # each arch's package job runs iff it has smoke targets or builds a
+        # docker image.
+        self._run_package = bool(smoke_tokens) or self._build_docker_image != "none"
+        self._run_package_arm = bool(arm_smoke_tokens) or self._build_docker_image_arm != "none"
         package_smoke_os = "all" if "all" in smoke_tokens else " ".join(smoke_tokens)
+        self._package_smoke_os_arm = "all" if "all" in arm_smoke_tokens else " ".join(arm_smoke_tokens)
 
         self._workflow_inputs = {
             "push_to_s3": "false",
@@ -128,12 +146,15 @@ class PackageSetup:
 
         outputs = {
             "run_package": self._run_package,
+            "run_package_arm": self._run_package_arm,
             "package_os": package_os,
             "package_arch": package_arch,
         }
         for key, value in self._workflow_inputs.items():
             outputs[f"workflow_input_{key}"] = value
         outputs["workflow_input_build_docker_image"] = self._build_docker_image
+        outputs["workflow_input_build_docker_image_arm"] = self._build_docker_image_arm
+        outputs["workflow_input_package_smoke_os_arm"] = self._package_smoke_os_arm
         return outputs
 
 
