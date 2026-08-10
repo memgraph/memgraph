@@ -1,0 +1,10 @@
+# Reaching a given depth means re-walking from the start, so a mode that marks a node or relationship
+# for the whole traversal would block the next pass. It is reported rather than quietly losing paths.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {maxHops: 2, uniqueness: 'NODE_GLOBAL'})
+  YIELD result
+  RETURN result;
+
+exception_contains: >
+  A global uniqueness mode needs 'bfs: false'

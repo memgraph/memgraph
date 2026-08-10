@@ -1,0 +1,10 @@
+# The subgraph walk is breadth-first by construction, which is what makes a node's hop count its
+# shortest distance. Accepting bfs:false would silently ignore it.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {maxHops: 2, bfs: false})
+  YIELD nodes
+  RETURN nodes;
+
+exception_contains: >
+  Config key 'bfs' cannot be false here

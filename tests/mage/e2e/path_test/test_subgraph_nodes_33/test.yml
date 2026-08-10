@@ -1,8 +1,10 @@
-# '<>' has no type behind the markers, so it can never match; it is reported rather than silently
-# blocking every relationship.
+# A marker decides the direction wherever it sits and '<' wins over '>', so '<>' names every type,
+# incoming. A has no incoming relationship, so only A itself comes back.
 query: >
   MATCH (a:Node {name: "A"})
   CALL path.subgraph_nodes(a, {relationshipFilter: ['<>'], maxHops: 3})
-  YIELD nodes RETURN nodes;
-exception_contains: >
-  Invalid relationshipFilter entry '<>'
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A

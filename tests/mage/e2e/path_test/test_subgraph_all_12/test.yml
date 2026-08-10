@@ -1,9 +1,11 @@
-# Validation covers subgraph_all too; `endNodes` would narrow the result set if ignored.
+# With `endNodes` in force only the nodes it names are returned -- the start node included, unless
+# it is one of them. C is returned on its own, so no relationship has both ends in the result.
 query: >
-  MATCH (a:Node {name: "A"})
-  CALL path.subgraph_all(a, {maxHops: 5, endNodes: []})
+  MATCH (a:Node {name: "A"}), (c:Node {name: "C"})
+  CALL path.subgraph_all(a, {maxHops: 5, endNodes: [c]})
   YIELD nodes, rels
   RETURN size(nodes) AS node_count, size(rels) AS rel_count;
 
-exception_contains: >
-  Unrecognized config key 'endNodes'.
+output:
+  - node_count: 1
+    rel_count: 0

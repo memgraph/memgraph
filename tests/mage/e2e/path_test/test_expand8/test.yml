@@ -1,0 +1,14 @@
+# The positional form has no `bfs` argument, so it must not be breadth-first: the driver reaches a
+# depth by re-walking from the start, which costs a factor of the depth on a chain. It has to emit
+# in the same order as the config form with bfs:false.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand(a, ['R>'], [], 0, 3) YIELD result
+  WITH collect(size(nodes(result)) - 1) AS positional
+  MATCH (b:Node {name: "A"})
+  CALL path.expand_config(b, {relationshipFilter: ['R>'], maxHops: 3, bfs: false}) YIELD result
+  WITH positional, collect(size(nodes(result)) - 1) AS config
+  RETURN positional = config AS same;
+
+output:
+  - same: true
