@@ -387,24 +387,24 @@ auto ReplicationHandler::UnregisterReplicaLocked_(LockedReplState &locked_repl_s
     // ClientsShutdown observes the same order for the role transition.
     auto const client_it = std::ranges::find_if(mainData.registered_replicas_,
                                                 [name](auto const &client) { return client.name_ == name; });
-    if (client_it != mainData.registered_replicas_.end()) {
-      client_it->Shutdown();
+    if (client_it == mainData.registered_replicas_.end()) {
+      return query::UnregisterReplicaResult::CANNOT_UNREGISTER;
     }
+    client_it->Shutdown();
+
     // Remove database specific clients
     dbms_handler_.ForEach([name](dbms::DatabaseAccess db_acc) {
       db_acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([&name](auto &clients) {
         std::erase_if(clients, [name](const auto &client) { return client->Name() == name; });
       });
     });
-    // Remove instance level clients
-    auto const n_unregistered =
-        std::erase_if(mainData.registered_replicas_, [name](auto const &client) { return client.name_ == name; });
+    // Remove instance level client
+    mainData.registered_replicas_.erase(client_it);
 
     // Drop the per-instance replication throughput series so the metric maps don't grow unbounded.
     metrics::Metrics().RemoveReplicationThroughput(name);
 
-    return n_unregistered != 0 ? query::UnregisterReplicaResult::SUCCESS
-                               : query::UnregisterReplicaResult::CANNOT_UNREGISTER;
+    return query::UnregisterReplicaResult::SUCCESS;
   };
 
   return std::visit(utils::Overloaded{main_handler, replica_handler}, locked_repl_state->ReplicationData());
