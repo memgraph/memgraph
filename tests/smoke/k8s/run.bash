@@ -23,14 +23,6 @@ BOLT_SERVER="localhost:10000" # Just tmp value -> each coordinator should have a
 # E.g. if kubectl port-foward is used, the configured host values should be passed as `bolt_server`.
 CHART_VERSION="1.0.1"
 
-write_license_values() {
-  __out="$1"
-  cat > "$__out" <<EOF
-memgraphEnterpriseLicense: "$MEMGRAPH_ENTERPRISE_LICENSE"
-memgraphOrganizationName: "$MEMGRAPH_ORGANIZATION_NAME"
-EOF
-}
-
 setup_coordinator() {
   local i=$1
   echo "ADD COORDINATOR $i WITH CONFIG {\"bolt_server\": \"$BOLT_SERVER\", \"management_server\":  \"memgraph-coordinator-$i.default.svc.cluster.local:10000\", \"coordinator_server\":  \"memgraph-coordinator-$i.default.svc.cluster.local:12000\"};" | $MEMGRAPH_CONSOLE_BINARY --port 17687
@@ -86,17 +78,14 @@ test_k8s_single() {
   kind_load_image "$MEMGRAPH_DOCKERHUB_IMAGE"
   MEMGRAPH_DOCKERHUB_TAG="${MEMGRAPH_DOCKERHUB_IMAGE##*:}"
   MEMGRAPH_DOCKERHUB_REPO="${MEMGRAPH_DOCKERHUB_IMAGE%:*}"
-  __license_values="$(mktemp)"
-  write_license_values "$__license_values"
-  # NOTE: The repository is overridden too because the values file points at
-  # memgraph/memgraph -> the tag alone is not enough for e.g. a mage image.
+
   helm install memgraph-single-smoke memgraph/memgraph \
     --version $CHART_VERSION \
     -f "$SCRIPT_DIR/values-single.yaml" \
-    -f "$__license_values" \
     --set "image.repository=$MEMGRAPH_DOCKERHUB_REPO" \
-    --set "image.tag=$MEMGRAPH_DOCKERHUB_TAG"
-  rm -f "$__license_values"
+    --set "image.tag=$MEMGRAPH_DOCKERHUB_TAG" \
+    --set-string "memgraphEnterpriseLicense=$MEMGRAPH_ENTERPRISE_LICENSE" \
+    --set-string "memgraphOrganizationName=$MEMGRAPH_ORGANIZATION_NAME"
   kubectl wait --for=condition=Ready pod/memgraph-single-smoke-0 --timeout=120s
 
   # NOTE: Bolt and monitoring are forwarded to exactly the ports the feature
@@ -142,21 +131,19 @@ test_k8s_help() {
   echo "                   [-S|--run-cluster-setup] [-u|--skip-helm-uninstall] [-c|--skip-cleanup]"
   echo "                   [-n|--expected-nodes-no]"
   echo "                   [-h|--help]"
-  echo "NOTE: The tested image is always \$MEMGRAPH_DOCKERHUB_IMAGE."
   exit 1
 }
 
 cleanup_k8s_all() {
   # NOTE: An attempt to cleanup any leftovers from kubectl port-forward...
-  pkill -9 kubectl || true # NOTE: kill -9 $(pgrep ...) errors out when there is no match.
+  pkill -9 kubectl || true
   if helm status myhadb > /dev/null 2>&1; then
     helm uninstall myhadb
   fi
   if helm status memgraph-single-smoke > /dev/null 2>&1; then
     helm uninstall memgraph-single-smoke
   fi
-  # NOTE: `helm uninstall` leaves the chart's cluster-setup hook Job behind when
-  # it never succeeded -> it keeps spawning retry pods forever.
+
   kubectl delete job cluster-setup --ignore-not-found
   kubectl delete pvc --all
   kubectl delete secret memgraph-secrets --ignore-not-found
@@ -166,10 +153,6 @@ test_k8s_ha() {
   MEMGRAPH_DOCKERHUB_TAG="${MEMGRAPH_DOCKERHUB_IMAGE##*:}"
   MEMGRAPH_DOCKERHUB_REPO="${MEMGRAPH_DOCKERHUB_IMAGE%:*}"
   CHART_PATH="memgraph/memgraph-high-availability"
-  # NOTE: The chart ships a `cluster-setup` post-install hook Job that does the
-  # ADD COORDINATOR / REGISTER INSTANCE / SET MAIN work -> running setup_cluster
-  # on top of it fails with "instance with such id already exists". Opt in with
-  # --run-cluster-setup when using a chart that does not do it.
   SKIP_CLUSTER_SETUP=true
   SKIP_CLEANUP=false
   SKIP_HELM_UNINSTALL=false

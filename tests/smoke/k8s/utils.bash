@@ -1,7 +1,4 @@
 #!/bin/bash
-# k8s-only helpers. These are NOT used by the Docker smoke tests that run in CI
-# (tests/smoke/test_single.bash) -> they live here instead of in
-# tests/smoke/utils.bash so that the CI path stays free of kubectl/helm.
 K8S_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SMOKE_DIR="$( cd "$K8S_DIR/.." && pwd )"
 source "$SMOKE_DIR/utils.bash"
@@ -9,17 +6,6 @@ source "$SMOKE_DIR/utils.bash"
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-smoke-release-testing}" # Keep in sync with k8s/init.bash.
 
 kind_load_image() {
-  # NOTE: Both `kind load docker-image` and `kind load image-archive` run
-  #   ctr images import --all-platforms --digests
-  # inside the node, which chokes on what `docker save` produces from Docker's
-  # containerd image store:
-  #   * multi-arch image whose other platforms were never pulled ->
-  #     "ctr: content digest <other arch's manifest> not found"
-  #   * image carrying an attestation manifest (daily/RC builds) ->
-  #     "ctr: mismatched image rootfs and manifest layers"
-  # Exporting a single platform and importing it with an explicit --platform
-  # (so the attestation manifest, which has no platform, is skipped) works for
-  # both. The import is done per node because that is what `kind load` does.
   __image="$1"
   __platform="$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')"
   __workdir="$(mktemp -d)"
@@ -88,13 +74,10 @@ with_kubectl_portforward() (
     local max_retries=5
     while true; do
         log=$(mktemp)
-        # NOTE: $map is deliberately unquoted -> it may hold several mappings.
+
         kubectl port-forward "$target" $map >/dev/null 2>>"$log" &
         pf_pid=$!
-        # NOTE: port-forward doesn't have built-in timeout + the target process
-        # might take arbitrary time to initialize. -> The only way to know if
-        # everything is right in the shortest amount of time is to inject the
-        # target process probe as one of the required params.
+
         sleep 0.3
         if ! eval "$probe"; then
           kill -9 "$pf_pid" 2>/dev/null || true

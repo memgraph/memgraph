@@ -155,9 +155,6 @@ memgraphConfig:
 - "--data-directory=/var/lib/memgraph/mg_data"
 - "--also-log-to-stderr=true"
 - "--telemetry-enabled=false"
-# NOTE: The flags below keep this deployment in line with the Docker container
-# the same feature tests run against (tests/smoke/utils.bash) -> e.g.
-# test_show_schema_info needs --schema-info-enabled.
 - "--log-level=TRACE"
 - "--schema-info-enabled=true"
 - "--storage-property-store-compression-enabled=true"

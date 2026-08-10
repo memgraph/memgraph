@@ -3,9 +3,7 @@
 # brings up a local kind cluster. This is only for the MANUAL k8s path
 # (tests/smoke/test_k8s.bash) -> CI runs the Docker-only smoke tests and never
 # calls this script.
-#
-# NOTE: This does NOT source ../utils.bash on purpose -> installing tooling
-# should not require the license/image environment variables.
+
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR" # The downloads below land in the current directory.
 
@@ -28,13 +26,10 @@ echo "kind installed under $(go env GOPATH)/bin"
 export PATH="$(go env GOPATH)/bin:$PATH"
 kind --version
 
-# NOTE: `! command` needs the space -> `!command` is a command named "!command",
-# which always fails, so this branch would never run.
 if ! command -v kubectl > /dev/null 2>&1; then
   curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$ARCH/kubectl"
   curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$ARCH/kubectl.sha256"
   echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
-  # NOTE: sudo, unlike in the CI container this used to run in as root.
   sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 fi
 kubectl version --client
@@ -69,8 +64,6 @@ rm -f "$SCRIPT_DIR/kubectl.sha256" || true
 rm -f "$SCRIPT_DIR/get_helm.sh" || true
 
 echo "k8s smoke test prerequisites are ready."
-# NOTE: The exports above are gone once this script exits -> kind lives under
-# GOPATH and has to be on PATH for test_k8s.bash (which also adds it itself).
 echo "NOTE: kind is installed under $(go env GOPATH)/bin, put it on your PATH:"
 echo "  export PATH=\"$(go env GOPATH)/bin:\$PATH\""
 echo "Then run $SCRIPT_DIR/../test_k8s.bash"
