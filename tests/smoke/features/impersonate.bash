@@ -4,5 +4,6 @@ source "$SCRIPT_DIR/../utils.bash"
 
 test_impersonate_user() {
   echo "FEATURE: Impersonate User"
-  run_query_admin "GRANT IMPERSONATE_USER * TO admin;"
+  # NOTE: TO USER -> "admin" is also a built-in role name.
+  run_query_admin "GRANT IMPERSONATE_USER * TO USER admin;"
 }
