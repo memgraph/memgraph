@@ -22,6 +22,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace Path {
 
@@ -266,11 +267,22 @@ struct PathData {
     return helper_.HasLimit() && std::cmp_greater_equal(emitted_, helper_.Limit());
   }
 
+  // Records a start node the first time it is named, keeping the order the caller listed them in.
+  void AddStartNode(mgp::Node node) {
+    if (start_ids_.insert(node.Id().AsInt()).second) {
+      start_nodes_.push_back(std::move(node));
+    }
+  }
+
   PathHelper helper_;
   const mgp::RecordFactory &record_factory_;
   const mgp::Graph &graph_;
   std::unordered_set<int64_t> visited_;
-  std::unordered_set<mgp::Node> start_nodes_;
+  // Ordered, not a set: `limit` stops the walk early, so which start nodes were walked first decides
+  // which paths come back. Hash order would make that answer depend on the ids the graph happens to
+  // hold. `start_ids_` only keeps a repeated start from being walked twice.
+  std::vector<mgp::Node> start_nodes_;
+  std::unordered_set<int64_t> start_ids_;
   uint64_t abort_poll_counter_ = 0;
   int64_t emitted_ = 0;
 };
