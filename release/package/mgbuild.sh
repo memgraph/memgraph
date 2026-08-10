@@ -1157,10 +1157,10 @@ package_docker() {
   esac
 
   # shellcheck disable=SC2012
-  local last_package_name=$(cd $package_dir && ls -t memgraph_*.deb memgraph-[0-9]*.rpm 2>/dev/null | head -1)
+  local last_package_name=$(cd $package_dir && ls -t memgraph_*.deb 2>/dev/null | head -1)
   if [[ -z "$last_package_name" ]]; then
     echo "Error: no main memgraph package found in $package_dir" >&2
-    echo "       (expected memgraph_*.deb or memgraph-<version>*.rpm)" >&2
+    echo "       (expected memgraph_*.deb)" >&2
     exit 1
   fi
   local docker_build_folder="$PROJECT_ROOT/release/docker"
