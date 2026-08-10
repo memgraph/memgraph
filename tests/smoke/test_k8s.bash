@@ -19,14 +19,16 @@ if [[ "$IMAGE_TYPE" != "mage" && "$IMAGE_TYPE" != "memgraph" ]]; then
   exit 1
 fi
 
+# NOTE: Sourced before the tool check because it also puts $(go env GOPATH)/bin
+# on PATH, which is where k8s/init.bash installs kind.
+source "$SMOKE_ROOT/k8s/run.bash"
+
 for tool in kind kubectl helm; do
   if ! command -v "$tool" > /dev/null 2>&1; then
     echo "Error: '$tool' not found -> run $SMOKE_ROOT/k8s/init.bash first."
     exit 1
   fi
 done
-
-source "$SMOKE_ROOT/k8s/run.bash"
 
 if ! kubectl cluster-info --context "kind-$KIND_CLUSTER_NAME" > /dev/null 2>&1; then
   echo "Error: kind cluster '$KIND_CLUSTER_NAME' is not reachable -> run $SMOKE_ROOT/k8s/init.bash first."

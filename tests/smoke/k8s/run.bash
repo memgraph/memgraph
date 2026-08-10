@@ -24,8 +24,6 @@ BOLT_SERVER="localhost:10000" # Just tmp value -> each coordinator should have a
 CHART_VERSION="1.0.1"
 
 write_license_values() {
-  # NOTE: A values overlay is used instead of `--set` because a license string
-  # can contain characters that `--set` would interpret (commas, dots, ...).
   __out="$1"
   cat > "$__out" <<EOF
 memgraphEnterpriseLicense: "$MEMGRAPH_ENTERPRISE_LICENSE"
