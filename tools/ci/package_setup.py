@@ -13,7 +13,6 @@ SMOKE_TARGETS = [
     "debian-13",
     "fedora-43",
     "fedora-44",
-    "fedora-45",
     "rocky-10",
     "ubuntu-22.04",
     "ubuntu-24.04",

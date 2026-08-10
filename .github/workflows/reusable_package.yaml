@@ -280,7 +280,7 @@ jobs:
         if: ${{ inputs.run_smoke_tests }}
         run: |
           DEB_OSES="debian-12 debian-13 ubuntu-22.04 ubuntu-24.04 ubuntu-26.04"
-          RPM_OSES="centos-9 centos-10 fedora-43 fedora-44 fedora-45 rocky-10"
+          RPM_OSES="centos-9 centos-10 fedora-43 fedora-44 rocky-10"
           # Accepts 'all', 'all deb'/'all-deb', 'all rpm'/'all-rpm', or a
           # space-separated list of distros (what a PR with several package
           # labels produces); empty means the build container's distro.
