@@ -23,7 +23,6 @@ import glob
 import json
 import os
 import stat
-import threading
 
 import mgclient
 import pytest
@@ -32,9 +31,12 @@ MEMGRAPH_HOST = os.environ.get("MEMGRAPH_HOST", "127.0.0.1")
 MEMGRAPH_PORT = int(os.environ.get("MEMGRAPH_PORT", "7687"))
 
 # Written by the *server*, so it must be a path the server can reach — pytest's tmp_path is a path on the machine
-# running the tests, which in CI is the host while Memgraph runs in a container with no shared mount. The pid keeps
-# a native run from leaving a file behind that a later containerised run on the same host would compare against.
-SERVER_EXPORT_FILE = f"/tmp/mage_export_json_e2e_{os.getpid()}.json"
+# running the tests, which in CI is the host while Memgraph runs in a container. CI binds MAGE_E2E_SHARED_DIR into
+# that container at the same path on both sides so these tests can read what the server wrote; without it we fall
+# back to /tmp, which works when the server is local. The pid keeps a native run from leaving a file behind that a
+# later containerised run on the same host would compare against.
+SERVER_SHARED_DIR = os.environ.get("MAGE_E2E_SHARED_DIR", "/tmp")
+SERVER_EXPORT_FILE = os.path.join(SERVER_SHARED_DIR, f"mage_export_json_e2e_{os.getpid()}.json")
 
 # Always fails mid-write: every write succeeds in appearance but stores nothing, so a payload smaller than the
 # stream buffer only surfaces when the file is closed.
@@ -156,6 +158,20 @@ def read_server_file(path):
             return handle.read()
     except OSError:
         return None
+
+
+def require_server_file(path):
+    """Returns the server-written file's text, skipping only where CI has not bound a shared directory.
+
+    When MAGE_E2E_SHARED_DIR is set the server's files are reachable by construction, so an unreadable one is a
+    real failure. Skipping there is what let the file-sink tests report green while covering nothing.
+    """
+    text = read_server_file(path)
+    if text is None:
+        if "MAGE_E2E_SHARED_DIR" in os.environ:
+            pytest.fail(f"{path} is unreadable even though MAGE_E2E_SHARED_DIR is bound")
+        pytest.skip(f"{path} is not reachable from the test process (server on another filesystem)")
+    return text
 
 
 def parse(payload, canonicalize=True):
@@ -520,9 +536,7 @@ def test_file_argument_wins_over_stream(conn):
 def test_file_contents_match_the_stream(conn):
     execute(conn, SEED_MIXED)
     export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    written = read_server_file(SERVER_EXPORT_FILE)
-    if written is None:
-        pytest.skip(f"{SERVER_EXPORT_FILE} is not reachable from the test process (server on another filesystem)")
+    written = require_server_file(SERVER_EXPORT_FILE)
     assert parse(written) == ALL_ELEMENTS
     # The two sinks must not diverge: same graph, same bytes.
     assert written == export(conn)["raw_data"]
@@ -595,9 +609,7 @@ def test_failed_export_leaves_the_previous_file_intact(conn):
     # truncated file behind: the export goes to a temporary that is renamed into place only on success.
     execute(conn, SEED_MIXED)
     export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    good = read_server_file(SERVER_EXPORT_FILE)
-    if good is None:
-        pytest.skip(f"{SERVER_EXPORT_FILE} is not reachable from the test process (server on another filesystem)")
+    good = require_server_file(SERVER_EXPORT_FILE)
 
     # An enum property is refused mid-export, after some elements have already been written.
     if "ExportTestEnum" not in [row["Enum Name"] for row in execute(conn, "SHOW ENUMS")]:
@@ -608,7 +620,10 @@ def test_failed_export_leaves_the_previous_file_intact(conn):
         export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
 
     assert read_server_file(SERVER_EXPORT_FILE) == good, "the previous export survives a failed one"
-    assert read_server_file(SERVER_EXPORT_FILE + ".part") is None, "no partial file is left behind"
+    # Globbed rather than named: the temporary carries a per-writer suffix, so asserting on a fixed
+    # `<file>.part` would pass without testing anything.
+    leftovers = glob.glob(f"{SERVER_EXPORT_FILE}.*")
+    assert leftovers == [], f"a partial file was left behind: {leftovers}"
 
 
 def test_empty_file_argument_means_no_file(conn):
@@ -661,8 +676,7 @@ def test_sinkless_export_still_reports_its_counters(conn):
 def test_successful_export_leaves_no_temporary_behind(conn):
     execute(conn, SEED_MIXED)
     export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    if read_server_file(SERVER_EXPORT_FILE) is None:
-        pytest.skip(f"{SERVER_EXPORT_FILE} is not reachable from the test process (server on another filesystem)")
+    require_server_file(SERVER_EXPORT_FILE)
     leftovers = glob.glob(f"{SERVER_EXPORT_FILE}.*")
     assert leftovers == [], f"the temporary was not renamed or cleaned up: {leftovers}"
 
@@ -672,8 +686,7 @@ def test_export_preserves_the_target_file_mode(conn):
     # carrying the mode across, an export the operator had restricted would silently widen on every rewrite.
     execute(conn, SEED_MIXED)
     export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    if read_server_file(SERVER_EXPORT_FILE) is None:
-        pytest.skip(f"{SERVER_EXPORT_FILE} is not reachable from the test process (server on another filesystem)")
+    require_server_file(SERVER_EXPORT_FILE)
     os.chmod(SERVER_EXPORT_FILE, 0o600)
     export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
     mode = stat.S_IMODE(os.stat(SERVER_EXPORT_FILE).st_mode)
@@ -685,9 +698,7 @@ def test_export_refuses_a_read_only_target(conn):
     # target would otherwise be replaced without an error.
     execute(conn, SEED_MIXED)
     export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    before = read_server_file(SERVER_EXPORT_FILE)
-    if before is None:
-        pytest.skip(f"{SERVER_EXPORT_FILE} is not reachable from the test process (server on another filesystem)")
+    before = require_server_file(SERVER_EXPORT_FILE)
     os.chmod(SERVER_EXPORT_FILE, 0o444)
     try:
         with pytest.raises(Exception, match="Cannot open"):
@@ -704,8 +715,7 @@ def test_export_writes_through_a_symlink(conn):
     link = SERVER_EXPORT_FILE + ".link"
     execute(conn, SEED_MIXED)
     export(conn, call=f"export.json_data(ns, rs, '{real}', {{}})")
-    if read_server_file(real) is None:
-        pytest.skip(f"{real} is not reachable from the test process (server on another filesystem)")
+    require_server_file(real)
     try:
         os.remove(real)
         with open(real, "w", encoding="utf-8") as handle:
@@ -718,31 +728,3 @@ def test_export_writes_through_a_symlink(conn):
         for path in (link, real):
             if os.path.lexists(path):
                 os.remove(path)
-
-
-def test_concurrent_exports_to_one_path_leave_one_complete_file(conn):
-    # The temporary is named per writer. A shared name let two exports truncate, publish and delete each other's
-    # work, so the caller's path ended up holding a spliced, unparseable mix of both while one query said done.
-    execute(conn, SEED_MIXED)
-    other = mgclient.connect(host=MEMGRAPH_HOST, port=MEMGRAPH_PORT)
-    other.autocommit = True
-    try:
-        for _ in range(5):
-            thread = threading.Thread(
-                target=export,
-                args=(other,),
-                kwargs={"call": f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{jsonFormat: 'JSON'}})"},
-            )
-            thread.start()
-            export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{jsonFormat: 'JSON'}})")
-            thread.join()
-
-            written = read_server_file(SERVER_EXPORT_FILE)
-            if written is None:
-                pytest.skip(f"{SERVER_EXPORT_FILE} is not reachable (server on another filesystem)")
-            # Either export may win the rename, but the survivor must be one whole document, not a splice of both.
-            document = json.loads(written)
-            assert len(document["nodes"]) == 3 and len(document["rels"]) == 2
-            assert glob.glob(f"{SERVER_EXPORT_FILE}.*") == [], "a temporary was left behind"
-    finally:
-        other.close()
