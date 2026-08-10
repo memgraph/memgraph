@@ -681,31 +681,45 @@ def test_successful_export_leaves_no_temporary_behind(conn):
     assert leftovers == [], f"the temporary was not renamed or cleaned up: {leftovers}"
 
 
+def make_target(path, mode, content="stale"):
+    """Creates an export target owned by the *test* process with an explicit mode.
+
+    The server runs as a different user (in CI it is inside a container), so a file it created cannot be chmod'ed
+    from here. Creating the target ourselves is what lets these tests state a mode at all — and the modes below give
+    "other" the access the server needs, since that is the class it falls into.
+    """
+    # Unlinked first: an earlier export may have left a file owned by the server, and chmod'ing that would fail.
+    # Replacing it is allowed because the shared directory is world-writable and deliberately not sticky.
+    if os.path.lexists(path):
+        os.remove(path)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    os.chmod(path, mode)
+    return content
+
+
 def test_export_preserves_the_target_file_mode(conn):
     # The payload goes to a temporary that is renamed over the target, which replaces the target's inode. Without
     # carrying the mode across, an export the operator had restricted would silently widen on every rewrite.
     execute(conn, SEED_MIXED)
+    # rw for owner and other, nothing for group: writable by the server, and unlike any default umask would give.
+    make_target(SERVER_EXPORT_FILE, 0o606)
     export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
     require_server_file(SERVER_EXPORT_FILE)
-    os.chmod(SERVER_EXPORT_FILE, 0o600)
-    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
     mode = stat.S_IMODE(os.stat(SERVER_EXPORT_FILE).st_mode)
-    assert mode == 0o600, f"the rewrite widened the mode to {oct(mode)}"
+    assert mode == 0o606, f"the rewrite changed the mode to {oct(mode)}"
 
 
 def test_export_refuses_a_read_only_target(conn):
     # Renaming a temporary into place needs write permission on the directory, not on the target, so a read-only
     # target would otherwise be replaced without an error.
     execute(conn, SEED_MIXED)
-    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    before = require_server_file(SERVER_EXPORT_FILE)
-    os.chmod(SERVER_EXPORT_FILE, 0o444)
-    try:
-        with pytest.raises(Exception, match="Cannot open"):
-            export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-        assert read_server_file(SERVER_EXPORT_FILE) == before, "a refused export must not have touched the target"
-    finally:
-        os.chmod(SERVER_EXPORT_FILE, 0o644)
+    before = make_target(SERVER_EXPORT_FILE, 0o444)
+    with pytest.raises(Exception, match="Cannot open"):
+        export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
+    assert read_server_file(SERVER_EXPORT_FILE) == before, "a refused export must not have touched the target"
+    # Removed rather than chmod'ed back, so a later test does not inherit an unwritable target.
+    os.remove(SERVER_EXPORT_FILE)
 
 
 def test_export_writes_through_a_symlink(conn):
@@ -714,16 +728,12 @@ def test_export_writes_through_a_symlink(conn):
     real = SERVER_EXPORT_FILE + ".real"
     link = SERVER_EXPORT_FILE + ".link"
     execute(conn, SEED_MIXED)
-    export(conn, call=f"export.json_data(ns, rs, '{real}', {{}})")
-    require_server_file(real)
     try:
-        os.remove(real)
-        with open(real, "w", encoding="utf-8") as handle:
-            handle.write("stale")
+        stale = make_target(real, 0o606)
         os.symlink(real, link)
         export(conn, call=f"export.json_data(ns, rs, '{link}', {{}})")
         assert os.path.islink(link), "the symlink was replaced by a regular file"
-        assert read_server_file(real) != "stale", "the export did not land on what the link pointed at"
+        assert require_server_file(real) != stale, "the export did not land on what the link pointed at"
     finally:
         for path in (link, real):
             if os.path.lexists(path):
