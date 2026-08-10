@@ -13,27 +13,55 @@
 
 namespace memgraph::rpc {
 
+Connection::Connection(io::network::Endpoint endpoint, communication::ClientContext *context,
+                       std::chrono::milliseconds const connect_timeout_ms)
+    : endpoint_(std::move(endpoint)), context_(context), connect_timeout_ms_(connect_timeout_ms) {}
+
+void Connection::Interrupt() {
+  if (!client_) return;
+  client_->Shutdown();
+}
+
+void Connection::Abort() {
+  // Latch first so any thread that subsequently tries to open a stream fails fast instead of reconnecting, then break
+  // the in-flight RPC. Nothing is destroyed, so this is safe with an RPC in flight.
+  aborted_.store(true, std::memory_order_release);
+  Interrupt();
+}
+
+void Connection::Shutdown() {
+  // Retire the socket rather than destroy it: the in-flight RPC owns mutex_ and has to be the one that finishes with
+  // it. EnsureConnected replaces it on the next stream, under that same lock.
+  needs_reconnect_.store(true, std::memory_order_release);
+  Interrupt();
+}
+
+void Connection::EnsureConnected() {
+  // Retired by Shutdown, or broken while idle (a long-unused connection whose server has since died). IsConnected
+  // gates ErrorStatus because the latter is a getsockopt on the raw descriptor and asserts on a closed socket.
+  if (needs_reconnect_.exchange(false, std::memory_order_acq_rel) ||
+      (client_ && (!client_->IsConnected() || client_->ErrorStatus()))) {
+    client_ = std::nullopt;
+  }
+
+  if (client_) return;
+
+  client_.emplace(context_, connect_timeout_ms_);
+  if (!client_->Connect(endpoint_)) {
+    spdlog::error("Couldn't connect to remote address {}", endpoint_.SocketAddress());
+    client_ = std::nullopt;
+    throw RpcFailedToConnectException();
+  }
+}
+
 Client::Client(io::network::Endpoint endpoint, communication::ClientContext *context,
                std::unordered_map<std::string_view, int> const &rpc_timeouts_ms,
                std::chrono::milliseconds const connect_timeout_ms)
-    : endpoint_(std::move(endpoint)),
-      context_(context),
-      rpc_timeouts_ms_(rpc_timeouts_ms),
-      connect_timeout_ms_(connect_timeout_ms) {}
+    : conn_(std::make_shared<Connection>(std::move(endpoint), context, connect_timeout_ms)),
+      rpc_timeouts_ms_(rpc_timeouts_ms) {}
 
-void Client::Abort() {
-  // Latch the aborted flag first so any thread that subsequently tries to open a stream fails fast instead of
-  // reconnecting. Then shut down the socket to abort any pending read, write, or connect operations on another thread.
-  // Does NOT destroy the client object, so it is safe to call concurrently with an in-flight RPC.
-  aborted_.store(true, std::memory_order_release);
-  if (!client_) return;
-  client_->Shutdown();
-}
+void Client::Abort() { conn_->Abort(); }
 
-void Client::Shutdown() {
-  if (!client_) return;
-  client_->Shutdown();
-  client_ = std::nullopt;
-}
+void Client::Shutdown() { conn_->Shutdown(); }
 
 }  // namespace memgraph::rpc
