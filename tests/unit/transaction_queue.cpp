@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 #include "gmock/gmock.h"
 
+#include "dbms/constants.hpp"
 #include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
 #include "query/context.hpp"
@@ -610,8 +611,8 @@ TYPED_TEST(TransactionQueueSimpleTest, AllowsWhenTheCheckerGrantsTheTargetsDatab
   EXPECT_THAT(result.to_close, ::testing::ElementsAre("target-session-uuid"));
 }
 
-TYPED_TEST(TransactionQueueSimpleTest, RefusesATargetHoldingNoDatabaseWithoutConsultingTheChecker) {
-  // Named first, so the refusal below can only come from the ResetDB and not from a fixture that never had a name.
+TYPED_TEST(TransactionQueueSimpleTest, FallsBackToTheDefaultDbForATargetHoldingNoDatabase) {
+  // Named first, so the fallback below can only come from the ResetDB and not from a fixture that never had a name.
   this->db->storage()->config_.salient.name = "tenant_a";
 
   auto &target = this->running_interpreter.interpreter;
@@ -621,10 +622,10 @@ TYPED_TEST(TransactionQueueSimpleTest, RefusesATargetHoldingNoDatabaseWithoutCon
   caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
   target.current_db_.ResetDB();
 
-  bool checker_called = false;
-  auto checker = [&checker_called](memgraph::query::QueryUserOrRole *, std::string const &) {
-    checker_called = true;
-    return true;  // would grant anything, so only a refusal *before* the call can deny here
+  std::vector<std::string> checked_db_names;
+  auto checker = [&checked_db_names](memgraph::query::QueryUserOrRole *, std::string const &db_name) {
+    checked_db_names.push_back(db_name);
+    return true;
   };
 
   auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
@@ -632,12 +633,40 @@ TYPED_TEST(TransactionQueueSimpleTest, RefusesATargetHoldingNoDatabaseWithoutCon
         interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
   });
 
-  // Fail closed: with no tenant there is no database-scoped privilege that could authorize the kill, so the
-  // decision must not be delegated to the checker at all.
+  // No tenant means no database-scoped privilege could be evaluated against the target's own database, so the
+  // check falls back to dbms::kDefaultDB rather than skipping the checker outright.
+  ASSERT_EQ(checked_db_names.size(), 1U);
+  EXPECT_EQ(checked_db_names[0], memgraph::dbms::kDefaultDB);
+  ASSERT_EQ(result.rows.size(), 1U);
+  EXPECT_TRUE(result.rows[0][1].ValueBool());
+  EXPECT_THAT(result.to_close, ::testing::ElementsAre("target-session-uuid"));
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, RefusesATargetHoldingNoDatabaseWhenTheCheckerDeniesTheDefaultDb) {
+  // Negative control for FallsBackToTheDefaultDbForATargetHoldingNoDatabase: the fallback must still be a real
+  // privilege check, not an unconditional grant, so a checker that denies dbms::kDefaultDB must refuse.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+  target.current_db_.ResetDB();
+
+  // Authorized on some other tenant only -- the fallback target (dbms::kDefaultDB) is not among them.
+  auto checker = [](memgraph::query::QueryUserOrRole *, std::string const &db_name) {
+    return db_name == "some_other_tenant";
+  };
+
+  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+    return this->interpreter_context.TerminateSessions(
+        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+  });
+
   ASSERT_EQ(result.rows.size(), 1U);
   EXPECT_FALSE(result.rows[0][1].ValueBool());
   EXPECT_TRUE(result.to_close.empty());
-  EXPECT_FALSE(checker_called);
 }
 
 TYPED_TEST(TransactionQueueSimpleTest, SameUserIsStillAllowedWithoutAnyPrivilege) {

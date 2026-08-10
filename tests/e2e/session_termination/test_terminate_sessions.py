@@ -492,19 +492,17 @@ def test_database_scoped_admin_confined_to_own_tenant(request):
     wait_until_terminated(victim_a_cursor)
 
 
-def test_dbless_session_refused_even_for_full_admin(request):
-    """Pins an ACCEPTED, deliberate fail-closed refusal: a session holding NO database cannot be
-    terminated by anybody but the same user -- not even by a maximally privileged admin.
+def test_dbless_session_terminated_via_default_db_fallback(request):
+    """A session holding NO database has no tenant for a database-scoped privilege to be evaluated
+    against, so InterpreterContext::TerminateSessions (src/query/interpreter_context.cpp) falls back
+    to authorizing against dbms::kDefaultDB ("memgraph") instead of refusing outright. An admin who
+    holds TRANSACTION_MANAGEMENT scoped to "memgraph" can therefore terminate a dbless session even
+    though that session itself never touched "memgraph".
 
-    TERMINATE SESSIONS authorizes every target against *that target's own* current database, so a
-    session in no tenant offers nothing for a database-scoped privilege to be evaluated against.
-    InterpreterContext::TerminateSessions (src/query/interpreter_context.cpp) therefore refuses such
-    a target outright instead of falling back to an unscoped check. That refusal is deliberate, and
-    it is not free: a dbless session is effectively unevictable by administration -- only another
-    connection of the same user can close it, and on the route below that is nobody at all, because
-    every connection of that user wedges the same way and so cannot issue TERMINATE SESSIONS either
-    (see assert_victim_still_registered). This test records that cost rather than endorsing it; if the
-    refusal is ever relaxed into some scoped fallback, this is the test that must be revisited.
+    This used to be a deliberate fail-closed refusal (a dbless session was unevictable by anyone but
+    the same user), which made the DROP DATABASE ... FORCE ABORT scenario that produces one of the
+    three dbless routes below effectively un-administrable. The fallback trades that for a narrower
+    exposure: a "memgraph"-scoped admin can now reach sessions belonging to no tenant at all.
 
     The dbless state is reached through a real production route, not a synthetic one. TryDefaultDB
     (src/glue/SessionHL.cpp) asks GetDefaultDB for the user's main database; when Databases::GetMain
@@ -552,10 +550,10 @@ def test_dbless_session_refused_even_for_full_admin(request):
     execute_and_fetch_all(control_cursor, "RETURN 1")  # goes idle, inside `memgraph`
 
     def release_sessions():
-        """Safety net, always run (LIFO, before on_exit drops the users): the refusal under test is
-        precisely that nothing can evict nodb_victim, so leaving it connected would leak a live
-        session into every later test's SHOW ACTIVE USERS INFO. Closing the client sockets releases
-        them, but the server tears the sessions down on their own strands -- poll for that.
+        """Safety net, always run (LIFO, before on_exit drops the users): if the fallback under test
+        regresses back into a refusal, nodb_victim would again be unevictable and leak a live session
+        into every later test's SHOW ACTIVE USERS INFO. Closing the client sockets releases them, but
+        the server tears the sessions down on their own strands -- poll for that.
         """
         for connection in (admin_connection, victim_connection, control_connection):
             with suppress(mgclient.Error):
@@ -597,26 +595,121 @@ def test_dbless_session_refused_even_for_full_admin(request):
         rows = execute_and_fetch_all(superadmin_cursor, "SHOW ACTIVE USERS INFO")
         assert any(row[1] == victim_uuid for row in rows), f"session {victim_uuid} is no longer registered"
 
-    # Assumption checks, before anything is asserted about the refusal: nodb_victim really did log
-    # in, really is registered, and really holds no database. Without these the refusal below would
+    # Assumption checks, before anything is asserted about the fallback: nodb_victim really did log
+    # in, really is registered, and really holds no database. Without these the fallback below would
     # pass just as happily against a session that simply could not be found.
     assert_victim_is_dbless()
     assert_victim_still_registered()
 
-    # The refusal itself: the most privileged caller the instance can produce, and it still cannot
-    # reach a target that sits in no tenant.
+    # The fallback itself: the most privileged caller the instance can produce reaches a target that
+    # sits in no tenant, because the check falls back to authorizing against "memgraph".
     results = execute_and_fetch_all(admin_cursor, f"TERMINATE SESSIONS '{victim_uuid}'")
-    assert results == [(victim_uuid, False)]
-    # No poll needed for the survival check: False means RequestTermination was never posted onto the
-    # target's strand, so unlike a successful termination there is no asynchronous teardown in flight.
-    assert_victim_still_registered()
+    assert results == [(victim_uuid, True)]
+    # wait_until_terminated can't be used on victim_cursor: its RETURN 1 already raises before
+    # termination too (assert_victim_is_dbless), so that probe can't tell "killed" from "was always
+    # wedged". Liveness is read the same way assert_victim_still_registered reads it -- off SHOW
+    # ACTIVE USERS INFO on a different connection -- polled until the uuid disappears.
+    wait_until(
+        lambda: not any(
+            row[1] == victim_uuid for row in execute_and_fetch_all(superadmin_cursor, "SHOW ACTIVE USERS INFO")
+        ),
+        message=f"session {victim_uuid} was still registered after being terminated",
+    )
 
     # Control, same caller and same statement, against a target whose only difference is that it holds
-    # a database. Without it the refusal above would be satisfied just as well by a full_admin that
-    # cannot terminate anything at all.
+    # a database of its own. Without it the fallback above would be indistinguishable from a
+    # full_admin that can terminate anything at all, dbless or not.
     results = execute_and_fetch_all(admin_cursor, f"TERMINATE SESSIONS '{control_uuid}'")
     assert results == [(control_uuid, True)]
     wait_until_terminated(control_cursor)
+
+
+def test_dbless_session_refused_when_caller_lacks_default_db_access(request):
+    """Negative control for the default-db fallback (see
+    test_dbless_session_terminated_via_default_db_fallback): a caller who holds TRANSACTION_MANAGEMENT
+    but has no DATABASE access to "memgraph" must still be refused against a dbless target.
+
+    Without this test, a regression that dropped the privilege_checker call for a dbless target
+    entirely (i.e. an unconditional grant instead of a scoped fallback) would pass the suite just as
+    happily as the fix -- the positive test alone only proves the fallback authorizes against *some*
+    privilege, not that it is still scoped. TRANSACTION_MANAGEMENT is granted globally, but
+    IsAuthorized additionally requires DATABASE access to the db name it is evaluated against (see
+    test_database_scoped_admin_confined_to_own_tenant), so a caller confined to some other tenant
+    fails the check even while holding the privilege everywhere it does have access.
+    """
+    superadmin_cursor = connect().cursor()
+
+    # A side tenant purely so scoped_only_admin has somewhere to log in without touching `memgraph` --
+    # CREATE DATABASE needs MULTI_DATABASE_EDIT, which scoped_only_admin must not have, so the DDL
+    # goes through a separately privileged user, as in test_database_scoped_admin_confined_to_own_tenant.
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER tenant_ddl_admin2")
+    execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO tenant_ddl_admin2")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO tenant_ddl_admin2")
+
+    ddl_cursor = connect(username="tenant_ddl_admin2", password="").cursor()
+    execute_and_fetch_all(ddl_cursor, "CREATE DATABASE side_tenant")
+
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER scoped_only_admin")
+    execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM scoped_only_admin")
+    execute_and_fetch_all(superadmin_cursor, "CLEAR ROLE FOR scoped_only_admin")
+    # Same reasoning as test_database_scoped_admin_confined_to_own_tenant: revoke the default `memgraph`
+    # grant every fresh user gets and re-point main at side_tenant before granting back exactly that.
+    execute_and_fetch_all(superadmin_cursor, "REVOKE DATABASE * FROM scoped_only_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE side_tenant TO scoped_only_admin")
+    execute_and_fetch_all(superadmin_cursor, "SET MAIN DATABASE side_tenant FOR scoped_only_admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO scoped_only_admin")
+
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER nodb_victim2")
+    execute_and_fetch_all(superadmin_cursor, "REVOKE DATABASE * FROM nodb_victim2")
+
+    def on_exit():
+        try:
+            execute_and_fetch_all(ddl_cursor, "DROP DATABASE side_tenant")
+        except mgclient.Error:
+            pass  # an earlier assertion failed and left a session parked inside the tenant
+        for user in ("tenant_ddl_admin2", "scoped_only_admin", "nodb_victim2"):
+            execute_and_fetch_all(superadmin_cursor, f"DROP USER {user}")
+
+    request.addfinalizer(on_exit)
+
+    admin_connection = connect(username="scoped_only_admin", password="")
+    admin_cursor = admin_connection.cursor()
+
+    victim_connection = connect(username="nodb_victim2", password="")
+    victim_cursor = victim_connection.cursor()
+
+    def release_sessions():
+        """Safety net, always run (LIFO, before on_exit drops the users and the database): closing the
+        client sockets releases the accessors, but the server tears the sessions down on their own
+        strands -- poll for that, same pattern as the fallback test above.
+        """
+        for connection in (admin_connection, victim_connection):
+            with suppress(mgclient.Error):
+                connection.close()
+        wait_until(
+            lambda: not any(
+                row[0] in ("scoped_only_admin", "nodb_victim2")
+                for row in execute_and_fetch_all(superadmin_cursor, "SHOW ACTIVE USERS INFO")
+            ),
+            message="sessions were still registered after their connections closed",
+        )
+
+    request.addfinalizer(release_sessions)
+
+    victim_uuid = get_session_uuid_by_username(superadmin_cursor, "nodb_victim2")
+
+    # Same dbless proof as the fallback test: the session can run no query at all, so it can only
+    # be failing to resolve its (nonexistent) default database.
+    with pytest.raises(mgclient.DatabaseError, match="No access to the set default database"):
+        execute_and_fetch_all(victim_cursor, "RETURN 1")
+
+    # The refusal: scoped_only_admin holds TRANSACTION_MANAGEMENT, but not on "memgraph", and the
+    # fallback authorizes against "memgraph" -- so it must still be denied.
+    results = execute_and_fetch_all(admin_cursor, f"TERMINATE SESSIONS '{victim_uuid}'")
+    assert results == [(victim_uuid, False)]
+
+    rows = execute_and_fetch_all(superadmin_cursor, "SHOW ACTIVE USERS INFO")
+    assert any(row[1] == victim_uuid for row in rows), f"session {victim_uuid} is no longer registered"
 
 
 if __name__ == "__main__":
