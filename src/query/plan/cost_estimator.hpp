@@ -21,8 +21,9 @@
 
 namespace memgraph::query::plan {
 
-// The IN-to-Unwind lowering wraps the original list in toSet(coalesce(list, [])).
-// Extract the inner ListLiteral if the expression matches that pattern.
+// The `IN` -> `Unwind` lowering wraps the original list in toSet(coalesce(list, [])).
+// Extracts and returns the inner `ListLiteral` if the expression matches that
+// form, else returns `nullptr`.
 inline auto ExtractListFromInUnwind(Expression *expr) -> ListLiteral * {
   auto *func = utils::Downcast<Function>(expr);
   if (!func || func->function_name_ != "TOSET" || func->arguments_.size() != 1) return nullptr;
@@ -439,7 +440,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     if (auto *literal = utils::Downcast<query::ListLiteral>(unwind.input_expression_)) {
       unwind_value = literal->elements_.size();
     } else if (auto *list = ExtractListFromInUnwind(unwind.input_expression_)) {
-      // IN-to-Unwind lowering wraps the list in toSet(coalesce(list, []))
       unwind_value = list->elements_.size();
     } else {
       unwind_value = MiscParam::kUnwindNoLiteral;
@@ -761,60 +761,50 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     std::unreachable();
   }
 
-  // Helper function to estimate cardinality for label properties queries.
-  // Used by both single-threaded and parallel scan operators.
+  // For an expression of the form `x IN [lst]`, resolve the IN membership list
+  // by summing per-element VerticesCount. Returns `nullopt` if any element
+  // cannot be resolved at plan time.
+  auto EstimateInListCardinality(storage::LabelId label, std::vector<storage::PropertyPath> const &properties,
+                                 ListLiteral const &list, size_t slot,
+                                 std::vector<std::optional<storage::PropertyValueRange>> &resolved_ranges)
+      -> std::optional<double> {
+    auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+    double sum = 0.0;
+    for (auto *elem : list.elements_) {
+      auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters, mapper);
+      if (!resolved) return std::nullopt;
+      auto per_elem_ranges = resolved_ranges;
+      per_elem_ranges[slot] = *resolved;
+      if (ranges::any_of(per_elem_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) return std::nullopt;
+      auto pvrs = per_elem_ranges | ranges::views::transform([](auto const &optional) { return *optional; }) |
+                  ranges::to_vector;
+      sum += db_accessor_->VerticesCount(label, properties, pvrs);
+    }
+    return sum;
+  }
+
   double EstimateLabelPropertiesCardinality(storage::LabelId label,
-                                            const std::vector<storage::PropertyPath> &properties,
-                                            const std::vector<ExpressionRange> &expression_ranges) {
+                                            std::vector<storage::PropertyPath> const &properties,
+                                            std::vector<ExpressionRange> const &expression_ranges) {
     auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
 
-    auto maybe_propertyvalue_ranges =
+    auto maybe_ranges =
         expression_ranges |
         ranges::views::transform([&](ExpressionRange const &er) { return er.ResolveAtPlantime(parameters, mapper); }) |
         ranges::to_vector;
 
-    if (ranges::none_of(maybe_propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
-      auto propertyvalue_ranges = maybe_propertyvalue_ranges |
-                                  ranges::views::transform([](auto &&optional) { return *optional; }) |
-                                  ranges::to_vector;
-
-      return db_accessor_->VerticesCount(label, properties, propertyvalue_ranges);
+    if (ranges::none_of(maybe_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
+      auto pvrs = maybe_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) | ranges::to_vector;
+      return db_accessor_->VerticesCount(label, properties, pvrs);
     }
 
-    // If resolution failed, check if any expression range has an original IN list
-    // whose elements we can resolve individually and sum their cardinalities.
     for (size_t i = 0; i < expression_ranges.size(); ++i) {
-      if (maybe_propertyvalue_ranges[i] || !expression_ranges[i].membership_list_) continue;
-
-      auto *list = expression_ranges[i].membership_list_;
-
-      double sum = 0.0;
-      bool all_resolved = true;
-      for (auto *elem : list->elements_) {
-        auto elem_range = ExpressionRange::Equal(elem);
-        auto resolved = elem_range.ResolveAtPlantime(parameters, mapper);
-        if (!resolved) {
-          all_resolved = false;
-          break;
-        }
-        // Build a full property-value-ranges vector, substituting this element for position i
-        auto per_elem_ranges = maybe_propertyvalue_ranges;
-        per_elem_ranges[i] = *resolved;
-        if (ranges::none_of(per_elem_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
-          auto pvrs = per_elem_ranges | ranges::views::transform([](auto const &optional) { return *optional; }) |
-                      ranges::to_vector;
-          sum += db_accessor_->VerticesCount(label, properties, pvrs);
-        } else {
-          all_resolved = false;
-          break;
-        }
-      }
-      if (all_resolved) {
-        maybe_propertyvalue_ranges[i] = storage::PropertyValueRange::IsNotNull();  // mark as resolved
-        // Replace the full estimate with the sum
-        // If all other ranges are already resolved, return the sum directly
-        if (ranges::none_of(maybe_propertyvalue_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
-          return sum;
+      if (maybe_ranges[i] || !expression_ranges[i].membership_list_) continue;
+      if (auto sum =
+              EstimateInListCardinality(label, properties, *expression_ranges[i].membership_list_, i, maybe_ranges)) {
+        maybe_ranges[i] = storage::PropertyValueRange::IsNotNull();
+        if (ranges::none_of(maybe_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
+          return *sum;
         }
       }
     }
