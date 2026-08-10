@@ -398,14 +398,11 @@ class Interpreter final {
     std::string login_timestamp;
   };
 
-  // Owning-thread state: written only by this session's own Bolt thread (SetUser / ResetUser /
-  // SetSessionInfo) and read directly only by that same thread. Roughly forty read sites in
-  // interpreter.cpp rely on that and are correct as they stand.
-  //
-  // A FOREIGN THREAD MUST NOT READ EITHER FIELD DIRECTLY -- it must load the published snapshot
-  // below. Reading these directly across threads is a data race on a non-atomic shared_ptr/string,
-  // and for user_or_role_ a use-after-free: the reader binds a reference without touching the
-  // refcount, so a concurrent ResetUser can free the pointee mid-comparison.
+  // Owning-thread state: written only by this interpreter's own thread (SetUser / ResetUser /
+  // SetSessionInfo) and read directly only by that same thread; every other read site in
+  // interpreter.cpp relies on that. A foreign thread must go through the published snapshot
+  // below instead -- a direct cross-thread read races a non-atomic shared_ptr/string, and for
+  // user_or_role_ it is a use-after-free (a concurrent ResetUser can free the pointee mid-read).
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
 #ifdef MG_ENTERPRISE
   // Coordinator privilege mask captured at login (auth::Permission bits). Consulted directly only for role-less
@@ -422,23 +419,20 @@ class Interpreter final {
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
   SessionInfo session_info_;
-  // Published snapshots of the two fields above, for foreign readers: ShowTransactions and
+  // Published snapshots of the two fields above, for foreign readers: ShowTransactions,
   // TerminateTransactions (src/query/interpreter.cpp, src/query/interpreter_context.cpp),
-  // TerminateSessions (interpreter_context.cpp), SHOW SESSIONS and GetActiveUsersInfo
-  // (interpreter.cpp). Written by the owning thread only, so a store never races another store.
+  // TerminateSessions (interpreter_context.cpp) and GetActiveUsersInfo (interpreter.cpp).
+  // Written by the owning thread only, so a store never races another store.
   //
-  // std::atomic<std::shared_ptr<T>>::is_always_lock_free is false, and that is the REASON THIS
-  // WORKS -- not a caveat to optimise away. libstdc++ steals the low bit of the control-block
-  // pointer as a per-instance spinlock and performs the refcount increment while holding it, which
-  // is exactly what makes the copy returned by load() safe against a concurrent decrement to zero.
-  // Destruction of the replaced value is deferred until after that lock is released, so no
-  // destructor ever runs inside it. Replacing this with a raw pointer, a relaxed atomic, or a
-  // hand-rolled seqlock reintroduces the use-after-free.
+  // is_always_lock_free being false here is the REASON THIS WORKS, not a caveat to optimise
+  // away: libstdc++ steals the control block pointer's low bit as a per-instance spinlock and
+  // increments the refcount while holding it, so the copy load() returns is safe against a
+  // concurrent decrement to zero, and the replaced value's destructor only runs after that lock
+  // is released. A raw pointer, a relaxed atomic, or a hand-rolled seqlock reintroduces the UAF.
   //
-  // Keep each snapshot WHOLE. Do not split foreign_user_view_ into separate username/rolenames
-  // atomics: QueryUserOrRole::operator== compares the pair jointly, so a reader that observed an
-  // old username beside new rolenames would silently decide identity wrongly -- an authorization
-  // bug, not merely a memory-safety one.
+  // Keep each snapshot WHOLE -- do not split foreign_user_view_ into separate username/rolenames
+  // atomics: QueryUserOrRole::operator== compares the pair jointly, so a reader observing an old
+  // username beside new rolenames would decide identity wrongly, which is an authorization bug.
   std::atomic<std::shared_ptr<QueryUserOrRole>> foreign_user_view_{};
   std::atomic<std::shared_ptr<const SessionInfo>> foreign_session_view_{};
   bool in_explicit_transaction_{false};

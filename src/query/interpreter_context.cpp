@@ -29,9 +29,8 @@
 namespace memgraph::query {
 
 namespace {
-// True if lv and rv denote the same authenticated identity: same shared_ptr target, or equal QueryUserOrRole
-// values. False whenever exactly one side is null (lv.get() == rv is false, and the lv && rv guard skips the
-// value compare), so an unauthenticated/null snapshot never reads as "same user" as a live caller.
+// Exactly one of lv/rv null -> false (an unauthenticated/null snapshot never matches a live caller);
+// both null also compares equal, via lv.get() == rv.
 bool SameUser(const std::shared_ptr<QueryUserOrRole> &lv, QueryUserOrRole *rv) {
   if (lv.get() == rv) return true;
   if (lv && rv) return *lv == *rv;
@@ -214,10 +213,8 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
 
     Interpreter *target = nullptr;
     for (Interpreter *interpreter : interpreters) {
-      // interpreter->session_info_ is owning-thread state, written by SetSessionInfo on interpreter's own
-      // thread; foreign_session_view_ is the published snapshot for foreign readers. A null snapshot means
-      // SetSessionInfo has not run yet (not authenticated), which also cannot carry a non-empty uuid, so
-      // skipping it here preserves the original `!session_info_.uuid.empty()` guard.
+      // A null snapshot means SetSessionInfo has not run yet (unauthenticated) and so can't carry a non-empty
+      // uuid; the added null check here preserves the original `!session_info_.uuid.empty()` guard.
       auto const session_snapshot = interpreter->foreign_session_view_.load();
       if (session_snapshot && !session_snapshot->uuid.empty() && session_snapshot->uuid == id) {
         target = interpreter;
@@ -237,10 +234,8 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
     // across to the termination below, so the target may USE DATABASE in between. That closes the systematic
     // cross-tenant hole (a db-A admin can no longer terminate any db-B session); it is not transactional
     // enforcement.
-    // target->user_or_role_ is owning-thread state the target's own thread can concurrently rewrite via
-    // SetUser/ResetUser; foreign_user_view_.load() is the published snapshot. This comparison precedes every
-    // CAS in this function (the transaction_status_ CAS below runs only after this decision, only to mark
-    // TERMINATED), so it has zero synchronisation with the target's thread in any other state.
+    // This decision runs before the only CAS in this function (transaction_status_ below, which only marks
+    // TERMINATED) -- unlike TerminateTransactions, nothing here incidentally orders the read against the target.
     auto const target_user_snapshot = target->foreign_user_view_.load();
     if (!SameUser(target_user_snapshot, user_or_role)) {
       // A dbless target has no tenant to scope against; see the declaration comment for why
