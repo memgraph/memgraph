@@ -139,7 +139,7 @@ auto ExpressionRange::Equal(Expression *value) -> ExpressionRange {
 }
 
 auto ExpressionRange::In(Expression *runtime_value, ListLiteral *membership_list) -> ExpressionRange {
-  auto er = ExpressionRange{Type::EQUAL, utils::MakeBoundInclusive(runtime_value), std::nullopt};
+  auto er = ExpressionRange{Type::IN, utils::MakeBoundInclusive(runtime_value), std::nullopt};
   er.membership_list_ = membership_list;
   return er;
 }
