@@ -825,6 +825,11 @@ add_unit_test(storage_v2_indices
     LINK_TARGETS mg::storage mg-utils disk_test_utils ddl_abort_helpers
 )
 
+add_unit_test(storage_v2_index_entry_lifetime
+    SOURCES storage_v2_index_entry_lifetime.cpp
+    LINK_TARGETS mg::storage mg-utils
+)
+
 add_unit_test(storage_v2_name_id_mapper
     SOURCES storage_v2_name_id_mapper.cpp
     LINK_TARGETS mg::storage

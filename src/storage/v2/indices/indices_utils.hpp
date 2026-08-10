@@ -20,6 +20,7 @@
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value_utils.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
@@ -31,6 +32,14 @@
 #include <atomic>
 
 namespace memgraph::storage {
+
+/// A sweep leaves entries at or past the oldest active start timestamp alone, so that a transaction
+/// which started before such an entry was written can still reach the version it names. Analytical
+/// keeps no versions to reach: a write is applied in place, and a delete removes the object from
+/// storage in the same collection pass whose sweep would have been leaving its entry alone, so the
+/// entry is left naming freed memory for every later reader of that index. Callers hold the main
+/// lock, which is what keeps the answer true for the length of a sweep.
+inline bool SweepPreservesRecentEntries(StorageMode mode) { return mode == StorageMode::IN_MEMORY_TRANSACTIONAL; }
 
 namespace details {
 

@@ -312,6 +312,8 @@ uint64_t InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, ui
 
   auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
 
+  auto const preserve_recent_entries = SweepPreservesRecentEntries(storage->GetStorageMode());
+
   uint64_t swept = 0;
   for (auto const &[property_id, index] : *cpy) {
     if (token.stop_requested()) return swept;
@@ -326,7 +328,7 @@ uint64_t InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, ui
       auto next_it = it;
       ++next_it;
 
-      if (it->timestamp >= oldest_active_start_timestamp) {
+      if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
         it = next_it;
         continue;
       }

@@ -21,6 +21,7 @@
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
@@ -676,6 +677,8 @@ uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
   // Pin vertices_ while sweeping: the loop dereferences raw Vertex* the epoch GC could free.
   auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
 
+  auto const preserve_recent_entries = SweepPreservesRecentEntries(storage->GetStorageMode());
+
   uint64_t swept = 0;
   for (const auto &[label, map] : *container) {
     for (const auto &[properties, individual_constraint] : map) {
@@ -694,7 +697,7 @@ uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
         ++next_it;
 
         // Cannot delete it yet
-        if (it->timestamp >= oldest_active_start_timestamp) {
+        if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
           it = next_it;
           continue;
         }

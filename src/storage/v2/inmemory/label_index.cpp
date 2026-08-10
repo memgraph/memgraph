@@ -279,6 +279,8 @@ uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t ol
   // Pin vertices_ while sweeping: the loop dereferences raw Vertex* the epoch GC could free.
   auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
 
+  auto const preserve_recent_entries = SweepPreservesRecentEntries(storage->GetStorageMode());
+
   uint64_t swept = 0;
   for (auto &[index, label] : *index_container) {
     // before starting index, check if stop_requested
@@ -295,7 +297,7 @@ uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t ol
       auto next_it = it;
       ++next_it;
 
-      if (it->timestamp >= oldest_active_start_timestamp) {
+      if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
         it = next_it;
         continue;
       }

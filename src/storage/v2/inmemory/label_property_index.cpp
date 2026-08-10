@@ -1073,6 +1073,8 @@ uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uin
 
   CleanupAllIndices();
 
+  auto const preserve_recent_entries = SweepPreservesRecentEntries(storage->GetStorageMode());
+
   uint64_t swept = 0;
   auto const remove_from = [&](auto const &all_indexes) {
     for (auto &all_entry : *all_indexes) {
@@ -1097,7 +1099,7 @@ uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uin
           ++next_it;
 
           const bool has_next = next_it != end_it;
-          if (it->timestamp < oldest_active_start_timestamp) {
+          if (!preserve_recent_entries || it->timestamp < oldest_active_start_timestamp) {
             const bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->values == next_it->values;
             if (redundant_duplicate || !AnyVersionHasLabelProperties(*it->vertex,
                                                                      label_id,
