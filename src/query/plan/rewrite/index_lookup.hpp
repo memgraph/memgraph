@@ -1753,12 +1753,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           return ExpressionRange::Equal(filter.property_filter->value_);
         }
         case PropertyFilter::Type::IN: {
-          // After unwind rewrite, value_ is the anonymous symbol.
-          // Preserve membership_list for cost estimation.
-          if (membership_list) {
-            return ExpressionRange::In(filter.property_filter->value_, membership_list);
-          }
-          return ExpressionRange::Equal(filter.property_filter->value_);
+          return ExpressionRange::In(filter.property_filter->value_, membership_list);
         }
         case PropertyFilter::Type::REGEX_MATCH: {
           return ExpressionRange::RegexMatch();
@@ -1904,7 +1899,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       const bool has_in = std::ranges::any_of(found_index->filters, [](const FilterInfo &f) {
         return f.property_filter && f.property_filter->type_ == PropertyFilter::Type::IN;
       });
-      // Capture original IN list expressions before make_unwinds replaces them with anonymous symbols
+      // Capture original IN list member expressions before make_unwinds
+      // replaces them with anonymous symbols
       auto membership_lists = found_index->filters |
                               ranges::views::transform([](FilterInfo const &fi) -> ListLiteral * {
                                 if (fi.property_filter && fi.property_filter->type_ == PropertyFilter::Type::IN)
@@ -1913,11 +1909,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                               }) |
                               ranges::to_vector;
       auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
-      std::vector<ExpressionRange> expr_ranges;
-      expr_ranges.reserve(value_expressions.size());
-      for (size_t i = 0; i < value_expressions.size(); ++i) {
-        expr_ranges.push_back(to_expression_range(value_expressions[i], membership_lists[i]));
-      }
+      auto expr_ranges =
+          ranges::views::zip(value_expressions, membership_lists) |
+          ranges::views::transform([&](auto const &pair) { return to_expression_range(pair.first, pair.second); }) |
+          ranges::to_vector;
 
       auto op = std::make_unique<ScanAllByLabelProperties>(input,
                                                            node_symbol,
@@ -1997,11 +1992,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                 ranges::to_vector;
             auto value_expressions =
                 label_property_index.filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
-            std::vector<ExpressionRange> expr_ranges;
-            expr_ranges.reserve(value_expressions.size());
-            for (size_t i = 0; i < value_expressions.size(); ++i) {
-              expr_ranges.push_back(to_expression_range(value_expressions[i], or_membership_lists[i]));
-            }
+            auto expr_ranges = ranges::views::zip(value_expressions, or_membership_lists) |
+                               ranges::views::transform(
+                                   [&](auto const &pair) { return to_expression_range(pair.first, pair.second); }) |
+                               ranges::to_vector;
             auto label_property_index_scan =
                 std::make_unique<ScanAllByLabelProperties>(input,
                                                            node_symbol,
