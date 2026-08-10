@@ -7417,7 +7417,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                        user_or_role = std::move(user_or_role),
                        privilege_checker = std::move(privilege_checker)]() mutable {
           return interpreter_context->interpreters.WithLock([&](auto &interpreters) mutable {
-            return interpreter_context->TerminateAllTransactions(
+            return InterpreterContext::TerminateAllTransactions(
                 interpreters, self, user_or_role.get(), std::move(privilege_checker));
           });
         };

@@ -107,7 +107,7 @@ struct InterpreterContext {
   /// `self` is the issuing interpreter and is skipped: terminating it would make its own
   /// commit throw, so the caller would never see which transactions it killed. Returns one
   /// row per terminated transaction, ordered by ascending transaction id.
-  std::vector<std::vector<TypedValue>> TerminateAllTransactions(
+  static std::vector<std::vector<TypedValue>> TerminateAllTransactions(
       const std::unordered_set<Interpreter *> &interpreters, Interpreter const *self, QueryUserOrRole *user_or_role,
       std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
 
