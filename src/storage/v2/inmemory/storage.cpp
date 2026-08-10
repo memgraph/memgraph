@@ -78,6 +78,10 @@ namespace rv = r::views;
 namespace memgraph::storage {
 namespace {
 
+// Sub-directory holding durability files superseded by a new base state. Kept in sync with the name
+// utils::GetFilesFromDir filters out, so archived files are invisible to every directory scan.
+constexpr std::string_view kOldDurabilityDir = ".old";
+
 constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> durability::StorageMetadataOperation {
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define add_case(E)              \
@@ -2954,6 +2958,25 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                            return CommitTsInfo{.ldt_ = std::max(old_info.ldt_, ldt),
                                                                .num_committed_txns_ = old_info.num_committed_txns_};
                                          });
+
+      // The switch-back snapshot is a new durability base, not an increment on the old one: an analytical
+      // episode leaves a timestamp hole no WAL can fill, so nothing written before it can be chained onto
+      // it. Archive the superseded files and restart the WAL numbering at 0 -- the two go together.
+      // Wiping alone would break recovery, since a chain whose first file has a non-zero sequence number
+      // is accepted only when some WAL predates the snapshot, and every such WAL is what was just wiped.
+      // Restarting alone would be worse: the surviving files carry this same UUID, so the new numbers
+      // would collide with theirs, and a duplicate sequence number is caught by no check anywhere.
+      if (snapshot_path) {
+        DMG_ASSERT(!wal_file_, "Analytical mode must not leave an open WAL file.");
+        if (ArchiveSupersededDurabilityFiles(*snapshot_path)) {
+          wal_seq_num_ = 0;
+        } else {
+          spdlog::warn(
+              "Superseded WAL files could not be archived, so WAL sequence numbering continues from {} to stay "
+              "collision-free.",
+              wal_seq_num_);
+        }
+      }
       snapshot_runner_.Resume();
       // Under the clients' lock for symmetry with the analytical store above, so replica registration's
       // in-lock read of storage_mode_ is serialized against every mode change, not just one direction.
@@ -3711,6 +3734,65 @@ void InMemoryStorage::FinalizeWalFile() {
     // reading thread EnabledFlushing)
     wal_file_->TryFlushing();
   }
+}
+
+bool InMemoryStorage::ArchiveSupersededDurabilityFiles(std::filesystem::path const &keep_snapshot) {
+  auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
+
+  // A leftover .old from an earlier archival describes a state even older than the one being archived
+  // now, so it is dropped rather than merged; keeping both would let the directory grow without bound.
+  auto const prepare_old_dir = [](std::filesystem::path const &parent) -> bool {
+    auto const target = parent / kOldDurabilityDir;
+    std::error_code ec;
+    std::filesystem::remove_all(target, ec);
+    if (ec) {
+      spdlog::warn("Failed to clear backup directory {}. Err: {}", target, ec.message());
+      return false;
+    }
+    std::filesystem::create_directory(target, ec);
+    if (ec) {
+      spdlog::warn("Failed to create backup directory {}. Err: {}", target, ec.message());
+      return false;
+    }
+    return true;
+  };
+
+  // Archival is best-effort: it is housekeeping, not part of making the new snapshot durable. A failure
+  // degrades to "superseded files stay where they are", which the return value reports.
+  auto const archive_dir = [&](std::filesystem::path const &dir, std::filesystem::path const *keep) {
+    if (!utils::DirExists(dir)) return;  // durability off entirely; nothing was ever written here
+
+    // With backups enabled, a backup directory that cannot be created means the files stay where they
+    // are. Falling back to deleting them would turn a filesystem hiccup into unrecoverable data loss.
+    std::optional<std::filesystem::path> backup_dir;
+    if (use_old_dir) {
+      if (!prepare_old_dir(dir)) return;
+      backup_dir = dir / kOldDurabilityDir;
+    }
+
+    for (auto const &path : utils::GetFilesFromDir(dir)) {  // already skips the .old sub-directory
+      if (keep && path.filename() == keep->filename()) continue;
+      if (!backup_dir) {
+        file_retainer_.DeleteFile(path);
+        continue;
+      }
+      auto const new_path = *backup_dir / path.filename();
+      spdlog::trace("Archiving durability file {} to {}", path, new_path);
+      file_retainer_.RenameFile(path, new_path);
+    }
+
+    if (backup_dir) {
+      std::error_code ec;
+      std::filesystem::remove(*backup_dir, ec);  // no-op unless nothing needed archiving
+    }
+  };
+
+  archive_dir(recovery_.snapshot_directory_, &keep_snapshot);
+  archive_dir(recovery_.wal_directory_, nullptr);
+
+  // Deletions and renames are deferred while a file is locked (SHOW SNAPSHOTS, a replica recovery), so
+  // the directory is re-read rather than assumed empty.
+  return !utils::DirExists(recovery_.wal_directory_) || utils::GetFilesFromDir(recovery_.wal_directory_).empty();
 }
 
 auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
@@ -4501,7 +4583,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     SetBroken(false);
 
     auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
-    constexpr std::string_view old_dir = ".old";
+    auto const &old_dir = kOldDurabilityDir;
 
     // Move all previous snapshots and WAL files to .old dir
     if (use_old_dir) {

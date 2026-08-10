@@ -21,6 +21,7 @@ import mgclient
 import pytest
 from common import (
     connect,
+    count_files,
     execute_and_fetch_all,
     get_data_path,
     get_logs_path,
@@ -54,6 +55,16 @@ CLUSTER_WITHOUT_REPLICA = [
     ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
     ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
 ]
+
+CLUSTER_WITH_REPLICA_DOWN = [
+    ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+    ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+    ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+]
+
+# The import's three phases, kept separate so a restart that loses one of them cannot be masked by a
+# total that happens to match.
+EXPECTED_LABEL_COUNTS = {"Before": 10, "AfterUnregister": 5, "Imported": 100}
 
 
 @pytest.fixture
@@ -132,6 +143,21 @@ def start_cluster(test_name: str):
     return instances, coord_cursor, connect(host="localhost", port=7687).cursor()
 
 
+def get_label_counts(cursor):
+    return {
+        label: execute_and_fetch_all(cursor, f"MATCH (n:{label}) RETURN count(n);")[0][0]
+        for label in EXPECTED_LABEL_COUNTS
+    }
+
+
+def durability_dirs(test_name: str, instance: str):
+    """The snapshot and WAL directories of an instance, as (snapshots, wal)."""
+    data_dir = os.path.join(
+        interactive_mg_runner.PROJECT_DIR, "build", "e2e", "data", get_data_path(file, test_name), instance
+    )
+    return os.path.join(data_dir, "snapshots"), os.path.join(data_dir, "wal")
+
+
 def import_while_analytical(main_cursor, count: int):
     """The target workload: analytical for the duration of the import, transactional again afterwards.
 
@@ -204,7 +230,12 @@ def test_analytical_import_with_stale_replica_and_main_restart(test_name):
     """Scenario B2: scenario B with the main restarted between the import and the re-registration.
 
     This pins the requirement that ruled out every design keyed on in-memory state: the recovery
-    decision has to be derivable from the durability files alone.
+    decision has to be derivable from the durability files alone. The whole cluster is then restarted
+    once more at the end, which is what exercises the durability layout the switch back leaves behind:
+    the switch-back snapshot is the only file left in place, every file it supersedes is archived into
+    .old, and the WAL numbering restarts at 0. Recovering from that layout is only valid because of the
+    restart -- a chain whose first file has a non-zero sequence number is accepted only when some WAL
+    predates the snapshot, and archiving removed every such WAL from view.
     """
     instances, coord_cursor, main_cursor = start_cluster(test_name)
     replica_cursor = connect(host="localhost", port=7688).cursor()
@@ -217,6 +248,14 @@ def test_analytical_import_with_stale_replica_and_main_restart(test_name):
 
     execute_and_fetch_all(main_cursor, "UNWIND RANGE(1, 5) AS i CREATE (:AfterUnregister {id: i});")
     import_while_analytical(main_cursor, 100)
+
+    # The switch back left exactly one snapshot behind and moved the pre-import WAL chain out of the way.
+    main_snapshot_dir, main_wal_dir = durability_dirs(test_name, "instance_1")
+    assert count_files(main_snapshot_dir) == 1
+    assert count_files(main_wal_dir) == 0
+    main_wal_archive_dir = os.path.join(main_wal_dir, ".old")
+    assert os.path.isdir(main_wal_archive_dir), "the pre-import WAL chain was not archived"
+    assert count_files(main_wal_archive_dir) >= 1
 
     interactive_mg_runner.kill(instances, "instance_1")
     interactive_mg_runner.start(instances, "instance_1")
@@ -231,6 +270,25 @@ def test_analytical_import_with_stale_replica_and_main_restart(test_name):
     replica_cursor = connect(host="localhost", port=7688).cursor()
     mg_sleep_and_assert(115, partial(get_vertex_count, replica_cursor))
     assert get_vertex_count(replica_cursor) == get_vertex_count(main_cursor)
+
+    # Restart both data instances. The replica goes down first and is confirmed down before the main
+    # follows, so the coordinator has no promotion candidate and instance_1 comes back as MAIN.
+    interactive_mg_runner.kill(instances, "instance_2")
+    mg_sleep_and_assert(CLUSTER_WITH_REPLICA_DOWN, partial(show_instances, coord_cursor))
+    interactive_mg_runner.kill(instances, "instance_1")
+
+    interactive_mg_runner.start(instances, "instance_1")
+    interactive_mg_runner.start(instances, "instance_2")
+    mg_sleep_and_assert(CLUSTER_WITH_REPLICA, partial(show_instances, coord_cursor))
+
+    # Both instances recovered the full dataset from their own durability files, the imported vertices
+    # included -- those live only in the switch-back snapshot, in no WAL on either side.
+    main_cursor = connect(host="localhost", port=7687).cursor()
+    replica_cursor = connect(host="localhost", port=7688).cursor()
+    mg_sleep_and_assert(115, partial(get_vertex_count, main_cursor))
+    mg_sleep_and_assert(115, partial(get_vertex_count, replica_cursor))
+    assert get_label_counts(main_cursor) == EXPECTED_LABEL_COUNTS
+    assert get_label_counts(replica_cursor) == EXPECTED_LABEL_COUNTS
 
 
 def test_register_instance_while_main_is_analytical(test_name):
