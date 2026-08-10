@@ -125,17 +125,22 @@ struct InterpreterContext {
   //
   // Authorization: each session is authorized against *that session's own* current database, because roles and
   // privileges in Memgraph are database-specific -- TRANSACTION_MANAGEMENT on db A must not reach a session on
-  // db B. A target holding no database is refused outright: there is no tenant against which a database-scoped
-  // privilege could be evaluated. A caller may always terminate its own other connections.
+  // db B. A caller may always terminate its own other connections regardless of privilege.
   //
-  // Consequence of that refusal: a dbless session belongs to no tenant, so no database-scoped privilege can ever
-  // authorize terminating it -- in practice only the same user can close it. A findable session reaches that state
-  // three ways. SessionHL::LogOff (src/glue/SessionHL.cpp:465) resets both the database and the user while keeping
-  // the uuid, and LOGOFF is a client-driven Bolt message, so a client can park its own connection there.
-  // SessionHL::TryDefaultDB via GetDefaultDB (src/glue/SessionHL.cpp:192) yields no database when the user's main
-  // database is inaccessible. ResetInterpreter -> CurrentDB::ReleaseDbIfMarked (src/query/interpreter.hpp:301) drops
-  // the accessor of a session parked in a database being dropped -- which overlaps the DROP DATABASE ... FORCE ABORT
-  // scenario this statement exists to unblock, so the refusal is a real functional limit, not a theoretical one.
+  // A target holding no database has no tenant to scope that check against, so it falls back to
+  // dbms::kDefaultDB ("memgraph"): the caller must hold the privilege on the default database instead. A
+  // findable session reaches the dbless state three ways. SessionHL::LogOff (src/glue/SessionHL.cpp:465) resets
+  // both the database and the user while keeping the uuid, and LOGOFF is a client-driven Bolt message, so a
+  // client can park its own connection there. SessionHL::TryDefaultDB via GetDefaultDB
+  // (src/glue/SessionHL.cpp:192) yields no database when the user's main database is inaccessible.
+  // ResetInterpreter -> CurrentDB::ReleaseDbIfMarked (src/query/interpreter.hpp:303) drops the accessor of a
+  // session parked in a database being dropped -- which overlaps the DROP DATABASE ... FORCE ABORT scenario this
+  // statement exists to unblock.
+  //
+  // The fallback is a deliberate scope choice, not a derivation: a dbless session belongs to no tenant, so
+  // there is no correct tenant to scope against; "memgraph" is chosen because dbless connections are rare and
+  // the default database is the closest thing to an instance-level scope Memgraph has. It means a
+  // "memgraph"-scoped admin can reach sessions that belong to no tenant at all.
   TerminateSessionsResult TerminateSessions(
       const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
       QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
