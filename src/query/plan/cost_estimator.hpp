@@ -18,6 +18,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "utils/math.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace memgraph::query::plan {
 
@@ -769,15 +770,14 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
                                  std::vector<std::optional<storage::PropertyValueRange>> &resolved_ranges)
       -> std::optional<double> {
     auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+    utils::OnScopeExit restore([&, saved = resolved_ranges[slot]]() { resolved_ranges[slot] = saved; });
     double sum = 0.0;
     for (auto *elem : list.elements_) {
       auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters, mapper);
       if (!resolved) return std::nullopt;
-      auto per_elem_ranges = resolved_ranges;
-      per_elem_ranges[slot] = *resolved;
-      if (ranges::any_of(per_elem_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) return std::nullopt;
-      auto pvrs = per_elem_ranges | ranges::views::transform([](auto const &optional) { return *optional; }) |
-                  ranges::to_vector;
+      resolved_ranges[slot] = *resolved;
+      if (ranges::any_of(resolved_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) return std::nullopt;
+      auto pvrs = resolved_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) | ranges::to_vector;
       sum += db_accessor_->VerticesCount(label, properties, pvrs);
     }
     return sum;
