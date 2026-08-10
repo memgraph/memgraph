@@ -30,62 +30,14 @@ check_container_logs
 source $SCRIPT_DIR/check_container_licenses.sh
 check_container_licenses
 
-# Test features using mgconsole.
-for test_file_path in "$SCRIPT_DIR/features/"*; do
-  if [ "$(basename $test_file_path)" == "README.md" ]; then
-    continue
-  fi
-  source $test_file_path
-  echo "Loaded $test_file_path..."
-done
+# Test features using mgconsole. The list of tests lives in suite.bash so that
+# test_k8s.bash can run exactly the same set.
+source "$SCRIPT_DIR/suite.bash"
+run_feature_tests "$IMAGE_TYPE" docker
 
-test_auth_roles
-test_basic_auth
-test_query
-test_query_modules $IMAGE_TYPE
-test_session_trace
-test_show_schema_info
-test_spatial
-test_storage
-test_streams
-test_ttl
-test_type_constraints
-test_vector_search
-test_dynamic_algos
-test_functions
-test_label_operations
-test_regex
-test_edge_type_operations
-test_composite_indices
-test_monitoring
-test_multi_tenancy
-test_nested_indices
-test_or_expression_for_labels
-test_shortest_paths
-test_text_search
-test_durability
-test_load_csv
-test_load_csv_ssl
-test_load_jsonl
-test_load_parquet
-test_parallel_runtime
-test_mgconsole "1.6"
-
-# NOTE: If the testing container is NOT restarted (each test having their own
-# container), all the auth test have to come after all tests that assume there
-# are no users.
 # Add all the users to be able to perform the tests.
-echo "CREATE USER admin IDENTIFIED BY 'admin1234'; GRANT ALL PRIVILEGES TO admin;" | $MGCONSOLE_DEFAULT
-echo "CREATE USER tester IDENTIFIED BY 'tester1234'; GRANT CREATE TO tester; GRANT CREATE ON NODES CONTAINING LABELS * TO tester; GRANT DELETE ON NODES CONTAINING LABELS * TO tester; GRANT READ, SET PROPERTY {*} ON NODES CONTAINING LABELS * TO tester; GRANT READ, SET PROPERTY {*} ON EDGES OF TYPE * TO tester; GRANT DATABASE memgraph TO tester;" | $MGCONSOLE_ADMIN
-echo "SHOW USERS;" | $MGCONSOLE_ADMIN
-echo "SHOW ACTIVE USERS;" | $MGCONSOLE_ADMIN
-echo "NOTE: admin and tester users are created for testing purposes."
-
-test_show_database_settings
-test_auth_roles
-test_impersonate_user
-test_user_profiles
-test_user_role_functions
+create_test_users
+run_auth_feature_tests
 
 # End timing and calculate execution time
 END_TIME=$(date +%s)

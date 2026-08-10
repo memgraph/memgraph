@@ -7,14 +7,14 @@ test_load_csv() {
   echo "FEATURE: LOAD CSV"
   run_query "MATCH (n) DETACH DELETE n;"
   run_query "LOAD CSV FROM '/data/nodes.csv' WITH HEADER AS row CREATE (n:Node {id: row.id});"
-  run_query_csv "MATCH (n) RETURN n;" | python3 $SCRIPT_DIR/validator.py validate_number_of_results -e 1
+  run_query_csv "MATCH (n) RETURN n;" | python3 $SMOKE_DIR/validator.py validate_number_of_results -e 1
 }
 
 test_load_csv_ssl() {
   echo "FEATURE: LOAD CSV via SSL"
   run_query "MATCH (n) DETACH DELETE n;"
   run_query "LOAD CSV FROM 'https://download.memgraph.com/datasets/icij-pandora-papers/csv/nodes-country.csv.gz' WITH HEADER IGNORE BAD AS row CREATE (:Country { name: row.name, iso_2_code: row.iso_2_code, iso_3_code: row.iso_3_code, region: row.region, sub_region: row.sub_region });"
-  run_query_csv "MATCH (n) RETURN n;" | python3 $SCRIPT_DIR/validator.py validate_number_of_results -e 63
+  run_query_csv "MATCH (n) RETURN n;" | python3 $SMOKE_DIR/validator.py validate_number_of_results -e 63
 }
 
 test_load_parquet() {
@@ -22,7 +22,7 @@ test_load_parquet() {
   echo "FEATURE: LOAD PARQUET"
   run_query "MATCH (n) DETACH DELETE n;"
   run_query "LOAD PARQUET FROM '/data/nodes.parquet' AS row CREATE (n:Node {id: row.id});"
-  run_query_csv "MATCH (n) RETURN n;" | python3 $SCRIPT_DIR/validator.py validate_number_of_results -e 1
+  run_query_csv "MATCH (n) RETURN n;" | python3 $SMOKE_DIR/validator.py validate_number_of_results -e 1
 }
 
 test_load_jsonl() {
@@ -30,5 +30,5 @@ test_load_jsonl() {
   echo "FEATURE: LOAD JSONL"
   run_query "MATCH (n) DETACH DELETE n;"
   run_query "LOAD JSONL FROM '/data/nodes.jsonl' AS row CREATE (n:Node {id: row.id});"
-  run_query_csv "MATCH (n) RETURN n;" | python3 $SCRIPT_DIR/validator.py validate_number_of_results -e 1
+  run_query_csv "MATCH (n) RETURN n;" | python3 $SMOKE_DIR/validator.py validate_number_of_results -e 1
 }
