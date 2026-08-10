@@ -443,6 +443,60 @@ TEST_F(QueryCostEstimator, UnwindNoLiteral) {
           MiscParam::kUnwindNoLiteral);
 }
 
+// Helper to build the toSet(coalesce(list, [])) AST pattern produced by IN-to-Unwind lowering.
+Expression *MakeInUnwindExpression(AstStorage &storage, std::vector<Expression *> elements) {
+  auto *inner_list = storage.Create<ListLiteral>(std::move(elements));
+  auto *empty_list = storage.Create<ListLiteral>(std::vector<Expression *>{});
+  auto *coalesced = storage.Create<Coalesce>(std::vector<Expression *>{inner_list, empty_list});
+  auto *toset = storage.Create<Function>();
+  toset->function_name_ = "TOSET";
+  toset->arguments_ = {coalesced};
+  return toset;
+}
+
+TEST_F(QueryCostEstimator, UnwindInLowering) {
+  auto *expr = MakeInUnwindExpression(storage_, {Literal(1), Literal(2), Literal(3)});
+  TEST_OP(MakeOp<memgraph::query::plan::Unwind>(last_op_, expr, NextSymbol()), CostParam::kUnwind, 3);
+}
+
+// -- IN-list cardinality estimation tests --
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInList) {
+  AddVertices(100, 30, 20);
+  auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(12)});
+  auto *unwind_sym = storage_.Create<Identifier>("anon_sym");
+  MakeOp<ScanAllByLabelProperties>(nullptr,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::In(unwind_sym, list)});
+  EXPECT_COST(1 * CostParam::kScanAllByLabelProperties);
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInListMultipleElements) {
+  AddVertices(100, 30, 20);
+  auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
+  auto *unwind_sym = storage_.Create<Identifier>("anon_sym");
+  MakeOp<ScanAllByLabelProperties>(nullptr,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::In(unwind_sym, list)});
+  EXPECT_COST(2 * CostParam::kScanAllByLabelProperties);
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInListNonexistentValue) {
+  AddVertices(100, 30, 20);
+  auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(999)});
+  auto *unwind_sym = storage_.Create<Identifier>("anon_sym");
+  MakeOp<ScanAllByLabelProperties>(nullptr,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::In(unwind_sym, list)});
+  EXPECT_COST(CostParam::kMinimumCost);
+}
+
 #undef TEST_OP
 #undef EXPECT_COST
 
@@ -486,6 +540,20 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesDescSameCostAsAsc) {
   auto desc_cost = Cost();
 
   EXPECT_FLOAT_EQ(asc_cost, desc_cost);
+}
+
+TEST_F(QueryCostEstimator, ExtractListFromInUnwindNonMatching) {
+  EXPECT_EQ(ExtractListFromInUnwind(nullptr), nullptr);
+  EXPECT_EQ(ExtractListFromInUnwind(Literal(42)), nullptr);
+  auto *plain_list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(1)});
+  EXPECT_EQ(ExtractListFromInUnwind(plain_list), nullptr);
+}
+
+TEST_F(QueryCostEstimator, ExtractListFromInUnwindMatching) {
+  auto *expr = MakeInUnwindExpression(storage_, {Literal(1), Literal(2)});
+  auto *extracted = ExtractListFromInUnwind(expr);
+  ASSERT_NE(extracted, nullptr);
+  EXPECT_EQ(extracted->elements_.size(), 2);
 }
 
 // TODO test cost when ScanAll, Expand, Accumulate, Limit
