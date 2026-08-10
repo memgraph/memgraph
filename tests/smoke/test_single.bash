@@ -32,7 +32,7 @@ source $SCRIPT_DIR/check_container_licenses.sh
 check_container_licenses
 
 # Test features using mgconsole.
-for test_file_path in "$SCRIPT_DIR/mgconsole/"*; do
+for test_file_path in "$SCRIPT_DIR/features/"*; do
   if [ "$(basename $test_file_path)" == "README.md" ]; then
     continue
   fi
