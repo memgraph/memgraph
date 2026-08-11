@@ -71,13 +71,19 @@ set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
 #                                1.3 soname bump, no Provides).
 #   libkrb5-3                 — GSSAPI runtime for the gssapi wheel (Kerberos
 #                                SSO; the wheel itself is best-effort/offline).
-#   libpython3.14 | ... |3.10 — the binary links the unversioned abi3 SONAME
+#   libpython3.10 | ... |3.14 — the binary links the unversioned abi3 SONAME
 #                                libpython3.so (needs >= 3.10); only versioned
 #                                runtime libs exist as packages, so pull one
-#                                and let postinst symlink libpython3.so to the
-#                                newest installed (t64 names Provide these).
+#                                and let postinst symlink libpython3.so to it
+#                                (t64 names Provide these). OLDEST FIRST: the
+#                                postinst pip-installs the query-module deps
+#                                with the default python3, and every distro's
+#                                default is its oldest >= 3.10 candidate (e.g.
+#                                jammy also carries 3.11 in universe — newest
+#                                first would embed 3.11 while pip fills 3.10's
+#                                site-packages, breaking the python modules).
 set(CPACK_DEBIAN_PACKAGE_DEPENDS
-    "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, libatomic1, openssl (>= 1.1.0), python3 (>= 3.5.0), python3-pip, ca-certificates, libxmlsec1 | libxmlsec1-1, libkrb5-3, libpython3.14 | libpython3.13 | libpython3.12 | libpython3.11 | libpython3.10")
+    "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, libatomic1, openssl (>= 1.1.0), python3 (>= 3.5.0), python3-pip, ca-certificates, libxmlsec1 | libxmlsec1-1, libkrb5-3, libpython3.10 | libpython3.11 | libpython3.12 | libpython3.13 | libpython3.14")
 
 # Setting architecture extension for rpm packages
 set(MG_ARCH_EXTENSION_RPM "noarch")
