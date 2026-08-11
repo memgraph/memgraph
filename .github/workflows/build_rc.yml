@@ -191,78 +191,69 @@ jobs:
             malloc: false
             cuda: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "arm"
             build_docker_image: "both"
             malloc: false
             cuda: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "both"
             malloc: true
             cuda: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "arm"
             build_docker_image: "debug"
             malloc: true
             cuda: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "debug"
             cuda: true
             malloc: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "debug"
             cuda: false
             malloc: false
             cugraph: true
-            os: "ubuntu-24.04"
-          - build_arch: "amd"
-            build_docker_image: "none"
-            cuda: false
-            malloc: false
-            cugraph: false
-            os: "centos-9"
-          - build_arch: "amd"
-            build_docker_image: "none"
-            cuda: false
-            malloc: false
-            cugraph: false
-            os: "centos-10"
     with:
       arch: ${{ matrix.build_arch }}
       build_type: RelWithDebInfo
       build_docker_image: ${{ matrix.build_docker_image }}
-      os: ${{ matrix.os }}
+      os: ubuntu-24.04
       memgraph_download_link: >-
-        ${{ startsWith(matrix.os, 'centos') && format(
-          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/{2}/memgraph-{3}_1-1.x86_64.rpm',
-          inputs.mock && '-mock-rc' || '',
-          needs.PrepareReleaseBranch.outputs.tag_name,
-          matrix.os,
-          inputs.version
-        ) || format(
-          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph_{4}-1_{5}.deb',
-          inputs.mock && '-mock-rc' || '',
-          needs.PrepareReleaseBranch.outputs.tag_name,
-          matrix.malloc && '-malloc' || '',
-          matrix.build_arch == 'arm' && '-aarch64' || '',
-          inputs.version, matrix.build_arch == 'arm' && 'arm64' || 'amd64'
-        ) }}
+        ${{
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/{2}-deb{3}/memgraph_{4}-1_{5}.deb',
+            inputs.mock && '-mock-rc' || '',
+            needs.PrepareReleaseBranch.outputs.tag_name,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
+            matrix.malloc && '-malloc' || '',
+            inputs.version,
+            matrix.build_arch == 'arm' && 'arm64' || 'amd64'
+          )
+        }}
+      memgraph_rpm_download_link: >-
+        ${{
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/{2}-rpm{3}/memgraph-{4}_1-1.{5}.rpm',
+            inputs.mock && '-mock-rc' || '',
+            needs.PrepareReleaseBranch.outputs.tag_name,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
+            matrix.malloc && '-malloc' || '',
+            inputs.version,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64'
+          )
+        }}
       memgraph_debuginfo_download_link: >-
         ${{
           (matrix.build_docker_image == 'debug' || matrix.build_docker_image == 'both') &&
           format(
-            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph-debuginfo_{4}-1_{5}.deb',
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/{2}-deb{3}/memgraph-debuginfo_{4}-1_{5}.deb',
             inputs.mock && '-mock-rc' || '',
             needs.PrepareReleaseBranch.outputs.tag_name,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
             matrix.malloc && '-malloc' || '',
-            matrix.build_arch == 'arm' && '-aarch64' || '',
             inputs.version,
             matrix.build_arch == 'arm' && 'arm64' || 'amd64'
           ) || ''
@@ -277,8 +268,8 @@ jobs:
       upload_debug_symbols: true
       run_tests: true
       package_mage: "default"
-      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
-      build_offline_installer: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
+      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
+      build_offline_installer: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
       version: ${{ inputs.version }}
     secrets: inherit
@@ -306,7 +297,7 @@ jobs:
           VERSION: "${{ inputs.version }}"
         run: |
           echo "Setting next image URLs"
-          amd_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker/memgraph-${VERSION}-docker.tar.gz"
+          amd_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-x86_64/memgraph-${VERSION}-docker.tar.gz"
           arm_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-aarch64/memgraph-${VERSION}-docker.tar.gz"
           echo "amd_image_url=$amd_image_url" >> $GITHUB_OUTPUT
           echo "arm_image_url=$arm_image_url" >> $GITHUB_OUTPUT

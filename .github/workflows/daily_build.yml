@@ -244,32 +244,38 @@ jobs:
       build_type: RelWithDebInfo
       build_docker_image: ${{ matrix.build_docker_image }}
       daily_build: true
-      os: ${{ matrix.os }}
+      os: ubuntu-24.04
       memgraph_download_link: >-
-        ${{ startsWith(matrix.os, 'centos') && format(
-          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}/memgraph-{3}-1.x86_64.rpm',
+        ${{ format(
+          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}-deb{3}/memgraph_{4}-1_{5}.deb',
           inputs.mock && '_mock' || '',
           needs.CurrentDateJob.outputs.current_date,
-          matrix.os,
-          needs.MemgraphVersionSetup.outputs.memgraph_version_rpm
-        ) || format(
-          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph_{4}-1_{5}.deb',
-          inputs.mock && '_mock' || '',
-          needs.CurrentDateJob.outputs.current_date,
+          matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
           matrix.malloc && '-malloc' || '',
-          matrix.build_arch == 'arm' && '-aarch64' || '',
           needs.MemgraphVersionSetup.outputs.memgraph_version_url,
           matrix.build_arch == 'arm' && 'arm64' || 'amd64'
         )}}
+      memgraph_rpm_download_link: >-
+        ${{
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}-rpm{3}/memgraph-{4}_1-1.{5}.rpm',
+            inputs.mock && '_mock' || '',
+            needs.CurrentDateJob.outputs.current_date,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
+            matrix.malloc && '-malloc' || '',
+            inputs.version,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64'
+          )
+        }}
       memgraph_debuginfo_download_link: >-
         ${{
           (matrix.build_docker_image == 'debug' || matrix.build_docker_image == 'both') &&
           format(
-            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph-debuginfo_{4}-1_{5}.deb',
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}-deb{3}/memgraph-debuginfo_{4}-1_{5}.deb',
             inputs.mock && '_mock' || '',
             needs.CurrentDateJob.outputs.current_date,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
             matrix.malloc && '-malloc' || '',
-            matrix.build_arch == 'arm' && '-aarch64' || '',
             needs.MemgraphVersionSetup.outputs.memgraph_version_url,
             matrix.build_arch == 'arm' && 'arm64' || 'amd64'
           ) || ''
