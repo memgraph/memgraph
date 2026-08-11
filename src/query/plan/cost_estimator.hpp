@@ -747,7 +747,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       case Type::IS_NOT_NULL:
         return db_accessor_->VerticesCount(property);
       case Type::EQUAL:
-      case Type::IN: {  // IN is lowered to EQUAL + Unwind at plan-build time, so fallthrough here is defensive
+      case Type::IN: {
         if (auto val = ConstPropertyValue(range.lower_->value())) {
           return db_accessor_->VerticesCount(
               property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
@@ -769,6 +769,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return EstimateInListSum(db_accessor_, label, properties, list, slot, pvrs, parameters);
   }
 
+  // Helper function to estimate cardinality for label properties queries.
+  // Used by both single-threaded and parallel scan operators.
   double EstimateLabelPropertiesCardinality(storage::LabelId label,
                                             std::vector<storage::PropertyPath> const &properties,
                                             std::vector<ExpressionRange> const &expression_ranges) {

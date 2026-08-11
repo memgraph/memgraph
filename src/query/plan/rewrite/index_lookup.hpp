@@ -61,6 +61,10 @@ auto property_path_converter(TDbAccessor *db) {
 }
 }  // namespace
 
+// Sum the estimated vertex count for each element in an IN-list on a single
+// index slot. Resolves each element at plan time and calls VerticesCount with
+// pvrs[slot] set to that element's value. All other entries in pvrs must
+// already be resolved.
 template <typename TDbAccessor>
 auto EstimateInListSum(TDbAccessor *db, storage::LabelId label, std::vector<storage::PropertyPath> const &properties,
                        ListLiteral const &list, size_t slot, std::vector<storage::PropertyValueRange> &pvrs,
@@ -1609,13 +1613,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           if (maybe_propertyvalue_ranges[i] || !scan_op->expression_ranges_[i].membership_list_) continue;
           auto &list = *scan_op->expression_ranges_[i].membership_list_;
           maybe_propertyvalue_ranges[i] = storage::PropertyValueRange::IsNotNull();
+          // If any other slot is still unresolved, fall back to coarse total index count.
           if (ranges::any_of(maybe_propertyvalue_ranges, [](auto const &pvr) { return pvr == std::nullopt; }))
             return db_->VerticesCount(scan_op->label_, scan_op->properties_);
           auto pvrs = maybe_propertyvalue_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) |
                       ranges::to_vector;
           auto sum = EstimateInListSum(db_, scan_op->label_, scan_op->properties_, list, i, pvrs, parameters_);
           if (!sum) return db_->VerticesCount(scan_op->label_, scan_op->properties_);
-          maybe_propertyvalue_ranges[i] = storage::PropertyValueRange::IsNotNull();
           if (ranges::none_of(maybe_propertyvalue_ranges, [](auto const &pvr) { return pvr == std::nullopt; }))
             return *sum;
         }
