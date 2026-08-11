@@ -41,9 +41,21 @@ using namespace std::string_view_literals;
 /// keeps them alive after the owning Client is gone -- which is what lets teardown interrupt an
 /// in-flight RPC without waiting for it and without destroying anything underneath it.
 ///
-/// The invariant that makes that safe: client_ is written only under mutex_, and a live StreamHandler
-/// holds mutex_ for its whole lifetime, so the socket a handler is using can be neither replaced nor
-/// destroyed while it runs. Abort() and Shutdown() therefore only interrupt; they never destroy.
+/// The socket is shared once more, one level down. Two separate guarantees make that safe, and they
+/// come from different places -- conflating them is the easy mistake here:
+///
+///   lifetime -- client_ is an atomic shared_ptr, so a load() pins whatever socket it returns. A
+///               concurrent reconnect publishes a replacement and drops the container's share, but it
+///               can never destroy a socket somebody else is still holding.
+///   identity -- EnsureConnected, the only writer of client_, runs solely under mutex_, and a handler
+///               holds mutex_ for as long as its RPC is in flight. So while a thread is blocked in
+///               Read/Write, client_ cannot change, and Interrupt() necessarily loads the very socket
+///               that thread is blocked on.
+///
+/// The pin alone would keep a socket alive but say nothing about which one you got; the lock alone
+/// would fix which one is current but not stop it being destroyed by a thread that does not hold it.
+/// Abort() and Shutdown() therefore only ever interrupt; nothing here destroys a socket another thread
+/// can still reach.
 class Connection {
  public:
   Connection(io::network::Endpoint endpoint, communication::ClientContext *context,
@@ -70,24 +82,23 @@ class Connection {
   friend class Client;
 
   /// shutdown(2) on the current socket: aborts a pending read, write or connect on another thread
-  /// without destroying anything, so it is safe to call with an RPC in flight.
-  ///
-  /// Reads client_ without mutex_, which is a benign race against the reconnect below: the reader
-  /// never destroys, and the only caller that does not already hold mutex_ runs after Abort() has
-  /// latched aborted_, which stops any reconnect from starting. This is the same exposure Abort()
-  /// has always had; the destructive variant is what used to be unsound.
+  /// without destroying anything, so it is safe to call with an RPC in flight and without mutex_.
   void Interrupt();
 
-  /// Replace a retired or broken socket and connect. Caller must hold mutex_.
+  /// Return the socket to run the next RPC on, replacing a retired or broken one first. Caller must
+  /// hold mutex_: being the sole writer of client_, and being reachable only under that lock, is what
+  /// gives every in-flight RPC a stable identity for the socket it is using.
   /// @throws RpcFailedToConnectException
-  void EnsureConnected();
+  auto EnsureConnected() -> std::shared_ptr<communication::Client>;
 
   io::network::Endpoint endpoint_;
   communication::ClientContext *context_;
   std::chrono::milliseconds connect_timeout_ms_;
 
-  // Written only under mutex_. See the class comment.
-  std::optional<communication::Client> client_;
+  // Replaced only under mutex_, but loaded without it by Interrupt. See the lifetime/identity split in
+  // the class comment: the atomic gives a loader a socket that stays alive, mutex_ gives an in-flight
+  // RPC the socket it started on.
+  std::atomic<std::shared_ptr<communication::Client>> client_;
 
   mutable utils::ResourceLock mutex_;
 
@@ -200,10 +211,12 @@ class Client {
    private:
     friend class Client;
 
-    StreamHandler(std::shared_ptr<Connection> conn, std::unique_lock<utils::ResourceLock> &&guard,
+    StreamHandler(std::shared_ptr<Connection> conn, std::shared_ptr<communication::Client> sock,
+                  std::unique_lock<utils::ResourceLock> &&guard,
                   std::function<typename TRequestResponse::Response(slk::Reader *)> res_load,
                   std::optional<int> timeout_ms)
         : conn_(std::move(conn)),
+          sock_(std::move(sock)),
           timeout_ms_(timeout_ms),
           guard_(std::move(guard)),
           req_builder_(GenBuilderCallback(conn_.get(), this, timeout_ms_)),
@@ -213,6 +226,7 @@ class Client {
     // NOLINTNEXTLINE
     StreamHandler(StreamHandler &&other) noexcept
         : conn_{std::exchange(other.conn_, nullptr)},
+          sock_{std::exchange(other.sock_, nullptr)},
           timeout_ms_{other.timeout_ms_},
           defunct_{std::exchange(other.defunct_, true)},
           guard_{std::move(other.guard_)},
@@ -223,6 +237,7 @@ class Client {
     StreamHandler &operator=(StreamHandler &&other) noexcept {
       if (&other != this) {
         conn_ = std::exchange(other.conn_, nullptr);
+        sock_ = std::exchange(other.sock_, nullptr);
         timeout_ms_ = other.timeout_ms_;
         defunct_ = std::exchange(other.defunct_, true);
         guard_ = std::move(other.guard_);
@@ -251,14 +266,14 @@ class Client {
       spdlog::trace("[RpcClient] sent {}, version {}, to {}",
                     req_type_name,
                     TRequestResponse::Request::kVersion,
-                    conn_->client_->endpoint().SocketAddress());
+                    sock_->endpoint().SocketAddress());
 
       while (true) {
         // Receive the response.
         uint64_t response_data_size = 0;
         while (true) {
           // Even if in progress RPC message was sent, the stream will be complete
-          auto const ret = slk::CheckStreamStatus(conn_->client_->GetData(), conn_->client_->GetDataSize());
+          auto const ret = slk::CheckStreamStatus(sock_->GetData(), sock_->GetDataSize());
           if (ret.status == slk::StreamStatus::INVALID) {
             // Logically invalid state, connection is still up, defunct stream and release
             defunct_ = true;
@@ -266,9 +281,9 @@ class Client {
             throw GenericRpcFailedException();
           }
           if (ret.status == slk::StreamStatus::PARTIAL) {
-            if (auto const res = conn_->client_->Read(ret.stream_size - conn_->client_->GetDataSize(),
-                                                      /* exactly_len = */ false,
-                                                      /* timeout_ms = */ timeout_ms_);
+            if (auto const res = sock_->Read(ret.stream_size - sock_->GetDataSize(),
+                                             /* exactly_len = */ false,
+                                             /* timeout_ms = */ timeout_ms_);
                 !res.has_value()) {
               // Failed connection, abort and let somebody retry in the future.
               defunct_ = true;
@@ -287,7 +302,7 @@ class Client {
         }
 
         // Load the response.
-        slk::Reader res_reader(conn_->client_->GetData(), response_data_size);
+        slk::Reader res_reader(sock_->GetData(), response_data_size);
 
         auto const maybe_message_header = std::invoke([&res_reader]() -> std::optional<ProtocolMessageHeader> {
           try {
@@ -298,9 +313,8 @@ class Client {
         });
 
         if (!maybe_message_header) {
-          conn_->client_->ShiftData(response_data_size);
+          sock_->ShiftData(response_data_size);
           throw SlkRpcFailedException();
-          ;
         }
 
         if (maybe_message_header->message_id == utils::TypeId::REP_IN_PROGRESS_RES) {
@@ -309,7 +323,7 @@ class Client {
                        conn_->endpoint_.GetAddress(),
                        conn_->endpoint_.GetPort(),
                        final_res_type_name);
-          conn_->client_->ShiftData(response_data_size);
+          sock_->ShiftData(response_data_size);
           continue;
         }
 
@@ -318,8 +332,10 @@ class Client {
                         static_cast<uint64_t>(maybe_message_header->message_id));
           // Logically invalid state, connection is still up, defunct stream and release
           defunct_ = true;
+          // Consume the response before dropping the lock: afterwards another thread can start its own
+          // RPC on this same socket, and shifting then would corrupt the framing it is reading.
+          sock_->ShiftData(response_data_size);
           guard_.unlock();
-          conn_->client_->ShiftData(response_data_size);
           throw GenericRpcFailedException();
         }
 
@@ -328,7 +344,7 @@ class Client {
                       maybe_message_header->message_version,
                       conn_->endpoint_.GetAddress(),
                       conn_->endpoint_.GetPort());
-        conn_->client_->ShiftData(response_data_size);
+        sock_->ShiftData(response_data_size);
         return res_load_(&res_reader);
       }
     }
@@ -346,12 +362,12 @@ class Client {
       spdlog::trace("[RpcClient] sent {}, version {}, to {}",
                     req_type_name,
                     TRequestResponse::Request::kVersion,
-                    conn_->client_->endpoint().SocketAddress());
+                    sock_->endpoint().SocketAddress());
 
       // Receive the response.
       uint64_t response_data_size = 0;
       while (true) {
-        auto ret = slk::CheckStreamStatus(conn_->client_->GetData(), conn_->client_->GetDataSize());
+        auto ret = slk::CheckStreamStatus(sock_->GetData(), sock_->GetDataSize());
         if (ret.status == slk::StreamStatus::INVALID) {
           // Logically invalid state, connection is still up, defunct stream and release
           defunct_ = true;
@@ -359,9 +375,9 @@ class Client {
           throw GenericRpcFailedException();
         }
         if (ret.status == slk::StreamStatus::PARTIAL) {
-          if (auto const res = conn_->client_->Read(ret.stream_size - conn_->client_->GetDataSize(),
-                                                    /* exactly_len = */ false,
-                                                    /* timeout_ms = */ timeout_ms_);
+          if (auto const res = sock_->Read(ret.stream_size - sock_->GetDataSize(),
+                                           /* exactly_len = */ false,
+                                           /* timeout_ms = */ timeout_ms_);
               !res.has_value()) {
             // Failed connection, abort and let somebody retry in the future.
             defunct_ = true;
@@ -380,8 +396,8 @@ class Client {
       }
 
       // Load the response.
-      slk::Reader res_reader(conn_->client_->GetData(), response_data_size);
-      utils::OnScopeExit res_cleanup([&, response_data_size] { conn_->client_->ShiftData(response_data_size); });
+      slk::Reader res_reader(sock_->GetData(), response_data_size);
+      utils::OnScopeExit res_cleanup([&, response_data_size] { sock_->ShiftData(response_data_size); });
 
       auto const maybe_message_header = std::invoke([&res_reader]() -> std::optional<ProtocolMessageHeader> {
         try {
@@ -404,6 +420,10 @@ class Client {
                       static_cast<uint64_t>(res_type.id));
         // Logically invalid state, connection is still up, defunct stream and release
         defunct_ = true;
+        // Same ordering as above. res_cleanup would otherwise run during unwinding, by which point
+        // another thread can already have started its own RPC on this socket.
+        sock_->ShiftData(response_data_size);
+        res_cleanup.Disable();
         guard_.unlock();
         throw GenericRpcFailedException();
       }
@@ -425,7 +445,7 @@ class Client {
     static auto GenBuilderCallback(Connection *conn, StreamHandler *self, std::optional<int> timeout_ms) {
       return [conn, self, timeout_ms](const uint8_t *data, size_t size, bool have_more) {
         if (self->defunct_) throw GenericRpcFailedException();
-        if (auto const res = conn->client_->Write(data, size, have_more, timeout_ms); !res.has_value()) {
+        if (auto const res = self->sock_->Write(data, size, have_more, timeout_ms); !res.has_value()) {
           self->defunct_ = true;
           conn->Shutdown();
           self->guard_.unlock();
@@ -441,6 +461,10 @@ class Client {
     // Must be declared before guard_: members are destroyed in reverse order, so guard_ releases
     // conn_->mutex_ while the connection holding it is still alive.
     std::shared_ptr<Connection> conn_;
+    // The socket this RPC was opened on. Not strictly required -- guard_ already pins client_'s identity
+    // for every access below -- but it is one load instead of one per use, and it lets each access read
+    // as "the socket this stream opened" rather than having to re-derive that from the lock.
+    std::shared_ptr<communication::Client> sock_;
     std::optional<int> timeout_ms_;
     bool defunct_ = false;
     std::unique_lock<utils::ResourceLock> guard_;
@@ -545,7 +569,7 @@ class Client {
       throw GenericRpcFailedException();
     }
 
-    conn_->EnsureConnected();
+    auto sock = conn_->EnsureConnected();
 
     std::optional<int> timeout_ms{std::nullopt};
 
@@ -555,9 +579,9 @@ class Client {
       timeout_ms.emplace(maybe_timeout->second);
     }
 
-    // Create the stream handler. It takes a share of the connection, so it stays usable even if this
-    // Client is destroyed while the RPC is still unwinding.
-    StreamHandler<TRequestResponse> handler(conn_, std::move(guard), res_load, timeout_ms);
+    // Create the stream handler. It takes a share of both the connection and the socket, so it stays
+    // usable even if this Client is destroyed, or the socket replaced, while the RPC is unwinding.
+    StreamHandler<TRequestResponse> handler(conn_, std::move(sock), std::move(guard), res_load, timeout_ms);
 
     ProtocolMessageHeader const message_header{.protocol_version = current_protocol_version,
                                                .message_id = req_type.id,
@@ -607,8 +631,10 @@ class Client {
   auto Endpoint() const -> io::network::Endpoint const & { return conn_->endpoint(); }
 
  private:
-  // Shared, not owned: a StreamHandler outliving this Client keeps the connection alive.
-  std::shared_ptr<Connection> conn_;
+  // Shared, not owned: a StreamHandler outliving this Client keeps the connection alive. const because
+  // it is never swapped -- that is what makes a plain shared_ptr here sufficient. Reconnecting replaces
+  // the socket inside the Connection, not the Connection, so mutex_ stays a fixed serialization point.
+  std::shared_ptr<Connection> const conn_;
   std::unordered_map<std::string_view, int> rpc_timeouts_ms_;
 };
 
