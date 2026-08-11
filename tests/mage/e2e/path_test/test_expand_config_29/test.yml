@@ -1,19 +1,16 @@
-# `beginSequenceAtStart` only means something alongside a relationship `sequence`, which these
-# procedures do not implement, so it is accepted and ignored -- whatever its value, and whatever its
-# type. In particular it must not answer for `filterStartNode`: the start node carries the terminator
-# label and filterStartNode:true asks for it to be filtered, so the walk ends there and returns it.
-# Reading beginSequenceAtStart instead would bypass the label filter on the start node and walk on to
-# the second terminator, returning ["A", "B", "C"].
+# With the sequence starting one node out, the start node has no step to be tested against, so the
+# label filter does not apply to it however `filterStartNode` is set. Here that is what lets the walk
+# past A: filtered, its terminator label would end the walk at depth 0 and return just ["A"], which is
+# what the same call with `beginSequenceAtStart` left at its default returns.
 query: >
   MATCH (a:Node {name: "A"})
   CALL path.expand_config(a, {labelFilter: '/Term', filterStartNode: true, maxHops: 2,
                               beginSequenceAtStart: false}) YIELD result
   WITH [n IN nodes(result) | n.name] AS with_false
   MATCH (b:Node {name: "A"})
-  CALL path.expand_config(b, {labelFilter: '/Term', filterStartNode: true, maxHops: 2,
-                              beginSequenceAtStart: 'ignored'}) YIELD result
-  RETURN with_false, [n IN nodes(result) | n.name] AS with_wrong_type;
+  CALL path.expand_config(b, {labelFilter: '/Term', filterStartNode: true, maxHops: 2}) YIELD result
+  RETURN with_false, [n IN nodes(result) | n.name] AS with_default;
 
 output:
-  - with_false: ["A"]
-    with_wrong_type: ["A"]
+  - with_false: ["A", "B", "C"]
+    with_default: ["A"]

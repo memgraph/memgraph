@@ -92,6 +92,22 @@ struct LabelSets {
   LabelSet end_list;
 };
 
+// A '*' entry matches every label, so it is a property of the category rather than a member of its set.
+struct LabelWildcards {
+  bool termination = false;
+  bool blacklist = false;
+  bool whitelist = false;
+  bool end_list = false;
+};
+
+// One step of a repeating label sequence. A filter without a sequence is the single-step case.
+struct LabelStep {
+  LabelSets sets;
+  LabelWildcards wildcards;
+  // No allowlist in this step, so every label is allowed by it.
+  bool whitelist_empty = true;
+};
+
 struct LabelBools {
   // no node in the path will be blacklisted
   bool blacklisted = false;
@@ -105,17 +121,14 @@ struct LabelBools {
   bool whitelisted = false;
 };
 
-struct LabelBoolsStatus {
-  // true if there is an end node -> only paths ending with it can be saved as result,
-  // but they can be expanded further
-  bool end_node_activated = false;
-  // true if no whitelist is given -> all nodes are whitelisted
-  bool whitelist_empty = false;
-  // true if there is a termination node -> only paths ending with it are allowed
-  bool termination_activated = false;
-};
-
 enum class RelDirection : std::int8_t { kNone = -1, kAny = 0, kIncoming = 1, kOutgoing = 2 };
+
+// One step of a repeating relationship sequence, in the same single-step sense as LabelStep.
+struct RelStep {
+  std::unordered_map<std::string, RelDirection, TransparentStringHash, std::equal_to<>> types;
+  bool any_incoming = false;
+  bool any_outgoing = false;
+};
 
 // What may not repeat during a walk. The `*Path` forms forbid a repeat within the current path only;
 // kNodeGlobal forbids one for the whole traversal, so it returns a single path per reachable node. The
@@ -145,9 +158,13 @@ struct Evaluation {
 inline constexpr int64_t kNoLimit = -1;
 
 struct Config {
-  LabelBoolsStatus label_bools_status;
-  std::unordered_map<std::string, RelDirection, TransparentStringHash, std::equal_to<>> relationship_sets;
-  LabelSets label_sets;
+  // Both hold at least one step; a filter given without commas is that one step. The step a node or a
+  // relationship is tested against is chosen by the depth it sits at, so the sequence repeats.
+  std::vector<LabelStep> label_steps;
+  std::vector<RelStep> rel_steps;
+  // `beginSequenceAtStart:false` spends the first relationship step on the hop out of the start node
+  // only, and the rest repeat from there.
+  std::optional<RelStep> initial_rel_step;
   std::unordered_set<int64_t> allowlist_nodes;
   std::unordered_set<int64_t> denylist_nodes;
   // Identity counterparts of the '>' and '/' label sets.
@@ -160,8 +177,11 @@ struct Config {
   // min_hops, which the label filters read to decide whether a terminator ends the walk.
   int64_t pass_depth = -1;
   Uniqueness uniqueness = Uniqueness::kRelationshipPath;
-  bool any_incoming = false;
-  bool any_outgoing = false;
+  // An end or termination filter in any step puts every step in end-nodes-only mode, so a node a step
+  // merely allowlists is walked through rather than returned.
+  bool end_nodes_only = false;
+  // Whether the sequence starts at the start node or one node out from it.
+  bool begin_sequence_at_start = true;
   bool filter_start_node = false;
   // Shortest paths first, so a `limit` returns those. Only the config form defaults to it: the
   // positional `expand` cannot express `bfs`, so it would pay the re-walk with no way to opt out.
@@ -173,17 +193,17 @@ class PathHelper {
   explicit PathHelper(const mgp::List &labels, const mgp::List &relationships, int64_t min_hops, int64_t max_hops);
   explicit PathHelper(const mgp::Map &config, const mgp::Graph &graph, ProcedureKind kind);
 
-  RelDirection GetDirection(std::string_view rel_type) const;
-  LabelBools GetLabelBools(const mgp::Node &node) const;
+  // Whether a relationship of this type, traversed this way out of a node at `depth`, may be followed.
+  [[nodiscard]] bool RelationshipAdmitted(std::string_view rel_type, bool outgoing, int64_t depth) const;
 
-  bool AnyDirected(bool outgoing) const { return outgoing ? config_.any_outgoing : config_.any_incoming; }
+  [[nodiscard]] static LabelBools GetLabelBools(const mgp::Node &node, const LabelStep &step);
 
   // Whether to return the node, and whether to walk on through it.
   [[nodiscard]] Evaluation Evaluate(const mgp::Node &node, int64_t depth) const;
 
   bool PathSizeOk(int64_t path_size) const;
   bool PathTooBig(int64_t path_size) const;
-  bool Whitelisted(bool whitelisted) const;
+  static bool Whitelisted(const LabelStep &step, bool whitelisted);
 
   [[nodiscard]] bool Bfs() const { return config_.bfs; }
 
@@ -209,11 +229,11 @@ class PathHelper {
     return config_.pass_depth < 0 ? config_.max_hops : std::min(config_.max_hops, config_.pass_depth);
   }
 
-  void FilterLabelBoolStatus();
-  void FilterLabel(std::string_view label, LabelBools &label_bools) const;
-  void ParseLabels(const mgp::List &list_of_labels);
-  void ParseRelationships(const mgp::List &list_of_relationships);
-  void AddRelationshipDirection(std::string type, RelDirection direction);
+  static void FilterLabel(std::string_view label, const LabelStep &step, LabelBools &label_bools);
+  static LabelStep ParseLabelStep(const mgp::List &list_of_labels);
+  static RelStep ParseRelStep(const mgp::List &list_of_relationships);
+  static void AddRelationshipDirection(RelStep &step, std::string type, RelDirection direction);
+  void ParseSequences(const mgp::Map &config);
   void ParseNodeFilters(const mgp::Map &config, const mgp::Graph &graph);
 
  private:
@@ -222,9 +242,11 @@ class PathHelper {
   [[nodiscard]] Evaluation EvaluateEndAndTerminatorNodes(const mgp::Node &node, int64_t depth) const;
   [[nodiscard]] Evaluation EvaluateNodeLists(const mgp::Node &node, int64_t depth) const;
 
-  [[nodiscard]] bool EndNodesOnly() const {
-    return config_.label_bools_status.end_node_activated || config_.label_bools_status.termination_activated;
-  }
+  // The step a node at `depth`, or a relationship out of a node at `depth`, is tested against.
+  [[nodiscard]] const LabelStep &LabelStepAt(int64_t depth) const;
+  [[nodiscard]] const RelStep &RelStepAt(int64_t depth) const;
+
+  [[nodiscard]] bool EndNodesOnly() const { return config_.end_nodes_only; }
 
   Config config_;
 };

@@ -32,13 +32,20 @@ constexpr int64_t MaxHopsOrNoLimit(int64_t max_hops) noexcept {
 // One frame per hop, so an unbounded bound would exhaust the stack. Refuse rather than crash.
 constexpr int64_t kMaxExpandDepth = 5000;
 
+// An end or termination filter anywhere in the step means only those nodes are returned.
+bool StepEndsNodesOnly(const Path::LabelStep &step) {
+  return !step.sets.end_list.empty() || !step.sets.termination_list.empty() || step.wildcards.end_list ||
+         step.wildcards.termination;
+}
+
 }  // namespace
 
 Path::PathHelper::PathHelper(const mgp::List &labels, const mgp::List &relationships, int64_t min_hops,
                              int64_t max_hops) {
-  ParseLabels(labels);
-  FilterLabelBoolStatus();
-  ParseRelationships(relationships);
+  // One step each: the positional form takes lists of alternatives, which cannot spell a sequence.
+  config_.label_steps.push_back(ParseLabelStep(labels));
+  config_.rel_steps.push_back(ParseRelStep(relationships));
+  config_.end_nodes_only = StepEndsNodesOnly(config_.label_steps.front());
   config_.min_hops = min_hops;
   config_.max_hops = MaxHopsOrNoLimit(max_hops);
   // No `bfs` argument in this form, so a caller could not opt out of the per-depth re-walk.
@@ -49,12 +56,13 @@ namespace {
 
 // Every accepted config key. An unrecognized one is rejected rather than ignored: dropping `limit` or
 // `endNodes` would return a different result set than was asked for.
-constexpr std::array<std::string_view, 17> kConfigKeys{"minHops",
+constexpr std::array<std::string_view, 18> kConfigKeys{"minHops",
                                                        "maxHops",
                                                        "minLevel",
                                                        "maxLevel",
                                                        "relationshipFilter",
                                                        "labelFilter",
+                                                       "sequence",
                                                        "filterStartNode",
                                                        "beginSequenceAtStart",
                                                        "bfs",
@@ -119,19 +127,8 @@ int64_t NodeFilterId(const mgp::Value &value, const mgp::Graph &graph, std::stri
   throw mgp::ValueException(std::string(type_error));
 }
 
-// One entry per list element, or a single '|'-separated string. Empty pieces are dropped.
-mgp::List FilterEntries(const mgp::Value &value, std::string_view key) {
-  if (value.IsNull()) {
-    return mgp::List{};
-  }
-  if (value.IsList()) {
-    return value.ValueList();
-  }
-  if (!value.IsString()) {
-    throw mgp::ValueException("Config key '" + std::string(key) + "' needs to be a string or a list of strings.");
-  }
-
-  const std::string_view text = value.ValueString();
+// One entry per '|'-separated piece of one sequence step. Empty pieces are dropped.
+mgp::List SplitAlternatives(std::string_view text) {
   mgp::List entries;
   for (size_t start = 0; start <= text.size();) {
     const size_t separator = text.find('|', start);
@@ -145,6 +142,62 @@ mgp::List FilterEntries(const mgp::Value &value, std::string_view key) {
     start = separator + 1;
   }
   return entries;
+}
+
+std::string_view Trimmed(std::string_view text) {
+  constexpr std::string_view kSpace = " \t\n\r";
+  const size_t first = text.find_first_not_of(kSpace);
+  if (first == std::string_view::npos) {
+    return {};
+  }
+  return text.substr(first, text.find_last_not_of(kSpace) - first + 1);
+}
+
+// A filter's steps: one per comma in the string form. A blank step would match everything, which reads
+// as a typo rather than as a filter, so it is named instead of honoured -- as a bare '|' piece already is.
+std::vector<mgp::List> SplitSteps(std::string_view text, std::string_view key) {
+  std::vector<mgp::List> steps;
+  for (size_t start = 0; start <= text.size();) {
+    const size_t separator = text.find(',', start);
+    const size_t end = separator == std::string_view::npos ? text.size() : separator;
+    const std::string_view step = Trimmed(text.substr(start, end - start));
+    if (step.empty()) {
+      throw mgp::ValueException("Config key '" + std::string(key) + "' has a blank step at position " +
+                                std::to_string(steps.size() + 1) + "; every step needs a filter.");
+    }
+    steps.push_back(SplitAlternatives(step));
+    if (separator == std::string_view::npos) {
+      break;
+    }
+    start = separator + 1;
+  }
+  return steps;
+}
+
+// The steps of `labelFilter` / `relationshipFilter`: a string may spell a sequence, a list is one step
+// of alternatives, as it has always been. Absent leaves the caller to supply the unfiltered step.
+std::vector<mgp::List> FilterSteps(const mgp::Value &value, std::string_view key) {
+  if (value.IsNull()) {
+    return {};
+  }
+  if (value.IsList()) {
+    for (const auto &entry : value.ValueList()) {
+      if (entry.IsString() && entry.ValueString().find(',') != std::string_view::npos) {
+        throw mgp::ValueException("Config key '" + std::string(key) + "' entry '" + std::string(entry.ValueString()) +
+                                  "' contains a ','. A list entry is one alternative; give the whole filter as a "
+                                  "string to spell a sequence of steps.");
+      }
+    }
+    return {value.ValueList()};
+  }
+  if (!value.IsString()) {
+    throw mgp::ValueException("Config key '" + std::string(key) + "' needs to be a string or a list of strings.");
+  }
+  const std::string_view text = Trimmed(value.ValueString());
+  if (text.empty()) {
+    return {};
+  }
+  return SplitSteps(text, key);
 }
 
 // Case-insensitive. The modes left out are the ones whose surviving result set depends on the order
@@ -204,6 +257,8 @@ Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph, co
   require_type(min_hops_value.key, min_hops_value.value, mgp::Type::Int, "an integer");
   require_type(max_hops_value.key, max_hops_value.value, mgp::Type::Int, "an integer");
   require_type("filterStartNode", config.At("filterStartNode"), mgp::Type::Bool, "a boolean");
+  require_type("beginSequenceAtStart", config.At("beginSequenceAtStart"), mgp::Type::Bool, "a boolean");
+  require_type("sequence", config.At("sequence"), mgp::Type::String, "a string");
   require_type("limit", config.At("limit"), mgp::Type::Int, "an integer");
   // Only the expand walk can act on these. The subgraph walk already does what they would ask for, so
   // it accepts and ignores them rather than failing the query.
@@ -230,14 +285,16 @@ Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph, co
     config_.limit = limit;
   }
 
-  ParseRelationships(FilterEntries(config.At("relationshipFilter"), "relationshipFilter"));
-  ParseLabels(FilterEntries(config.At("labelFilter"), "labelFilter"));
-  FilterLabelBoolStatus();
-
   mgp::Value value{};
 
   value = config.At("filterStartNode");
   config_.filter_start_node = value.IsNull() ? false : value.ValueBool();
+
+  value = config.At("beginSequenceAtStart");
+  config_.begin_sequence_at_start = value.IsNull() || value.ValueBool();
+
+  // After the two flags above: which step a filter's first piece becomes depends on both.
+  ParseSequences(config);
 
   if (kind == ProcedureKind::kSubgraph) {
     // Always breadth-first and visits each node once, so neither key is read.
@@ -253,6 +310,64 @@ Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph, co
   }
 
   ParseNodeFilters(config, graph);
+}
+
+// `sequence` spells one alternating string; the two filter keys spell a label and a relationship
+// sequence separately. Either way the result is a list of steps per kind, and a filter written without
+// commas is the single step it has always been.
+void Path::PathHelper::ParseSequences(const mgp::Map &config) {
+  const auto sequence = config.At("sequence");
+  std::vector<mgp::List> label_steps;
+  std::vector<mgp::List> rel_steps;
+  bool rel_filter_given = false;
+
+  // A blank `sequence` is no sequence at all, so the two filter keys still apply.
+  if (!sequence.IsNull() && !Trimmed(sequence.ValueString()).empty()) {
+    // Alternating, labels first -- so with the sequence starting one node out, the leading step is the
+    // relationship reaching the node the sequence starts at.
+    const auto steps = SplitSteps(Trimmed(sequence.ValueString()), "sequence");
+    for (int64_t index = 0; std::cmp_less(index, steps.size()); ++index) {
+      const int64_t position = config_.begin_sequence_at_start ? index : index - 1;
+      (position % 2 == 0 ? label_steps : rel_steps).push_back(steps[index]);
+    }
+    if (label_steps.empty() || rel_steps.empty()) {
+      throw mgp::ValueException(
+          "Config key 'sequence' needs at least one label step and one relationship step; it alternates between them, "
+          "starting with a label filter.");
+    }
+    rel_filter_given = true;
+  } else {
+    label_steps = FilterSteps(config.At("labelFilter"), "labelFilter");
+    rel_steps = FilterSteps(config.At("relationshipFilter"), "relationshipFilter");
+    rel_filter_given = !rel_steps.empty();
+  }
+
+  for (const auto &step : label_steps) {
+    config_.label_steps.push_back(ParseLabelStep(step));
+    config_.end_nodes_only = config_.end_nodes_only || StepEndsNodesOnly(config_.label_steps.back());
+  }
+  for (const auto &step : rel_steps) {
+    config_.rel_steps.push_back(ParseRelStep(step));
+  }
+
+  // Only a filter that was actually given has a step to spend on the first hop.
+  if (!config_.begin_sequence_at_start && rel_filter_given) {
+    config_.initial_rel_step = std::move(config_.rel_steps.front());
+    config_.rel_steps.erase(config_.rel_steps.begin());
+    if (config_.rel_steps.empty()) {
+      throw mgp::ValueException(
+          "With 'beginSequenceAtStart' false the first relationship step is spent on the hop out of the start node, so "
+          "the filter needs a further step to repeat; give more than one, or leave 'beginSequenceAtStart' at true.");
+    }
+  }
+
+  // An absent filter is the step that allows everything, so the walk has a step at every depth.
+  if (config_.label_steps.empty()) {
+    config_.label_steps.emplace_back();
+  }
+  if (config_.rel_steps.empty()) {
+    config_.rel_steps.push_back(ParseRelStep(mgp::List{}));
+  }
 }
 
 // The preferred keys supersede the deprecated ones, which are read only when the preferred came back
@@ -278,31 +393,58 @@ void Path::PathHelper::ParseNodeFilters(const mgp::Map &config, const mgp::Graph
   }
 }
 
-Path::RelDirection Path::PathHelper::GetDirection(std::string_view rel_type) const {
-  auto it = config_.relationship_sets.find(rel_type);
-  if (it == config_.relationship_sets.end()) {
-    return RelDirection::kNone;
-  }
-  return it->second;
+// Cyclic, so the sequence repeats for as long as the walk goes on.
+const Path::LabelStep &Path::PathHelper::LabelStepAt(const int64_t depth) const {
+  const int64_t position = config_.begin_sequence_at_start ? depth : depth - 1;
+  // Depth 0 with the sequence starting one node out never reaches here: EvaluateLabels bypasses it.
+  return config_.label_steps[position % static_cast<int64_t>(config_.label_steps.size())];
 }
 
-Path::LabelBools Path::PathHelper::GetLabelBools(const mgp::Node &node) const {
-  LabelBools label_bools;
+const Path::RelStep &Path::PathHelper::RelStepAt(const int64_t depth) const {
+  if (depth == 0 && config_.initial_rel_step.has_value()) {
+    return *config_.initial_rel_step;
+  }
+  const int64_t position = config_.initial_rel_step.has_value() ? depth - 1 : depth;
+  return config_.rel_steps[position % static_cast<int64_t>(config_.rel_steps.size())];
+}
+
+bool Path::PathHelper::RelationshipAdmitted(std::string_view rel_type, const bool outgoing, const int64_t depth) const {
+  const RelStep &step = RelStepAt(depth);
+  const bool any_directed = outgoing ? step.any_outgoing : step.any_incoming;
+
+  const auto it = step.types.find(rel_type);
+  const auto wanted_direction = it == step.types.end() ? RelDirection::kNone : it->second;
+  if (wanted_direction == RelDirection::kNone && !any_directed) {
+    return false;
+  }
+
+  const RelDirection curr_direction = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
+  return wanted_direction == RelDirection::kAny || curr_direction == wanted_direction || any_directed;
+}
+
+Path::LabelBools Path::PathHelper::GetLabelBools(const mgp::Node &node, const LabelStep &step) {
+  // A '*' in a category answers for every label, so it is the starting point rather than a lookup.
+  LabelBools label_bools{.blacklisted = step.wildcards.blacklist,
+                         .terminated = step.wildcards.termination,
+                         .end_node = step.wildcards.end_list,
+                         .whitelisted = step.wildcards.whitelist};
   for (const auto &label : node.Labels()) {
-    FilterLabel(label, label_bools);
+    FilterLabel(label, step, label_bools);
   }
   return label_bools;
 }
 
 // The label filter on its own. First match wins, in this order: deny, terminator, end, allow.
 Path::Evaluation Path::PathHelper::EvaluateLabels(const mgp::Node &node, const int64_t depth) const {
-  // An unfiltered start node bypasses the filter entirely. `filterStartNode` alone decides this, here
-  // and in the two filters alongside, so a start node cannot be filtered by one and not the other.
-  if (depth == 0 && !config_.filter_start_node) {
+  // An unfiltered start node bypasses the filter entirely, and so does one the sequence does not start
+  // at -- there is no step to test it against. `filterStartNode` alone decides the two filters
+  // alongside, so those still apply to a start node that asked to be filtered.
+  if (depth == 0 && (!config_.filter_start_node || !config_.begin_sequence_at_start)) {
     return {.include = !EndNodesOnly(), .expand = true};
   }
 
-  const LabelBools label_bools = GetLabelBools(node);
+  const LabelStep &step = LabelStepAt(depth);
+  const LabelBools label_bools = GetLabelBools(node, step);
   // Below the lower bound a node cannot be returned, but the walk still passes through it -- including
   // through a terminator, which ends the walk only once it could be returned.
   const bool below_min_hops = depth < config_.min_hops;
@@ -316,7 +458,7 @@ Path::Evaluation Path::PathHelper::EvaluateLabels(const mgp::Node &node, const i
   if (label_bools.end_node) {
     return {.include = !below_min_hops, .expand = true};
   }
-  if (Whitelisted(label_bools.whitelisted)) {
+  if (Whitelisted(step, label_bools.whitelisted)) {
     // With an end or termination label in play, only those are returned.
     return {.include = !(EndNodesOnly() || below_min_hops), .expand = true};
   }
@@ -372,39 +514,34 @@ bool Path::PathHelper::PathSizeOk(const int64_t path_size) const {
 
 bool Path::PathHelper::PathTooBig(const int64_t path_size) const { return path_size > config_.max_hops; }
 
-bool Path::PathHelper::Whitelisted(const bool whitelisted) const {
-  return (config_.label_bools_status.whitelist_empty || whitelisted);
-}
-
-void Path::PathHelper::FilterLabelBoolStatus() {
-  config_.label_bools_status.end_node_activated = !config_.label_sets.end_list.empty();
-  config_.label_bools_status.whitelist_empty = config_.label_sets.whitelist.empty();
-  config_.label_bools_status.termination_activated = !config_.label_sets.termination_list.empty();
+bool Path::PathHelper::Whitelisted(const LabelStep &step, const bool whitelisted) {
+  return step.whitelist_empty || whitelisted;
 }
 
 /*function to set appropriate parameters for filtering*/
-void Path::PathHelper::FilterLabel(std::string_view label, LabelBools &label_bools) const {
-  if (config_.label_sets.blacklist.contains(label)) {
+void Path::PathHelper::FilterLabel(std::string_view label, const LabelStep &step, LabelBools &label_bools) {
+  if (step.sets.blacklist.contains(label)) {
     label_bools.blacklisted = true;
   }
 
-  if (config_.label_sets.termination_list.contains(label)) {
+  if (step.sets.termination_list.contains(label)) {
     label_bools.terminated = true;
   }
 
-  if (config_.label_sets.end_list.contains(label)) {
+  if (step.sets.end_list.contains(label)) {
     label_bools.end_node = true;
   }
 
-  if (config_.label_sets.whitelist.contains(label)) {
+  if (step.sets.whitelist.contains(label)) {
     label_bools.whitelisted = true;
   }
 }
 
-// Function that takes input list of labels, and sorts them into appropriate category
-// sets were used so when filtering is done, its done in O(1)
-void Path::PathHelper::ParseLabels(const mgp::List &list_of_labels) {
+// One step's labels, sorted into the four categories; sets so that filtering is O(1). A '*' entry stands
+// for every label, so it is recorded on the category rather than in its set.
+Path::LabelStep Path::PathHelper::ParseLabelStep(const mgp::List &list_of_labels) {
   constexpr std::string_view kLabelPrefixes = "-+>/";
+  LabelStep step;
   for (const auto &label : list_of_labels) {
     if (label.Type() != mgp::Type::String) {
       throw mgp::ValueException("Label filter entries need to be strings.");
@@ -415,39 +552,50 @@ void Path::PathHelper::ParseLabels(const mgp::List &list_of_labels) {
       throw mgp::ValueException("Invalid labelFilter entry '" + std::string(label_string) +
                                 "': expected a label, optionally prefixed with '+', '-', '>' or '/'.");
     }
-    const char first_elem = label_string.front();
-    switch (first_elem) {
+
+    LabelSet *set = &step.sets.whitelist;
+    bool *wildcard = &step.wildcards.whitelist;
+    switch (label_string.front()) {
       case '-':
+        set = &step.sets.blacklist;
+        wildcard = &step.wildcards.blacklist;
         label_string.remove_prefix(1);
-        config_.label_sets.blacklist.emplace(label_string);
         break;
       case '>':
+        set = &step.sets.end_list;
+        wildcard = &step.wildcards.end_list;
         label_string.remove_prefix(1);
-        config_.label_sets.end_list.emplace(label_string);
+        break;
+      case '/':
+        set = &step.sets.termination_list;
+        wildcard = &step.wildcards.termination;
+        label_string.remove_prefix(1);
         break;
       case '+':
         label_string.remove_prefix(1);
-        config_.label_sets.whitelist.emplace(label_string);
-        break;
-      case '/':
-        label_string.remove_prefix(1);
-        config_.label_sets.termination_list.emplace(label_string);
         break;
       default:
-        config_.label_sets.whitelist.emplace(label_string);
         break;
     }
+
+    if (label_string == "*") {
+      *wildcard = true;
+    } else {
+      set->emplace(label_string);
+    }
   }
+
+  step.whitelist_empty = step.sets.whitelist.empty() && !step.wildcards.whitelist;
+  return step;
 }
 
-// Function that takes input list of relationships, and sorts them into appropriate categories
-// sets were also used to reduce complexity
-void Path::PathHelper::ParseRelationships(const mgp::List &list_of_relationships) {
-  if (list_of_relationships.Size() ==
-      0) {  // if no relationships were passed as arguments, all relationships are allowed
-    config_.any_outgoing = true;
-    config_.any_incoming = true;
-    return;
+// One step's relationship types, sorted by direction.
+Path::RelStep Path::PathHelper::ParseRelStep(const mgp::List &list_of_relationships) {
+  RelStep step;
+  if (list_of_relationships.Size() == 0) {  // no relationships given, so every relationship is allowed
+    step.any_outgoing = true;
+    step.any_incoming = true;
+    return step;
   }
 
   for (const auto &rel : list_of_relationships) {
@@ -482,8 +630,8 @@ void Path::PathHelper::ParseRelationships(const mgp::List &list_of_relationships
         throw mgp::ValueException("Invalid relationshipFilter entry '" + std::string(entry) +
                                   "': expected a relationship type, optionally marked with '<' or '>'.");
       }
-      config_.any_incoming = config_.any_incoming || incoming;
-      config_.any_outgoing = config_.any_outgoing || outgoing;
+      step.any_incoming = step.any_incoming || incoming;
+      step.any_outgoing = step.any_outgoing || outgoing;
       continue;
     }
 
@@ -493,14 +641,16 @@ void Path::PathHelper::ParseRelationships(const mgp::List &list_of_relationships
     } else if (outgoing) {
       direction = RelDirection::kOutgoing;
     }
-    AddRelationshipDirection(std::move(type), direction);
+    AddRelationshipDirection(step, std::move(type), direction);
   }
+
+  return step;
 }
 
 // Merge rather than overwrite: 'R>' with '<R' means either way. Overwriting would drop one direction,
 // and which one would depend on the order they were listed in.
-void Path::PathHelper::AddRelationshipDirection(std::string type, RelDirection direction) {
-  const auto [it, inserted] = config_.relationship_sets.try_emplace(std::move(type), direction);
+void Path::PathHelper::AddRelationshipDirection(RelStep &step, std::string type, RelDirection direction) {
+  const auto [it, inserted] = step.types.try_emplace(std::move(type), direction);
   if (!inserted && it->second != direction) {
     it->second = RelDirection::kAny;
   }
@@ -665,8 +815,6 @@ void Path::PathExpand::ExpandPath(mgp::Path &path, const mgp::Relationship &rela
 
 void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationships relationships, bool outgoing,
                                                int64_t path_size) {
-  const RelDirection curr_direction = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
-
   for (const auto relationship : relationships) {
     if (path_data_.LimitReached()) {
       return;
@@ -675,17 +823,12 @@ void Path::PathExpand::ExpandFromRelationships(mgp::Path &path, mgp::Relationshi
     // supernode's whole adjacency list is uninterruptible.
     path_data_.MaybeAbort();
 
-    const std::string_view type = relationship.Type();
-    const auto wanted_direction = path_data_.helper_.GetDirection(type);
-
     const int64_t uniqueness_key = UniquenessKey(relationship, outgoing);
-    if ((wanted_direction == RelDirection::kNone && !path_data_.helper_.AnyDirected(outgoing)) ||
-        path_data_.visited_.contains(uniqueness_key)) {
+    if (path_data_.visited_.contains(uniqueness_key)) {
       continue;
     }
 
-    if (wanted_direction == RelDirection::kAny || curr_direction == wanted_direction ||
-        path_data_.helper_.AnyDirected(outgoing)) {
+    if (path_data_.helper_.RelationshipAdmitted(relationship.Type(), outgoing, path_size)) {
       ExpandPath(path, relationship, path_size, uniqueness_key);
     }
   }
@@ -785,8 +928,6 @@ mgp::Path Path::PathExpand::PathTo(const int64_t index) const {
 
 void Path::PathExpand::ExpandTreeEntry(const int64_t index, const int64_t depth, mgp::Relationships relationships,
                                        const bool outgoing, std::queue<int64_t> &frontier) {
-  const RelDirection curr_direction = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
-
   for (const auto relationship : relationships) {
     if (path_data_.LimitReached()) {
       return;
@@ -799,12 +940,7 @@ void Path::PathExpand::ExpandTreeEntry(const int64_t index, const int64_t depth,
       continue;
     }
 
-    const auto wanted_direction = path_data_.helper_.GetDirection(relationship.Type());
-    if (wanted_direction == RelDirection::kNone && !path_data_.helper_.AnyDirected(outgoing)) {
-      continue;
-    }
-    if (!(wanted_direction == RelDirection::kAny || curr_direction == wanted_direction ||
-          path_data_.helper_.AnyDirected(outgoing))) {
+    if (!path_data_.helper_.RelationshipAdmitted(relationship.Type(), outgoing, depth)) {
       continue;
     }
 
@@ -967,8 +1103,6 @@ void Path::PathSubgraph::Parse(const mgp::Value &value) {
 void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int64_t> &pair,
                                                  const mgp::Relationships relationships, bool outgoing,
                                                  std::queue<std::pair<mgp::Node, int64_t>> &queue) {
-  const RelDirection curr_direction = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
-
   for (const auto relationship : relationships) {
     // As in the expand walk: a fully filtered supernode never reaches the dequeue poll above.
     path_data_.MaybeAbort();
@@ -979,15 +1113,7 @@ void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int6
       continue;
     }
 
-    const std::string_view type = relationship.Type();
-    const auto wanted_direction = path_data_.helper_.GetDirection(type);
-
-    if (wanted_direction == RelDirection::kNone && !path_data_.helper_.AnyDirected(outgoing)) {
-      continue;
-    }
-
-    if (wanted_direction == RelDirection::kAny || curr_direction == wanted_direction ||
-        path_data_.helper_.AnyDirected(outgoing)) {
+    if (path_data_.helper_.RelationshipAdmitted(relationship.Type(), outgoing, pair.second)) {
       // Enqueue only; TryInsertNode emits it on dequeue, once the checks are applied.
       path_data_.visited_.insert(next_node.Id().AsInt());
       queue.emplace(std::move(next_node), pair.second + 1);
