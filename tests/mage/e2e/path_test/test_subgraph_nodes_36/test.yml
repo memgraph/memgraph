@@ -1,0 +1,10 @@
+# Stripping the leading marker leaves a bare one behind, which is the every-type form again: '>>' is
+# every type, outgoing.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {relationshipFilter: ['>>'], maxHops: 3})
+  YIELD nodes RETURN nodes.name AS name ORDER BY name ASC;
+output:
+  - name: "A"
+  - name: "B"
+  - name: "C"

@@ -1,0 +1,27 @@
+# The positional form of the start-node exemption: A lacks B and is still returned. Its config-form
+# twin is test_expand_config_2 -- neither covers the other, and no other positional test pairs a
+# lower bound of 0 with a filter that has no '>' or '/' in it.
+query: >
+  MATCH (a:A) CALL path.expand(a, ["R>"], ["+B"], 0, 5) YIELD result RETURN
+  result ORDER BY size(nodes(result));
+output:
+  - result:
+      nodes:
+        - labels:
+            - A
+          properties:
+            name: A
+      relationships: []
+  - result:
+      nodes:
+        - labels:
+            - A
+          properties:
+            name: A
+        - labels:
+            - B
+          properties:
+            name: B
+      relationships:
+        - label: R
+          properties: {}

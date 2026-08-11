@@ -1,0 +1,11 @@
+# The other half of the start-node exemption test_expand5 covers: an end filter decides which nodes
+# are returned at all, so the exempt start node is not one of them -- even though S carries X itself.
+# Setting filterStartNode is what returns it, which the next case shows.
+query: >
+  MATCH (s:X {name: "S"})
+  CALL path.expand(s, [], [">X"], 0, 2)
+  YIELD result
+  RETURN [n IN nodes(result) | n.name] AS names ORDER BY size(names);
+
+output:
+  - names: ["S", "A", "B"]

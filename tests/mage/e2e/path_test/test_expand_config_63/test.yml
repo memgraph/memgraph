@@ -1,0 +1,11 @@
+# Filtering the start node is what returns one that carries an end label: exempt it and the end
+# filter leaves it out, as test_expand9 shows. So the flag reads backwards here -- it adds a row.
+query: >
+  MATCH (s:X {name: "S"})
+  CALL path.expand_config(s, {minHops: 0, maxHops: 2, labelFilter: '>X', filterStartNode: true})
+  YIELD result
+  RETURN [n IN nodes(result) | n.name] AS names ORDER BY size(names);
+
+output:
+  - names: ["S"]
+  - names: ["S", "A", "B"]
