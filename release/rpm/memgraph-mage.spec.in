@@ -28,13 +28,13 @@ Vendor:         @CPACK_RPM_PACKAGE_VENDOR@
 @TMP_RPM_AUTOREQPROV@
 @TMP_RPM_BUILDARCH@
 
-# On CentOS Stream 9 memgraph embeds python 3.12 (built with
-# MG_PYTHON_VERSION=3.12) rather than the distro-default 3.9, so the query
-# modules and the %post pip install need the 3.12 interpreter + pip.
-# python3.12-pip pulls python3.12, but both are named for clarity.
-%if 0%{?rhel} == 9
-Requires:       python3.12, python3.12-pip
-%endif
+# MAGE's query modules need python 3.12; on el9 the distro default is 3.9,
+# so require the 3.12 interpreter + pip there. This must be a rich (boolean)
+# dependency evaluated at INSTALL time: the rpm is distro-agnostic (built on
+# any container), so a build-time `%%if 0%%{?rhel}` can no longer see the
+# target distro. `system-release(releasever)` is provided by every RHEL-family
+# release package (centos-stream-release, rocky-release, redhat-release, ...).
+Requires:       ((python3.12 and python3.12-pip) if system-release(releasever) = 9)
 
 %define _rpmdir %_topdir/RPMS
 %define _srcrpmdir %_topdir/SRPMS
@@ -48,6 +48,10 @@ Requires:       python3.12, python3.12-pip
 
 # Shortcut spec: CPack stages the files into BuildRoot; we just rehome them.
 %prep
+# Normalize directory modes: cpack stages them with the build host's umask
+# (e.g. 0775 under umask 002), and shared dirs like /usr/lib/memgraph must
+# match the memgraph package's 0755 or rpm refuses the transaction.
+find $RPM_BUILD_ROOT -type d | xargs chmod 755
 mv $RPM_BUILD_ROOT %_topdir/tmpBBroot
 
 %install
@@ -62,6 +66,19 @@ mv %_topdir/tmpBBroot $RPM_BUILD_ROOT
 # Mirror of the deb postinst's `configure` step.
 CUDA=@CPACK_MAGE_CUDA@
 ARCH=@CPACK_MAGE_PKG_ARCH@
+# The memgraph binary links the unversioned libpython3.so and its RUNPATH is
+# $ORIGIN, so a symlink next to the binary beats the distro's default shim
+# (/usr/lib64/libpython3.so from python3-libs). install_python_requirements.sh
+# below installs MAGE's python deps with python3.12 whenever it exists, so
+# point the embedded interpreter at that same python — without this, e.g.
+# CentOS Stream 9 embeds the 3.9 default while the deps land in 3.12's dirs.
+# Declared %%ghost in %%files so rpm removes it when memgraph-mage is erased.
+if command -v python3.12 >/dev/null 2>&1; then
+    libpython="$(ls /usr/lib64/libpython3.12.so.1* /usr/lib/libpython3.12.so.1* 2>/dev/null | head -1 || true)"
+    if [ -n "$libpython" ]; then
+        ln -sf "$libpython" /usr/lib/memgraph/libpython3.so
+    fi
+fi
 # install_python_requirements.sh fetches torch/PyG/DGL wheels from the network.
 # During an offline install the wheels are already on disk and the call fails,
 # but the deps are present, so tolerate failure when MEMGRAPH_OFFLINE_INSTALL=1
@@ -96,6 +113,9 @@ exit 0
 %defattr(@TMP_DEFAULT_FILE_PERMISSIONS@,@TMP_DEFAULT_USER@,@TMP_DEFAULT_GROUP@,@TMP_DEFAULT_DIR_PERMISSIONS@)
 @CPACK_RPM_INSTALL_FILES@
 @CPACK_RPM_USER_INSTALL_FILES@
+# Created by %%post (embedded-python override); %%ghost so rpm owns and
+# removes it on erase without shipping it in the payload.
+%ghost /usr/lib/memgraph/libpython3.so
 
 %changelog
 @CPACK_RPM_SPEC_CHANGELOG@

@@ -40,6 +40,10 @@ Vendor:         @CPACK_RPM_PACKAGE_VENDOR@
 
 # Shortcut spec: CPack stages the files into BuildRoot; we just rehome them.
 %prep
+# Normalize directory modes: cpack stages them with the build host's umask
+# (e.g. 0775 under umask 002), and shared dirs like /usr/lib/memgraph must
+# match the memgraph package's 0755 or rpm refuses the transaction.
+find $RPM_BUILD_ROOT -type d | xargs chmod 755
 mv $RPM_BUILD_ROOT %_topdir/tmpBBroot
 
 %install
