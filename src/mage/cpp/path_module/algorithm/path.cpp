@@ -700,6 +700,11 @@ void Path::Elements(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result 
   auto result = mgp::Result(res);
 
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue();
+      return;
+    }
+
     const auto path{arguments[0].ValuePath()};
     const size_t path_length = path.Length();
     mgp::List split_path((path_length * 2) + 1);
@@ -721,10 +726,20 @@ void Path::Combine(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *
   auto result = mgp::Result(res);
 
   try {
+    // A missing path leaves nothing to combine, so the other one is the answer.
+    if (arguments[0].IsNull() && arguments[1].IsNull()) {
+      result.SetValue();
+      return;
+    }
+    if (arguments[0].IsNull() || arguments[1].IsNull()) {
+      result.SetValue(arguments[0].IsNull() ? arguments[1].ValuePath() : arguments[0].ValuePath());
+      return;
+    }
+
     auto path1{arguments[0].ValuePath()};
     const auto path2{arguments[1].ValuePath()};
 
-    for (int i = 0; i < path2.Length(); ++i) {
+    for (size_t i = 0; i < path2.Length(); ++i) {
       // Expand will throw an exception if it can't connect
       path1.Expand(path2.GetRelationshipAt(i));
     }
@@ -742,14 +757,26 @@ void Path::Slice(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *re
   auto result = mgp::Result(res);
 
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue();
+      return;
+    }
+
     const auto path{arguments[0].ValuePath()};
-    const auto offset{arguments[1].ValueInt()};
-    const auto length{arguments[2].ValueInt()};
+    const auto path_length = static_cast<int64_t>(path.Length());
+
+    // Offsets and lengths outside the path are clamped rather than rejected: a slice that runs off the
+    // end yields the end node, so a caller computing bounds does not have to guard every call.
+    const int64_t offset = std::clamp(arguments[1].ValueInt(), int64_t{0}, path_length);
+    int64_t length = arguments[2].ValueInt();
+    if (length == kSliceToEnd) {
+      length = path_length - offset;
+    }
+    // Clamped against what is left, so the loop bound cannot overflow.
+    const int64_t hops = std::clamp(length, int64_t{0}, path_length - offset);
 
     mgp::Path new_path{path.GetNodeAt(offset)};
-    const size_t old_path_length = path.Length();
-    const size_t max_iteration = std::min((length == -1 ? old_path_length : offset + length), old_path_length);
-    for (size_t i = offset; i < max_iteration; ++i) {
+    for (int64_t i = offset; i < offset + hops; ++i) {
       new_path.Expand(path.GetRelationshipAt(i));
     }
 

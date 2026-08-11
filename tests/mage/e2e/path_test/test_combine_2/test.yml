@@ -1,0 +1,4 @@
+query: >
+  RETURN path.combine(null, null) AS result;
+output:
+  - result: null
