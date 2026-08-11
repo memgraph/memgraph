@@ -494,10 +494,15 @@ inline bool IsWalDeltaDataTransactionEnd(const WalDeltaData &delta, const uint64
 /// @throw RecoveryFailure
 WalHeader ReadWalHeader(const std::filesystem::path &path);
 
-/// Function used to read information about the WAL file. Parses every delta, verifying each transaction's CRC, so
-/// prefer ReadWalHeader when the header's summary already answers the question.
+/// Function used to read information about the WAL file. Always parses every delta, verifying each transaction's CRC.
 /// @throw RecoveryFailure
 WalInfo ReadWalInfo(const std::filesystem::path &path);
+
+/// The same information, read the cheapest way the file allows: taken from the summary of a finalized file, and
+/// derived by parsing the deltas of one that has none - a file the writer never finalized, or one predating k37.
+/// Prefer this when the information is all that's wanted; a summary is trusted rather than checked against the deltas.
+/// @throw RecoveryFailure
+WalInfo ReadWalContents(const std::filesystem::path &path);
 
 /// Function used to read the WAL delta header. The function returns the delta
 /// timestamp.

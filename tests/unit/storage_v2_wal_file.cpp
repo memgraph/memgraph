@@ -1038,6 +1038,9 @@ TEST_P(WalFileTest, FinalizedHeaderSummaryMatchesScan) {
   EXPECT_EQ(header.uuid, scanned.uuid);
   EXPECT_EQ(header.epoch_id, scanned.epoch_id);
   EXPECT_EQ(header.seq_num, scanned.seq_num);
+
+  // ReadWalContents takes the summary's word for it here, so it must reach the same answer as the scan.
+  AssertWalInfoEqual(scanned, memgraph::storage::durability::ReadWalContents(wal_files.front()));
 }
 
 // The summary has only two legitimate states, the writer's placeholders and the values FinalizeWal fills in, and both
@@ -1074,6 +1077,8 @@ TEST_P(WalFileTest, DamagedSummaryFailsRecovery) {
                memgraph::storage::durability::RecoveryFailure);
   EXPECT_THROW(static_cast<void>(memgraph::storage::durability::ReadWalInfo(wal_file)),
                memgraph::storage::durability::RecoveryFailure);
+  EXPECT_THROW(static_cast<void>(memgraph::storage::durability::ReadWalContents(wal_file)),
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // A file the writer never finalized still holds the zeroed placeholders, which readers must not mistake for a real
@@ -1091,6 +1096,10 @@ TEST_P(WalFileTest, UnfinalizedFileHasNoSummary) {
   auto const header = memgraph::storage::durability::ReadWalHeader(wal_files.front());
   EXPECT_FALSE(header.summary.has_value());
   EXPECT_NO_THROW(static_cast<void>(memgraph::storage::durability::ReadWalInfo(wal_files.front())));
+
+  // With no summary to trust, ReadWalContents has to derive the same answer by parsing the deltas.
+  AssertWalInfoEqual(memgraph::storage::durability::ReadWalInfo(wal_files.front()),
+                     memgraph::storage::durability::ReadWalContents(wal_files.front()));
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

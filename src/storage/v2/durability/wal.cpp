@@ -1001,21 +1001,9 @@ WalHeader DecodeWalHeader(Decoder &wal, const std::filesystem::path &path, uint6
   return header;
 }
 
-}  // namespace
-
-WalHeader ReadWalHeader(const std::filesystem::path &path) {
-  Decoder wal;
-  uint64_t version{};
-  return DecodeWalHeader(wal, path, version);
-}
-
-// Function used to read information about the WAL file.
-WalInfo ReadWalInfo(const std::filesystem::path &path) {
-  Decoder wal;
-  uint64_t version{};
-
-  auto header = DecodeWalHeader(wal, path, version);
-
+// Derives what the file holds by parsing every delta, and so also verifies every transaction's CRC. Expects the
+// decoder positioned at the first delta, as DecodeWalHeader leaves it.
+WalInfo ScanWalDeltas(Decoder &wal, uint64_t const version, WalHeader header) {
   WalInfo info;
   info.offset_metadata = header.offset_metadata;
   info.offset_deltas = header.offset_deltas;
@@ -1075,6 +1063,39 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
   if (info.num_deltas == 0) throw RecoveryFailure(kInvalidWalErrorMessage);
 
   return info;
+}
+
+}  // namespace
+
+WalHeader ReadWalHeader(const std::filesystem::path &path) {
+  Decoder wal;
+  uint64_t version{};
+  return DecodeWalHeader(wal, path, version);
+}
+
+// Function used to read information about the WAL file.
+WalInfo ReadWalInfo(const std::filesystem::path &path) {
+  Decoder wal;
+  uint64_t version{};
+  auto header = DecodeWalHeader(wal, path, version);
+  return ScanWalDeltas(wal, version, std::move(header));
+}
+
+WalInfo ReadWalContents(const std::filesystem::path &path) {
+  Decoder wal;
+  uint64_t version{};
+  auto header = DecodeWalHeader(wal, path, version);
+
+  if (!header.summary) return ScanWalDeltas(wal, version, std::move(header));
+
+  return WalInfo{.offset_metadata = header.offset_metadata,
+                 .offset_deltas = header.offset_deltas,
+                 .uuid = std::move(header.uuid),
+                 .epoch_id = std::move(header.epoch_id),
+                 .seq_num = header.seq_num,
+                 .from_timestamp = header.summary->from_timestamp,
+                 .to_timestamp = header.summary->to_timestamp,
+                 .num_deltas = header.summary->num_deltas};
 }
 
 // Function used to read the WAL delta header. The function returns the delta

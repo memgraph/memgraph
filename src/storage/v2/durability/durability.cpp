@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <spdlog/spdlog.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <range/v3/all.hpp>
@@ -177,7 +178,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
     if (!ValidateDurabilityFile(item)) continue;
 
     try {
-      auto header = ReadWalHeader(item.path());
+      auto const header = ReadWalHeader(item.path());
       if ((!uuid.empty() && header.uuid != uuid) || (current_seq_num && header.seq_num >= *current_seq_num)) {
         spdlog::trace("Wal file {} won't be used. UUID: {}. Header UUID: {}. Current seq num: {}. Header seq num: {}.",
                       item.path(),
@@ -188,19 +189,9 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
         continue;
       }
 
-      // A file that finished with something in it states its own timestamps. Anything else - one the writer never
-      // finalized, one predating k37, or one holding no complete transaction - has its deltas parsed to derive
-      // them, and ReadWalInfo throwing for the last of those is how it gets dropped here.
-      uint64_t from_timestamp{0};
-      uint64_t to_timestamp{0};
-      if (header.summary) {
-        from_timestamp = header.summary->from_timestamp;
-        to_timestamp = header.summary->to_timestamp;
-      } else {
-        auto const info = ReadWalInfo(item.path());
-        from_timestamp = info.from_timestamp;
-        to_timestamp = info.to_timestamp;
-      }
+      // A file holding no complete transaction has no timestamps to offer, and ReadWalContents throwing for it is
+      // how it gets dropped here.
+      auto info = ReadWalContents(item.path());
 
       spdlog::trace(
           "Read wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
@@ -208,16 +199,16 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
           "sequence "
           "number {}.",
           item.path(),
-          header.uuid,
-          header.epoch_id,
-          from_timestamp,
-          to_timestamp,
-          header.seq_num);
-      wal_files.emplace_back(header.seq_num,
-                             from_timestamp,
-                             to_timestamp,
-                             std::move(header.uuid),
-                             std::move(header.epoch_id),
+          info.uuid,
+          info.epoch_id,
+          info.from_timestamp,
+          info.to_timestamp,
+          info.seq_num);
+      wal_files.emplace_back(info.seq_num,
+                             info.from_timestamp,
+                             info.to_timestamp,
+                             std::move(info.uuid),
+                             std::move(info.epoch_id),
                              item.path());
       spdlog::trace("Wal file {} will be used.", item.path());
     } catch (const RecoveryFailure &e) {
