@@ -5637,8 +5637,9 @@ TYPED_TEST(TestPlanner, PatternComprehensionInReturnStaysAboveSameClauseCreate) 
 TYPED_TEST(TestPlanner, MergeBranchComprehensionOverOuterSymbolStaysInBranch) {
   // Test MATCH (p) MERGE (q) ON CREATE SET q.prop = [(p)-[e]->(m) | m]
   // `p` is already bound, so the pre-GenMerge drain found the comprehension satisfiable and took it onto the main
-  // chain - above the Merge, where the branch's SET cannot be the operator that reads it. The branch set is
-  // subtracted from the main chain's drain so it reaches the branch instead.
+  // chain - as the Merge's *input*, so the slot was written, but computed before the MERGE created anything and on the
+  // pre-MERGE view, and computed even on rows whose branch never reads it. The branch set is subtracted from the main
+  // chain's drain so it reaches the branch instead, after the create and on View::NEW.
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
 
@@ -5695,6 +5696,141 @@ TYPED_TEST(TestPlanner, UncorrelatedPatternComprehensionAfterWriteReadsViewNew) 
   EXPECT_EQ(scan_all->view_, memgraph::storage::View::NEW)
       << "the preceding CREATE's rows are only visible under View::NEW";
   EXPECT_EQ(expand->view_, memgraph::storage::View::NEW);
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolStaysAboveCallProcedure) {
+  // Test CALL proc() YIELD field WHERE size([(a)-[e]->(b) WHERE b.prop = field | b]) > 0 RETURN field
+  // The comprehension reads `field`, which the CallProcedure itself binds, so it cannot be spliced below that
+  // operator: there the frame slot is unwritten on the first input row and stale from the previous row on every later
+  // one, so the branch filter silently matches nothing. It belongs above the CallProcedure, below the Filter.
+  //
+  // Expected chain (bottom-up): Once -> CallProcedure -> RollUpApply -> Filter -> Produce
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
+  ast_call->procedure_name_ = "proc";
+  ast_call->result_fields_ = {"field"};
+  ast_call->result_identifiers_ = {IDENT("field")};
+  auto *pattern_comp = PATTERN_COMPREHENSION(nullptr,
+                                             PATTERN(NODE("a"), EDGE("e", EdgeAtom::Direction::OUT), NODE("b")),
+                                             WHERE(EQ(PROPERTY_LOOKUP(dba, "b", prop), IDENT("field"))),
+                                             IDENT("b"));
+  ast_call->where_ = WHERE(GREATER(FN("size", pattern_comp), LITERAL(0)));
+
+  auto *query = QUERY(SINGLE_QUERY(ast_call, RETURN("field")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr) << "expected Produce at the root";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "expected the YIELD ... WHERE Filter";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "the RollUpApply must sit between the CallProcedure and the Filter - it reads `field`, "
+                                "which the CallProcedure writes, and the Filter reads its result";
+  EXPECT_NE(dynamic_cast<memgraph::query::plan::CallProcedure *>(rollup->input_.get()), nullptr)
+      << "the CallProcedure that binds `field` belongs below the RollUpApply";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInCallProcedureArgumentStaysBelow) {
+  // Test MATCH (n) CALL proc([(n)-[e]->(m) | m]) YIELD field RETURN field
+  // The mirror of the test above: an argument comprehension reads only what is already on the frame, and the procedure
+  // evaluates its arguments once per *input* row, so this one must stay below the CallProcedure.
+  //
+  // Expected chain (bottom-up): Once -> ScanAll (n) -> RollUpApply -> CallProcedure -> Produce
+  FakeDbAccessor dba;
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("e", EdgeAtom::Direction::OUT), NODE("m")), nullptr, IDENT("m"));
+  auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
+  ast_call->procedure_name_ = "proc";
+  ast_call->arguments_ = {pattern_comp};
+  ast_call->result_fields_ = {"field"};
+  ast_call->result_identifiers_ = {IDENT("field")};
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ast_call, RETURN("field")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr) << "expected Produce at the root";
+  auto *call_proc = dynamic_cast<memgraph::query::plan::CallProcedure *>(produce->input_.get());
+  ASSERT_NE(call_proc, nullptr) << "expected the CallProcedure below the Produce";
+  auto *rollup = dynamic_cast<RollUpApply *>(call_proc->input_.get());
+  ASSERT_NE(rollup, nullptr) << "an argument comprehension must be spliced below the CallProcedure that reads it";
+  EXPECT_NE(FindOpOfType<ScanAll>(rollup->input_.get()), nullptr) << "the MATCH belongs below";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInForeachBodyAfterWriteReadsViewNew) {
+  // Test MATCH (p) CREATE (:A)-[r:R]->(:B) FOREACH (i IN [1] | SET p.prop = size([(x)-[e]->(y) WHERE y.prop <> i | y]))
+  // The comprehension correlates to the FOREACH variable, so the main-chain drain must refuse it and the body chain
+  // takes it. The body must still read View::NEW: a FOREACH is a write clause, and the CREATE before it wrote. Before
+  // the body inherited the caller's write history, adding a semantically inert `WHERE y.prop <> i` flipped the view
+  // from NEW to OLD.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(nullptr,
+                                             PATTERN(NODE("x"), EDGE("e", EdgeAtom::Direction::OUT), NODE("y")),
+                                             WHERE(NEQ(PROPERTY_LOOKUP(dba, "y", prop), IDENT("i"))),
+                                             IDENT("y"));
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))),
+                         CREATE(PATTERN(NODE("anon_a"), EDGE("r", EdgeAtom::Direction::OUT, {"R"}), NODE("anon_b"))),
+                         FOREACH(NEXPR("i", LIST(LITERAL(1))), {SET(PROPERTY_LOOKUP(dba, "p", prop), pattern_comp)})));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *foreach_op = FindOpOfType<memgraph::query::plan::Foreach>(&planner.plan());
+  ASSERT_NE(foreach_op, nullptr) << "expected a Foreach operator";
+  EXPECT_EQ(FindOpOfType<RollUpApply>(foreach_op->input_.get()), nullptr)
+      << "the comprehension correlates to the FOREACH variable, so it must not be drained onto the main chain";
+
+  auto *rollup = FindOpOfType<RollUpApply>(foreach_op->update_clauses_.get());
+  ASSERT_NE(rollup, nullptr) << "expected the RollUpApply on the FOREACH body chain";
+  // The comprehension has a WHERE, so its branch carries a Filter between the Produce and the Expand.
+  auto *expand = FindOpOfType<Expand>(rollup->list_collection_branch_.get());
+  ASSERT_NE(expand, nullptr);
+  auto *scan_all = dynamic_cast<ScanAll *>(expand->input_.get());
+  ASSERT_NE(scan_all, nullptr);
+  EXPECT_EQ(scan_all->view_, memgraph::storage::View::NEW)
+      << "a FOREACH is a write clause and the CREATE before it wrote, so the body reads View::NEW - the correlation "
+         "in the comprehension's WHERE must not change that";
+  EXPECT_EQ(expand->view_, memgraph::storage::View::NEW);
+}
+
+TYPED_TEST(TestPlanner, MergeBranchComprehensionInForeachBodyStaysInBranch) {
+  // Test MATCH (p) FOREACH (i IN [1] | MERGE (q) ON CREATE SET q.prop = [(p)-[e]->(m) | m])
+  // The nested MERGE's branch set is subtracted from the FOREACH's own drain too, so the comprehension reaches the
+  // create branch that reads it instead of being hoisted out of the loop. Only a top-level MERGE used to subtract.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("p"), EDGE("e", EdgeAtom::Direction::OUT), NODE("m")), nullptr, IDENT("m"));
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("p"))),
+      FOREACH(NEXPR("i", LIST(LITERAL(1))),
+              {MERGE(PATTERN(NODE("q")), ON_CREATE(SET(PROPERTY_LOOKUP(dba, "q", prop), pattern_comp)))})));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *foreach_op = FindOpOfType<memgraph::query::plan::Foreach>(&planner.plan());
+  ASSERT_NE(foreach_op, nullptr) << "expected a Foreach operator";
+  EXPECT_EQ(FindOpOfType<RollUpApply>(foreach_op->input_.get()), nullptr)
+      << "the comprehension only the nested ON CREATE reads must not be hoisted onto the main chain";
+
+  auto *merge = FindOpOfType<Merge>(foreach_op->update_clauses_.get());
+  ASSERT_NE(merge, nullptr) << "expected the nested Merge on the FOREACH body chain";
+  EXPECT_EQ(FindOpOfType<RollUpApply>(merge->input_.get()), nullptr)
+      << "nor onto the body chain the nested Merge sits on";
+  auto *set_property = dynamic_cast<SetProperty *>(merge->merge_create_.get());
+  ASSERT_NE(set_property, nullptr) << "the create branch should end with SetProperty";
+  EXPECT_NE(dynamic_cast<RollUpApply *>(set_property->input_.get()), nullptr)
+      << "RollUpApply belongs inside the create branch, below the SetProperty that reads it";
 }
 
 TYPED_TEST(TestPlanner, PatternComprehensionInsideCountAggregate) {

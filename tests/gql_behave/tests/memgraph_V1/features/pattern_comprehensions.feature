@@ -956,6 +956,8 @@ Feature: Pattern comprehensions
         Then the result should be:
             | ids          | yid |
             | [10, 11, 12] | 4   |
+    # Does NOT discriminate: without the CallProcedure drain the ungated drain at the SET takes this comprehension and
+    # gives the same answer. The sibling scenario below, with no preceding write, is the one that needs the new drain.
     Scenario: Pattern comprehension in a CALL YIELD WHERE after a write
         Given an empty graph
         And having executed:
@@ -1087,3 +1089,62 @@ Feature: Pattern comprehensions
         Then the result should be:
             | cnt |
             | 1   |
+
+    # Discriminates, unlike the scenario above: the MERGE creates the edge the comprehension counts, so the value
+    # differs by where the RollUpApply sits. On the main chain it is the Merge's input - evaluated before the create
+    # and on the pre-MERGE view - and counts only the pre-existing edge.
+    Scenario: Pattern comprehension in a MERGE ON CREATE counts what the MERGE just created
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            MERGE (p)-[:ACTED_IN]->(q:Movie {title: 'New'})
+              ON CREATE SET q.cnt = size([(p)-[:ACTED_IN]->(m) | m])
+            """
+        When executing query:
+            """
+            MATCH (q:Movie {title: 'New'}) RETURN q.cnt AS cnt
+            """
+        Then the result should be:
+            | cnt |
+            | 2   |
+
+    # The comprehension reads `name`, which the CALL itself binds, so its RollUpApply must sit above the
+    # CallProcedure. Below it the frame slot is unwritten on the first input row and stale from the previous row on
+    # every later one, so the filter silently matched nothing and the query returned no rows.
+    Scenario: Pattern comprehension in a CALL YIELD WHERE over a yielded symbol
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Proc {name: 'mg.procedures'})-[:R]->(:Target)
+            """
+        When executing query:
+            """
+            CALL mg.procedures() YIELD name
+            WHERE size([(p:Proc)-[:R]->(q) WHERE p.name = name | q]) > 0
+            RETURN name
+            """
+        Then the result should be:
+            | name            |
+            | 'mg.procedures' |
+
+    # A comprehension in a WITH is evaluated after the clauses before it, so after the DELETE - it can no longer
+    # expand from the node that DELETE removed. Pinning the error: before origin-clause gating the comprehension was
+    # drained at the DELETE and evaluated below it, returning a count of edges that no longer existed.
+    Scenario: Pattern comprehension over a node deleted by a preceding clause raises an error
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A)-[:R]->(:B)
+            """
+        When executing query:
+            """
+            MATCH (n:A) DETACH DELETE n
+            WITH n, [(n)-[e:R]->(m) | m] AS lst
+            RETURN size(lst) AS s
+            """
+        Then an error should be raised
