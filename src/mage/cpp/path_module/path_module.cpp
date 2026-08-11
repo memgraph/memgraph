@@ -17,29 +17,26 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   try {
     const mgp::MemoryDispatcherGuard guard{memory};
 
-    mgp::AddFunction(Path::Elements,
-                     Path::kProcedureElements,
-                     {mgp::Parameter(Path::kElementsArg1, mgp::Type::Path)},
-                     module,
-                     memory);
+    // Low-level API throughout: mgp::Parameter cannot express a nullable type, and a null path has to
+    // reach the body to return null rather than be rejected as a type error. An OPTIONAL MATCH feeding
+    // one of these is normal, and a type error there would abort the whole query.
+    auto *nullable_path = mgp::type_nullable(mgp::type_path());
 
-    mgp::AddFunction(
-        Path::Combine,
-        Path::kProcedureCombine,
-        {mgp::Parameter(Path::kCombineArg1, mgp::Type::Path), mgp::Parameter(Path::kCombineArg2, mgp::Type::Path)},
-        module,
-        memory);
+    auto *elements = mgp::module_add_function(module, Path::kProcedureElements, Path::Elements);
+    mgp::func_add_arg(elements, Path::kElementsArg1, nullable_path);
 
-    mgp::AddFunction(Path::Slice,
-                     Path::kProcedureSlice,
-                     {mgp::Parameter(Path::kSliceArg1, mgp::Type::Path),
-                      mgp::Parameter(Path::kSliceArg2, mgp::Type::Int, static_cast<int64_t>(0)),
-                      mgp::Parameter(Path::kSliceArg3, mgp::Type::Int, static_cast<int64_t>(-1))},
-                     module,
-                     memory);
+    auto *combine = mgp::module_add_function(module, Path::kProcedureCombine, Path::Combine);
+    mgp::func_add_arg(combine, Path::kCombineArg1, nullable_path);
+    mgp::func_add_arg(combine, Path::kCombineArg2, nullable_path);
 
-    // Low-level API: mgp::Parameter cannot express a nullable type, and a null start has to reach the
-    // body to return no rows rather than be rejected as a type error.
+    auto default_offset = mgp::Value(static_cast<int64_t>(0));
+    auto default_length = mgp::Value(Path::kSliceToEnd);
+    auto *slice = mgp::module_add_function(module, Path::kProcedureSlice, Path::Slice);
+    mgp::func_add_arg(slice, Path::kSliceArg1, nullable_path);
+    mgp::func_add_opt_arg(slice, Path::kSliceArg2, mgp::type_int(), default_offset.ptr());
+    mgp::func_add_opt_arg(slice, Path::kSliceArg3, mgp::type_int(), default_length.ptr());
+
+    // A null start returns no rows, for the same reason.
     auto *expand = mgp::module_add_read_procedure(module, Path::kProcedureExpand, Path::Expand);
     mgp::proc_add_arg(expand, Path::kArgumentStartExpand, mgp::type_nullable(mgp::type_any()));
     mgp::proc_add_arg(expand, Path::kArgumentRelationshipsExpand, mgp::type_list(mgp::type_string()));

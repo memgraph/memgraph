@@ -41,6 +41,8 @@ constexpr const char *kProcedureSlice = "slice";
 constexpr const char *kSliceArg1 = "path";
 constexpr const char *kSliceArg2 = "offset";
 constexpr const char *kSliceArg3 = "length";
+// Length sentinel: take the rest of the path. Any other negative length takes nothing.
+constexpr int64_t kSliceToEnd = -1;
 
 /* create constants */
 constexpr const char *kProcedureCreate = "create";

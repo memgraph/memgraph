@@ -1,0 +1,4 @@
+query: >
+  RETURN path.elements(null) AS result;
+output:
+  - result: null
