@@ -323,7 +323,8 @@ class PathExpand {
   void RunNodeGlobalBfs();
   void ExpandTreeEntry(int64_t index, int64_t depth, mgp::Relationships relationships, bool outgoing,
                        std::queue<int64_t> &frontier);
-  [[nodiscard]] mgp::Path PathTo(int64_t index) const;
+  // Not const: it polls the abort signal, which advances the poll counter.
+  [[nodiscard]] mgp::Path PathTo(int64_t index);
 
   PathData path_data_;
   // Deepest path reached this pass; bounds the driver when no upper hop bound was given.

@@ -8,4 +8,4 @@ query: >
   RETURN result;
 
 exception_contains: >
-  the filter needs a further step to repeat
+  the relationship steps of 'relationshipFilter' need a further one to repeat

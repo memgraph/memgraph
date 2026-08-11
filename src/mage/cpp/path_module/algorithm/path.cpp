@@ -153,8 +153,9 @@ std::string_view Trimmed(std::string_view text) {
   return text.substr(first, text.find_last_not_of(kSpace) - first + 1);
 }
 
-// A filter's steps: one per comma in the string form. A blank step would match everything, which reads
-// as a typo rather than as a filter, so it is named instead of honoured -- as a bare '|' piece already is.
+// A filter's steps: one per comma in the string form. A step that names no filter would match
+// everything, which reads as a typo rather than as a filter, so it is named instead of honoured --
+// whether it is blank or its alternatives are all empty, since '|' alone leaves nothing behind either.
 std::vector<mgp::List> SplitSteps(std::string_view text, std::string_view key) {
   std::vector<mgp::List> steps;
   for (size_t start = 0; start <= text.size();) {
@@ -165,7 +166,14 @@ std::vector<mgp::List> SplitSteps(std::string_view text, std::string_view key) {
       throw mgp::ValueException("Config key '" + std::string(key) + "' has a blank step at position " +
                                 std::to_string(steps.size() + 1) + "; every step needs a filter.");
     }
-    steps.push_back(SplitAlternatives(step));
+    // Empty '|' pieces are dropped, so a step of bare separators reaches here non-empty and would then
+    // parse as the step that allows everything.
+    mgp::List alternatives = SplitAlternatives(step);
+    if (alternatives.Size() == 0) {
+      throw mgp::ValueException("Config key '" + std::string(key) + "' has a step with no alternatives at position " +
+                                std::to_string(steps.size() + 1) + "; every step needs a filter.");
+    }
+    steps.push_back(std::move(alternatives));
     if (separator == std::string_view::npos) {
       break;
     }
@@ -181,14 +189,20 @@ std::vector<mgp::List> FilterSteps(const mgp::Value &value, std::string_view key
     return {};
   }
   if (value.IsList()) {
-    for (const auto &entry : value.ValueList()) {
+    const mgp::List entries = value.ValueList();
+    // An empty list is a filter that was not given, so it must not leave a step behind for
+    // `beginSequenceAtStart` to spend on the first hop -- the same as leaving the key out.
+    if (entries.Size() == 0) {
+      return {};
+    }
+    for (const auto &entry : entries) {
       if (entry.IsString() && entry.ValueString().find(',') != std::string_view::npos) {
         throw mgp::ValueException("Config key '" + std::string(key) + "' entry '" + std::string(entry.ValueString()) +
                                   "' contains a ','. A list entry is one alternative; give the whole filter as a "
                                   "string to spell a sequence of steps.");
       }
     }
-    return {value.ValueList()};
+    return {entries};
   }
   if (!value.IsString()) {
     throw mgp::ValueException("Config key '" + std::string(key) + "' needs to be a string or a list of strings.");
@@ -260,6 +274,18 @@ Path::PathHelper::PathHelper(const mgp::Map &config, const mgp::Graph &graph, co
   require_type("beginSequenceAtStart", config.At("beginSequenceAtStart"), mgp::Type::Bool, "a boolean");
   require_type("sequence", config.At("sequence"), mgp::Type::String, "a string");
   require_type("limit", config.At("limit"), mgp::Type::Int, "an integer");
+
+  // Either spelling is allowed, so `require_type` cannot say it. Checked here rather than only where the
+  // steps are read: `sequence` supersedes these two keys' values, but not their type -- a caller who
+  // mistypes one alongside a sequence is still told which key is wrong.
+  auto require_filter_type = [](std::string_view key, const mgp::Value &value) {
+    if (!value.IsNull() && !value.IsString() && !value.IsList()) {
+      throw mgp::ValueException("Config key '" + std::string(key) + "' needs to be a string or a list of strings.");
+    }
+  };
+  require_filter_type("labelFilter", config.At("labelFilter"));
+  require_filter_type("relationshipFilter", config.At("relationshipFilter"));
+
   // Only the expand walk can act on these. The subgraph walk already does what they would ask for, so
   // it accepts and ignores them rather than failing the query.
   if (kind == ProcedureKind::kExpand) {
@@ -320,9 +346,11 @@ void Path::PathHelper::ParseSequences(const mgp::Map &config) {
   std::vector<mgp::List> label_steps;
   std::vector<mgp::List> rel_steps;
   bool rel_filter_given = false;
+  // A blank `sequence` is no sequence at all, so the two filter keys still apply -- and an error below
+  // has to name the key the caller actually wrote.
+  const bool sequence_given = !sequence.IsNull() && !Trimmed(sequence.ValueString()).empty();
 
-  // A blank `sequence` is no sequence at all, so the two filter keys still apply.
-  if (!sequence.IsNull() && !Trimmed(sequence.ValueString()).empty()) {
+  if (sequence_given) {
     // Alternating, labels first -- so with the sequence starting one node out, the leading step is the
     // relationship reaching the node the sequence starts at.
     const auto steps = SplitSteps(Trimmed(sequence.ValueString()), "sequence");
@@ -357,7 +385,9 @@ void Path::PathHelper::ParseSequences(const mgp::Map &config) {
     if (config_.rel_steps.empty()) {
       throw mgp::ValueException(
           "With 'beginSequenceAtStart' false the first relationship step is spent on the hop out of the start node, so "
-          "the filter needs a further step to repeat; give more than one, or leave 'beginSequenceAtStart' at true.");
+          "the relationship steps of '" +
+          std::string(sequence_given ? "sequence" : "relationshipFilter") +
+          "' need a further one to repeat; give another, or leave 'beginSequenceAtStart' at true.");
     }
   }
 
@@ -621,6 +651,14 @@ Path::RelStep Path::PathHelper::ParseRelStep(const mgp::List &list_of_relationsh
       if (character != '<' && character != '>' && character != ':') {
         type.push_back(character);
       }
+    }
+
+    // '*' is a label wildcard only. Reading it as a type name would match nothing at all, silently, so
+    // name the spelling that does mean "any type here".
+    if (type == "*") {
+      throw mgp::ValueException("Invalid relationshipFilter entry '" + std::string(entry) +
+                                "': '*' is not a wildcard for relationship types; use '>' for any outgoing type, "
+                                "'<' for any incoming, or '<|>' for either.");
     }
 
     // Nothing left means a direction-only entry, applying to every type -- but only if a marker is what
@@ -901,6 +939,17 @@ void Path::PathExpand::Parse(const mgp::Value &value) {
 }
 
 void Path::PathExpand::RunAllStarts() {
+  // Under the global rule every start is marked before any of them is walked, as the queue walk does when
+  // it seeds the tree. Marking them one at a time instead would let an earlier start's walk reach a later
+  // one and return it on that path, and the later start would then return it again as its own root -- the
+  // one node, two paths. Only the global rule needs this: the path-scoped modes release their marks on
+  // the way back out, so each start begins with an empty set either way.
+  if (path_data_.helper_.GlobalUniqueness()) {
+    for (const auto &node : path_data_.start_nodes_) {
+      path_data_.visited_.insert(node.Id().AsInt());
+    }
+  }
+
   for (const auto &node : path_data_.start_nodes_) {
     if (path_data_.LimitReached()) {
       return;
@@ -909,10 +958,13 @@ void Path::PathExpand::RunAllStarts() {
   }
 }
 
-// The relationships reaching `index`, walked back to a start node and replayed forwards.
-mgp::Path Path::PathExpand::PathTo(const int64_t index) const {
+// The relationships reaching `index`, walked back to a start node and replayed forwards. Polls: one call
+// is as long as the path, and on a deep chain the walk emits one per node, so without this a single
+// rebuild outlives the poll at the dequeue.
+mgp::Path Path::PathExpand::PathTo(const int64_t index) {
   std::vector<int64_t> chain;
   for (int64_t at = index; at >= 0; at = tree_[at].parent) {
+    path_data_.MaybeAbort();
     chain.push_back(at);
   }
 
@@ -955,11 +1007,18 @@ void Path::PathExpand::ExpandTreeEntry(const int64_t index, const int64_t depth,
 
 // The node-global rule returns one path per reachable node, so the frontier is bounded by the graph
 // rather than by the paths through it -- a real queue can hold it, and the tree it builds gives each
-// node its parent. Every start node enters at depth 0 sharing one visited set, so a start reached from
-// another start is not returned twice.
+// node its parent. Every start node is seeded at depth 0 into one visited set before any of them is
+// expanded, so a start reached from another start is refused there and returned once, as its own root.
+// `RunAllStarts` marks them up front for the same reason.
 void Path::PathExpand::RunNodeGlobalBfs() {
   std::queue<int64_t> frontier;
+  // Seeding copies a node per start, and the caller's list is unbounded, so it polls rather than making
+  // the first check wait until the whole list is in the tree.
   for (const auto &node : path_data_.start_nodes_) {
+    if (path_data_.LimitReached()) {
+      return;
+    }
+    path_data_.MaybeAbort();
     path_data_.visited_.insert(node.Id().AsInt());
     tree_.push_back({.node = node, .from_parent = std::nullopt, .parent = -1, .depth = 0});
     frontier.push(static_cast<int64_t>(tree_.size()) - 1);
@@ -974,7 +1033,10 @@ void Path::PathExpand::RunNodeGlobalBfs() {
     const int64_t index = frontier.front();
     frontier.pop();
     const int64_t depth = tree_[index].depth;
-    // Copied out: appending to the tree may move the entry while its relationships are being iterated.
+    // Copied out, not bound by reference: the two ExpandTreeEntry calls below append to the tree, so the
+    // first one can reallocate it out from under the second one's `node.OutRelationships()`. The
+    // relationship iterator itself holds its own copy of the vertex, so it is the second read of `node`
+    // that needs this, not the iteration.
     const mgp::Node node{tree_[index].node};
 
     const Evaluation evaluation = path_data_.helper_.Evaluate(node, depth);

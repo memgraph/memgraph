@@ -1,0 +1,16 @@
+# `sequence` alternates label and relationship steps, and with `beginSequenceAtStart` false the leading
+# step is the relationship reaching the node the sequence starts at -- so the string begins with a
+# relationship filter and the label steps line up one hop out, exactly as the two filter keys do.
+query: >
+  MATCH (s:Start {name: "S"})
+  CALL path.expand_config(s, {minHops: 0, maxHops: 3, sequence: 'R>, A, R>, B',
+                              beginSequenceAtStart: false})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["S"]
+  - names: ["S", "N1"]
+  - names: ["S", "N1", "N2"]
+  - names: ["S", "N1", "N2", "N3"]

@@ -1,0 +1,15 @@
+# The node-global rule spends each node once, so the walk is bounded by the graph rather than by the
+# paths through it -- an absent upper hop bound needs no cap here, where the other modes would scan
+# forever.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {minHops: 0, uniqueness: 'NODE_GLOBAL'})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["A"]
+  - names: ["A", "B"]
+  - names: ["A", "B", "C"]
+  - names: ["A", "B", "C", "D"]
