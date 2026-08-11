@@ -178,7 +178,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
     if (!ValidateDurabilityFile(item)) continue;
 
     try {
-      auto const header = ReadWalHeader(item.path());
+      auto header = ReadWalHeader(item.path());
       if ((!uuid.empty() && header.uuid != uuid) || (current_seq_num && header.seq_num >= *current_seq_num)) {
         spdlog::trace("Wal file {} won't be used. UUID: {}. Header UUID: {}. Current seq num: {}. Header seq num: {}.",
                       item.path(),
@@ -191,7 +191,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 
       // A file holding no complete transaction has no timestamps to offer, and ReadWalContents throwing for it is
       // how it gets dropped here.
-      auto info = ReadWalContents(item.path());
+      auto info = ReadWalContents(item.path(), std::move(header));
 
       spdlog::trace(
           "Read wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "

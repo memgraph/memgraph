@@ -919,14 +919,18 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
 #undef read_skip
 }
 
-// Consumes the offsets and metadata sections, leaving the decoder positioned at the first delta. Shared by
-// ReadWalHeader and ReadWalInfo so that both agree on what a valid header is.
-WalHeader DecodeWalHeader(Decoder &wal, const std::filesystem::path &path, uint64_t &version) {
-  // Check magic and version.
+// Opens the file and consumes its magic, returning the version it states.
+uint64_t InitializeWalDecoder(Decoder &wal, const std::filesystem::path &path) {
   auto maybe_version = wal.Initialize(path, kWalMagic);
   if (!maybe_version) throw RecoveryFailure("Couldn't read WAL magic and/or version!");
   if (!IsVersionSupported(*maybe_version)) throw RecoveryFailure("Invalid WAL version {}!", *maybe_version);
-  version = *maybe_version;
+  return *maybe_version;
+}
+
+// Consumes the offsets and metadata sections, leaving the decoder positioned at the first delta. Shared by
+// ReadWalHeader and ReadWalInfo so that both agree on what a valid header is.
+WalHeader DecodeWalHeader(Decoder &wal, const std::filesystem::path &path, uint64_t &version) {
+  version = InitializeWalDecoder(wal, path);
 
   WalHeader header;
 
@@ -1081,21 +1085,32 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
   return ScanWalDeltas(wal, version, std::move(header));
 }
 
-WalInfo ReadWalContents(const std::filesystem::path &path) {
+WalInfo ReadWalContents(const std::filesystem::path &path, std::optional<WalHeader> known_header) {
   Decoder wal;
   uint64_t version{};
-  auto header = DecodeWalHeader(wal, path, version);
 
-  if (!header.summary) return ScanWalDeltas(wal, version, std::move(header));
+  bool const decoder_at_deltas = !known_header.has_value();
+  auto header = decoder_at_deltas ? DecodeWalHeader(wal, path, version) : std::move(*known_header);
 
-  return WalInfo{.offset_metadata = header.offset_metadata,
-                 .offset_deltas = header.offset_deltas,
-                 .uuid = std::move(header.uuid),
-                 .epoch_id = std::move(header.epoch_id),
-                 .seq_num = header.seq_num,
-                 .from_timestamp = header.summary->from_timestamp,
-                 .to_timestamp = header.summary->to_timestamp,
-                 .num_deltas = header.summary->num_deltas};
+  if (header.summary) {
+    return WalInfo{.offset_metadata = header.offset_metadata,
+                   .offset_deltas = header.offset_deltas,
+                   .uuid = std::move(header.uuid),
+                   .epoch_id = std::move(header.epoch_id),
+                   .seq_num = header.seq_num,
+                   .from_timestamp = header.summary->from_timestamp,
+                   .to_timestamp = header.summary->to_timestamp,
+                   .num_deltas = header.summary->num_deltas};
+  }
+
+  // Nothing summarizes the file, so its deltas have to be parsed after all. A header the caller handed over left the
+  // decoder untouched, so the file is opened and skipped to the delta region only now that it turned out to be needed.
+  if (!decoder_at_deltas) {
+    version = InitializeWalDecoder(wal, path);
+    wal.SetPosition(header.offset_deltas);
+  }
+
+  return ScanWalDeltas(wal, version, std::move(header));
 }
 
 // Function used to read the WAL delta header. The function returns the delta

@@ -501,8 +501,9 @@ WalInfo ReadWalInfo(const std::filesystem::path &path);
 /// The same information, read the cheapest way the file allows: taken from the summary of a finalized file, and
 /// derived by parsing the deltas of one that has none - a file the writer never finalized, or one predating kWalHeader.
 /// Prefer this when the information is all that's wanted; a summary is trusted rather than checked against the deltas.
+/// A caller that already read the header can hand it over to save reading it again.
 /// @throw RecoveryFailure
-WalInfo ReadWalContents(const std::filesystem::path &path);
+WalInfo ReadWalContents(const std::filesystem::path &path, std::optional<WalHeader> known_header = std::nullopt);
 
 /// Function used to read the WAL delta header. The function returns the delta
 /// timestamp.
