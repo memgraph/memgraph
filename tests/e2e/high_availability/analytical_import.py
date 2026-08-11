@@ -59,7 +59,7 @@ CLUSTER_WITHOUT_REPLICA = [
 CLUSTER_WITH_REPLICA_DOWN = [
     ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
     ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-    ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+    ("instance_2", "localhost:7688", "", "localhost:10012", "down", "replica"),
 ]
 
 # The import's three phases, kept separate so a restart that loses one of them cannot be masked by a
