@@ -979,7 +979,7 @@ WalHeader DecodeWalHeader(Decoder &wal, const std::filesystem::path &path, uint6
   // never invalidate the identity above. It has exactly two legitimate states, and both verify: the zeros the
   // constructor reserved, meaning the file was never finalized, and the values FinalizeWal filled in. The region is one
   // sector-sized write, so it cannot tear into anything else - a summary that doesn't verify is real corruption.
-  if (version >= k37) {
+  if (version >= kWalHeader) {
     wal.ResetCrcAcc();
     auto const from_timestamp = wal.ReadUint();
     auto const to_timestamp = wal.ReadUint();

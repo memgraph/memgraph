@@ -71,7 +71,7 @@ struct WalHeader {
   std::string uuid;
   std::string epoch_id;
   uint64_t seq_num;
-  /// Absent while the file is still being written, and for files written before k37. Deriving the same facts for
+  /// Absent while the file is still being written, and for files written before kWalHeader. Deriving the same facts for
   /// such a file means parsing its deltas with ReadWalInfo.
   std::optional<WalSummary> summary;
 };
@@ -499,7 +499,7 @@ WalHeader ReadWalHeader(const std::filesystem::path &path);
 WalInfo ReadWalInfo(const std::filesystem::path &path);
 
 /// The same information, read the cheapest way the file allows: taken from the summary of a finalized file, and
-/// derived by parsing the deltas of one that has none - a file the writer never finalized, or one predating k37.
+/// derived by parsing the deltas of one that has none - a file the writer never finalized, or one predating kWalHeader.
 /// Prefer this when the information is all that's wanted; a summary is trusted rather than checked against the deltas.
 /// @throw RecoveryFailure
 WalInfo ReadWalContents(const std::filesystem::path &path);

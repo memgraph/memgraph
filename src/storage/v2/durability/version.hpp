@@ -46,16 +46,17 @@ constexpr uint64_t kExtendedEdgeSetProperty{33};
 constexpr uint64_t kDescriptionAndDescIndexSupport{34};
 constexpr uint64_t kVectorIndexMultiLabel{35};
 constexpr uint64_t kCrcProtection{36};
-// Carries two changes: the vertex property index, and the transaction summary the WAL header gained,
-// back-patched when the file is finalized.
-constexpr uint64_t k37{37};
+// v37 carries two unrelated format changes, so it has a name for each: the vertex property index, and the
+// transaction summary the WAL header gained, back-patched when the file is finalized.
+constexpr uint64_t kVertexPropertyIndex{37};
+constexpr uint64_t kWalHeader{37};
 
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
 // change!!!
 
 // #### CURRENT VERSION vvv
-constexpr uint64_t kVersion{k37};
+constexpr uint64_t kVersion{kWalHeader};
 // #### CURRENT VERSION ^^^
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
