@@ -55,7 +55,7 @@ struct ExpressionRange {
   Type type_;
   std::optional<utils::Bound<Expression *>> lower_;
   std::optional<utils::Bound<Expression *>> upper_;
-  ListLiteral *membership_list_{nullptr};
+  ListLiteral *membership_list_{nullptr};  // Non-owning; lives in AstStorage. Cloned by copy ctor.
 
   static auto Equal(Expression *value) -> ExpressionRange;
   static auto In(Expression *runtime_value, ListLiteral *membership_list) -> ExpressionRange;

@@ -1824,6 +1824,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return filter_info;
     };
 
+    auto const capture_membership_list = [](FilterInfo const &fi) -> ListLiteral * {
+      if (fi.property_filter && fi.property_filter->type_ == PropertyFilter::Type::IN)
+        return utils::Downcast<ListLiteral>(fi.property_filter->value_);
+      return nullptr;
+    };
+
     ScanByIndexMetadata metadata;
     metadata.node_symbol = node_symbol;
 
@@ -1936,13 +1942,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       });
       // Capture original IN list member expressions before make_unwinds
       // replaces them with anonymous symbols
-      auto membership_lists = found_index->filters |
-                              ranges::views::transform([](FilterInfo const &fi) -> ListLiteral * {
-                                if (fi.property_filter && fi.property_filter->type_ == PropertyFilter::Type::IN)
-                                  return utils::Downcast<ListLiteral>(fi.property_filter->value_);
-                                return nullptr;
-                              }) |
-                              ranges::to_vector;
+      auto membership_lists =
+          found_index->filters | ranges::views::transform(capture_membership_list) | ranges::to_vector;
       auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
       auto expr_ranges =
           ranges::views::zip(value_expressions, membership_lists) |
@@ -2019,12 +2020,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
               }
             }
             auto or_membership_lists =
-                label_property_index.filters | ranges::views::transform([](FilterInfo const &fi) -> ListLiteral * {
-                  if (fi.property_filter && fi.property_filter->type_ == PropertyFilter::Type::IN)
-                    return utils::Downcast<ListLiteral>(fi.property_filter->value_);
-                  return nullptr;
-                }) |
-                ranges::to_vector;
+                label_property_index.filters | ranges::views::transform(capture_membership_list) | ranges::to_vector;
             auto value_expressions =
                 label_property_index.filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
             auto expr_ranges = ranges::views::zip(value_expressions, or_membership_lists) |

@@ -32,8 +32,8 @@ def setup_graph(memgraph):
     memgraph.execute("MATCH (b:Big), (s:Small) CREATE (b)-[:REL]->(s)")
 
 
-def first_scan_operator(plan):
-    """Return the last plan line that contains 'Scan' (i.e. the bottom-most scan)."""
+def bottom_scan_operator(plan):
+    """Return the bottom-most (first-to-execute) scan in the plan."""
     scans = [line for line in plan if "Scan" in line]
     return scans[-1] if scans else None
 
@@ -51,8 +51,8 @@ def test_in_list_picks_same_start_as_equality(memgraph):
         "MATCH (a:Big)--(b:Small) WHERE b.prop IN ['val1'] RETURN a",
     )
 
-    eq_scan = first_scan_operator(eq_plan)
-    in_scan = first_scan_operator(in_plan)
+    eq_scan = bottom_scan_operator(eq_plan)
+    in_scan = bottom_scan_operator(in_plan)
 
     # Both should start from Small (the selective side).
     assert "Small" in eq_scan, f"Equality plan should scan Small, got: {eq_scan}"
@@ -68,7 +68,7 @@ def test_in_list_multi_element(memgraph):
         "MATCH (a:Big)--(b:Small) WHERE b.prop IN ['val1', 'val2'] RETURN a",
     )
 
-    scan = first_scan_operator(plan)
+    scan = bottom_scan_operator(plan)
     assert "Small" in scan, f"Multi-element IN should scan Small, got: {scan}"
 
 
