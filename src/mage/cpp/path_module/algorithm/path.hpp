@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <optional>
 #include <queue>
 #include <set>
 #include <string>
@@ -116,10 +117,9 @@ struct LabelBoolsStatus {
 
 enum class RelDirection : std::int8_t { kNone = -1, kAny = 0, kIncoming = 1, kOutgoing = 2 };
 
-// What may not repeat during a walk. The `*Path` forms forbid a repeat within the current path only,
-// and are the only values the expand walk accepts: it reaches a depth by re-walking from the start, so
-// anything marked for the whole traversal would block the next pass. kNodeGlobal is the subgraph walk's
-// own rule, not a caller-selectable one.
+// What may not repeat during a walk. The `*Path` forms forbid a repeat within the current path only;
+// kNodeGlobal forbids one for the whole traversal, so it returns a single path per reachable node. The
+// subgraph walk uses kNodeGlobal too, and does not let the caller pick.
 enum class Uniqueness : std::uint8_t { kRelationshipPath, kNodePath, kNodeGlobal };
 
 [[nodiscard]] constexpr bool IsNodeUniqueness(Uniqueness uniqueness) {
@@ -196,6 +196,9 @@ class PathHelper {
   [[nodiscard]] bool HasLimit() const { return config_.limit != kNoLimit; }
 
   [[nodiscard]] Uniqueness GetUniqueness() const { return config_.uniqueness; }
+
+  // Whether a mark survives the walk back out of a path, rather than being released with it.
+  [[nodiscard]] bool GlobalUniqueness() const { return config_.uniqueness == Uniqueness::kNodeGlobal; }
 
   void SetPassDepth(int64_t depth) { config_.pass_depth = depth; }
 
@@ -285,9 +288,25 @@ class PathExpand {
   void RunAllStarts();
   void Emit(const mgp::Path &path);
 
+  // One node of the breadth-first tree the node-global walk builds: the node, the relationship that
+  // reached it, and where that came from. Holding the tree rather than a frontier of paths keeps the
+  // walk linear in the graph -- under this rule each node is reached exactly once, so it has one parent.
+  struct TreeEntry {
+    mgp::Node node;
+    std::optional<mgp::Relationship> from_parent;
+    int64_t parent;
+    int64_t depth;
+  };
+
+  void RunNodeGlobalBfs();
+  void ExpandTreeEntry(int64_t index, int64_t depth, mgp::Relationships relationships, bool outgoing,
+                       std::queue<int64_t> &frontier);
+  [[nodiscard]] mgp::Path PathTo(int64_t index) const;
+
   PathData path_data_;
   // Deepest path reached this pass; bounds the driver when no upper hop bound was given.
   int64_t deepest_reached_ = -1;
+  std::vector<TreeEntry> tree_;
 };
 
 class PathSubgraph {

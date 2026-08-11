@@ -147,8 +147,8 @@ mgp::List FilterEntries(const mgp::Value &value, std::string_view key) {
   return entries;
 }
 
-// Case-insensitive. Only the path-scoped modes: the walk re-walks from the start per depth, so
-// anything marked for the whole traversal would block the next pass.
+// Case-insensitive. The modes left out are the ones whose surviving result set depends on the order
+// relationships happen to be iterated in, which is not a rule a caller can reason about.
 Path::Uniqueness ParseUniqueness(std::string_view name) {
   std::string upper;
   upper.reserve(name.size());
@@ -158,9 +158,10 @@ Path::Uniqueness ParseUniqueness(std::string_view name) {
 
   if (upper == "RELATIONSHIP_PATH") return Path::Uniqueness::kRelationshipPath;
   if (upper == "NODE_PATH") return Path::Uniqueness::kNodePath;
+  if (upper == "NODE_GLOBAL") return Path::Uniqueness::kNodeGlobal;
 
   throw mgp::ValueException("Unrecognized uniqueness '" + std::string(name) +
-                            "'. Expected one of: RELATIONSHIP_PATH, NODE_PATH.");
+                            "'. Expected one of: RELATIONSHIP_PATH, NODE_PATH, NODE_GLOBAL.");
 }
 
 // Node IDs from a node, an integer ID, or a list thereof; null collects nothing. Polls, since a
@@ -655,8 +656,10 @@ void Path::PathExpand::ExpandPath(mgp::Path &path, const mgp::Relationship &rela
   path.Expand(relationship);
   path_data_.visited_.insert(uniqueness_key);
   DFS(path, path_size + 1);
-  // Path-scoped, so the mark is released on the way back out.
-  path_data_.visited_.erase(uniqueness_key);
+  // A path-scoped rule releases the mark on the way back out; a global one holds it for the whole walk.
+  if (!path_data_.helper_.GlobalUniqueness()) {
+    path_data_.visited_.erase(uniqueness_key);
+  }
   path.Pop();
 }
 
@@ -739,7 +742,7 @@ void Path::PathExpand::StartAlgorithm(const mgp::Node &node) {
     path_data_.visited_.insert(node.Id().AsInt());
   }
   DFS(path, 0);
-  if (mark_start) {
+  if (mark_start && !path_data_.helper_.GlobalUniqueness()) {
     path_data_.visited_.erase(node.Id().AsInt());
   }
 }
@@ -763,11 +766,109 @@ void Path::PathExpand::RunAllStarts() {
   }
 }
 
+// The relationships reaching `index`, walked back to a start node and replayed forwards.
+mgp::Path Path::PathExpand::PathTo(const int64_t index) const {
+  std::vector<int64_t> chain;
+  for (int64_t at = index; at >= 0; at = tree_[at].parent) {
+    chain.push_back(at);
+  }
+
+  mgp::Path path{tree_[chain.back()].node};
+  // Back to front: the last entry is the start node, whose own `from_parent` is empty.
+  for (const int64_t at : std::ranges::reverse_view(chain)) {
+    if (tree_[at].from_parent.has_value()) {
+      path.Expand(*tree_[at].from_parent);
+    }
+  }
+  return path;
+}
+
+void Path::PathExpand::ExpandTreeEntry(const int64_t index, const int64_t depth, mgp::Relationships relationships,
+                                       const bool outgoing, std::queue<int64_t> &frontier) {
+  const RelDirection curr_direction = outgoing ? RelDirection::kOutgoing : RelDirection::kIncoming;
+
+  for (const auto relationship : relationships) {
+    if (path_data_.LimitReached()) {
+      return;
+    }
+    // As in the other walks: a fully filtered supernode never reaches the poll at the dequeue.
+    path_data_.MaybeAbort();
+
+    auto next_node = outgoing ? relationship.To() : relationship.From();
+    if (path_data_.visited_.contains(next_node.Id().AsInt())) {
+      continue;
+    }
+
+    const auto wanted_direction = path_data_.helper_.GetDirection(relationship.Type());
+    if (wanted_direction == RelDirection::kNone && !path_data_.helper_.AnyDirected(outgoing)) {
+      continue;
+    }
+    if (!(wanted_direction == RelDirection::kAny || curr_direction == wanted_direction ||
+          path_data_.helper_.AnyDirected(outgoing))) {
+      continue;
+    }
+
+    // Marked here rather than at the dequeue, so the first relationship to reach a node is the one that
+    // keeps it -- which is what makes the tree breadth-first, and holds even for a node a filter then
+    // rejects: it is spent either way.
+    path_data_.visited_.insert(next_node.Id().AsInt());
+    tree_.push_back({.node = std::move(next_node), .from_parent = relationship, .parent = index, .depth = depth + 1});
+    frontier.push(static_cast<int64_t>(tree_.size()) - 1);
+  }
+}
+
+// The node-global rule returns one path per reachable node, so the frontier is bounded by the graph
+// rather than by the paths through it -- a real queue can hold it, and the tree it builds gives each
+// node its parent. Every start node enters at depth 0 sharing one visited set, so a start reached from
+// another start is not returned twice.
+void Path::PathExpand::RunNodeGlobalBfs() {
+  std::queue<int64_t> frontier;
+  for (const auto &node : path_data_.start_nodes_) {
+    path_data_.visited_.insert(node.Id().AsInt());
+    tree_.push_back({.node = node, .from_parent = std::nullopt, .parent = -1, .depth = 0});
+    frontier.push(static_cast<int64_t>(tree_.size()) - 1);
+  }
+
+  while (!frontier.empty()) {
+    if (path_data_.LimitReached()) {
+      return;
+    }
+    path_data_.MaybeAbort();
+
+    const int64_t index = frontier.front();
+    frontier.pop();
+    const int64_t depth = tree_[index].depth;
+    // Copied out: appending to the tree may move the entry while its relationships are being iterated.
+    const mgp::Node node{tree_[index].node};
+
+    const Evaluation evaluation = path_data_.helper_.Evaluate(node, depth);
+    if (evaluation.include && path_data_.helper_.PathSizeOk(depth)) {
+      Emit(PathTo(index));
+      if (path_data_.LimitReached()) {
+        return;
+      }
+    }
+
+    if (!evaluation.expand || std::cmp_greater(depth + 1, path_data_.helper_.ExpansionCeiling())) {
+      continue;
+    }
+
+    ExpandTreeEntry(index, depth, node.InRelationships(), false, frontier);
+    ExpandTreeEntry(index, depth, node.OutRelationships(), true, frontier);
+  }
+}
+
 // Breadth-first emits every path of one length before any longer one, which is what makes a `limit`
 // return the shortest paths. It is driven by re-walking once per depth, so the traversal, the filters
 // and the uniqueness rule stay the ones the depth-first walk uses. A queue of partial paths would
-// instead hold the whole frontier, which here is as large as the result set it is about to build.
+// instead hold the whole frontier, which here is as large as the result set it is about to build --
+// except under the node-global rule, which bounds it by the graph and gets its own walk.
 void Path::PathExpand::RunAlgorithm() {
+  if (path_data_.helper_.GlobalUniqueness() && path_data_.helper_.Bfs()) {
+    RunNodeGlobalBfs();
+    return;
+  }
+
   if (!path_data_.helper_.Bfs()) {
     RunAllStarts();
     return;

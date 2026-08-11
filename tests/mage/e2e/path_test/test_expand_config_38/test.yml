@@ -1,0 +1,10 @@
+# A node is spent by the first path that reaches it whether or not the filters return it, so a lower
+# hop bound above every node's own depth returns nothing: each was already reached below the bound and
+# cannot be reached again deeper. The relationship-scoped default returns two paths of length 3 here.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {minHops: 3, maxHops: 4, uniqueness: 'NODE_GLOBAL'})
+  YIELD result
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output: []
