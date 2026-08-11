@@ -5496,3 +5496,121 @@ TEST(IndexAbortLookup, AnAbortSeesEdgeIndexesCreatedAfterAnEarlierAbortBuiltTheL
     acc->Abort();
   }
 }
+
+// An index on `m.k` keys a vertex on the value nested at `k` within its `m` property. A vertex
+// whose `m` has no value at `k` has a null key, and so takes no entry.
+class NestedIndexAnalytical : public testing::Test {
+ protected:
+  void SetUp() override {
+    storage = std::make_unique<InMemoryStorage>(Config{});
+    storage->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL);
+    label = storage->NameToLabel("T");
+    prop_m = storage->NameToProperty("m");
+    prop_k = storage->NameToProperty("k");
+
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_NO_ERROR(acc->CreateIndex(label, {PropertyPath{prop_m, prop_k}}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // The gids of the vertices the `m.k` index holds an entry for within `range`.
+  auto IndexedVertices(PropertyValueRange range = pvr::IsNotNull()) -> std::vector<Gid> {
+    auto acc = storage->Access(READ);
+    auto ret = std::vector<Gid>{};
+    for (auto vertex : acc->Vertices(label, std::array{PropertyPath{prop_m, prop_k}}, std::array{range}, View::NEW)) {
+      ret.push_back(vertex.Gid());
+    }
+    acc->Abort();
+    return ret;
+  }
+
+  auto MakeNested(PropertyValue inner) -> PropertyValue {
+    return PropertyValue{PropertyValue::map_t{{prop_k, std::move(inner)}}};
+  }
+
+  std::unique_ptr<InMemoryStorage> storage;
+  LabelId label;
+  PropertyId prop_m;
+  PropertyId prop_k;
+};
+
+TEST_F(NestedIndexAnalytical, OuterPropertySetToNonMap) {
+  auto acc = storage->Access(WRITE);
+  auto vertex = acc->CreateVertex();
+  ASSERT_NO_ERROR(vertex.AddLabel(label));
+  ASSERT_NO_ERROR(vertex.SetProperty(prop_m, PropertyValue{1}));
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  EXPECT_THAT(IndexedVertices(), IsEmpty());
+}
+
+// Vertex creation sets the properties in one go, by a different entry point than a later write to
+// the same property.
+TEST_F(NestedIndexAnalytical, OuterPropertyInitialisedToNonMap) {
+  auto acc = storage->Access(WRITE);
+  auto vertex = acc->CreateVertex();
+  ASSERT_NO_ERROR(vertex.AddLabel(label));
+  auto properties = std::map<PropertyId, PropertyValue>{{prop_m, PropertyValue{1}}};
+  ASSERT_NO_ERROR(vertex.InitProperties(properties));
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  EXPECT_THAT(IndexedVertices(), IsEmpty());
+}
+
+TEST_F(NestedIndexAnalytical, OuterPropertySetToMapWithoutTheNestedProperty) {
+  auto acc = storage->Access(WRITE);
+  auto vertex = acc->CreateVertex();
+  ASSERT_NO_ERROR(vertex.AddLabel(label));
+  ASSERT_NO_ERROR(vertex.SetProperty(
+      prop_m, PropertyValue{PropertyValue::map_t{{storage->NameToProperty("other"), PropertyValue{1}}}}));
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  EXPECT_THAT(IndexedVertices(), IsEmpty());
+}
+
+TEST_F(NestedIndexAnalytical, NestedValueOverwrittenByANonMap) {
+  auto gid = Gid::FromUint(0);
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.AddLabel(label));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop_m, MakeNested(PropertyValue{5})));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_THAT(IndexedVertices(), UnorderedElementsAre(gid));
+
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::NEW);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(prop_m, PropertyValue{1}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_THAT(IndexedVertices(), IsEmpty());
+}
+
+TEST_F(NestedIndexAnalytical, NestedValueOverwrittenByANewNestedValue) {
+  auto gid = Gid::FromUint(0);
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.AddLabel(label));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop_m, MakeNested(PropertyValue{5})));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::NEW);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(prop_m, MakeNested(PropertyValue{6})));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // One entry, under the new value: the stale `m.k == 5` entry must have gone.
+  EXPECT_THAT(IndexedVertices(), UnorderedElementsAre(gid));
+  EXPECT_THAT(IndexedVertices(pvr::Equal(PropertyValue{6})), UnorderedElementsAre(gid));
+  EXPECT_THAT(IndexedVertices(pvr::Equal(PropertyValue{5})), IsEmpty());
+}
