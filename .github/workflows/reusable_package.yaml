@@ -128,24 +128,31 @@ jobs:
 
       - name: "Set artifact name and dir"
         run: |
+          # S3 package directory will be `{x86_64|aarch64}-{deb|rpm}[-malloc]`
           artifact_dir='build/output'
-          pkg_artifact_name="$OS"
-          if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
+          [[ "$ARCH" == 'arm' ]] && pkg_artifact_name="aarch64" || pkg_artifact_name="x86_64"
+          [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]] && malloc=true || malloc=false
+          echo "MALLOC=$malloc" >> $GITHUB_ENV
+
+          pkg_artifact_name_deb="${pkg_artifact_name}-deb"
+          pkg_artifact_name_rpm="${pkg_artifact_name}-rpm"
+          if [[ "$malloc" == "true" ]]; then
             pkg_artifact_name="${pkg_artifact_name}-malloc"
+            pkg_artifact_name_deb="${pkg_artifact_name_deb}-malloc"
+            pkg_artifact_name_rpm="${pkg_artifact_name_rpm}-malloc"
           fi
-          if [[ "$ARCH" == 'arm' ]]; then
-            pkg_artifact_name="${pkg_artifact_name}-aarch64"
-          fi
+
           echo "PKG_ARTIFACT_NAME=$pkg_artifact_name" >> $GITHUB_ENV
+          echo "PKG_ARTIFACT_NAME_DEB=$pkg_artifact_name_deb" >> $GITHUB_ENV
+          echo "PKG_ARTIFACT_NAME_RPM=$pkg_artifact_name_rpm" >> $GITHUB_ENV
           echo "PACKAGE_ARTIFACT_DIR=${artifact_dir}/package" >> $GITHUB_ENV
 
+          # S3 package directory will be `docker-{x86_64|aarch64}-{deb|rpm}[-malloc][-relwithdebinfo]`
           if [[ "$BUILD_DOCKER_IMAGE" != "none" ]]; then
             docker_base='docker'
-            if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
+            [[ "$ARCH" == 'arm' ]] && docker_base="${docker_base}-aarch64" || docker_base="${docker_base}-x86_64"
+            if [[ "$malloc" == "true" ]]; then
               docker_base="${docker_base}-malloc"
-            fi
-            if [[ "$ARCH" == 'arm' ]]; then
-              docker_base="${docker_base}-aarch64"
             fi
             echo "DOCKER_PROD_ARTIFACT_NAME=${docker_base}" >> $GITHUB_ENV
             echo "DOCKER_DEBUG_ARTIFACT_NAME=${docker_base}-relwithdebinfo" >> $GITHUB_ENV
@@ -394,15 +401,9 @@ jobs:
       - name: "Create docker image (prod)"
         if: ${{ inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both' }}
         run: |
-          malloc=false
-          if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
-            malloc=true
-          fi
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          [[ "$MALLOC" == "true" ]] && malloc=true ||malloc=false
+          [[ "$OS" == "ubuntu-24.04" ]] && USE_CUSTOM_MIRROR=true || USE_CUSTOM_MIRROR=false
+
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
@@ -448,15 +449,9 @@ jobs:
       - name: "Create docker image (debug)"
         if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
         run: |
-          malloc=false
-          if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
-            malloc=true
-          fi
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          [[ "$MALLOC" == "true" ]] && malloc=true ||malloc=false
+          [[ "$OS" == "ubuntu-24.04" ]] && USE_CUSTOM_MIRROR=true || USE_CUSTOM_MIRROR=false
+
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
@@ -653,13 +648,15 @@ jobs:
       - name: "Upload package to S3"
         if: ${{ inputs.push_to_s3 == 'true' }}
         run:
-          aws s3 sync $SOURCE_DIR s3://${S3_BUCKET}/$DEST_DIR
+          aws s3 sync $SOURCE_DIR s3://${S3_BUCKET}/$DEST_DIR_DEB --exclude "*" --include "*.deb"
+          aws s3 sync $SOURCE_DIR s3://${S3_BUCKET}/$DEST_DIR_RPM --exclude "*" --include "*.rpm"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ env.S3_REGION }}
           SOURCE_DIR: ${{ env.PACKAGE_ARTIFACT_DIR }}
-          DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.PKG_ARTIFACT_NAME }}/"
+          DEST_DIR_DEB: "${{ inputs.s3_dest_dir }}/${{ env.PKG_ARTIFACT_NAME_DEB }}/"
+          DEST_DIR_RPM: "${{ inputs.s3_dest_dir }}/${{ env.PKG_ARTIFACT_NAME_RPM }}/"
 
       - name: "Upload prod docker image to Github"
         if: ${{ inputs.push_to_github == 'true' && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
@@ -703,9 +700,9 @@ jobs:
           base="https://s3.${S3_REGION}.amazonaws.com/${S3_BUCKET}/${S3_DEST_DIR}"
           shopt -s nullglob
           print_dir() {
-            local dir="$1" subdir="$2"
+            local dir="$1" subdir="$2" ext="${3:-}"
             [[ -d "$dir" ]] || return 0
-            for f in "$dir"/*; do
+            for f in "$dir"/*"${ext}"; do
               [[ -f "$f" ]] || continue
               enc=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$(basename "$f")")
               echo "::notice::Artifact URL: ${base}/${subdir}/${enc}"
@@ -713,7 +710,8 @@ jobs:
           }
           # The package dir (deb/rpm + debuginfo sidecar) is always uploaded when
           # push_to_s3 is set; the image dirs only when the matching image built.
-          print_dir "$PACKAGE_ARTIFACT_DIR" "$PKG_ARTIFACT_NAME"
+          print_dir "$PACKAGE_ARTIFACT_DIR" "$PKG_ARTIFACT_NAME_DEB" "deb"
+          print_dir "$PACKAGE_ARTIFACT_DIR" "$PKG_ARTIFACT_NAME_RPM" "rpm"
           if [[ "$BUILD_DOCKER_IMAGE" == "prod" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
             print_dir "$DOCKER_PROD_ARTIFACT_DIR" "$DOCKER_PROD_ARTIFACT_NAME"
           fi
