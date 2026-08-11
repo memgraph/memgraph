@@ -62,7 +62,7 @@ run_feature_tests() {
     echo "SKIP FEATURE: LOAD JSONL, LOAD PARQUET (/data is not mounted into the pod)"
   fi
   test_parallel_runtime
-  test_mgconsole "1.6"
+  test_mgconsole "1.7"
 }
 
 # NOTE: If the tested instance is NOT restarted (each test having their own
