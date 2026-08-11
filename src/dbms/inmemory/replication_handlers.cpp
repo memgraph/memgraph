@@ -1155,7 +1155,8 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
 
   uint32_t local_batch_counter = start_batch_counter;
   uint64_t num_txns_committed{0};
-  for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
+  size_t local_delta_idx = 0;
+  while (local_delta_idx < wal_info.num_deltas) {
     // A delta that won't parse, or a transaction whose CRC doesn't match, throws out of here. The in-flight
     // transaction's accessor is destroyed while unwinding, which aborts it, so nothing half-applied is ever
     // committed. Report failure so the caller stops before the WAL files that follow this one: those build on the
@@ -1186,6 +1187,18 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     } else {
       return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
     }
+  }
+
+  // Each transaction is replayed until its transaction-end delta, not until the count runs out, so consuming more
+  // deltas than the file states means the marker that ended one rotted into another delta of the same encoded length:
+  // replay ran on into whatever followed. Nothing was committed unverified, since the CRC is checked in the same place
+  // the commit happens, but a transaction was silently skipped, so the file must not be reported as applied.
+  if (local_delta_idx != wal_info.num_deltas) {
+    spdlog::error("WAL file {} states {} deltas but replaying it consumed {}; it ends mid-transaction",
+                  wal_path,
+                  wal_info.num_deltas,
+                  local_delta_idx);
+    return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
 
   spdlog::trace("Replication from WAL file {} successful!", wal_path);
