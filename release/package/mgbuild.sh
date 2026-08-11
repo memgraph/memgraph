@@ -172,6 +172,7 @@ print_help () {
   echo -e "  --build-logs                  Copy build logs from mgbuild container to host"
   echo -e "  --dest-dir string             Specify a custom path for destination directory on host"
   echo -e "  --package                     Copy memgraph package from mgbuild container to host"
+  echo -e "  --mgconsole                   Copy the toolchain's mgconsole from mgbuild container to tests/smoke/bin (for smoke tests)"
   echo -e "  --use-make-install            Use 'ninja install' with DESTDIR instead of copying individual files"
 
   echo -e "\npackage-docker options:"
@@ -1411,6 +1412,17 @@ copy_memgraph() {
         artifact_name="libmemgraph_module_support.so"
         container_artifact_path="$MGBUILD_BUILD_DIR/src/query/$artifact_name"
         host_dir="$PROJECT_BUILD_DIR/src/query"
+        shift 1
+      ;;
+      --mgconsole)
+        # The toolchain's mgconsole is built against the sysroot (GLIBC floor
+        # 2.25), so it runs on every smoke target distro — unlike the released
+        # download (see tests/smoke/init_workflow.bash, which skips its
+        # download when this file is already staged).
+        artifact="mgconsole"
+        artifact_name="mgconsole"
+        container_artifact_path="/opt/toolchain-${toolchain_version}/bin/mgconsole"
+        host_dir="$PROJECT_ROOT/tests/smoke/bin"
         shift 1
       ;;
       --logs-dir)

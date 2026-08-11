@@ -676,6 +676,22 @@ jobs:
             --conan-remote $CONAN_REMOTE \
             --sbom-scripts-dir "${GITHUB_WORKSPACE}/infra/infosec/sbom/memgraph"
 
+      - name: "Copy mgconsole for smoke tests"
+        if: ${{ inputs.run_smoke_tests }}
+        run: |
+          # The smoke framework needs an mgconsole that runs on every target
+          # distro; the released download is built against too-new glibc, so
+          # stage the toolchain's (GLIBC floor 2.25) out of the build
+          # container before it is stopped. init_workflow.bash skips its
+          # download when tests/smoke/bin/mgconsole already exists.
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --cugraph $CUGRAPH \
+            copy \
+            --mgconsole
+
       - name: "Stop mgbuild container"
         if: always()
         run: |

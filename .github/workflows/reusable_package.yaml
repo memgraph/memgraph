@@ -313,6 +313,21 @@ jobs:
           echo "SMOKE_OS_LIST=$list" >> $GITHUB_ENV
           echo "Resolved SMOKE_OS_LIST=$list"
 
+      - name: "Copy mgconsole for smoke tests"
+        if: ${{ inputs.run_smoke_tests }}
+        run: |
+          # The smoke framework needs an mgconsole that runs on every target
+          # distro; the released download is built against too-new glibc, so
+          # stage the toolchain's (GLIBC floor 2.25) out of the build
+          # container before it is stopped. init_workflow.bash skips its
+          # download when tests/smoke/bin/mgconsole already exists.
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            copy \
+            --mgconsole
+
       - name: "Build smoke image from package"
         if: ${{ inputs.run_smoke_tests }}
         run: |
