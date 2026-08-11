@@ -61,6 +61,21 @@ auto property_path_converter(TDbAccessor *db) {
 }
 }  // namespace
 
+template <typename TDbAccessor>
+auto EstimateInListSum(TDbAccessor *db, storage::LabelId label, std::vector<storage::PropertyPath> const &properties,
+                       ListLiteral const &list, size_t slot, std::vector<storage::PropertyValueRange> &pvrs,
+                       Parameters const &parameters) -> std::optional<double> {
+  auto *mapper = db->GetStorageAccessor()->GetNameIdMapper();
+  double sum = 0.0;
+  for (auto *elem : list.elements_) {
+    auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters, mapper);
+    if (!resolved) return std::nullopt;
+    pvrs[slot] = *resolved;
+    sum += db->VerticesCount(label, properties, pvrs);
+  }
+  return sum;
+}
+
 /// Holds a given query's index hints after sorting them by type
 struct IndexHints {
   IndexHints() = default;
@@ -1590,7 +1605,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         // Try resolving IN membership lists element-by-element.
         // Process each IN slot: sum per-element VerticesCount, then mark
         // the slot as IsNotNull so subsequent slots see it as resolved.
-        auto *mapper = db_->GetStorageAccessor()->GetNameIdMapper();
         for (size_t i = 0; i < scan_op->expression_ranges_.size(); ++i) {
           if (maybe_propertyvalue_ranges[i] || !scan_op->expression_ranges_[i].membership_list_) continue;
           auto &list = *scan_op->expression_ranges_[i].membership_list_;
@@ -1599,17 +1613,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             return db_->VerticesCount(scan_op->label_, scan_op->properties_);
           auto pvrs = maybe_propertyvalue_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) |
                       ranges::to_vector;
-          double sum = 0.0;
-          for (auto *elem : list.elements_) {
-            auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters_, mapper);
-            if (!resolved) return db_->VerticesCount(scan_op->label_, scan_op->properties_);
-            maybe_propertyvalue_ranges[i] = *resolved;
-            pvrs[i] = *resolved;
-            sum += db_->VerticesCount(scan_op->label_, scan_op->properties_, pvrs);
-          }
+          auto sum = EstimateInListSum(db_, scan_op->label_, scan_op->properties_, list, i, pvrs, parameters_);
+          if (!sum) return db_->VerticesCount(scan_op->label_, scan_op->properties_);
           maybe_propertyvalue_ranges[i] = storage::PropertyValueRange::IsNotNull();
           if (ranges::none_of(maybe_propertyvalue_ranges, [](auto const &pvr) { return pvr == std::nullopt; }))
-            return sum;
+            return *sum;
         }
         return db_->VerticesCount(scan_op->label_, scan_op->properties_);
       });

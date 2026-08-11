@@ -18,7 +18,6 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "utils/math.hpp"
-#include "utils/on_scope_exit.hpp"
 
 namespace memgraph::query::plan {
 
@@ -762,25 +761,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     std::unreachable();
   }
 
-  // Compute the marginal sum for a single IN slot: temporarily mark the slot as
-  // IsNotNull for other callers, iterate its elements, sum VerticesCount.
-  // All other slots in resolved_ranges must already be non-nullopt.
   auto EstimateInListCardinality(storage::LabelId label, std::vector<storage::PropertyPath> const &properties,
                                  ListLiteral const &list, size_t slot,
-                                 std::vector<std::optional<storage::PropertyValueRange>> &resolved_ranges)
+                                 std::vector<std::optional<storage::PropertyValueRange>> const &resolved_ranges)
       -> std::optional<double> {
-    auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
-    utils::OnScopeExit restore([&, saved = resolved_ranges[slot]]() { resolved_ranges[slot] = saved; });
     auto pvrs = resolved_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) | ranges::to_vector;
-    double sum = 0.0;
-    for (auto *elem : list.elements_) {
-      auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters, mapper);
-      if (!resolved) return std::nullopt;
-      resolved_ranges[slot] = *resolved;
-      pvrs[slot] = *resolved;
-      sum += db_accessor_->VerticesCount(label, properties, pvrs);
-    }
-    return sum;
+    return EstimateInListSum(db_accessor_, label, properties, list, slot, pvrs, parameters);
   }
 
   double EstimateLabelPropertiesCardinality(storage::LabelId label,
