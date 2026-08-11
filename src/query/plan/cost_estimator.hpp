@@ -771,12 +771,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       -> std::optional<double> {
     auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
     utils::OnScopeExit restore([&, saved = resolved_ranges[slot]]() { resolved_ranges[slot] = saved; });
+    auto pvrs = resolved_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) | ranges::to_vector;
     double sum = 0.0;
     for (auto *elem : list.elements_) {
       auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters, mapper);
       if (!resolved) return std::nullopt;
       resolved_ranges[slot] = *resolved;
-      auto pvrs = resolved_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) | ranges::to_vector;
+      pvrs[slot] = *resolved;
       sum += db_accessor_->VerticesCount(label, properties, pvrs);
     }
     return sum;
