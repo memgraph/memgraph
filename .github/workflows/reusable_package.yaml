@@ -647,7 +647,7 @@ jobs:
 
       - name: "Upload package to S3"
         if: ${{ inputs.push_to_s3 == 'true' }}
-        run:
+        run: |
           aws s3 sync $SOURCE_DIR s3://${S3_BUCKET}/$DEST_DIR_DEB --exclude "*" --include "*.deb"
           aws s3 sync $SOURCE_DIR s3://${S3_BUCKET}/$DEST_DIR_RPM --exclude "*" --include "*.rpm"
         env:
