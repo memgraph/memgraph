@@ -36,17 +36,19 @@ entire statement executes under a single lock acquisition and a single persist
 call, giving all-or-nothing semantics.
 
 ```cypher
-/* Today: four separate statements, not atomic */
+/* Today: five separate statements, not atomic */
 GRANT MATCH, CREATE TO alice;
 GRANT READ ON NODES CONTAINING LABELS :Employee TO alice;
 GRANT READ {name, age} ON NODES CONTAINING LABELS :Employee TO alice;
 GRANT READ ON EDGES OF TYPE :WORKS_AT TO alice;
+GRANT READ {since} ON EDGES OF TYPE :WORKS_AT TO alice;
 
 /* Compound: single atomic statement */
 GRANT MATCH, CREATE
   AND READ ON NODES CONTAINING LABELS :Employee
   AND READ {name, age} ON NODES CONTAINING LABELS :Employee
   AND READ ON EDGES OF TYPE :WORKS_AT
+  AND READ {since} ON EDGES OF TYPE :WORKS_AT
   TO alice;
 ```
 
