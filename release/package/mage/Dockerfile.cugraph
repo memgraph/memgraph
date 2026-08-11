@@ -106,7 +106,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     echo "# Include all memgraph documentation files (licenses, etc.)" >> /etc/dpkg/dpkg.cfg.d/excludes && \
     echo "path-include=/usr/share/doc/memgraph/*" >> /etc/dpkg/dpkg.cfg.d/excludes; \
   fi && \
-  dpkg -i memgraph.deb && \
+  MG_SKIP_PYTHON_DEPS=1 dpkg -i memgraph.deb && \
   apt remove adduser -y && \
   apt autoremove -y && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
