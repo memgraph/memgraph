@@ -1597,13 +1597,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           maybe_propertyvalue_ranges[i] = storage::PropertyValueRange::IsNotNull();
           if (ranges::any_of(maybe_propertyvalue_ranges, [](auto const &pvr) { return pvr == std::nullopt; }))
             return db_->VerticesCount(scan_op->label_, scan_op->properties_);
+          auto pvrs = maybe_propertyvalue_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) |
+                      ranges::to_vector;
           double sum = 0.0;
           for (auto *elem : list.elements_) {
             auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters_, mapper);
             if (!resolved) return db_->VerticesCount(scan_op->label_, scan_op->properties_);
             maybe_propertyvalue_ranges[i] = *resolved;
-            auto pvrs = maybe_propertyvalue_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) |
-                        ranges::to_vector;
+            pvrs[i] = *resolved;
             sum += db_->VerticesCount(scan_op->label_, scan_op->properties_, pvrs);
           }
           maybe_propertyvalue_ranges[i] = storage::PropertyValueRange::IsNotNull();
