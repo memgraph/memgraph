@@ -196,49 +196,31 @@ jobs:
             malloc: false
             cuda: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "arm"
             build_docker_image: "both"
             malloc: false
             cuda: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "both"
             malloc: true
             cuda: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "arm"
             build_docker_image: "debug"
             malloc: true
             cuda: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "debug"
             cuda: true
             malloc: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "debug"
             cuda: false
             malloc: false
             cugraph: true
-            os: "ubuntu-24.04"
-          - build_arch: "amd"
-            build_docker_image: "none"
-            cuda: false
-            malloc: false
-            cugraph: false
-            os: "centos-9"
-          - build_arch: "amd"
-            build_docker_image: "none"
-            cuda: false
-            malloc: false
-            cugraph: false
-            os: "centos-10"
     with:
       arch: ${{ matrix.build_arch }}
       build_type: RelWithDebInfo
@@ -290,7 +272,7 @@ jobs:
       run_tests: true
       package_mage: "default"
       upload_debug_symbols: true
-      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
+      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
     secrets: inherit
 
   AggregateMAGEBuildTests:
