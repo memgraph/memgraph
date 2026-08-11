@@ -32,11 +32,16 @@ SUPPORTED_OS_V7=(
 )
 
 SUPPORTED_OS_V8=(
-    centos-9 centos-10
-    debian-12 debian-12-arm debian-13 debian-13-arm
-    fedora-43 fedora-43-arm fedora-44 fedora-44-arm fedora-45 fedora-45-arm
-    rocky-10
-    ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
+    centos-9 centos-9-arm
+    centos-10 centos-10-arm
+    debian-12 debian-12-arm
+    debian-13 debian-13-arm
+    fedora-43 fedora-43-arm
+    fedora-44 fedora-44-arm
+    fedora-45 fedora-45-arm
+    rocky-10 rocky-10-arm
+    ubuntu-22.04 ubuntu-22.04-arm
+    ubuntu-24.04 ubuntu-24.04-arm
     ubuntu-26.04 ubuntu-26.04-arm
 )
 
