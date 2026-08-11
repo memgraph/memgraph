@@ -2946,6 +2946,17 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             &abort_snapshot_,
                                                             &snapshot_progress_,
                                                             "storage_mode_change");
+      if (!snapshot_path) {
+        // Analytical writes never reached a WAL, so this snapshot is the only durable record the episode
+        // will ever have. Completing the switch without it would leave the data live in memory but absent
+        // from durability, and the next recovery would silently drop it. Stay analytical instead: the
+        // mode, the cached ldt and every durability file are still untouched at this point, so the user
+        // can fix the cause and retry. CreateSnapshot has already removed whatever partial file it wrote.
+        throw utils::BasicException(
+            "Failed to create the snapshot required to leave IN_MEMORY_ANALYTICAL. The database is still in "
+            "analytical mode and its data is unchanged; check the logs for the cause and retry.");
+      }
+
       // Publish the snapshot's timestamp as the cached ldt. Analytical writes never reach
       // FinalizeCommitPhase, so without this main keeps advertising the pre-analytical ldt and a replica
       // registered afterwards is judged up to date by the heartbeat comparison -- recovery would never
@@ -2966,16 +2977,14 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       // is accepted only when some WAL predates the snapshot, and every such WAL is what was just wiped.
       // Restarting alone would be worse: the surviving files carry this same UUID, so the new numbers
       // would collide with theirs, and a duplicate sequence number is caught by no check anywhere.
-      if (snapshot_path) {
-        DMG_ASSERT(!wal_file_, "Analytical mode must not leave an open WAL file.");
-        if (ArchiveSupersededDurabilityFiles(*snapshot_path)) {
-          wal_seq_num_ = 0;
-        } else {
-          spdlog::warn(
-              "Superseded WAL files could not be archived, so WAL sequence numbering continues from {} to stay "
-              "collision-free.",
-              wal_seq_num_);
-        }
+      DMG_ASSERT(!wal_file_, "Analytical mode must not leave an open WAL file.");
+      if (ArchiveSupersededDurabilityFiles(*snapshot_path)) {
+        wal_seq_num_ = 0;
+      } else {
+        spdlog::warn(
+            "Superseded WAL files could not be archived, so WAL sequence numbering continues from {} to stay "
+            "collision-free.",
+            wal_seq_num_);
       }
       snapshot_runner_.Resume();
       // Under the clients' lock for symmetry with the analytical store above, so replica registration's
