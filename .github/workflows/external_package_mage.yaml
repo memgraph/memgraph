@@ -49,7 +49,7 @@ on:
         default: false
       run_smoke_tests:
         type: boolean
-        description: "Run smoke tests on images after building (tests against previous tagged image)"
+        description: "Run smoke tests on images after building"
         default: false
 
 

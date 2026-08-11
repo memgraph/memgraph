@@ -155,6 +155,10 @@ memgraphConfig:
 - "--data-directory=/var/lib/memgraph/mg_data"
 - "--also-log-to-stderr=true"
 - "--telemetry-enabled=false"
+- "--log-level=TRACE"
+- "--schema-info-enabled=true"
+- "--storage-property-store-compression-enabled=true"
+- "--storage-property-store-compression-level=mid"
 
 # This is fine because under both
 # Memgraph and Mage images we actually hard-code the user and group id.
