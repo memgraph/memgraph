@@ -82,7 +82,9 @@ void PropertiesPermutationHelper::Update(PropertyId outer_prop_id, PropertyValue
   auto const &sorted_positions = it->second;
   for (auto const &pos : sorted_positions) {
     auto const *nested_value = ReadNestedPropertyValue(value, sorted_properties_[pos] | rv::drop(1));
-    extracted_values[pos] = *nested_value;
+    // The path need not resolve: `value` may not be a map, or may be one without the property.
+    // No value at the path means a null index key.
+    extracted_values[pos] = nested_value ? *nested_value : PropertyValue{};
   }
 }
 
