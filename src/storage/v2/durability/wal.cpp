@@ -621,6 +621,7 @@ auto ReadDescriptionFields(BaseDecoder *decoder) {
     std::string property;
     std::vector<std::string> from_labels;
     std::vector<std::string> to_labels;
+    ExternalPropertyValue value;
   };
 
   auto kind_val = decoder->ReadUint();
@@ -677,6 +678,15 @@ auto ReadDescriptionFields(BaseDecoder *decoder) {
       fields.property = *std::move(prop);
       break;
     }
+    case DescriptionTargetKind::PROPERTY_VALUE: {
+      auto prop = decoder->ReadString();
+      if (!prop) throw RecoveryFailure(kInvalidWalErrorMessage);
+      fields.property = *std::move(prop);
+      auto value = decoder->ReadExternalPropertyValue();
+      if (!value) throw RecoveryFailure(kInvalidWalErrorMessage);
+      fields.value = *std::move(value);
+      break;
+    }
     case DescriptionTargetKind::EDGE_TYPE_PATTERN:
     case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
       auto from_count = decoder->ReadUint();
@@ -721,7 +731,8 @@ auto ReadDescriptionSet(BaseDecoder *decoder) -> WalDescriptionSet {
           .property = std::move(fields.property),
           .description = *std::move(desc),
           .from_labels = std::move(fields.from_labels),
-          .to_labels = std::move(fields.to_labels)};
+          .to_labels = std::move(fields.to_labels),
+          .value = std::move(fields.value)};
 }
 
 auto ReadDescriptionDelete(BaseDecoder *decoder) -> WalDescriptionDelete {
@@ -731,7 +742,8 @@ auto ReadDescriptionDelete(BaseDecoder *decoder) -> WalDescriptionDelete {
           .edge_type = std::move(fields.edge_type),
           .property = std::move(fields.property),
           .from_labels = std::move(fields.from_labels),
-          .to_labels = std::move(fields.to_labels)};
+          .to_labels = std::move(fields.to_labels),
+          .value = std::move(fields.value)};
 }
 
 void SkipDescriptionFields(BaseDecoder *decoder) {
@@ -768,6 +780,10 @@ void SkipDescriptionFields(BaseDecoder *decoder) {
       break;
     case DescriptionTargetKind::PROPERTY:
       if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      break;
+    case DescriptionTargetKind::PROPERTY_VALUE:
+      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!decoder->SkipExternalPropertyValue()) throw RecoveryFailure(kInvalidWalErrorMessage);
       break;
     case DescriptionTargetKind::EDGE_TYPE_PATTERN:
     case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
@@ -2026,6 +2042,10 @@ std::optional<RecoveryInfo> LoadWal(
             description_store->SetProperty(PropertyId::FromUint(name_id_mapper->NameToId(data.property)),
                                            data.description);
             break;
+          case DescriptionTargetKind::PROPERTY_VALUE:
+            description_store->SetPropertyValue(
+                PropertyId::FromUint(name_id_mapper->NameToId(data.property)), data.value, data.description);
+            break;
           case DescriptionTargetKind::EDGE_TYPE_PATTERN:
             description_store->SetEdgeTypePattern(resolve_labels(data.from_labels),
                                                   EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type)),
@@ -2071,6 +2091,10 @@ std::optional<RecoveryInfo> LoadWal(
             break;
           case DescriptionTargetKind::PROPERTY:
             description_store->DeleteProperty(PropertyId::FromUint(name_id_mapper->NameToId(data.property)));
+            break;
+          case DescriptionTargetKind::PROPERTY_VALUE:
+            description_store->DeletePropertyValue(PropertyId::FromUint(name_id_mapper->NameToId(data.property)),
+                                                   data.value);
             break;
           case DescriptionTargetKind::EDGE_TYPE_PATTERN:
             description_store->DeleteEdgeTypePattern(resolve_labels(data.from_labels),
@@ -2476,7 +2500,8 @@ void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
 namespace {
 void EncodeDescriptionKindFields(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
                                  std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property,
-                                 std::span<LabelId const> from_labels = {}, std::span<LabelId const> to_labels = {}) {
+                                 std::span<LabelId const> from_labels = {}, std::span<LabelId const> to_labels = {},
+                                 ExternalPropertyValue const &value = {}) {
   encoder.WriteUint(static_cast<uint64_t>(kind));
   switch (kind) {
     case DescriptionTargetKind::DATABASE:
@@ -2503,6 +2528,10 @@ void EncodeDescriptionKindFields(BaseEncoder &encoder, NameIdMapper &name_id_map
       break;
     case DescriptionTargetKind::PROPERTY:
       encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+      break;
+    case DescriptionTargetKind::PROPERTY_VALUE:
+      encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+      encoder.WriteExternalPropertyValue(value);
       break;
     case DescriptionTargetKind::EDGE_TYPE_PATTERN:
       encoder.WriteUint(from_labels.size());
@@ -2536,15 +2565,18 @@ void EncodeDescriptionKindFields(BaseEncoder &encoder, NameIdMapper &name_id_map
 void EncodeDescriptionSet(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
                           std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property,
                           std::string_view description, std::span<LabelId const> from_labels,
-                          std::span<LabelId const> to_labels) {
-  EncodeDescriptionKindFields(encoder, name_id_mapper, kind, labels, edge_type, property, from_labels, to_labels);
+                          std::span<LabelId const> to_labels, ExternalPropertyValue const &value) {
+  EncodeDescriptionKindFields(
+      encoder, name_id_mapper, kind, labels, edge_type, property, from_labels, to_labels, value);
   encoder.WriteString(description);
 }
 
 void EncodeDescriptionDelete(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
                              std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property,
-                             std::span<LabelId const> from_labels, std::span<LabelId const> to_labels) {
-  EncodeDescriptionKindFields(encoder, name_id_mapper, kind, labels, edge_type, property, from_labels, to_labels);
+                             std::span<LabelId const> from_labels, std::span<LabelId const> to_labels,
+                             ExternalPropertyValue const &value) {
+  EncodeDescriptionKindFields(
+      encoder, name_id_mapper, kind, labels, edge_type, property, from_labels, to_labels, value);
 }
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp) {

@@ -18,6 +18,7 @@
 #include <atomic>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -6993,6 +6994,17 @@ PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_expl
       .rw_type = RWType::NONE};
 }
 
+namespace {
+// property-value descriptions are keyed in an ordered std::map; a NaN would violate strict-weak-ordering
+bool DescriptionValueContainsNaN(storage::ExternalPropertyValue const &value) {
+  if (value.IsDouble()) return std::isnan(value.ValueDouble());
+  if (value.IsList()) return std::ranges::any_of(value.ValueList(), DescriptionValueContainsNaN);
+  if (value.IsMap())
+    return std::ranges::any_of(value.ValueMap(), [](auto const &kv) { return DescriptionValueContainsNaN(kv.second); });
+  return false;
+}
+}  // namespace
+
 PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Description query expects a current DB");
   auto *desc_query = utils::Downcast<DescriptionQuery>(parsed_query.query);
@@ -7009,6 +7021,18 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
   auto to_label_names =
       desc_query->to_labels_ | rv::transform([](auto const &label) { return label.name; }) | r::to_vector;
   auto database_name = std::move(desc_query->database_name_);
+  storage::ExternalPropertyValue value;
+  if (desc_query->value_ != nullptr) {
+    const EvaluationContext eval_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+    PrimitiveLiteralExpressionEvaluator value_evaluator{eval_context};
+    value = static_cast<storage::ExternalPropertyValue>(desc_query->value_->Accept(value_evaluator));
+    if (value.IsNull()) {
+      throw QueryException("A property-value description VALUE must not be null.");
+    }
+    if (DescriptionValueContainsNaN(value)) {
+      throw QueryException("A property-value description VALUE must not contain NaN.");
+    }
+  }
   auto current_db_name = current_db.db_acc_->get()->name();
 
   switch (desc_query->action_) {
@@ -7024,6 +7048,7 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                                 to_label_names = std::move(to_label_names),
                                 description = std::move(description),
                                 database_name = std::move(database_name),
+                                value = std::move(value),
                                 current_db_name](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable
                   -> std::optional<QueryHandlerResult> {
                 switch (kind) {
@@ -7043,6 +7068,9 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     break;
                   case storage::DescriptionTargetKind::PROPERTY:
                     for (auto const &prop : property_names) dba.SetPropertyDescription(prop, description);
+                    break;
+                  case storage::DescriptionTargetKind::PROPERTY_VALUE:
+                    for (auto const &prop : property_names) dba.SetPropertyValueDescription(prop, value, description);
                     break;
                   case storage::DescriptionTargetKind::DATABASE:
                     if (database_name != current_db_name) {
@@ -7076,6 +7104,7 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                                 from_label_names = std::move(from_label_names),
                                 to_label_names = std::move(to_label_names),
                                 database_name = std::move(database_name),
+                                value = std::move(value),
                                 current_db_name](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable
                   -> std::optional<QueryHandlerResult> {
                 switch (kind) {
@@ -7093,6 +7122,9 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     break;
                   case storage::DescriptionTargetKind::PROPERTY:
                     for (auto const &prop : property_names) dba.DeletePropertyDescription(prop);
+                    break;
+                  case storage::DescriptionTargetKind::PROPERTY_VALUE:
+                    for (auto const &prop : property_names) dba.DeletePropertyValueDescription(prop, value);
                     break;
                   case storage::DescriptionTargetKind::DATABASE:
                     if (database_name != current_db_name) {
@@ -7117,7 +7149,7 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
 
     case DescriptionQuery::Action::SHOW_ALL:
       return PreparedQuery{
-          .header = {"type", "label", "start_node_labels", "end_node_labels", "property", "description"},
+          .header = {"type", "label", "start_node_labels", "end_node_labels", "property", "value", "description"},
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [dba = *current_db.execution_db_accessor_,
                             db_name = current_db.db_acc_->get()->name(),
@@ -7143,6 +7175,8 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     return "edge type property";
                   case storage::DescriptionTargetKind::PROPERTY:
                     return "property";
+                  case storage::DescriptionTargetKind::PROPERTY_VALUE:
+                    return "property value";
                 }
               };
               auto ids_to_list = [&](auto const &ids) {
@@ -7172,6 +7206,7 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     prop_col = TypedValue{dba.PropertyToName(entry.property)};
                     break;
                   case storage::DescriptionTargetKind::PROPERTY:
+                  case storage::DescriptionTargetKind::PROPERTY_VALUE:
                     prop_col = TypedValue{dba.PropertyToName(entry.property)};
                     break;
                   case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
@@ -7194,6 +7229,7 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                                 std::move(start_col),
                                 std::move(end_col),
                                 std::move(prop_col),
+                                TypedValue{entry.value},
                                 TypedValue{entry.description}});
               }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));

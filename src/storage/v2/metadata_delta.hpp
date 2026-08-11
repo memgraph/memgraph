@@ -289,7 +289,7 @@ struct MetadataDelta {
 
   MetadataDelta(DescriptionSet /*tag*/, DescriptionTargetKind kind, std::vector<LabelId> labels, EdgeTypeId edge_type,
                 PropertyId property, std::string description, std::vector<LabelId> from_labels = {},
-                std::vector<LabelId> to_labels = {})
+                std::vector<LabelId> to_labels = {}, ExternalPropertyValue value = {})
       : action(Action::DESCRIPTION_SET),
         description_op{kind,
                        std::move(labels),
@@ -297,14 +297,21 @@ struct MetadataDelta {
                        property,
                        std::move(description),
                        std::move(from_labels),
-                       std::move(to_labels)} {}
+                       std::move(to_labels),
+                       std::move(value)} {}
 
   MetadataDelta(DescriptionDelete /*tag*/, DescriptionTargetKind kind, std::vector<LabelId> labels,
                 EdgeTypeId edge_type, PropertyId property, std::vector<LabelId> from_labels = {},
-                std::vector<LabelId> to_labels = {})
+                std::vector<LabelId> to_labels = {}, ExternalPropertyValue value = {})
       : action(Action::DESCRIPTION_DELETE),
-        description_op{kind, std::move(labels), edge_type, property, {}, std::move(from_labels), std::move(to_labels)} {
-  }
+        description_op{kind,
+                       std::move(labels),
+                       edge_type,
+                       property,
+                       {},
+                       std::move(from_labels),
+                       std::move(to_labels),
+                       std::move(value)} {}
 
   MetadataDelta(const MetadataDelta &) = delete;
   MetadataDelta(MetadataDelta &&) = delete;
