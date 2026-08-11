@@ -157,49 +157,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04]
-        arch: [amd]
-        additional_build_args: ['']
-        include:
-          - os: debian-12
-            arch: arm
-            additional_build_args: ''
-          - os: debian-13
-            arch: arm
-            additional_build_args: ''
-          - os: fedora-42
-            arch: arm
-            additional_build_args: ''
-          - os: ubuntu-24.04
-            arch: amd
-            additional_build_args: ''
-            build_docker_image: both
-          - os: ubuntu-24.04
-            arch: arm
-            additional_build_args: ''
-            build_docker_image: both
-          - os: ubuntu-24.04
-            arch: amd
-            additional_build_args: '--disable-jemalloc'
-            build_docker_image: debug
-          - os: ubuntu-24.04
-            arch: arm
-            additional_build_args: '--disable-jemalloc'
-            build_docker_image: debug
+        arch: [amd, arm]
+        additional_build_args: ['', '--disable-jemalloc']
     uses: ./.github/workflows/reusable_package.yaml
     with:
-      os: ${{ matrix.os }}
+      os: "ubuntu-24.04"
       arch: ${{ matrix.arch }}
       build_type: RelWithDebInfo
-      build_docker_image: ${{ matrix.build_docker_image || 'none' }}
+      build_docker_image: ${{ matrix.additional_build_args == '' && 'both' || 'debug' }}
       push_to_github: 'false'
       push_to_s3: 'true'
       print_output_url: true
       s3_dest_dir: "memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       additional_build_args: ${{ matrix.additional_build_args }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
-      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.arch == 'amd' && matrix.additional_build_args == '' && matrix.build_docker_image == 'both') && true || false }}
+      generate_sbom: ${{ (matrix.arch == 'amd' && matrix.additional_build_args == '') && true || false }}
       run_smoke_tests: true
+      package_smoke_os: "all"
       upload_debug_symbols: true
     secrets: inherit
 
