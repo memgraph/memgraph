@@ -1,0 +1,11 @@
+# A '*' under the termination prefix terminates on every node, so the walk returns the first hop and
+# stops there rather than carrying on as the end prefix does.
+query: >
+  MATCH (a:X {name: "A"})
+  CALL path.expand_config(a, {minHops: 0, maxHops: 2, labelFilter: '/*'})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["A", "B"]

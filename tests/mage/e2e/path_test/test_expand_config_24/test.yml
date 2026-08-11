@@ -1,0 +1,17 @@
+# The node-global mode spends a node on the first path that reaches it, so it returns one path per
+# reachable node -- a breadth-first tree. D is reachable at depth 2 through E and at depth 3 through C,
+# and only the shorter one comes back; the default relationship-scoped mode returns both, plus
+# A/E/D/C, for 7 rows against these 5.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {minHops: 0, maxHops: 3, uniqueness: 'NODE_GLOBAL'})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["A"]
+  - names: ["A", "B"]
+  - names: ["A", "E"]
+  - names: ["A", "B", "C"]
+  - names: ["A", "E", "D"]

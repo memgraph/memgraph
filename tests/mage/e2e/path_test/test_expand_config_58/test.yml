@@ -1,0 +1,10 @@
+# A step whose alternatives are all empty is a step with no filter, which would match everything -- the
+# same mistake as a blank step, so it is named the same way rather than silently widening the walk.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {maxHops: 2, labelFilter: 'Node,|,Node'})
+  YIELD result
+  RETURN result;
+
+exception_contains: >
+  Config key 'labelFilter' has a step with no alternatives at position 2

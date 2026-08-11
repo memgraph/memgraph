@@ -1,0 +1,17 @@
+# The walk recurses once per hop, so an unbounded upper bound is refused rather than left to exhaust
+# the stack and take the process down. Needs a chain longer than the cap to reach the guard at all.
+#
+# minHops is set past the end of the chain so that nothing is emitted on the way down: without it the
+# walk returns a path at every depth, which is quadratic in total length and exhausts the query's
+# memory before the depth guard is ever reached -- testing the wrong failure, and taking every test
+# that shares the server down with it.
+query: >
+  MATCH (a:Deep),(b:Deep) WHERE b.i = a.i + 1 CREATE (a)-[:R]->(b)
+  WITH count(*) AS _
+  MATCH (start:Deep {i: 0})
+  CALL path.expand_config(start, {relationshipFilter: ['R>'], bfs: false, minHops: 5001})
+  YIELD result
+  RETURN count(*);
+
+exception_contains: >
+  Path expansion exceeded the maximum depth of 5000

@@ -1,0 +1,12 @@
+# relationshipFilter and the hop bounds are read from the config map: the A-E-D route is
+# excluded because A-E is an OTHER relationship, and minHops drops the shorter prefixes.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {relationshipFilter: ['R>'], minHops: 2, maxHops: 3})
+  YIELD result
+  WITH result ORDER BY size(nodes(result)), [n IN nodes(result) | n.name]
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["A", "B", "C"]
+  - names: ["A", "B", "C", "D"]

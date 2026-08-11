@@ -1,0 +1,1 @@
+CREATE (a:Node {name: 'A'}), (b:Node {name: 'B'}), (c:Node {name: 'C'}), (d:Node {name: 'D'}), (e:Node {name: 'E'}), (f:Node {name: 'F'}), (g:Node {name: 'G'}) CREATE (a)-[:R]->(b), (b)-[:R]->(c), (c)-[:R]->(d), (a)-[:R]->(e), (e)-[:R]->(f), (f)-[:R]->(g);

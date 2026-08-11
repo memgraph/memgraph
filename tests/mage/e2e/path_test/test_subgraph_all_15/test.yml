@@ -1,0 +1,34 @@
+# denylistNodes with an incoming filter: '<R>' carries both markers and '<' wins, so only B->A is
+# followed out of A -- X hangs off an outgoing-only edge and must stay out. Denying C stops the walk
+# at B, and D becomes unreachable. Both A-B relationships are returned, because the cover reports
+# every relationship between returned nodes regardless of the direction the walk crossed.
+query: >
+  MATCH (c:C)
+  WITH collect(c) AS deny
+  MATCH (a:A)
+  CALL path.subgraph_all(a, {relationshipFilter: ['<R>'], denylistNodes: deny, maxHops: 5})
+  YIELD nodes, rels
+  UNWIND nodes AS node
+  WITH rels, node ORDER BY node.name
+  WITH collect(node) AS nodes, rels
+  UNWIND rels AS rel
+  WITH nodes, rel ORDER BY rel.seq
+  RETURN nodes, collect(rel) AS rels;
+
+output:
+  - nodes:
+      - labels:
+          - A
+        properties:
+          name: A
+      - labels:
+          - B
+        properties:
+          name: B
+    rels:
+      - label: R
+        properties:
+          seq: 1
+      - label: R
+        properties:
+          seq: 2

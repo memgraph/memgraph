@@ -1,0 +1,16 @@
+# The same as the breadth-first case: depth-first changes which path a node gets, never how many. Each
+# start is marked before any of them is walked, so A's hop to B is refused and B is returned as its own
+# root -- one row per reachable node, whichever driver runs.
+query: >
+  MATCH (n:Node) WHERE n.name IN ["A", "B", "C"]
+  WITH collect(n) AS starts
+  CALL path.expand_config(starts, {minHops: 0, maxHops: 3, uniqueness: 'NODE_GLOBAL', bfs: false})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["A"]
+  - names: ["B"]
+  - names: ["C"]
+  - names: ["C", "D"]

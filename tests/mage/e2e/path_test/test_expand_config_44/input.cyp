@@ -1,0 +1,1 @@
+CREATE (p1:Post {name:'P1'}), (r1:Reply {name:'R1'}), (a1:Admin {name:'A1'}), (p2:Post {name:'P2'}), (r2:Reply {name:'R2'}), (rb:Reply:Blocked {name:'RB'}) CREATE (p1)-[:NEXT]->(r1), (a1)-[:FROM]->(r1), (a1)-[:POSTED]->(p2), (p2)-[:NEXT]->(r2), (p1)-[:NEXT]->(rb);

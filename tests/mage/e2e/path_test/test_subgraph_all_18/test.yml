@@ -1,0 +1,11 @@
+# `sequence` reaches the subgraph procedures on the same terms, and the relationships returned are
+# those between the nodes it collected.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.subgraph_all(p, {maxHops: 4, sequence: 'Post, NEXT>, Reply, <FROM, Admin, POSTED>'})
+  YIELD nodes, rels
+  RETURN [n IN nodes | n.name] AS names, size(rels) AS rel_count;
+
+output:
+  - names: ["P1", "R1", "RB", "A1", "P2", "R2"]
+    rel_count: 5

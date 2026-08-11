@@ -1,0 +1,14 @@
+# A superseded deprecated key is not resolved at all, so a stale ID inside it cannot abort a query
+# whose result does not depend on it.
+query: >
+  MATCH (n) WHERE n.name IN ['B', 'C']
+  WITH collect(n) AS allow
+  MATCH (a:A)
+  CALL path.subgraph_nodes(a, {allowlistNodes: allow, whitelistNodes: [999999999], maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A
+  - name: B
+  - name: C

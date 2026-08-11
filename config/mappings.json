@@ -85,7 +85,7 @@
   "apoc.nodes.relationship.types": "nodes.relationship_types",
   "apoc.nodes.relationships.exist": "nodes.relationships_exist",
   "apoc.path.expand": "path.expand",
-  "apoc.path.expandConfig": "path.expand",
+  "apoc.path.expandConfig": "path.expand_config",
   "apoc.path.subgraphAll": "path.subgraph_all",
   "apoc.path.subgraphNodes": "path.subgraph_nodes",
   "apoc.path.combine": "path.combine",

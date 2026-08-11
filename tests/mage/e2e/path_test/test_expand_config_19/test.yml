@@ -1,0 +1,10 @@
+# A '/' terminator only ends the walk once the node could actually be returned. Below the lower hop
+# bound it is excluded but walked through, so the second terminator further along is still reached.
+query: >
+  MATCH (s:Node {name: "S"})
+  CALL path.expand_config(s, {labelFilter: ['/Term', 'X'], minLevel: 3, maxLevel: 4})
+  YIELD result
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["S", "T1", "X", "T2"]

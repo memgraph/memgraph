@@ -1,0 +1,11 @@
+# A blank `sequence` is no sequence at all, so the two filter keys still apply -- the alternative would
+# be to read it as an empty sequence and leave the walk with no step to expand by.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.expand_config(p, {minHops: 0, maxHops: 1, sequence: '   ', relationshipFilter: '<FROM'})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["P1"]
