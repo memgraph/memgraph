@@ -272,19 +272,24 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   // 3) Try to update databases
 
   auto &dbms = DBMS();
-  auto interpreter1 = this->NewInterpreter();
 
   // Update clean default db
-  auto default_db = dbms.Get();
-  const auto old_uuid = default_db->config().salient.uuid;
+  memgraph::utils::UUID old_uuid;
+  memgraph::storage::Storage *old_storage{};
+  {
+    auto default_db = dbms.Get();
+    old_uuid = default_db->config().salient.uuid;
+    old_storage = default_db->storage();
+  }
   const memgraph::utils::UUID new_uuid{/* random */};
   const memgraph::storage::SalientConfig &config{.name = "memgraph", .uuid = new_uuid};
   auto new_default = dbms.Update(config);
   ASSERT_TRUE(new_default.has_value());
   ASSERT_NE(new_uuid, old_uuid);
-  ASSERT_EQ(default_db->storage(), new_default.value()->storage());
+  ASSERT_EQ(old_storage, new_default.value()->storage());
 
   // Add node to default
+  auto interpreter1 = this->NewInterpreter();
   RunQuery(interpreter1, "CREATE (:Node)");
 
   // Fail to update dirty default db
