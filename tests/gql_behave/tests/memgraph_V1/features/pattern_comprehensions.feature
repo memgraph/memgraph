@@ -1171,3 +1171,43 @@ Feature: Pattern comprehensions
             | p |
             | 0 |
             | 1 |
+
+    # The correlation to the yielded `name` lives in the comprehension's own node property map, not in its WHERE. The
+    # splice decision reads only the comprehension's filter and result expression, so this position was invisible: the
+    # RollUpApply went below the CallProcedure, `name` was still unwritten when the branch ran, and the query returned
+    # no rows. Same defect as the WHERE-borne scenario above, one AST position over.
+    Scenario: Pattern comprehension in a CALL YIELD WHERE correlating through a pattern property
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Proc {name: 'mg.procedures'})-[:R]->(:Target)
+            """
+        When executing query:
+            """
+            CALL mg.procedures() YIELD name
+            WHERE size([(p:Proc {name: name})-[:R]->(q) | q]) > 0
+            RETURN name
+            """
+        Then the result should be:
+            | name            |
+            | 'mg.procedures' |
+
+    # The third position: the correlation is reachable only through a *nested* comprehension's WHERE. The symbol
+    # collector stops at a nested comprehension's pattern, so `name` never surfaced on the outer matching and the whole
+    # pair was spliced below the CallProcedure. `head` rather than `size` on the outer list, so the value actually
+    # depends on the inner count - `size` of the outer list is 1 either way and would not discriminate.
+    Scenario: Pattern comprehension in a CALL YIELD WHERE correlating through a nested comprehension
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Proc {name: 'mg.procedures'})-[:R]->(:Target)
+            """
+        When executing query:
+            """
+            CALL mg.procedures() YIELD name
+            WHERE head([(p:Proc)-[:R]->(q) | size([(r:Proc)-[:R]->(s) WHERE r.name = name | s])]) > 0
+            RETURN name
+            """
+        Then the result should be:
+            | name            |
+            | 'mg.procedures' |

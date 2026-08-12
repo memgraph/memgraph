@@ -1170,9 +1170,15 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
   matching.result_expr->MapTo(symbol_table_.at(op));
   matching.result_symbol = symbol_table_.at(op);
 
-  // Compute external symbols: symbols used in filter/result that are NOT bound within the comprehension.
+  // Compute external symbols: every symbol the comprehension reads that is NOT bound within it.
   // External symbols are references to variables from outer scope (e.g., FOREACH variable `x` in
   // `[(a)-[r]->(b) WHERE a.id = x | b]`).
+  //
+  // This set is what the planner uses to decide *when* a comprehension may be drained (`DepsSatisfied`), *where* it
+  // must be spliced (`YieldDependentComprehensions`), and what counts as bound inside its own branch
+  // (`PlanPatternComprehension`). It must therefore cover every position an outer symbol can appear in, not just the
+  // two obvious expressions - a miss there is a RollUpApply spliced below the operator that writes the symbol, which
+  // then reads an unwritten frame slot.
   std::unordered_set<Symbol> used_symbols;
 
   // Collect symbols from filter expression
@@ -1186,6 +1192,27 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
   UsedSymbolsCollector result_symbol_collector(symbol_table_);
   op.resultExpr_->Accept(result_symbol_collector);
   used_symbols.insert(result_symbol_collector.symbols_.begin(), result_symbol_collector.symbols_.end());
+
+  // The two collectors above never see the comprehension's own pattern, so an outer symbol read from a node/edge
+  // property map or a variable-length bound - `[(p {name: name})-->(q) | q]` - would be missed. `AddMatching` has
+  // already routed those references into the property filters' `used_symbols`, so take them from there.
+  for (const auto &filter : matching.filters) {
+    used_symbols.insert(filter.used_symbols.begin(), filter.used_symbols.end());
+  }
+
+  // `UsedSymbolsCollector::PreVisit(PatternComprehension)` visits only the nested comprehension's pattern, so a symbol
+  // read solely by a nested comprehension's own filter or result expression is missed too. A nested matching's
+  // `external_symbols` is computed by this same block, so it is already complete - and already excludes what the
+  // nested comprehension binds itself.
+  auto collect_nested_external = [&used_symbols](const PatternComprehensionMatchings &nested) {
+    for (const auto &nested_pc : nested) {
+      used_symbols.insert(nested_pc.external_symbols.begin(), nested_pc.external_symbols.end());
+    }
+  };
+  collect_nested_external(matching.nested_pattern_comprehensions);
+  for (const auto &filter : matching.filters) {
+    collect_nested_external(filter.pattern_comprehension_matchings);
+  }
 
   // Collect symbols bound by nested pattern comprehensions.
   // These should NOT be treated as external symbols - they are bound within their respective nested PCs.

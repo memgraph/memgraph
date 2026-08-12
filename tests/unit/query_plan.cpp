@@ -5705,6 +5705,9 @@ TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolStaysAboveCallProce
   // belongs above the CallProcedure, below the Filter. (With a preceding clause supplying more than one input row the
   // slot is stale from the previous row rather than unwritten - same defect, order-dependent instead of empty.)
   //
+  // This correlation is in the comprehension's WHERE. The two tests below cover the other two positions an outer symbol
+  // can be read from, which are the ones that were missed.
+  //
   // Expected chain (bottom-up): Once -> CallProcedure -> RollUpApply -> Filter -> Produce
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
@@ -5730,6 +5733,78 @@ TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolStaysAboveCallProce
   auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
   ASSERT_NE(rollup, nullptr) << "the RollUpApply must sit between the CallProcedure and the Filter - it reads `field`, "
                                 "which the CallProcedure writes, and the Filter reads its result";
+  EXPECT_NE(dynamic_cast<memgraph::query::plan::CallProcedure *>(rollup->input_.get()), nullptr)
+      << "the CallProcedure that binds `field` belongs below the RollUpApply";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolInPatternPropertyStaysAboveCallProcedure) {
+  // Test CALL proc() YIELD field WHERE size([(a {prop: field})-[e]->(b) | b]) > 0 RETURN field
+  // Same defect as the test above, reached from the comprehension's own pattern instead of its WHERE. The two symbol
+  // sets the splice decision reads are built from the comprehension's filter and result expression, so a correlation
+  // living in a node property map, an edge property map or a variable-length bound was invisible: the RollUpApply went
+  // below the CallProcedure and read an unwritten `field`, silently matching nothing. `external_symbols` now takes the
+  // pattern's filters in as well.
+  FakeDbAccessor dba;
+
+  auto *inner_node = NODE("a");
+  std::get<0>(inner_node->properties_)[this->storage.GetPropertyIx("prop")] = IDENT("field");
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(inner_node, EDGE("e", EdgeAtom::Direction::OUT), NODE("b")), nullptr, IDENT("b"));
+
+  auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
+  ast_call->procedure_name_ = "proc";
+  ast_call->result_fields_ = {"field"};
+  ast_call->result_identifiers_ = {IDENT("field")};
+  ast_call->where_ = WHERE(GREATER(FN("size", pattern_comp), LITERAL(0)));
+
+  auto *query = QUERY(SINGLE_QUERY(ast_call, RETURN("field")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr) << "expected Produce at the root";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "expected the YIELD ... WHERE Filter";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "a correlation in the comprehension's pattern properties must place the RollUpApply "
+                                "above the CallProcedure, exactly as one in its WHERE does";
+  EXPECT_NE(dynamic_cast<memgraph::query::plan::CallProcedure *>(rollup->input_.get()), nullptr)
+      << "the CallProcedure that binds `field` belongs below the RollUpApply";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolInNestedComprehensionStaysAboveCallProcedure) {
+  // Test CALL proc() YIELD field WHERE size([(a)-[e]->(b) | size([(c)-[e2]->(d) WHERE d.prop = field | d])]) > 0 ...
+  // The third position: the correlation is in a *nested* comprehension's WHERE. The symbol collector stops at a nested
+  // comprehension's pattern and never walks its filter or result expression, so `field` never surfaced on the outer
+  // matching and the whole outer+nested pair was spliced below the CallProcedure. The outer matching now unions in each
+  // nested matching's own `external_symbols`, which that same computation has already made complete.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *nested_comp = PATTERN_COMPREHENSION(nullptr,
+                                            PATTERN(NODE("c"), EDGE("e2", EdgeAtom::Direction::OUT), NODE("d")),
+                                            WHERE(EQ(PROPERTY_LOOKUP(dba, "d", prop), IDENT("field"))),
+                                            IDENT("d"));
+  auto *outer_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("a"), EDGE("e", EdgeAtom::Direction::OUT), NODE("b")), nullptr, FN("size", nested_comp));
+
+  auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
+  ast_call->procedure_name_ = "proc";
+  ast_call->result_fields_ = {"field"};
+  ast_call->result_identifiers_ = {IDENT("field")};
+  ast_call->where_ = WHERE(GREATER(FN("size", outer_comp), LITERAL(0)));
+
+  auto *query = QUERY(SINGLE_QUERY(ast_call, RETURN("field")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr) << "expected Produce at the root";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "expected the YIELD ... WHERE Filter";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "a correlation reachable only through a nested comprehension must still place the "
+                                "outer RollUpApply above the CallProcedure";
   EXPECT_NE(dynamic_cast<memgraph::query::plan::CallProcedure *>(rollup->input_.get()), nullptr)
       << "the CallProcedure that binds `field` belongs below the RollUpApply";
 }

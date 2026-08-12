@@ -1467,8 +1467,13 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     return impl::CollectPatternComprehensionSymbols(branch_clauses, symbol_table);
   }
 
-  /// Of @p candidates, the comprehensions whose pattern or filter reads one of @p result_symbols - a symbol the clause
-  /// binds itself. They cannot be spliced below the operator that writes it.
+  /// Of @p candidates, the comprehensions that read one of @p result_symbols - a symbol the clause binds itself. They
+  /// cannot be spliced below the operator that writes it.
+  ///
+  /// Correctness rests entirely on `external_symbols` being complete, which is why it is built from the pattern's
+  /// filters and from nested matchings as well as from the two obvious expressions - see the comment at its
+  /// computation in `PatternComprehensionCollector::PreVisit`. A symbol missing from there is a comprehension spliced
+  /// below the operator that writes it, reading an unwritten frame slot: a silent wrong answer, not an error.
   static std::unordered_set<Symbol> YieldDependentComprehensions(
       const std::unordered_set<Symbol> &candidates,
       const std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions,
@@ -1493,7 +1498,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     auto ready = [&](const Symbol &sym) {
       return !symbols_bound_by_query_part.contains(sym) || bound_symbols.contains(sym);
     };
-    // external_symbols come from the filter or result expression, expansion_symbols from the pattern.
+    // external_symbols is every symbol the comprehension reads from outside itself - its filter and result expression,
+    // its pattern's property maps and bounds, and its nested comprehensions; expansion_symbols are the pattern's own.
     return std::ranges::all_of(pc.external_symbols, ready) && std::ranges::all_of(pc.expansion_symbols, ready);
   }
 
