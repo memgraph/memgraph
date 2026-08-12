@@ -121,6 +121,18 @@ TEST_F(VectorEdgeIndexTest, SimpleAddEdgeTest) {
   EXPECT_EQ(all_vector_indices.size(), 1);
 }
 
+TEST_F(VectorEdgeIndexTest, VectorIndexedPropertiesRespectsEdgeTypeFilter) {
+  this->CreateEdgeIndex(2, 10);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  auto [f1, t1, indexed] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+  auto [f2, t2, other] = this->CreateEdge(acc.get(), test_property, property_value, "other_edge_type");
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  EXPECT_EQ(indexed.VectorIndexedProperties(), (std::vector<PropertyId>{acc->NameToProperty(test_property.data())}));
+  EXPECT_TRUE(other.VectorIndexedProperties().empty());
+}
+
 TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {
   this->CreateEdgeIndex(2, 10);
   auto acc = this->storage->Access(memgraph::storage::WRITE);

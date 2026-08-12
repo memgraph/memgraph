@@ -201,6 +201,8 @@ struct VectorIndexActiveIndices {
   virtual std::vector<VectorIndexSpec> ListIndices() const = 0;
   virtual std::vector<VectorIndexInfo> ListVectorIndicesInfo() const = 0;
   virtual std::optional<uint64_t> ApproximateNodesVectorCount(std::string_view index_name) const = 0;
+  /// Properties of a vertex carrying `labels` that are covered by a vector index.
+  virtual std::vector<PropertyId> IndexedProperties(std::span<LabelId const> labels) const = 0;
 };
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -257,6 +259,7 @@ class VectorIndex {
     std::vector<VectorIndexSpec> ListIndices() const override;
     std::vector<VectorIndexInfo> ListVectorIndicesInfo() const override;
     std::optional<uint64_t> ApproximateNodesVectorCount(std::string_view index_name) const override;
+    std::vector<PropertyId> IndexedProperties(std::span<LabelId const> labels) const override;
 
    private:
     std::shared_ptr<VectorIndexContainer const> index_container_;

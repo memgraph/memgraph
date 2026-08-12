@@ -961,6 +961,11 @@ add_unit_test(vector_edge_index
     LINK_TARGETS mg::storage ddl_abort_helpers
 )
 
+add_unit_test(vector_index_return_omission
+    SOURCES vector_index_return_omission.cpp
+    LINK_TARGETS mg-query mg-glue disk_test_utils
+)
+
 add_unit_test(text_index
     SOURCES text_index.cpp
     LINK_TARGETS mg::storage ddl_abort_helpers

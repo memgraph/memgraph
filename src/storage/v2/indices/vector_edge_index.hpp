@@ -85,6 +85,8 @@ struct VectorEdgeIndexActiveIndices {
   virtual std::vector<VectorEdgeIndexSpec> ListIndices() const = 0;
   virtual std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const = 0;
   virtual std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const = 0;
+  /// Properties of an edge of `edge_type` that are covered by a vector edge index.
+  virtual std::vector<PropertyId> IndexedProperties(EdgeTypeId edge_type) const = 0;
 };
 
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
@@ -172,6 +174,7 @@ class VectorEdgeIndex {
     std::vector<VectorEdgeIndexSpec> ListIndices() const override;
     std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const override;
     std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const override;
+    std::vector<PropertyId> IndexedProperties(EdgeTypeId edge_type) const override;
 
    private:
     std::shared_ptr<VectorEdgeIndexContainer const> index_container_;

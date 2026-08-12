@@ -73,6 +73,13 @@ bool GetDebugQueryPlans();
 bool GetStorageGcAggressive();
 
 /**
+ * @brief Get whether vector-index-backed properties are omitted from returned graph objects
+ *
+ * @return bool
+ */
+bool GetOmitVectorIndexPropertiesOnReturn();
+
+/**
  * @brief Get the current timezone object
  *
  * @return const std::chrono::time_zone*

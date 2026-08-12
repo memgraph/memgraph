@@ -793,4 +793,13 @@ std::optional<uint64_t> VectorIndex::ActiveIndices::ApproximateNodesVectorCount(
   return it->second->mg_index.index.size();
 }
 
+std::vector<PropertyId> VectorIndex::ActiveIndices::IndexedProperties(std::span<LabelId const> labels) const {
+  if (!index_container_) return {};
+  std::vector<PropertyId> result;
+  for (const auto &[_, item_ptr] : *index_container_) {
+    if (item_ptr->spec.label_filter.Matches(labels)) result.push_back(item_ptr->spec.property);
+  }
+  return result;
+}
+
 }  // namespace memgraph::storage
