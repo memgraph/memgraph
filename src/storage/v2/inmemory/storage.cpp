@@ -2501,7 +2501,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
   }
   try {
     if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(
-            in_memory->vertices_.access(), label, property, std::nullopt, {}, std::move(cancel_check));
+            in_memory->vertices_.access(), label, property, std::nullopt, {}, cancel_check);
         !validation_result.has_value()) {
       (void)existence_constraints->DropConstraint(label, property);
       return std::unexpected{StorageExistenceConstraintDefinitionError{validation_result.error()}};
@@ -2565,7 +2565,7 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
       std::invoke([&]() -> std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> {
         try {
           auto created = mem_unique_constraints->CreateConstraint(
-              label, properties, in_memory->vertices_.access(), std::nullopt, {}, std::move(cancel_check));
+              label, properties, in_memory->vertices_.access(), std::nullopt, {}, cancel_check);
           if (!created) {
             return std::unexpected{StorageUniqueConstraintDefinitionError{created.error()}};
           }
@@ -2633,7 +2633,7 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
   }
   try {
     if (auto validation_result = TypeConstraints::ValidateVerticesOnConstraint(
-            in_memory->vertices_.access(), label, property, kind, {}, std::move(cancel_check));
+            in_memory->vertices_.access(), label, property, kind, {}, cancel_check);
         !validation_result.has_value()) {
       (void)type_constraints->DropConstraint(label, property, kind);
       return std::unexpected{StorageTypeConstraintDefinitionError{validation_result.error()}};
