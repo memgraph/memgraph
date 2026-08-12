@@ -52,6 +52,30 @@ struct WalDeltaData;
 /// True iff this pre-v15 delta marks the end of its implicit transaction.
 bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta);
 
+/// What a finalized WAL file records about its own contents. Back-patched into the header by WalFile::FinalizeWal,
+/// so that readers needing only this much don't have to parse every delta to derive it.
+struct WalSummary {
+  uint64_t from_timestamp;
+  uint64_t to_timestamp;
+  /// Deltas belonging to transactions the writer completed, always positive. A file with
+  /// no complete transaction has nothing to summarize and so carries no summary at all rather than one saying zero,
+  /// which is also how the unwritten placeholder is recognised.
+  uint64_t num_deltas;
+};
+
+/// Everything a WAL file states about itself up front, readable without touching the delta region.
+struct WalHeader {
+  uint64_t offset_metadata;
+  uint64_t offset_deltas;
+
+  std::string uuid;
+  std::string epoch_id;
+  uint64_t seq_num;
+  /// Absent while the file is still being written, and for files written before kWalHeader. Deriving the same facts for
+  /// such a file means parsing its deltas with ReadWalInfo.
+  std::optional<WalSummary> summary;
+};
+
 /// Structure used to hold information about a WAL.
 struct WalInfo {
   uint64_t offset_metadata;
@@ -468,9 +492,20 @@ inline bool IsWalDeltaDataTransactionEnd(const WalDeltaData &delta, const uint64
   return std::holds_alternative<WalTransactionEnd>(delta.data_);
 }
 
-/// Function used to read information about the WAL file.
+/// Function used to read the WAL file's header, without parsing the deltas.
+/// @throw RecoveryFailure
+WalHeader ReadWalHeader(const std::filesystem::path &path);
+
+/// Function used to read information about the WAL file. Always parses every delta, verifying each transaction's CRC.
 /// @throw RecoveryFailure
 WalInfo ReadWalInfo(const std::filesystem::path &path);
+
+/// The same information, read the cheapest way the file allows: taken from the summary of a finalized file, and
+/// derived by parsing the deltas of one that has none - a file the writer never finalized, or one predating kWalHeader.
+/// Prefer this when the information is all that's wanted; a summary is trusted rather than checked against the deltas.
+/// A caller that already read the header can hand it over to save reading it again.
+/// @throw RecoveryFailure
+WalInfo ReadWalContents(const std::filesystem::path &path, std::optional<WalHeader> known_header = std::nullopt);
 
 /// Function used to read the WAL delta header. The function returns the delta
 /// timestamp.
@@ -577,9 +612,6 @@ class WalFile {
   WalFile(const std::filesystem::path &wal_directory, utils::UUID const &uuid, const std::string_view epoch_id,
           SalientConfig::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
           utils::FileRetainer *file_retainer);
-  WalFile(std::filesystem::path current_wal_path, SalientConfig::Items items, NameIdMapper *name_id_mapper,
-          uint64_t seq_num, uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
-          utils::FileRetainer *file_retainer);
 
   WalFile(const WalFile &) = delete;
   WalFile(WalFile &&) = delete;
@@ -640,6 +672,12 @@ class WalFile {
   void UpdateStats(uint64_t timestamp);
 
  private:
+  /// Fills in the summary of what was actually written, over the placeholders the constructor reserved.
+  void WriteSummary();
+
+  /// Bytes the summary region occupies: three values plus its own CRC trailer, each a marker and a uint64.
+  static constexpr uint64_t kSummaryBytes = 4 * (sizeof(Marker) + sizeof(uint64_t));
+
   SalientConfig::Items items_;
   NameIdMapper *name_id_mapper_;
   Encoder<utils::OutputFile> wal_;
@@ -647,7 +685,11 @@ class WalFile {
   uint64_t from_timestamp_;
   uint64_t to_timestamp_;
   uint64_t count_;
+  // count_ as of the last completed transaction, i.e. excluding a transaction still being appended.
+  uint64_t num_deltas_{0};
   uint64_t seq_num_;
+  // Where FinalizeWal writes the summary. Deliberately outside the CRC-protected metadata section above it.
+  uint64_t offset_summary_{0};
 
   utils::FileRetainer *file_retainer_;
 };

@@ -13831,11 +13831,14 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!item.is_regular_file()) continue;
     try {
-      auto info = ReadWalInfo(item.path());
-      if (info.uuid != uuid) {
+      // Only the uuid decides whether the file is deleted here, so the header is read on its own first; a file that
+      // stays is then described without reading it again.
+      auto header = ReadWalHeader(item.path());
+      if (header.uuid != uuid) {
         file_retainer->DeleteFile(item.path());
         continue;
       }
+      auto const info = ReadWalContents(item.path(), std::move(header));
       wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
       // We want to find out what happened with the corrupted snapshot file, not delete it
