@@ -20,6 +20,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_manifest.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
@@ -44,10 +45,18 @@ namespace memgraph::storage {
 ///
 /// Prototype scope: bool, integer, double, string, temporal data, enum and point. The
 /// remaining property types (zoned temporal, list, map, vector) are not encodable yet and
-/// will assert.
+/// throw `UnsupportedType`.
 class ManifestPropertyStore {
  public:
   using PropertyPair = std::pair<PropertyId, PropertyValue>;
+
+  /// Thrown when a value's property type has no encoding yet. Thrown before the record is
+  /// touched, so the store is left as it was.
+  class UnsupportedType : public utils::BasicException {
+   public:
+    using BasicException::BasicException;
+    SPECIALIZE_GET_EXCEPTION_NAME(UnsupportedType)
+  };
 
   ManifestPropertyStore() = default;
 

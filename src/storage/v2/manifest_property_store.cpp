@@ -15,6 +15,7 @@
 #include <cstring>
 #include <limits>
 #include <span>
+#include <sstream>
 #include <string>
 
 #include "utils/logging.hpp"
@@ -62,8 +63,11 @@ auto StoredTypeOf(PropertyValue const &value) -> StoredType {
     case PropertyValueType::Point3d:
       return StoredType::Fixed(
           PropertyStoreType::POINT, kPoint3dWidth, static_cast<uint32_t>(value.ValuePoint3d().crs()));
-    default:
-      LOG_FATAL("ManifestPropertyStore cannot yet encode this property type");
+    default: {
+      auto message = std::ostringstream{};
+      message << "ManifestPropertyStore cannot yet encode a " << value.type() << " property";
+      throw ManifestPropertyStore::UnsupportedType{std::move(message).str()};
+    }
   }
 }
 

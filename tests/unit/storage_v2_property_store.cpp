@@ -13,12 +13,17 @@
 #include <gtest/gtest.h>
 
 #include <gflags/gflags.h>
+#include <algorithm>
 #include <limits>
+#include <map>
 #include <random>
+#include <set>
+#include <string>
 #include <vector>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/manifest_property_store.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
@@ -49,7 +54,259 @@ auto MakeMap(Ts &&...values) -> PropertyValue
        std::forward<std::tuple_element_t<1, std::decay_t<Ts>>>(std::get<1>(std::forward<Ts>(values)))}...}};
 };
 
+/** The shapes every `ManifestPropertyStore` under test shares.
+ *
+ * A record names its shape by an id the registry that interned it resolves, so stores that
+ * are compared, moved between or read after a move have to share one registry. Shapes are
+ * interned once and never removed, so one registry for the whole suite costs nothing.
+ */
+auto Registry() -> ManifestRegistry & {
+  static auto registry = ManifestRegistry{};
+  return registry;
+}
+
+/** `PropertyStore` behind the interface the suite is written against. */
+class StoreUnderTest {
+ public:
+  static constexpr auto kName = "PropertyStore";
+
+  auto SetProperty(PropertyId property, PropertyValue const &value) -> bool {
+    return store_.SetProperty(property, value);
+  }
+
+  auto GetProperty(PropertyId property) const -> PropertyValue { return store_.GetProperty(property); }
+
+  auto HasProperty(PropertyId property) const -> bool { return store_.HasProperty(property); }
+
+  auto HasAllProperties(std::set<PropertyId> const &properties) const -> bool {
+    return store_.HasAllProperties(properties);
+  }
+
+  auto HasAllPropertyValues(std::vector<PropertyValue> const &values) const -> bool {
+    return store_.HasAllPropertyValues(values);
+  }
+
+  auto IsPropertyEqual(PropertyId property, PropertyValue const &value) const -> bool {
+    return store_.IsPropertyEqual(property, value);
+  }
+
+  auto Properties() const -> std::map<PropertyId, PropertyValue> { return store_.Properties(); }
+
+  auto PropertiesOfTypes(std::span<PropertyStoreType const> types) const -> std::vector<PropertyId> {
+    return store_.PropertiesOfTypes(types);
+  }
+
+  auto GetPropertyOfTypes(PropertyId property, std::span<PropertyStoreType const> types) const
+      -> std::optional<PropertyValue> {
+    return store_.GetPropertyOfTypes(property, types);
+  }
+
+  auto GetExtendedPropertyType(PropertyId property) const -> ExtendedPropertyType {
+    return store_.GetExtendedPropertyType(property);
+  }
+
+  auto ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties) const
+      -> std::vector<PropertyValue> {
+    return store_.ExtractPropertyValuesMissingAsNull(ordered_properties);
+  }
+
+  auto ArePropertiesEqual(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue const> values,
+                          std::span<std::size_t const> position_lookup) const -> std::vector<bool> {
+    return store_.ArePropertiesEqual(ordered_properties, values, position_lookup);
+  }
+
+  auto InitProperties(std::map<PropertyId, PropertyValue> const &properties) -> bool {
+    return store_.InitProperties(properties);
+  }
+
+  auto InitProperties(std::vector<std::pair<PropertyId, PropertyValue>> properties) -> bool {
+    return store_.InitProperties(std::move(properties));
+  }
+
+  auto ClearProperties() -> bool { return store_.ClearProperties(); }
+
+  /// Encoded bytes the record holds.
+  auto BufferSize() const -> size_t { return store_.StringBuffer().size(); }
+
+ private:
+  PropertyStore store_;
+};
+
+/** How `PropertyStore` classifies a value, for the store that keeps the type in its shape. */
+auto StoreTypeOf(PropertyValue const &value) -> PropertyStoreType {
+  switch (value.type()) {
+    case PropertyValueType::Null:
+      return PropertyStoreType::NONE;
+    case PropertyValueType::Bool:
+      return PropertyStoreType::BOOL;
+    case PropertyValueType::Int:
+      return PropertyStoreType::INT;
+    case PropertyValueType::Double:
+      return PropertyStoreType::DOUBLE;
+    case PropertyValueType::String:
+      return PropertyStoreType::STRING;
+    case PropertyValueType::List:
+    case PropertyValueType::IntList:
+    case PropertyValueType::DoubleList:
+    case PropertyValueType::NumericList:
+      return PropertyStoreType::LIST;
+    case PropertyValueType::Map:
+      return PropertyStoreType::MAP;
+    case PropertyValueType::TemporalData:
+      return PropertyStoreType::TEMPORAL_DATA;
+    case PropertyValueType::ZonedTemporalData:
+      return PropertyStoreType::ZONED_TEMPORAL_DATA;
+    case PropertyValueType::Enum:
+      return PropertyStoreType::ENUM;
+    case PropertyValueType::Point2d:
+    case PropertyValueType::Point3d:
+      return PropertyStoreType::POINT;
+    case PropertyValueType::VectorIndexId:
+      return PropertyStoreType::VECTOR;
+  }
+}
+
+/** `ManifestPropertyStore` behind the same interface.
+ *
+ * The registry argument every call takes is supplied here. What the manifest store has no
+ * operation of its own for is built out of the ones it has, so a test measures the encoding
+ * rather than the size of the API surface.
+ */
+class ManifestStoreUnderTest {
+ public:
+  static constexpr auto kName = "ManifestPropertyStore";
+
+  auto SetProperty(PropertyId property, PropertyValue const &value) -> bool {
+    return store_.SetProperty(Registry(), property, value);
+  }
+
+  auto GetProperty(PropertyId property) const -> PropertyValue { return store_.GetProperty(Registry(), property); }
+
+  auto HasProperty(PropertyId property) const -> bool { return store_.HasProperty(Registry(), property); }
+
+  auto HasAllProperties(std::set<PropertyId> const &properties) const -> bool {
+    return std::ranges::all_of(properties, [this](PropertyId property) { return HasProperty(property); });
+  }
+
+  auto HasAllPropertyValues(std::vector<PropertyValue> const &values) const -> bool {
+    auto const properties = Properties();
+    return std::ranges::all_of(values, [&properties](PropertyValue const &value) {
+      return std::ranges::any_of(properties, [&value](auto const &stored) { return stored.second == value; });
+    });
+  }
+
+  auto IsPropertyEqual(PropertyId property, PropertyValue const &value) const -> bool {
+    return GetProperty(property) == value;
+  }
+
+  auto Properties() const -> std::map<PropertyId, PropertyValue> {
+    auto properties = std::map<PropertyId, PropertyValue>{};
+    for (auto &[property, value] : store_.Properties(Registry())) {
+      properties.emplace(property, std::move(value));
+    }
+    return properties;
+  }
+
+  auto PropertiesOfTypes(std::span<PropertyStoreType const> types) const -> std::vector<PropertyId> {
+    auto matching = std::vector<PropertyId>{};
+    for (auto const &[property, value] : Properties()) {
+      if (std::ranges::find(types, StoreTypeOf(value)) != types.end()) matching.push_back(property);
+    }
+    return matching;
+  }
+
+  auto GetPropertyOfTypes(PropertyId property, std::span<PropertyStoreType const> types) const
+      -> std::optional<PropertyValue> {
+    auto value = GetProperty(property);
+    if (value.IsNull() || std::ranges::find(types, StoreTypeOf(value)) == types.end()) return std::nullopt;
+    return value;
+  }
+
+  auto GetExtendedPropertyType(PropertyId property) const -> ExtendedPropertyType {
+    return ExtendedPropertyType{GetProperty(property)};
+  }
+
+  auto ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties) const
+      -> std::vector<PropertyValue> {
+    auto values = std::vector<PropertyValue>{};
+    values.reserve(ordered_properties.size());
+    for (auto const &path : ordered_properties) values.push_back(ReadPath(path));
+    return values;
+  }
+
+  auto ArePropertiesEqual(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue const> values,
+                          std::span<std::size_t const> position_lookup) const -> std::vector<bool> {
+    auto results = std::vector<bool>{};
+    results.reserve(ordered_properties.size());
+    for (size_t i = 0; i != ordered_properties.size(); ++i) {
+      results.push_back(ReadPath(ordered_properties[i]) == values[position_lookup[i]]);
+    }
+    return results;
+  }
+
+  auto InitProperties(std::map<PropertyId, PropertyValue> const &properties) -> bool {
+    return store_.InitProperties(Registry(), properties);
+  }
+
+  auto InitProperties(std::vector<std::pair<PropertyId, PropertyValue>> properties) -> bool {
+    std::ranges::sort(properties, {}, &std::pair<PropertyId, PropertyValue>::first);
+    return store_.InitProperties(Registry(), properties);
+  }
+
+  auto ClearProperties() -> bool { return store_.ClearProperties(); }
+
+  auto BufferSize() const -> size_t { return store_.buffer_size(); }
+
+ private:
+  /// The value at a nested path, or Null if any step of it is missing.
+  auto ReadPath(PropertyPath const &path) const -> PropertyValue {
+    auto const value = GetProperty(path.front());
+    if (path.size() == 1) return value;
+    auto const *nested = ReadNestedPropertyValue(value, path.as_span().subspan(1));
+    return nested == nullptr ? PropertyValue{} : *nested;
+  }
+
+  ManifestPropertyStore store_;
+};
+
+using StoreTypes = testing::Types<StoreUnderTest, ManifestStoreUnderTest>;
+
+struct StoreNames {
+  template <typename TStore>
+  static auto GetName(int) -> std::string {
+    return TStore::kName;
+  }
+};
+
 }  // end namespace
+
+template <typename TStore>
+class PropertyStoreTest : public testing::Test {};
+
+TYPED_TEST_SUITE(PropertyStoreTest, StoreTypes, StoreNames);
+
+namespace {
+
+/// Runs a test body against one store, reporting the property types the manifest store cannot
+/// encode yet as skipped rather than failed.
+template <typename TBody>
+void RunOrSkip(TBody body) {
+  try {
+    body();
+  } catch (ManifestPropertyStore::UnsupportedType const &unsupported) {
+    GTEST_SKIP() << unsupported.what();
+  }
+}
+
+}  // end namespace
+
+/// A test written once against `TStore` and run against every store.
+#define STORE_TYPED_TEST(name)                                              \
+  template <typename TStore>                                                \
+  void name##Body();                                                        \
+  TYPED_TEST(PropertyStoreTest, name) { RunOrSkip(name##Body<TypeParam>); } \
+  template <typename TStore>                                                \
+  void name##Body()
 
 ZonedTemporalData GetSampleZonedTemporal() {
   const auto common_duration =
@@ -98,7 +355,8 @@ const PropertyValue kSampleValues[] = {
     PropertyValue(std::vector<std::variant<int, double>>{33, 0.0, -33.33}),
 };
 
-void TestIsPropertyEqual(const PropertyStore &store, PropertyId property, const PropertyValue &value) {
+template <typename TStore>
+void TestIsPropertyEqual(const TStore &store, PropertyId property, const PropertyValue &value) {
   ASSERT_TRUE(store.IsPropertyEqual(property, value));
   for (const auto &sample : kSampleValues) {
     if (sample == value) {
@@ -109,8 +367,8 @@ void TestIsPropertyEqual(const PropertyStore &store, PropertyId property, const 
   }
 }
 
-TEST(PropertyStore, Simple) {
-  PropertyStore props;
+STORE_TYPED_TEST(Simple) {
+  TStore props;
   auto prop = PropertyId::FromInt(42);
   auto value = PropertyValue(42);
   ASSERT_TRUE(props.SetProperty(prop, value));
@@ -126,8 +384,8 @@ TEST(PropertyStore, Simple) {
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
-TEST(PropertyStore, SimpleLarge) {
-  PropertyStore props;
+STORE_TYPED_TEST(SimpleLarge) {
+  TStore props;
   auto prop = PropertyId::FromInt(42);
   {
     auto value = PropertyValue(std::string(10'000, 'a'));
@@ -153,8 +411,8 @@ TEST(PropertyStore, SimpleLarge) {
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
-TEST(PropertyStore, EmptySetToNull) {
-  PropertyStore props;
+STORE_TYPED_TEST(EmptySetToNull) {
+  TStore props;
   auto prop = PropertyId::FromInt(42);
   ASSERT_TRUE(props.SetProperty(prop, PropertyValue()));
   ASSERT_TRUE(props.GetProperty(prop).IsNull());
@@ -163,8 +421,8 @@ TEST(PropertyStore, EmptySetToNull) {
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
-TEST(PropertyStore, Clear) {
-  PropertyStore props;
+STORE_TYPED_TEST(Clear) {
+  TStore props;
   auto prop = PropertyId::FromInt(42);
   auto value = PropertyValue(42);
   ASSERT_TRUE(props.SetProperty(prop, value));
@@ -179,14 +437,14 @@ TEST(PropertyStore, Clear) {
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
-TEST(PropertyStore, EmptyClear) {
-  PropertyStore props;
+STORE_TYPED_TEST(EmptyClear) {
+  TStore props;
   ASSERT_FALSE(props.ClearProperties());
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
-TEST(PropertyStore, MoveConstruct) {
-  PropertyStore props1;
+STORE_TYPED_TEST(MoveConstruct) {
+  TStore props1;
   auto prop = PropertyId::FromInt(42);
   auto value = PropertyValue(42);
   ASSERT_TRUE(props1.SetProperty(prop, value));
@@ -195,7 +453,7 @@ TEST(PropertyStore, MoveConstruct) {
   TestIsPropertyEqual(props1, prop, value);
   ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   {
-    PropertyStore props2(std::move(props1));
+    TStore props2(std::move(props1));
     ASSERT_EQ(props2.GetProperty(prop), value);
     ASSERT_TRUE(props2.HasProperty(prop));
     TestIsPropertyEqual(props2, prop, value);
@@ -208,8 +466,8 @@ TEST(PropertyStore, MoveConstruct) {
   ASSERT_EQ(props1.Properties().size(), 0);
 }
 
-TEST(PropertyStore, MoveConstructLarge) {
-  PropertyStore props1;
+STORE_TYPED_TEST(MoveConstructLarge) {
+  TStore props1;
   auto prop = PropertyId::FromInt(42);
   auto value = PropertyValue(std::string(10'000, 'a'));
   ASSERT_TRUE(props1.SetProperty(prop, value));
@@ -218,7 +476,7 @@ TEST(PropertyStore, MoveConstructLarge) {
   TestIsPropertyEqual(props1, prop, value);
   ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   {
-    PropertyStore props2(std::move(props1));
+    TStore props2(std::move(props1));
     ASSERT_EQ(props2.GetProperty(prop), value);
     ASSERT_TRUE(props2.HasProperty(prop));
     TestIsPropertyEqual(props2, prop, value);
@@ -231,8 +489,8 @@ TEST(PropertyStore, MoveConstructLarge) {
   ASSERT_EQ(props1.Properties().size(), 0);
 }
 
-TEST(PropertyStore, MoveAssign) {
-  PropertyStore props1;
+STORE_TYPED_TEST(MoveAssign) {
+  TStore props1;
   auto prop = PropertyId::FromInt(42);
   auto value = PropertyValue(42);
   ASSERT_TRUE(props1.SetProperty(prop, value));
@@ -242,7 +500,7 @@ TEST(PropertyStore, MoveAssign) {
   ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   {
     auto value2 = PropertyValue(68);
-    PropertyStore props2;
+    TStore props2;
     ASSERT_TRUE(props2.SetProperty(prop, value2));
     ASSERT_EQ(props2.GetProperty(prop), value2);
     ASSERT_TRUE(props2.HasProperty(prop));
@@ -261,8 +519,8 @@ TEST(PropertyStore, MoveAssign) {
   ASSERT_EQ(props1.Properties().size(), 0);
 }
 
-TEST(PropertyStore, MoveAssignLarge) {
-  PropertyStore props1;
+STORE_TYPED_TEST(MoveAssignLarge) {
+  TStore props1;
   auto prop = PropertyId::FromInt(42);
   auto value = PropertyValue(std::string(10'000, 'a'));
   ASSERT_TRUE(props1.SetProperty(prop, value));
@@ -272,7 +530,7 @@ TEST(PropertyStore, MoveAssignLarge) {
   ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   {
     auto value2 = PropertyValue(std::string(10'000, 'b'));
-    PropertyStore props2;
+    TStore props2;
     ASSERT_TRUE(props2.SetProperty(prop, value2));
     ASSERT_EQ(props2.GetProperty(prop), value2);
     ASSERT_TRUE(props2.HasProperty(prop));
@@ -291,7 +549,7 @@ TEST(PropertyStore, MoveAssignLarge) {
   ASSERT_EQ(props1.Properties().size(), 0);
 }
 
-TEST(PropertyStore, EmptySet) {
+STORE_TYPED_TEST(EmptySet) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
   PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
   const TemporalData temporal{TemporalType::LocalDateTime, 23};
@@ -308,7 +566,7 @@ TEST(PropertyStore, EmptySet) {
 
   auto prop = PropertyId::FromInt(42);
   for (const auto &value : data) {
-    PropertyStore props;
+    TStore props;
 
     ASSERT_TRUE(props.SetProperty(prop, value));
     ASSERT_EQ(props.GetProperty(prop), value);
@@ -333,7 +591,7 @@ TEST(PropertyStore, EmptySet) {
   }
 }
 
-TEST(PropertyStore, FullSet) {
+STORE_TYPED_TEST(FullSet) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
   PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
   const TemporalData temporal{TemporalType::LocalDateTime, 23};
@@ -363,7 +621,7 @@ TEST(PropertyStore, FullSet) {
                                  PropertyValue(std::string(10'000, 'a')),
                                  PropertyValue(std::string(100'000, 'a'))};
 
-  PropertyStore props;
+  TStore props;
   for (const auto &target : data) {
     for (const auto &item : data) {
       ASSERT_TRUE(props.SetProperty(item.first, item.second));
@@ -440,7 +698,7 @@ TEST(PropertyStore, FullSet) {
   }
 }
 
-TEST(PropertyStore, IntEncoding) {
+STORE_TYPED_TEST(IntEncoding) {
   std::map<PropertyId, PropertyValue> data{
       {PropertyId::FromUint(0UL), PropertyValue(std::numeric_limits<int64_t>::min())},
       {PropertyId::FromUint(10UL), PropertyValue(-137'438'953'472L)},
@@ -466,7 +724,7 @@ TEST(PropertyStore, IntEncoding) {
       {PropertyId::FromUint(1'048'578UL), PropertyValue(137'438'953'472L)},
       {PropertyId::FromUint(std::numeric_limits<uint32_t>::max()), PropertyValue(std::numeric_limits<int64_t>::max())}};
 
-  PropertyStore props;
+  TStore props;
   for (const auto &item : data) {
     ASSERT_TRUE(props.SetProperty(item.first, item.second));
     ASSERT_EQ(props.GetProperty(item.first), item.second);
@@ -492,8 +750,8 @@ TEST(PropertyStore, IntEncoding) {
   }
 }
 
-TEST(PropertyStore, IsPropertyEqualIntAndDouble) {
-  PropertyStore props;
+STORE_TYPED_TEST(IsPropertyEqualIntAndDouble) {
+  TStore props;
   auto prop = PropertyId::FromInt(42);
 
   ASSERT_TRUE(props.SetProperty(prop, PropertyValue(42)));
@@ -586,8 +844,8 @@ TEST(PropertyStore, IsPropertyEqualIntAndDouble) {
   }
 }
 
-TEST(PropertyStore, IsPropertyEqualString) {
-  PropertyStore props;
+STORE_TYPED_TEST(IsPropertyEqualString) {
+  TStore props;
   auto prop = PropertyId::FromInt(42);
   ASSERT_TRUE(props.SetProperty(prop, PropertyValue("test")));
   ASSERT_TRUE(props.IsPropertyEqual(prop, PropertyValue("test")));
@@ -603,8 +861,8 @@ TEST(PropertyStore, IsPropertyEqualString) {
   ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue("testt")));
 }
 
-TEST(PropertyStore, IsPropertyEqualList) {
-  PropertyStore props;
+STORE_TYPED_TEST(IsPropertyEqualList) {
+  TStore props;
   auto prop = PropertyId::FromInt(42);
   ASSERT_TRUE(
       props.SetProperty(prop, PropertyValue(std::vector<PropertyValue>{PropertyValue(42), PropertyValue("test")})));
@@ -624,8 +882,8 @@ TEST(PropertyStore, IsPropertyEqualList) {
       prop, PropertyValue(std::vector<PropertyValue>{PropertyValue(42), PropertyValue("test"), PropertyValue(true)})));
 }
 
-TEST(PropertyStore, IsPropertyEqualSameTypeListsComparison) {
-  PropertyStore props;
+STORE_TYPED_TEST(IsPropertyEqualSameTypeListsComparison) {
+  TStore props;
   auto prop = PropertyId::FromInt(42);
 
   // Test IntList - same values should be equal
@@ -670,8 +928,8 @@ TEST(PropertyStore, IsPropertyEqualSameTypeListsComparison) {
       PropertyValue(std::vector<PropertyValue>{PropertyValue(33), PropertyValue("different"), PropertyValue(-33.33)})));
 }
 
-TEST(PropertyStore, IsPropertyEqualCrossTypeNumericListsComparison) {
-  PropertyStore props;
+STORE_TYPED_TEST(IsPropertyEqualCrossTypeNumericListsComparison) {
+  TStore props;
   auto prop = PropertyId::FromInt(42);
 
   // ============================================================================
@@ -726,8 +984,8 @@ TEST(PropertyStore, IsPropertyEqualCrossTypeNumericListsComparison) {
       PropertyValue(std::vector<PropertyValue>{PropertyValue(33), PropertyValue("sample"), PropertyValue(-33.33)})));
 }
 
-TEST(PropertyStore, IsPropertyEqualMap) {
-  PropertyStore props;
+STORE_TYPED_TEST(IsPropertyEqualMap) {
+  TStore props;
   auto prop = PropertyId::FromInt(42);
   ASSERT_TRUE(props.SetProperty(prop,
                                 PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(42)},
@@ -763,8 +1021,8 @@ TEST(PropertyStore, IsPropertyEqualMap) {
                                                                {PropertyId::FromUint(3), PropertyValue("test")}})));
 }
 
-TEST(PropertyStore, IsPropertyEqualTemporalData) {
-  PropertyStore props;
+STORE_TYPED_TEST(IsPropertyEqualTemporalData) {
+  TStore props;
   auto prop = PropertyId::FromInt(42);
   const TemporalData temporal{TemporalType::Date, 23};
   ASSERT_TRUE(props.SetProperty(prop, PropertyValue(temporal)));
@@ -777,7 +1035,7 @@ TEST(PropertyStore, IsPropertyEqualTemporalData) {
   ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(TemporalData{TemporalType::Date, 30})));
 }
 
-TEST(PropertyStore, IsPropertyEqualZonedTemporalData) {
+STORE_TYPED_TEST(IsPropertyEqualZonedTemporalData) {
   const std::array timezone_offset_encoding_cases{
       memgraph::utils::Timezone("America/Los_Angeles"),
       memgraph::utils::Timezone(std::chrono::minutes{-360}),
@@ -790,7 +1048,7 @@ TEST(PropertyStore, IsPropertyEqualZonedTemporalData) {
   auto check_case = [](const memgraph::utils::Timezone &timezone) {
     using namespace memgraph::storage;
 
-    PropertyStore props;
+    TStore props;
     const auto common_duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{10}).count();
 
     const auto zoned_temporal = PropertyValue(
@@ -814,8 +1072,8 @@ TEST(PropertyStore, IsPropertyEqualZonedTemporalData) {
   }
 }
 
-TEST(PropertyStore, IsPropertyEqualEnum) {
-  PropertyStore props;
+STORE_TYPED_TEST(IsPropertyEqualEnum) {
+  TStore props;
 
   auto const enum_val = Enum{EnumTypeId{2}, EnumValueId{10'000}};
   auto const diff_type = Enum{EnumTypeId{3}, EnumValueId{10'000}};
@@ -831,13 +1089,13 @@ TEST(PropertyStore, IsPropertyEqualEnum) {
   ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue{diff_value}));
 }
 
-TEST(PropertyStore, SetMultipleProperties) {
+STORE_TYPED_TEST(SetMultipleProperties) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
   PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
   const TemporalData temporal{TemporalType::LocalDateTime, 23};
   const auto zoned_temporal = GetSampleZonedTemporal();
 
-  // The order of property ids are purposfully not monotonic to test that PropertyStore orders them properly
+  // The order of property ids are purposfully not monotonic to test that TStore orders them properly
   const std::vector<std::pair<PropertyId, PropertyValue>> data{{PropertyId::FromInt(1), PropertyValue(true)},
                                                                {PropertyId::FromInt(10), PropertyValue(123)},
                                                                {PropertyId::FromInt(3), PropertyValue(123.5)},
@@ -849,20 +1107,20 @@ TEST(PropertyStore, SetMultipleProperties) {
 
   const std::map<PropertyId, PropertyValue> data_in_map{data.begin(), data.end()};
 
-  auto check_store = [data](const PropertyStore &store) {
+  auto check_store = [data](const TStore &store) {
     for (const auto &[key, value] : data) {
       ASSERT_TRUE(store.IsPropertyEqual(key, value));
     }
   };
   {
-    PropertyStore store;
+    TStore store;
     EXPECT_TRUE(store.InitProperties(data));
     check_store(store);
     EXPECT_FALSE(store.InitProperties(data));
     EXPECT_FALSE(store.InitProperties(data_in_map));
   }
   {
-    PropertyStore store;
+    TStore store;
     EXPECT_TRUE(store.InitProperties(data_in_map));
     check_store(store);
     EXPECT_FALSE(store.InitProperties(data_in_map));
@@ -870,7 +1128,7 @@ TEST(PropertyStore, SetMultipleProperties) {
   }
 }
 
-TEST(PropertyStore, HasAllProperties) {
+STORE_TYPED_TEST(HasAllProperties) {
   const std::vector<std::pair<PropertyId, PropertyValue>> data{
       {PropertyId::FromInt(1), PropertyValue(true)},
       {PropertyId::FromInt(2), PropertyValue(123)},
@@ -883,7 +1141,7 @@ TEST(PropertyStore, HasAllProperties) {
       {PropertyId::FromInt(10), PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}}},
   };
 
-  PropertyStore store;
+  TStore store;
   EXPECT_TRUE(store.InitProperties(data));
   EXPECT_TRUE(store.HasAllProperties({PropertyId::FromInt(1),
                                       PropertyId::FromInt(2),
@@ -892,7 +1150,7 @@ TEST(PropertyStore, HasAllProperties) {
                                       PropertyId::FromInt(9)}));
 }
 
-TEST(PropertyStore, HasAllPropertyValues) {
+STORE_TYPED_TEST(HasAllPropertyValues) {
   const std::vector<std::pair<PropertyId, PropertyValue>> data{
       {PropertyId::FromInt(1), PropertyValue(true)},
       {PropertyId::FromInt(2), PropertyValue(123)},
@@ -905,7 +1163,7 @@ TEST(PropertyStore, HasAllPropertyValues) {
       {PropertyId::FromInt(10), PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}}},
   };
 
-  PropertyStore store;
+  TStore store;
   EXPECT_TRUE(store.InitProperties(data));
   EXPECT_TRUE(store.HasAllPropertyValues({
       PropertyValue(0.0),
@@ -916,18 +1174,18 @@ TEST(PropertyStore, HasAllPropertyValues) {
   }));
 }
 
-TEST(PropertyStore, HasAnyProperties) {
+STORE_TYPED_TEST(HasAnyProperties) {
   const std::vector<std::pair<PropertyId, PropertyValue>> data{{PropertyId::FromInt(3), PropertyValue("three")},
                                                                {PropertyId::FromInt(5), PropertyValue("0.0")}};
 
-  PropertyStore store;
+  TStore store;
   EXPECT_TRUE(store.InitProperties(data));
   EXPECT_FALSE(store.HasAllPropertyValues({PropertyValue(0.0), PropertyValue(123), PropertyValue("three")}));
 }
 
-TEST(PropertyStore, ReplaceWithSameSize) {
+STORE_TYPED_TEST(ReplaceWithSameSize) {
   // This test is important to catch a case where compression need to be using the correct buffer
-  PropertyStore store;
+  TStore store;
   EXPECT_TRUE(store.SetProperty(PropertyId::FromInt(1), PropertyValue(std::string(100, 'a'))));
   EXPECT_FALSE(store.SetProperty(PropertyId::FromInt(1), PropertyValue(std::string(100, 'b'))));
   EXPECT_EQ(store.GetProperty(PropertyId::FromInt(1)), PropertyValue(std::string(100, 'b')));
@@ -943,11 +1201,11 @@ struct RestoreFpResolutionGuard {
   ~RestoreFpResolutionGuard() { FLAGS_storage_floating_point_resolution_bits = saved; }
 };
 
-TEST(PropertyStore, BoolAndFloatStoredInSmallBuffer_WithResolution32) {
+STORE_TYPED_TEST(BoolAndFloatStoredInSmallBuffer_WithResolution32) {
   RestoreFpResolutionGuard guard;
   FLAGS_storage_floating_point_resolution_bits = 32;
 
-  PropertyStore store;
+  TStore store;
   auto const p_bool = PropertyId::FromInt(1);
   auto const p_float = PropertyId::FromInt(2);
   ASSERT_TRUE(store.SetProperty(p_bool, PropertyValue(true)));
@@ -959,17 +1217,17 @@ TEST(PropertyStore, BoolAndFloatStoredInSmallBuffer_WithResolution32) {
   EXPECT_TRUE(store.HasProperty(p_bool));
   EXPECT_TRUE(store.HasProperty(p_float));
 
-  std::string buf = store.StringBuffer();
-  EXPECT_LE(buf.size(), kSmallBufferPayloadSize)
+  auto const buffer_size = store.BufferSize();
+  EXPECT_LE(buffer_size, kSmallBufferPayloadSize)
       << "Bool + float (32-bit) should fit in the small buffer without heap allocation";
-  EXPECT_EQ(buf.size(), kSmallBufferPayloadSize) << "Small buffer should be fully used (payload only) when data fits";
+  EXPECT_EQ(buffer_size, kSmallBufferPayloadSize) << "Small buffer should be fully used (payload only) when data fits";
 }
 
-TEST(PropertyStore, FloatingPointResolution32_Roundtrip) {
+STORE_TYPED_TEST(FloatingPointResolution32_Roundtrip) {
   RestoreFpResolutionGuard guard;
   FLAGS_storage_floating_point_resolution_bits = 32;
 
-  PropertyStore store;
+  TStore store;
   auto const prop = PropertyId::FromInt(1);
   double const value = 42.5;
   ASSERT_TRUE(store.SetProperty(prop, PropertyValue(value)));
@@ -979,11 +1237,11 @@ TEST(PropertyStore, FloatingPointResolution32_Roundtrip) {
   EXPECT_DOUBLE_EQ(got.ValueDouble(), value);
 }
 
-TEST(PropertyStore, FloatingPointResolution16_Roundtrip) {
+STORE_TYPED_TEST(FloatingPointResolution16_Roundtrip) {
   RestoreFpResolutionGuard guard;
   FLAGS_storage_floating_point_resolution_bits = 16;
 
-  PropertyStore store;
+  TStore store;
   auto const prop = PropertyId::FromInt(1);
   double const value = 1.5;
   ASSERT_TRUE(store.SetProperty(prop, PropertyValue(value)));
@@ -993,11 +1251,11 @@ TEST(PropertyStore, FloatingPointResolution16_Roundtrip) {
   EXPECT_DOUBLE_EQ(got.ValueDouble(), value);
 }
 
-TEST(PropertyStore, FloatingPointResolution64_Roundtrip) {
+STORE_TYPED_TEST(FloatingPointResolution64_Roundtrip) {
   RestoreFpResolutionGuard guard;
   FLAGS_storage_floating_point_resolution_bits = 64;
 
-  PropertyStore store;
+  TStore store;
   auto const prop = PropertyId::FromInt(1);
   double const value = 3.14159265358979;
   ASSERT_TRUE(store.SetProperty(prop, PropertyValue(value)));
@@ -1085,7 +1343,7 @@ TEST(PropertyStoreResolution, DISABLED_ChangedAfterWrite_ListsReadBackWhatWasWri
   }
 }
 
-TEST(PropertyStore, FloatingPointResolution_LowerPrecisionUsesLessMemory) {
+STORE_TYPED_TEST(FloatingPointResolution_LowerPrecisionUsesLessMemory) {
   RestoreFpResolutionGuard guard;
 
   // Fixed seed so the same random doubles are used for every precision.
@@ -1097,7 +1355,7 @@ TEST(PropertyStore, FloatingPointResolution_LowerPrecisionUsesLessMemory) {
     values[i] = dist(rng);
   }
 
-  auto fill_store_with_doubles = [](PropertyStore &store, const std::vector<double> &vals) {
+  auto fill_store_with_doubles = [](TStore &store, const std::vector<double> &vals) {
     for (size_t i = 0; i < vals.size(); ++i) {
       ASSERT_TRUE(store.SetProperty(PropertyId::FromInt(static_cast<int>(i)), PropertyValue(vals[i])));
     }
@@ -1105,9 +1363,9 @@ TEST(PropertyStore, FloatingPointResolution_LowerPrecisionUsesLessMemory) {
 
   auto buffer_size_for_resolution = [&values, &fill_store_with_doubles](uint64_t resolution_bits) -> size_t {
     FLAGS_storage_floating_point_resolution_bits = resolution_bits;
-    PropertyStore store;
+    TStore store;
     fill_store_with_doubles(store, values);
-    return store.StringBuffer().size();
+    return store.BufferSize();
   };
 
   const size_t size_64 = buffer_size_for_resolution(64);
@@ -1118,14 +1376,14 @@ TEST(PropertyStore, FloatingPointResolution_LowerPrecisionUsesLessMemory) {
   EXPECT_GT(size_32, size_16) << "32-bit should use strictly more memory than 16-bit (half)";
 }
 
-TEST(PropertyStore, DoubleList_ReducedPrecisionRoundtrip) {
+STORE_TYPED_TEST(DoubleList_ReducedPrecisionRoundtrip) {
   RestoreFpResolutionGuard guard;
 
   std::vector<double> exact_halfs = {0.0, 1.0, -1.0, 0.5, 2.0, 100.0};
 
   for (uint64_t res : {16, 32, 64}) {
     FLAGS_storage_floating_point_resolution_bits = res;
-    PropertyStore store;
+    TStore store;
     auto const prop = PropertyId::FromInt(1);
     ASSERT_TRUE(store.SetProperty(prop, PropertyValue(exact_halfs)));
 
@@ -1139,14 +1397,14 @@ TEST(PropertyStore, DoubleList_ReducedPrecisionRoundtrip) {
   }
 }
 
-TEST(PropertyStore, NumericList_ReducedPrecisionRoundtrip) {
+STORE_TYPED_TEST(NumericList_ReducedPrecisionRoundtrip) {
   RestoreFpResolutionGuard guard;
 
   std::vector<std::variant<int, double>> items = {42, 1.5, -7, 0.25};
 
   for (uint64_t res : {16, 32, 64}) {
     FLAGS_storage_floating_point_resolution_bits = res;
-    PropertyStore store;
+    TStore store;
     auto const prop = PropertyId::FromInt(1);
     ASSERT_TRUE(store.SetProperty(prop, PropertyValue(items)));
 
@@ -1166,12 +1424,12 @@ TEST(PropertyStore, NumericList_ReducedPrecisionRoundtrip) {
   }
 }
 
-TEST(PropertyStore, IsPropertyEqual_ReducedPrecision) {
+STORE_TYPED_TEST(IsPropertyEqual_ReducedPrecision) {
   RestoreFpResolutionGuard guard;
 
   for (uint64_t res : {16, 32, 64}) {
     FLAGS_storage_floating_point_resolution_bits = res;
-    PropertyStore store;
+    TStore store;
     auto const prop = PropertyId::FromInt(1);
 
     ASSERT_TRUE(store.SetProperty(prop, PropertyValue(2.0)));
@@ -1187,12 +1445,12 @@ TEST(PropertyStore, IsPropertyEqual_ReducedPrecision) {
   }
 }
 
-TEST(PropertyStore, SkipOverReducedPrecisionDouble) {
+STORE_TYPED_TEST(SkipOverReducedPrecisionDouble) {
   RestoreFpResolutionGuard guard;
 
   for (uint64_t res : {16, 32, 64}) {
     FLAGS_storage_floating_point_resolution_bits = res;
-    PropertyStore store;
+    TStore store;
     ASSERT_TRUE(store.SetProperty(PropertyId::FromInt(1), PropertyValue(true)));
     ASSERT_TRUE(store.SetProperty(PropertyId::FromInt(2), PropertyValue(4.0)));
     ASSERT_TRUE(store.SetProperty(PropertyId::FromInt(3), PropertyValue("after")));
@@ -1210,11 +1468,11 @@ TEST(PropertyStore, SkipOverReducedPrecisionDouble) {
   }
 }
 
-TEST(PropertyStore, FloatingPointResolution16_PrecisionLoss) {
+STORE_TYPED_TEST(FloatingPointResolution16_PrecisionLoss) {
   RestoreFpResolutionGuard guard;
   FLAGS_storage_floating_point_resolution_bits = 16;
 
-  PropertyStore store;
+  TStore store;
   auto const prop = PropertyId::FromInt(1);
   ASSERT_TRUE(store.SetProperty(prop, PropertyValue(3.14)));
 
@@ -1224,7 +1482,7 @@ TEST(PropertyStore, FloatingPointResolution16_PrecisionLoss) {
   EXPECT_NE(got.ValueDouble(), 3.14) << "half cannot represent 3.14 exactly";
 }
 
-TEST(PropertyStore, PropertiesOfTypes) {
+STORE_TYPED_TEST(PropertiesOfTypes) {
   const std::vector<std::pair<PropertyId, PropertyValue>> data{
       {PropertyId::FromInt(1), PropertyValue(true)},
       {PropertyId::FromInt(2), PropertyValue(123)},
@@ -1238,7 +1496,7 @@ TEST(PropertyStore, PropertiesOfTypes) {
       {PropertyId::FromInt(10), PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}}},
   };
 
-  PropertyStore store;
+  TStore store;
   store.InitProperties(data);
   constexpr auto types = std::array{PropertyStoreType::BOOL, PropertyStoreType::DOUBLE};
   auto props_of_type = store.PropertiesOfTypes(types);
@@ -1248,7 +1506,7 @@ TEST(PropertyStore, PropertiesOfTypes) {
   ASSERT_EQ(props_of_type[1], data[3].first);
 }
 
-TEST(PropertyStore, GetPropertyOfTypes) {
+STORE_TYPED_TEST(GetPropertyOfTypes) {
   const std::vector<std::pair<PropertyId, PropertyValue>> data1{
       {PropertyId::FromInt(1), PropertyValue(true)},
       {PropertyId::FromInt(2), PropertyValue(123)},
@@ -1267,13 +1525,13 @@ TEST(PropertyStore, GetPropertyOfTypes) {
       {PropertyId::FromInt(3), PropertyValue(123)},
   };
 
-  PropertyStore store1;
+  TStore store1;
   store1.InitProperties(data1);
 
-  PropertyStore store2;
+  TStore store2;
   store2.InitProperties(data2);
 
-  PropertyStore store3;
+  TStore store3;
   store3.InitProperties(data3);
 
   constexpr auto types = std::array{PropertyStoreType::BOOL, PropertyStoreType::INT};
@@ -1288,9 +1546,9 @@ TEST(PropertyStore, GetPropertyOfTypes) {
   ASSERT_EQ(prop_of_type3, std::nullopt);
 }
 
-TEST(PropertyStore, ExtractPropertyValuesMissingAsNull) {
+STORE_TYPED_TEST(ExtractPropertyValuesMissingAsNull) {
   auto test = [](std::vector<std::pair<PropertyId, PropertyValue>> const &data, std::span<int const> ids_to_read) {
-    PropertyStore store;
+    TStore store;
     store.InitProperties(data);
 
     std::vector<PropertyPath> ids;
@@ -1351,7 +1609,7 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull) {
        std::array{1, 3, 5});
 }
 
-TEST(PropertyStore, HasMapsWithPropertyIdKeys) {
+STORE_TYPED_TEST(HasMapsWithPropertyIdKeys) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);
   auto const p3 = PropertyId::FromInt(3);
@@ -1361,7 +1619,7 @@ TEST(PropertyStore, HasMapsWithPropertyIdKeys) {
   auto const p7 = PropertyId::FromInt(7);
   auto const p8 = PropertyId::FromInt(7);
 
-  PropertyStore store;
+  TStore store;
 
   // Property store can have an empty map
   store.SetProperty(p1, PropertyValue{PropertyValue::map_t{}});
@@ -1399,7 +1657,7 @@ TEST(PropertyStore, HasMapsWithPropertyIdKeys) {
   EXPECT_EQ(val7.ValueMap()[p8], PropertyValue("eight"));
 }
 
-TEST(PropertyStore, ArePropertiesEqual_ComparesOneNestedValue) {
+STORE_TYPED_TEST(ArePropertiesEqual_ComparesOneNestedValue) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);
   auto const p3 = PropertyId::FromInt(3);
@@ -1431,14 +1689,14 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesOneNestedValue) {
     Test{.path = {p5}, .value = PropertyValue{"expected"}, .result = false}
            // clang-format on
        }) {
-    PropertyStore store;
+    TStore store;
     store.InitProperties(data);
     EXPECT_EQ(store.ArePropertiesEqual(std::array{test.path}, std::array{test.value}, std::array<std::size_t, 1>{0}),
               std::vector{test.result});
   }
 }
 
-TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedValues) {
+STORE_TYPED_TEST(ArePropertiesEqual_ComparesMultipleNestedValues) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);
   auto const p3 = PropertyId::FromInt(3);
@@ -1447,7 +1705,7 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedValues) {
   const std::vector<std::pair<PropertyId, PropertyValue>> data = {
       {p1, MakeMap(KVPair{p2, PropertyValue("apple")}, KVPair{p4, PropertyValue("banana")})}};
 
-  PropertyStore store;
+  TStore store;
   store.InitProperties(data);
 
   struct Test {
@@ -1485,7 +1743,7 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedValues) {
   }
 }
 
-TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedMaps) {
+STORE_TYPED_TEST(ArePropertiesEqual_ComparesMultipleNestedMaps) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);
   auto const p3 = PropertyId::FromInt(3);
@@ -1500,7 +1758,7 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedMaps) {
   const std::vector<std::pair<PropertyId, PropertyValue>> data = {
       {p1, MakeMap(KVPair{p2, map_prop_value_1}, KVPair{p5, map_prop_value_2})}};
 
-  PropertyStore store;
+  TStore store;
   store.InitProperties(data);
 
   EXPECT_EQ(store.ArePropertiesEqual(std::array{PropertyPath{p1, p2}, PropertyPath{p1, p5}},
@@ -1509,7 +1767,7 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedMaps) {
             (std::vector{true, true}));
 }
 
-TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_ReturnsNullsForAllItemsWithAnEmptyStore) {
+STORE_TYPED_TEST(ExtractPropertyValuesMissingAsNull_ReturnsNullsForAllItemsWithAnEmptyStore) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);
   auto const p3 = PropertyId::FromInt(3);
@@ -1517,7 +1775,7 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_ReturnsNullsForAllItemsWi
   auto const p5 = PropertyId::FromInt(5);
   auto const p6 = PropertyId::FromInt(6);
 
-  PropertyStore store;
+  TStore store;
 
   EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(
                 std::vector{PropertyPath{p1}, PropertyPath{p2, p3}, PropertyPath{p4, p5, p6}}),
@@ -1528,7 +1786,7 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_ReturnsNullsForAllItemsWi
             }));
 }
 
-TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_CanReadNestedValuesOnSameBranch) {
+STORE_TYPED_TEST(ExtractPropertyValuesMissingAsNull_CanReadNestedValuesOnSameBranch) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);
   auto const p3 = PropertyId::FromInt(3);
@@ -1540,7 +1798,7 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_CanReadNestedValuesOnSame
        MakeMap(KVPair{p2, MakeMap(KVPair{p3, PropertyValue("apple")}, KVPair{p4, PropertyValue("banana")})},
                KVPair(p5, PropertyValue("cherry")))}};
 
-  PropertyStore store;
+  TStore store;
   store.InitProperties(data);
 
   EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(
@@ -1552,7 +1810,7 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_CanReadNestedValuesOnSame
             }));
 }
 
-TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_DoesNotReadPropertiesFromWrongDepth) {
+STORE_TYPED_TEST(ExtractPropertyValuesMissingAsNull_DoesNotReadPropertiesFromWrongDepth) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);
   auto const p3 = PropertyId::FromInt(3);
@@ -1561,7 +1819,7 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_DoesNotReadPropertiesFrom
   const std::vector<std::pair<PropertyId, PropertyValue>> data = {
       {p1, MakeMap(KVPair{p2, PropertyValue("apple")}, KVPair{p4, PropertyValue("banana")})}};
 
-  PropertyStore store;
+  TStore store;
   store.InitProperties(data);
 
   struct Test {
@@ -2137,7 +2395,7 @@ TEST(ReadNestedPropertyValue, RetrievesPositionalPointerToNestedPropertyValue) {
 
 //==============================================================================
 
-TEST(PropertyStore, DecodeExpectedPropertyType) {
+STORE_TYPED_TEST(DecodeExpectedPropertyType) {
   auto const prop1 = PropertyId::FromInt(1);
   auto const prop2 = PropertyId::FromInt(2);
   auto const prop3 = PropertyId::FromInt(3);
@@ -2154,7 +2412,7 @@ TEST(PropertyStore, DecodeExpectedPropertyType) {
   auto const prop14 = PropertyId::FromInt(14);
 
   {
-    PropertyStore store;
+    TStore store;
     std::vector<std::pair<PropertyId, PropertyValue>> data{
         {prop1, PropertyValue()},
         {prop2, PropertyValue(true)},
@@ -2189,7 +2447,7 @@ TEST(PropertyStore, DecodeExpectedPropertyType) {
   }
 
   {
-    PropertyStore store;
+    TStore store;
     std::vector<std::pair<PropertyId, PropertyValue>> data{
         {prop1, PropertyValue(TemporalData(TemporalType::Date, 23))},
         {prop2, PropertyValue(TemporalData(TemporalType::LocalDateTime, 2000))},
@@ -2204,7 +2462,7 @@ TEST(PropertyStore, DecodeExpectedPropertyType) {
   }
 
   {
-    PropertyStore store;
+    TStore store;
     std::vector<std::pair<PropertyId, PropertyValue>> data{
         {prop1, PropertyValue(Enum{EnumTypeId{1}, EnumValueId{10}})},
         {prop2, PropertyValue(Enum{EnumTypeId{5}, EnumValueId{20}})},
