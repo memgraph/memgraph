@@ -273,8 +273,13 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         // or before write clauses for comprehensions not in any expression.
         std::unordered_map<Symbol, PatternComprehensionMatching> pending_comprehensions;
         for (const auto &pc : single_query_part.pattern_comprehension_matchings) {
-          // Unstamped matches no clause, so nothing drains it and the expression reads an unwritten frame slot.
-          DMG_ASSERT(pc.origin_clause, "a pending pattern comprehension must know its originating clause");
+          // Unstamped matches no clause, so nothing drains it and the expression reads an unwritten frame slot. Thrown
+          // rather than asserted: this must hold in a release build, and it is not worth aborting the process over.
+          if (!pc.origin_clause) {
+            throw QueryException(
+                "A pattern comprehension reached the planner without an originating clause! Please contact Memgraph "
+                "support as this scenario should not happen and is very likely a bug in the query engine!");
+          }
           pending_comprehensions.emplace(pc.result_symbol, pc);
         }
 
