@@ -264,27 +264,34 @@ auto ManifestPropertyStore::Reset(uint32_t size) -> uint8_t * {
   return data();
 }
 
+auto ManifestPropertyStore::GetProperty(PropertyManifest const &manifest, PropertyManifest::Location location) const
+    -> PropertyValue {
+  if (size_ == 0) return PropertyValue{};
+
+  auto const *record = data();
+  if (!IsPresent(record, location.position)) return PropertyValue{};
+
+  auto const regions = RegionsOf(manifest, record);
+  if (location.is_fixed) {
+    return DecodeFixed(location.stored_type,
+                       std::span{record + regions.fixed + location.offset, location.stored_type.width});
+  }
+
+  // Offsets are ends, so a value starts where the previous one finished.
+  auto const *table = record + regions.offset_table;
+  auto const end = ReadOffset(table, regions.offset_width, location.offset);
+  auto const begin = location.offset == 0 ? 0U : ReadOffset(table, regions.offset_width, location.offset - 1);
+  return PropertyValue{
+      std::string{reinterpret_cast<char const *>(record + regions.variable + begin), static_cast<size_t>(end - begin)}};
+}
+
 auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, PropertyId property) const -> PropertyValue {
   if (size_ == 0) return PropertyValue{};
 
   auto const &manifest = registry.Resolve(manifest_);
   auto const found = manifest.Find(property);
   if (!found) return PropertyValue{};
-
-  auto const *record = data();
-  if (!IsPresent(record, found->position)) return PropertyValue{};
-
-  auto const regions = RegionsOf(manifest, record);
-  if (found->is_fixed) {
-    return DecodeFixed(found->stored_type, std::span{record + regions.fixed + found->offset, found->stored_type.width});
-  }
-
-  // Offsets are ends, so a value starts where the previous one finished.
-  auto const *table = record + regions.offset_table;
-  auto const end = ReadOffset(table, regions.offset_width, found->offset);
-  auto const begin = found->offset == 0 ? 0U : ReadOffset(table, regions.offset_width, found->offset - 1);
-  return PropertyValue{
-      std::string{reinterpret_cast<char const *>(record + regions.variable + begin), static_cast<size_t>(end - begin)}};
+  return GetProperty(manifest, *found);
 }
 
 auto ManifestPropertyStore::HasProperty(ManifestRegistry const &registry, PropertyId property) const -> bool {

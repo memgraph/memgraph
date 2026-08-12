@@ -62,6 +62,12 @@ class ManifestPropertyStore {
 
   auto HasProperty(ManifestRegistry const &registry, PropertyId property) const -> bool;
 
+  /// Reads a value whose place in the shape the caller has already worked out. A scan over
+  /// records of one shape resolves that once and then reads every record with it, which is
+  /// the whole point of the shape being shared. The caller is responsible for the location
+  /// having come from this record's shape; check `manifest()` before trusting it.
+  auto GetProperty(PropertyManifest const &manifest, PropertyManifest::Location location) const -> PropertyValue;
+
   /// The properties this record carries, in property order.
   auto Properties(ManifestRegistry const &registry) const -> utils::small_vector<PropertyPair>;
 

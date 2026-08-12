@@ -200,6 +200,30 @@ TEST_F(ManifestPropertyStoreTest, HoldsManyPropertiesOfMixedKinds) {
   EXPECT_EQ(AsMap(store_.Properties(registry_)), expected);
 }
 
+// A scan resolves where a property lives once and reads every record of that shape with it,
+// which has to agree with looking it up per record, including where a record is missing it.
+TEST_F(ManifestPropertyStoreTest, ReadingAtAResolvedLocationMatchesLookingItUp) {
+  std::vector<ManifestPropertyStore> records(4);
+  for (auto i = 0; i < 4; ++i) {
+    records[i].InitProperties(
+        registry_,
+        {{Prop(1), PropertyValue(static_cast<int64_t>(i))}, {Prop(2), PropertyValue(std::string{"shared"})}});
+  }
+  records[2].SetProperty(registry_, Prop(1), PropertyValue());  // one record stops carrying it
+
+  auto const shape = records[0].manifest();
+  auto const &manifest = registry_.Resolve(shape);
+  auto const location = manifest.Find(Prop(1));
+  ASSERT_TRUE(location);
+
+  for (auto i = 0; i < 4; ++i) {
+    ASSERT_EQ(records[i].manifest(), shape) << "record " << i;
+    EXPECT_EQ(records[i].GetProperty(manifest, *location), records[i].GetProperty(registry_, Prop(1)))
+        << "record " << i;
+  }
+  EXPECT_TRUE(records[2].GetProperty(manifest, *location).IsNull());
+}
+
 TEST_F(ManifestPropertyStoreTest, AbsentPropertiesReadAsNull) {
   Set(2, PropertyValue(int64_t{1}));
 

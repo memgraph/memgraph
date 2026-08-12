@@ -155,6 +155,60 @@ void ManifestHasProperty(benchmark::State &state) {
 BENCHMARK(CurrentHasProperty)->Unit(benchmark::kNanosecond);
 BENCHMARK(ManifestHasProperty)->Unit(benchmark::kNanosecond);
 
+// ------------------------------------------------- a scan over records of one shape ----
+
+// What a scan does: read one property from record after record. The current store has to
+// find the property in every record; the manifest store can work out where it lives once.
+constexpr size_t kScanRecords = 4096;
+
+void CurrentScanOneProperty(benchmark::State &state) {
+  std::vector<PropertyStore> records(kScanRecords);
+  for (auto &record : records) {
+    for (auto const &[id, value] : ItemProperties()) record.SetProperty(id, value);
+  }
+  auto const property = PropertyId::FromUint(4);
+  for (auto _ : state) {
+    for (auto const &record : records) benchmark::DoNotOptimize(record.GetProperty(property));
+  }
+  state.SetItemsProcessed(state.iterations() * kScanRecords);
+}
+
+void ManifestScanOneProperty(benchmark::State &state) {
+  ManifestRegistry registry;
+  auto const properties = ItemProperties();
+  std::vector<ManifestPropertyStore> records(kScanRecords);
+  for (auto &record : records) record.InitProperties(registry, properties);
+  auto const property = PropertyId::FromUint(4);
+  for (auto _ : state) {
+    for (auto const &record : records) benchmark::DoNotOptimize(record.GetProperty(registry, property));
+  }
+  state.SetItemsProcessed(state.iterations() * kScanRecords);
+}
+
+void ManifestScanOnePropertyResolvedOnce(benchmark::State &state) {
+  ManifestRegistry registry;
+  auto const properties = ItemProperties();
+  std::vector<ManifestPropertyStore> records(kScanRecords);
+  for (auto &record : records) record.InitProperties(registry, properties);
+
+  auto const shape = records.front().manifest();
+  auto const &manifest = registry.Resolve(shape);
+  auto const location = *manifest.Find(PropertyId::FromUint(4));
+
+  for (auto _ : state) {
+    for (auto const &record : records) {
+      // A scan checks the shape it resolved against and only then reads at the known place.
+      if (record.manifest() != shape) continue;
+      benchmark::DoNotOptimize(record.GetProperty(manifest, location));
+    }
+  }
+  state.SetItemsProcessed(state.iterations() * kScanRecords);
+}
+
+BENCHMARK(CurrentScanOneProperty)->Unit(benchmark::kMicrosecond);
+BENCHMARK(ManifestScanOneProperty)->Unit(benchmark::kMicrosecond);
+BENCHMARK(ManifestScanOnePropertyResolvedOnce)->Unit(benchmark::kMicrosecond);
+
 // ----------------------------------------------------------------------------- write ----
 
 // Overwriting a number in place: the update the manifest store is meant to keep cheap.
