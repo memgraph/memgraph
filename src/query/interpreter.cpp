@@ -8221,6 +8221,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           fmt::format("Constraint EXISTS on label {} on properties {} already exists.",
                                       label_name,
                                       properties_stringified);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionCancelationError>) {
+                      // TODO: could also be SHUTDOWN...but this is good enough for now
+                      throw HintedAbortError(AbortReason::TERMINATED);
                     } else {
                       static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
@@ -8275,6 +8278,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           fmt::format("Constraint UNIQUE on label {} and properties {} couldn't be created.",
                                       label_name,
                                       properties_stringified);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionCancelationError>) {
+                      // TODO: could also be SHUTDOWN...but this is good enough for now
+                      throw HintedAbortError(AbortReason::TERMINATED);
                     } else {
                       static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
@@ -8349,6 +8355,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                                                   storage::TypeConstraintKindToString(constraint_type),
                                                   label_name,
                                                   properties_stringified);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionCancelationError>) {
+                      // TODO: could also be SHUTDOWN...but this is good enough for now
+                      throw HintedAbortError(AbortReason::TERMINATED);
                     } else {
                       static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }

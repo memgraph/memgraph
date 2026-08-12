@@ -69,8 +69,7 @@ class InMemoryLabelIndex : public LabelIndex {
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(LabelId label, utils::SkipListDb<Vertex>::Accessor vertices,
                           const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                          ActiveIndicesUpdater const &updater,
-                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                          ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {});
 
   /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
   /// Caller can re-install via RestoreIndex on abort. The returned shared_ptr keeps
@@ -230,8 +229,7 @@ class InMemoryLabelIndex : public LabelIndex {
   auto RegisterIndex(LabelId, ActiveIndicesUpdater const &updater) -> bool;
   auto PopulateIndex(LabelId label, utils::SkipListDb<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                     ActiveIndicesUpdater const &updater,
-                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(LabelId label, uint64_t commit_timestamp);

@@ -111,8 +111,7 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
 }
 
 bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices,
-                                  NameIdMapper *name_id_mapper,
-                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                  NameIdMapper *name_id_mapper, ProgressCallback const &on_progress) {
   try {
     const auto index_id = SetupIndex(spec, name_id_mapper);
     if (!index_id.has_value()) return false;
@@ -127,9 +126,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
         if (edge->deleted() || to_vertex->deleted()) continue;
 
         AddEdgeToIndex(*index_id, edge, edge_type, &vertex, to_vertex, name_id_mapper, thread_id);
-        if (snapshot_info) {
-          snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
-        }
+        if (on_progress) on_progress();
       }
     });
     return true;
@@ -141,8 +138,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
 
 void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
                                    utils::SkipListDb<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
-                                   ActiveIndicesUpdater const &updater,
-                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                   ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress) {
   auto &spec = recovery_info.spec;
   try {
     auto &recovery_entries = recovery_info.index_entries;
@@ -179,9 +175,7 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
           AddEdgeToIndex(*index_id, edge, edge_type, &vertex, to_vertex, name_id_mapper, thread_id);
         }
       }
-      if (snapshot_info) {
-        snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
-      }
+      if (on_progress) on_progress();
     };
 
     if (FLAGS_storage_parallel_schema_recovery && FLAGS_storage_recovery_thread_count > 1) {

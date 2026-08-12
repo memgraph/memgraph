@@ -32,7 +32,6 @@
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -264,8 +263,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   bool CreateIndexOnePass(LabelId label, PropertiesPaths const &properties,
                           utils::SkipListDb<Vertex>::Accessor vertices,
                           const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                          ActiveIndicesUpdater const &updater,
-                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                          ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                           IndexOrder order = IndexOrder::ASC);
 
   bool RegisterIndex(LabelId label, PropertiesPaths const &properties, ActiveIndicesUpdater const &updater,
@@ -273,8 +271,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   auto PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                     ActiveIndicesUpdater const &updater,
-                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                      IndexOrder order = IndexOrder::ASC, Transaction const *tx = nullptr,
                      CheckCancelFunction cancel_check = neverCancel) -> std::expected<void, IndexPopulateError>;
 

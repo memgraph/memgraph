@@ -191,16 +191,18 @@ ExistenceConstraints::GetCreationFunction(
 [[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::ValidateVerticesOnConstraint(
     utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) {
+    ProgressCallback const &on_progress, CheckCancelFunction const &cancel_check) {
   auto calling_existence_validation_function = GetCreationFunction(parallel_exec_info);
-  return std::visit([&vertices, &label, &property, &snapshot_info](
-                        auto &calling_object) { return calling_object(vertices, label, property, snapshot_info); },
-                    calling_existence_validation_function);
+  return std::visit(
+      [&vertices, &label, &property, &on_progress, &cancel_check](auto &calling_object) {
+        return calling_object(vertices, label, property, on_progress, cancel_check);
+      },
+      calling_existence_validation_function);
 }
 
 std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsConstraintValidation::operator()(
     const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) const {
+    ProgressCallback const &on_progress, CheckCancelFunction const &cancel_check) const {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
@@ -210,39 +212,58 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
   const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
+  std::atomic<bool> cancelled = false;
   utils::Synchronized<std::expected<void, ConstraintViolation>, utils::RWSpinLock> maybe_error{};
   {
     std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(
-          parallel_exec_info.arena_pool,
-          [&maybe_error, &vertex_batches, &batch_counter, &vertices, &label, &property, &snapshot_info]() {
-            do_per_thread_validation(maybe_error,
-                                     ValidateVertexOnConstraint,
-                                     vertex_batches,
-                                     batch_counter,
-                                     vertices,
-                                     snapshot_info,
-                                     label,
-                                     property);
-          });
+      threads.emplace_back(parallel_exec_info.arena_pool,
+                           [&maybe_error,
+                            &vertex_batches,
+                            &batch_counter,
+                            &vertices,
+                            &label,
+                            &property,
+                            &on_progress,
+                            &cancel_check,
+                            &cancelled]() {
+                             do_per_thread_validation(maybe_error,
+                                                      ValidateVertexOnConstraint,
+                                                      vertex_batches,
+                                                      batch_counter,
+                                                      vertices,
+                                                      on_progress,
+                                                      cancel_check,
+                                                      cancelled,
+                                                      label,
+                                                      property);
+                           });
     }
   }
-  return *maybe_error.Lock();
+  // A violation is a real answer about the data, so it outranks having been asked to stop.
+  auto result = *maybe_error.Lock();
+  if (!result.has_value()) {
+    return result;
+  }
+  if (cancelled.load(std::memory_order_relaxed)) {
+    throw PopulateCancel{};
+  }
+  return result;
 }
 
 std::expected<void, ConstraintViolation> ExistenceConstraints::SingleThreadConstraintValidation::operator()(
     const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) const {
+    ProgressCallback const &on_progress, CheckCancelFunction const &cancel_check) const {
   for (const Vertex &vertex : vertices) {
+    if (cancel_check()) {
+      throw PopulateCancel{};
+    }
     if (auto validation_result = ValidateVertexOnConstraint(vertex, label, property); !validation_result.has_value()) {
       return validation_result;
     }
-    if (snapshot_info) {
-      snapshot_info->Update(UpdateType::VERTICES);
-    }
+    if (on_progress) on_progress();
   }
   return {};
 }

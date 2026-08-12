@@ -465,9 +465,12 @@ class InMemoryStorage final : public Storage {
     void FinalizeTransaction() override;
 
     // Bring base class convenience overloads into scope (they provide default neverCancel)
+    using Storage::Accessor::CreateExistenceConstraint;
     using Storage::Accessor::CreateGlobalEdgeIndex;
     using Storage::Accessor::CreateGlobalVertexIndex;
     using Storage::Accessor::CreateIndex;
+    using Storage::Accessor::CreateTypeConstraint;
+    using Storage::Accessor::CreateUniqueConstraint;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -569,7 +572,7 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     /// @throw std::length_error
     std::expected<void, StorageExistenceConstraintDefinitionError> CreateExistenceConstraint(
-        LabelId label, PropertyId property) override;
+        LabelId label, PropertyId property, CheckCancelFunction cancel_check) override;
 
     /// Drop an existing existence constraint.
     /// Returns void if the existence constraint has been dropped.
@@ -588,7 +591,7 @@ class InMemoryStorage final : public Storage {
     /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
     /// @throw std::bad_alloc
     std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> CreateUniqueConstraint(
-        LabelId label, const std::set<PropertyId> &properties) override;
+        LabelId label, const std::set<PropertyId> &properties, CheckCancelFunction cancel_check) override;
 
     /// Removes an existing unique constraint.
     /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
@@ -603,7 +606,7 @@ class InMemoryStorage final : public Storage {
     /// Create type constraint,
     /// Returns error result if already exists, or if constraint is already violated
     std::expected<void, StorageExistenceConstraintDefinitionError> CreateTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraintKind kind) override;
+        LabelId label, PropertyId property, TypeConstraintKind kind, CheckCancelFunction cancel_check) override;
 
     /// Drop type constraint,
     /// Returns error result if constraint does not exist.
@@ -834,7 +837,9 @@ class InMemoryStorage final : public Storage {
   void UpdateLabelCount(LabelId label, int64_t change) override;
 
   // Wipe all storage state. Caller must hold main_lock_ exclusively.
-  void Clear();
+  // Tearing down a large vertex/edge set takes minutes and reports nothing on its own, so `on_progress` lets a caller
+  // that owes liveness to somebody else (an RPC handler under a peer timeout) observe that this is still advancing.
+  void Clear(std::function<void()> const &on_progress = {});
 
  private:
   /// @throw std::system_error
@@ -867,7 +872,7 @@ class InMemoryStorage final : public Storage {
   // (noexcept via MG_ASSERT), std::list::swap (noexcept), and clear(); the
   // vertices_.access() ctor calls SkipList::gc_.AllocateId() which is a plain
   // atomic fetch_add — no heap allocation, no throw.
-  void ClearLightEdges() noexcept;
+  void ClearLightEdges(std::function<void()> const &on_progress = {}) noexcept;
   // Free deleted light Edge* referenced ONLY by un-GC'd RECREATE_OBJECT deltas in
   // committed_transactions_/waiting_gc_deltas_ at teardown (GC never unlinked them
   // because an older txn was active at delete time). noexcept: the walk only reads
@@ -1116,7 +1121,6 @@ struct SingleTxnDeltasProcessingResult {
   std::unique_ptr<ReplicationAccessor> commit_acc;
   uint64_t current_delta_idx;
   uint64_t num_txns_committed;
-  uint32_t current_batch_counter;
 };
 
 }  // namespace memgraph::storage

@@ -436,8 +436,8 @@ auto InMemoryUniqueConstraints::GetCreationFunction(
 
 auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
     const utils::SkipListDb<Vertex>::Accessor &vertex_accessor, utils::SkipListDb<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) const -> std::expected<void, ConstraintViolation> {
+    const LabelId &label, const std::set<PropertyId> &properties, ProgressCallback const &on_progress,
+    CheckCancelFunction const &cancel_check) const -> std::expected<void, ConstraintViolation> {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
   MG_ASSERT(!vertex_batches.empty(),
@@ -446,6 +446,7 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
   const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
+  std::atomic<bool> cancelled = false;
   utils::Synchronized<std::expected<void, ConstraintViolation>, utils::RWSpinLock> result{};
   {
     std::vector<memory::DbAwareThread> threads;
@@ -459,41 +460,54 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
                             &constraint_accessor,
                             &label,
                             &properties,
-                            &snapshot_info]() {
+                            &on_progress,
+                            &cancel_check,
+                            &cancelled]() {
                              do_per_thread_validation(result,
                                                       DoValidate,
                                                       vertex_batches,
                                                       batch_counter,
                                                       vertex_accessor,
-                                                      snapshot_info,
+                                                      on_progress,
+                                                      cancel_check,
+                                                      cancelled,
                                                       constraint_accessor,
                                                       label,
                                                       properties);
                            });
     }
   }
-  return *result.Lock();
+  // A violation is a real answer about the data, so it outranks having been asked to stop.
+  auto validation_result = *result.Lock();
+  if (!validation_result.has_value()) {
+    return validation_result;
+  }
+  if (cancelled.load(std::memory_order_relaxed)) {
+    throw PopulateCancel{};
+  }
+  return validation_result;
 }
 
 auto InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
     const utils::SkipListDb<Vertex>::Accessor &vertex_accessor, utils::SkipListDb<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) const -> std::expected<void, ConstraintViolation> {
+    const LabelId &label, const std::set<PropertyId> &properties, ProgressCallback const &on_progress,
+    CheckCancelFunction const &cancel_check) const -> std::expected<void, ConstraintViolation> {
   for (const Vertex &vertex : vertex_accessor) {
+    if (cancel_check()) {
+      throw PopulateCancel{};
+    }
     if (auto result = DoValidate(vertex, constraint_accessor, label, properties); !result.has_value()) {
       return result;
     }
-    if (snapshot_info) {
-      snapshot_info->Update(UpdateType::VERTICES);
-    }
+    if (on_progress) on_progress();
   }
   return {};
 }
 
 auto InMemoryUniqueConstraints::CreateConstraint(
     LabelId label, const std::set<PropertyId> &properties, const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
-    const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) -> std::expected<CreationStatus, ConstraintViolation> {
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info, ProgressCallback const &on_progress,
+    CheckCancelFunction const &cancel_check) -> std::expected<CreationStatus, ConstraintViolation> {
   // TODO: we should do the proper register -> populate(with cancel + parallel) -> publish pattern
 
   if (properties.empty()) {
@@ -515,10 +529,10 @@ auto InMemoryUniqueConstraints::CreateConstraint(
       auto multi_single_thread_processing = GetCreationFunction(par_exec_info);
 
       return std::visit(
-          [&vertex_accessor, &constraint_accessor, &label, &properties, &snapshot_info](
+          [&vertex_accessor, &constraint_accessor, &label, &properties, &on_progress, &cancel_check](
               auto &multi_single_thread_processing) {
             return multi_single_thread_processing(
-                vertex_accessor, constraint_accessor, label, properties, snapshot_info);
+                vertex_accessor, constraint_accessor, label, properties, on_progress, cancel_check);
           },
           multi_single_thread_processing);
     });
@@ -529,6 +543,11 @@ auto InMemoryUniqueConstraints::CreateConstraint(
     }
     return CreationStatus::SUCCESS;
   } catch (const utils::OutOfMemoryException &) {
+    (void)DropConstraint(label, properties);
+    throw;
+  } catch (const PopulateCancel &) {
+    // The constraint was installed before validation started, so it has to come back out before the cancellation
+    // reaches the caller -- otherwise a half-validated constraint stays visible.
     (void)DropConstraint(label, properties);
     throw;
   }

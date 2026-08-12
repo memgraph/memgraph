@@ -258,6 +258,10 @@ inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipLis
             "creation!");
 
   std::atomic<uint64_t> batch_counter = 0;
+  // A cancel check throwing inside a worker would escape the thread function and terminate the process, so it is
+  // caught per worker and re-thrown from this thread once they have all joined. That keeps cancellation identical
+  // whether population ran on one thread or many.
+  std::atomic<bool> cancelled = false;
 
   // TODO(composite_index): return std::optional<utils::OutOfMemoryException>, handle index cleanup from caller
   auto maybe_error = utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock>{};
@@ -268,7 +272,7 @@ inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipLis
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back(parallel_exec_info.arena_pool, [&, func /*local copy incase there is local state*/]() {
         auto acc = accessor_factory();
-        while (!maybe_error.Lock()->has_value()) {
+        while (!maybe_error.Lock()->has_value() && !cancelled.load(std::memory_order_relaxed)) {
           const auto batch_index = batch_counter++;
           if (batch_index >= vertex_batches.size()) {
             return;
@@ -284,14 +288,20 @@ inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipLis
           } catch (utils::OutOfMemoryException &failure) {
             utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
             *maybe_error.Lock() = std::move(failure);
+          } catch (PopulateCancel const &) {
+            cancelled.store(true, std::memory_order_relaxed);
           }
         }
       });
     }
   }
+  // Out of memory wins over cancellation: it is the more specific failure and the caller unwinds it differently.
   auto error = maybe_error.Lock();
   if (error->has_value()) {
     throw *std::move(*error);
+  }
+  if (cancelled.load(std::memory_order_relaxed)) {
+    throw PopulateCancel{};
   }
 }
 
@@ -305,8 +315,6 @@ inline void PopulateIndexOnSingleThread(TVerticesAccessor &vertices, TSkipListAc
     func(vertex, acc);
   }
 }
-
-struct PopulateCancel : std::exception {};
 
 template <typename TVerticesAccessor, typename TSkipListAccessorFactory, typename TFunc>
 inline void PopulateIndexDispatch(TVerticesAccessor &vertices, TSkipListAccessorFactory &&accessor_factory,

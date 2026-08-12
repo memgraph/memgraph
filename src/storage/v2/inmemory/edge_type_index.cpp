@@ -27,7 +27,7 @@ namespace memgraph::storage {
 
 namespace {
 inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, auto &&index_accessor,
-                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                   ProgressCallback const &on_progress) {
   if (from_vertex.deleted()) {
     return;
   }
@@ -38,14 +38,12 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
       continue;
     }
     index_accessor.insert({&from_vertex, to_vertex, edge_ref.ptr, 0});
-    if (snapshot_info) {
-      snapshot_info->Update(UpdateType::EDGES);
-    }
+    if (on_progress) on_progress();
   }
 }
 
 inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, auto &&index_accessor,
-                                   std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const &tx) {
+                                   ProgressCallback const &on_progress, Transaction const &tx) {
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -81,9 +79,7 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
 
   for (auto const &[type, to_vertex, edge_ref] : edges) {
     index_accessor.insert({&from_vertex, to_vertex, edge_ref.ptr, tx.start_timestamp});
-    if (snapshot_info) {
-      snapshot_info->Update(UpdateType::EDGES);
-    }
+    if (on_progress) on_progress();
   }
 }
 
@@ -122,10 +118,10 @@ inline void AdvanceUntilValid_(auto &index_iterator, const auto &end_iterator, E
 
 bool InMemoryEdgeTypeIndex::CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::Accessor vertices,
                                                ActiveIndicesUpdater const &updater,
-                                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                               ProgressCallback const &on_progress) {
   auto res = RegisterIndex(edge_type, updater);
   if (!res) return false;
-  auto res2 = PopulateIndex(edge_type, std::move(vertices), updater, snapshot_info);
+  auto res2 = PopulateIndex(edge_type, std::move(vertices), updater, on_progress);
   if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
@@ -133,8 +129,7 @@ bool InMemoryEdgeTypeIndex::CreateIndexOnePass(EdgeTypeId edge_type, utils::Skip
 }
 
 auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::Accessor vertices,
-                                          ActiveIndicesUpdater const &updater,
-                                          std::optional<SnapshotObserverInfo> const &snapshot_info,
+                                          ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress,
                                           Transaction const *tx, CheckCancelFunction cancel_check)
     -> std::expected<void, IndexPopulateError> {
   auto index = GetIndividualIndex(edge_type);
@@ -147,13 +142,13 @@ auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipListD
     if (tx) {
       // If we are in a transaction, we need to read the object with the correct MVCC snapshot isolation
       auto const insert_func = [&](Vertex &from_vertex, auto &index_accessor) {
-        TryInsertEdgeTypeIndex(from_vertex, edge_type, index_accessor, snapshot_info, *tx);
+        TryInsertEdgeTypeIndex(from_vertex, edge_type, index_accessor, on_progress, *tx);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_func, std::move(cancel_check), {} /*TODO: parallel*/);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const insert_func = [&](Vertex &from_vertex, auto &index_accessor) {
-        TryInsertEdgeTypeIndex(from_vertex, edge_type, index_accessor, snapshot_info);
+        TryInsertEdgeTypeIndex(from_vertex, edge_type, index_accessor, on_progress);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_func, std::move(cancel_check), {} /*TODO: parallel*/);
     }

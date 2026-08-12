@@ -124,7 +124,7 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
 
 void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
                                  NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
-                                 std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                 ProgressCallback const &on_progress) {
   const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
   auto needs_rebuild = !std::filesystem::exists(index_path);
   try {
@@ -171,9 +171,7 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
     }
   }
 
-  if (snapshot_info) {
-    snapshot_info->Update(UpdateType::TEXT_IDX);
-  }
+  if (on_progress) on_progress();
 
   PublishActiveIndices(updater);
 }

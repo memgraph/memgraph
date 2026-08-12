@@ -14,6 +14,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "rpc/file_replication_handler.hpp"
+#include "rpc/progress_heartbeat.hpp"
 #include "rpc/protocol.hpp"
 #include "rpc/utils.hpp"  // Include after all SLK definitions are present
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -24,7 +25,6 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/file.hpp"
-#include "utils/observer.hpp"
 #include "utils/on_scope_exit.hpp"
 
 #include <spdlog/spdlog.h>
@@ -53,28 +53,6 @@ namespace r = ranges;
 namespace rv = r::views;
 
 namespace memgraph::dbms {
-
-class SnapshotObserver final : public utils::Observer<void> {
- public:
-  explicit SnapshotObserver(slk::Builder *res_builder) : res_builder_(res_builder) {}
-
-  void Update() override {
-    auto guard = std::lock_guard{mtx_};
-    try {
-      rpc::SendInProgressMsg(res_builder_);
-    } catch (const rpc::SessionException &e) {
-      // Progress heartbeats are advisory. If the peer is (temporarily) gone the send fails, but recovery must neither
-      // crash nor abort: the loaded state stands and main reconciles it via a later heartbeat RPC once reconnected.
-      // No latch: the next Update() retries on a now-clean builder (see slk::Builder::FlushInternal).
-      spdlog::trace("Failed to send recovery progress heartbeat: {}", e.what());
-    }
-  }
-
- private:
-  slk::Builder *res_builder_;
-  // Mutex is needed because RPC execution could be concurrent
-  mutable std::mutex mtx_;
-};
 
 namespace {
 
@@ -450,8 +428,6 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     return;
   }
 
-  auto const deltas_batch_progress_size = (*maybe_locked_repl_state)->GetDeltasBatchProgressSize();
-
   storage::replication::PrepareCommitReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
@@ -516,19 +492,24 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     return;
   }
 
-  auto deltas_res = ReadAndApplyDeltasSingleTxn(storage,
-                                                &decoder,
-                                                storage::durability::kVersion,
-                                                res_builder,
-                                                /*two_phase_commit*/ req.two_phase_commit,
-                                                /*loading_wal*/ false,
-                                                /*deltas_batch_progress_size*/ deltas_batch_progress_size);
-
   storage::replication::PrepareCommitRes res{false};
-  if (deltas_res) {
-    two_pc_cache_.commit_accessor_ = std::move(deltas_res->commit_acc);
-    two_pc_cache_.durability_commit_timestamp_ = req.durability_commit_timestamp;
-    res.success = true;
+  {
+    // Scoped so the heartbeat is joined before the final response is written: both write to res_builder, and the
+    // socket behind it has no internal locking.
+    rpc::ProgressHeartbeat heartbeat{res_builder};
+    auto deltas_res = ReadAndApplyDeltasSingleTxn(storage,
+                                                  &decoder,
+                                                  storage::durability::kVersion,
+                                                  heartbeat,
+                                                  /*two_phase_commit*/ req.two_phase_commit,
+                                                  /*loading_wal*/ false);
+    heartbeat.Stop();
+
+    if (deltas_res) {
+      two_pc_cache_.commit_accessor_ = std::move(deltas_res->commit_acc);
+      two_pc_cache_.durability_commit_timestamp_ = req.durability_commit_timestamp;
+      res.success = true;
+    }
   }
   rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
 }
@@ -703,12 +684,13 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
     spdlog::trace("Clearing database {} before recovering from snapshot.", storage->name());
 
-    // Clear the database
-    storage->Clear();
+    // Started before Clear() so the teardown is covered too: on a large tenant it takes long enough on its own to
+    // exhaust the main's timeout, and it used to run entirely unobserved.
+    rpc::ProgressHeartbeat heartbeat{res_builder};
+    auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
 
-    std::optional<storage::SnapshotObserverInfo> snapshot_observer_info;
-    auto snapshot_progress_observer = std::make_shared<SnapshotObserver>(res_builder);
-    snapshot_observer_info.emplace(std::move(snapshot_progress_observer), 1'000'000);
+    // Clear the database
+    storage->Clear(record_progress);
 
     try {
       spdlog::debug("Loading snapshot for db {}.", storage->name());
@@ -725,7 +707,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr,
           &storage->ttl_,
           &storage->description_store_,
-          snapshot_observer_info);
+          record_progress);
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
       storage->uuid().set(snapshot_info.uuid);
@@ -752,14 +734,15 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
                           indices_constraints,
                           storage->edges_metadata_index_ ? &*storage->edges_metadata_index_ : nullptr,
                           storage->config_.salient.items.properties_on_edges,
-                          snapshot_observer_info);
+                          record_progress);
     } catch (const storage::durability::RecoveryFailure &e) {
       spdlog::error(
           "Couldn't load the snapshot from {} because of: {}. Storage will be cleared. Snapshot and WAL files are "
           "preserved so you can restore your data by restarting instance.",
           dst_snapshot_file,
           e.what());
-      storage->Clear();
+      storage->Clear(record_progress);
+      heartbeat.Stop();
       const storage::replication::SnapshotRes res{std::nullopt, 0};
       rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
       return;
@@ -770,6 +753,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     // guards writes behind IsBroken(), so clearing the flag is sufficient to resume normal operation). Cleared under
     // main_lock_ so the healthy transition is atomic with the recovered state.
     storage->SetBroken(false);
+    heartbeat.Stop();
   }
   spdlog::debug("Snapshot from {} loaded successfully.", dst_snapshot_file);
 
@@ -846,8 +830,6 @@ void InMemoryReplicationHandlers::WalFilesHandler(
     return;
   }
 
-  auto const deltas_batch_progress_size = (*maybe_locked_repl_state)->GetDeltasBatchProgressSize();
-
   storage::replication::WalFilesReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   // Reject a deposed-MAIN RPC before any tenant work (defence-in-depth; GetDatabaseAccessor does not reheat).
@@ -884,8 +866,14 @@ void InMemoryReplicationHandlers::WalFilesHandler(
   // Snapshot lock needs to be hold for the whole duration of the WalFilesHandler
   auto snapshot_guard = std::unique_lock(storage->snapshot_lock_, std::defer_lock);
 
+  // Covers everything that can run long enough for the main to give up on us: the force-reset teardown below and the
+  // WAL application further down. Stopped before any response is written, since both write to res_builder.
+  rpc::ProgressHeartbeat heartbeat{res_builder};
+  auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
+
   if (req.reset_needed) {
     if (!TakeSnapshotLock(snapshot_guard, storage)) {
+      heartbeat.Stop();
       rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
       return;
     }
@@ -893,6 +881,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
         spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
+        heartbeat.Stop();
         rpc::SendFinalResponse(
             storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder, storage->name());
         return;
@@ -900,7 +889,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(
 
       spdlog::trace("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
                     storage->name());
-      storage->Clear();
+      storage->Clear(record_progress);
     }
 
     // Read here because we don't know names of new WAL files
@@ -928,21 +917,27 @@ void InMemoryReplicationHandlers::WalFilesHandler(
     }
   }};
 
-  uint32_t local_batch_counter{0};
   uint64_t num_committed_txns{0};
+  bool all_applied = true;
   for (auto i = 0UL; i < wal_file_number; ++i) {
-    const auto [success, current_batch_counter, num_txns_committed] =
-        LoadWal(deltas_batch_progress_size, active_files[i], storage, res_builder, local_batch_counter);
+    const auto [success, num_txns_committed] = LoadWal(active_files[i], storage, heartbeat);
 
     if (!success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
                     storage->name());
-      const storage::replication::WalFilesRes res{std::nullopt, 0};
-      rpc::SendFinalResponse(res, request_version, res_builder);
-      return;
+      all_applied = false;
+      break;
     }
-    local_batch_counter = current_batch_counter;
     num_committed_txns += num_txns_committed;
+  }
+
+  // Every exit from here on writes a response, so the heartbeat must be off first.
+  heartbeat.Stop();
+
+  if (!all_applied) {
+    const storage::replication::WalFilesRes res{std::nullopt, 0};
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
   }
 
   spdlog::debug("Replication recovery from WAL files succeeded for db {}.", storage->name());
@@ -990,8 +985,6 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
     return;
   }
 
-  auto const deltas_batch_progress_size = (*maybe_locked_repl_state)->GetDeltasBatchProgressSize();
-
   storage::replication::CurrentWalReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   // Reject a deposed-MAIN RPC before any tenant work (defence-in-depth; GetDatabaseAccessor does not reheat).
@@ -1026,8 +1019,14 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
   // Snapshot lock needs to be hold for the whole duration of the CurrentWalHandler
   auto snapshot_guard = std::unique_lock(storage->snapshot_lock_, std::defer_lock);
 
+  // Covers everything that can run long enough for the main to give up on us: the force-reset teardown below and the
+  // WAL application further down. Stopped before any response is written, since both write to res_builder.
+  rpc::ProgressHeartbeat heartbeat{res_builder};
+  auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
+
   if (req.reset_needed) {
     if (!TakeSnapshotLock(snapshot_guard, storage)) {
+      heartbeat.Stop();
       rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
       return;
     }
@@ -1035,12 +1034,13 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
         spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
+        heartbeat.Stop();
         rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
         return;
       }
       spdlog::trace("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
                     storage->name());
-      storage->Clear();
+      storage->Clear(record_progress);
     }
 
     // Read here because we don't know the name of the new WAL file
@@ -1051,7 +1051,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
   // When loading a single WAL file, we don't care about saving number of deltas
   auto const &active_files = file_replication_handler.GetActiveFileNames();
   MG_ASSERT(active_files.size() == 1, "Received {} files but expected 1 in CurrentWalHandler", active_files.size());
-  auto const load_wal_res = LoadWal(deltas_batch_progress_size, active_files[0], storage, res_builder);
+  auto const load_wal_res = LoadWal(active_files[0], storage, heartbeat);
+  heartbeat.Stop();
   if (!load_wal_res.success) {
     spdlog::debug(
         "Replication recovery from current WAL didn't end successfully but the error is non-fatal error. DB {}.",
@@ -1094,9 +1095,9 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
 // 4.) If reading WAL info fails
 // 5.) If applying some of the deltas failed
 // If WAL file doesn't contain any new changes, we ignore it and consider WAL file as successfully applied.
-InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
-    uint64_t const deltas_batch_progress_size, std::filesystem::path const &wal_path, storage::InMemoryStorage *storage,
-    slk::Builder *res_builder, uint32_t const start_batch_counter) {
+InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(std::filesystem::path const &wal_path,
+                                                                                storage::InMemoryStorage *storage,
+                                                                                rpc::ProgressHeartbeat &heartbeat) {
   spdlog::trace("Received WAL saved to {}", wal_path);
 
   // A finalized file states how much it holds, so it is replayed straight from its header. Only main's current WAL,
@@ -1107,7 +1108,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     wal_info = storage::durability::ReadWalContents(wal_path);
   } catch (const utils::BasicException &e) {
     spdlog::error("Loading WAL info from {} failed because of {}.", wal_path, e.what());
-    return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
+    return LoadWalStatus{.success = false, .num_txns_committed = 0};
   }
 
   // We have to check if this is our 1st wal, not what main is sending
@@ -1118,7 +1119,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   // If WAL file doesn't contain any changes that need to be applied, ignore it
   if (wal_info.to_timestamp <= storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
     spdlog::trace("WAL file won't be applied since all changes already exist.");
-    return LoadWalStatus{.success = true, .current_batch_counter = 0, .num_txns_committed = 0};
+    return LoadWalStatus{.success = true, .num_txns_committed = 0};
   }
 
   // We trust only WAL files which contain changes we are interested in (newer changes)
@@ -1144,16 +1145,15 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   spdlog::debug("WAL file {} loaded successfully", wal_path);
   if (!version) {
     spdlog::error("Couldn't read WAL magic and/or version!");
-    return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
+    return LoadWalStatus{.success = false, .num_txns_committed = 0};
   }
   if (!storage::durability::IsVersionSupported(*version)) {
     spdlog::error("Invalid WAL version!");
-    return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
+    return LoadWalStatus{.success = false, .num_txns_committed = 0};
   }
 
   wal_decoder.SetPosition(wal_info.offset_deltas);
 
-  uint32_t local_batch_counter = start_batch_counter;
   uint64_t num_txns_committed{0};
   size_t local_delta_idx = 0;
   while (local_delta_idx < wal_info.num_deltas) {
@@ -1167,25 +1167,23 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
       deltas_res = ReadAndApplyDeltasSingleTxn(storage,
                                                &wal_decoder,
                                                *version,
-                                               res_builder,
+                                               heartbeat,
                                                /*two_phase_commit*/ false,
-                                               /*loading_wal*/ true,
-                                               deltas_batch_progress_size,
-                                               local_batch_counter);
+                                               /*loading_wal*/ true);
     } catch (const utils::BasicException &e) {
       spdlog::error("Aborting WAL file {} at delta {} and skipping the rest of the chain because of: {}",
                     wal_path,
                     local_delta_idx,
                     e.what());
-      return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
+      return LoadWalStatus{.success = false, .num_txns_committed = 0};
     }
+
 
     if (deltas_res) {
       local_delta_idx += deltas_res->current_delta_idx;
-      local_batch_counter = deltas_res->current_batch_counter;
       num_txns_committed += deltas_res->num_txns_committed;
     } else {
-      return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
+      return LoadWalStatus{.success = false, .num_txns_committed = 0};
     }
   }
 
@@ -1198,19 +1196,17 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
                   wal_path,
                   wal_info.num_deltas,
                   local_delta_idx);
-    return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
+    return LoadWalStatus{.success = false, .num_txns_committed = 0};
   }
 
   spdlog::trace("Replication from WAL file {} successful!", wal_path);
-  return LoadWalStatus{
-      .success = true, .current_batch_counter = local_batch_counter, .num_txns_committed = num_txns_committed};
+  return LoadWalStatus{.success = true, .num_txns_committed = num_txns_committed};
 }
 
 // The number of applied deltas also includes skipped deltas.
 std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
-    slk::Builder *res_builder, bool const two_phase_commit, bool const loading_wal, uint64_t deltas_batch_progress_size,
-    uint32_t const start_batch_counter) {
+    rpc::ProgressHeartbeat &heartbeat, bool const two_phase_commit, bool const loading_wal) {
   constexpr auto kSharedAccess = storage::StorageAccessType::WRITE;
   constexpr auto kUniqueAccess = storage::StorageAccessType::UNIQUE;
 
@@ -1271,7 +1267,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   uint64_t num_committed_txns{0};
   uint64_t current_delta_idx{0};  // tracks over how many deltas we iterated, includes also skipped deltas.
   uint64_t applied_deltas{0};     // Non-skipped deltas
-  uint32_t current_batch_counter = start_batch_counter;
   auto max_delta_timestamp = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
 
   auto current_durable_commit_timestamp = max_delta_timestamp;
@@ -1296,11 +1291,16 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   std::unordered_map<EdgeSetPropertyCacheKey, EdgeAccessor, EdgeSetPropertyCacheKeyHash> edge_set_property_cache;
 
   decoder->ResetCrcAcc();
-  for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx, ++current_batch_counter) {
-    if (current_batch_counter == deltas_batch_progress_size) {
-      rpc::SendInProgressMsg(res_builder);
-      current_batch_counter = 0;
-    }
+  // A DDL delta below can occupy the handler for minutes on its own, so index population and constraint validation
+  // report progress per vertex through this. Returning true also abandons that work once the main is gone, instead of
+  // finishing a build whose result can no longer be delivered.
+  auto const schema_progress = [&heartbeat]() {
+    heartbeat.RecordProgress();
+    return heartbeat.PeerGone();
+  };
+
+  for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx) {
+    heartbeat.RecordProgress();
     auto const [delta_timestamp, delta] = ReadDelta(decoder, version);
     if (delta_timestamp != prev_printed_timestamp) {
       spdlog::trace("Timestamp: {}", delta_timestamp);
@@ -1576,10 +1576,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           decoder->ResetCrcAcc();
 
           // Durability could take some time on replica
-          rpc::SendInProgressMsg(res_builder);
-
-          // We need to check whether the timeout passed as well when replica is making deltas durable
-          auto in_progress_cb = [&]() { rpc::SendInProgressMsg(res_builder); };
+          auto in_progress_cb = [&heartbeat]() { heartbeat.RecordProgress(); };
 
           auto const ret = commit_accessor->PrepareForCommitPhase(
               storage::CommitArgs::make_replica_write(commit_timestamp, two_phase_commit, std::move(in_progress_cb)));
@@ -1600,7 +1597,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);
           // Need to send the timestamp
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->CreateIndex(storage->NameToLabel(data.label)))
+          if (!transaction->CreateIndex(storage->NameToLabel(data.label), schema_progress))
             throw utils::BasicException("Failed to create label index on :{}.", data.label);
         },
         [&](WalLabelIndexDrop const &data) {
@@ -1635,7 +1632,10 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                         data.composite_property_paths);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto property_paths = data.composite_property_paths.convert(mapper);
-          if (!transaction->CreateIndex(storage->NameToLabel(data.label), std::move(property_paths)))
+          if (!transaction->CreateIndex(storage->NameToLabel(data.label),
+                                        std::move(property_paths),
+                                        storage::IndexOrder::ASC,
+                                        schema_progress))
             throw utils::BasicException(
                 "Failed to create label+property index on :{} ({}).", data.label, data.composite_property_paths);
         },
@@ -1673,7 +1673,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalEdgeTypeIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create edge index on :{}", current_delta_idx, data.edge_type);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->CreateIndex(storage->NameToEdgeType(data.edge_type))) {
+          if (!transaction->CreateIndex(storage->NameToEdgeType(data.edge_type), schema_progress)) {
             throw utils::BasicException("Failed to create edge index on :{}.", data.edge_type);
           }
         },
@@ -1687,7 +1687,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalEdgeTypePropertyIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create edge index on :{}({})", current_delta_idx, data.edge_type, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->CreateIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
+          if (!transaction
+                   ->CreateIndex(
+                       storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property), schema_progress)
                    .has_value()) {
             throw utils::BasicException(
                 "Failed to create edge property index on :{}({}).", data.edge_type, data.property);
@@ -1705,7 +1707,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalEdgePropertyIndexCreate const &data) {
           spdlog::trace("       Create global edge index on ({})", data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->CreateGlobalEdgeIndex(storage->NameToProperty(data.property))) {
+          if (!transaction->CreateGlobalEdgeIndex(storage->NameToProperty(data.property), schema_progress)) {
             throw utils::BasicException("Failed to create global edge property index on ({}).", data.property);
           }
         },
@@ -1719,7 +1721,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalVertexPropertyIndexCreate const &data) {
           spdlog::trace("       Create global vertex property index on ({})", data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->CreateGlobalVertexIndex(storage->NameToProperty(data.property))) {
+          if (!transaction->CreateGlobalVertexIndex(storage->NameToProperty(data.property), schema_progress)) {
             throw utils::BasicException("Failed to create global vertex property index on ({}).", data.property);
           }
         },
@@ -1792,8 +1794,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           spdlog::trace(
               "   Delta {}. Create existence constraint on :{} ({})", current_delta_idx, data.label, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto ret = transaction->CreateExistenceConstraint(storage->NameToLabel(data.label),
-                                                            storage->NameToProperty(data.property));
+          auto ret = transaction->CreateExistenceConstraint(
+              storage->NameToLabel(data.label), storage->NameToProperty(data.property), schema_progress);
           if (!ret) {
             throw utils::BasicException(
                 "Failed to create existence constraint on :{} ({}).", data.label, data.property);
@@ -1818,7 +1820,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             properties.emplace(storage->NameToProperty(prop));
           }
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto ret = transaction->CreateUniqueConstraint(storage->NameToLabel(data.label), properties);
+          auto ret = transaction->CreateUniqueConstraint(storage->NameToLabel(data.label), properties, schema_progress);
           if (!ret || ret.value() != UniqueConstraints::CreationStatus::SUCCESS) {
             throw utils::BasicException("Failed to create unique constraint on :{} ({}).", data.label, ss.str());
           }
@@ -1846,7 +1848,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto ret = transaction->CreateTypeConstraint(
-              storage->NameToLabel(data.label), storage->NameToProperty(data.property), data.kind);
+              storage->NameToLabel(data.label), storage->NameToProperty(data.property), data.kind, schema_progress);
           if (!ret) {
             throw utils::BasicException("Failed to create IS TYPED {} constraint on :{} ({}).",
                                         TypeConstraintKindToString(data.kind),
@@ -2107,7 +2109,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
   return storage::SingleTxnDeltasProcessingResult{.commit_acc = std::move(commit_accessor),
                                                   .current_delta_idx = current_delta_idx,
-                                                  .num_txns_committed = num_committed_txns,
-                                                  .current_batch_counter = current_batch_counter};
+                                                  .num_txns_committed = num_committed_txns};
 }
 }  // namespace memgraph::dbms

@@ -2351,7 +2351,7 @@ std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAcces
 }
 
 std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::DiskAccessor::CreateExistenceConstraint(
-    LabelId label, PropertyId property) {
+    LabelId label, PropertyId property, CheckCancelFunction /*cancel_check*/) {
   MG_ASSERT(type() == UNIQUE, "Creating existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
@@ -2388,7 +2388,8 @@ std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAc
 }
 
 std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
-DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
+DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                                  CheckCancelFunction /*cancel_check*/) {
   MG_ASSERT(type() == UNIQUE, "Creating unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
@@ -2425,7 +2426,7 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
 }
 
 std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::DiskAccessor::CreateTypeConstraint(
-    LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
+    LabelId /**/, PropertyId /**/, TypeConstraintKind /**/, CheckCancelFunction /**/) {
   throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage. {}", kErrorMessage);
 }
 

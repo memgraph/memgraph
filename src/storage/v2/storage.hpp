@@ -927,20 +927,38 @@ class Accessor {
 
   virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) = 0;
 
+  // Constraint creation walks every vertex, so it takes the same cancel check as index creation: it is called once
+  // per vertex and returning true abandons the validation, leaving the constraint unpublished.
   virtual std::expected<void, StorageExistenceConstraintDefinitionError> CreateExistenceConstraint(
-      LabelId label, PropertyId property) = 0;
+      LabelId label, PropertyId property, CheckCancelFunction cancel_check) = 0;
 
   virtual std::expected<void, StorageExistenceConstraintDroppingError> DropExistenceConstraint(LabelId label,
                                                                                                PropertyId property) = 0;
 
   virtual std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
-  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) = 0;
+  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties, CheckCancelFunction cancel_check) = 0;
 
   virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                  const std::set<PropertyId> &properties) = 0;
 
   virtual std::expected<void, StorageExistenceConstraintDefinitionError> CreateTypeConstraint(
-      LabelId label, PropertyId property, TypeConstraintKind type) = 0;
+      LabelId label, PropertyId property, TypeConstraintKind type, CheckCancelFunction cancel_check) = 0;
+
+  // Convenience overloads with default cancel check
+  auto CreateExistenceConstraint(LabelId label, PropertyId property)
+      -> std::expected<void, StorageExistenceConstraintDefinitionError> {
+    return CreateExistenceConstraint(label, property, neverCancel);
+  }
+
+  auto CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties)
+      -> std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> {
+    return CreateUniqueConstraint(label, properties, neverCancel);
+  }
+
+  auto CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintKind type)
+      -> std::expected<void, StorageExistenceConstraintDefinitionError> {
+    return CreateTypeConstraint(label, property, type, neverCancel);
+  }
 
   virtual std::expected<void, StorageExistenceConstraintDroppingError> DropTypeConstraint(LabelId label,
                                                                                           PropertyId property,

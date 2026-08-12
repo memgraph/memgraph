@@ -89,13 +89,20 @@ using StorageIndexDefinitionError = std::variant<IndexDefinitionError, IndexDefi
 
 struct ConstraintDefinitionError {};
 
-using StorageExistenceConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
+// Validation walked the whole vertex set and was asked to stop before finishing, so the constraint was never
+// published. Mirrors IndexDefinitionCancelationError: not a violation, just work that was abandoned.
+struct ConstraintDefinitionCancelationError {};
+
+using StorageExistenceConstraintDefinitionError =
+    std::variant<ConstraintViolation, ConstraintDefinitionError, ConstraintDefinitionCancelationError>;
 
 using StorageExistenceConstraintDroppingError = ConstraintDefinitionError;
 
-using StorageUniqueConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
+using StorageUniqueConstraintDefinitionError =
+    std::variant<ConstraintViolation, ConstraintDefinitionError, ConstraintDefinitionCancelationError>;
 
-using StorageTypeConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
+using StorageTypeConstraintDefinitionError =
+    std::variant<ConstraintViolation, ConstraintDefinitionError, ConstraintDefinitionCancelationError>;
 
 using StorageTypeConstraintDroppingError = ConstraintDefinitionError;
 

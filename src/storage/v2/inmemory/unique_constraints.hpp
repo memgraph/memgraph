@@ -17,6 +17,7 @@
 #include "memory/db_arena_fwd.hpp"
 #include "metrics/metric_handles.hpp"
 #include "metrics/scoped_gauge.hpp"
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
@@ -24,7 +25,6 @@
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/index_arming.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
@@ -50,11 +50,14 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     bool operator==(const std::vector<PropertyValue> &rhs) const;
   };
 
+  /// Both validators call `cancel_check` once per vertex and throw PopulateCancel when it returns true. The parallel
+  /// one reports it through a flag and re-throws after joining, so an escaping exception can never terminate the
+  /// process.
   struct MultipleThreadsConstraintValidation {
     auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
                     utils::SkipListDb<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
+                    const std::set<PropertyId> &properties, ProgressCallback const &on_progress = {},
+                    CheckCancelFunction const &cancel_check = neverCancel) const
         -> std::expected<void, ConstraintViolation>;
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
@@ -63,8 +66,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   struct SingleThreadConstraintValidation {
     auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
                     utils::SkipListDb<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
+                    const std::set<PropertyId> &properties, ProgressCallback const &on_progress = {},
+                    CheckCancelFunction const &cancel_check = neverCancel) const
         -> std::expected<void, ConstraintViolation>;
   };
 
@@ -132,10 +135,11 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// exceeds the maximum allowed number of properties, and
   /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
+  /// @throw PopulateCancel if `cancel_check` asks to stop; the caller is responsible for deregistering the constraint.
   auto CreateConstraint(LabelId label, const std::set<PropertyId> &properties,
                         const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
                         const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
-                        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt)
+                        ProgressCallback const &on_progress = {}, CheckCancelFunction const &cancel_check = neverCancel)
       -> std::expected<CreationStatus, ConstraintViolation>;
 
   /// Publishes a constraint after validation, making it visible at the given commit timestamp.

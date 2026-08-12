@@ -25,7 +25,7 @@ namespace memgraph::storage {
 
 namespace {
 inline void TryInsertVertexPropertyIndex(Vertex &vertex, PropertyId property, auto &&index_accessor,
-                                         std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                         ProgressCallback const &on_progress) {
   if (vertex.deleted()) {
     return;
   }
@@ -34,14 +34,11 @@ inline void TryInsertVertexPropertyIndex(Vertex &vertex, PropertyId property, au
     return;
   }
   index_accessor.insert({std::move(value), &vertex, 0});
-  if (snapshot_info) {
-    snapshot_info->Update(UpdateType::VERTICES);
-  }
+  if (on_progress) on_progress();
 }
 
 inline void TryInsertVertexPropertyIndex(Vertex &vertex, PropertyId property, auto &&index_accessor,
-                                         std::optional<SnapshotObserverInfo> const &snapshot_info,
-                                         Transaction const &tx) {
+                                         ProgressCallback const &on_progress, Transaction const &tx) {
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -75,9 +72,7 @@ inline void TryInsertVertexPropertyIndex(Vertex &vertex, PropertyId property, au
   }
 
   index_accessor.insert({std::move(property_value), &vertex, tx.start_timestamp});
-  if (snapshot_info) {
-    snapshot_info->Update(UpdateType::VERTICES);
-  }
+  if (on_progress) on_progress();
 }
 
 void AdvanceUntilValid_(auto &index_iterator, auto end, Vertex *&current_vertex, VertexAccessor &current_accessor,
@@ -170,10 +165,10 @@ bool InMemoryVertexPropertyIndex::PublishIndex(PropertyId property, uint64_t com
 bool InMemoryVertexPropertyIndex::CreateIndexOnePass(
     PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
     std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
-    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info) {
+    ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress) {
   auto res = RegisterIndex(property, updater);
   if (!res) return false;
-  auto res2 = PopulateIndex(property, std::move(vertices), parallel_exec_info, updater, snapshot_info);
+  auto res2 = PopulateIndex(property, std::move(vertices), parallel_exec_info, updater, on_progress);
   if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
@@ -183,8 +178,8 @@ bool InMemoryVertexPropertyIndex::CreateIndexOnePass(
 auto InMemoryVertexPropertyIndex::PopulateIndex(
     PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
     std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
-    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info,
-    Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
+    ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress, Transaction const *tx,
+    CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
   auto index = GetIndividualIndex(property);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -194,12 +189,12 @@ auto InMemoryVertexPropertyIndex::PopulateIndex(
     auto const accessor_factory = [&] { return index->skip_list_.access(); };
     if (tx) {
       auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
-        TryInsertVertexPropertyIndex(vertex, property, index_accessor, snapshot_info, *tx);
+        TryInsertVertexPropertyIndex(vertex, property, index_accessor, on_progress, *tx);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     } else {
       auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
-        TryInsertVertexPropertyIndex(vertex, property, index_accessor, snapshot_info);
+        TryInsertVertexPropertyIndex(vertex, property, index_accessor, on_progress);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     }

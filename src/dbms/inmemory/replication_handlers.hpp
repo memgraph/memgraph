@@ -23,6 +23,7 @@
 
 namespace memgraph::rpc {
 class FileReplicationHandler;
+class ProgressHeartbeat;
 }  // namespace memgraph::rpc
 
 namespace memgraph::dbms {
@@ -65,7 +66,6 @@ class InMemoryReplicationHandlers {
  private:
   struct LoadWalStatus {
     bool success{false};
-    uint32_t current_batch_counter{0};
     uint64_t num_txns_committed{0};
   };
 
@@ -101,15 +101,14 @@ class InMemoryReplicationHandlers {
       memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
       uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static LoadWalStatus LoadWal(uint64_t deltas_batch_progress_size, std::filesystem::path const &wal_path,
-                               storage::InMemoryStorage *storage, slk::Builder *res_builder,
-                               uint32_t start_batch_counter = 0);
+  static LoadWalStatus LoadWal(std::filesystem::path const &wal_path, storage::InMemoryStorage *storage,
+                               rpc::ProgressHeartbeat &heartbeat);
 
   static auto TakeSnapshotLock(auto &snapshot_guard, storage::InMemoryStorage *storage) -> bool;
 
   static std::optional<storage::SingleTxnDeltasProcessingResult> ReadAndApplyDeltasSingleTxn(
-      storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version, slk::Builder *,
-      bool two_phase_commit, bool loading_wal, uint64_t deltas_batch_progress_size, uint32_t start_batch_counter = 0);
+      storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version,
+      rpc::ProgressHeartbeat &heartbeat, bool two_phase_commit, bool loading_wal);
 
   static TwoPCCache two_pc_cache_;
 };

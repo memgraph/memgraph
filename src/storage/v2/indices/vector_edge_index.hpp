@@ -17,12 +17,12 @@
 #include <shared_mutex>
 #include <span>
 
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -202,13 +202,12 @@ class VectorEdgeIndex {
 
   /// @brief Creates a new index based on the provided specification.
   bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices,
-                   NameIdMapper *name_id_mapper,
-                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                   NameIdMapper *name_id_mapper, ProgressCallback const &on_progress = {});
 
   /// @brief Recovers a vector edge index based on recovery info.
   void RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
                     NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                    ProgressCallback const &on_progress = {});
 
   /// Mirror of VectorIndex::DroppedIndexCapture, plus evicted_endpoints — endpoint
   /// records erased from edge_endpoints_ that RestoreIndex must put back.

@@ -10,18 +10,23 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <atomic>
 #include <vector>
-#include "storage/v2/snapshot_observer_info.hpp"
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
+/// Runs on a worker thread, so cancellation is reported through `cancelled` rather than by throwing: an exception
+/// escaping a thread function would terminate the process. The spawning thread re-raises it as PopulateCancel once
+/// every worker has joined.
 template <typename ResultType, typename Func, typename... Args>
 void do_per_thread_validation(ResultType &result, Func &&func,
                               const std::vector<std::pair<Gid, uint64_t>> &vertex_batches,
                               std::atomic<uint64_t> &batch_counter, const utils::SkipListDb<Vertex>::Accessor &vertices,
-                              std::optional<SnapshotObserverInfo> const &snapshot_info, Args &&...args) {
-  while (result.ReadLock()->has_value()) {
+                              ProgressCallback const &on_progress, CheckCancelFunction const &cancel_check,
+                              std::atomic<bool> &cancelled, Args &&...args) {
+  while (result.ReadLock()->has_value() && !cancelled.load(std::memory_order_relaxed)) {
     const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);
     if (batch_index >= vertex_batches.size()) {
       return;
@@ -31,11 +36,13 @@ void do_per_thread_validation(ResultType &result, Func &&func,
     auto vertex_curr = vertices.find(gid_start);
     DMG_ASSERT(vertex_curr != vertices.end(), "No vertex was found with given gid");
     for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
+      if (cancel_check()) {
+        cancelled.store(true, std::memory_order_relaxed);
+        return;
+      }
       const auto validation_result = func(*vertex_curr, std::forward<Args>(args)...);
       if (validation_result) [[likely]] {
-        if (snapshot_info) {
-          snapshot_info->Update(UpdateType::VERTICES);
-        }
+        if (on_progress) on_progress();
         continue;
       }
       result.WithLock([&validation_result](auto &result) { result = std::unexpected{validation_result.error()}; });
