@@ -105,9 +105,32 @@ class StoreUnderTest {
     return store_.GetExtendedPropertyType(property);
   }
 
+  auto ExtendedPropertyTypes() const -> std::map<PropertyId, ExtendedPropertyType> {
+    return store_.ExtendedPropertyTypes();
+  }
+
+  auto ExtractPropertyIds() const -> std::vector<PropertyId> { return store_.ExtractPropertyIds(); }
+
+  auto ExtractPropertyValues(std::set<PropertyId> const &properties) const
+      -> std::optional<std::vector<PropertyValue>> {
+    return store_.ExtractPropertyValues(properties);
+  }
+
+  auto PropertySize(PropertyId property) const -> uint32_t { return store_.PropertySize(property); }
+
+  auto PropertiesMatchTypes(TypeConstraintsValidator const &constraint) const
+      -> std::optional<PropertyStoreConstraintViolation> {
+    return store_.PropertiesMatchTypes(constraint);
+  }
+
   auto ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties) const
       -> std::vector<PropertyValue> {
     return store_.ExtractPropertyValuesMissingAsNull(ordered_properties);
+  }
+
+  void ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties,
+                                          std::span<PropertyValue> out) const {
+    store_.ExtractPropertyValuesMissingAsNull(ordered_properties, out);
   }
 
   auto ArePropertiesEqual(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue const> values,
@@ -132,40 +155,6 @@ class StoreUnderTest {
   PropertyStore store_;
 };
 
-/** How `PropertyStore` classifies a value, for the store that keeps the type in its shape. */
-auto StoreTypeOf(PropertyValue const &value) -> PropertyStoreType {
-  switch (value.type()) {
-    case PropertyValueType::Null:
-      return PropertyStoreType::NONE;
-    case PropertyValueType::Bool:
-      return PropertyStoreType::BOOL;
-    case PropertyValueType::Int:
-      return PropertyStoreType::INT;
-    case PropertyValueType::Double:
-      return PropertyStoreType::DOUBLE;
-    case PropertyValueType::String:
-      return PropertyStoreType::STRING;
-    case PropertyValueType::List:
-    case PropertyValueType::IntList:
-    case PropertyValueType::DoubleList:
-    case PropertyValueType::NumericList:
-      return PropertyStoreType::LIST;
-    case PropertyValueType::Map:
-      return PropertyStoreType::MAP;
-    case PropertyValueType::TemporalData:
-      return PropertyStoreType::TEMPORAL_DATA;
-    case PropertyValueType::ZonedTemporalData:
-      return PropertyStoreType::ZONED_TEMPORAL_DATA;
-    case PropertyValueType::Enum:
-      return PropertyStoreType::ENUM;
-    case PropertyValueType::Point2d:
-    case PropertyValueType::Point3d:
-      return PropertyStoreType::POINT;
-    case PropertyValueType::VectorIndexId:
-      return PropertyStoreType::VECTOR;
-  }
-}
-
 /** `ManifestPropertyStore` behind the same interface.
  *
  * The registry argument every call takes is supplied here. What the manifest store has no
@@ -185,7 +174,7 @@ class ManifestStoreUnderTest {
   auto HasProperty(PropertyId property) const -> bool { return store_.HasProperty(Registry(), property); }
 
   auto HasAllProperties(std::set<PropertyId> const &properties) const -> bool {
-    return std::ranges::all_of(properties, [this](PropertyId property) { return HasProperty(property); });
+    return store_.HasAllProperties(Registry(), properties);
   }
 
   auto HasAllPropertyValues(std::vector<PropertyValue> const &values) const -> bool {
@@ -208,40 +197,49 @@ class ManifestStoreUnderTest {
   }
 
   auto PropertiesOfTypes(std::span<PropertyStoreType const> types) const -> std::vector<PropertyId> {
-    auto matching = std::vector<PropertyId>{};
-    for (auto const &[property, value] : Properties()) {
-      if (std::ranges::find(types, StoreTypeOf(value)) != types.end()) matching.push_back(property);
-    }
-    return matching;
+    return store_.PropertiesOfTypes(Registry(), types);
   }
 
   auto GetPropertyOfTypes(PropertyId property, std::span<PropertyStoreType const> types) const
       -> std::optional<PropertyValue> {
-    auto value = GetProperty(property);
-    if (value.IsNull() || std::ranges::find(types, StoreTypeOf(value)) == types.end()) return std::nullopt;
-    return value;
+    return store_.GetPropertyOfTypes(Registry(), property, types);
   }
 
   auto GetExtendedPropertyType(PropertyId property) const -> ExtendedPropertyType {
-    return ExtendedPropertyType{GetProperty(property)};
+    return store_.GetExtendedPropertyType(Registry(), property);
+  }
+
+  auto ExtendedPropertyTypes() const -> std::map<PropertyId, ExtendedPropertyType> {
+    return store_.ExtendedPropertyTypes(Registry());
+  }
+
+  auto ExtractPropertyIds() const -> std::vector<PropertyId> { return store_.ExtractPropertyIds(Registry()); }
+
+  auto ExtractPropertyValues(std::set<PropertyId> const &properties) const
+      -> std::optional<std::vector<PropertyValue>> {
+    return store_.ExtractPropertyValues(Registry(), properties);
+  }
+
+  auto PropertySize(PropertyId property) const -> uint32_t { return store_.PropertySize(Registry(), property); }
+
+  auto PropertiesMatchTypes(TypeConstraintsValidator const &constraint) const
+      -> std::optional<PropertyStoreConstraintViolation> {
+    return store_.PropertiesMatchTypes(Registry(), constraint);
   }
 
   auto ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties) const
       -> std::vector<PropertyValue> {
-    auto values = std::vector<PropertyValue>{};
-    values.reserve(ordered_properties.size());
-    for (auto const &path : ordered_properties) values.push_back(ReadPath(path));
-    return values;
+    return store_.ExtractPropertyValuesMissingAsNull(Registry(), ordered_properties);
+  }
+
+  void ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties,
+                                          std::span<PropertyValue> out) const {
+    store_.ExtractPropertyValuesMissingAsNull(Registry(), ordered_properties, out);
   }
 
   auto ArePropertiesEqual(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue const> values,
                           std::span<std::size_t const> position_lookup) const -> std::vector<bool> {
-    auto results = std::vector<bool>{};
-    results.reserve(ordered_properties.size());
-    for (size_t i = 0; i != ordered_properties.size(); ++i) {
-      results.push_back(ReadPath(ordered_properties[i]) == values[position_lookup[i]]);
-    }
-    return results;
+    return store_.ArePropertiesEqual(Registry(), ordered_properties, values, position_lookup);
   }
 
   auto InitProperties(std::map<PropertyId, PropertyValue> const &properties) -> bool {
@@ -258,14 +256,6 @@ class ManifestStoreUnderTest {
   auto BufferSize() const -> size_t { return store_.buffer_size(); }
 
  private:
-  /// The value at a nested path, or Null if any step of it is missing.
-  auto ReadPath(PropertyPath const &path) const -> PropertyValue {
-    auto const value = GetProperty(path.front());
-    if (path.size() == 1) return value;
-    auto const *nested = ReadNestedPropertyValue(value, path.as_span().subspan(1));
-    return nested == nullptr ? PropertyValue{} : *nested;
-  }
-
   ManifestPropertyStore store_;
 };
 
@@ -2613,6 +2603,384 @@ STORE_TYPED_TEST(DecodeExpectedPropertyTypeZonedTemporal) {
   std::vector<std::pair<PropertyId, PropertyValue>> data{{prop, PropertyValue(GetSampleZonedTemporal())}};
   EXPECT_TRUE(store.InitProperties(data));
   EXPECT_EQ(store.GetExtendedPropertyType(prop), ExtendedPropertyType{PropertyValue::Type::ZonedTemporalData});
+}
+
+//==============================================================================
+
+STORE_TYPED_TEST(ExtendedPropertyTypes) {
+  auto const prop1 = PropertyId::FromInt(1);
+  auto const prop2 = PropertyId::FromInt(2);
+  auto const prop3 = PropertyId::FromInt(3);
+  auto const prop4 = PropertyId::FromInt(4);
+  auto const prop5 = PropertyId::FromInt(5);
+  auto const prop6 = PropertyId::FromInt(6);
+  auto const prop7 = PropertyId::FromInt(7);
+  auto const prop8 = PropertyId::FromInt(8);
+  auto const prop9 = PropertyId::FromInt(9);
+
+  TStore store;
+  EXPECT_TRUE(store.InitProperties(std::vector<std::pair<PropertyId, PropertyValue>>{
+      {prop1, PropertyValue(true)},
+      {prop2, PropertyValue(42)},
+      {prop3, PropertyValue("test")},
+      {prop4, PropertyValue(std::vector<int>{1, 2, 3})},
+      {prop5, PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(1)}})},
+      {prop6, PropertyValue(TemporalData(TemporalType::LocalTime, 23))},
+      {prop7, PropertyValue(Enum{EnumTypeId{7}, EnumValueId{42}})},
+      {prop8, PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}}},
+      {prop9, PropertyValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}},
+  }));
+
+  EXPECT_EQ(store.ExtendedPropertyTypes(),
+            (std::map<PropertyId, ExtendedPropertyType>{
+                {prop1, ExtendedPropertyType{PropertyValue::Type::Bool}},
+                {prop2, ExtendedPropertyType{PropertyValue::Type::Int}},
+                {prop3, ExtendedPropertyType{PropertyValue::Type::String}},
+                {prop4, ExtendedPropertyType{PropertyValue::Type::List}},
+                {prop5, ExtendedPropertyType{PropertyValue::Type::Map}},
+                {prop6, ExtendedPropertyType{TemporalType::LocalTime}},
+                {prop7, ExtendedPropertyType{EnumTypeId{7}}},
+                {prop8, ExtendedPropertyType{PropertyValue::Type::Point2d}},
+                {prop9, ExtendedPropertyType{PropertyValue::Type::Point3d}},
+            }));
+}
+
+/// Split out of `ExtendedPropertyTypes` so that a store which cannot encode a zoned temporal
+/// yet still reports the type of everything else it holds.
+STORE_TYPED_TEST(ExtendedPropertyTypesZonedTemporal) {
+  auto const prop = PropertyId::FromInt(1);
+
+  TStore store;
+  ASSERT_TRUE(store.SetProperty(prop, PropertyValue(GetSampleZonedTemporal())));
+  EXPECT_EQ(store.ExtendedPropertyTypes(),
+            (std::map<PropertyId, ExtendedPropertyType>{
+                {prop, ExtendedPropertyType{PropertyValue::Type::ZonedTemporalData}}}));
+}
+
+STORE_TYPED_TEST(ExtendedPropertyTypesOfAnEmptyStore) {
+  TStore store;
+  EXPECT_TRUE(store.ExtendedPropertyTypes().empty());
+}
+
+/// A removed property is gone whether the store forgets the field or only that it holds a
+/// value for it.
+STORE_TYPED_TEST(ExtendedPropertyTypesForgetsARemovedProperty) {
+  auto const kept = PropertyId::FromInt(1);
+  auto const removed = PropertyId::FromInt(2);
+
+  TStore store;
+  ASSERT_TRUE(store.SetProperty(kept, PropertyValue(42)));
+  ASSERT_TRUE(store.SetProperty(removed, PropertyValue("gone")));
+  ASSERT_FALSE(store.SetProperty(removed, PropertyValue()));
+
+  EXPECT_EQ(store.ExtendedPropertyTypes(),
+            (std::map<PropertyId, ExtendedPropertyType>{{kept, ExtendedPropertyType{PropertyValue::Type::Int}}}));
+  EXPECT_EQ(store.GetExtendedPropertyType(removed), ExtendedPropertyType{PropertyValue::Type::Null});
+}
+
+STORE_TYPED_TEST(ExtractPropertyIds) {
+  auto const prop1 = PropertyId::FromInt(1);
+  auto const prop2 = PropertyId::FromInt(2);
+  auto const prop3 = PropertyId::FromInt(3);
+
+  TStore store;
+  EXPECT_TRUE(store.ExtractPropertyIds().empty());
+
+  EXPECT_TRUE(store.InitProperties(std::vector<std::pair<PropertyId, PropertyValue>>{
+      {prop1, PropertyValue(true)}, {prop2, PropertyValue("two")}, {prop3, PropertyValue(3.5)}}));
+  EXPECT_EQ(store.ExtractPropertyIds(), (std::vector{prop1, prop2, prop3}));
+
+  ASSERT_FALSE(store.SetProperty(prop2, PropertyValue()));
+  EXPECT_EQ(store.ExtractPropertyIds(), (std::vector{prop1, prop3}));
+}
+
+STORE_TYPED_TEST(PropertiesOfTypesForgetsARemovedProperty) {
+  auto const kept = PropertyId::FromInt(1);
+  auto const removed = PropertyId::FromInt(2);
+
+  TStore store;
+  ASSERT_TRUE(store.SetProperty(kept, PropertyValue(1)));
+  ASSERT_TRUE(store.SetProperty(removed, PropertyValue(2)));
+  ASSERT_FALSE(store.SetProperty(removed, PropertyValue()));
+
+  constexpr auto types = std::array{PropertyStoreType::INT};
+  EXPECT_EQ(store.PropertiesOfTypes(types), (std::vector{kept}));
+  EXPECT_EQ(store.GetPropertyOfTypes(removed, types), std::nullopt);
+  EXPECT_FALSE(store.HasAllProperties({kept, removed}));
+  EXPECT_TRUE(store.HasAllProperties({kept}));
+}
+
+STORE_TYPED_TEST(ExtractPropertyValues) {
+  auto const prop1 = PropertyId::FromInt(1);
+  auto const prop2 = PropertyId::FromInt(2);
+  auto const prop3 = PropertyId::FromInt(3);
+
+  TStore store;
+  EXPECT_EQ(store.ExtractPropertyValues({prop1}), std::nullopt) << "an empty store is missing every property";
+
+  EXPECT_TRUE(store.InitProperties(std::vector<std::pair<PropertyId, PropertyValue>>{
+      {prop1, PropertyValue(true)}, {prop2, PropertyValue("two")}, {prop3, PropertyValue(3.5)}}));
+
+  EXPECT_EQ(store.ExtractPropertyValues({prop3, prop1}), (std::vector{PropertyValue(true), PropertyValue(3.5)}))
+      << "values come back in property order, whatever order they were asked for in";
+  EXPECT_EQ(store.ExtractPropertyValues({prop1, PropertyId::FromInt(4)}), std::nullopt);
+  EXPECT_EQ(store.ExtractPropertyValues({}), std::vector<PropertyValue>{});
+
+  ASSERT_FALSE(store.SetProperty(prop2, PropertyValue()));
+  EXPECT_EQ(store.ExtractPropertyValues({prop1, prop2}), std::nullopt) << "a removed property is a missing one";
+}
+
+/// The encodings differ, so only what a size means is shared: nothing for a property the
+/// store does not hold, something for one it does, and more of it for a longer value.
+STORE_TYPED_TEST(PropertySize) {
+  auto const present = PropertyId::FromInt(1);
+  auto const absent = PropertyId::FromInt(2);
+  auto const short_string = PropertyId::FromInt(3);
+  auto const long_string = PropertyId::FromInt(4);
+
+  TStore store;
+  EXPECT_EQ(store.PropertySize(present), 0);
+
+  ASSERT_TRUE(store.SetProperty(present, PropertyValue(42)));
+  ASSERT_TRUE(store.SetProperty(short_string, PropertyValue(std::string(4, 'a'))));
+  ASSERT_TRUE(store.SetProperty(long_string, PropertyValue(std::string(400, 'a'))));
+
+  EXPECT_GT(store.PropertySize(present), 0);
+  EXPECT_EQ(store.PropertySize(absent), 0);
+  EXPECT_GT(store.PropertySize(long_string), store.PropertySize(short_string));
+
+  ASSERT_FALSE(store.SetProperty(present, PropertyValue()));
+  EXPECT_EQ(store.PropertySize(present), 0) << "a removed property costs nothing";
+}
+
+STORE_TYPED_TEST(ExtractPropertyValuesMissingAsNullIntoCallerBuffer) {
+  auto const prop1 = PropertyId::FromInt(1);
+  auto const prop2 = PropertyId::FromInt(2);
+  auto const prop3 = PropertyId::FromInt(3);
+
+  TStore store;
+  ASSERT_TRUE(store.InitProperties(std::vector<std::pair<PropertyId, PropertyValue>>{
+      {prop1, PropertyValue("alfa")},
+      {prop3, MakeMap(KVPair{prop1, PropertyValue("charlie")})},
+  }));
+
+  auto const paths = std::array{PropertyPath{prop1}, PropertyPath{prop2}, PropertyPath{prop3, prop1}};
+  auto values = std::array{PropertyValue{"overwritten"}, PropertyValue{"overwritten"}, PropertyValue{"overwritten"}};
+  store.ExtractPropertyValuesMissingAsNull(paths, values);
+
+  EXPECT_EQ(values, (std::array{PropertyValue("alfa"), PropertyValue(), PropertyValue("charlie")}));
+  EXPECT_EQ(std::vector(values.begin(), values.end()), store.ExtractPropertyValuesMissingAsNull(paths));
+}
+
+/// A path into a property the store no longer holds reads as Null, whether the store forgot
+/// the field or only that it holds a value for it.
+STORE_TYPED_TEST(PathsReadARemovedPropertyAsNull) {
+  auto const kept = PropertyId::FromInt(1);
+  auto const removed = PropertyId::FromInt(2);
+  auto const nested = PropertyId::FromInt(3);
+
+  TStore store;
+  ASSERT_TRUE(store.InitProperties(std::vector<std::pair<PropertyId, PropertyValue>>{
+      {kept, PropertyValue("alfa")},
+      {removed, MakeMap(KVPair{nested, PropertyValue("bravo")})},
+  }));
+  ASSERT_FALSE(store.SetProperty(removed, PropertyValue()));
+
+  auto const paths = std::array{PropertyPath{kept}, PropertyPath{removed}, PropertyPath{removed, nested}};
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(paths),
+            (std::vector{PropertyValue("alfa"), PropertyValue(), PropertyValue()}));
+
+  auto const values = std::array{PropertyValue("alfa"), PropertyValue(), PropertyValue("bravo")};
+  EXPECT_EQ(store.ArePropertiesEqual(paths, values, std::array<std::size_t, 3>{0, 1, 2}),
+            (std::vector{true, true, false}));
+}
+
+namespace {
+
+using TypeConstraints = absl::flat_hash_map<PropertyId, TypeConstraintKind>;
+
+}  // namespace
+
+STORE_TYPED_TEST(PropertiesMatchTypes) {
+  auto const prop1 = PropertyId::FromInt(1);
+  auto const prop2 = PropertyId::FromInt(2);
+  auto const label = LabelId::FromInt(11);
+
+  TStore store;
+  ASSERT_TRUE(store.InitProperties(std::vector<std::pair<PropertyId, PropertyValue>>{
+      {prop1, PropertyValue(42)},
+      {prop2, PropertyValue("two")},
+  }));
+
+  EXPECT_EQ(store.PropertiesMatchTypes(TypeConstraintsValidator{}), std::nullopt)
+      << "no constraint is nothing to break";
+
+  {
+    auto const constraints = TypeConstraints{{prop1, TypeConstraintKind::INTEGER}, {prop2, TypeConstraintKind::STRING}};
+    auto validator = TypeConstraintsValidator{};
+    validator.add(label, constraints);
+    EXPECT_EQ(store.PropertiesMatchTypes(validator), std::nullopt);
+  }
+
+  {
+    auto const constraints = TypeConstraints{{prop2, TypeConstraintKind::INTEGER}};
+    auto validator = TypeConstraintsValidator{};
+    validator.add(label, constraints);
+    auto const violation = store.PropertiesMatchTypes(validator);
+    ASSERT_TRUE(violation.has_value());
+    EXPECT_EQ(violation->property_id, prop2);
+    EXPECT_EQ(violation->label, label);
+    EXPECT_EQ(violation->constraint_, TypeConstraintKind::INTEGER);
+  }
+
+  {
+    auto const constraints = TypeConstraints{{PropertyId::FromInt(3), TypeConstraintKind::INTEGER}};
+    auto validator = TypeConstraintsValidator{};
+    validator.add(label, constraints);
+    EXPECT_EQ(store.PropertiesMatchTypes(validator), std::nullopt)
+        << "a constraint on a property the store does not hold is not broken by it";
+  }
+}
+
+/// A temporal constraint is checked against the exact temporal type, not the class of types.
+STORE_TYPED_TEST(PropertiesMatchTypesTemporal) {
+  auto const prop = PropertyId::FromInt(1);
+  auto const label = LabelId::FromInt(11);
+
+  TStore store;
+  ASSERT_TRUE(store.SetProperty(prop, PropertyValue(TemporalData(TemporalType::Date, 23))));
+
+  {
+    auto const constraints = TypeConstraints{{prop, TypeConstraintKind::DATE}};
+    auto validator = TypeConstraintsValidator{};
+    validator.add(label, constraints);
+    EXPECT_EQ(store.PropertiesMatchTypes(validator), std::nullopt);
+  }
+
+  {
+    auto const constraints = TypeConstraints{{prop, TypeConstraintKind::DURATION}};
+    auto validator = TypeConstraintsValidator{};
+    validator.add(label, constraints);
+    auto const violation = store.PropertiesMatchTypes(validator);
+    ASSERT_TRUE(violation.has_value());
+    EXPECT_EQ(violation->property_id, prop);
+    EXPECT_EQ(violation->constraint_, TypeConstraintKind::DURATION);
+  }
+}
+
+/// A zoned datetime satisfies a ZONED DATE TIME constraint whichever of the two ways its
+/// timezone is stored: a named zone and a numeric offset are encoded differently but are
+/// equally a ZonedDateTime.
+STORE_TYPED_TEST(PropertiesMatchTypesZonedTemporal) {
+  auto const prop = PropertyId::FromInt(1);
+  auto const label = LabelId::FromInt(11);
+  auto const when = memgraph::utils::AsSysTime(1732145501);
+
+  auto const timezones = std::array{
+      memgraph::utils::Timezone("Etc/UTC"),
+      memgraph::utils::Timezone("America/Los_Angeles"),
+      memgraph::utils::Timezone(std::chrono::minutes{60}),
+      memgraph::utils::Timezone(std::chrono::minutes{-330}),
+      memgraph::utils::Timezone(std::chrono::minutes{0}),
+  };
+
+  for (auto const &timezone : timezones) {
+    TStore store;
+    ASSERT_TRUE(
+        store.SetProperty(prop, PropertyValue(ZonedTemporalData{ZonedTemporalType::ZonedDateTime, when, timezone})));
+
+    {
+      auto const constraints = TypeConstraints{{prop, TypeConstraintKind::ZONEDDATETIME}};
+      auto validator = TypeConstraintsValidator{};
+      validator.add(label, constraints);
+      EXPECT_EQ(store.PropertiesMatchTypes(validator), std::nullopt)
+          << "timezone " << timezone.ToString() << " is still a zoned datetime";
+    }
+
+    {
+      auto const constraints = TypeConstraints{{prop, TypeConstraintKind::LOCALDATETIME}};
+      auto validator = TypeConstraintsValidator{};
+      validator.add(label, constraints);
+      auto const violation = store.PropertiesMatchTypes(validator);
+      ASSERT_TRUE(violation.has_value()) << "timezone " << timezone.ToString();
+      EXPECT_EQ(violation->property_id, prop);
+      EXPECT_EQ(violation->constraint_, TypeConstraintKind::LOCALDATETIME);
+    }
+  }
+}
+
+/// A value that is not a zoned datetime still breaks a ZONED DATE TIME constraint.
+STORE_TYPED_TEST(PropertiesMatchTypesZonedTemporalRejectsOtherTypes) {
+  auto const prop = PropertyId::FromInt(1);
+  auto const label = LabelId::FromInt(11);
+
+  auto const values = std::array{
+      PropertyValue("not a time"),
+      PropertyValue(42),
+      PropertyValue(TemporalData(TemporalType::LocalDateTime, 23)),
+  };
+
+  for (auto const &value : values) {
+    TStore store;
+    ASSERT_TRUE(store.SetProperty(prop, value));
+
+    auto const constraints = TypeConstraints{{prop, TypeConstraintKind::ZONEDDATETIME}};
+    auto validator = TypeConstraintsValidator{};
+    validator.add(label, constraints);
+    auto const violation = store.PropertiesMatchTypes(validator);
+    ASSERT_TRUE(violation.has_value()) << "value of type " << static_cast<int>(value.type());
+    EXPECT_EQ(violation->property_id, prop);
+    EXPECT_EQ(violation->constraint_, TypeConstraintKind::ZONEDDATETIME);
+  }
+}
+
+/// Every list representation satisfies a LIST constraint, and a non-list still breaks it.
+STORE_TYPED_TEST(PropertiesMatchTypesList) {
+  auto const prop = PropertyId::FromInt(1);
+  auto const label = LabelId::FromInt(11);
+
+  auto const lists = std::array{
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(1), PropertyValue("two")}),
+      PropertyValue(PropertyValue::int_list_t{1, 2, 3}),
+      PropertyValue(PropertyValue::double_list_t{1.5, 2.5}),
+  };
+
+  for (auto const &list : lists) {
+    TStore store;
+    ASSERT_TRUE(store.SetProperty(prop, list));
+
+    {
+      auto const constraints = TypeConstraints{{prop, TypeConstraintKind::LIST}};
+      auto validator = TypeConstraintsValidator{};
+      validator.add(label, constraints);
+      EXPECT_EQ(store.PropertiesMatchTypes(validator), std::nullopt);
+    }
+
+    {
+      auto const constraints = TypeConstraints{{prop, TypeConstraintKind::MAP}};
+      auto validator = TypeConstraintsValidator{};
+      validator.add(label, constraints);
+      auto const violation = store.PropertiesMatchTypes(validator);
+      ASSERT_TRUE(violation.has_value());
+      EXPECT_EQ(violation->constraint_, TypeConstraintKind::MAP);
+    }
+  }
+}
+
+/// A property the store no longer holds cannot break a constraint, whether the store forgot
+/// the field or only that it holds a value for it.
+STORE_TYPED_TEST(PropertiesMatchTypesIgnoresARemovedProperty) {
+  auto const prop = PropertyId::FromInt(1);
+  auto const label = LabelId::FromInt(11);
+
+  TStore store;
+  ASSERT_TRUE(store.SetProperty(prop, PropertyValue("two")));
+  ASSERT_FALSE(store.SetProperty(prop, PropertyValue()));
+
+  auto const constraints = TypeConstraints{{prop, TypeConstraintKind::INTEGER}};
+  auto validator = TypeConstraintsValidator{};
+  validator.add(label, constraints);
+  EXPECT_EQ(store.PropertiesMatchTypes(validator), std::nullopt);
 }
 
 //==============================================================================

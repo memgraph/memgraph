@@ -15,14 +15,18 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <ranges>
+#include <set>
 #include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <variant>
+#include <vector>
 
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/property_store.hpp"  // FLAGS_storage_floating_point_resolution_bits
 #include "utils/logging.hpp"
 
@@ -1036,6 +1040,125 @@ void WriteOffset(uint8_t *table, uint8_t width, uint32_t index, uint32_t offset)
 /// the marker an inline record carries.
 constexpr auto ToMultipleOf8(uint32_t size) -> uint32_t { return (size + 7U) & ~7U; }
 
+/// How a stored type reads as a property type. Everything a type is made of that is not the
+/// value itself lives in the shape, so nothing here reads a payload: which temporal type, which
+/// enum type, and, through the width the shape reserved, whether a point is 2d or 3d.
+auto ExtendedTypeOf(StoredType stored_type) -> ExtendedPropertyType {
+  switch (stored_type.type) {
+    case PropertyStoreType::BOOL:
+      return ExtendedPropertyType{PropertyValueType::Bool};
+    case PropertyStoreType::INT:
+      return ExtendedPropertyType{PropertyValueType::Int};
+    case PropertyStoreType::DOUBLE:
+      return ExtendedPropertyType{PropertyValueType::Double};
+    case PropertyStoreType::STRING:
+      return ExtendedPropertyType{PropertyValueType::String};
+    case PropertyStoreType::LIST:
+      return ExtendedPropertyType{PropertyValueType::List};
+    case PropertyStoreType::MAP:
+      return ExtendedPropertyType{PropertyValueType::Map};
+    case PropertyStoreType::TEMPORAL_DATA:
+      return ExtendedPropertyType{static_cast<TemporalType>(stored_type.discriminator)};
+    case PropertyStoreType::ZONED_TEMPORAL_DATA:
+    case PropertyStoreType::OFFSET_ZONED_TEMPORAL_DATA:
+      return ExtendedPropertyType{PropertyValueType::ZonedTemporalData};
+    case PropertyStoreType::ENUM:
+      return ExtendedPropertyType{EnumTypeId{stored_type.discriminator}};
+    case PropertyStoreType::POINT:
+      // A point's dimension is not a stored type of its own; the width the shape reserved is
+      // what tells the two apart.
+      return ExtendedPropertyType{stored_type.width == kPoint2dWidth ? PropertyValueType::Point2d
+                                                                     : PropertyValueType::Point3d};
+    default:
+      LOG_FATAL("Not a stored property type");
+  }
+}
+
+/// One record read through its shape. Resolving the shape and locating the record's regions is
+/// done once here, so an operation that reads several values pays for it once.
+class RecordReader {
+ public:
+  RecordReader(PropertyManifest const &manifest, uint8_t const *record)
+      : manifest_{&manifest}, record_{record}, regions_{RegionsOf(manifest, record)} {}
+
+  auto manifest() const -> PropertyManifest const & { return *manifest_; }
+
+  auto Carries(uint32_t position) const -> bool { return IsPresent(record_, position); }
+
+  /// Where `property` sits, or nothing when the record carries no value for it. A field the
+  /// shape has but the record's presence bits deny is no value at all.
+  auto Find(PropertyId property) const -> std::optional<PropertyManifest::Location> {
+    auto const found = manifest_->Find(property);
+    if (!found || !Carries(found->position)) return std::nullopt;
+    return found;
+  }
+
+  /// The bytes a value occupies. A variable-width value is bounded by the offset table, whose
+  /// entries are ends, so a value starts where the one before it finished.
+  auto Payload(PropertyManifest::Location const &location) const -> std::span<uint8_t const> {
+    if (location.is_fixed) {
+      return std::span{record_ + regions_.fixed + location.offset, location.stored_type.width};
+    }
+    auto const *table = record_ + regions_.offset_table;
+    auto const end = ReadOffset(table, regions_.offset_width, location.offset);
+    auto const begin = location.offset == 0 ? 0U : ReadOffset(table, regions_.offset_width, location.offset - 1);
+    return std::span{record_ + regions_.variable + begin, end - begin};
+  }
+
+  auto Read(PropertyManifest::Location const &location) const -> PropertyValue {
+    auto const payload = Payload(location);
+    if (location.is_fixed) return DecodeFixed(location.stored_type, payload);
+    return DecodeVariable(location.stored_type, payload.data(), static_cast<uint32_t>(payload.size()));
+  }
+
+  auto Equals(PropertyManifest::Location const &location, PropertyValue const &value) const -> bool {
+    auto const payload = Payload(location);
+    if (location.is_fixed) return FixedEquals(location.stored_type, payload, value);
+    return VariableEquals(location.stored_type, payload.data(), static_cast<uint32_t>(payload.size()), value);
+  }
+
+ private:
+  PropertyManifest const *manifest_;
+  uint8_t const *record_;
+  Regions regions_;
+};
+
+/// Reads the values a run of property paths names. Paths come in property order, so those
+/// sharing a top-level property arrive together and decode it once between them, which is what
+/// keeps a composite index over several branches of one map to a single decode.
+class PathReader {
+ public:
+  explicit PathReader(std::optional<RecordReader> const &record) : record_{record} {}
+
+  /// The value at `path`, or Null when any step of it is missing.
+  auto Read(PropertyPath const &path) -> PropertyValue {
+    if (!record_) return PropertyValue{};
+    if (path.size() == 1) {
+      auto const found = record_->Find(path.front());
+      return found ? record_->Read(*found) : PropertyValue{};
+    }
+    auto const *nested = ReadNested(path);
+    return nested == nullptr ? PropertyValue{} : *nested;
+  }
+
+  /// The value the nested `path` names, or null when a step of it is missing. Points into the
+  /// decoded top-level value, so it lives until a path of another top-level property is read.
+  auto ReadNested(PropertyPath const &path) -> PropertyValue const * {
+    if (!record_) return nullptr;
+    if (top_level_property_ != path.front()) {
+      auto const found = record_->Find(path.front());
+      top_level_ = found ? record_->Read(*found) : PropertyValue{};
+      top_level_property_ = path.front();
+    }
+    return ReadNestedPropertyValue(top_level_, path.as_span().subspan(1));
+  }
+
+ private:
+  std::optional<RecordReader> const &record_;
+  std::optional<PropertyId> top_level_property_;
+  PropertyValue top_level_;
+};
+
 }  // namespace
 
 ManifestPropertyStore::ManifestPropertyStore(ManifestPropertyStore &&other) noexcept : buffer_{other.buffer_} {
@@ -1079,20 +1202,9 @@ auto ManifestPropertyStore::GetProperty(PropertyManifest const &manifest, Proper
     -> PropertyValue {
   if (empty()) return PropertyValue{};
 
-  auto const *record = data();
-  if (!IsPresent(record, location.position)) return PropertyValue{};
-
-  auto const regions = RegionsOf(manifest, record);
-  if (location.is_fixed) {
-    return DecodeFixed(location.stored_type,
-                       std::span{record + regions.fixed + location.offset, location.stored_type.width});
-  }
-
-  // Offsets are ends, so a value starts where the previous one finished.
-  auto const *table = record + regions.offset_table;
-  auto const end = ReadOffset(table, regions.offset_width, location.offset);
-  auto const begin = location.offset == 0 ? 0U : ReadOffset(table, regions.offset_width, location.offset - 1);
-  return DecodeVariable(location.stored_type, record + regions.variable + begin, end - begin);
+  auto const reader = RecordReader{manifest, data()};
+  if (!reader.Carries(location.position)) return PropertyValue{};
+  return reader.Read(location);
 }
 
 auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, PropertyId property) const -> PropertyValue {
@@ -1114,23 +1226,10 @@ auto ManifestPropertyStore::IsPropertyEqual(ManifestRegistry const &registry, Pr
                                             PropertyValue const &value) const -> bool {
   if (empty()) return value.IsNull();
 
-  auto const &manifest = registry.Resolve(this->manifest());
-  auto const found = manifest.Find(property);
+  auto const reader = RecordReader{registry.Resolve(this->manifest()), data()};
+  auto const found = reader.Find(property);
   if (!found) return value.IsNull();
-
-  auto const *record = data();
-  if (!IsPresent(record, found->position)) return value.IsNull();
-
-  auto const regions = RegionsOf(manifest, record);
-  if (found->is_fixed) {
-    return FixedEquals(
-        found->stored_type, std::span{record + regions.fixed + found->offset, found->stored_type.width}, value);
-  }
-
-  auto const *table = record + regions.offset_table;
-  auto const end = ReadOffset(table, regions.offset_width, found->offset);
-  auto const begin = found->offset == 0 ? 0U : ReadOffset(table, regions.offset_width, found->offset - 1);
-  return VariableEquals(found->stored_type, record + regions.variable + begin, end - begin, value);
+  return reader.Equals(*found, value);
 }
 
 auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -> utils::small_vector<PropertyPair> {
@@ -1146,6 +1245,172 @@ auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -
     properties.emplace_back(property, GetProperty(registry, property));
   }
   return properties;
+}
+
+auto ManifestPropertyStore::ExtendedPropertyTypes(ManifestRegistry const &registry) const
+    -> std::map<PropertyId, ExtendedPropertyType> {
+  auto types = std::map<PropertyId, ExtendedPropertyType>{};
+  if (empty()) return types;
+
+  auto const reader = RecordReader{registry.Resolve(this->manifest()), data()};
+  auto const &manifest = reader.manifest();
+  for (uint32_t position = 0; position != manifest.size(); ++position) {
+    if (!reader.Carries(position)) continue;
+    auto const &field = manifest.entries()[position];
+    types.emplace(field.property, ExtendedTypeOf(field.stored_type));
+  }
+  return types;
+}
+
+auto ManifestPropertyStore::GetExtendedPropertyType(ManifestRegistry const &registry, PropertyId property) const
+    -> ExtendedPropertyType {
+  if (empty()) return ExtendedPropertyType{};
+
+  auto const reader = RecordReader{registry.Resolve(this->manifest()), data()};
+  auto const found = reader.Find(property);
+  if (!found) return ExtendedPropertyType{};
+  return ExtendedTypeOf(found->stored_type);
+}
+
+auto ManifestPropertyStore::ExtractPropertyIds(ManifestRegistry const &registry) const -> std::vector<PropertyId> {
+  auto properties = std::vector<PropertyId>{};
+  if (empty()) return properties;
+
+  auto const reader = RecordReader{registry.Resolve(this->manifest()), data()};
+  auto const &manifest = reader.manifest();
+  properties.reserve(manifest.size());
+  for (uint32_t position = 0; position != manifest.size(); ++position) {
+    if (reader.Carries(position)) properties.push_back(manifest.entries()[position].property);
+  }
+  return properties;
+}
+
+auto ManifestPropertyStore::PropertiesOfTypes(ManifestRegistry const &registry,
+                                              std::span<PropertyStoreType const> types) const
+    -> std::vector<PropertyId> {
+  auto properties = std::vector<PropertyId>{};
+  if (empty()) return properties;
+
+  auto const reader = RecordReader{registry.Resolve(this->manifest()), data()};
+  auto const &manifest = reader.manifest();
+  for (uint32_t position = 0; position != manifest.size(); ++position) {
+    if (!reader.Carries(position)) continue;
+    auto const &field = manifest.entries()[position];
+    if (std::ranges::contains(types, field.stored_type.type)) properties.push_back(field.property);
+  }
+  return properties;
+}
+
+auto ManifestPropertyStore::GetPropertyOfTypes(ManifestRegistry const &registry, PropertyId property,
+                                               std::span<PropertyStoreType const> types) const
+    -> std::optional<PropertyValue> {
+  if (empty()) return std::nullopt;
+
+  auto const reader = RecordReader{registry.Resolve(this->manifest()), data()};
+  auto const found = reader.Find(property);
+  if (!found || !std::ranges::contains(types, found->stored_type.type)) return std::nullopt;
+  return reader.Read(*found);
+}
+
+auto ManifestPropertyStore::PropertySize(ManifestRegistry const &registry, PropertyId property) const -> uint32_t {
+  if (empty()) return 0;
+
+  auto const reader = RecordReader{registry.Resolve(this->manifest()), data()};
+  auto const found = reader.Find(property);
+  if (!found) return 0;
+  return static_cast<uint32_t>(reader.Payload(*found).size());
+}
+
+auto ManifestPropertyStore::HasAllProperties(ManifestRegistry const &registry,
+                                             std::set<PropertyId> const &properties) const -> bool {
+  if (properties.empty()) return true;
+  if (empty()) return false;
+
+  auto const reader = RecordReader{registry.Resolve(this->manifest()), data()};
+  return std::ranges::all_of(properties, [&reader](PropertyId property) { return reader.Find(property).has_value(); });
+}
+
+auto ManifestPropertyStore::ExtractPropertyValues(ManifestRegistry const &registry,
+                                                  std::set<PropertyId> const &properties) const
+    -> std::optional<std::vector<PropertyValue>> {
+  if (properties.empty()) return std::vector<PropertyValue>{};
+  if (empty()) return std::nullopt;
+
+  auto const reader = RecordReader{registry.Resolve(this->manifest()), data()};
+  auto values = std::vector<PropertyValue>{};
+  values.reserve(properties.size());
+  for (auto const property : properties) {
+    auto const found = reader.Find(property);
+    if (!found) return std::nullopt;
+    values.push_back(reader.Read(*found));
+  }
+  return values;
+}
+
+auto ManifestPropertyStore::ExtractPropertyValuesMissingAsNull(ManifestRegistry const &registry,
+                                                               std::span<PropertyPath const> ordered_properties) const
+    -> std::vector<PropertyValue> {
+  auto values = std::vector<PropertyValue>{};
+  values.reserve(ordered_properties.size());
+  auto const record = empty() ? std::nullopt : std::optional{RecordReader{registry.Resolve(this->manifest()), data()}};
+  auto reader = PathReader{record};
+  for (auto const &path : ordered_properties) values.push_back(reader.Read(path));
+  return values;
+}
+
+void ManifestPropertyStore::ExtractPropertyValuesMissingAsNull(ManifestRegistry const &registry,
+                                                               std::span<PropertyPath const> ordered_properties,
+                                                               std::span<PropertyValue> out) const {
+  DMG_ASSERT(out.size() == ordered_properties.size(), "Output buffer size must match the number of properties");
+  auto const record = empty() ? std::nullopt : std::optional{RecordReader{registry.Resolve(this->manifest()), data()}};
+  auto reader = PathReader{record};
+  auto slot = out.begin();
+  for (auto const &path : ordered_properties) *slot++ = reader.Read(path);
+}
+
+auto ManifestPropertyStore::ArePropertiesEqual(ManifestRegistry const &registry,
+                                               std::span<PropertyPath const> ordered_properties,
+                                               std::span<PropertyValue const> values,
+                                               std::span<std::size_t const> position_lookup) const
+    -> std::vector<bool> {
+  auto results = std::vector<bool>(ordered_properties.size(), false);
+  auto const record = empty() ? std::nullopt : std::optional{RecordReader{registry.Resolve(this->manifest()), data()}};
+  auto reader = PathReader{record};
+  for (size_t position = 0; position != ordered_properties.size(); ++position) {
+    auto const &path = ordered_properties[position];
+    auto const &value = values[position_lookup[position]];
+    if (path.size() == 1) {
+      // A top-level value is compared where it lies, which is what keeps a unique constraint
+      // check from decoding a record it is about to reject.
+      auto const found = record ? record->Find(path.front()) : std::nullopt;
+      results[position] = found ? record->Equals(*found, value) : value.IsNull();
+      continue;
+    }
+    auto const *nested = reader.ReadNested(path);
+    results[position] = nested == nullptr ? value.IsNull() : *nested == value;
+  }
+  return results;
+}
+
+auto ManifestPropertyStore::PropertiesMatchTypes(ManifestRegistry const &registry,
+                                                 TypeConstraintsValidator const &constraint) const
+    -> std::optional<PropertyStoreConstraintViolation> {
+  if (constraint.empty() || empty()) return std::nullopt;
+
+  auto const reader = RecordReader{registry.Resolve(this->manifest()), data()};
+  auto const &manifest = reader.manifest();
+  for (uint32_t position = 0; position != manifest.size(); ++position) {
+    if (!reader.Carries(position)) continue;
+    auto const &field = manifest.entries()[position];
+    // A temporal type is checked exactly and every other type by its class, and both are in
+    // the shape, so a record is validated without a byte of it being read.
+    auto const temporal_type = field.stored_type.type == PropertyStoreType::TEMPORAL_DATA
+                                   ? std::optional{static_cast<TemporalType>(field.stored_type.discriminator)}
+                                   : std::nullopt;
+    auto const member = PropertyStoreMemberInfo{field.property, field.stored_type.type, temporal_type};
+    if (auto violation = constraint.validate(member); violation) return violation;
+  }
+  return std::nullopt;
 }
 
 auto ManifestPropertyStore::SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value)

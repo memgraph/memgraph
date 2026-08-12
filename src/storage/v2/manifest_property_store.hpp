@@ -16,16 +16,23 @@
 #include <cstdint>
 #include <cstring>
 #include <map>
+#include <optional>
+#include <set>
 #include <span>
 #include <utility>
+#include <vector>
 
+#include "storage/v2/constraints/type_constraints_validator.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_manifest.hpp"
+#include "storage/v2/property_store_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
+
+struct PropertyPath;
 
 /// A property store that keeps property ids and types in a shared manifest instead of in
 /// every record, so locating a value costs a lookup in the shape rather than a scan over
@@ -104,6 +111,68 @@ class ManifestPropertyStore {
 
   /// The properties this record carries, in property order.
   auto Properties(ManifestRegistry const &registry) const -> utils::small_vector<PropertyPair>;
+
+  /// How each property this record carries is typed. Answered from the shape, which holds
+  /// every discriminator a type of its own is made of, so no payload is read.
+  auto ExtendedPropertyTypes(ManifestRegistry const &registry) const -> std::map<PropertyId, ExtendedPropertyType>;
+
+  /// How `property` is typed, or Null when the record does not carry it. Read from the shape.
+  auto GetExtendedPropertyType(ManifestRegistry const &registry, PropertyId property) const -> ExtendedPropertyType;
+
+  /// The ids of the properties this record carries, in property order. Read from the shape.
+  auto ExtractPropertyIds(ManifestRegistry const &registry) const -> std::vector<PropertyId>;
+
+  /// The properties this record carries at one of `types`, in property order. Read from the
+  /// shape: a type is a property of the shape, so which fields qualify costs no payload read.
+  auto PropertiesOfTypes(ManifestRegistry const &registry, std::span<PropertyStoreType const> types) const
+      -> std::vector<PropertyId>;
+
+  /// The value of `property` when the record carries it at one of `types`, otherwise nothing.
+  /// The type is decided from the shape, so a property of the wrong type is rejected without
+  /// its payload being read.
+  auto GetPropertyOfTypes(ManifestRegistry const &registry, PropertyId property,
+                          std::span<PropertyStoreType const> types) const -> std::optional<PropertyValue>;
+
+  /// Bytes `property`'s value occupies in this record, or zero when the record does not carry
+  /// it. Fixed-width values cost what their shape reserves them; a variable-width value costs
+  /// its extent in the variable region.
+  auto PropertySize(ManifestRegistry const &registry, PropertyId property) const -> uint32_t;
+
+  /// Whether the record carries every one of `properties`. Read from the shape.
+  auto HasAllProperties(ManifestRegistry const &registry, std::set<PropertyId> const &properties) const -> bool;
+
+  /// The values of `properties`, in property order, or nothing when the record is missing any
+  /// of them.
+  auto ExtractPropertyValues(ManifestRegistry const &registry, std::set<PropertyId> const &properties) const
+      -> std::optional<std::vector<PropertyValue>>;
+
+  /// The values `ordered_properties` name, Null wherever the record has no value for one. A
+  /// path of more than one element reads into the nested maps of the top-level property it
+  /// starts at. `ordered_properties` must be sorted, so paths that share a top-level property
+  /// are together and decode it once between them.
+  auto ExtractPropertyValuesMissingAsNull(ManifestRegistry const &registry,
+                                          std::span<PropertyPath const> ordered_properties) const
+      -> std::vector<PropertyValue>;
+
+  /// As above, but writes into the caller's `out`, one slot per path, so a fixed-size buffer
+  /// can be filled without allocating. `out.size()` must equal `ordered_properties.size()`.
+  void ExtractPropertyValuesMissingAsNull(ManifestRegistry const &registry,
+                                          std::span<PropertyPath const> ordered_properties,
+                                          std::span<PropertyValue> out) const;
+
+  /// Whether each of `ordered_properties` holds the value it is paired with, the value for
+  /// `ordered_properties[i]` being `values[position_lookup[i]]`. A path the record has no
+  /// value for holds Null. Top-level paths are compared against the encoded bytes rather than
+  /// decoded, as `IsPropertyEqual` does.
+  auto ArePropertiesEqual(ManifestRegistry const &registry, std::span<PropertyPath const> ordered_properties,
+                          std::span<PropertyValue const> values, std::span<std::size_t const> position_lookup) const
+      -> std::vector<bool>;
+
+  /// The first of `constraint`'s type constraints this record's properties break, if any.
+  /// Read from the shape, which carries both the stored type and the temporal type a
+  /// constraint is checked against.
+  auto PropertiesMatchTypes(ManifestRegistry const &registry, TypeConstraintsValidator const &constraint) const
+      -> std::optional<PropertyStoreConstraintViolation>;
 
   /// Returns true when the property was not already present.
   auto SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value) -> bool;
