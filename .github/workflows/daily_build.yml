@@ -83,7 +83,6 @@ jobs:
     with:
       os: 'ubuntu-24.04'
       arch: amd
-      threads: 24
       build_type: 'RelWithDebInfo'
       run_release_tests: 'true'
       run_stress_large: 'true'

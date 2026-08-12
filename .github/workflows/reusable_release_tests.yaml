@@ -19,10 +19,6 @@ on:
         type: string
         description: "Memgraph Build type. Default value is Release."
         default: 'Release'
-      threads:
-        type: number
-        description: "Number of threads to use for Memgraph build. Default value is 24."
-        default: 24
       run_release_tests:
         type: string
         description: "Run all release tests. Default value is true."
@@ -43,7 +39,6 @@ env:
   OS: ${{ inputs.os }}
   TOOLCHAIN: v8
   ARCH: ${{ inputs.arch }}
-  THREADS: ${{ inputs.threads }}
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   BUILD_TYPE: ${{ inputs.build_type }}
@@ -113,7 +108,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph --community \
           --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
@@ -134,7 +128,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
@@ -225,7 +218,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           --no-ccache \
           build-memgraph --coverage \
           --link-threads $LINK_THREADS \
@@ -373,7 +365,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph leftover-CTest
@@ -384,7 +375,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           --enable-monitoring \
@@ -399,7 +389,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           --enable-monitoring \
@@ -414,7 +403,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           --enable-monitoring \
@@ -534,7 +522,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           --enable-monitoring \
@@ -627,7 +614,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph --disable-jemalloc \
           --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
@@ -663,7 +649,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
@@ -772,7 +757,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
           --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
@@ -815,7 +799,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
@@ -925,7 +908,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
           --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
@@ -1062,7 +1044,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
           --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
@@ -1203,7 +1184,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
           --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
@@ -1377,7 +1357,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
           --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
@@ -1554,7 +1533,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
           --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
