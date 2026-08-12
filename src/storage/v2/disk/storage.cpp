@@ -222,13 +222,51 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
   return true;
 }
 
+/// The disk engine stores encoded property records verbatim, but a double is decoded using the
+/// resolution in force at the time of reading rather than the one it was written under. Opening a
+/// database with a different resolution would therefore reinterpret every double already on disk as
+/// an unrelated number, silently. Refuse instead.
+///
+/// Returns the config unchanged so that this can wrap the base class initializer: it has to run
+/// before any member of DiskStorage is constructed, so that refusing to open unwinds nothing.
+Config const &EnsureFloatingPointResolutionMatches(Config const &config) {
+  auto const database_already_existed = utils::DirExists(config.disk.main_storage_directory);
+  DurableMetadata durable_metadata{config};
+
+  auto const current = FLAGS_storage_floating_point_resolution_bits;
+  auto const recorded = durable_metadata.LoadFloatingPointResolutionIfExists();
+
+  if (recorded.has_value()) {
+    if (*recorded != current) {
+      throw utils::BasicException(
+          "The on-disk database was created with --storage-floating-point-resolution-bits={}, but this instance was "
+          "started with --storage-floating-point-resolution-bits={}. Floating point properties already stored would be "
+          "decoded at the wrong resolution. Restart with --storage-floating-point-resolution-bits={}.",
+          *recorded,
+          current,
+          *recorded);
+    }
+    return config;
+  }
+
+  if (database_already_existed) {
+    spdlog::warn(
+        "The on-disk database predates the recording of --storage-floating-point-resolution-bits and is being adopted "
+        "at the current value of {}. If it was written with a different value, its floating point properties are "
+        "already being read incorrectly; restart with the value it was written with.",
+        current);
+  }
+  durable_metadata.PersistFloatingPointResolution(current);
+  return config;
+}
+
 }  // namespace
 
 DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator, metrics::DatabaseMetricHandles metric_handles,
                          std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
                          memory::ArenaPool *db_arena_pool, utils::MemoryTracker *db_embedding_memory_tracker)
-    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator), metric_handles, db_arena_pool,
-              db_embedding_memory_tracker, std::move(database_protector_factory)),
+    : Storage(EnsureFloatingPointResolutionMatches(config), StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator),
+              metric_handles, db_arena_pool, db_embedding_memory_tracker, std::move(database_protector_factory)),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {
   LoadPersistingMetadataInfo();
