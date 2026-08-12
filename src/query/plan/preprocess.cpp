@@ -1170,15 +1170,10 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
   matching.result_expr->MapTo(symbol_table_.at(op));
   matching.result_symbol = symbol_table_.at(op);
 
-  // Compute external symbols: every symbol the comprehension reads that is NOT bound within it.
-  // External symbols are references to variables from outer scope (e.g., FOREACH variable `x` in
-  // `[(a)-[r]->(b) WHERE a.id = x | b]`).
-  //
-  // This set is what the planner uses to decide *when* a comprehension may be drained (`DepsSatisfied`), *where* it
-  // must be spliced (`YieldDependentComprehensions`), and what counts as bound inside its own branch
-  // (`PlanPatternComprehension`). It must therefore cover every position an outer symbol can appear in, not just the
-  // two obvious expressions - a miss there is a RollUpApply spliced below the operator that writes the symbol, which
-  // then reads an unwritten frame slot.
+  // Every symbol the comprehension reads that is NOT bound within it, e.g. the FOREACH variable `x` in
+  // `[(a)-[r]->(b) WHERE a.id = x | b]`. `DepsSatisfied` decides from this when a comprehension may drain, so it must
+  // cover every position an outer symbol can appear in, not just the two obvious expressions: a miss splices the
+  // RollUpApply below the operator that writes the symbol, where it reads an unwritten frame slot.
   std::unordered_set<Symbol> used_symbols;
 
   // Collect symbols from filter expression
@@ -1193,17 +1188,14 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
   op.resultExpr_->Accept(result_symbol_collector);
   used_symbols.insert(result_symbol_collector.symbols_.begin(), result_symbol_collector.symbols_.end());
 
-  // The two collectors above never see the comprehension's own pattern, so an outer symbol read from a node/edge
-  // property map or a variable-length bound - `[(p {name: name})-->(q) | q]` - would be missed. `AddMatching` has
-  // already routed those references into the property filters' `used_symbols`, so take them from there.
+  // The collectors above skip the comprehension's own pattern, missing `[(p {name: name})-->(q) | q]`. `AddMatching`
+  // already routed those into the property filters' `used_symbols`.
   for (const auto &filter : matching.filters) {
     used_symbols.insert(filter.used_symbols.begin(), filter.used_symbols.end());
   }
 
-  // `UsedSymbolsCollector::PreVisit(PatternComprehension)` visits only the nested comprehension's pattern, so a symbol
-  // read solely by a nested comprehension's own filter or result expression is missed too. A nested matching's
-  // `external_symbols` is computed by this same block, so it is already complete - and already excludes what the
-  // nested comprehension binds itself.
+  // `UsedSymbolsCollector` visits only a nested comprehension's pattern, missing what its filter reads. A nested
+  // matching's `external_symbols` comes from this same block, so it is already complete.
   auto collect_nested_external = [&used_symbols](const PatternComprehensionMatchings &nested) {
     for (const auto &nested_pc : nested) {
       used_symbols.insert(nested_pc.external_symbols.begin(), nested_pc.external_symbols.end());
@@ -1324,13 +1316,11 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       // - WITH/RETURN named_expressions, order_by, skip, limit, where
       // - UNWIND expression
       // - EdgeAtom lower_bound, upper_bound, total_weight, limit
-      // Not traversed, so a comprehension there is collected by nobody and fails at evaluation: EdgeAtom's
-      // filter_lambda / weight_lambda, dynamic label expressions, and LoadCsv/LoadParquet/LoadJsonl's file and config
-      // expressions. All pre-existing, and all loud rather than silent.
+      // Not traversed, so a comprehension there is collected by nobody and fails loudly at evaluation: EdgeAtom's
+      // filter/weight lambdas, dynamic label expressions, and LOAD CSV/PARQUET/JSONL file and config expressions.
       PatternComprehensionCollector collector(symbol_table, storage);
       clause->Accept(collector);
-      // Record which clause each comprehension came from, so a drain can tell "can this be planned yet?" from
-      // "should it be?". Moved, not copied: each matching carries several symbol sets and a nested vector.
+      // Record the originating clause, so a drain can tell "can this be planned yet?" from "should it be?".
       auto matchings = collector.getPatternComprehensionMatchings();
       for (auto &matching : matchings) {
         matching.origin_clause = clause;
