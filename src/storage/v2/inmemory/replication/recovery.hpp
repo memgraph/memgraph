@@ -148,6 +148,13 @@ auto GetWalChainInfo(std::vector<durability::WalDurabilityInfo> const &wal_files
 auto FirstWalAfterSnapshot(std::vector<durability::WalDurabilityInfo> const &wal_files, uint64_t snap_durable_ts,
                            uint64_t first_useful_wal) -> uint64_t;
 
+// True when some WAL file's [from, to] range contains snapshot_ts, i.e. a WAL holds the commits around
+// the snapshot's position and the WAL chain can reproduce its contents. The currently-open WAL is
+// considered too, since for an ordinary periodic snapshot that is the file whose range contains it.
+auto SnapshotTsCoveredByAnyWal(std::vector<durability::WalDurabilityInfo> const &wal_files,
+                               std::optional<uint64_t> current_wal_from, std::optional<uint64_t> current_wal_to,
+                               uint64_t snapshot_ts) -> bool;
+
 // Copy and lock the chain part we need, from oldest to newest
 auto GetRecoveryWalFiles(utils::FileRetainer::FileLockerAccessor *locker_acc,
                          std::vector<durability::WalDurabilityInfo> const &wal_files, uint64_t first_useful_wal)

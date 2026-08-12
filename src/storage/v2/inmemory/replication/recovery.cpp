@@ -83,6 +83,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
   // This lock is also necessary to force the missed transaction to finish.
   std::optional<uint64_t> current_wal_seq_num;
   std::optional<uint64_t> current_wal_timestamp;
+  std::optional<uint64_t> current_wal_from_timestamp;
   uint64_t last_durable_timestamp{kTimestampInitialId};
 
   std::unique_lock transaction_guard(
@@ -96,6 +97,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
 
   if (main_storage->wal_file_) {
     current_wal_timestamp.emplace(main_storage->wal_file_->ToTimestamp());
+    current_wal_from_timestamp.emplace(main_storage->wal_file_->FromTimestamp());
     current_wal_seq_num.emplace(main_storage->wal_file_->SequenceNumber());
     // No need to hold the lock since the current WAL is present
     transaction_guard.unlock();
@@ -136,6 +138,23 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
       maybe_wal_files->back().to_timestamp > replica_commit) {
     auto const &wal_files = *maybe_wal_files;
     auto wal_chain_info = GetWalChainInfo(wal_files, replica_commit);
+
+    // A snapshot timestamp inside no WAL file's range means its data was never written to a WAL
+    // (analytical-mode writes bypass it), so WAL-only recovery would silently skip it. The chain looks
+    // intact because an analytical episode punches a timestamp hole without disturbing seq numbering.
+    // The > replica_commit guard is load-bearing: a replica already past the snapshot would otherwise
+    // enter the branch below with first_useful_wal pointing past the snapshot and trip its
+    // "Broken data chain" assert.
+    if (latest_snapshot && latest_snapshot->durable_timestamp > replica_commit &&
+        !SnapshotTsCoveredByAnyWal(
+            wal_files, current_wal_from_timestamp, current_wal_timestamp, latest_snapshot->durable_timestamp)) {
+      spdlog::info(
+          "Snapshot with durable timestamp {} is not covered by any WAL file; forcing snapshot-based recovery for a "
+          "replica at {}.",
+          latest_snapshot->durable_timestamp,
+          replica_commit);
+      wal_chain_info.covered_by_wals = false;
+    }
 
     // Finished the WAL chain, but still missing some data
     if (!wal_chain_info.covered_by_wals) {
@@ -244,6 +263,17 @@ auto FirstWalAfterSnapshot(std::vector<durability::WalDurabilityInfo> const &wal
          std::cmp_less_equal(wal_files[first_useful_wal].to_timestamp, snap_durable_ts))
     ++first_useful_wal;
   return first_useful_wal;
+}
+
+auto SnapshotTsCoveredByAnyWal(std::vector<durability::WalDurabilityInfo> const &wal_files,
+                               std::optional<uint64_t> const current_wal_from,
+                               std::optional<uint64_t> const current_wal_to, uint64_t const snapshot_ts) -> bool {
+  if (current_wal_from && current_wal_to && *current_wal_from <= snapshot_ts && snapshot_ts <= *current_wal_to) {
+    return true;
+  }
+  return std::ranges::any_of(wal_files, [snapshot_ts](auto const &wal) {
+    return wal.from_timestamp <= snapshot_ts && snapshot_ts <= wal.to_timestamp;
+  });
 }
 
 auto GetRecoveryWalFiles(utils::FileRetainer::FileLockerAccessor *locker_acc,

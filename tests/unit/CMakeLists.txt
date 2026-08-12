@@ -742,7 +742,7 @@ add_unit_test(storage_v2_decoder_encoder
 
 add_unit_test(storage_v2_durability_inmemory
     SOURCES storage_v2_durability_inmemory.cpp
-    LINK_TARGETS mg::storage mg-dbms
+    LINK_TARGETS mg::storage mg-dbms storage_test_utils
 )
 
 add_unit_test(storage_v2_create_snapshot

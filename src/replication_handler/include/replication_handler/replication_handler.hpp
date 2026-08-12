@@ -235,11 +235,44 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     spdlog::trace("Replication storage clients destroyed.");
   }
 
+  using LockedReplState = utils::Synchronized<ReplicationState, utils::RWSpinLock>::LockedPtr;
+
+  // UnregisterReplica without the analytical-mode gate, for the rollback of a failed registration:
+  // that rollback must succeed precisely when a database did turn analytical mid-registration.
+  auto UnregisterReplica_(std::string_view name) -> query::UnregisterReplicaResult;
+
+  // The same, driven by a hold the caller already owns. repl_state_ is not recursive, so a rollback
+  // running inside RegisterReplica_ cannot reacquire it: UnregisterReplica_ fails its TryLock every time
+  // and reports NO_ACCESS while leaving the replica registered.
+  auto UnregisterReplicaLocked_(LockedReplState &locked_repl_state, std::string_view name)
+      -> query::UnregisterReplicaResult;
+
+  // Name of the first database found in analytical mode, if any. Registration and unregistration are
+  // instance-wide operations, so a single analytical database blocks both.
+  auto AnalyticalDatabase() const -> std::optional<std::string> {
+    std::optional<std::string> analytical_db;
+    dbms_handler_.ForEach([&analytical_db](dbms::DatabaseAccess db_acc) {
+      if (!analytical_db && db_acc->storage()->storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+        analytical_db = db_acc->name();
+      }
+    });
+    return analytical_db;
+  }
+
   template <bool SendSwapUUID>
   auto RegisterReplica_(auto &locked_repl_state, const ReplicationClientConfig &config)
       -> std::expected<void, query::RegisterReplicaError> {
     using query::RegisterReplicaError;
     using ClientRegisterReplicaStatus = RegisterReplicaStatus;
+
+    // Reject before any replication state is mutated: persisting the instance-level client while no
+    // per-database client can be created leaves the replica permanently unattached, since every retry
+    // then fails with NAME_EXISTS.
+    if (auto const analytical_db = AnalyticalDatabase(); analytical_db.has_value()) {
+      spdlog::error(
+          "Cannot register replica {} while database \"{}\" is in analytical mode.", config.name, *analytical_db);
+      return std::unexpected{RegisterReplicaError::ANALYTICAL_MODE};
+    }
 
     auto maybe_client = locked_repl_state->RegisterReplica(config);
     if (!maybe_client) {
@@ -280,38 +313,62 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     // Add database specific clients (NOTE Currently all databases are connected to each replica)
     bool all_clients_good{true};
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
+      // One failed database rolls the whole registration back, and the Shutdown below has already torn the
+      // instance client down, so every further Start would only block on an aborted RPC client.
+      if (!all_clients_good) return;
+
       auto *storage = db_acc->storage();
-      if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
+      // Disk storage never participates in replication, so it is skipped rather than failed. Analytical
+      // does fail: silently skipping it is what leaves the replica permanently unattached. The up-front
+      // gate above already rejected that, so getting here means the mode flipped in between.
+      if (storage->storage_mode_ == storage::StorageMode::ON_DISK_TRANSACTIONAL) return;
+      if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+        all_clients_good = false;
+        return;
+      }
 
       auto protector = dbms::DatabaseProtector{db_acc};
 
       auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
       client->Start(storage, protector);
 
-      all_clients_good &= storage->repl_storage_state_.replication_storage_clients_.WithLock(
-          [client = std::move(client)](auto &storage_clients) mutable {  // NOLINT
-            bool const success = std::invoke([state = client->State()]() {
-              // We force sync replicas in other situation
-              // DIVERGED_FROM_MAIN is only valid state in enterprise and community replication. HA will immediately
-              // set the state to RECOVERY
-              return state != storage::replication::ReplicaState::DIVERGED_FROM_MAIN;
-            });
+      // Start runs the heartbeat synchronously but may leave a recovery task queued on the instance
+      // client's thread pool, holding a raw pointer to this client. A rejected client therefore must not be
+      // destroyed under the lock: ownership is handed back so it outlives the drain below.
+      auto rejected = storage->repl_storage_state_.replication_storage_clients_.WithLock(
+          [storage, client = std::move(client)](
+              auto &storage_clients) mutable -> storage::ReplicationStorageState::ReplicationStorageClientPtr {
+            // Re-read the mode under this lock. SetStorageMode stores IN_MEMORY_ANALYTICAL under the very
+            // same lock, so "analytical with a live client" is unrepresentable rather than merely unlikely.
+            if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return std::move(client);
 
-            if (success) {
-              storage_clients.push_back(std::move(client));
-            }
-            return success;
+            // We force sync replicas in other situation
+            // DIVERGED_FROM_MAIN is only valid state in enterprise and community replication. HA will immediately
+            // set the state to RECOVERY
+            if (client->State() == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) return std::move(client);
+
+            storage_clients.push_back(std::move(client));
+            return nullptr;
           });
+
+      if (rejected) {
+        all_clients_good = false;
+        // Aborts the in-flight RPC, drops the queue and joins the worker, so no task can outlive `rejected`,
+        // which is destroyed at the end of this iteration. Must run with the clients' lock released: the
+        // task can be inside GetRecoverySteps waiting on engine_lock_, which a committing thread holds
+        // while waiting for that very lock.
+        instance_client_ptr->Shutdown();
+      }
     });
 
     if (!all_clients_good) {
       spdlog::error("Failed to register all databases for the replica {}. Started unregistering replica.", config.name);
-      switch (UnregisterReplica(config.name)) {
+      switch (UnregisterReplicaLocked_(locked_repl_state, config.name)) {
         using query::UnregisterReplicaResult;
+        case UnregisterReplicaResult::ANALYTICAL_MODE:
+          LOG_FATAL("UnregisterReplicaLocked_ must not apply the analytical-mode gate.");
         case UnregisterReplicaResult::NO_ACCESS:
-          spdlog::trace("Failed to unregister replica {} since we couldn't get unique access to ReplicationState.",
-                        config.name);
-          break;
+          LOG_FATAL("UnregisterReplicaLocked_ must not acquire ReplicationState; the caller already holds it.");
         case UnregisterReplicaResult::NOT_MAIN:
           spdlog::trace(
               "Failed to unregister replica {} after failed registration process since the instance isn't main "

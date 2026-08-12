@@ -844,6 +844,12 @@ class InMemoryStorage final : public Storage {
   bool InitializeWalFile(std::string_view epoch_id);
   void FinalizeWalFile();
 
+  // Archives every durability file superseded by `keep_snapshot` into a `.old` sub-directory of its own
+  // directory, or deletes it when --storage-backup-dir-enabled=false. Leaves `keep_snapshot` as the only
+  // snapshot and the WAL directory empty. Returns whether the WAL directory really did end up empty:
+  // restarting the WAL sequence numbering is only safe once no pre-existing file can collide with it.
+  bool ArchiveSupersededDurabilityFiles(std::filesystem::path const &keep_snapshot);
+
   StorageInfo GetBaseInfo() override;
   StorageInfo GetInfo() override;
 

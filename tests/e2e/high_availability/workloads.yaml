@@ -74,3 +74,7 @@ workloads:
   - name: "HA TLS cluster"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/tls_cluster.py"]
+
+  - name: "HA analytical import"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/analytical_import.py"]

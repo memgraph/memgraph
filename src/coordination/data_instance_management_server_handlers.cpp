@@ -228,6 +228,13 @@ auto DataInstanceManagementServerHandlers::DoRegisterReplica(replication::Replic
             config.instance_name);
         return false;
       }
+      case RegisterReplicaError::ANALYTICAL_MODE: {
+        spdlog::error(
+            "Error when registering instance {} as replica. A database on main is in analytical storage mode; "
+            "registration is retried once main is back in IN_MEMORY_TRANSACTIONAL.",
+            config.instance_name);
+        return false;
+      }
       default: {
         LOG_FATAL("Error in handling RegisterReplicaError. Unknown enum value.");
       }
@@ -375,6 +382,7 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
     case SUCCESS: {
       coordination::UnregisterReplicaRes const rpc_res{true};
       rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+      spdlog::info("Replica {} successfully unregistered.", req.arg_);
       break;
     }
     case NOT_MAIN: {
@@ -401,8 +409,13 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
       rpc::SendFinalResponse(rpc_res, request_version, res_builder);
       break;
     }
+    case ANALYTICAL_MODE: {
+      spdlog::error("Couldn't unregister replica because a database is in analytical storage mode.");
+      coordination::UnregisterReplicaRes const rpc_res{false};
+      rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+      break;
+    }
   }
-  spdlog::info("Replica {} successfully unregistered.", req.arg_);
 }
 
 void DataInstanceManagementServerHandlers::UpdateDataInstanceConfigHandler(
