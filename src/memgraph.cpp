@@ -537,6 +537,7 @@ int main(int argc, char **argv) {
                      .items_per_batch = FLAGS_storage_items_per_batch,
                      .snapshot_thread_count = FLAGS_storage_snapshot_thread_count,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
+                     .snapshot_writeback_window_mib = FLAGS_storage_snapshot_writeback_window_mib,
                      .allow_parallel_snapshot_creation = FLAGS_storage_parallel_snapshot_creation,
                      .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},

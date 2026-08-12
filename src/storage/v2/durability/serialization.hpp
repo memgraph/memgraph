@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include <concepts>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string_view>
 
 #include "storage/v2/config.hpp"
@@ -61,6 +63,10 @@ class Encoder final : public BaseEncoder {
   // directly.
   void Write(const uint8_t *data, uint64_t size);
 
+  /// See NonConcurrentOutputFile::AppendFrom.
+  [[nodiscard]] std::optional<uint64_t> AppendFrom(int src_fd, uint64_t size)
+    requires std::same_as<FileType, utils::NonConcurrentOutputFile>;
+
   void WriteMarker(Marker marker) override;
   void WriteBool(bool value) override;
   void WriteUint(uint64_t value) override;
@@ -78,7 +84,16 @@ class Encoder final : public BaseEncoder {
 
   void Sync();
 
-  void Finalize();
+  /// See NonConcurrentOutputFile::EnableWritebackPacing.
+  void EnableWritebackPacing(size_t window_bytes,
+                             utils::PageCachePolicy completed_window = utils::PageCachePolicy::kDrop)
+    requires std::same_as<FileType, utils::NonConcurrentOutputFile>
+  {
+    file_.EnableWritebackPacing(window_bytes, completed_window);
+  }
+
+  /// Syncs and closes the file, disposing of its pages as `page_cache` says.
+  void Finalize(utils::PageCachePolicy page_cache = utils::PageCachePolicy::kKeep);
 
   // Disable flushing of the internal buffer.
   void DisableFlushing()
@@ -97,8 +112,6 @@ class Encoder final : public BaseEncoder {
 
   auto GetPath() const { return file_.path(); }
 
-  auto native_handle() const { return file_.fd(); }
-
   void ResetCrcAcc() override { crc_acc.Reset(); }
 
   auto CrcAccValue() const -> uint32_t override { return crc_acc.Value(); }
@@ -112,6 +125,14 @@ class Encoder final : public BaseEncoder {
 /// (e.g. file and network).
 class BaseDecoder {
  protected:
+  // An interface base with a protected destructor still has to say what its special members are, or
+  // a derived class that owns a move-only handle silently loses its move constructor to the
+  // deprecated implicit copy.
+  BaseDecoder() = default;
+  BaseDecoder(const BaseDecoder &) = default;
+  BaseDecoder(BaseDecoder &&) = default;
+  BaseDecoder &operator=(const BaseDecoder &) = default;
+  BaseDecoder &operator=(BaseDecoder &&) = default;
   ~BaseDecoder() = default;
 
  public:
@@ -141,6 +162,9 @@ class Decoder final : public BaseDecoder {
   // directly.
   bool Read(uint8_t *data, size_t size);
   bool Peek(uint8_t *data, size_t size);
+
+  /// See InputFile::DropCachedPages.
+  void DropCachedPages() const { file_.DropCachedPages(); }
 
   std::optional<Marker> PeekMarker();
 

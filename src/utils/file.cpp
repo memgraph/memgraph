@@ -12,8 +12,11 @@
 #include "utils/file.hpp"
 
 #include <fcntl.h>
+#include <sys/sendfile.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -22,6 +25,7 @@
 #include <ranges>
 #include <thread>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "utils/exceptions.hpp"
@@ -145,6 +149,9 @@ bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &d
 }
 
 bool HasReadAccess(const std::filesystem::path &path) { return access(path.c_str(), R_OK) == 0; }
+
+// `len == 0` means "to the end of the file".
+void DropCachedPages(int fd) { ::posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED); }
 
 static_assert(std::is_same_v<off_t, ssize_t>, "off_t must fit into ssize_t!");
 
@@ -376,6 +383,8 @@ void InputFile::FoldPendingCrc() {
                   static_cast<uint32_t>(consumed_up_to - crc_fold_position_));
   crc_fold_position_ = consumed_up_to;
 }
+
+void InputFile::DropCachedPages() const { utils::DropCachedPages(fd_); }
 
 bool InputFile::LoadBuffer() {
   // The buffer is about to be discarded; fold its consumed bytes into the CRC first. When the buffer was fully
@@ -737,6 +746,7 @@ bool NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode)
             path_);
   path_ = path;
   written_since_last_sync_ = 0;
+  RestartPacing(0);  // otherwise a reused handle carries the previous file's offset into this one
 
   int flags = O_WRONLY | O_CLOEXEC | O_CREAT;
   if (mode == Mode::APPEND_TO_EXISTING) flags |= O_APPEND;
@@ -815,6 +825,11 @@ size_t NonConcurrentOutputFile::SeekFile(const Position position, const ssize_t 
     }
     MG_ASSERT(
         pos >= 0, "While trying to set the position in {} an error occured: {} ({})", path_, strerror(errno), errno);
+    // A seek that does not move is not a move. Asking a file for its position is such a seek, and
+    // the snapshot writer asks at every batch boundary, so treating it as one would abandon the
+    // window in flight over and over: its bytes never handed to writeback, and the window before
+    // it never disposed of.
+    if (std::cmp_not_equal(pos, pacing_offset_)) RestartPacing(static_cast<size_t>(pos));
     return pos;
   }
 }
@@ -937,6 +952,7 @@ void NonConcurrentOutputFile::FlushBuffer() {
 
 void NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
   auto *buffer = buffer_.data();
+  auto const flushed = to_write;
   while (to_write > 0) {
     auto written = write(fd_, buffer, to_write);
     if (written == -1 && errno == EINTR) {
@@ -956,6 +972,110 @@ void NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
     to_write -= written;
     buffer += written;
   }
+
+  PaceWriteback(flushed);
+}
+
+void NonConcurrentOutputFile::EnableWritebackPacing(size_t window_bytes, PageCachePolicy completed_window) {
+  pacing_window_ = window_bytes;
+  pacing_completed_window_ = completed_window;
+  RestartPacing(0);
+}
+
+void NonConcurrentOutputFile::RestartPacing(size_t offset) {
+  pacing_offset_ = offset;
+  pacing_pending_start_ = offset;
+  pacing_prev_start_ = 0;
+  pacing_prev_len_ = 0;
+}
+
+void NonConcurrentOutputFile::DropCachedPages() {
+  utils::DropCachedPages(fd_);
+  // The windows in flight describe ranges that are no longer cached, so nothing is owed on them.
+  RestartPacing(pacing_offset_);
+}
+
+std::optional<uint64_t> NonConcurrentOutputFile::AppendFrom(int src_fd, uint64_t size) {
+  FlushBuffer();  // whatever is buffered belongs in front of the copied bytes
+
+  uint64_t copied = 0;
+  off_t src_offset = 0;
+  while (copied < size) {
+    // Copied a buffer at a time rather than in one call, so that pacing sees the same granularity
+    // of output here as it does from the buffered path. Handed a whole file at once it would treat
+    // that file as a single window and bound nothing.
+    auto const chunk = std::min<uint64_t>(size - copied, kFileBufferSize);
+    auto const sent = ::sendfile(fd_, src_fd, &src_offset, chunk);
+    if (sent == -1) {
+      if (errno == EINTR) continue;
+      return std::nullopt;
+    }
+    if (sent == 0) break;  // the source ended early
+    copied += static_cast<uint64_t>(sent);
+    PaceWriteback(static_cast<size_t>(sent));
+  }
+  return copied;
+}
+
+void NonConcurrentOutputFile::PaceWriteback(size_t bytes) {
+  if (pacing_window_ == 0) return;
+  pacing_offset_ += bytes;
+
+  auto const pending_len = pacing_offset_ - pacing_pending_start_;
+  if (pending_len < pacing_window_) return;
+
+  // What a failed `sync_file_range` means. EIO and ENOSPC are the same class of failure that makes
+  // a failed `fsync` fatal in this file, and they must not be swallowed: Linux reports a given
+  // writeback error to an open file once, so a pacing call that consumes one and drops it leaves
+  // the later `fsync` in `Sync` free to report success for data that never reached the disk. Every
+  // other failure says pacing does not apply to this descriptor rather than that anything is wrong
+  // with the data; the file is written exactly as it was before pacing, so pacing turns itself off
+  // and the file carries on. A descriptor pacing cannot work on will not become one.
+  auto const failed = [this](int rc) {
+    if (rc == 0) return false;
+    auto const err = errno;
+    MG_ASSERT(err != EIO && err != ENOSPC,
+              "While waiting for writeback of {} an error occurred: {} ({}). Data already written to this "
+              "file may not have reached the physical device, and no later fsync will report it.",
+              path_,
+              strerror(err),
+              err);
+    spdlog::warn("Disabling writeback pacing for {}: sync_file_range failed with {} ({}).", path_, strerror(err), err);
+    pacing_window_ = 0;
+    return true;
+  };
+
+  // Two windows are in flight: the one just completed is handed to writeback, and the one handed
+  // over previously is waited for and then disposed of. Dropping has to come after the pages are
+  // clean, because POSIX_FADV_DONTNEED silently does nothing to a dirty page; that is what the
+  // WAIT_BEFORE on the older window buys.
+  //
+  // The WRITE-only call is asynchronous in intent, but the kernel may still block it once the range
+  // exceeds the device's request queue. That is the trade pacing exists to make: this writer waits
+  // instead of every writer on the machine waiting at `dirty_ratio`.
+  if (failed(::sync_file_range(fd_,
+                               static_cast<off64_t>(pacing_pending_start_),
+                               static_cast<off64_t>(pending_len),
+                               SYNC_FILE_RANGE_WRITE))) {
+    return;
+  }
+
+  if (pacing_prev_len_ != 0) {
+    if (failed(::sync_file_range(fd_,
+                                 static_cast<off64_t>(pacing_prev_start_),
+                                 static_cast<off64_t>(pacing_prev_len_),
+                                 SYNC_FILE_RANGE_WAIT_BEFORE))) {
+      return;
+    }
+    if (pacing_completed_window_ == PageCachePolicy::kDrop) {
+      ::posix_fadvise(
+          fd_, static_cast<off_t>(pacing_prev_start_), static_cast<off_t>(pacing_prev_len_), POSIX_FADV_DONTNEED);
+    }
+  }
+
+  pacing_prev_start_ = pacing_pending_start_;
+  pacing_prev_len_ = pending_len;
+  pacing_pending_start_ = pacing_offset_;
 }
 
 void NonConcurrentOutputFile::FlushBufferInternal() {

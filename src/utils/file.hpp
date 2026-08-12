@@ -19,6 +19,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -83,6 +84,23 @@ bool HasReadAccess(const std::filesystem::path &path);
 /// emptying.
 inline constexpr size_t kFileBufferSize = 262'144;
 
+/// What should happen to a file's pages in the operating system's page cache once we are done with
+/// them.
+///
+/// `kDrop` suits output nothing will read again, which stops a large finished file competing for
+/// memory with the working set. `kKeep` suits a file about to be read back, where dropping only
+/// means fetching the same bytes off the device again; clean pages cost a reader nothing to
+/// reclaim, so keeping them does not recreate the memory pressure dropping exists to relieve.
+enum class PageCachePolicy : uint8_t { kKeep, kDrop };
+
+/// Drop `fd`'s pages from the page cache, best effort.
+///
+/// Only clean pages go: POSIX_FADV_DONTNEED silently skips dirty ones, so call this after a sync,
+/// and only when the file is not about to be read back. Advisory, and it reports a refusal by
+/// returning an error number rather than by setting errno; there is nothing to do about one beyond
+/// leaving the pages where they are.
+void DropCachedPages(int fd);
+
 /// This class implements a file handler that is used to read binary files. It
 /// was developed because the C++ standard library has an awful API and makes
 /// handling of binary data extremely tedious.
@@ -141,6 +159,9 @@ class InputFile {
 
   /// Closes the currently opened file. On failure it crashes the program.
   void Close() noexcept;
+
+  /// See `utils::DropCachedPages`. Reading leaves clean pages behind, so no sync is needed first.
+  void DropCachedPages() const;
 
   /// Restarts CRC accumulation from the current position.
   void ResetCrc();
@@ -267,6 +288,9 @@ class OutputFile {
   /// and misuse it crashes the program.
   void Sync();
 
+  /// See `utils::DropCachedPages`.
+  void DropCachedPages() const { utils::DropCachedPages(fd_); }
+
   /// Closes the currently opened file. It doesn't perform a `Sync` on the
   /// file. On failure and misuse it crashes the program.
   void Close() noexcept;
@@ -296,6 +320,8 @@ class OutputFile {
   void FlushBufferInternal();
   void FlushBufferInternal(size_t to_write);
 
+  // Runs without `flush_lock_`, unlike the flush path. Any per-file state touched by both would
+  // race, which is why writeback pacing is offered on `NonConcurrentOutputFile` and not here.
   size_t SeekFile(Position position, ssize_t offset);
 
   // put flush lock on its own cacheline
@@ -375,6 +401,41 @@ class NonConcurrentOutputFile {
   /// and misuse it crashes the program.
   void Sync();
 
+  /// Bound the dirty page cache this file is allowed to accumulate, in `window_bytes` at a time.
+  ///
+  /// A multi-gigabyte streaming write otherwise fills the page cache with its own dirty pages until
+  /// the kernel throttles *every* writer on the machine at `dirty_ratio`, and evicts the working
+  /// set on the way out. Each window is handed to writeback as it is produced and then treated
+  /// according to `completed_window`, so the dirty footprint stays at about two windows however
+  /// large the file grows.
+  ///
+  /// Opt-in, and `window_bytes == 0` opts back out, because it is the wrong trade for a small
+  /// latency-sensitive file: it gives up a little throughput here so this file stops disturbing
+  /// everything else. Enabling restarts pacing from offset 0, so a reused handle cannot carry a
+  /// stale offset into a new file.
+  void EnableWritebackPacing(size_t window_bytes, PageCachePolicy completed_window = PageCachePolicy::kDrop);
+
+  /// See `utils::DropCachedPages`. Independent of pacing, and honoured either way: bounding the
+  /// dirty footprint while writing and disposing of the finished file are separate decisions.
+  ///
+  /// On a paced file one call also collects what the windows could not: the final partial window,
+  /// the window whose drop was scheduled for a boundary that never came, the windows abandoned by
+  /// each seek, and the pages the writer went back to patch after their region had been dropped.
+  void DropCachedPages();
+
+  /// Appends up to `size` bytes from the start of `src_fd` to this file, copying within the kernel.
+  ///
+  /// Returns the number of bytes appended, which is short of `size` only if `src_fd` ends early,
+  /// or `nullopt` if the copy failed, with `errno` left for the caller to report against a path it
+  /// knows and this does not.
+  ///
+  /// Anything buffered is flushed first, so it lands in front of the copied bytes.
+  [[nodiscard]] std::optional<uint64_t> AppendFrom(int src_fd, uint64_t size);
+
+  /// Where writeback pacing believes the file position is. Test-only: pacing is advisory
+  /// throughout, so this is the only thing separating pacing that works from pacing that stopped.
+  size_t PacingOffset() const { return pacing_offset_; }
+
   /// Closes the currently opened file. It doesn't perform a `Sync` on the
   /// file. On failure and misuse it crashes the program.
   void Close() noexcept;
@@ -385,9 +446,6 @@ class NonConcurrentOutputFile {
   /// Get the size of the file.
   size_t GetSize();
 
-  /// Get the POSIX file handle
-  auto fd() const { return fd_; }
-
  private:
   void FlushBuffer();
   void FlushBufferInternal();
@@ -395,9 +453,31 @@ class NonConcurrentOutputFile {
 
   size_t SeekFile(Position position, ssize_t offset);
 
+  // Hand the window `bytes` just completed to writeback and dispose of the one before it. Call
+  // after every successful write to the descriptor, whatever route those bytes took.
+  void PaceWriteback(size_t bytes);
+
+  // Abandon the windows in flight and treat `offset` as the current file position. Pacing knows
+  // where it is by counting bytes written, which is the file offset only while the file is
+  // append-only. The snapshot writer is not: it seeks back to patch batch sizes and the offset
+  // table, and without this the windows would silently address the wrong ranges from the first
+  // seek onwards. That is harmless to the data, since both syscalls are advisory, but pacing would
+  // stop doing anything useful. Leaves the configuration alone; only the progress is reset.
+  void RestartPacing(size_t offset);
+
   int fd_{-1};
   size_t buffer_position_{0};
   size_t written_since_last_sync_{0};
+
+  // Writeback pacing; see `EnableWritebackPacing`. A zero window means pacing is off, whether
+  // because it was never enabled or because a `sync_file_range` failure turned it off.
+  size_t pacing_window_{0};
+  PageCachePolicy pacing_completed_window_{PageCachePolicy::kDrop};
+  size_t pacing_offset_{0};         // bytes written to the file so far
+  size_t pacing_pending_start_{0};  // start of the window not yet handed to writeback
+  size_t pacing_prev_start_{0};     // window handed to writeback, not yet disposed of
+  size_t pacing_prev_len_{0};
+
   std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
 
   // Path should be cold data

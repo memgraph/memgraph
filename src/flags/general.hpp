@@ -92,6 +92,8 @@ DECLARE_bool(storage_parallel_schema_recovery);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_snapshot_thread_count);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(storage_snapshot_writeback_window_mib);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_recovery_thread_count);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_enable_schema_metadata);

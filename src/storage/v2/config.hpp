@@ -104,6 +104,10 @@ struct Config {
     uint64_t snapshot_thread_count{8};    // PER INSTANCE SYSTEM FLAG
     uint64_t recovery_thread_count{8};    // PER INSTANCE SYSTEM FLAG
 
+    // Per snapshot writer, so a parallel snapshot may hold this much again for every thread it
+    // uses. 0 disables pacing.
+    uint64_t snapshot_writeback_window_mib{32};  // PER INSTANCE SYSTEM FLAG
+
     bool allow_parallel_snapshot_creation{false};  // PER DATABASE
     bool allow_parallel_schema_creation{false};    // PER DATABASE
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;

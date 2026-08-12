@@ -283,6 +283,13 @@ uint64_t Encoder<FileType>::GetPosition() {
 }
 
 template <typename FileType>
+std::optional<uint64_t> Encoder<FileType>::AppendFrom(int src_fd, uint64_t size)
+  requires std::same_as<FileType, utils::NonConcurrentOutputFile>
+{
+  return file_.AppendFrom(src_fd, size);
+}
+
+template <typename FileType>
 void Encoder<FileType>::SetPosition(uint64_t position) {
   file_.SetPosition(FileType::Position::SET, position);
 }
@@ -293,8 +300,10 @@ void Encoder<FileType>::Sync() {
 }
 
 template <typename FileType>
-void Encoder<FileType>::Finalize() {
+void Encoder<FileType>::Finalize(utils::PageCachePolicy page_cache) {
   file_.Sync();
+  // After the sync every page is clean, which is the only state in which dropping them works.
+  if (page_cache == utils::PageCachePolicy::kDrop) file_.DropCachedPages();
   file_.Close();
 }
 

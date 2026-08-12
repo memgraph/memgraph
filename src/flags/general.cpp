@@ -154,6 +154,13 @@ DEFINE_uint64(storage_snapshot_thread_count,
               "The number of threads used to create snapshots.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_snapshot_writeback_window_mib,
+              memgraph::storage::Config::Durability().snapshot_writeback_window_mib,
+              "How much of a snapshot may build up in the operating system's file cache before it is written out "
+              "to disk and released, in MiB. Applies per snapshot thread. Set to 0 to leave this to the operating "
+              "system, which can let a large snapshot slow down queries and evict cached data.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_recovery_thread_count,
               std::max(static_cast<uint64_t>(memgraph::utils::GetSafeHardwareConcurrency()),
                        memgraph::storage::Config::Durability().recovery_thread_count),
