@@ -196,7 +196,7 @@ class ManifestStoreUnderTest {
   }
 
   auto IsPropertyEqual(PropertyId property, PropertyValue const &value) const -> bool {
-    return GetProperty(property) == value;
+    return store_.IsPropertyEqual(Registry(), property, value);
   }
 
   auto Properties() const -> std::map<PropertyId, PropertyValue> {
@@ -750,22 +750,25 @@ STORE_TYPED_TEST(IntEncoding) {
   }
 }
 
-STORE_TYPED_TEST(IsPropertyEqualIntAndDouble) {
-  TStore props;
-  auto prop = PropertyId::FromInt(42);
-
-  ASSERT_TRUE(props.SetProperty(prop, PropertyValue(42)));
-
-  std::vector<std::pair<PropertyValue, PropertyValue>> tests{
+/// The int/double pairs both `IsPropertyEqual` tests below are written against.
+auto IntAndDoubleCases() -> std::vector<std::pair<PropertyValue, PropertyValue>> {
+  return {
       {PropertyValue(0), PropertyValue(0.0)},
       {PropertyValue(123), PropertyValue(123.0)},
       {PropertyValue(12'345), PropertyValue(12345.0)},
       {PropertyValue(12'345'678), PropertyValue(12345678.0)},
       {PropertyValue(1'234'567'890'123L), PropertyValue(1234567890123.0)},
   };
+}
+
+STORE_TYPED_TEST(IsPropertyEqualIntAndDouble) {
+  TStore props;
+  auto prop = PropertyId::FromInt(42);
+
+  ASSERT_TRUE(props.SetProperty(prop, PropertyValue(42)));
 
   // Test equality with raw values.
-  for (auto test : tests) {
+  for (auto test : IntAndDoubleCases()) {
     ASSERT_EQ(test.first, test.second);
 
     // Test first, second
@@ -801,9 +804,16 @@ STORE_TYPED_TEST(IsPropertyEqualIntAndDouble) {
     ASSERT_TRUE(props.IsPropertyEqual(prop, test.second));
     ASSERT_TRUE(props.IsPropertyEqual(prop, test.first));
   }
+}
+
+STORE_TYPED_TEST(IsPropertyEqualIntAndDoubleInList) {
+  TStore props;
+  auto prop = PropertyId::FromInt(42);
+
+  ASSERT_TRUE(props.SetProperty(prop, PropertyValue(42)));
 
   // Test equality with values wrapped in lists.
-  for (auto test : tests) {
+  for (auto test : IntAndDoubleCases()) {
     test.first = PropertyValue(std::vector<PropertyValue>{PropertyValue(test.first.ValueInt())});
     test.second = PropertyValue(std::vector<PropertyValue>{PropertyValue(test.second.ValueDouble())});
     ASSERT_EQ(test.first, test.second);
@@ -841,6 +851,48 @@ STORE_TYPED_TEST(IsPropertyEqualIntAndDouble) {
     ASSERT_TRUE(props.HasProperty(prop));
     ASSERT_TRUE(props.IsPropertyEqual(prop, test.second));
     ASSERT_TRUE(props.IsPropertyEqual(prop, test.first));
+  }
+}
+
+/// Equality is on values, not on encodings: a store free to keep an integer field at a width
+/// wider than the value needs still has to compare it equal to the same value stored narrow.
+/// An implementation that classified the query value and compared the bytes would report the
+/// two records unequal, which on the unique constraint path is a duplicate let through.
+STORE_TYPED_TEST(IsPropertyEqualIntWidthIndependence) {
+  auto const prop = PropertyId::FromInt(42);
+
+  // A value for each width an integer can be stored at, negatives included: their payloads
+  // have their high bytes set, so a read that fails to sign extend reads them as huge
+  // positives instead.
+  for (auto const value : {int64_t{0},
+                           int64_t{5},
+                           int64_t{-1},
+                           int64_t{127},
+                           int64_t{-128},
+                           int64_t{32'767},
+                           int64_t{-32'768},
+                           int64_t{2'147'483'647},
+                           int64_t{-2'147'483'648},
+                           int64_t{1'000'000'000'000},
+                           int64_t{-1'000'000'000'000}}) {
+    TStore narrow;
+    ASSERT_TRUE(narrow.SetProperty(prop, PropertyValue(value)));
+
+    // The same value arriving in a record laid out for one that needs the full width.
+    TStore wide;
+    ASSERT_TRUE(wide.SetProperty(prop, PropertyValue(std::numeric_limits<int64_t>::max())));
+    ASSERT_FALSE(wide.SetProperty(prop, PropertyValue(value)));
+
+    for (auto const *store : {&narrow, &wide}) {
+      EXPECT_TRUE(store->IsPropertyEqual(prop, PropertyValue(value))) << value;
+      EXPECT_TRUE(store->IsPropertyEqual(prop, PropertyValue(static_cast<double>(value)))) << value;
+      EXPECT_FALSE(store->IsPropertyEqual(prop, PropertyValue(value + 1))) << value;
+      EXPECT_FALSE(store->IsPropertyEqual(prop, PropertyValue(value - 1))) << value;
+      // The unsigned readings of a payload whose high bytes are set.
+      EXPECT_EQ(store->IsPropertyEqual(prop, PropertyValue(int64_t{0xFF})), value == 0xFF) << value;
+      EXPECT_EQ(store->IsPropertyEqual(prop, PropertyValue(int64_t{0xFFFF})), value == 0xFFFF) << value;
+      EXPECT_EQ(store->IsPropertyEqual(prop, PropertyValue(int64_t{0xFFFF'FFFF})), value == 0xFFFF'FFFF) << value;
+    }
   }
 }
 
@@ -1469,6 +1521,16 @@ STORE_TYPED_TEST(IsPropertyEqual_ReducedPrecision) {
     EXPECT_TRUE(store.IsPropertyEqual(prop, PropertyValue(2.0))) << "res=" << res;
     EXPECT_FALSE(store.IsPropertyEqual(prop, PropertyValue(3.0))) << "res=" << res;
     EXPECT_TRUE(store.IsPropertyEqual(prop, PropertyValue(2))) << "res=" << res << " int==double comparison";
+  }
+}
+
+STORE_TYPED_TEST(IsPropertyEqualDoubleList_ReducedPrecision) {
+  RestoreFpResolutionGuard guard;
+
+  for (uint64_t res : {16, 32, 64}) {
+    FLAGS_storage_floating_point_resolution_bits = res;
+    TStore store;
+    auto const prop = PropertyId::FromInt(1);
 
     std::vector<double> dlist = {1.0, 2.0, 4.0};
     store.SetProperty(prop, PropertyValue(dlist));

@@ -79,6 +79,14 @@ class ManifestPropertyStore {
   /// having come from this record's shape; check `manifest()` before trusting it.
   auto GetProperty(PropertyManifest const &manifest, PropertyManifest::Location location) const -> PropertyValue;
 
+  /// Whether the record holds `value` for `property`, comparing against the encoded bytes
+  /// rather than decoding them. A property the record does not carry equals Null.
+  ///
+  /// Values are compared, not encodings: an integer stored at one width equals the same
+  /// integer stored at another, and an integer equals a double of the same value, as
+  /// `PropertyValue::operator==` has them.
+  auto IsPropertyEqual(ManifestRegistry const &registry, PropertyId property, PropertyValue const &value) const -> bool;
+
   /// The properties this record carries, in property order.
   auto Properties(ManifestRegistry const &registry) const -> utils::small_vector<PropertyPair>;
 

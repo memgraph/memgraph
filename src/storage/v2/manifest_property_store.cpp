@@ -159,43 +159,54 @@ void EncodeFixed(PropertyValue const &value, StoredType stored_type, std::span<u
   }
 }
 
+/// The value an integer payload holds, sign-extended from whatever width it was stored at.
+/// Two records of the same value may disagree on that width, so nothing may be concluded from
+/// the bytes without widening them first.
+auto DecodeInt(uint8_t width, std::span<uint8_t const> in) -> int64_t {
+  uint64_t raw = 0;
+  std::memcpy(&raw, in.data(), width);
+  switch (width) {
+    case 1:
+      return static_cast<int8_t>(raw);
+    case 2:
+      return static_cast<int16_t>(raw);
+    case 4:
+      return static_cast<int32_t>(raw);
+    default:
+      return static_cast<int64_t>(raw);
+  }
+}
+
+/// The value a floating point payload holds, at the resolution it was stored at rather than
+/// the one currently in force.
+auto DecodeDouble(uint8_t width, std::span<uint8_t const> in) -> double {
+  switch (width) {
+    case kHalfWidth: {
+      uint16_t half = 0;
+      std::memcpy(&half, in.data(), kHalfWidth);
+      return fp16_ieee_to_fp32_value(half);
+    }
+    case kFloatWidth: {
+      float single = 0.0F;
+      std::memcpy(&single, in.data(), kFloatWidth);
+      return single;
+    }
+    default: {
+      double raw = 0.0;
+      std::memcpy(&raw, in.data(), kDoubleWidth);
+      return raw;
+    }
+  }
+}
+
 auto DecodeFixed(StoredType stored_type, std::span<uint8_t const> in) -> PropertyValue {
   switch (stored_type.type) {
     case PropertyStoreType::BOOL:
       return PropertyValue{in[0] != 0};
-    case PropertyStoreType::INT: {
-      uint64_t raw = 0;
-      std::memcpy(&raw, in.data(), stored_type.width);
-      switch (stored_type.width) {
-        case 1:
-          return PropertyValue{static_cast<int64_t>(static_cast<int8_t>(raw))};
-        case 2:
-          return PropertyValue{static_cast<int64_t>(static_cast<int16_t>(raw))};
-        case 4:
-          return PropertyValue{static_cast<int64_t>(static_cast<int32_t>(raw))};
-        default:
-          return PropertyValue{static_cast<int64_t>(raw)};
-      }
-    }
-    case PropertyStoreType::DOUBLE: {
-      switch (stored_type.width) {
-        case kHalfWidth: {
-          uint16_t half = 0;
-          std::memcpy(&half, in.data(), kHalfWidth);
-          return PropertyValue{static_cast<double>(fp16_ieee_to_fp32_value(half))};
-        }
-        case kFloatWidth: {
-          float single = 0.0F;
-          std::memcpy(&single, in.data(), kFloatWidth);
-          return PropertyValue{static_cast<double>(single)};
-        }
-        default: {
-          double raw = 0.0;
-          std::memcpy(&raw, in.data(), kDoubleWidth);
-          return PropertyValue{raw};
-        }
-      }
-    }
+    case PropertyStoreType::INT:
+      return PropertyValue{DecodeInt(stored_type.width, in)};
+    case PropertyStoreType::DOUBLE:
+      return PropertyValue{DecodeDouble(stored_type.width, in)};
     case PropertyStoreType::TEMPORAL_DATA: {
       int64_t microseconds = 0;
       std::memcpy(&microseconds, in.data(), kTemporalWidth);
@@ -216,6 +227,62 @@ auto DecodeFixed(StoredType stored_type, std::span<uint8_t const> in) -> Propert
       std::array<double, 3> coordinates{};
       std::memcpy(coordinates.data(), in.data(), kPoint3dWidth);
       return PropertyValue{Point3d{crs, coordinates[0], coordinates[1], coordinates[2]}};
+    }
+    default:
+      LOG_FATAL("Not a fixed-width property type");
+  }
+}
+
+/// Whether a fixed-width payload holds `value`, without decoding it into a `PropertyValue`.
+///
+/// The comparison is on values, never on encodings: the same value may be stored at different
+/// widths in different records, so the record's payload is widened to what it means and
+/// compared with that. Taking the shape's stored type as the answer instead would report two
+/// records holding the same integer as unequal, which on the unique constraint path is a
+/// duplicate let through.
+auto FixedEquals(StoredType stored_type, std::span<uint8_t const> in, PropertyValue const &value) -> bool {
+  switch (stored_type.type) {
+    case PropertyStoreType::BOOL:
+      return value.IsBool() && value.ValueBool() == (in[0] != 0);
+    case PropertyStoreType::INT: {
+      // Integers and doubles compare across types, as `PropertyValue::operator==` has them do.
+      if (value.IsInt()) return value.ValueInt() == DecodeInt(stored_type.width, in);
+      if (value.IsDouble()) return value.ValueDouble() == static_cast<double>(DecodeInt(stored_type.width, in));
+      return false;
+    }
+    case PropertyStoreType::DOUBLE: {
+      if (value.IsDouble()) return value.ValueDouble() == DecodeDouble(stored_type.width, in);
+      if (value.IsInt()) return static_cast<double>(value.ValueInt()) == DecodeDouble(stored_type.width, in);
+      return false;
+    }
+    case PropertyStoreType::TEMPORAL_DATA: {
+      if (!value.IsTemporalData()) return false;
+      auto const &temporal = value.ValueTemporalData();
+      if (temporal.type != static_cast<TemporalType>(stored_type.discriminator)) return false;
+      int64_t microseconds = 0;
+      std::memcpy(&microseconds, in.data(), kTemporalWidth);
+      return temporal.microseconds == microseconds;
+    }
+    case PropertyStoreType::ENUM: {
+      if (!value.IsEnum()) return false;
+      auto const &enum_value = value.ValueEnum();
+      if (enum_value.type_id().value_of() != stored_type.discriminator) return false;
+      uint64_t value_id = 0;
+      std::memcpy(&value_id, in.data(), kEnumWidth);
+      return enum_value.value_id().value_of() == value_id;
+    }
+    case PropertyStoreType::POINT: {
+      auto const crs = static_cast<CoordinateReferenceSystem>(stored_type.discriminator);
+      if (stored_type.width == kPoint2dWidth) {
+        if (!value.IsPoint2d()) return false;
+        std::array<double, 2> coordinates{};
+        std::memcpy(coordinates.data(), in.data(), kPoint2dWidth);
+        return value.ValuePoint2d() == Point2d{crs, coordinates[0], coordinates[1]};
+      }
+      if (!value.IsPoint3d()) return false;
+      std::array<double, 3> coordinates{};
+      std::memcpy(coordinates.data(), in.data(), kPoint3dWidth);
+      return value.ValuePoint3d() == Point3d{crs, coordinates[0], coordinates[1], coordinates[2]};
     }
     default:
       LOG_FATAL("Not a fixed-width property type");
@@ -346,6 +413,32 @@ auto ManifestPropertyStore::HasProperty(ManifestRegistry const &registry, Proper
   if (empty()) return false;
   auto const found = registry.Resolve(manifest_).Find(property);
   return found && IsPresent(data(), found->position);
+}
+
+auto ManifestPropertyStore::IsPropertyEqual(ManifestRegistry const &registry, PropertyId property,
+                                            PropertyValue const &value) const -> bool {
+  if (empty()) return value.IsNull();
+
+  auto const &manifest = registry.Resolve(manifest_);
+  auto const found = manifest.Find(property);
+  if (!found) return value.IsNull();
+
+  auto const *record = data();
+  if (!IsPresent(record, found->position)) return value.IsNull();
+
+  auto const regions = RegionsOf(manifest, record);
+  if (found->is_fixed) {
+    return FixedEquals(
+        found->stored_type, std::span{record + regions.fixed + found->offset, found->stored_type.width}, value);
+  }
+
+  if (!value.IsString()) return false;
+  auto const *table = record + regions.offset_table;
+  auto const end = ReadOffset(table, regions.offset_width, found->offset);
+  auto const begin = found->offset == 0 ? 0U : ReadOffset(table, regions.offset_width, found->offset - 1);
+  auto const &string = value.ValueString();
+  if (string.size() != end - begin) return false;
+  return std::memcmp(record + regions.variable + begin, string.data(), string.size()) == 0;
 }
 
 auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -> utils::small_vector<PropertyPair> {
