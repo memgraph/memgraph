@@ -436,15 +436,11 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
     case TypedValue::Type::Vertex:
       if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
         auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-        if (!property_lookup_cache_.contains(symbol_pos)) {
-          property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueVertex()));
-        }
-
         auto property_id = ctx_->properties[property_lookup.property_.ix];
-        if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-          return {property_lookup_cache_[symbol_pos][property_id], GetNameIdMapper(), ctx_->memory};
-        }
-        return TypedValue(ctx_->memory);
+        auto &cached = property_lookup_cache_[symbol_pos];
+        auto [it, inserted] = cached.try_emplace(property_id);
+        if (inserted) it->second = GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_);
+        return {it->second, GetNameIdMapper(), ctx_->memory};
       } else {
         return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_),
                 GetNameIdMapper(),
@@ -453,15 +449,11 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
     case TypedValue::Type::Edge:
       if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
         auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-        if (!property_lookup_cache_.contains(symbol_pos)) {
-          property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueEdge()));
-        }
-
         auto property_id = ctx_->properties[property_lookup.property_.ix];
-        if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-          return {property_lookup_cache_[symbol_pos][property_id], GetNameIdMapper(), ctx_->memory};
-        }
-        return TypedValue(ctx_->memory);
+        auto &cached = property_lookup_cache_[symbol_pos];
+        auto [it, inserted] = cached.try_emplace(property_id);
+        if (inserted) it->second = GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_);
+        return {it->second, GetNameIdMapper(), ctx_->memory};
       } else {
         return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_),
                 GetNameIdMapper(),

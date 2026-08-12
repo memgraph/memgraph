@@ -1135,24 +1135,21 @@ void PropertyLookupEvaluationModeVisitor::Visit(PropertyLookup &property_lookup)
     return;
   }
 
-  auto identifier_symbol = static_cast<Identifier *>(property_lookup.expression_)->name_;
+  auto const symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
+  if (symbol_pos < 0) return;
+  auto key = std::pair{symbol_pos, property_lookup.property_.ix};
 
   switch (phase_) {
     case Phase::GATHER: {
-      if (!property_lookup_counts_by_symbol.contains(identifier_symbol)) {
-        property_lookup_counts_by_symbol[identifier_symbol] = 0;
-      }
-
-      property_lookup_counts_by_symbol[identifier_symbol]++;
-
+      property_lookup_counts_by_symbol[key]++;
       return;
     }
     case Phase::ASSIGN: {
-      if (property_lookup_counts_by_symbol.contains(identifier_symbol) &&
-          property_lookup_counts_by_symbol[identifier_symbol] > 1) {
+      // Caching only pays off for a property read more than once per row: the cache lookup itself costs a
+      // hash probe plus a value copy, which is more than one decode of a property that is read once.
+      if (property_lookup_counts_by_symbol[key] > 1) {
         property_lookup.evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
       }
-
       return;
     }
   }

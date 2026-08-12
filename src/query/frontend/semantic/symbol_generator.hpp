@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <map>
 #include <optional>
 #include <vector>
 
@@ -268,25 +269,55 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
     op.expression2_->Accept(*this);
   }
 
-  void Visit(AdditionOperator &op) override {}
+  void Visit(AdditionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
 
-  void Visit(SubtractionOperator &op) override {}
+  void Visit(SubtractionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
 
-  void Visit(MultiplicationOperator &op) override {}
+  void Visit(MultiplicationOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
 
-  void Visit(DivisionOperator &op) override {}
+  void Visit(DivisionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
 
-  void Visit(ModOperator &op) override {}
+  void Visit(ModOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
 
-  void Visit(ExponentiationOperator &op) override {}
+  void Visit(ExponentiationOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
 
-  void Visit(LessOperator &op) override {}
+  void Visit(LessOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
 
-  void Visit(GreaterOperator &op) override {}
+  void Visit(GreaterOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
 
-  void Visit(LessEqualOperator &op) override {}
+  void Visit(LessEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
 
-  void Visit(GreaterEqualOperator &op) override {}
+  void Visit(GreaterEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
 
   void Visit(RangeOperator &op) override {}
 
@@ -294,7 +325,11 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
 
   void Visit(ListSlicingOperator &op) override {}
 
-  void Visit(IfOperator &op) override {}
+  void Visit(IfOperator &op) override {
+    op.condition_->Accept(*this);
+    op.then_expression_->Accept(*this);
+    op.else_expression_->Accept(*this);
+  }
 
   void Visit(ListLiteral &op) override {}
 
@@ -306,9 +341,14 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
 
   void Visit(EdgeTypesTest &op) override {}
 
-  void Visit(Aggregation &op) override {}
+  void Visit(Aggregation &op) override {
+    if (op.expression1_) op.expression1_->Accept(*this);
+    if (op.expression2_) op.expression2_->Accept(*this);
+  }
 
-  void Visit(Function &op) override {}
+  void Visit(Function &op) override {
+    for (auto *argument : op.arguments_) argument->Accept(*this);
+  }
 
   void Visit(Reduce &op) override {}
 
@@ -351,7 +391,9 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
   Phase phase_{Phase::GATHER};
 
  private:
-  std::unordered_map<std::string, uint64_t> property_lookup_counts_by_symbol{};
+  // Keyed by (symbol position, interned property index): both are stable ints, and the symbol position
+  // distinguishes identifiers that share a name across scopes.
+  std::map<std::pair<int32_t, int64_t>, uint64_t> property_lookup_counts_by_symbol{};
 };
 
 class PropertyLookupBaseIdentifierVisitor : public ExpressionVisitor<void> {
