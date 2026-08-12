@@ -126,6 +126,127 @@ BENCHMARK_REGISTER_F(ExpansionBenchFixture, Expand)
     ->Range(1, 1 << 20)
     ->Unit(benchmark::kMillisecond);
 
+// A layered graph: every layer is fully connected to the next, so there are `width ^ kLayers`
+// distinct source-to-target paths - plenty of deviations for Yen's algorithm to chew through.
+class KShortestBenchFixture : public benchmark::Fixture {
+ protected:
+  static constexpr int kLayers = 3;
+
+  std::optional<memgraph::system::System> system;
+  std::optional<memgraph::query::AllowEverythingAuthChecker> auth_checker;
+  std::optional<memgraph::query::InterpreterContext> interpreter_context;
+  std::optional<memgraph::query::Interpreter> interpreter;
+  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
+  std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
+      repl_state;
+
+  void SetUp(const benchmark::State &state) override {
+    repl_state.emplace(std::nullopt);
+    memgraph::storage::Config config{};
+    config.durability.storage_directory = data_directory;
+    config.disk.main_storage_directory = data_directory / "disk";
+    db_gk.emplace(std::move(config));
+    auto db_acc_opt = db_gk->access();
+    MG_ASSERT(db_acc_opt, "Failed to access db");
+    auto &db_acc = *db_acc_opt;
+
+    system.emplace();
+    auth_checker.emplace();
+    interpreter_context.emplace(memgraph::query::InterpreterConfig{},
+                                nullptr,
+                                nullptr,
+                                nullptr,
+                                &repl_state.value(),
+                                *system,
+                                nullptr
+#ifdef MG_ENTERPRISE
+                                ,
+                                nullptr,
+                                nullptr
+#endif
+    );
+
+    auto source_label = db_acc->storage()->NameToLabel("Source");
+    auto target_label = db_acc->storage()->NameToLabel("Target");
+
+    {
+      auto dba = db_acc->Access(memgraph::storage::WRITE);
+      auto edge_type = dba->NameToEdgeType("edge_type");
+      auto id_property = dba->NameToProperty("id");
+      int64_t next_id = 0;
+      auto make_vertex = [&] {
+        auto vertex = dba->CreateVertex();
+        MG_ASSERT(vertex.SetProperty(id_property, memgraph::storage::PropertyValue(next_id++)).has_value());
+        return vertex;
+      };
+
+      auto source = make_vertex();
+      MG_ASSERT(source.AddLabel(source_label).has_value());
+      std::vector<memgraph::storage::VertexAccessor> previous_layer{source};
+
+      for (int layer = 0; layer < kLayers; ++layer) {
+        std::vector<memgraph::storage::VertexAccessor> current_layer;
+        for (int i = 0; i < state.range(0); ++i) current_layer.push_back(make_vertex());
+        for (auto &from : previous_layer) {
+          for (auto &to : current_layer) MG_ASSERT(dba->CreateEdge(&from, &to, edge_type).has_value());
+        }
+        previous_layer = std::move(current_layer);
+      }
+
+      auto target = make_vertex();
+      MG_ASSERT(target.AddLabel(target_label).has_value());
+      for (auto &from : previous_layer) MG_ASSERT(dba->CreateEdge(&from, &target, edge_type).has_value());
+
+      MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    for (auto label : {source_label, target_label}) {
+      auto unique_acc = db_acc->UniqueAccess();
+      MG_ASSERT(unique_acc->CreateIndex(label).has_value());
+      MG_ASSERT(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    interpreter.emplace(&*interpreter_context, std::move(db_acc));
+    interpreter->SetUser(auth_checker->GenQueryUser(std::nullopt, {}));
+  }
+
+  void TearDown(const benchmark::State &) override {
+    interpreter = std::nullopt;
+    interpreter_context = std::nullopt;
+    db_gk.reset();
+    auth_checker.reset();
+    system.reset();
+    std::filesystem::remove_all(data_directory);
+  }
+
+  void RunQuery(benchmark::State &state, const char *query) {
+    while (state.KeepRunning()) {
+      ResultStreamFaker results(interpreter->current_db_.db_acc_->get()->storage());
+      interpreter->Prepare(query, memgraph::query::no_params_fn, {});
+      interpreter->PullAll(&results);
+    }
+  }
+};
+
+BENCHMARK_DEFINE_F(KShortestBenchFixture, KShortest)(benchmark::State &state) {
+  RunQuery(state, "MATCH (s:Source), (t:Target) WITH s, t MATCH (s)-[*KSHORTEST |20]->(t) RETURN count(*)");
+}
+
+BENCHMARK_REGISTER_F(KShortestBenchFixture, KShortest)->RangeMultiplier(2)->Range(2, 8)->Unit(benchmark::kMillisecond);
+
+// The same search with a filter lambda that accepts everything, so the difference against
+// `KShortest` above is the cost of evaluating (and memoising) the predicate.
+BENCHMARK_DEFINE_F(KShortestBenchFixture, KShortestFiltered)(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (s:Source), (t:Target) WITH s, t MATCH (s)-[*KSHORTEST |20 (r, n | n.id >= 0)]->(t) RETURN "
+           "count(*)");
+}
+
+BENCHMARK_REGISTER_F(KShortestBenchFixture, KShortestFiltered)
+    ->RangeMultiplier(2)
+    ->Range(2, 8)
+    ->Unit(benchmark::kMillisecond);
+
 int main(int argc, char **argv) {
   ::benchmark::Initialize(&argc, argv);
   ::benchmark::RunSpecifiedBenchmarks();

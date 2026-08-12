@@ -46,13 +46,11 @@ class VertexDb : public Database {
     return db_->Access(memgraph::storage::WRITE);
   }
 
-  std::unique_ptr<LogicalOperator> MakeKShortestOperator(Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
-                                                         EdgeAtom::Direction direction,
-                                                         const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
-                                                         const std::shared_ptr<LogicalOperator> &input,
-                                                         bool existing_node, memgraph::query::Expression *lower_bound,
-                                                         memgraph::query::Expression *upper_bound,
-                                                         memgraph::query::Expression *limit) override {
+  std::unique_ptr<LogicalOperator> MakeKShortestOperator(
+      Symbol source_sym, Symbol sink_sym, Symbol edge_sym, EdgeAtom::Direction direction,
+      const std::vector<memgraph::storage::EdgeTypeId> &edge_types, const std::shared_ptr<LogicalOperator> &input,
+      bool existing_node, memgraph::query::Expression *lower_bound, memgraph::query::Expression *upper_bound,
+      const memgraph::query::plan::ExpansionLambda &filter_lambda, memgraph::query::Expression *limit) override {
     return std::make_unique<ExpandVariable>(input,
                                             source_sym,
                                             sink_sym,
@@ -64,7 +62,7 @@ class VertexDb : public Database {
                                             nullptr,
                                             upper_bound,
                                             existing_node,
-                                            memgraph::query::plan::ExpansionLambda{},
+                                            filter_lambda,
                                             std::nullopt,
                                             std::nullopt,
                                             limit);
@@ -136,6 +134,21 @@ TEST_P(FineGrainedKShortestTestInMemory, All) {
       db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type);
 }
 
+// The same matrix, with a filter lambda blocking every edge that leads into vertex 4 on top of the
+// access checks.
+TEST_P(FineGrainedKShortestTestInMemory, WithFilterLambda) {
+  int upper_bound;
+  EdgeAtom::Direction direction;
+  std::vector<std::string> edge_types;
+  int k;
+  FineGrainedTestType fine_grained_test_type;
+
+  std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
+
+  this->db_->KShortestTestWithFineGrainedFiltering(
+      db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type, 4);
+}
+
 std::unique_ptr<VertexDb<FineGrainedKShortestTestInMemory::StorageType>> FineGrainedKShortestTestInMemory::db_{nullptr};
 
 INSTANTIATE_TEST_SUITE_P(
@@ -146,6 +159,14 @@ INSTANTIATE_TEST_SUITE_P(
                      testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
                                      FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
                                      FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
+
+TEST_F(FineGrainedKShortestTestInMemory, AccessCheckRunsBeforeFilterLambda) {
+  db_->KShortestTestAccessCheckBeforeFilterLambda(db_.get());
+}
+
+TEST_F(FineGrainedKShortestTestInMemory, MemoDistinguishesSearchDirections) {
+  db_->KShortestTestMemoDistinguishesSearchDirections(db_.get());
+}
 
 class FineGrainedKShortestTestOnDisk
     : public ::testing::TestWithParam<
@@ -175,6 +196,21 @@ TEST_P(FineGrainedKShortestTestOnDisk, All) {
 
   this->db_->KShortestTestWithFineGrainedFiltering(
       db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type);
+}
+
+// The same matrix, with a filter lambda blocking every edge that leads into vertex 4 on top of the
+// access checks.
+TEST_P(FineGrainedKShortestTestOnDisk, WithFilterLambda) {
+  int upper_bound;
+  EdgeAtom::Direction direction;
+  std::vector<std::string> edge_types;
+  int k;
+  FineGrainedTestType fine_grained_test_type;
+
+  std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
+
+  this->db_->KShortestTestWithFineGrainedFiltering(
+      db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type, 4);
 }
 
 std::unique_ptr<VertexDb<FineGrainedKShortestTestOnDisk::StorageType>> FineGrainedKShortestTestOnDisk::db_{nullptr};

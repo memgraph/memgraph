@@ -3408,9 +3408,6 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         }
         break;
       case 1:
-        if (edge->type_ == EdgeAtom::Type::KSHORTEST) {
-          throw SemanticException("KSHORTEST expansion does not support filter lambda.");
-        }
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
             edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
           // For wShortest and allShortest, the first (and required) lambda is
@@ -3430,6 +3427,11 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         } else {
           // Other variable expands only have the filter lambda.
           edge->filter_lambda_ = visit_lambda(relationshipLambdas[0]);
+          // KSHORTEST searches bidirectionally and reuses inner searches across deviations, so
+          // there is no single well-defined path leading to the edge being tested.
+          if (edge->type_ == EdgeAtom::Type::KSHORTEST && edge->filter_lambda_.accumulated_path) {
+            throw SemanticException("KSHORTEST expansion does not support the accumulated path in a filter lambda.");
+          }
           if (edge->filter_lambda_.accumulated_weight) {
             throw SemanticException(
                 "Accumulated weight in filter lambda can be used only with "

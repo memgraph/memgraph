@@ -3734,7 +3734,10 @@ class KShortestPathsCursor : public Cursor {
         blocked_edges_(mem),
         blocked_vertices_(mem),
         distances_(mem),
-        predecessors_(mem) {}
+        in_edges_(mem),
+        out_edges_(mem),
+        predecessors_(mem),
+        expansion_memo_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -3745,6 +3748,9 @@ class KShortestPathsCursor : public Cursor {
 
     limit_ = self_.limit_ ? EvaluateInt(evaluator, self_.limit_, "Limit in KSHORTEST path expansion")
                           : std::numeric_limits<int64_t>::max();
+
+    // With neither a lambda nor access checks there is nothing to memoise, so don't pay for it.
+    memoize_expansion_ = self_.filter_lambda_.expression != nullptr || FineGrainedAccessCheckEnabled(context);
 
     auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
       PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource(), context);
@@ -3766,7 +3772,7 @@ class KShortestPathsCursor : public Cursor {
 
     // Try to compute the next shortest path for current input
     if (current_input_initialized_ && current_source_.has_value() && current_target_.has_value() &&
-        ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
+        ComputeNextShortestPath(current_source_.value(), current_target_.value(), frame, evaluator, context)) {
       push_next_path(frame, evaluator);
       return true;
     }
@@ -3797,7 +3803,7 @@ class KShortestPathsCursor : public Cursor {
       current_target_ = target_vertex;
       current_input_initialized_ = true;
 
-      if (!InitializeKShortestPaths(source_vertex, target_vertex, evaluator, context)) {
+      if (!InitializeKShortestPaths(source_vertex, target_vertex, frame, evaluator, context)) {
         // If no path found, continue to next input
         continue;
       }
@@ -3806,7 +3812,7 @@ class KShortestPathsCursor : public Cursor {
       auto *last_path = &shortest_paths_.back();
       while (last_path->edges.size() < lower_bound_) {
         current_path_index_ = shortest_paths_.size();
-        if (!ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
+        if (!ComputeNextShortestPath(current_source_.value(), current_target_.value(), frame, evaluator, context)) {
           break;
         }
         last_path = &shortest_paths_.back();
@@ -3864,6 +3870,24 @@ class KShortestPathsCursor : public Cursor {
     }
   };
 
+  // Identifies one (edge, bound node) test of the expansion predicate. The pass is part of the key
+  // because the two halves of the bidirectional search check access on opposite endpoints of the
+  // same edge and bind opposite endpoints as the lambda's node.
+  struct ExpansionKey {
+    storage::Gid edge;
+    storage::Gid node;
+    bool backward;
+
+    friend bool operator==(const ExpansionKey &, const ExpansionKey &) = default;
+  };
+
+  struct ExpansionKeyHash {
+    size_t operator()(const ExpansionKey &key) const {
+      return utils::HashCombine<size_t, bool>{}(utils::HashCombine<storage::Gid, storage::Gid>{}(key.edge, key.node),
+                                                key.backward);
+    }
+  };
+
   const ExpandVariable &self_;
   UniqueCursorPtr input_cursor_;
   int64_t lower_bound_{1};
@@ -3886,19 +3910,28 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::unordered_set<EdgeAccessor, EdgeAccessorHash> blocked_edges_;
   utils::pmr::unordered_set<VertexAccessor, VertexAccessorHash> blocked_vertices_;
   utils::pmr::unordered_map<VertexAccessor, double, VertexAccessorHash> distances_;
+  // Raw storage adjacency, deliberately *not* cleared per input row (unlike `expansion_memo_`): it
+  // is stable for the whole cursor (one cursor = one transaction = one `View::OLD`) and exists so
+  // Yen's repeated inner searches don't re-fetch. It must keep storing unfiltered edges - caching
+  // post-filter results here would be wrong the moment the lambda reads an outer-row value.
   utils::pmr::unordered_map<VertexAccessor, EdgeVertexAccessorResult, VertexAccessorHash> in_edges_;
   utils::pmr::unordered_map<VertexAccessor, EdgeVertexAccessorResult, VertexAccessorHash> out_edges_;
   utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>, VertexAccessorHash> predecessors_;
 
+  // Memoised `access check && filter lambda` verdicts. Sound across Yen's O(k*L) inner searches
+  // because the blocked sets - the only per-deviation inputs - are checked outside the memo.
+  utils::pmr::unordered_map<ExpansionKey, bool, ExpansionKeyHash> expansion_memo_;
+  bool memoize_expansion_{false};
+
   // Bidirectional search state
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
 
-  bool InitializeKShortestPaths(const VertexAccessor &source, const VertexAccessor &target,
+  bool InitializeKShortestPaths(const VertexAccessor &source, const VertexAccessor &target, Frame &frame,
                                 ExpressionEvaluator &evaluator, ExecutionContext &context) {
     ResetState();
 
     // Find the shortest path using Dijkstra's algorithm
-    auto shortest_path = ComputeShortestPath(source, target, evaluator, context);
+    auto shortest_path = ComputeShortestPath(source, target, upper_bound_, frame, evaluator, context);
     if (!shortest_path.edges.empty()) {
       shortest_paths_.emplace_back(std::move(shortest_path));
       AddPathToFoundSet(shortest_paths_.back());
@@ -3907,7 +3940,7 @@ class KShortestPathsCursor : public Cursor {
     return false;
   }
 
-  bool ComputeNextShortestPath(const VertexAccessor &source, const VertexAccessor &target,
+  bool ComputeNextShortestPath(const VertexAccessor &source, const VertexAccessor &target, Frame &frame,
                                ExpressionEvaluator &evaluator, ExecutionContext &context) {
     if (shortest_paths_.empty()) return false;
 
@@ -3915,7 +3948,7 @@ class KShortestPathsCursor : public Cursor {
 
     // Generate candidate paths by deviating at each vertex of the last shortest path
     for (size_t i = 0UZ; i < last_path.edges.size(); ++i) {
-      GenerateCandidatesFromDeviation(source, target, last_path, i, evaluator, context);
+      GenerateCandidatesFromDeviation(source, target, last_path, i, frame, evaluator, context);
     }
 
     // Find the best candidate path
@@ -3937,7 +3970,7 @@ class KShortestPathsCursor : public Cursor {
   }
 
   void GenerateCandidatesFromDeviation(const VertexAccessor &source, const VertexAccessor &target,
-                                       const PathInfo &base_path, size_t deviation_index,
+                                       const PathInfo &base_path, size_t deviation_index, Frame &frame,
                                        ExpressionEvaluator &evaluator, ExecutionContext &context) {
     // Set up blocked edges and vertices for this deviation
     SetupBlockedElementsForDeviation(source, base_path, deviation_index);
@@ -3945,8 +3978,10 @@ class KShortestPathsCursor : public Cursor {
     // Get the deviation vertex
     VertexAccessor deviation_vertex = GetVertexAtIndex(source, base_path, deviation_index);
 
-    // Compute shortest path from deviation vertex to target with blocked elements
-    auto spur_path = ComputeShortestPath(deviation_vertex, target, evaluator, context);
+    // Compute shortest path from deviation vertex to target with blocked elements. The candidate's
+    // total length is `deviation_index + spur_len`, so the spur gets what's left of the bound.
+    auto spur_path = ComputeShortestPath(
+        deviation_vertex, target, upper_bound_ - static_cast<int64_t>(deviation_index), frame, evaluator, context);
 
     if (!spur_path.edges.empty()) {
       // Combine the root path (up to deviation) with the spur path
@@ -4049,6 +4084,17 @@ class KShortestPathsCursor : public Cursor {
 
   static constexpr bool kTo = true;
   static constexpr bool kFrom = !kTo;
+  static constexpr bool kBackward = true;
+  static constexpr bool kForward = !kBackward;
+
+  static bool FineGrainedAccessCheckEnabled(const ExecutionContext &context) {
+#ifdef MG_ENTERPRISE
+    return license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker != nullptr;
+#else
+    (void)context;
+    return false;
+#endif
+  }
 
   template <bool To>
   static bool FineGrainedAccessCheck(const EdgeAccessor &edge, ExecutionContext &context) {
@@ -4065,17 +4111,45 @@ class KShortestPathsCursor : public Cursor {
 #endif
   }
 
-  template <bool To>
-  static bool ShouldExpand(const EdgeAccessor &edge, ExecutionContext &context, const VertexEdgeMapT &edges,
-                           const utils::pmr::unordered_set<EdgeAccessor, EdgeAccessorHash> &blocked_edges,
-                           const utils::pmr::unordered_set<VertexAccessor, VertexAccessorHash> &blocked_vertices) {
-    return FineGrainedAccessCheck<To>(edge, context) && !blocked_edges.contains(edge) &&
-           !blocked_vertices.contains(To == kTo ? edge.To() : edge.From()) &&
-           !edges.contains(To == kTo ? edge.To() : edge.From());
+  bool EvaluateFilterLambda(const EdgeAccessor &edge, const VertexAccessor &vertex, Frame &frame,
+                            ExpressionEvaluator &evaluator, ExecutionContext &context) {
+    if (!self_.filter_lambda_.expression) return true;
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    frame_writer.WriteAt(self_.filter_lambda_.inner_node_symbol, vertex);
+    frame_writer.WriteAt(self_.filter_lambda_.inner_edge_symbol, edge);
+
+    TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
+    if (result.IsNull()) return false;
+    if (result.IsBool()) return result.ValueBool();
+
+    throw QueryRuntimeException("Expansion condition must evaluate to boolean or null");
   }
 
-  PathInfo ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target,
-                               ExpressionEvaluator &evaluator, ExecutionContext &context) {
+  /// `To` picks the endpoint the traversal advances to. `Backward` marks the target-side pass,
+  /// where the filter lambda binds the vertex we expand *from* rather than the one we reach - that
+  /// asymmetry is what makes the bidirectional search test exactly the (edge, node) pairs a forward
+  /// walk of the finished path would. Copied from `STShortestPathCursor::ShouldExpand`.
+  template <bool To, bool Backward>
+  bool ShouldExpand(const EdgeAccessor &edge, const VertexAccessor &expand_from, const VertexEdgeMapT &reached,
+                    Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
+    const VertexAccessor next = To == kTo ? edge.To() : edge.From();
+    if (blocked_edges_.contains(edge) || blocked_vertices_.contains(next) || reached.contains(next)) return false;
+    if (!memoize_expansion_) return FineGrainedAccessCheck<To>(edge, context);
+
+    const VertexAccessor &inner_node = Backward ? expand_from : next;
+    const ExpansionKey key{.edge = edge.Gid(), .node = inner_node.Gid(), .backward = Backward};
+    if (const auto it = expansion_memo_.find(key); it != expansion_memo_.end()) return it->second;
+
+    // Access check first: an edge the user cannot read must never make the lambda run on it.
+    const bool allowed =
+        FineGrainedAccessCheck<To>(edge, context) && EvaluateFilterLambda(edge, inner_node, frame, evaluator, context);
+    expansion_memo_.emplace(key, allowed);
+    return allowed;
+  }
+
+  PathInfo ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
+                               Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
     if (source == target) return PathInfo(evaluator.GetMemoryResource());
 
     // We expand from both directions, both from the source and the target.
@@ -4110,7 +4184,7 @@ class KShortestPathsCursor : public Cursor {
       AbortCheck(context);
       // Top-down step (expansion from the source).
       ++current_length;
-      if (current_length > upper_bound_) return PathInfo(evaluator.GetMemoryResource());
+      if (current_length > upper_bound) return PathInfo(evaluator.GetMemoryResource());
 
       for (const auto &vertex : source_frontier) {
         if (context.hops_limit.IsLimitReached()) break;
@@ -4122,7 +4196,7 @@ class KShortestPathsCursor : public Cursor {
             out_edges_.emplace(vertex, out_edges_result);
           }
           for (const auto &edge : out_edges_.at(vertex).edges) {
-            if (!ShouldExpand<kTo>(edge, context, in_edge, blocked_edges_, blocked_vertices_)) {
+            if (!ShouldExpand<kTo, kForward>(edge, vertex, in_edge, frame, evaluator, context)) {
               continue;
             }
             in_edge.emplace(edge.To(), edge);
@@ -4140,7 +4214,7 @@ class KShortestPathsCursor : public Cursor {
             in_edges_.emplace(vertex, in_edges_result);
           }
           for (const auto &edge : in_edges_.at(vertex).edges) {
-            if (!ShouldExpand<kFrom>(edge, context, in_edge, blocked_edges_, blocked_vertices_)) {
+            if (!ShouldExpand<kFrom, kForward>(edge, vertex, in_edge, frame, evaluator, context)) {
               continue;
             }
             in_edge.emplace(edge.From(), edge);
@@ -4158,7 +4232,7 @@ class KShortestPathsCursor : public Cursor {
 
       // Bottom-up step (expansion from the target).
       ++current_length;
-      if (current_length > upper_bound_) return PathInfo(evaluator.GetMemoryResource());
+      if (current_length > upper_bound) return PathInfo(evaluator.GetMemoryResource());
 
       // When expanding from the target we have to be careful which edge
       // endpoint we pass to `should_expand`, because everything is
@@ -4173,7 +4247,7 @@ class KShortestPathsCursor : public Cursor {
             out_edges_.emplace(vertex, out_edges_result);
           }
           for (const auto &edge : out_edges_.at(vertex).edges) {
-            if (!ShouldExpand<kTo>(edge, context, out_edge, blocked_edges_, blocked_vertices_)) {
+            if (!ShouldExpand<kTo, kBackward>(edge, vertex, out_edge, frame, evaluator, context)) {
               continue;
             }
             out_edge.emplace(edge.To(), edge);
@@ -4191,7 +4265,7 @@ class KShortestPathsCursor : public Cursor {
             in_edges_.emplace(vertex, in_edges_result);
           }
           for (const auto &edge : in_edges_.at(vertex).edges) {
-            if (!ShouldExpand<kFrom>(edge, context, out_edge, blocked_edges_, blocked_vertices_)) {
+            if (!ShouldExpand<kFrom, kBackward>(edge, vertex, out_edge, frame, evaluator, context)) {
               continue;
             }
             out_edge.emplace(edge.From(), edge);
@@ -4243,6 +4317,8 @@ class KShortestPathsCursor : public Cursor {
     blocked_vertices_.clear();
     distances_.clear();
     predecessors_.clear();
+    // Cleared per input row: the lambda may read outer variables, so verdicts don't survive a row.
+    expansion_memo_.clear();
   }
 };
 
