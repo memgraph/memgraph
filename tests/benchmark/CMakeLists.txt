@@ -74,6 +74,9 @@ target_link_libraries(${test_prefix}storage_v2_gc2 mg::storage)
 add_benchmark(storage_v2_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v2_property_store mg::storage)
 
+add_benchmark(storage_v2_manifest_property_store.cpp)
+target_link_libraries(${test_prefix}storage_v2_manifest_property_store mg::storage)
+
 add_benchmark(storage_v2_enum_store_bench.cpp)
 target_link_libraries(${test_prefix}storage_v2_enum_store_bench mg::storage)
 

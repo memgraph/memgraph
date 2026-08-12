@@ -201,6 +201,49 @@ TEST_F(ManifestPropertyStoreTest, BuildingARecordInternsAShapePerPrefix) {
   EXPECT_EQ(registry_.size(), 3);
 }
 
+TEST_F(ManifestPropertyStoreTest, InitPropertiesSetsThemAllAtOnce) {
+  auto const properties = std::map<PropertyId, PropertyValue>{
+      {Prop(1), PropertyValue(int64_t{42})},
+      {Prop(2), PropertyValue(std::string{"region_3"})},
+      {Prop(3), PropertyValue(true)},
+  };
+
+  EXPECT_TRUE(store_.InitProperties(registry_, properties));
+  EXPECT_EQ(store_.Properties(registry_), properties);
+}
+
+// Bulk init is what keeps a load off the per-prefix interning path: one shape, not one per
+// property added.
+TEST_F(ManifestPropertyStoreTest, InitPropertiesInternsExactlyOneShape) {
+  store_.InitProperties(registry_,
+                        {
+                            {Prop(1), PropertyValue(int64_t{42})},
+                            {Prop(2), PropertyValue(std::string{"region_3"})},
+                            {Prop(3), PropertyValue(true)},
+                        });
+
+  EXPECT_EQ(registry_.size(), 1);
+}
+
+TEST_F(ManifestPropertyStoreTest, InitPropertiesRefusesANonEmptyRecord) {
+  Set(1, PropertyValue(int64_t{1}));
+
+  EXPECT_FALSE(store_.InitProperties(registry_, {{Prop(2), PropertyValue(int64_t{2})}}));
+  EXPECT_FALSE(store_.HasProperty(registry_, Prop(2)));
+  EXPECT_EQ(Get(1), PropertyValue(int64_t{1}));
+}
+
+TEST_F(ManifestPropertyStoreTest, InitPropertiesIgnoresNulls) {
+  EXPECT_TRUE(store_.InitProperties(registry_,
+                                    {
+                                        {Prop(1), PropertyValue(int64_t{1})},
+                                        {Prop(2), PropertyValue()},
+                                    }));
+
+  EXPECT_FALSE(store_.HasProperty(registry_, Prop(2)));
+  EXPECT_EQ(store_.Properties(registry_).size(), 1);
+}
+
 TEST_F(ManifestPropertyStoreTest, ClearRemovesEverything) {
   Set(1, PropertyValue(int64_t{1}));
   Set(2, PropertyValue(std::string{"x"}));

@@ -58,6 +58,10 @@ class ManifestPropertyStore {
   /// Returns true when the property was not already present.
   auto SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value) -> bool;
 
+  /// Sets every property at once on a record that has none, interning a single shape rather
+  /// than one per property added. Returns false, changing nothing, if the record is not empty.
+  auto InitProperties(ManifestRegistry &registry, std::map<PropertyId, PropertyValue> const &properties) -> bool;
+
   /// Returns true when there was anything to remove.
   auto ClearProperties() -> bool;
 

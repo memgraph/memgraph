@@ -208,6 +208,20 @@ auto ManifestPropertyStore::SetProperty(ManifestRegistry &registry, PropertyId p
   return !existing.has_value();
 }
 
+auto ManifestPropertyStore::InitProperties(ManifestRegistry &registry,
+                                           std::map<PropertyId, PropertyValue> const &properties) -> bool {
+  if (buffer_) return false;
+
+  auto without_nulls = std::map<PropertyId, PropertyValue>{};
+  for (auto const &[id, value] : properties) {
+    if (value.IsNull()) continue;
+    without_nulls.emplace(id, value);
+  }
+
+  Rebuild(registry, without_nulls);
+  return true;
+}
+
 auto ManifestPropertyStore::ClearProperties() -> bool {
   if (!buffer_) return false;
   buffer_.reset();
