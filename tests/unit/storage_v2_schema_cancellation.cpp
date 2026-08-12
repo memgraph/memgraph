@@ -209,6 +209,52 @@ TEST_F(SchemaCancellationTest, LabelIndexParallelPopulationCompletesWithoutCance
   EXPECT_TRUE(res.has_value());
 }
 
+// A committed DROP hands the evicted constraint to GC instead of freeing its skiplist inline. Reclamation must wait
+// until nothing else references it, since a reader holding a pre-DROP ActiveConstraints snapshot can still be
+// iterating that skiplist.
+TEST_F(SchemaCancellationTest, RetiredUniqueConstraintIsReclaimedOnlyOnceUnreferenced) {
+  InMemoryUniqueConstraints unique_constraints;
+  auto vertices_acc = vertices_.access();
+  ASSERT_TRUE(
+      unique_constraints.CreateConstraint(label_, std::set<PropertyId>{prop_}, vertices_acc, std::nullopt).has_value());
+
+  // A reader that snapshotted before the DROP keeps the evicted constraint alive.
+  auto reader_snapshot = unique_constraints.GetActiveConstraints();
+
+  auto dropped = unique_constraints.DropConstraint(label_, std::set<PropertyId>{prop_});
+  ASSERT_EQ(dropped.status, InMemoryUniqueConstraints::DeletionStatus::SUCCESS);
+  ASSERT_TRUE(dropped.evicted);
+
+  std::weak_ptr<InMemoryUniqueConstraints::IndividualConstraint> observer = dropped.evicted;
+  unique_constraints.RetireConstraint(std::move(dropped.evicted));
+
+  unique_constraints.RunGC();
+  EXPECT_FALSE(observer.expired()) << "reclaimed while a reader snapshot still referenced it";
+
+  reader_snapshot.reset();
+  unique_constraints.RunGC();
+  EXPECT_TRUE(observer.expired()) << "not reclaimed after the last reference went away";
+}
+
+// An aborted DROP restores the constraint, so nothing is retired and it stays enforceable.
+TEST_F(SchemaCancellationTest, RestoredUniqueConstraintSurvivesGc) {
+  InMemoryUniqueConstraints unique_constraints;
+  auto vertices_acc = vertices_.access();
+  ASSERT_TRUE(
+      unique_constraints.CreateConstraint(label_, std::set<PropertyId>{prop_}, vertices_acc, std::nullopt).has_value());
+
+  auto dropped = unique_constraints.DropConstraint(label_, std::set<PropertyId>{prop_});
+  ASSERT_EQ(dropped.status, InMemoryUniqueConstraints::DeletionStatus::SUCCESS);
+  unique_constraints.RestoreConstraint(label_, std::set<PropertyId>{prop_}, std::move(dropped.evicted));
+
+  unique_constraints.RunGC();
+
+  // Still present, so re-creating reports it rather than silently installing a second one.
+  auto recreate = unique_constraints.CreateConstraint(label_, std::set<PropertyId>{prop_}, vertices_acc, std::nullopt);
+  ASSERT_TRUE(recreate.has_value());
+  EXPECT_EQ(recreate.value(), InMemoryUniqueConstraints::CreationStatus::ALREADY_EXISTS);
+}
+
 // Cancellation must not mask a real answer about the data: a violation the scan already found still wins.
 TEST_F(SchemaCancellationTest, ViolationOutranksCancellation) {
   auto missing_prop = PropertyId::FromUint(99);

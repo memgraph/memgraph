@@ -2609,9 +2609,14 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   // Defer publication to commit time so concurrent readers don't observe the
   // drop if the DDL transaction aborts. Matches the CREATE path above.
   auto updater = in_memory->constraints_.MakeUpdater();
-  transaction_.commit_callbacks_.Add([mem_unique_constraints, updater](uint64_t /*commit_ts*/) {
-    updater(mem_unique_constraints->GetActiveConstraints());
-  });
+  // Hand the evicted constraint to GC rather than letting it die with these callbacks: freeing its skiplist is
+  // O(constrained vertices), and on a replica this runs on the RPC handler thread its peer is waiting on. Only on
+  // commit -- an abort restores the constraint instead, and then this callback never runs.
+  transaction_.commit_callbacks_.Add(
+      [mem_unique_constraints, updater, evicted = captured.evicted](uint64_t /*commit_ts*/) mutable {
+        updater(mem_unique_constraints->GetActiveConstraints());
+        mem_unique_constraints->RetireConstraint(std::move(evicted));
+      });
   // Reinstall the evicted entry on abort so the constraint stays live.
   transaction_.abort_callbacks_.Add(
       [mem_unique_constraints, label, properties, evicted = std::move(captured.evicted)]() mutable {

@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <variant>
+#include <vector>
 #include "memory/db_arena_fwd.hpp"
 #include "metrics/metric_handles.hpp"
 #include "metrics/scoped_gauge.hpp"
@@ -27,6 +28,7 @@
 #include "storage/v2/index_arming.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
@@ -161,6 +163,13 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// READ_ONLY/UNIQUE, which does not serialize peers).
   void RestoreConstraint(LabelId label, const std::set<PropertyId> &properties, IndividualConstraintPtr evicted);
 
+  /// Hands an evicted constraint over for reclamation once the DROP is known to have committed. Its skiplist holds one
+  /// entry per constrained vertex, so freeing it is O(constrained vertices) -- minutes on a large tenant. Without this
+  /// the last reference dies with the committing transaction's callbacks, running that teardown inline on whichever
+  /// thread committed, which for a replica is the RPC handler its peer is waiting on. GC reaps it instead, once no
+  /// reader snapshot references it any more.
+  void RetireConstraint(IndividualConstraintPtr evicted);
+
   /// Validates the given vertex against unique constraints before committing.
   /// This method should be called while commit lock is active with
   /// `commit_timestamp` being a potential commit timestamp of the transaction.
@@ -192,8 +201,15 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   auto InstallConstraint_(LabelId label, const std::set<PropertyId> &properties, IndividualConstraintPtr ptr)
       -> IndividualConstraintPtr;
 
+  // Reaps anything in retired_ that only this list still references. Called from GC, so the skiplist teardown lands
+  // there rather than on a committing thread.
+  void ReclaimRetiredConstraints();
+
   metrics::GaugeHandle gauge_{};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
+  // Dropped constraints awaiting reclamation. A reader that took an ActiveConstraints snapshot before the DROP can
+  // still be iterating one of these, so the refcount -- not this list -- decides when the memory actually goes.
+  utils::Synchronized<std::vector<IndividualConstraintPtr>, utils::SpinLock> retired_{};
 };
 
 }  // namespace memgraph::storage

@@ -711,7 +711,30 @@ void InMemoryUniqueConstraints::DropGraphClearConstraints() {
   container_.WithLock([](ContainerPtr &container) { container = std::make_shared<Container const>(); });
 }
 
+void InMemoryUniqueConstraints::RetireConstraint(IndividualConstraintPtr evicted) {
+  if (!evicted) return;
+  // Release the gauge now rather than letting ~ScopedGauge do it: the constraint stops being active the moment the
+  // DROP commits, whereas the object below outlives that until GC reclaims it. Leaving them coupled would report a
+  // dropped constraint as still active for as long as reclamation is outstanding.
+  evicted->gauge_ = {};
+  retired_.WithLock([&evicted](auto &retired) { retired.push_back(std::move(evicted)); });
+}
+
+void InMemoryUniqueConstraints::ReclaimRetiredConstraints() {
+  // Move the reapable entries out under the lock and let them die after it is released: destroying one walks its whole
+  // skiplist, and holding the lock for that would stall every concurrent drop and restore.
+  std::vector<IndividualConstraintPtr> reapable;
+  retired_.WithLock([&reapable](auto &retired) {
+    for (auto &constraint : retired) {
+      // Only this list still points at it, so no reader snapshot can reach it any more.
+      if (constraint.use_count() == 1) reapable.push_back(std::move(constraint));
+    }
+    std::erase(retired, nullptr);
+  });
+}
+
 void InMemoryUniqueConstraints::RunGC() {
+  ReclaimRetiredConstraints();
   const auto container = container_.ReadCopy();
   for (const auto &map : *container | std::views::values) {
     for (const auto &individual_constraint : map | std::views::values) {
