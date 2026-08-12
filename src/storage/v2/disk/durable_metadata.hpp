@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,6 +40,12 @@ class DurableMetadata {
   std::optional<std::vector<std::string>> LoadLabelPropertyIndexInfoIfExists() const;
   std::optional<std::vector<std::string>> LoadExistenceConstraintInfoIfExists() const;
   std::optional<std::vector<std::string>> LoadUniqueConstraintInfoIfExists() const;
+
+  /// The floating point resolution the properties on disk were encoded with, if this database
+  /// records one. Databases created before the resolution was recorded do not.
+  std::optional<uint64_t> LoadFloatingPointResolutionIfExists() const;
+
+  bool PersistFloatingPointResolution(uint64_t resolution_bits);
 
   void UpdateMetaData(uint64_t timestamp, uint64_t vertex_count, uint64_t edge_count);
 

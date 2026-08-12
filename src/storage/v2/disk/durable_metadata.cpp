@@ -34,6 +34,7 @@ constexpr const char *kLabelPropertyIndexStr = "label_property_index";
 constexpr const char *kTextIndexStr = "text_index";
 constexpr const char *kExistenceConstraintsStr = "existence_constraints";
 constexpr const char *kUniqueConstraintsStr = "unique_constraints";
+constexpr const char *kFloatingPointResolutionStr = "floating_point_resolution_bits";
 }  // namespace
 
 namespace memgraph::storage {
@@ -88,6 +89,14 @@ std::optional<std::vector<std::string>> DurableMetadata::LoadExistenceConstraint
 
 std::optional<std::vector<std::string>> DurableMetadata::LoadUniqueConstraintInfoIfExists() const {
   return LoadInfoFromAuxiliaryStorages(kUniqueConstraintsStr);
+}
+
+std::optional<uint64_t> DurableMetadata::LoadFloatingPointResolutionIfExists() const {
+  return LoadPropertyIfExists(kFloatingPointResolutionStr);
+}
+
+bool DurableMetadata::PersistFloatingPointResolution(uint64_t resolution_bits) {
+  return durability_kvstore_.Put(kFloatingPointResolutionStr, std::to_string(resolution_bits));
 }
 
 std::optional<std::vector<std::string>> DurableMetadata::LoadInfoFromAuxiliaryStorages(
