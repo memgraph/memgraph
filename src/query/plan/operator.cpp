@@ -130,8 +130,7 @@ ExpressionRange::ExpressionRange(ExpressionRange const &other, AstStorage &stora
       upper_{other.upper_
                  ? std::make_optional(utils::Bound(other.upper_->value()->Clone(&storage), other.upper_->type()))
                  : std::nullopt},
-      membership_list_{other.membership_list_ ? static_cast<ListLiteral *>(other.membership_list_->Clone(&storage))
-                                              : nullptr} {}
+      membership_list_{other.membership_list_ ? other.membership_list_->Clone(&storage) : nullptr} {}
 
 auto ExpressionRange::Equal(Expression *value) -> ExpressionRange {
   // Only store lower bound, Evaluate will only use the lower bound
