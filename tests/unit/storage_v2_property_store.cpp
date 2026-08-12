@@ -1007,6 +1007,84 @@ TEST(PropertyStore, FloatingPointResolution64_Roundtrip) {
   EXPECT_DOUBLE_EQ(got.ValueDouble(), value);
 }
 
+// `PropertyStore` serialises whole records and the disk engine keeps those bytes verbatim, so a
+// resolution change between two runs must not change how bytes already written are understood.
+// These two are disabled because they FAIL: they reproduce a real defect rather than guarding
+// against a regression. A double is decoded using the resolution setting in force at the time of
+// reading, not the one it was written under, so changing the setting between a write and a read
+// turns a stored double into an unrelated number. A disk database is refused when its setting
+// differs from the one it was written with, which contains the damage; the encoding itself is
+// still to be fixed, and these are what say when it has been.
+//
+// The obvious fix, dispatching on the width stored with the property, does not work:
+//   * `Writer::WriteUint` stores the NARROWEST width the bit pattern fits, so a half of 1e-6 and a
+//     double of 0.0 both occupy one byte. The width does not identify the encoding.
+//   * A double list stores no per-element width at all; both reading and SKIPPING it size elements
+//     from the live setting, so a mismatch desynchronises the reader and misparses every property
+//     after it in the same record.
+TEST(PropertyStoreResolution, DISABLED_ChangedAfterWrite_ReadsBackWhatWasWritten) {
+  RestoreFpResolutionGuard guard;
+
+  auto const prop = PropertyId::FromInt(1);
+
+  FLAGS_storage_floating_point_resolution_bits = 64;
+  PropertyStore written_as_double;
+  double const exact = 3.14159265358979;
+  ASSERT_TRUE(written_as_double.SetProperty(prop, PropertyValue(exact)));
+
+  FLAGS_storage_floating_point_resolution_bits = 16;
+  EXPECT_DOUBLE_EQ(written_as_double.GetProperty(prop).ValueDouble(), exact) << "double read back at resolution 16";
+  FLAGS_storage_floating_point_resolution_bits = 32;
+  EXPECT_DOUBLE_EQ(written_as_double.GetProperty(prop).ValueDouble(), exact) << "double read back at resolution 32";
+
+  // A value written at a lower precision keeps the value it was rounded to, rather than being
+  // reinterpreted as a wider encoding.
+  FLAGS_storage_floating_point_resolution_bits = 16;
+  PropertyStore written_as_half;
+  ASSERT_TRUE(written_as_half.SetProperty(prop, PropertyValue(3.14)));
+  auto const as_stored = written_as_half.GetProperty(prop).ValueDouble();
+
+  FLAGS_storage_floating_point_resolution_bits = 64;
+  EXPECT_DOUBLE_EQ(written_as_half.GetProperty(prop).ValueDouble(), as_stored) << "half read back at resolution 64";
+}
+
+// Lists have their own decode paths: `ListType::DOUBLE` elements are a fixed width apart and
+// `ListType::NUMERIC` elements carry their own metadata. Both must survive a resolution change.
+TEST(PropertyStoreResolution, DISABLED_ChangedAfterWrite_ListsReadBackWhatWasWritten) {
+  RestoreFpResolutionGuard guard;
+
+  auto const prop = PropertyId::FromInt(1);
+  std::vector<double> const values = {3.14159265358979, -2.5, 1024.0};
+
+  FLAGS_storage_floating_point_resolution_bits = 64;
+  PropertyStore double_list;
+  ASSERT_TRUE(double_list.SetProperty(prop, PropertyValue(values)));
+  PropertyStore numeric_list;
+  ASSERT_TRUE(numeric_list.SetProperty(
+      prop, PropertyValue(std::vector<std::variant<int, double>>{values[0], values[1], values[2]})));
+
+  for (uint64_t res : {16, 32}) {
+    FLAGS_storage_floating_point_resolution_bits = res;
+
+    auto const got_doubles = double_list.GetProperty(prop);
+    ASSERT_TRUE(got_doubles.IsDoubleList()) << "res=" << res;
+    auto const &as_doubles = got_doubles.ValueDoubleList();
+    ASSERT_EQ(as_doubles.size(), values.size()) << "res=" << res;
+    for (size_t i = 0; i < values.size(); ++i) {
+      EXPECT_DOUBLE_EQ(as_doubles[i], values[i]) << "double list, res=" << res << " i=" << i;
+    }
+
+    auto const got_numerics = numeric_list.GetProperty(prop);
+    ASSERT_TRUE(got_numerics.IsNumericList()) << "res=" << res;
+    auto const &as_numerics = got_numerics.ValueNumericList();
+    ASSERT_EQ(as_numerics.size(), values.size()) << "res=" << res;
+    for (size_t i = 0; i < values.size(); ++i) {
+      ASSERT_TRUE(std::holds_alternative<double>(as_numerics[i])) << "res=" << res << " i=" << i;
+      EXPECT_DOUBLE_EQ(std::get<double>(as_numerics[i]), values[i]) << "numeric list, res=" << res << " i=" << i;
+    }
+  }
+}
+
 TEST(PropertyStore, FloatingPointResolution_LowerPrecisionUsesLessMemory) {
   RestoreFpResolutionGuard guard;
 
