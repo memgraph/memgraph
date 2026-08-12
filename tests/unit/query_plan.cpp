@@ -5220,6 +5220,31 @@ TOp *FindOpOfType(memgraph::query::plan::LogicalOperator *root) {
   return nullptr;
 }
 
+/// Asserts @p rollup's comprehension branch is uncorrelated - it legitimately scans - and that both the scan and the
+/// expansion read @p view. `FindOpOfType` rather than a direct cast, so a branch carrying a Filter also matches.
+inline void ExpectUncorrelatedBranchReadsView(RollUpApply *rollup, memgraph::storage::View view) {
+  auto *expand = FindOpOfType<Expand>(rollup->list_collection_branch_.get());
+  ASSERT_NE(expand, nullptr) << "comprehension branch should expand";
+  auto *scan_all = dynamic_cast<ScanAll *>(expand->input_.get());
+  ASSERT_NE(scan_all, nullptr) << "the comprehension is uncorrelated, so its branch legitimately scans";
+  EXPECT_EQ(scan_all->view_, view);
+  EXPECT_EQ(expand->view_, view);
+}
+
+/// Asserts the plan is `CallProcedure -> RollUpApply -> Filter -> Produce`: a comprehension that reads a YIELD symbol
+/// must be spliced above the operator that writes it, and below the WHERE that reads its result. @p why names the
+/// position the correlation was read from, since that is what differs between the callers.
+inline void ExpectComprehensionAboveCall(memgraph::query::plan::LogicalOperator &plan, std::string_view why) {
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "expected Produce at the root";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "expected the YIELD ... WHERE Filter";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << why;
+  EXPECT_NE(dynamic_cast<memgraph::query::plan::CallProcedure *>(rollup->input_.get()), nullptr)
+      << "the CallProcedure that binds the yielded symbol belongs below the RollUpApply";
+}
+
 }  // namespace
 
 TYPED_TEST(TestPlanner, VariableLengthComprehensionAfterWriteFallsBackToViewOld) {
@@ -5585,14 +5610,6 @@ TYPED_TEST(TestPlanner, PatternComprehensionAfterWriteStaysAboveAccumulate) {
   ASSERT_NE(dynamic_cast<Accumulate *>(rollup->input_.get()), nullptr)
       << "the RollUpApply must sit above the Accumulate; below it the result symbol is frozen at the last input row, "
          "because Accumulate's remember set never holds a comprehension result symbol";
-
-  // Correlation discriminator: Once, not ScanAll, below the Expand.
-  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
-  ASSERT_NE(branch_produce, nullptr);
-  auto *expand = dynamic_cast<Expand *>(branch_produce->input_.get());
-  ASSERT_NE(expand, nullptr);
-  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
-      << "the expansion must start from the `p` on the frame, not re-scan the graph";
 }
 
 TYPED_TEST(TestPlanner, PatternComprehensionInReturnStaysAboveSameClauseCreate) {
@@ -5622,16 +5639,7 @@ TYPED_TEST(TestPlanner, PatternComprehensionInReturnStaysAboveSameClauseCreate) 
   EXPECT_NE(FindOpOfType<CreateExpand>(accumulate->input_.get()), nullptr) << "the CREATE belongs below";
 
   // Reading View::OLD above the write would put the operator in the right place and still miss the new rows.
-  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
-  ASSERT_NE(branch_produce, nullptr);
-  auto *expand = dynamic_cast<Expand *>(branch_produce->input_.get());
-  ASSERT_NE(expand, nullptr);
-  auto *scan_all = dynamic_cast<ScanAll *>(expand->input_.get());
-  ASSERT_NE(scan_all, nullptr) << "the comprehension is uncorrelated, so its branch legitimately scans";
-  EXPECT_EQ(scan_all->view_, memgraph::storage::View::NEW)
-      << "a clause sees the effects of the clauses before it, and there is no AdvanceCommand to fold the write into "
-         "View::OLD";
-  EXPECT_EQ(expand->view_, memgraph::storage::View::NEW);
+  ExpectUncorrelatedBranchReadsView(rollup, memgraph::storage::View::NEW);
 }
 
 TYPED_TEST(TestPlanner, MergeBranchComprehensionOverOuterSymbolStaysInBranch) {
@@ -5662,12 +5670,8 @@ TYPED_TEST(TestPlanner, MergeBranchComprehensionOverOuterSymbolStaysInBranch) {
   auto *rollup = dynamic_cast<RollUpApply *>(set_property->input_.get());
   ASSERT_NE(rollup, nullptr) << "RollUpApply belongs inside the create branch, below the SetProperty that reads it";
 
-  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
-  ASSERT_NE(branch_produce, nullptr);
-  auto *expand = dynamic_cast<Expand *>(branch_produce->input_.get());
-  ASSERT_NE(expand, nullptr);
-  EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
-      << "the expansion must start from the outer `p` on the frame, not a whole-graph re-scan";
+  // The outer `p`, not the merged `q`: an uncorrelated plan would re-scan the whole graph.
+  ExpectCorrelatedBranch<Expand>(rollup);
 }
 
 TYPED_TEST(TestPlanner, UncorrelatedPatternComprehensionAfterWriteReadsViewNew) {
@@ -5687,15 +5691,8 @@ TYPED_TEST(TestPlanner, UncorrelatedPatternComprehensionAfterWriteReadsViewNew) 
 
   auto *rollup = FindOpOfType<RollUpApply>(&planner.plan());
   ASSERT_NE(rollup, nullptr) << "expected a RollUpApply for the comprehension";
-  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
-  ASSERT_NE(branch_produce, nullptr);
-  auto *expand = dynamic_cast<Expand *>(branch_produce->input_.get());
-  ASSERT_NE(expand, nullptr);
-  auto *scan_all = dynamic_cast<ScanAll *>(expand->input_.get());
-  ASSERT_NE(scan_all, nullptr);
-  EXPECT_EQ(scan_all->view_, memgraph::storage::View::NEW)
-      << "the preceding CREATE's rows are only visible under View::NEW";
-  EXPECT_EQ(expand->view_, memgraph::storage::View::NEW);
+  // The preceding CREATE's rows are only visible under View::NEW.
+  ExpectUncorrelatedBranchReadsView(rollup, memgraph::storage::View::NEW);
 }
 
 TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolStaysAboveCallProcedure) {
@@ -5726,15 +5723,9 @@ TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolStaysAboveCallProce
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  auto *produce = dynamic_cast<Produce *>(&planner.plan());
-  ASSERT_NE(produce, nullptr) << "expected Produce at the root";
-  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
-  ASSERT_NE(filter, nullptr) << "expected the YIELD ... WHERE Filter";
-  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
-  ASSERT_NE(rollup, nullptr) << "the RollUpApply must sit between the CallProcedure and the Filter - it reads `field`, "
-                                "which the CallProcedure writes, and the Filter reads its result";
-  EXPECT_NE(dynamic_cast<memgraph::query::plan::CallProcedure *>(rollup->input_.get()), nullptr)
-      << "the CallProcedure that binds `field` belongs below the RollUpApply";
+  ExpectComprehensionAboveCall(planner.plan(),
+                               "the RollUpApply must sit between the CallProcedure and the Filter - it reads `field`, "
+                               "which the CallProcedure writes, and the Filter reads its result");
 }
 
 TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolInPatternPropertyStaysAboveCallProcedure) {
@@ -5761,15 +5752,9 @@ TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolInPatternPropertySt
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  auto *produce = dynamic_cast<Produce *>(&planner.plan());
-  ASSERT_NE(produce, nullptr) << "expected Produce at the root";
-  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
-  ASSERT_NE(filter, nullptr) << "expected the YIELD ... WHERE Filter";
-  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
-  ASSERT_NE(rollup, nullptr) << "a correlation in the comprehension's pattern properties must place the RollUpApply "
-                                "above the CallProcedure, exactly as one in its WHERE does";
-  EXPECT_NE(dynamic_cast<memgraph::query::plan::CallProcedure *>(rollup->input_.get()), nullptr)
-      << "the CallProcedure that binds `field` belongs below the RollUpApply";
+  ExpectComprehensionAboveCall(planner.plan(),
+                               "a correlation in the comprehension's pattern properties must place the RollUpApply "
+                               "above the CallProcedure, exactly as one in its WHERE does");
 }
 
 TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolInNestedComprehensionStaysAboveCallProcedure) {
@@ -5798,15 +5783,9 @@ TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolInNestedComprehensi
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  auto *produce = dynamic_cast<Produce *>(&planner.plan());
-  ASSERT_NE(produce, nullptr) << "expected Produce at the root";
-  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
-  ASSERT_NE(filter, nullptr) << "expected the YIELD ... WHERE Filter";
-  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
-  ASSERT_NE(rollup, nullptr) << "a correlation reachable only through a nested comprehension must still place the "
-                                "outer RollUpApply above the CallProcedure";
-  EXPECT_NE(dynamic_cast<memgraph::query::plan::CallProcedure *>(rollup->input_.get()), nullptr)
-      << "the CallProcedure that binds `field` belongs below the RollUpApply";
+  ExpectComprehensionAboveCall(planner.plan(),
+                               "a correlation reachable only through a nested comprehension must still place the "
+                               "outer RollUpApply above the CallProcedure");
 }
 
 TYPED_TEST(TestPlanner, PatternComprehensionInCallProcedureArgumentStaysBelow) {
@@ -5866,15 +5845,9 @@ TYPED_TEST(TestPlanner, PatternComprehensionInForeachBodyAfterWriteReadsViewNew)
 
   auto *rollup = FindOpOfType<RollUpApply>(foreach_op->update_clauses_.get());
   ASSERT_NE(rollup, nullptr) << "expected the RollUpApply on the FOREACH body chain";
-  // The comprehension has a WHERE, so its branch carries a Filter between the Produce and the Expand.
-  auto *expand = FindOpOfType<Expand>(rollup->list_collection_branch_.get());
-  ASSERT_NE(expand, nullptr);
-  auto *scan_all = dynamic_cast<ScanAll *>(expand->input_.get());
-  ASSERT_NE(scan_all, nullptr);
-  EXPECT_EQ(scan_all->view_, memgraph::storage::View::NEW)
-      << "a FOREACH is a write clause and the CREATE before it wrote, so the body reads View::NEW - the correlation "
-         "in the comprehension's WHERE must not change that";
-  EXPECT_EQ(expand->view_, memgraph::storage::View::NEW);
+  // A FOREACH is a write clause and the CREATE before it wrote, so the body reads View::NEW - the correlation in the
+  // comprehension's WHERE must not change that. Its branch carries a Filter, which the helper walks past.
+  ExpectUncorrelatedBranchReadsView(rollup, memgraph::storage::View::NEW);
 }
 
 TYPED_TEST(TestPlanner, PatternComprehensionInMergePatternReadsViewNew) {
@@ -5904,13 +5877,8 @@ TYPED_TEST(TestPlanner, PatternComprehensionInMergePatternReadsViewNew) {
 
   auto *rollup = FindOpOfType<RollUpApply>(&planner.plan());
   ASSERT_NE(rollup, nullptr) << "expected a RollUpApply for the comprehension in the MERGE pattern";
-  auto *expand = FindOpOfType<Expand>(rollup->list_collection_branch_.get());
-  ASSERT_NE(expand, nullptr);
-  auto *scan_all = dynamic_cast<ScanAll *>(expand->input_.get());
-  ASSERT_NE(scan_all, nullptr);
-  EXPECT_EQ(scan_all->view_, memgraph::storage::View::NEW)
-      << "the MERGE is a write clause, so a comprehension in its own pattern reads View::NEW";
-  EXPECT_EQ(expand->view_, memgraph::storage::View::NEW);
+  // The MERGE is a write clause, so a comprehension in its own pattern reads View::NEW.
+  ExpectUncorrelatedBranchReadsView(rollup, memgraph::storage::View::NEW);
 }
 
 TYPED_TEST(TestPlanner, MergeBranchComprehensionInForeachBodyStaysInBranch) {
