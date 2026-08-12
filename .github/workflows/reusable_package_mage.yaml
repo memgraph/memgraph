@@ -174,7 +174,7 @@ jobs:
         with:
           repository: memgraph/infra
           path: infra
-          ref: master
+          ref: harden-sbom
           token: ${{ secrets.REPO_PAT }}
 
       - name: Clean up Docker
