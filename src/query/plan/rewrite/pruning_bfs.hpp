@@ -59,7 +59,13 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(Distinct &) override {
+    deduplicates_ = true;
+    return true;
+  }
+
   bool PreVisit(Aggregate &op) override {
+    deduplicates_ = true;
     for (auto const &elem : op.aggregations_) {
       CollectSymbolsFromExpression(elem.arg1);
       CollectSymbolsFromExpression(elem.arg2);
@@ -86,7 +92,7 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ExpandVariable &op) override {
     if (op.type_ != EdgeAtom::Type::DEPTH_FIRST) return true;
 
-    if (!used_symbols_.contains(op.common_.edge_symbol.position())) {
+    if (deduplicates_ && !used_symbols_.contains(op.common_.edge_symbol.position())) {
       op.type_ = EdgeAtom::Type::PRUNING_BFS;
     }
     return true;
@@ -111,6 +117,7 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   SymbolTable const &symbol_table_;
   std::unordered_set<int> used_symbols_;
+  bool deduplicates_{false};
 };
 
 }  // namespace impl

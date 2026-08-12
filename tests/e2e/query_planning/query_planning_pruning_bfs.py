@@ -45,8 +45,8 @@ def test_pruning_bfs_when_edges_unused(memgraph):
     assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
 
 
-def test_pruning_bfs_when_edges_unnamed(memgraph):
-    plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN b")
+def test_pruning_bfs_with_aggregation(memgraph):
+    plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN count(b)")
     ops = operator_names(plan)
     assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
 
@@ -64,6 +64,20 @@ def test_pruning_bfs_undirected(memgraph):
 
 
 # === Plan shape tests: rewrite should NOT fire ===
+
+
+def test_no_rewrite_without_distinct(memgraph):
+    plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN b")
+    ops = operator_names(plan)
+    assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
+    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+
+
+def test_no_rewrite_with_return_star(memgraph):
+    plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN *")
+    ops = operator_names(plan)
+    assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
+    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_when_edges_used(memgraph):
@@ -118,7 +132,7 @@ def test_correctness_multiple_sources(memgraph):
     memgraph.execute("CREATE (a:N {id: 'a'})-[:TO]->(c:N {id: 'c'}), (b:N {id: 'b'})-[:TO]->(c);")
     results = list(
         memgraph.execute_and_fetch(
-            "MATCH (src:N)-[*]->(dst) WHERE src.id IN ['a', 'b'] RETURN src.id AS s, dst.id AS d"
+            "MATCH (src:N)-[*]->(dst) WHERE src.id IN ['a', 'b'] RETURN DISTINCT src.id AS s, dst.id AS d"
         )
     )
     pairs = {(row["s"], row["d"]) for row in results}
