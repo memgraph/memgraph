@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,8 @@
 
 #include "range/v3/all.hpp"
 
+#include <algorithm>
+
 namespace memgraph::storage {
 
 auto TypeConstraintsValidator::validate(PropertyStoreMemberInfo const &member_info) const
@@ -26,7 +28,7 @@ auto TypeConstraintsValidator::validate(PropertyStoreMemberInfo const &member_in
       if (TemporalMatch(*member_info.temporal_type, it->second)) continue;
     } else {
       // coarse grain (broad type class)
-      if (TypeConstraintsKindToPropertyStoreType(it->second) == member_info.type) continue;
+      if (std::ranges::contains(TypeConstraintsKindToPropertyStoreType(it->second), member_info.type)) continue;
     }
     return PropertyStoreConstraintViolation{member_info.prop_id, label, it->second};
   }
