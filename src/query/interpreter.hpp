@@ -360,7 +360,9 @@ class Interpreter final {
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
   SessionInfo session_info_;
-  // Only ever read/written from the session's own thread; no other thread touches it.
+  // Written only from the session's own execution thread, but also read off-thread by the Bolt
+  // priority scheduler (SessionHL::ApproximateQueryPriority, communication/v2/session.hpp) to decide
+  // whether to reschedule the task -- hence atomic, not a plain bool. Don't revert to bool.
   std::atomic<bool> in_explicit_transaction_{false};
   CurrentDB current_db_;
 
