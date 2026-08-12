@@ -49,8 +49,14 @@ namespace memgraph::storage {
 /// bytes in the variable region, tagged element by element. Nothing inside it is addressable
 /// on its own, so a nested value costs a walk of the blob rather than a shape of its own.
 ///
-/// Prototype scope: bool, integer, double, string, list, map, temporal data, enum and point.
-/// The remaining property types (zoned temporal, vector) are not encodable yet and throw
+/// A zoned temporal is stored as its UTC instant plus its timezone, and the two kinds of
+/// timezone are two stored types: a fixed offset is small enough to sit in the shape's
+/// discriminator, leaving the payload fixed width, while a named zone's name is a string of
+/// unbounded length and lives in the variable region. A record holding a named zone therefore
+/// has a different shape from one holding an offset.
+///
+/// Prototype scope: bool, integer, double, string, list, map, temporal data, zoned temporal
+/// data, enum and point. The remaining property types (vector) are not encodable yet and throw
 /// `UnsupportedType`, wherever in a value they appear.
 class ManifestPropertyStore {
  public:

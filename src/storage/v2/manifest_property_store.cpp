@@ -38,6 +38,36 @@ constexpr uint8_t kTemporalWidth = 8;  // microseconds; which temporal type is p
 constexpr uint8_t kEnumWidth = 8;      // value id; which enum type is part of the shape
 constexpr uint8_t kPoint2dWidth = 16;  // x, y; the coordinate system is part of the shape
 constexpr uint8_t kPoint3dWidth = 24;  // x, y, z
+/// Microseconds; the zoned temporal type and the offset are both part of the shape.
+constexpr uint8_t kOffsetZonedTemporalWidth = 8;
+/// Microseconds, which the timezone name follows for the rest of the value's bytes.
+constexpr uint32_t kZonedTemporalMicrosecondsWidth = 8;
+
+/// The shape discriminator an offset-defined zoned temporal carries: the zoned temporal type
+/// above the offset itself. An offset is at most ±18 hours (`utils::MAX_OFFSET_MINUTES`), so it
+/// fits in the low half of the discriminator, the type rides above it and the payload stays the
+/// microseconds alone. Two records whose offsets differ therefore have different shapes, which
+/// is what the discriminator is for and what keeps every record of one shape identically laid
+/// out; the number of distinct offsets a zone can have is small and fixed.
+constexpr auto PackZonedOffset(ZonedTemporalType type, int64_t offset_minutes) -> uint32_t {
+  static_assert(utils::MAX_OFFSET_MINUTES <= std::numeric_limits<int16_t>::max());
+  return (static_cast<uint32_t>(type) << 16U) | static_cast<uint16_t>(static_cast<int16_t>(offset_minutes));
+}
+
+constexpr auto UnpackZonedType(uint32_t discriminator) -> ZonedTemporalType {
+  return static_cast<ZonedTemporalType>(discriminator >> 16U);
+}
+
+constexpr auto UnpackZonedOffset(uint32_t discriminator) -> std::chrono::minutes {
+  return std::chrono::minutes{static_cast<int16_t>(discriminator & 0xFFFFU)};
+}
+
+/// A zoned temporal is stored as the UTC instant plus the timezone it is to be read in, never
+/// as a local time plus an offset, so nothing here has to pick between the two instants a
+/// daylight saving transition gives a local time.
+auto MakeZoned(ZonedTemporalType type, int64_t microseconds, utils::Timezone timezone) -> PropertyValue {
+  return PropertyValue{ZonedTemporalData{type, utils::AsSysTime(microseconds), timezone}};
+}
 
 /// Payload width a double is stored at under the resolution currently in force. Consulted
 /// only when a value is encoded: a record is decoded at the width its own shape records, so a
@@ -86,6 +116,10 @@ enum class BlobTag : uint8_t {
   NumericList,
   Map,
   TemporalData,
+  /// A zoned temporal whose timezone is a fixed offset, which is written after the instant.
+  OffsetZonedTemporalData,
+  /// A zoned temporal whose timezone is a named one, whose name is written after the instant.
+  NamedZonedTemporalData,
   Enum,
   Point2d,
   Point3d,
@@ -181,6 +215,21 @@ auto StoredTypeOf(PropertyValue const &value) -> StoredType {
     case PropertyValueType::TemporalData:
       return StoredType::Fixed(
           PropertyStoreType::TEMPORAL_DATA, kTemporalWidth, static_cast<uint32_t>(value.ValueTemporalData().type));
+    case PropertyValueType::ZonedTemporalData: {
+      // The two kinds of timezone are two stored types: an offset is small enough to live in
+      // the shape and leave the payload fixed width, while a name is a string of unbounded
+      // length and so has to go in the variable region. A record holding a named zone and one
+      // holding an offset therefore have different shapes.
+      auto const zoned = value.ValueZonedTemporalData();
+      if (zoned.timezone.InTzDatabase()) {
+        return StoredType{.type = PropertyStoreType::ZONED_TEMPORAL_DATA,
+                          .width = 0,
+                          .discriminator = static_cast<uint32_t>(zoned.type)};
+      }
+      return StoredType::Fixed(PropertyStoreType::OFFSET_ZONED_TEMPORAL_DATA,
+                               kOffsetZonedTemporalWidth,
+                               PackZonedOffset(zoned.type, zoned.timezone.DefiningOffset()));
+    }
     case PropertyValueType::Enum:
       return StoredType::Fixed(
           PropertyStoreType::ENUM, kEnumWidth, static_cast<uint32_t>(value.ValueEnum().type_id().value_of()));
@@ -234,6 +283,12 @@ void EncodeFixed(PropertyValue const &value, StoredType stored_type, std::span<u
     case PropertyStoreType::TEMPORAL_DATA: {
       auto const raw = value.ValueTemporalData().microseconds;
       std::memcpy(out.data(), &raw, kTemporalWidth);
+      return;
+    }
+    case PropertyStoreType::OFFSET_ZONED_TEMPORAL_DATA: {
+      // The offset and the type are both in the shape, so only the instant is left to write.
+      auto const raw = value.ValueZonedTemporalData().IntMicroseconds();
+      std::memcpy(out.data(), &raw, kOffsetZonedTemporalWidth);
       return;
     }
     case PropertyStoreType::ENUM: {
@@ -311,6 +366,13 @@ auto DecodeFixed(StoredType stored_type, std::span<uint8_t const> in) -> Propert
       std::memcpy(&microseconds, in.data(), kTemporalWidth);
       return PropertyValue{TemporalData{static_cast<TemporalType>(stored_type.discriminator), microseconds}};
     }
+    case PropertyStoreType::OFFSET_ZONED_TEMPORAL_DATA: {
+      int64_t microseconds = 0;
+      std::memcpy(&microseconds, in.data(), kOffsetZonedTemporalWidth);
+      return MakeZoned(UnpackZonedType(stored_type.discriminator),
+                       microseconds,
+                       utils::Timezone{UnpackZonedOffset(stored_type.discriminator)});
+    }
     case PropertyStoreType::ENUM: {
       uint64_t value_id = 0;
       std::memcpy(&value_id, in.data(), kEnumWidth);
@@ -361,6 +423,18 @@ auto FixedEquals(StoredType stored_type, std::span<uint8_t const> in, PropertyVa
       int64_t microseconds = 0;
       std::memcpy(&microseconds, in.data(), kTemporalWidth);
       return temporal.microseconds == microseconds;
+    }
+    case PropertyStoreType::OFFSET_ZONED_TEMPORAL_DATA: {
+      if (!value.IsZonedTemporalData()) return false;
+      auto const zoned = value.ValueZonedTemporalData();
+      if (zoned.type != UnpackZonedType(stored_type.discriminator)) return false;
+      // A named zone is never a fixed offset, whatever offset it happens to be at right now:
+      // the two are different timezones and `utils::Timezone` has them unequal.
+      if (zoned.timezone.InTzDatabase()) return false;
+      if (zoned.timezone.DefiningOffset() != UnpackZonedOffset(stored_type.discriminator).count()) return false;
+      int64_t microseconds = 0;
+      std::memcpy(&microseconds, in.data(), kOffsetZonedTemporalWidth);
+      return zoned.IntMicroseconds() == microseconds;
     }
     case PropertyStoreType::ENUM: {
       if (!value.IsEnum()) return false;
@@ -508,6 +582,23 @@ void EncodeBlobValue(PropertyValue const &value, BlobWriter &out) {
       out.Raw(temporal.microseconds);
       return;
     }
+    case PropertyValueType::ZonedTemporalData: {
+      auto const zoned = value.ValueZonedTemporalData();
+      if (zoned.timezone.InTzDatabase()) {
+        auto const name = zoned.timezone.TimezoneName();
+        out.Tag(BlobTag::NamedZonedTemporalData);
+        out.Raw(static_cast<uint8_t>(zoned.type));
+        out.Raw(zoned.IntMicroseconds());
+        out.Count(name.size());
+        out.Bytes(name.data(), static_cast<uint32_t>(name.size()));
+        return;
+      }
+      out.Tag(BlobTag::OffsetZonedTemporalData);
+      out.Raw(static_cast<uint8_t>(zoned.type));
+      out.Raw(zoned.IntMicroseconds());
+      out.Raw(static_cast<int16_t>(zoned.timezone.DefiningOffset()));
+      return;
+    }
     case PropertyValueType::Enum: {
       auto const enum_value = value.ValueEnum();
       out.Tag(BlobTag::Enum);
@@ -635,6 +726,18 @@ auto DecodeBlobValue(BlobReader &in) -> PropertyValue {
       auto const type = static_cast<TemporalType>(in.Raw<uint8_t>());
       return PropertyValue{TemporalData{type, in.Raw<int64_t>()}};
     }
+    case BlobTag::OffsetZonedTemporalData: {
+      auto const type = static_cast<ZonedTemporalType>(in.Raw<uint8_t>());
+      auto const microseconds = in.Raw<int64_t>();
+      return MakeZoned(type, microseconds, utils::Timezone{std::chrono::minutes{in.Raw<int16_t>()}});
+    }
+    case BlobTag::NamedZonedTemporalData: {
+      auto const type = static_cast<ZonedTemporalType>(in.Raw<uint8_t>());
+      auto const microseconds = in.Raw<int64_t>();
+      auto const size = in.Count();
+      auto const name = std::string_view{reinterpret_cast<char const *>(in.Bytes(size)), size};
+      return MakeZoned(type, microseconds, utils::Timezone{name});
+    }
     case BlobTag::Enum: {
       auto const type_id = EnumTypeId{in.Raw<uint64_t>()};
       return PropertyValue{Enum{type_id, EnumValueId{in.Raw<uint64_t>()}}};
@@ -755,6 +858,29 @@ auto BlobEquals(BlobReader &in, PropertyValue const &value) -> bool {
       auto const microseconds = in.Raw<int64_t>();
       return value.IsTemporalData() && value.ValueTemporalData() == TemporalData{type, microseconds};
     }
+    case BlobTag::OffsetZonedTemporalData: {
+      auto const type = static_cast<ZonedTemporalType>(in.Raw<uint8_t>());
+      auto const microseconds = in.Raw<int64_t>();
+      auto const offset = in.Raw<int16_t>();
+      if (!value.IsZonedTemporalData()) return false;
+      auto const zoned = value.ValueZonedTemporalData();
+      if (zoned.timezone.InTzDatabase()) return false;
+      return zoned.type == type && zoned.IntMicroseconds() == microseconds && zoned.timezone.DefiningOffset() == offset;
+    }
+    case BlobTag::NamedZonedTemporalData: {
+      auto const type = static_cast<ZonedTemporalType>(in.Raw<uint8_t>());
+      auto const microseconds = in.Raw<int64_t>();
+      auto const size = in.Count();
+      auto const *name = in.Bytes(size);
+      if (!value.IsZonedTemporalData()) return false;
+      auto const zoned = value.ValueZonedTemporalData();
+      if (!zoned.timezone.InTzDatabase()) return false;
+      if (zoned.type != type || zoned.IntMicroseconds() != microseconds) return false;
+      // The name is compared where it lies rather than looked up, so nothing is allocated and
+      // no timezone is constructed to decide this.
+      auto const stored_name = zoned.timezone.TimezoneName();
+      return stored_name.size() == size && std::memcmp(name, stored_name.data(), size) == 0;
+    }
     case BlobTag::Enum: {
       auto const type_id = EnumTypeId{in.Raw<uint64_t>()};
       auto const value_id = EnumValueId{in.Raw<uint64_t>()};
@@ -778,9 +904,14 @@ auto BlobEquals(BlobReader &in, PropertyValue const &value) -> bool {
 }
 
 /// Encoded length a variable-width value contributes to the variable region. A string is its
-/// own bytes; a list or a map is a blob, whose length is what writing it would come to.
+/// own bytes; a named-zone temporal is its instant and its zone's name; a list or a map is a
+/// blob, whose length is what writing it would come to.
 auto VariableSize(PropertyValue const &value) -> uint32_t {
   if (value.IsString()) return static_cast<uint32_t>(value.ValueString().size());
+  if (value.IsZonedTemporalData()) {
+    return kZonedTemporalMicrosecondsWidth +
+           static_cast<uint32_t>(value.ValueZonedTemporalData().timezone.TimezoneName().size());
+  }
   auto measured = BlobWriter{};
   EncodeBlobValue(value, measured);
   return measured.size();
@@ -793,14 +924,37 @@ auto WriteVariable(PropertyValue const &value, uint8_t *out) -> uint32_t {
     std::memcpy(out, string.data(), string.size());
     return static_cast<uint32_t>(string.size());
   }
+  if (value.IsZonedTemporalData()) {
+    // The zoned temporal type is in the shape, so the instant is followed straight by the
+    // zone's name, which runs to the end of the value and so needs no length of its own.
+    auto const zoned = value.ValueZonedTemporalData();
+    auto const microseconds = zoned.IntMicroseconds();
+    std::memcpy(out, &microseconds, kZonedTemporalMicrosecondsWidth);
+    auto const name = zoned.timezone.TimezoneName();
+    std::memcpy(out + kZonedTemporalMicrosecondsWidth, name.data(), name.size());
+    return kZonedTemporalMicrosecondsWidth + static_cast<uint32_t>(name.size());
+  }
   auto written = BlobWriter{out};
   EncodeBlobValue(value, written);
   return written.size();
 }
 
+/// The instant and the zone name a named-zone temporal payload holds.
+auto ReadZonedTemporal(uint8_t const *begin, uint32_t size) -> std::pair<int64_t, std::string_view> {
+  int64_t microseconds = 0;
+  std::memcpy(&microseconds, begin, kZonedTemporalMicrosecondsWidth);
+  return {microseconds,
+          std::string_view{reinterpret_cast<char const *>(begin + kZonedTemporalMicrosecondsWidth),
+                           size - kZonedTemporalMicrosecondsWidth}};
+}
+
 auto DecodeVariable(StoredType stored_type, uint8_t const *begin, uint32_t size) -> PropertyValue {
   if (stored_type.type == PropertyStoreType::STRING) {
     return PropertyValue{std::string_view{reinterpret_cast<char const *>(begin), size}};
+  }
+  if (stored_type.type == PropertyStoreType::ZONED_TEMPORAL_DATA) {
+    auto const [microseconds, name] = ReadZonedTemporal(begin, size);
+    return MakeZoned(static_cast<ZonedTemporalType>(stored_type.discriminator), microseconds, utils::Timezone{name});
   }
   auto reader = BlobReader{begin};
   return DecodeBlobValue(reader);
@@ -812,6 +966,18 @@ auto VariableEquals(StoredType stored_type, uint8_t const *begin, uint32_t size,
     if (!value.IsString()) return false;
     auto const &string = value.ValueString();
     return string.size() == size && std::memcmp(begin, string.data(), size) == 0;
+  }
+  if (stored_type.type == PropertyStoreType::ZONED_TEMPORAL_DATA) {
+    if (!value.IsZonedTemporalData()) return false;
+    auto const zoned = value.ValueZonedTemporalData();
+    if (zoned.type != static_cast<ZonedTemporalType>(stored_type.discriminator)) return false;
+    // A fixed offset is never the named zone stored here, whatever offset that zone is at.
+    if (!zoned.timezone.InTzDatabase()) return false;
+    auto const [microseconds, name] = ReadZonedTemporal(begin, size);
+    if (zoned.IntMicroseconds() != microseconds) return false;
+    // Compared where it lies, so nothing is allocated and no timezone is looked up.
+    auto const stored_name = zoned.timezone.TimezoneName();
+    return stored_name.size() == name.size() && std::memcmp(name.data(), stored_name.data(), name.size()) == 0;
   }
   auto reader = BlobReader{begin};
   return BlobEquals(reader, value);
