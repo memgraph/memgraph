@@ -825,6 +825,11 @@ add_unit_test(storage_v2_name_id_mapper
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(property_manifest
+    SOURCES property_manifest.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_property_store
     SOURCES storage_v2_property_store.cpp
     LINK_TARGETS mg::storage
