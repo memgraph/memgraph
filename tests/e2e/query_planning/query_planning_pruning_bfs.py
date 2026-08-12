@@ -112,5 +112,19 @@ def test_correctness_multiple_paths_same_target(memgraph):
     assert ids.count("c") == 1, f"'c' should appear exactly once, got: {ids}"
 
 
+def test_correctness_multiple_sources(memgraph):
+    """Each source vertex must independently discover its reachable set."""
+    memgraph.drop_database()
+    memgraph.execute("CREATE (a:N {id: 'a'})-[:TO]->(c:N {id: 'c'}), (b:N {id: 'b'})-[:TO]->(c);")
+    results = list(
+        memgraph.execute_and_fetch(
+            "MATCH (src:N)-[*]->(dst) WHERE src.id IN ['a', 'b'] RETURN src.id AS s, dst.id AS d"
+        )
+    )
+    pairs = {(row["s"], row["d"]) for row in results}
+    assert ("a", "c") in pairs, f"Expected ('a', 'c') in results, got: {pairs}"
+    assert ("b", "c") in pairs, f"Expected ('b', 'c') in results, got: {pairs}"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))

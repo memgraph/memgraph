@@ -2138,9 +2138,9 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
       limit_(limit) {
   DMG_ASSERT(type_ == EdgeAtom::Type::DEPTH_FIRST || type_ == EdgeAtom::Type::BREADTH_FIRST ||
                  type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS ||
-                 type_ == EdgeAtom::Type::KSHORTEST,
+                 type_ == EdgeAtom::Type::KSHORTEST || type_ == EdgeAtom::Type::PRUNING_BFS,
              "ExpandVariable can only be used with breadth first, depth first, "
-             "weighted shortest path, all shortest paths or bfs all paths type");
+             "weighted shortest path, all shortest paths, bfs all paths, or pruning bfs type");
   // Note: BFS can be reversed - when is_reverse is true, edges are ordered from node_symbol to input_symbol
   DMG_ASSERT(type_ == EdgeAtom::Type::KSHORTEST || limit_ == nullptr,
              "Limit is only supported for KSHORTEST path expansion");
@@ -2948,6 +2948,149 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   // edge, vertex we have yet to visit, for current and next depth and their accumulated paths
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_next_;
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_current_;
+};
+
+class PruningBFSCursor : public query::plan::Cursor {
+ public:
+  PruningBFSCursor(const ExpandVariable &self, utils::MemoryResource *mem,
+                   metrics::DatabaseMetricHandles &metric_handles)
+      : self_(self),
+        input_cursor_(self_.input()->MakeCursor(mem, metric_handles)),
+        visited_(mem),
+        to_visit_current_(mem),
+        to_visit_next_(mem) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP("PruningBFSExpand");
+
+    ExpressionEvaluator evaluator =
+        ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+    while (true) {
+      AbortCheck(context);
+
+      // advance to next depth level when current is exhausted
+      if (to_visit_current_.empty()) {
+        to_visit_current_.swap(to_visit_next_);
+        ++current_depth_;
+      }
+
+      // both levels empty: pull next input row
+      if (to_visit_current_.empty()) {
+        if (!input_cursor_->Pull(frame, context)) return false;
+        if (context.hops_limit.IsLimitReached()) return false;
+
+        visited_.clear();
+        to_visit_current_.clear();
+        to_visit_next_.clear();
+
+        auto const &vertex_value = frame[self_.input_symbol_];
+        if (vertex_value.IsNull()) continue;
+
+        lower_bound_ =
+            self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in pruning BFS expansion") : 1;
+        upper_bound_ = self_.upper_bound_
+                           ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in pruning BFS expansion")
+                           : std::numeric_limits<int64_t>::max();
+
+        if (upper_bound_ < 1 || lower_bound_ > upper_bound_) continue;
+
+        auto const &vertex = vertex_value.ValueVertex();
+
+        current_depth_ = 1;
+        expand_from_vertex(vertex, evaluator, frame, frame_writer, context);
+        continue;
+      }
+
+      auto curr_vertex = to_visit_current_.back();
+      to_visit_current_.pop_back();
+
+      // expand deeper if within upper bound
+      if (current_depth_ < upper_bound_ && !context.hops_limit.IsLimitReached()) {
+        expand_from_vertex(curr_vertex, evaluator, frame, frame_writer, context);
+      }
+
+      // only emit if within lower bound
+      if (current_depth_ < lower_bound_) continue;
+
+      frame_writer.Write(self_.common_.node_symbol, curr_vertex);
+      return true;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    visited_.clear();
+    to_visit_current_.clear();
+    to_visit_next_.clear();
+  }
+
+ private:
+  void expand_from_vertex(VertexAccessor const &vertex, ExpressionEvaluator &evaluator, Frame &frame,
+                          FrameWriter &frame_writer, ExecutionContext &context) {
+    auto try_visit = [&](EdgeAccessor edge, VertexAccessor next_vertex) {
+      if (visited_.contains(next_vertex)) return;
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !(context.auth_checker->Has(
+                next_vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+            context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+        return;
+      }
+#endif
+      if (self_.filter_lambda_.expression) {
+        frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
+        frame_writer.Write(self_.filter_lambda_.inner_node_symbol, next_vertex);
+        TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
+        switch (result.type()) {
+          case TypedValue::Type::Null:
+            return;
+          case TypedValue::Type::Bool:
+            if (!result.ValueBool()) return;
+            break;
+          default:
+            throw QueryRuntimeException("Expansion condition must evaluate to boolean or null.");
+        }
+      }
+      visited_.emplace(next_vertex);
+      to_visit_next_.emplace_back(next_vertex);
+    };
+
+    if (self_.common_.direction != EdgeAtom::Direction::IN) {
+      auto out_edges_result =
+          UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+      context.number_of_hops += out_edges_result.expanded_count;
+      for (auto const &edge : out_edges_result.edges) {
+        try_visit(edge, edge.To());
+      }
+    }
+    if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+      auto in_edges_result =
+          UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+      context.number_of_hops += in_edges_result.expanded_count;
+      for (auto const &edge : in_edges_result.edges) {
+        try_visit(edge, edge.From());
+      }
+    }
+  }
+
+  const ExpandVariable &self_;
+  const UniqueCursorPtr input_cursor_;
+
+  int64_t lower_bound_{-1};
+  int64_t upper_bound_{-1};
+  int64_t current_depth_{0};
+
+  // Global visited set: NOT cleared between input rows
+  utils::pmr::unordered_set<VertexAccessor> visited_;
+  // BFS frontier: current depth level and next depth level
+  utils::pmr::vector<VertexAccessor> to_visit_current_;
+  utils::pmr::vector<VertexAccessor> to_visit_next_;
 };
 
 namespace {
@@ -4384,6 +4527,9 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem,
     case EdgeAtom::Type::KSHORTEST: {
       return MakeUniqueCursorPtr<KShortestPathsCursor>(mem, *this, mem, metric_handles);
     }
+    case EdgeAtom::Type::PRUNING_BFS: {
+      return MakeUniqueCursorPtr<PruningBFSCursor>(mem, *this, mem, metric_handles);
+    }
     case EdgeAtom::Type::SINGLE: {
       LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
     }
@@ -4441,6 +4587,8 @@ std::string_view ExpandVariable::OperatorName() const {
       return "AllShortestPaths"sv;
     case Type::KSHORTEST:
       return "KShortest"sv;
+    case Type::PRUNING_BFS:
+      return "PruningBFSExpand"sv;
     case Type::SINGLE:
       LOG_FATAL("Unexpected ExpandVariable::type_");
     default:
