@@ -364,9 +364,9 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         bool write_occurred = false;
 
         // Plan and apply the satisfiable comprehensions this clause originates, before the clause itself.
-        auto plan_and_apply_comprehensions = [&](const std::unordered_set<Symbol> &only) {
+        auto plan_and_apply_comprehensions = [&](const std::unordered_set<Symbol> &eligible) {
           input_op = SpliceSatisfiedComprehensions(
-              std::move(input_op), pending_comprehensions, context.bound_symbols, write_occurred, only);
+              std::move(input_op), pending_comprehensions, context.bound_symbols, write_occurred, eligible);
         };
 
         for (const auto &clause : single_query_part.remaining_clauses) {
@@ -389,8 +389,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             // ON CREATE / ON MATCH comprehensions originate here too; GenMerge splices each onto the branch that
             // reads it, so this chain must not take them first.
-            auto only = impl::OriginatingIn(clause, pending_comprehensions);
-            std::erase_if(only,
+            auto eligible = impl::OriginatingIn(clause, pending_comprehensions);
+            std::erase_if(eligible,
                           [branch = impl::MergeBranchComprehensions(clause, *context.symbol_table)](const Symbol &sym) {
                             return branch.contains(sym);
                           });
@@ -401,7 +401,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             // reaches here; a user-declared atom fails earlier in filter generation (pre-existing, MATCH too).
             context.is_write_query = true;
             write_occurred = true;
-            plan_and_apply_comprehensions(only);
+            plan_and_apply_comprehensions(eligible);
             input_op = GenMerge(*merge,
                                 std::move(input_op),
                                 single_query_part.merge_matching[merge_id++],
@@ -441,8 +441,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             // Arguments and YIELD ... WHERE need opposite splice points, so this clause drains twice with the same
             // set and lets DepsSatisfied choose: a comprehension reading a YIELD symbol is refused below, where that
             // symbol is registered in query_part_symbols_.all but not yet bound, and accepted above once it is.
-            auto const only = impl::OriginatingIn(clause, pending_comprehensions);
-            plan_and_apply_comprehensions(only);
+            auto const eligible = impl::OriginatingIn(clause, pending_comprehensions);
+            plan_and_apply_comprehensions(eligible);
             for (const auto &sym : result_symbols) {
               context.bound_symbols.insert(sym);
             }
@@ -465,7 +465,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                                      pending_comprehensions,
                                                      context.bound_symbols,
                                                      write_occurred || call_proc->is_write_,
-                                                     only);
+                                                     eligible);
             if (call_proc->where_) {
               auto *filter_expr = call_proc->where_->expression_;
               Filters where_filters;
@@ -503,13 +503,13 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             // One set gates both chains, whichever binds the symbols first. Forced: `ForeachCursor::Pull` evaluates
             // the list expression before writing the loop variable, so a list comprehension must drain here, and
             // `origin_clause` is the whole FOREACH. An uncorrelated body one is therefore hoisted out of the loop.
-            auto only = impl::OriginatingIn(clause, pending_comprehensions);
+            auto eligible = impl::OriginatingIn(clause, pending_comprehensions);
             // A nested MERGE's branch comprehensions belong to GenMerge, as for a top-level one.
-            std::erase_if(only,
+            std::erase_if(eligible,
                           [branch = impl::MergeBranchComprehensions(clause, *context.symbol_table)](const Symbol &sym) {
                             return branch.contains(sym);
                           });
-            plan_and_apply_comprehensions(only);
+            plan_and_apply_comprehensions(eligible);
             input_op = HandleForeachClause(foreach,
                                            std::move(input_op),
                                            *context.symbol_table,
@@ -517,7 +517,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                            single_query_part,
                                            merge_id,
                                            pending_comprehensions,
-                                           only,
+                                           eligible,
                                            write_occurred);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
             auto scoped_variables = std::invoke([&]() -> std::optional<std::unordered_set<Symbol>> {
@@ -928,9 +928,9 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     auto splice_branch_comprehensions = [&](std::unique_ptr<LogicalOperator> branch,
                                             const std::vector<query::Clause *> &sets,
                                             const std::unordered_set<Symbol> &branch_bound_symbols) {
-      const auto wanted = impl::CollectPatternComprehensionSymbols(sets, *context_->symbol_table);
+      const auto eligible = impl::CollectPatternComprehensionSymbols(sets, *context_->symbol_table);
       return SpliceSatisfiedComprehensions(
-          std::move(branch), pending_comprehensions, branch_bound_symbols, /*write_occurred=*/true, wanted);
+          std::move(branch), pending_comprehensions, branch_bound_symbols, /*write_occurred=*/true, eligible);
     };
 
     {
@@ -1457,14 +1457,16 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   /// the real one. So `pending_comprehensions` cannot be asserted empty.
   ///
   /// @param bound_symbols what is bound on @p chain, for the dependency check and the view.
-  /// @param only restricts the drain to these result symbols, so one chain cannot steal another's.
+  /// @param eligible the result symbols this drain may take, so one chain cannot steal another's. Candidacy is
+  ///        this set; whether a candidate can be placed here is @c DepsSatisfied.
   std::unique_ptr<LogicalOperator> SpliceSatisfiedComprehensions(
       std::unique_ptr<LogicalOperator> chain,
       std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions,
-      const std::unordered_set<Symbol> &bound_symbols, bool write_occurred, const std::unordered_set<Symbol> &only) {
+      const std::unordered_set<Symbol> &bound_symbols, bool write_occurred,
+      const std::unordered_set<Symbol> &eligible) {
     for (auto it = pending_comprehensions.begin(); it != pending_comprehensions.end();) {
       const auto &[sym, pc] = *it;
-      if (!only.contains(sym) || !DepsSatisfied(pc, bound_symbols)) {
+      if (!eligible.contains(sym) || !DepsSatisfied(pc, bound_symbols)) {
         ++it;
         continue;
       }
@@ -1483,7 +1485,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       query::Foreach *foreach, std::unique_ptr<LogicalOperator> input_op, const SymbolTable &symbol_table,
       std::unordered_set<Symbol> &bound_symbols, const SingleQueryPart &query_part, uint64_t &merge_id,
       std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions,
-      const std::unordered_set<Symbol> &only, bool write_occurred) {
+      const std::unordered_set<Symbol> &eligible, bool write_occurred) {
     const auto &symbol = symbol_table.at(*foreach->named_expression_);
     bound_symbols.insert(symbol);
     std::unique_ptr<LogicalOperator> op = std::make_unique<plan::Once>();
@@ -1498,7 +1500,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     // Plan comprehensions whose dependencies are now satisfied, onto the body's own chain. Restricted to the
     // originating FOREACH clause's own set, so a later clause's comprehension is not dragged into the body.
     auto plan_satisfied_comprehensions = [&]() {
-      op = SpliceSatisfiedComprehensions(std::move(op), pending_comprehensions, bound_symbols, write_occurred, only);
+      op =
+          SpliceSatisfiedComprehensions(std::move(op), pending_comprehensions, bound_symbols, write_occurred, eligible);
     };
 
     // Plan any comprehensions whose dependencies are now satisfied (e.g., referencing the FOREACH variable)
@@ -1513,7 +1516,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                  query_part,
                                  merge_id,
                                  pending_comprehensions,
-                                 only,
+                                 eligible,
                                  write_occurred);
       } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
         op = GenMerge(
