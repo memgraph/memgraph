@@ -48,8 +48,9 @@ inline auto GetFilePathWithoutDataDir(std::filesystem::path const &orig, std::fi
 
 template <typename T>
   requires(std::is_same_v<T, std::filesystem::path>)
-bool WriteFiles(const T &path, std::filesystem::path const &root_data_dir, replication::Encoder &encoder) {
-  if (!encoder.WriteFile(path, GetFilePathWithoutDataDir(path, root_data_dir))) {
+bool WriteFiles(const T &path, std::filesystem::path const &root_data_dir, replication::Encoder &encoder,
+                utils::PageCachePolicy const page_cache) {
+  if (!encoder.WriteFile(path, GetFilePathWithoutDataDir(path, root_data_dir), page_cache)) {
     spdlog::error("File {} couldn't be loaded so it won't be transferred to the replica.", path);
     return false;
   }
@@ -58,10 +59,11 @@ bool WriteFiles(const T &path, std::filesystem::path const &root_data_dir, repli
 
 template <typename T>
   requires(std::is_same_v<T, std::vector<std::filesystem::path>>)
-bool WriteFiles(const T &paths, std::filesystem::path const &root_data_dir, replication::Encoder &encoder) {
+bool WriteFiles(const T &paths, std::filesystem::path const &root_data_dir, replication::Encoder &encoder,
+                utils::PageCachePolicy const page_cache) {
   for (const auto &path : paths) {
     // Flush the segment so the file data could start at the beginning of the next segment
-    if (!encoder.WriteFile(path, GetFilePathWithoutDataDir(path, root_data_dir))) {
+    if (!encoder.WriteFile(path, GetFilePathWithoutDataDir(path, root_data_dir), page_cache)) {
       spdlog::error("File {} couldn't be loaded so it won't be transferred to the replica.", path);
       return false;
     }
@@ -95,7 +97,8 @@ template <rpc::IsRpc T, typename R, typename... Args>
 std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc::Client &client,
                                                             std::filesystem::path const &root_data_dir,
                                                             replication_coordination_glue::ReplicationMode const mode,
-                                                            std::string const &instance_name, Args &&...args) {
+                                                            std::string const &instance_name,
+                                                            utils::PageCachePolicy const page_cache, Args &&...args) {
   metrics::ScopedHistogramTimer const timer{RpcInfo<T>::histogram()};
   std::optional<rpc::Client::StreamHandler<T>> maybe_stream_result;
 
@@ -120,7 +123,7 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
   builder->FlushSegment(/*final_segment*/ false, /*force_flush*/ true);
 
   // If writing files failed, fail the task by returning empty optional
-  if (replication::Encoder encoder(builder); !WriteFiles(files, root_data_dir, encoder)) {
+  if (replication::Encoder encoder(builder); !WriteFiles(files, root_data_dir, encoder, page_cache)) {
     return std::nullopt;
   }
 

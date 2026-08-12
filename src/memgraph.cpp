@@ -70,6 +70,7 @@
 #include "utils/build_info.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/page_cache_releaser.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/scheduler.hpp"
@@ -306,6 +307,11 @@ int main(int argc, char **argv) {
                  build_info.build_name);
   }
 
+  // Owns the thread that drops read-through snapshots from the page cache. Declared here so it
+  // outlives every database that can hand it a file, and is joined before `main` returns rather
+  // than during static destruction.
+  auto const page_cache_releaser = memgraph::utils::InstallPageCacheReleaser();
+
   // Fail fast if --cluster-{cert,key,ca}-file are partially configured.
   // Must run after logger init so the fatal message is delivered.
   memgraph::flags::ValidateIntraClusterTLSFlags();
@@ -538,6 +544,8 @@ int main(int argc, char **argv) {
                      .snapshot_thread_count = FLAGS_storage_snapshot_thread_count,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
                      .snapshot_writeback_window_mib = FLAGS_storage_snapshot_writeback_window_mib,
+                     .release_recovered_snapshot_page_cache = FLAGS_storage_release_recovered_snapshot_page_cache,
+                     .release_sent_snapshot_page_cache = FLAGS_storage_release_sent_snapshot_page_cache,
                      .allow_parallel_snapshot_creation = FLAGS_storage_parallel_snapshot_creation,
                      .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},

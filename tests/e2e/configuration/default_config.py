@@ -245,6 +245,19 @@ startup_config_dict = {
         "disk and released, in MiB. Applies per snapshot thread. Set to 0 to leave this to the operating system, "
         "which can let a large snapshot slow down queries and evict cached data.",
     ),
+    "storage_release_recovered_snapshot_page_cache": (
+        "true",
+        "true",
+        "Release a snapshot from the operating system's file cache once recovery has loaded it, so it stops "
+        "holding memory the database could use. Set to false to leave it cached.",
+    ),
+    "storage_release_sent_snapshot_page_cache": (
+        "false",
+        "false",
+        "Release a snapshot from the operating system's file cache once it has been sent to a replica. Off by "
+        "default, because any further replica syncing from the same snapshot then has to read it from disk again. "
+        "Set to true to free the memory sooner on an instance that syncs a replica once.",
+    ),
     "storage_recovery_thread_count": ("12", "12", "The number of threads used to recover persisted data from disk."),
     "storage_snapshot_interval_sec": (
         "300",

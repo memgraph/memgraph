@@ -740,6 +740,9 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     main_mem_storage->config_.durability.root_data_directory,
                     repl_mode,
                     client_.name_,
+                    main_mem_storage->config_.durability.release_sent_snapshot_page_cache
+                        ? utils::PageCachePolicy::kDrop
+                        : utils::PageCachePolicy::kKeep,
                     main_uuid,
                     main_mem_storage->uuid());
                 // Error happened on our side when trying to load snapshot file
@@ -799,6 +802,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     main_mem_storage->config_.durability.root_data_directory,
                     repl_mode,
                     client_.name_,
+                    utils::PageCachePolicy::kKeep,
                     wals.size(),
                     main_uuid,
                     main_mem_storage->uuid(),
@@ -856,6 +860,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                       main_mem_storage->config_.durability.root_data_directory,
                       repl_mode,
                       client_.name_,
+                      utils::PageCachePolicy::kKeep,
                       main_uuid,
                       main_mem_storage->uuid(),
                       do_reset);

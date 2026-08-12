@@ -59,6 +59,7 @@
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/page_cache_releaser.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/thread.hpp"
@@ -432,6 +433,17 @@ bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Ver
   }
   return all_ok;
 };
+
+// Drops a fully-read snapshot from the page cache, off the caller's thread where the process has a
+// releaser to do that on, and on the caller's thread where it does not. Both reach the same state;
+// only the second one waits.
+void DropPageCache(Decoder snapshot) {
+  if (auto const releaser = utils::PageCacheReleaserHandle().lock()) {
+    releaser->Drop(std::move(snapshot));
+    return;
+  }
+  snapshot.DropCachedPages();
+}
 
 // Function used to read information about the snapshot file.
 SnapshotInfo ReadSnapshotInfoPreVersion23(const std::filesystem::path &path) {
@@ -13523,6 +13535,14 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
   const auto version = snapshot.Initialize(path, kSnapshotMagic);
   if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
   if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
+
+  // Recovery is the only reader of this file, and once it is done the pages are pure overhead: they
+  // compete for memory with the graph just built from them. Dropped after the load rather than
+  // behind the read point, because the load revisits ranges it has already read, and dropping
+  // during it makes those ranges come back from the device a second time.
+  utils::OnScopeExit const drop_page_cache{[&snapshot, &config] {
+    if (config.durability.release_recovered_snapshot_page_cache) DropPageCache(std::move(snapshot));
+  }};
 
   switch (*version) {
     case 14U: {

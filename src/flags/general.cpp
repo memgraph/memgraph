@@ -161,6 +161,19 @@ DEFINE_uint64(storage_snapshot_writeback_window_mib,
               "system, which can let a large snapshot slow down queries and evict cached data.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_release_recovered_snapshot_page_cache,
+            memgraph::storage::Config::Durability().release_recovered_snapshot_page_cache,
+            "Release a snapshot from the operating system's file cache once recovery has loaded it, so it stops "
+            "holding memory the database could use. Set to false to leave it cached.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_release_sent_snapshot_page_cache,
+            memgraph::storage::Config::Durability().release_sent_snapshot_page_cache,
+            "Release a snapshot from the operating system's file cache once it has been sent to a replica. Off by "
+            "default, because any further replica syncing from the same snapshot then has to read it from disk "
+            "again. Set to true to free the memory sooner on an instance that syncs a replica once.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_recovery_thread_count,
               std::max(static_cast<uint64_t>(memgraph::utils::GetSafeHardwareConcurrency()),
                        memgraph::storage::Config::Durability().recovery_thread_count),

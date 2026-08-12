@@ -108,6 +108,16 @@ struct Config {
     // uses. 0 disables pacing.
     uint64_t snapshot_writeback_window_mib{32};  // PER INSTANCE SYSTEM FLAG
 
+    // Whether a snapshot is released from the page cache once recovery has loaded it. Nothing on
+    // this instance reads that file again, so its pages only compete with the graph built from them.
+    bool release_recovered_snapshot_page_cache{true};  // PER INSTANCE SYSTEM FLAG
+
+    // Whether a snapshot is released from the page cache once it has been sent to a replica. A
+    // separate decision from the one above, and off by default: the file cache is reclaimable on
+    // demand, so releasing it buys memory the kernel could take back anyway, while costing every
+    // further replica syncing from the same snapshot a re-read from the device.
+    bool release_sent_snapshot_page_cache{false};  // PER INSTANCE SYSTEM FLAG
+
     bool allow_parallel_snapshot_creation{false};  // PER DATABASE
     bool allow_parallel_schema_creation{false};    // PER DATABASE
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;

@@ -487,6 +487,11 @@ add_unit_test(utils_file
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_page_cache_releaser
+    SOURCES utils_page_cache_releaser.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_stat
     SOURCES utils_stat.cpp
     LINK_TARGETS mg-utils
