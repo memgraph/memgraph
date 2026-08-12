@@ -45,10 +45,11 @@ def test_pruning_bfs_when_edges_unused(memgraph):
     assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
 
 
-def test_pruning_bfs_with_aggregation(memgraph):
+def test_no_rewrite_with_plain_aggregation(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN count(b)")
     ops = operator_names(plan)
-    assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
+    assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
+    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_pruning_bfs_with_filter_lambda(memgraph):

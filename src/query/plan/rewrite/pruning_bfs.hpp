@@ -65,7 +65,6 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Aggregate &op) override {
-    deduplicates_ = true;
     for (auto const &elem : op.aggregations_) {
       CollectSymbolsFromExpression(elem.arg1);
       CollectSymbolsFromExpression(elem.arg2);
