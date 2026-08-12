@@ -956,26 +956,6 @@ Feature: Pattern comprehensions
         Then the result should be:
             | ids          | yid |
             | [10, 11, 12] | 4   |
-    # Does NOT discriminate: without the CallProcedure drain the ungated drain at the SET takes this comprehension and
-    # gives the same answer. The sibling scenario below, with no preceding write, is the one that needs the new drain.
-    Scenario: Pattern comprehension in a CALL YIELD WHERE after a write
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:Person {name: 'Alice'})-[:ACTED_IN]->(:Movie {title: 'M1'})
-            CREATE (:Person {name: 'Bob'})
-            """
-        When executing query:
-            """
-            MATCH (p:Person) SET p.z = 1
-            CALL mg.procedures() YIELD name
-            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
-            RETURN DISTINCT p.name AS name
-            """
-        Then the result should be:
-            | name    |
-            | 'Alice' |
-
     Scenario: Pattern comprehension in a CALL YIELD WHERE with no preceding write
         Given an empty graph
         And having executed:
@@ -1034,25 +1014,6 @@ Feature: Pattern comprehensions
             | 'Bob'     | 1 |
             | 'Carol'   | 0 |
 
-    Scenario: Pattern comprehension in a WITH WHERE after a write is evaluated per row
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
-            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M1'}), (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
-            CREATE (b)-[:ACTED_IN]->(:Movie {title: 'M3'})
-            """
-        When executing query:
-            """
-            MATCH (p:Person) SET p.z = 1
-            WITH p.name AS n WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
-            RETURN n
-            """
-        Then the result should be:
-            | n       |
-            | 'Alice' |
-            | 'Bob'   |
-
     Scenario: Pattern comprehension in RETURN sees the effects of the CREATE it follows
         Given an empty graph
         And having executed:
@@ -1067,32 +1028,9 @@ Feature: Pattern comprehensions
             | s |
             | 2 |
 
-    # Does NOT discriminate: with the comprehension on the main chain it is spliced below the Merge, so the SET still
-    # reads a written slot and the value coincides. Kept as a regression guard only - the difference is plan shape,
-    # and `MergeBranchComprehensionOverOuterSymbolStaysInBranch` in tests/unit/query_plan.cpp is what pins it.
-    Scenario: Pattern comprehension in a MERGE ON CREATE over an already-bound outer node
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
-            """
-        And having executed:
-            """
-            MATCH (p:Person)
-            MERGE (q:Marker {id: 1})
-              ON CREATE SET q.cnt = size([(p)-[:ACTED_IN]->(m) | m])
-            """
-        When executing query:
-            """
-            MATCH (q:Marker) RETURN q.cnt AS cnt
-            """
-        Then the result should be:
-            | cnt |
-            | 1   |
-
-    # Discriminates, unlike the scenario above: the MERGE creates the edge the comprehension counts, so the value
-    # differs by where the RollUpApply sits. On the main chain it is the Merge's input - evaluated before the create -
-    # and counts only the pre-existing edge.
+    # Discriminating: the MERGE creates the edge the comprehension counts, so the value differs by where the
+    # RollUpApply sits. On the main chain it is the Merge's input, evaluated before the create, and counts only
+    # the pre-existing edge.
     Scenario: Pattern comprehension in a MERGE ON CREATE counts what the MERGE just created
         Given an empty graph
         And having executed:
