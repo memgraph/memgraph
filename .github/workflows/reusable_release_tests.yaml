@@ -1342,8 +1342,6 @@ jobs:
 
       - name: Check core dump support
         run: |
-          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 2.0)
-          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -1352,6 +1350,8 @@ jobs:
 
       - name: Build release binaries
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 2.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
