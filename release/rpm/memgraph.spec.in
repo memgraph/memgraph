@@ -12,6 +12,14 @@ Vendor:         @CPACK_RPM_PACKAGE_VENDOR@
 # when packaging the rpm on a Debian-family host; define the macro instead.
 %{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
 
+# Memgraph needs python >= 3.10; el9's default python3 is 3.9, so require the
+# 3.12 interpreter + pip there. Rich (boolean) dependency so it is evaluated
+# at INSTALL time — the rpm is distro-agnostic, a build-time %%if can't see
+# the target distro. `system-release(releasever)` is provided by every
+# RHEL-family release package. The %%post below repoints the embedded
+# interpreter at 3.12 via /usr/lib/memgraph/libpython3.so.
+Requires:       ((python3.12 and python3.12-pip) if system-release(releasever) = 9)
+
 @TMP_RPM_URL@
 @TMP_RPM_REQUIRES@
 @TMP_RPM_REQUIRES_PRE@
@@ -121,6 +129,22 @@ fi
 PYBIN="python3"
 if [ -n "@CPACK_MG_PYTHON_VERSION@" ]; then
     PYBIN="python@CPACK_MG_PYTHON_VERSION@"
+elif python3 -c 'import sys; raise SystemExit(0 if sys.version_info < (3, 10) else 1)' \
+        && command -v python3.12 >/dev/null 2>&1; then
+    # Default python3 is below memgraph's >= 3.10 floor (el9: 3.9, where the
+    # rich dep above pulled python3.12) — use 3.12 for the deps instead.
+    PYBIN="python3.12"
+fi
+# When the deps target a non-default interpreter, the embedded interpreter
+# must follow: the binary links the unversioned libpython3.so with RUNPATH
+# $ORIGIN, so a symlink next to it beats the distro's default shim
+# (/usr/lib64/libpython3.so from python3-libs). %%ghost-owned in %%files.
+if [ "$PYBIN" != "python3" ]; then
+    pyver="${PYBIN#python}"
+    libpython="$(ls /usr/lib64/libpython${pyver}.so.1* /usr/lib/libpython${pyver}.so.1* 2>/dev/null | head -1 || true)"
+    if [ -n "$libpython" ]; then
+        ln -sf "$libpython" /usr/lib/memgraph/libpython3.so
+    fi
 fi
 pyminor="$($PYBIN -c 'import sys; print(sys.version_info[1])')"
 numpy_version="1.26.4"; scipy_version="1.13.0"
@@ -188,6 +212,11 @@ echo "Don't forget to switch to the 'memgraph' user to use Memgraph" || exit 1
 %config(noreplace) "/etc/memgraph/apoc_compatibility_mappings.json"
 %config(noreplace) "/etc/memgraph/auth_module/ldap.example.yaml"
 %config(noreplace) "/etc/logrotate.d/memgraph"
+
+# Created by %%post when the embedded interpreter is repointed at a
+# non-default python (and by the memgraph-mage %%post); %%ghost so rpm owns
+# and removes it on erase without shipping it in the payload.
+%ghost /usr/lib/memgraph/libpython3.so
 
 @CPACK_RPM_USER_INSTALL_FILES@
 

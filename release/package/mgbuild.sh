@@ -1317,7 +1317,10 @@ package_smoke_image() {
     # /etc/dnf/dnf.conf, which strips memgraph's license files in
     # /usr/share/doc/memgraph/. Override on the dnf install line so the
     # smoke license check passes.
+    # rpm demotes %post scriptlet failures to warnings, so a failed pip
+    # install would still produce an image; assert the deps actually landed.
     install_cmd="dnf install -y --setopt=tsflags='' libseccomp /pkg/$package_name && \
+      ls /var/lib/memgraph/.local/lib/python3.*/site-packages/networkx >/dev/null && \
       ($gssapi_cmd) && \
       dnf clean all"
   fi

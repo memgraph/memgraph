@@ -72,7 +72,9 @@ ARCH=@CPACK_MAGE_PKG_ARCH@
 # below installs MAGE's python deps with python3.12 whenever it exists, so
 # point the embedded interpreter at that same python — without this, e.g.
 # CentOS Stream 9 embeds the 3.9 default while the deps land in 3.12's dirs.
-# Declared %%ghost in %%files so rpm removes it when memgraph-mage is erased.
+# The symlink path is %%ghost-owned by the memgraph package (whose %%post
+# also creates it on el9), not by memgraph-mage — erasing MAGE must not
+# remove a link the base package still relies on.
 if command -v python3.12 >/dev/null 2>&1; then
     libpython="$(ls /usr/lib64/libpython3.12.so.1* /usr/lib/libpython3.12.so.1* 2>/dev/null | head -1 || true)"
     if [ -n "$libpython" ]; then
@@ -113,9 +115,6 @@ exit 0
 %defattr(@TMP_DEFAULT_FILE_PERMISSIONS@,@TMP_DEFAULT_USER@,@TMP_DEFAULT_GROUP@,@TMP_DEFAULT_DIR_PERMISSIONS@)
 @CPACK_RPM_INSTALL_FILES@
 @CPACK_RPM_USER_INSTALL_FILES@
-# Created by %%post (embedded-python override); %%ghost so rpm owns and
-# removes it on erase without shipping it in the payload.
-%ghost /usr/lib/memgraph/libpython3.so
 
 %changelog
 @CPACK_RPM_SPEC_CHANGELOG@
