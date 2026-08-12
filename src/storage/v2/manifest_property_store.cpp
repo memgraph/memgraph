@@ -11,6 +11,7 @@
 
 #include "storage/v2/manifest_property_store.hpp"
 
+#include <fp16.h>  // Taken via usearch (seems like _Float16 is broken on some platforms)
 #include <algorithm>
 #include <cstring>
 #include <limits>
@@ -18,6 +19,7 @@
 #include <sstream>
 #include <string>
 
+#include "storage/v2/property_store.hpp"  // FLAGS_storage_floating_point_resolution_bits
 #include "utils/logging.hpp"
 
 namespace memgraph::storage {
@@ -25,11 +27,28 @@ namespace memgraph::storage {
 namespace {
 
 constexpr uint8_t kBoolWidth = 1;
-constexpr uint8_t kDoubleWidth = 8;
+constexpr uint8_t kHalfWidth = 2;      // --storage_floating_point_resolution_bits=16
+constexpr uint8_t kFloatWidth = 4;     // --storage_floating_point_resolution_bits=32
+constexpr uint8_t kDoubleWidth = 8;    // --storage_floating_point_resolution_bits=64
 constexpr uint8_t kTemporalWidth = 8;  // microseconds; which temporal type is part of the shape
 constexpr uint8_t kEnumWidth = 8;      // value id; which enum type is part of the shape
 constexpr uint8_t kPoint2dWidth = 16;  // x, y; the coordinate system is part of the shape
 constexpr uint8_t kPoint3dWidth = 24;  // x, y, z
+
+/// Payload width a double is stored at under the resolution currently in force. Consulted
+/// only when a value is encoded: a record is decoded at the width its own shape records, so a
+/// resolution change between writing a record and reading it back cannot reinterpret bytes
+/// that were written at another width.
+auto DoubleWidth() -> uint8_t {
+  switch (FLAGS_storage_floating_point_resolution_bits) {
+    case 16:
+      return kHalfWidth;
+    case 32:
+      return kFloatWidth;
+    default:
+      return kDoubleWidth;
+  }
+}
 
 /// Narrowest signed width that still round-trips `value`.
 auto IntWidth(int64_t value) -> uint8_t {
@@ -48,7 +67,7 @@ auto StoredTypeOf(PropertyValue const &value) -> StoredType {
     case PropertyValueType::Int:
       return StoredType::Fixed(PropertyStoreType::INT, IntWidth(value.ValueInt()));
     case PropertyValueType::Double:
-      return StoredType::Fixed(PropertyStoreType::DOUBLE, kDoubleWidth);
+      return StoredType::Fixed(PropertyStoreType::DOUBLE, DoubleWidth());
     case PropertyValueType::String:
       return StoredType::Variable(PropertyStoreType::STRING);
     case PropertyValueType::TemporalData:
@@ -97,8 +116,21 @@ void EncodeFixed(PropertyValue const &value, StoredType stored_type, std::span<u
     }
     case PropertyStoreType::DOUBLE: {
       auto const raw = value.ValueDouble();
-      std::memcpy(out.data(), &raw, kDoubleWidth);
-      return;
+      switch (stored_type.width) {
+        case kHalfWidth: {
+          auto const half = fp16_ieee_from_fp32_value(static_cast<float>(raw));
+          std::memcpy(out.data(), &half, kHalfWidth);
+          return;
+        }
+        case kFloatWidth: {
+          auto const single = static_cast<float>(raw);
+          std::memcpy(out.data(), &single, kFloatWidth);
+          return;
+        }
+        default:
+          std::memcpy(out.data(), &raw, kDoubleWidth);
+          return;
+      }
     }
     case PropertyStoreType::TEMPORAL_DATA: {
       auto const raw = value.ValueTemporalData().microseconds;
@@ -146,9 +178,23 @@ auto DecodeFixed(StoredType stored_type, std::span<uint8_t const> in) -> Propert
       }
     }
     case PropertyStoreType::DOUBLE: {
-      double raw = 0.0;
-      std::memcpy(&raw, in.data(), kDoubleWidth);
-      return PropertyValue{raw};
+      switch (stored_type.width) {
+        case kHalfWidth: {
+          uint16_t half = 0;
+          std::memcpy(&half, in.data(), kHalfWidth);
+          return PropertyValue{static_cast<double>(fp16_ieee_to_fp32_value(half))};
+        }
+        case kFloatWidth: {
+          float single = 0.0F;
+          std::memcpy(&single, in.data(), kFloatWidth);
+          return PropertyValue{static_cast<double>(single)};
+        }
+        default: {
+          double raw = 0.0;
+          std::memcpy(&raw, in.data(), kDoubleWidth);
+          return PropertyValue{raw};
+        }
+      }
     }
     case PropertyStoreType::TEMPORAL_DATA: {
       int64_t microseconds = 0;
@@ -225,52 +271,50 @@ void WriteOffset(uint8_t *table, uint8_t width, uint32_t index, uint32_t offset)
   std::memcpy(table + static_cast<size_t>(index) * width, &offset, width);
 }
 
+/// Heap records are sized in multiples of eight so that their size can never be mistaken for
+/// the marker an inline record carries.
+constexpr auto ToMultipleOf8(uint32_t size) -> uint32_t { return (size + 7U) & ~7U; }
+
 }  // namespace
 
 ManifestPropertyStore::ManifestPropertyStore(ManifestPropertyStore &&other) noexcept
-    : manifest_{other.manifest_}, size_{other.size_} {
-  if (size_ <= kInlineCapacity) {
-    inline_ = other.inline_;
-  } else {
-    heap_ = other.heap_;
-  }
+    : manifest_{other.manifest_}, buffer_{other.buffer_} {
   other.manifest_ = ManifestId{};
-  other.size_ = 0;
+  other.buffer_ = {};
 }
 
 auto ManifestPropertyStore::operator=(ManifestPropertyStore &&other) noexcept -> ManifestPropertyStore & {
   if (this == &other) return *this;
-  if (size_ > kInlineCapacity) delete[] heap_;
+  Release();
   manifest_ = other.manifest_;
-  size_ = other.size_;
-  if (size_ <= kInlineCapacity) {
-    inline_ = other.inline_;
-  } else {
-    heap_ = other.heap_;
-  }
+  buffer_ = other.buffer_;
   other.manifest_ = ManifestId{};
-  other.size_ = 0;
+  other.buffer_ = {};
   return *this;
 }
 
-ManifestPropertyStore::~ManifestPropertyStore() {
-  if (size_ > kInlineCapacity) delete[] heap_;
+ManifestPropertyStore::~ManifestPropertyStore() { Release(); }
+
+void ManifestPropertyStore::Release() {
+  if (!empty() && !is_inline()) delete[] heap_data();
 }
 
 auto ManifestPropertyStore::Reset(uint32_t size) -> uint8_t * {
-  if (size_ > kInlineCapacity) delete[] heap_;
-  size_ = size;
-  if (size > kInlineCapacity) {
-    heap_ = new uint8_t[size]{};
-  } else {
-    inline_ = {};
+  Release();
+  buffer_ = {};
+  if (size <= kInlineCapacity) {
+    buffer_[0] = kInlineMarker;
+    return buffer_.data() + 1;
   }
-  return data();
+  auto const allocated = ToMultipleOf8(size);
+  auto *heap = new uint8_t[allocated]{};
+  SetHeap(allocated, heap);
+  return heap;
 }
 
 auto ManifestPropertyStore::GetProperty(PropertyManifest const &manifest, PropertyManifest::Location location) const
     -> PropertyValue {
-  if (size_ == 0) return PropertyValue{};
+  if (empty()) return PropertyValue{};
 
   auto const *record = data();
   if (!IsPresent(record, location.position)) return PropertyValue{};
@@ -290,7 +334,7 @@ auto ManifestPropertyStore::GetProperty(PropertyManifest const &manifest, Proper
 }
 
 auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, PropertyId property) const -> PropertyValue {
-  if (size_ == 0) return PropertyValue{};
+  if (empty()) return PropertyValue{};
 
   auto const &manifest = registry.Resolve(manifest_);
   auto const found = manifest.Find(property);
@@ -299,14 +343,14 @@ auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, Proper
 }
 
 auto ManifestPropertyStore::HasProperty(ManifestRegistry const &registry, PropertyId property) const -> bool {
-  if (size_ == 0) return false;
+  if (empty()) return false;
   auto const found = registry.Resolve(manifest_).Find(property);
   return found && IsPresent(data(), found->position);
 }
 
 auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -> utils::small_vector<PropertyPair> {
   auto properties = utils::small_vector<PropertyPair>{};
-  if (size_ == 0) return properties;
+  if (empty()) return properties;
 
   auto const &manifest = registry.Resolve(manifest_);
   auto const *record = data();
@@ -321,7 +365,7 @@ auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -
 
 auto ManifestPropertyStore::SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value)
     -> bool {
-  auto const found = size_ == 0 ? std::nullopt : registry.Resolve(manifest_).Find(property);
+  auto const found = empty() ? std::nullopt : registry.Resolve(manifest_).Find(property);
   auto const present = found && IsPresent(data(), found->position);
 
   // Removing only clears a bit: the shape, the layout and the allocation all stay as they
@@ -362,14 +406,14 @@ auto ManifestPropertyStore::SetProperty(ManifestRegistry &registry, PropertyId p
 
 auto ManifestPropertyStore::InitProperties(ManifestRegistry &registry, std::span<PropertyPair const> properties)
     -> bool {
-  if (size_ != 0) return false;
+  if (!empty()) return false;
   Rebuild(registry, properties);
   return true;
 }
 
 auto ManifestPropertyStore::InitProperties(ManifestRegistry &registry,
                                            std::map<PropertyId, PropertyValue> const &properties) -> bool {
-  if (size_ != 0) return false;
+  if (!empty()) return false;
   auto ordered = utils::small_vector<PropertyPair>{};
   ordered.reserve(properties.size());
   for (auto const &[id, value] : properties) ordered.emplace_back(id, value);
@@ -394,9 +438,9 @@ void ManifestPropertyStore::ReserveFields(ManifestRegistry &registry, std::span<
 }
 
 auto ManifestPropertyStore::ClearProperties() -> bool {
-  if (size_ == 0) return false;
-  if (size_ > kInlineCapacity) delete[] heap_;
-  size_ = 0;
+  if (empty()) return false;
+  Release();
+  buffer_ = {};
   manifest_ = ManifestId{};
   return true;
 }
@@ -415,7 +459,7 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::span<Proper
   // Fields the record is laid out for but does not carry stay in the shape. A caller that
   // laid the record out for what it was about to set would otherwise lose that the first
   // time a value arrived that could not go straight into its slot.
-  if (size_ != 0) {
+  if (!empty()) {
     auto const &current = registry.Resolve(manifest_);
     auto const *record = data();
     auto merged = utils::small_vector<ManifestEntry>{};

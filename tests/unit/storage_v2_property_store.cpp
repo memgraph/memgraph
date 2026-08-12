@@ -1265,6 +1265,39 @@ STORE_TYPED_TEST(FloatingPointResolution64_Roundtrip) {
   EXPECT_DOUBLE_EQ(got.ValueDouble(), value);
 }
 
+// Deliberately not a `STORE_TYPED_TEST`: `PropertyStore` decodes a double at the resolution in
+// force when the value is read rather than the one it was written at, so every double it holds
+// is misread after the flag changes. `ManifestPropertyStore` records the width in the shape and
+// so cannot: that is what this pins down.
+TEST(ManifestPropertyStoreResolution, ChangedAfterWrite_ReadsBackWhatWasWritten) {
+  using TStore = ManifestStoreUnderTest;
+  RestoreFpResolutionGuard guard;
+
+  auto const prop = PropertyId::FromInt(1);
+
+  // A record has to be read back at the precision it was written at, whatever the flag says by
+  // the time it is read; reading it at the resolution now in force would reinterpret its bytes.
+  FLAGS_storage_floating_point_resolution_bits = 64;
+  TStore written_as_double;
+  double const exact = 3.14159265358979;
+  ASSERT_TRUE(written_as_double.SetProperty(prop, PropertyValue(exact)));
+
+  FLAGS_storage_floating_point_resolution_bits = 16;
+  EXPECT_DOUBLE_EQ(written_as_double.GetProperty(prop).ValueDouble(), exact);
+  FLAGS_storage_floating_point_resolution_bits = 32;
+  EXPECT_DOUBLE_EQ(written_as_double.GetProperty(prop).ValueDouble(), exact);
+
+  // And the other way round: a value written at a lower precision keeps the value it was
+  // rounded to, rather than gaining precision it never had.
+  FLAGS_storage_floating_point_resolution_bits = 16;
+  TStore written_as_half;
+  ASSERT_TRUE(written_as_half.SetProperty(prop, PropertyValue(3.14)));
+  auto const as_stored = written_as_half.GetProperty(prop).ValueDouble();
+
+  FLAGS_storage_floating_point_resolution_bits = 64;
+  EXPECT_DOUBLE_EQ(written_as_half.GetProperty(prop).ValueDouble(), as_stored);
+}
+
 // `PropertyStore` serialises whole records and the disk engine keeps those bytes verbatim, so a
 // resolution change between two runs must not change how bytes already written are understood.
 // These two are disabled because they FAIL: they reproduce a real defect rather than guarding

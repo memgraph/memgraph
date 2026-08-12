@@ -12,7 +12,9 @@
 #pragma once
 
 #include <array>
+#include <bit>
 #include <cstdint>
+#include <cstring>
 #include <map>
 #include <span>
 #include <utility>
@@ -103,29 +105,70 @@ class ManifestPropertyStore {
 
   auto manifest() const -> ManifestId { return manifest_; }
 
-  /// Encoded bytes this record holds, excluding the shared manifest.
-  auto buffer_size() const -> uint32_t { return size_; }
+  /// Bytes of storage this record occupies, excluding the shared manifest. A record that fits
+  /// inline owns the whole inline payload whatever it encodes into, so that is what it reports.
+  auto buffer_size() const -> uint32_t {
+    if (empty()) return 0;
+    return is_inline() ? kInlineCapacity : encoded_size();
+  }
 
  private:
-  static constexpr uint32_t kInlineCapacity = 8;
+  /// Payload bytes a record gets without allocating. One byte of `buffer_` is spent marking
+  /// that the record is inline, so the payload is that one byte short of the buffer.
+  static constexpr uint32_t kInlineCapacity = sizeof(uint32_t) + sizeof(uint8_t *) - 1;
+
+  /// Written to the first byte of an inline record, whose remaining bytes are its payload.
+  /// Not a multiple of eight, and heap sizes are, so the first four bytes read as a size tell
+  /// the two apart whatever payload follows the marker.
+  static constexpr uint8_t kInlineMarker = 1;
+  static_assert(kInlineMarker % 8 != 0, "The inline marker has to be distinguishable from a heap record's size");
+  static_assert(std::endian::native == std::endian::little, "The inline marker has to be the low byte of the size");
 
   /// Re-interns the shape from the fields that carry a value, and re-encodes the record.
   void Rebuild(ManifestRegistry &registry, std::span<PropertyPair const> properties);
 
-  auto data() -> uint8_t * { return size_ <= kInlineCapacity ? inline_.data() : heap_; }
+  /// The first four bytes of `buffer_` read as a size: zero when the record is empty, the
+  /// allocated byte count when it is on the heap, and a value carrying `kInlineMarker` in its
+  /// low byte when it is inline.
+  auto encoded_size() const -> uint32_t {
+    uint32_t size = 0;
+    std::memcpy(&size, buffer_.data(), sizeof(size));
+    return size;
+  }
 
-  auto data() const -> uint8_t const * { return size_ <= kInlineCapacity ? inline_.data() : heap_; }
+  auto empty() const -> bool { return encoded_size() == 0; }
+
+  auto is_inline() const -> bool { return (encoded_size() % 8) != 0; }
+
+  auto heap_data() const -> uint8_t * {
+    uint8_t *heap = nullptr;
+    std::memcpy(static_cast<void *>(&heap), buffer_.data() + sizeof(uint32_t), sizeof(heap));
+    return heap;
+  }
+
+  /// Points the record at `size` bytes of heap storage. `size` must be a multiple of eight so
+  /// it stays distinguishable from an inline record.
+  void SetHeap(uint32_t size, uint8_t *heap) {
+    std::memcpy(buffer_.data(), &size, sizeof(size));
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
+    std::memcpy(buffer_.data() + sizeof(size), static_cast<void const *>(&heap), sizeof(heap));
+  }
+
+  auto data() -> uint8_t * { return is_inline() ? buffer_.data() + 1 : heap_data(); }
+
+  auto data() const -> uint8_t const * { return is_inline() ? buffer_.data() + 1 : heap_data(); }
 
   /// Takes ownership of `size` bytes of storage, freeing whatever the record held before.
   auto Reset(uint32_t size) -> uint8_t *;
 
-  ManifestId manifest_{};
-  uint32_t size_{};
+  /// Frees the record's storage, if it had any of its own. Leaves `buffer_` as it was.
+  void Release();
 
-  union {
-    uint8_t *heap_;
-    std::array<uint8_t, kInlineCapacity> inline_;
-  };
+  ManifestId manifest_{};
+  /// Either the record itself, marker byte first, or the size and address of the heap storage
+  /// holding it. Overlapping the two is what keeps a record that fits inline to eleven bytes
+  /// of payload without growing the object past a shape id and one word of storage.
+  std::array<uint8_t, 1 + kInlineCapacity> buffer_{};
 };
 
 static_assert(sizeof(ManifestPropertyStore) == 16, "A record should cost no more than its shape id, size and storage");
