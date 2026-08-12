@@ -333,6 +333,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             collect_return_body_symbols(ret->body_);
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
             collect_return_body_symbols(with->body_);
+          } else if (auto *call_proc = utils::Downcast<query::CallProcedure>(clause)) {
+            // A YIELD name is bound by the CallProcedure operator, so a comprehension in its own WHERE that reads one
+            // must not drain below that operator - see DepsSatisfied and the two drains at this clause.
+            for (const auto *ident : call_proc->result_identifiers_) {
+              symbols_bound_by_query_part.insert(context.symbol_table->at(*ident));
+            }
           }
         };
         for (const auto &clause : single_query_part.remaining_clauses) {
@@ -369,9 +375,9 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             // The collector descends into ON CREATE / ON MATCH, so those comprehensions also originate here. Subtract
             // them: GenMerge splices each into the branch that reads it, and the main chain must not take them first.
             auto only = OriginatingIn(clause, pending_comprehensions);
-            for (const auto &sym : MergeBranchComprehensions({clause}, *context.symbol_table)) {
-              only.erase(sym);
-            }
+            std::erase_if(only, [branch = MergeBranchComprehensions(clause, *context.symbol_table)](const Symbol &sym) {
+              return branch.contains(sym);
+            });
             // GenMerge's ON MATCH narrowing keys off whether a clause *before* this MERGE wrote, so capture that
             // before marking the MERGE itself.
             bool const wrote_before_merge = write_occurred;
@@ -425,22 +431,19 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             std::vector<Symbol> result_symbols;
             result_symbols.reserve(call_proc->result_identifiers_.size());
             for (const auto *ident : call_proc->result_identifiers_) {
-              const auto &sym = context.symbol_table->at(*ident);
-              context.bound_symbols.insert(sym);
-              result_symbols.push_back(sym);
+              result_symbols.push_back(context.symbol_table->at(*ident));
             }
             // A CallProcedure's arguments and its YIELD ... WHERE can both hold a comprehension, and it is a query
-            // part boundary, so nothing downstream can drain it. The two need opposite splice points, so the drain is
-            // split. Everything that reads only what is already on the frame goes below: the slot is written once per
-            // input row, which is when the procedure evaluates its arguments. A comprehension reading a YIELD symbol
-            // cannot go there - the operator that writes that symbol is above it - and is spliced after the operator
-            // instead, below the Filter.
-            auto only = OriginatingIn(clause, pending_comprehensions);
-            auto const yield_dependent = YieldDependentComprehensions(only, pending_comprehensions, result_symbols);
-            for (const auto &sym : yield_dependent) {
-              only.erase(sym);
-            }
+            // part boundary, so nothing downstream can drain it. The two need opposite splice points, so this clause
+            // drains twice with the same set and lets `DepsSatisfied` decide which pass takes what. The YIELD symbols
+            // are registered in `query_part_symbols_.all` but are not bound yet, so a comprehension reading one is
+            // refused below - where the operator that writes it has not run - and accepted above, once it is bound.
+            // Everything else drains below, evaluated once per input row, which is when the arguments are evaluated.
+            auto const only = OriginatingIn(clause, pending_comprehensions);
             plan_and_apply_comprehensions(only);
+            for (const auto &sym : result_symbols) {
+              context.bound_symbols.insert(sym);
+            }
             // TODO: When we add support for write and eager procedures, we will
             // need to plan this operator with Accumulate and pass in
             // storage::View::NEW.
@@ -460,7 +463,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                                      pending_comprehensions,
                                                      context.bound_symbols,
                                                      write_occurred || call_proc->is_write_,
-                                                     yield_dependent);
+                                                     only);
             if (call_proc->where_) {
               auto *filter_expr = call_proc->where_->expression_;
               Filters where_filters;
@@ -504,9 +507,9 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             auto only = OriginatingIn(clause, pending_comprehensions);
             // A MERGE nested in the body gets its branch comprehensions from GenMerge, exactly as a top-level one
             // does; neither this chain nor the body chain may take them first.
-            for (const auto &sym : MergeBranchComprehensions({clause}, *context.symbol_table)) {
-              only.erase(sym);
-            }
+            std::erase_if(only, [branch = MergeBranchComprehensions(clause, *context.symbol_table)](const Symbol &sym) {
+              return branch.contains(sym);
+            });
             plan_and_apply_comprehensions(only);
             input_op = HandleForeachClause(foreach,
                                            std::move(input_op),
@@ -1450,43 +1453,21 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   /// Result symbols of the comprehensions a MERGE's ON CREATE / ON MATCH reads, descending into FOREACH bodies so a
   /// nested MERGE is covered like a top-level one. `GenMerge` splices each onto the branch that evaluates it, so no
   /// chain above may drain them first.
-  static std::unordered_set<Symbol> MergeBranchComprehensions(const std::vector<query::Clause *> &clauses,
-                                                              const SymbolTable &symbol_table) {
-    std::vector<query::Clause *> branch_clauses;
-    auto collect = [&](auto &self, const std::vector<query::Clause *> &to_scan) -> void {
-      for (auto *clause : to_scan) {
-        if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-          branch_clauses.insert(branch_clauses.end(), merge->on_create_.begin(), merge->on_create_.end());
-          branch_clauses.insert(branch_clauses.end(), merge->on_match_.begin(), merge->on_match_.end());
-        } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
-          self(self, foreach->clauses_);
-        }
-      }
-    };
-    collect(collect, clauses);
-    return impl::CollectPatternComprehensionSymbols(branch_clauses, symbol_table);
-  }
-
-  /// Of @p candidates, the comprehensions that read one of @p result_symbols - a symbol the clause binds itself. They
-  /// cannot be spliced below the operator that writes it.
-  ///
-  /// Correctness rests entirely on `external_symbols` being complete, which is why it is built from the pattern's
-  /// filters and from nested matchings as well as from the two obvious expressions - see the comment at its
-  /// computation in `PatternComprehensionCollector::PreVisit`. A symbol missing from there is a comprehension spliced
-  /// below the operator that writes it, reading an unwritten frame slot: a silent wrong answer, not an error.
-  static std::unordered_set<Symbol> YieldDependentComprehensions(
-      const std::unordered_set<Symbol> &candidates,
-      const std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions,
-      const std::vector<Symbol> &result_symbols) {
-    auto const is_result = [&](const Symbol &sym) { return std::ranges::contains(result_symbols, sym); };
-    std::unordered_set<Symbol> dependent;
-    for (const auto &sym : candidates) {
-      const auto &pc = pending_comprehensions.at(sym);
-      if (std::ranges::any_of(pc.external_symbols, is_result) || std::ranges::any_of(pc.expansion_symbols, is_result)) {
-        dependent.insert(sym);
+  static void CollectMergeBranchClauses(query::Clause *clause, std::vector<query::Clause *> &out) {
+    if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+      out.append_range(merge->on_create_);
+      out.append_range(merge->on_match_);
+    } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
+      for (auto *nested : foreach->clauses_) {
+        CollectMergeBranchClauses(nested, out);
       }
     }
-    return dependent;
+  }
+
+  static std::unordered_set<Symbol> MergeBranchComprehensions(query::Clause *clause, const SymbolTable &symbol_table) {
+    std::vector<query::Clause *> branch_clauses;
+    CollectMergeBranchClauses(clause, branch_clauses);
+    return impl::CollectPatternComprehensionSymbols(branch_clauses, symbol_table);
   }
 
   /// True once every symbol the comprehension references that this query part binds elsewhere is bound; symbols from
