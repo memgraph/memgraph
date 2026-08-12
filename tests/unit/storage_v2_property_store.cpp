@@ -549,23 +549,13 @@ STORE_TYPED_TEST(MoveAssignLarge) {
   ASSERT_EQ(props1.Properties().size(), 0);
 }
 
-STORE_TYPED_TEST(EmptySet) {
-  std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
-  PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
-  const TemporalData temporal{TemporalType::LocalDateTime, 23};
-  const auto zoned_temporal = GetSampleZonedTemporal();
-
-  std::vector<PropertyValue> data{PropertyValue(map),
-                                  PropertyValue(true),
-                                  PropertyValue(123),
-                                  PropertyValue(123.5),
-                                  PropertyValue("nandare"),
-                                  PropertyValue(vec),
-                                  PropertyValue(temporal),
-                                  PropertyValue(zoned_temporal)};
-
+/// One value set on an empty record, read back, compared and cleared. Written once so that
+/// the value types a store cannot encode yet can be exercised by a test of their own, rather
+/// than skipping the whole set alongside them.
+template <typename TStore>
+void CheckSetOnEmptyStore(PropertyValue const &value) {
   auto prop = PropertyId::FromInt(42);
-  for (const auto &value : data) {
+  {
     TStore props;
 
     ASSERT_TRUE(props.SetProperty(prop, value));
@@ -591,11 +581,33 @@ STORE_TYPED_TEST(EmptySet) {
   }
 }
 
-STORE_TYPED_TEST(FullSet) {
+STORE_TYPED_TEST(EmptySet) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
   PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
   const TemporalData temporal{TemporalType::LocalDateTime, 23};
-  const auto zoned_temporal = GetSampleZonedTemporal();
+
+  std::vector<PropertyValue> data{PropertyValue(map),
+                                  PropertyValue(true),
+                                  PropertyValue(123),
+                                  PropertyValue(123.5),
+                                  PropertyValue("nandare"),
+                                  PropertyValue(vec),
+                                  PropertyValue(temporal)};
+
+  for (const auto &value : data) {
+    CheckSetOnEmptyStore<TStore>(value);
+  }
+}
+
+STORE_TYPED_TEST(EmptySetZonedTemporal) { CheckSetOnEmptyStore<TStore>(PropertyValue(GetSampleZonedTemporal())); }
+
+/// One value of every type, which a store is then asked to hold all of at once. The zoned
+/// temporal is optional so that a store which cannot encode it yet is still measured on the
+/// rest, rather than skipping the whole set alongside it.
+auto SampleOfEveryType(bool with_zoned_temporal) -> std::map<PropertyId, PropertyValue> {
+  std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
+  PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
+  const TemporalData temporal{TemporalType::LocalDateTime, 23};
 
   std::map<PropertyId, PropertyValue> data{
       {PropertyId::FromInt(1), PropertyValue(map)},
@@ -605,14 +617,20 @@ STORE_TYPED_TEST(FullSet) {
       {PropertyId::FromInt(5), PropertyValue("nandare")},
       {PropertyId::FromInt(6), PropertyValue(vec)},
       {PropertyId::FromInt(7), PropertyValue(temporal)},
-      {PropertyId::FromInt(8), PropertyValue(zoned_temporal)},
       {PropertyId::FromInt(9), PropertyValue(Enum{EnumTypeId{2}, EnumValueId{42}})},
       {PropertyId::FromInt(10), PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}}},
       {PropertyId::FromInt(11), PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}}},
       {PropertyId::FromInt(12), PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}},
       {PropertyId::FromInt(13), PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}}},
   };
+  if (with_zoned_temporal) data.emplace(PropertyId::FromInt(8), PropertyValue(GetSampleZonedTemporal()));
+  return data;
+}
 
+/// Every property replaced, one at a time, by every value of `alt` and back again, with the
+/// rest of the record checked at each step.
+template <typename TStore>
+void CheckFullSet(std::map<PropertyId, PropertyValue> const &data) {
   std::vector<PropertyValue> alt{PropertyValue(),
                                  PropertyValue(std::string()),
                                  PropertyValue(std::string(10, 'a')),
@@ -697,6 +715,10 @@ STORE_TYPED_TEST(FullSet) {
     }
   }
 }
+
+STORE_TYPED_TEST(FullSet) { CheckFullSet<TStore>(SampleOfEveryType(/* with_zoned_temporal = */ false)); }
+
+STORE_TYPED_TEST(FullSetZonedTemporal) { CheckFullSet<TStore>(SampleOfEveryType(/* with_zoned_temporal = */ true)); }
 
 STORE_TYPED_TEST(IntEncoding) {
   std::map<PropertyId, PropertyValue> data{
@@ -1141,22 +1163,8 @@ STORE_TYPED_TEST(IsPropertyEqualEnum) {
   ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue{diff_value}));
 }
 
-STORE_TYPED_TEST(SetMultipleProperties) {
-  std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
-  PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
-  const TemporalData temporal{TemporalType::LocalDateTime, 23};
-  const auto zoned_temporal = GetSampleZonedTemporal();
-
-  // The order of property ids are purposfully not monotonic to test that TStore orders them properly
-  const std::vector<std::pair<PropertyId, PropertyValue>> data{{PropertyId::FromInt(1), PropertyValue(true)},
-                                                               {PropertyId::FromInt(10), PropertyValue(123)},
-                                                               {PropertyId::FromInt(3), PropertyValue(123.5)},
-                                                               {PropertyId::FromInt(4), PropertyValue("nandare")},
-                                                               {PropertyId::FromInt(12), PropertyValue(vec)},
-                                                               {PropertyId::FromInt(6), PropertyValue(map)},
-                                                               {PropertyId::FromInt(7), PropertyValue(temporal)},
-                                                               {PropertyId::FromInt(5), PropertyValue(zoned_temporal)}};
-
+template <typename TStore>
+void CheckSetMultipleProperties(std::vector<std::pair<PropertyId, PropertyValue>> const &data) {
   const std::map<PropertyId, PropertyValue> data_in_map{data.begin(), data.end()};
 
   auto check_store = [data](const TStore &store) {
@@ -1178,6 +1186,33 @@ STORE_TYPED_TEST(SetMultipleProperties) {
     EXPECT_FALSE(store.InitProperties(data_in_map));
     EXPECT_FALSE(store.InitProperties(data));
   }
+}
+
+/// The properties `SetMultipleProperties` sets at once. Their ids are purposefully not
+/// monotonic, to test that a store orders them itself. The zoned temporal is separated out so
+/// that a store which cannot encode it yet is still measured on the rest.
+auto SampleOfMultipleProperties(bool with_zoned_temporal) -> std::vector<std::pair<PropertyId, PropertyValue>> {
+  std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
+  PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
+  const TemporalData temporal{TemporalType::LocalDateTime, 23};
+
+  std::vector<std::pair<PropertyId, PropertyValue>> data{{PropertyId::FromInt(1), PropertyValue(true)},
+                                                         {PropertyId::FromInt(10), PropertyValue(123)},
+                                                         {PropertyId::FromInt(3), PropertyValue(123.5)},
+                                                         {PropertyId::FromInt(4), PropertyValue("nandare")},
+                                                         {PropertyId::FromInt(12), PropertyValue(vec)},
+                                                         {PropertyId::FromInt(6), PropertyValue(map)},
+                                                         {PropertyId::FromInt(7), PropertyValue(temporal)}};
+  if (with_zoned_temporal) data.emplace_back(PropertyId::FromInt(5), PropertyValue(GetSampleZonedTemporal()));
+  return data;
+}
+
+STORE_TYPED_TEST(SetMultipleProperties) {
+  CheckSetMultipleProperties<TStore>(SampleOfMultipleProperties(/* with_zoned_temporal = */ false));
+}
+
+STORE_TYPED_TEST(SetMultiplePropertiesZonedTemporal) {
+  CheckSetMultipleProperties<TStore>(SampleOfMultipleProperties(/* with_zoned_temporal = */ true));
 }
 
 STORE_TYPED_TEST(HasAllProperties) {
@@ -2502,7 +2537,6 @@ STORE_TYPED_TEST(DecodeExpectedPropertyType) {
   auto const prop9 = PropertyId::FromInt(9);
   auto const prop10 = PropertyId::FromInt(10);
   auto const prop11 = PropertyId::FromInt(11);
-  auto const prop12 = PropertyId::FromInt(12);
   auto const prop13 = PropertyId::FromInt(13);
   auto const prop14 = PropertyId::FromInt(14);
 
@@ -2520,7 +2554,6 @@ STORE_TYPED_TEST(DecodeExpectedPropertyType) {
         {prop9, PropertyValue(std::vector<std::variant<int, double>>{1, 2.0, 3})},
         {prop10, PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(1)}})},
         {prop11, PropertyValue(TemporalData(TemporalType::Date, 23))},
-        {prop12, PropertyValue(GetSampleZonedTemporal())},
         {prop13, PropertyValue(Enum{EnumTypeId{2}, EnumValueId{42}})},
         {prop14, PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}}},
     };
@@ -2536,7 +2569,6 @@ STORE_TYPED_TEST(DecodeExpectedPropertyType) {
     EXPECT_EQ(store.GetExtendedPropertyType(prop9), ExtendedPropertyType{PropertyValue::Type::List});
     EXPECT_EQ(store.GetExtendedPropertyType(prop10), ExtendedPropertyType{PropertyValue::Type::Map});
     EXPECT_EQ(store.GetExtendedPropertyType(prop11), ExtendedPropertyType{TemporalType::Date});
-    EXPECT_EQ(store.GetExtendedPropertyType(prop12), ExtendedPropertyType{PropertyValue::Type::ZonedTemporalData});
     EXPECT_EQ(store.GetExtendedPropertyType(prop13), ExtendedPropertyType{EnumTypeId{2}});
     EXPECT_EQ(store.GetExtendedPropertyType(prop14), ExtendedPropertyType{PropertyValue::Type::Point2d});
   }
@@ -2570,6 +2602,17 @@ STORE_TYPED_TEST(DecodeExpectedPropertyType) {
     EXPECT_EQ(type2.type, PropertyValue::Type::Enum);
     EXPECT_EQ(type2.enum_type, EnumTypeId{5});
   }
+}
+
+/// Split out of `DecodeExpectedPropertyType` so that a store which cannot encode a zoned
+/// temporal yet still reports the type of everything else it holds.
+STORE_TYPED_TEST(DecodeExpectedPropertyTypeZonedTemporal) {
+  auto const prop = PropertyId::FromInt(1);
+
+  TStore store;
+  std::vector<std::pair<PropertyId, PropertyValue>> data{{prop, PropertyValue(GetSampleZonedTemporal())}};
+  EXPECT_TRUE(store.InitProperties(data));
+  EXPECT_EQ(store.GetExtendedPropertyType(prop), ExtendedPropertyType{PropertyValue::Type::ZonedTemporalData});
 }
 
 //==============================================================================

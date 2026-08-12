@@ -45,9 +45,13 @@ namespace memgraph::storage {
 /// The registry is passed in rather than held, so a record costs nothing to point at the
 /// shapes it shares with every other record.
 ///
-/// Prototype scope: bool, integer, double, string, temporal data, enum and point. The
-/// remaining property types (zoned temporal, list, map, vector) are not encodable yet and
-/// throw `UnsupportedType`.
+/// A list or a map is one variable-width value like a string is: a self-describing blob of
+/// bytes in the variable region, tagged element by element. Nothing inside it is addressable
+/// on its own, so a nested value costs a walk of the blob rather than a shape of its own.
+///
+/// Prototype scope: bool, integer, double, string, list, map, temporal data, enum and point.
+/// The remaining property types (zoned temporal, vector) are not encodable yet and throw
+/// `UnsupportedType`, wherever in a value they appear.
 class ManifestPropertyStore {
  public:
   using PropertyPair = std::pair<PropertyId, PropertyValue>;

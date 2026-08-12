@@ -15,9 +15,13 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <ranges>
 #include <span>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <type_traits>
+#include <variant>
 
 #include "storage/v2/property_store.hpp"  // FLAGS_storage_floating_point_resolution_bits
 #include "utils/logging.hpp"
@@ -58,6 +62,103 @@ auto IntWidth(int64_t value) -> uint8_t {
   return 8;
 }
 
+/// Opens every value inside a list or a map. A list or a map is one opaque variable-width
+/// blob, so nothing about what it holds is in the shape and everything about it is in these
+/// tags: the blob describes itself.
+///
+/// Integers and doubles carry their width in the tag rather than in a shape, so a list keeps
+/// the same narrowing a scalar field gets, and a double the same reduced precision.
+enum class BlobTag : uint8_t {
+  Null,
+  False,
+  True,
+  Int8,
+  Int16,
+  Int32,
+  Int64,
+  Half,
+  Float,
+  Double,
+  String,
+  List,
+  IntList,
+  DoubleList,
+  NumericList,
+  Map,
+  TemporalData,
+  Enum,
+  Point2d,
+  Point3d,
+};
+
+/// Writes a blob, or measures one: given no destination it counts the bytes instead of
+/// writing them, which is how a record learns what room a list or a map needs before it is
+/// laid out.
+class BlobWriter {
+ public:
+  BlobWriter() = default;
+
+  explicit BlobWriter(uint8_t *out) : out_{out} {}
+
+  auto size() const -> uint32_t { return size_; }
+
+  void Bytes(void const *data, uint32_t count) {
+    if (out_ != nullptr) std::memcpy(out_ + size_, data, count);
+    size_ += count;
+  }
+
+  void Tag(BlobTag tag) {
+    auto const raw = static_cast<uint8_t>(tag);
+    Bytes(&raw, sizeof(raw));
+  }
+
+  template <typename T>
+  void Raw(T value) {
+    Bytes(&value, sizeof(value));
+  }
+
+  void Count(size_t count) { Raw(static_cast<uint32_t>(count)); }
+
+ private:
+  uint8_t *out_{};
+  uint32_t size_{};
+};
+
+/// Reads a blob back. The bytes were written by `BlobWriter`, so every read is of a length
+/// the tag stream has already fixed and there is nothing to bound check.
+class BlobReader {
+ public:
+  explicit BlobReader(uint8_t const *in) : in_{in} {}
+
+  auto Tag() -> BlobTag { return static_cast<BlobTag>(*in_++); }
+
+  template <typename T>
+  auto Raw() -> T {
+    T value{};
+    std::memcpy(&value, in_, sizeof(value));
+    in_ += sizeof(value);
+    return value;
+  }
+
+  auto Count() -> uint32_t { return Raw<uint32_t>(); }
+
+  /// The next `count` bytes, which the reader then skips over.
+  auto Bytes(uint32_t count) -> uint8_t const * {
+    auto const *at = in_;
+    in_ += count;
+    return at;
+  }
+
+ private:
+  uint8_t const *in_;
+};
+
+[[noreturn]] void ThrowUnsupported(PropertyValue const &value) {
+  auto message = std::ostringstream{};
+  message << "ManifestPropertyStore cannot yet encode a " << value.type() << " property";
+  throw ManifestPropertyStore::UnsupportedType{std::move(message).str()};
+}
+
 /// A value that carries a discriminator of its own puts it in the shape, which is what keeps
 /// its payload fixed width and every record of that shape identically laid out.
 auto StoredTypeOf(PropertyValue const &value) -> StoredType {
@@ -70,6 +171,13 @@ auto StoredTypeOf(PropertyValue const &value) -> StoredType {
       return StoredType::Fixed(PropertyStoreType::DOUBLE, DoubleWidth());
     case PropertyValueType::String:
       return StoredType::Variable(PropertyStoreType::STRING);
+    case PropertyValueType::List:
+    case PropertyValueType::IntList:
+    case PropertyValueType::DoubleList:
+    case PropertyValueType::NumericList:
+      return StoredType::Variable(PropertyStoreType::LIST);
+    case PropertyValueType::Map:
+      return StoredType::Variable(PropertyStoreType::MAP);
     case PropertyValueType::TemporalData:
       return StoredType::Fixed(
           PropertyStoreType::TEMPORAL_DATA, kTemporalWidth, static_cast<uint32_t>(value.ValueTemporalData().type));
@@ -82,18 +190,9 @@ auto StoredTypeOf(PropertyValue const &value) -> StoredType {
     case PropertyValueType::Point3d:
       return StoredType::Fixed(
           PropertyStoreType::POINT, kPoint3dWidth, static_cast<uint32_t>(value.ValuePoint3d().crs()));
-    default: {
-      auto message = std::ostringstream{};
-      message << "ManifestPropertyStore cannot yet encode a " << value.type() << " property";
-      throw ManifestPropertyStore::UnsupportedType{std::move(message).str()};
-    }
+    default:
+      ThrowUnsupported(value);
   }
-}
-
-/// Encoded length a variable-width value contributes to the variable region.
-auto VariableSize(PropertyValue const &value) -> uint32_t {
-  DMG_ASSERT(value.IsString(), "Only strings are variable width so far");
-  return static_cast<uint32_t>(value.ValueString().size());
 }
 
 /// Offset-table entry width for a variable region of `size` bytes.
@@ -289,6 +388,435 @@ auto FixedEquals(StoredType stored_type, std::span<uint8_t const> in, PropertyVa
   }
 }
 
+void EncodeBlobValue(PropertyValue const &value, BlobWriter &out);
+
+void EncodeBlobInt(int64_t value, BlobWriter &out) {
+  switch (IntWidth(value)) {
+    case 1:
+      out.Tag(BlobTag::Int8);
+      out.Raw(static_cast<int8_t>(value));
+      return;
+    case 2:
+      out.Tag(BlobTag::Int16);
+      out.Raw(static_cast<int16_t>(value));
+      return;
+    case 4:
+      out.Tag(BlobTag::Int32);
+      out.Raw(static_cast<int32_t>(value));
+      return;
+    default:
+      out.Tag(BlobTag::Int64);
+      out.Raw(value);
+      return;
+  }
+}
+
+void EncodeBlobDouble(double value, BlobWriter &out) {
+  switch (DoubleWidth()) {
+    case kHalfWidth:
+      out.Tag(BlobTag::Half);
+      out.Raw(fp16_ieee_from_fp32_value(static_cast<float>(value)));
+      return;
+    case kFloatWidth:
+      out.Tag(BlobTag::Float);
+      out.Raw(static_cast<float>(value));
+      return;
+    default:
+      out.Tag(BlobTag::Double);
+      out.Raw(value);
+      return;
+  }
+}
+
+void EncodeBlobValue(PropertyValue const &value, BlobWriter &out) {
+  switch (value.type()) {
+    case PropertyValueType::Null:
+      out.Tag(BlobTag::Null);
+      return;
+    case PropertyValueType::Bool:
+      out.Tag(value.ValueBool() ? BlobTag::True : BlobTag::False);
+      return;
+    case PropertyValueType::Int:
+      EncodeBlobInt(value.ValueInt(), out);
+      return;
+    case PropertyValueType::Double:
+      EncodeBlobDouble(value.ValueDouble(), out);
+      return;
+    case PropertyValueType::String: {
+      auto const &string = value.ValueString();
+      out.Tag(BlobTag::String);
+      out.Count(string.size());
+      out.Bytes(string.data(), static_cast<uint32_t>(string.size()));
+      return;
+    }
+    case PropertyValueType::List: {
+      auto const &list = value.ValueList();
+      out.Tag(BlobTag::List);
+      out.Count(list.size());
+      for (auto const &element : list) EncodeBlobValue(element, out);
+      return;
+    }
+    case PropertyValueType::IntList: {
+      auto const &list = value.ValueIntList();
+      out.Tag(BlobTag::IntList);
+      out.Count(list.size());
+      for (auto const element : list) EncodeBlobInt(element, out);
+      return;
+    }
+    case PropertyValueType::DoubleList: {
+      auto const &list = value.ValueDoubleList();
+      out.Tag(BlobTag::DoubleList);
+      out.Count(list.size());
+      for (auto const element : list) EncodeBlobDouble(element, out);
+      return;
+    }
+    case PropertyValueType::NumericList: {
+      auto const &list = value.ValueNumericList();
+      out.Tag(BlobTag::NumericList);
+      out.Count(list.size());
+      for (auto const &element : list) {
+        // Which alternative an element holds is kept, so a numeric list comes back with the
+        // integers it went in with rather than as doubles.
+        std::visit(
+            [&out](auto const number) {
+              if constexpr (std::is_integral_v<decltype(number)>) {
+                EncodeBlobInt(number, out);
+              } else {
+                EncodeBlobDouble(number, out);
+              }
+            },
+            element);
+      }
+      return;
+    }
+    case PropertyValueType::Map: {
+      auto const &map = value.ValueMap();
+      out.Tag(BlobTag::Map);
+      out.Count(map.size());
+      // In key order, which the map is already in, so decoding rebuilds it by appending and
+      // a comparison can walk both sides in step.
+      for (auto const &[key, element] : map) {
+        out.Raw(key.AsUint());
+        EncodeBlobValue(element, out);
+      }
+      return;
+    }
+    case PropertyValueType::TemporalData: {
+      auto const temporal = value.ValueTemporalData();
+      out.Tag(BlobTag::TemporalData);
+      out.Raw(static_cast<uint8_t>(temporal.type));
+      out.Raw(temporal.microseconds);
+      return;
+    }
+    case PropertyValueType::Enum: {
+      auto const enum_value = value.ValueEnum();
+      out.Tag(BlobTag::Enum);
+      out.Raw(enum_value.type_id().value_of());
+      out.Raw(enum_value.value_id().value_of());
+      return;
+    }
+    case PropertyValueType::Point2d: {
+      auto const point = value.ValuePoint2d();
+      out.Tag(BlobTag::Point2d);
+      out.Raw(static_cast<uint8_t>(point.crs()));
+      out.Raw(point.x());
+      out.Raw(point.y());
+      return;
+    }
+    case PropertyValueType::Point3d: {
+      auto const point = value.ValuePoint3d();
+      out.Tag(BlobTag::Point3d);
+      out.Raw(static_cast<uint8_t>(point.crs()));
+      out.Raw(point.x());
+      out.Raw(point.y());
+      out.Raw(point.z());
+      return;
+    }
+    default:
+      ThrowUnsupported(value);
+  }
+}
+
+/// The value an integer payload holds, at the width its tag gave it.
+auto DecodeBlobInt(BlobTag tag, BlobReader &in) -> int64_t {
+  switch (tag) {
+    case BlobTag::Int8:
+      return in.Raw<int8_t>();
+    case BlobTag::Int16:
+      return in.Raw<int16_t>();
+    case BlobTag::Int32:
+      return in.Raw<int32_t>();
+    default:
+      return in.Raw<int64_t>();
+  }
+}
+
+/// The value a floating point payload holds, at the resolution it was written at rather than
+/// the one currently in force.
+auto DecodeBlobDouble(BlobTag tag, BlobReader &in) -> double {
+  switch (tag) {
+    case BlobTag::Half:
+      return fp16_ieee_to_fp32_value(in.Raw<uint16_t>());
+    case BlobTag::Float:
+      return in.Raw<float>();
+    default:
+      return in.Raw<double>();
+  }
+}
+
+auto DecodeBlobValue(BlobReader &in) -> PropertyValue {
+  auto const tag = in.Tag();
+  switch (tag) {
+    case BlobTag::Null:
+      return PropertyValue{};
+    case BlobTag::False:
+      return PropertyValue{false};
+    case BlobTag::True:
+      return PropertyValue{true};
+    case BlobTag::Int8:
+    case BlobTag::Int16:
+    case BlobTag::Int32:
+    case BlobTag::Int64:
+      return PropertyValue{DecodeBlobInt(tag, in)};
+    case BlobTag::Half:
+    case BlobTag::Float:
+    case BlobTag::Double:
+      return PropertyValue{DecodeBlobDouble(tag, in)};
+    case BlobTag::String: {
+      auto const size = in.Count();
+      return PropertyValue{std::string_view{reinterpret_cast<char const *>(in.Bytes(size)), size}};
+    }
+    case BlobTag::List: {
+      auto const count = in.Count();
+      auto list = PropertyValue::list_t{};
+      list.reserve(count);
+      for (uint32_t i = 0; i != count; ++i) list.push_back(DecodeBlobValue(in));
+      return PropertyValue{std::move(list)};
+    }
+    case BlobTag::IntList: {
+      auto const count = in.Count();
+      auto list = PropertyValue::int_list_t{};
+      list.reserve(count);
+      for (uint32_t i = 0; i != count; ++i) list.push_back(static_cast<int>(DecodeBlobInt(in.Tag(), in)));
+      return PropertyValue{std::move(list)};
+    }
+    case BlobTag::DoubleList: {
+      auto const count = in.Count();
+      auto list = PropertyValue::double_list_t{};
+      list.reserve(count);
+      for (uint32_t i = 0; i != count; ++i) list.push_back(DecodeBlobDouble(in.Tag(), in));
+      return PropertyValue{std::move(list)};
+    }
+    case BlobTag::NumericList: {
+      auto const count = in.Count();
+      auto list = PropertyValue::numeric_list_t{};
+      list.reserve(count);
+      for (uint32_t i = 0; i != count; ++i) {
+        auto const element_tag = in.Tag();
+        if (element_tag == BlobTag::Half || element_tag == BlobTag::Float || element_tag == BlobTag::Double) {
+          list.emplace_back(DecodeBlobDouble(element_tag, in));
+        } else {
+          list.emplace_back(static_cast<int>(DecodeBlobInt(element_tag, in)));
+        }
+      }
+      return PropertyValue{std::move(list)};
+    }
+    case BlobTag::Map: {
+      auto const count = in.Count();
+      auto map = PropertyValue::map_t{};
+      map.reserve(count);
+      for (uint32_t i = 0; i != count; ++i) {
+        auto const key = PropertyId::FromUint(in.Raw<uint32_t>());
+        map.emplace(key, DecodeBlobValue(in));
+      }
+      return PropertyValue{std::move(map)};
+    }
+    case BlobTag::TemporalData: {
+      auto const type = static_cast<TemporalType>(in.Raw<uint8_t>());
+      return PropertyValue{TemporalData{type, in.Raw<int64_t>()}};
+    }
+    case BlobTag::Enum: {
+      auto const type_id = EnumTypeId{in.Raw<uint64_t>()};
+      return PropertyValue{Enum{type_id, EnumValueId{in.Raw<uint64_t>()}}};
+    }
+    case BlobTag::Point2d: {
+      auto const crs = static_cast<CoordinateReferenceSystem>(in.Raw<uint8_t>());
+      auto const x = in.Raw<double>();
+      return PropertyValue{Point2d{crs, x, in.Raw<double>()}};
+    }
+    case BlobTag::Point3d: {
+      auto const crs = static_cast<CoordinateReferenceSystem>(in.Raw<uint8_t>());
+      auto const x = in.Raw<double>();
+      auto const y = in.Raw<double>();
+      return PropertyValue{Point3d{crs, x, y, in.Raw<double>()}};
+    }
+  }
+  LOG_FATAL("Not a blob tag");
+}
+
+auto BlobEquals(BlobReader &in, PropertyValue const &value) -> bool;
+
+/// Whether the `count` elements a list blob holds are the elements of `value`, which may be a
+/// list of any of the four flavours. Numeric elements compare across flavours and across the
+/// integer/double divide, as `PropertyValue::operator==` has them.
+auto BlobListEquals(BlobReader &in, uint32_t count, PropertyValue const &value) -> bool {
+  auto const each_equal = [&in, count](auto const &list, auto as_value) {
+    if (list.size() != count) return false;
+    return std::ranges::all_of(list,
+                               [&in, &as_value](auto const &element) { return BlobEquals(in, as_value(element)); });
+  };
+
+  switch (value.type()) {
+    case PropertyValueType::List: {
+      auto const &list = value.ValueList();
+      if (list.size() != count) return false;
+      return std::ranges::all_of(list, [&in](PropertyValue const &element) { return BlobEquals(in, element); });
+    }
+    case PropertyValueType::IntList:
+      return each_equal(value.ValueIntList(), [](int element) { return PropertyValue{static_cast<int64_t>(element)}; });
+    case PropertyValueType::DoubleList:
+      return each_equal(value.ValueDoubleList(), [](double element) { return PropertyValue{element}; });
+    case PropertyValueType::NumericList:
+      return each_equal(value.ValueNumericList(), [](std::variant<int, double> const &element) {
+        return std::visit(
+            [](auto const number) {
+              if constexpr (std::is_integral_v<decltype(number)>) {
+                return PropertyValue{static_cast<int64_t>(number)};
+              } else {
+                return PropertyValue{number};
+              }
+            },
+            element);
+      });
+    default:
+      return false;
+  }
+}
+
+/// Whether the next value in a blob is `value`, without decoding the blob.
+///
+/// As with the fixed-width payloads, the comparison is on values and never on encodings: the
+/// same list may be written narrow in one record and wide in another, and a list of integers
+/// equals a list of the same numbers written as doubles.
+auto BlobEquals(BlobReader &in, PropertyValue const &value) -> bool {
+  auto const tag = in.Tag();
+  switch (tag) {
+    case BlobTag::Null:
+      return value.IsNull();
+    case BlobTag::False:
+      return value.IsBool() && !value.ValueBool();
+    case BlobTag::True:
+      return value.IsBool() && value.ValueBool();
+    case BlobTag::Int8:
+    case BlobTag::Int16:
+    case BlobTag::Int32:
+    case BlobTag::Int64: {
+      auto const stored = DecodeBlobInt(tag, in);
+      if (value.IsInt()) return value.ValueInt() == stored;
+      if (value.IsDouble()) return value.ValueDouble() == static_cast<double>(stored);
+      return false;
+    }
+    case BlobTag::Half:
+    case BlobTag::Float:
+    case BlobTag::Double: {
+      auto const stored = DecodeBlobDouble(tag, in);
+      if (value.IsDouble()) return value.ValueDouble() == stored;
+      if (value.IsInt()) return static_cast<double>(value.ValueInt()) == stored;
+      return false;
+    }
+    case BlobTag::String: {
+      auto const size = in.Count();
+      auto const *bytes = in.Bytes(size);
+      if (!value.IsString()) return false;
+      auto const &string = value.ValueString();
+      return string.size() == size && std::memcmp(bytes, string.data(), size) == 0;
+    }
+    case BlobTag::List:
+    case BlobTag::IntList:
+    case BlobTag::DoubleList:
+    case BlobTag::NumericList: {
+      auto const count = in.Count();
+      return BlobListEquals(in, count, value);
+    }
+    case BlobTag::Map: {
+      auto const count = in.Count();
+      if (!value.IsMap()) return false;
+      auto const &map = value.ValueMap();
+      if (map.size() != count) return false;
+      // Both sides are in key order, so one walk in step decides it.
+      for (auto const &[key, element] : map) {
+        if (in.Raw<uint32_t>() != key.AsUint()) return false;
+        if (!BlobEquals(in, element)) return false;
+      }
+      return true;
+    }
+    case BlobTag::TemporalData: {
+      auto const type = static_cast<TemporalType>(in.Raw<uint8_t>());
+      auto const microseconds = in.Raw<int64_t>();
+      return value.IsTemporalData() && value.ValueTemporalData() == TemporalData{type, microseconds};
+    }
+    case BlobTag::Enum: {
+      auto const type_id = EnumTypeId{in.Raw<uint64_t>()};
+      auto const value_id = EnumValueId{in.Raw<uint64_t>()};
+      return value.IsEnum() && value.ValueEnum() == Enum{type_id, value_id};
+    }
+    case BlobTag::Point2d: {
+      auto const crs = static_cast<CoordinateReferenceSystem>(in.Raw<uint8_t>());
+      auto const x = in.Raw<double>();
+      auto const y = in.Raw<double>();
+      return value.IsPoint2d() && value.ValuePoint2d() == Point2d{crs, x, y};
+    }
+    case BlobTag::Point3d: {
+      auto const crs = static_cast<CoordinateReferenceSystem>(in.Raw<uint8_t>());
+      auto const x = in.Raw<double>();
+      auto const y = in.Raw<double>();
+      auto const z = in.Raw<double>();
+      return value.IsPoint3d() && value.ValuePoint3d() == Point3d{crs, x, y, z};
+    }
+  }
+  LOG_FATAL("Not a blob tag");
+}
+
+/// Encoded length a variable-width value contributes to the variable region. A string is its
+/// own bytes; a list or a map is a blob, whose length is what writing it would come to.
+auto VariableSize(PropertyValue const &value) -> uint32_t {
+  if (value.IsString()) return static_cast<uint32_t>(value.ValueString().size());
+  auto measured = BlobWriter{};
+  EncodeBlobValue(value, measured);
+  return measured.size();
+}
+
+/// Writes a variable-width value into the variable region, returning its length.
+auto WriteVariable(PropertyValue const &value, uint8_t *out) -> uint32_t {
+  if (value.IsString()) {
+    auto const &string = value.ValueString();
+    std::memcpy(out, string.data(), string.size());
+    return static_cast<uint32_t>(string.size());
+  }
+  auto written = BlobWriter{out};
+  EncodeBlobValue(value, written);
+  return written.size();
+}
+
+auto DecodeVariable(StoredType stored_type, uint8_t const *begin, uint32_t size) -> PropertyValue {
+  if (stored_type.type == PropertyStoreType::STRING) {
+    return PropertyValue{std::string_view{reinterpret_cast<char const *>(begin), size}};
+  }
+  auto reader = BlobReader{begin};
+  return DecodeBlobValue(reader);
+}
+
+/// Whether a variable-width payload holds `value`, without decoding it.
+auto VariableEquals(StoredType stored_type, uint8_t const *begin, uint32_t size, PropertyValue const &value) -> bool {
+  if (stored_type.type == PropertyStoreType::STRING) {
+    if (!value.IsString()) return false;
+    auto const &string = value.ValueString();
+    return string.size() == size && std::memcmp(begin, string.data(), size) == 0;
+  }
+  auto reader = BlobReader{begin};
+  return BlobEquals(reader, value);
+}
+
 /// Bytes of presence bits a shape of `fields` fields needs.
 constexpr auto PresenceBytes(size_t fields) -> uint32_t { return static_cast<uint32_t>((fields + 7) / 8); }
 
@@ -396,8 +924,7 @@ auto ManifestPropertyStore::GetProperty(PropertyManifest const &manifest, Proper
   auto const *table = record + regions.offset_table;
   auto const end = ReadOffset(table, regions.offset_width, location.offset);
   auto const begin = location.offset == 0 ? 0U : ReadOffset(table, regions.offset_width, location.offset - 1);
-  return PropertyValue{
-      std::string{reinterpret_cast<char const *>(record + regions.variable + begin), static_cast<size_t>(end - begin)}};
+  return DecodeVariable(location.stored_type, record + regions.variable + begin, end - begin);
 }
 
 auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, PropertyId property) const -> PropertyValue {
@@ -432,13 +959,10 @@ auto ManifestPropertyStore::IsPropertyEqual(ManifestRegistry const &registry, Pr
         found->stored_type, std::span{record + regions.fixed + found->offset, found->stored_type.width}, value);
   }
 
-  if (!value.IsString()) return false;
   auto const *table = record + regions.offset_table;
   auto const end = ReadOffset(table, regions.offset_width, found->offset);
   auto const begin = found->offset == 0 ? 0U : ReadOffset(table, regions.offset_width, found->offset - 1);
-  auto const &string = value.ValueString();
-  if (string.size() != end - begin) return false;
-  return std::memcmp(record + regions.variable + begin, string.data(), string.size()) == 0;
+  return VariableEquals(found->stored_type, record + regions.variable + begin, end - begin, value);
 }
 
 auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -> utils::small_vector<PropertyPair> {
@@ -610,9 +1134,7 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::span<Proper
           value, location.stored_type, std::span{record + regions.fixed + location.offset, location.stored_type.width});
       continue;
     }
-    auto const size = VariableSize(value);
-    std::memcpy(record + regions.variable + variable_end, value.ValueString().data(), size);
-    variable_end += size;
+    variable_end += WriteVariable(value, record + regions.variable + variable_end);
     WriteOffset(record + regions.offset_table, offset_width, location.offset, variable_end);
   }
 }
