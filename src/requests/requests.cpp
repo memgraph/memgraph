@@ -15,11 +15,13 @@
 #include <curl/system.h>
 #include <fmt/format.h>
 #include <gflags/gflags.h>
+#include <array>
 #include <chrono>
 #include <compare>
 #include <cstdio>
 #include <ctre.hpp>
 #include <exception>
+#include <filesystem>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <sstream>
@@ -97,6 +99,27 @@ auto PostProgressCallback(void *clientp, curl_off_t /*dltotal*/, curl_off_t /*dl
   return 0;  // Continue transfer
 }
 
+// libcurl's default CA bundle path is a build-time constant, wrong on distros
+// other than the build host's; probe the standard locations at runtime.
+void SetCaInfo(CURL *curl) {
+  static const char *bundle = []() -> const char * {
+    constexpr std::array paths = {
+        "/etc/ssl/certs/ca-certificates.crt",  // Debian/Ubuntu
+        "/etc/pki/tls/certs/ca-bundle.crt",    // RHEL/Fedora/CentOS/Rocky
+        "/etc/ssl/ca-bundle.pem",              // SUSE
+        "/etc/ssl/cert.pem",                   // Alpine and others
+    };
+    for (const auto *path : paths) {
+      std::error_code ec;
+      if (std::filesystem::exists(path, ec)) return path;
+    }
+    return nullptr;  // keep libcurl's compiled-in default
+  }();
+  if (bundle != nullptr) {
+    curl_easy_setopt(curl, CURLOPT_CAINFO, bundle);
+  }
+}
+
 }  // namespace
 
 void Init() { curl_global_init(CURL_GLOBAL_ALL); }
@@ -128,6 +151,7 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
   curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10);
   curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_in_seconds);
+  SetCaInfo(curl);
 
   // Enable progress callback so an in-flight transfer can be aborted
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
@@ -185,6 +209,7 @@ bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, ui
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, DownloadProgressCb);
   // Fail fast on HTTP errors (don't write error pages to file)
   curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+  SetCaInfo(curl);
 
   res = curl_easy_perform(curl);
 
@@ -210,6 +235,7 @@ auto DownloadToStream(std::string_view url, std::ostream &os) -> bool {
   curl_easy_setopt(curl_handle, CURLOPT_URL, url.data());
   curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, +WriteCallback);
   curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &os);
+  SetCaInfo(curl_handle);
 
   auto const res = curl_easy_perform(curl_handle);
   long response_code = 0;  // NOLINT
