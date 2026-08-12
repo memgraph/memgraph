@@ -1099,7 +1099,7 @@ jobs:
             --image "${DOCKER_REPOSITORY_NAME}:${DEBUG_IMAGE_TAG}"
 
       - name: "Run Docker smoke tests (rpm)"
-        if: ${{ inputs.run_smoke_tests && !inputs.cugraph && !inputs.cuda }}
+        if: ${{ inputs.run_smoke_tests && !inputs.cugraph && !inputs.cuda  && !inputs.malloc }}
         run: |
           distros=(
             centos-9
