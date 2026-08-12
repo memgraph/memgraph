@@ -135,6 +135,10 @@ struct LicenseChecker {
  private:
   void RevalidateLicense(utils::Settings &settings);
 
+  // Written once at startup (SetCliLicense/CheckEnvLicense on the main thread) before the background
+  // scheduler and the Bolt server exist; thread creation publishes them to every later reader. This
+  // startup-only invariant is what makes these non-atomic fields safe -- a runtime writer would need
+  // the same serialisation as state_ (they are not trivially copyable, so they cannot be atomics).
   std::optional<std::pair<std::string, std::string>> cli_license_info_;
   std::optional<std::pair<std::string, std::string>> env_license_info_;
   mutable utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> previous_license_info_{std::nullopt};
