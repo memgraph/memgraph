@@ -100,6 +100,9 @@ class PropertyManifest {
 
  private:
   std::vector<ManifestEntry> entries_;
+  /// The ids of `entries_`, packed on their own so a search reads only the ids and touches
+  /// half the cache lines that walking the entries would.
+  std::vector<PropertyId> ids_;
   /// Parallel to `entries_`: byte offset for fixed values, offset-table index for variable ones.
   std::vector<uint32_t> offsets_;
   uint32_t fixed_region_size_{};

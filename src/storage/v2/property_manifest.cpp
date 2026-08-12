@@ -46,6 +46,8 @@ thread_local InternMemo memo{};
 
 PropertyManifest::PropertyManifest(std::vector<ManifestEntry> entries) : entries_{std::move(entries)} {
   offsets_.resize(entries_.size());
+  ids_.reserve(entries_.size());
+  for (auto const &entry : entries_) ids_.push_back(entry.property);
 
   // Fixed-width values occupy the front of the record, so each one's byte offset is a
   // prefix sum over the shape and needs nothing from the record itself.
@@ -63,15 +65,12 @@ PropertyManifest::PropertyManifest(std::vector<ManifestEntry> entries) : entries
 }
 
 auto PropertyManifest::Find(PropertyId property) const -> std::optional<Location> {
-  auto const it = r::lower_bound(entries_, property, {}, &ManifestEntry::property);
-  if (it == entries_.end() || it->property != property) return std::nullopt;
+  // A shape holds few properties, so a straight scan over the packed ids beats a binary
+  // search: no unpredictable branches, and the ids sit in a line or two of cache.
+  auto const it = r::find(ids_, property);
+  if (it == ids_.end()) return std::nullopt;
 
-  auto const position = static_cast<size_t>(it - entries_.begin());
-  return Location{
-      .is_fixed = it->stored_type.is_fixed_width(),
-      .offset = offsets_[position],
-      .stored_type = it->stored_type,
-  };
+  return LocationAt(static_cast<size_t>(it - ids_.begin()));
 }
 
 void ManifestRegistry::Publish(ManifestId id, PropertyManifest *manifest) {

@@ -154,6 +154,28 @@ TEST(PropertyManifest, FindReturnsNulloptForAbsentProperty) {
   EXPECT_FALSE(manifest.Find(Prop(3)).has_value());
 }
 
+// Searching a shape is a scan over its property ids, so a shape wide enough to run past
+// whatever the scan handles at a time has to still find every one of them.
+TEST(PropertyManifest, FindsEveryPropertyInAWideShape) {
+  ManifestRegistry registry;
+  constexpr uint32_t kProperties = 40;
+
+  std::vector<ManifestEntry> shape;
+  shape.reserve(kProperties);
+  for (uint32_t i = 0; i < kProperties; ++i) {
+    // Ids are spread out so a scan cannot accidentally work by treating them as positions.
+    shape.push_back(Entry(i * 3 + 1, i % 2 == 0 ? Int(4) : String()));
+  }
+  auto const &manifest = registry.Resolve(registry.Intern(shape));
+
+  for (uint32_t i = 0; i < kProperties; ++i) {
+    auto const found = manifest.Find(Prop(i * 3 + 1));
+    ASSERT_TRUE(found) << "property " << i * 3 + 1;
+    EXPECT_EQ(found->stored_type, i % 2 == 0 ? Int(4) : String());
+    EXPECT_FALSE(manifest.Find(Prop(i * 3 + 2)).has_value());
+  }
+}
+
 // A resolved manifest is held across many record reads, so interning must never move one.
 TEST(PropertyManifest, ResolvedManifestSurvivesFurtherInterning) {
   ManifestRegistry registry;
