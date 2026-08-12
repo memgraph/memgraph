@@ -114,10 +114,13 @@ class PropertyStore {
   /// allocations while performing the equality check. The time complexity of
   /// this function is O(n). `position_lookup` is an ordering mapping of values
   /// to match given property from `ordered_properties`, hence value for
-  /// `ordered_properties[0]` is `values[position_lookup[0]]`. The
-  /// returned results in std::vector<bool> correspond to `ordered_properties`
-  auto ArePropertiesEqual(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue const> values,
-                          std::span<std::size_t const> position_lookup) const -> std::vector<bool>;
+  /// `ordered_properties[0]` is `values[position_lookup[0]]`. The results
+  /// written to `result` correspond to `ordered_properties`.
+  ///
+  /// `result` is supplied by the caller, and its previous contents are discarded: the comparison
+  /// itself never allocated, a returned vector did, and both callers walk index entries in a loop.
+  void ArePropertiesEqual(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue const> values,
+                          std::span<std::size_t const> position_lookup, std::vector<bool> &result) const;
 
   /// Returns all properties currently stored in the store. The time complexity
   /// of this function is O(n).
