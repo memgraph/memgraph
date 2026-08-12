@@ -65,6 +65,7 @@ target_sources(mg-storage-v2
         inmemory/storage.cpp
         inmemory/unique_constraints.cpp
         point_functions.cpp
+        manifest_property_store.cpp
         property_manifest.cpp
         property_store.cpp
         property_value_utils.cpp
@@ -137,6 +138,7 @@ target_sources(mg-storage-v2
         point.hpp
         point_functions.hpp
         property_constants.hpp
+        manifest_property_store.hpp
         property_manifest.hpp
         property_store.hpp
         indexed_property_decoder.hpp
