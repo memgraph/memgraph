@@ -2916,7 +2916,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       // lock specifically to read wal_file_. Lock order main_lock_ -> engine_lock_ is respected, since
       // the UNIQUE hold above is on main_lock_.
       {
-        std::unique_lock engine_guard(engine_lock_);
+        std::unique_lock const engine_guard(engine_lock_);
         if (wal_file_) {
           wal_file_->FinalizeWal();
           wal_file_.reset();
