@@ -33,7 +33,12 @@ namespace memgraph::storage {
 ///
 /// A record is laid out as
 ///
-///     [presence bits][offset table][fixed payload][variable payload]
+///     [manifest id][presence bits][offset table][fixed payload][variable payload]
+///
+/// The manifest id is part of the record's bytes rather than a member of the object, so the
+/// object is the twelve bytes of its storage and nothing else: embedded in a vertex it then
+/// packs into the same sixteen-byte slot as the lock beside it, and a vertex with no
+/// properties at all pays nothing for the shape it does not have.
 ///
 /// The presence bits say which of the shape's fields this record actually carries, so
 /// removing a property clears a bit and leaves the shape, the layout and the allocation
@@ -121,18 +126,38 @@ class ManifestPropertyStore {
   /// Returns true when there was anything to remove.
   auto ClearProperties() -> bool;
 
-  auto manifest() const -> ManifestId { return manifest_; }
+  /// The shape this record is encoded to, read from the record's own bytes. An empty record
+  /// has no shape.
+  auto manifest() const -> ManifestId {
+    if (empty()) return ManifestId{};
+    // Four bytes are read for the three the id occupies, which is always a read the record's
+    // storage can answer: inline records live in `buffer_`, which has eleven bytes past the
+    // marker, and a heap record only exists once it outgrows those eleven, so its allocation
+    // is at least sixteen bytes.
+    uint32_t id = 0;
+    std::memcpy(&id, storage(), sizeof(id));
+    return ManifestId{id & kManifestIdMask};
+  }
 
   /// Bytes of storage this record occupies, excluding the shared manifest. A record that fits
-  /// inline owns the whole inline payload whatever it encodes into, so that is what it reports.
+  /// inline owns the whole inline capacity whatever it encodes into, so that is what it
+  /// reports. The manifest id counts, being part of the record's bytes.
   auto buffer_size() const -> uint32_t {
     if (empty()) return 0;
     return is_inline() ? kInlineCapacity : encoded_size();
   }
 
  private:
-  /// Payload bytes a record gets without allocating. One byte of `buffer_` is spent marking
-  /// that the record is inline, so the payload is that one byte short of the buffer.
+  /// Bytes a record spends on its manifest id, which its bytes start with. Three of them cap
+  /// the number of distinct shapes at sixteen million, far above the cap the registry already
+  /// imposes on itself (`kMaxChunks` manifests), and leave one more byte of payload inline
+  /// than a fourth byte would.
+  static constexpr uint32_t kManifestIdWidth = 3;
+  static constexpr uint32_t kManifestIdMask = (1U << (8U * kManifestIdWidth)) - 1U;
+
+  /// Record bytes a store gets without allocating, the manifest id among them. One byte of
+  /// `buffer_` is spent marking that the record is inline, so the capacity is that one byte
+  /// short of the buffer.
   static constexpr uint32_t kInlineCapacity = sizeof(uint32_t) + sizeof(uint8_t *) - 1;
 
   /// Written to the first byte of an inline record, whose remaining bytes are its payload.
@@ -172,23 +197,30 @@ class ManifestPropertyStore {
     std::memcpy(buffer_.data() + sizeof(size), static_cast<void const *>(&heap), sizeof(heap));
   }
 
-  auto data() -> uint8_t * { return is_inline() ? buffer_.data() + 1 : heap_data(); }
+  /// The record's bytes, manifest id first.
+  auto storage() -> uint8_t * { return is_inline() ? buffer_.data() + 1 : heap_data(); }
 
-  auto data() const -> uint8_t const * { return is_inline() ? buffer_.data() + 1 : heap_data(); }
+  auto storage() const -> uint8_t const * { return is_inline() ? buffer_.data() + 1 : heap_data(); }
 
-  /// Takes ownership of `size` bytes of storage, freeing whatever the record held before.
-  auto Reset(uint32_t size) -> uint8_t *;
+  /// The record's payload: the presence bits and everything after them, the manifest id the
+  /// storage starts with having been stepped over.
+  auto data() -> uint8_t * { return storage() + kManifestIdWidth; }
+
+  auto data() const -> uint8_t const * { return storage() + kManifestIdWidth; }
+
+  /// Takes ownership of storage for `manifest` and a payload of `size` bytes, freeing whatever
+  /// the record held before, and returns the payload.
+  auto Reset(ManifestId manifest, uint32_t size) -> uint8_t *;
 
   /// Frees the record's storage, if it had any of its own. Leaves `buffer_` as it was.
   void Release();
 
-  ManifestId manifest_{};
   /// Either the record itself, marker byte first, or the size and address of the heap storage
   /// holding it. Overlapping the two is what keeps a record that fits inline to eleven bytes
-  /// of payload without growing the object past a shape id and one word of storage.
+  /// without growing the object past one word of storage.
   std::array<uint8_t, 1 + kInlineCapacity> buffer_{};
 };
 
-static_assert(sizeof(ManifestPropertyStore) == 16, "A record should cost no more than its shape id, size and storage");
+static_assert(sizeof(ManifestPropertyStore) == 12, "A record should cost no more than its size and storage");
 
 }  // namespace memgraph::storage

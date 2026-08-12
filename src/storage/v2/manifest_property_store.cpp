@@ -1038,18 +1038,14 @@ constexpr auto ToMultipleOf8(uint32_t size) -> uint32_t { return (size + 7U) & ~
 
 }  // namespace
 
-ManifestPropertyStore::ManifestPropertyStore(ManifestPropertyStore &&other) noexcept
-    : manifest_{other.manifest_}, buffer_{other.buffer_} {
-  other.manifest_ = ManifestId{};
+ManifestPropertyStore::ManifestPropertyStore(ManifestPropertyStore &&other) noexcept : buffer_{other.buffer_} {
   other.buffer_ = {};
 }
 
 auto ManifestPropertyStore::operator=(ManifestPropertyStore &&other) noexcept -> ManifestPropertyStore & {
   if (this == &other) return *this;
   Release();
-  manifest_ = other.manifest_;
   buffer_ = other.buffer_;
-  other.manifest_ = ManifestId{};
   other.buffer_ = {};
   return *this;
 }
@@ -1060,17 +1056,23 @@ void ManifestPropertyStore::Release() {
   if (!empty() && !is_inline()) delete[] heap_data();
 }
 
-auto ManifestPropertyStore::Reset(uint32_t size) -> uint8_t * {
+auto ManifestPropertyStore::Reset(ManifestId manifest, uint32_t size) -> uint8_t * {
+  DMG_ASSERT(manifest.value <= kManifestIdMask, "A manifest id has to fit in the bytes a record gives it");
   Release();
   buffer_ = {};
-  if (size <= kInlineCapacity) {
-    buffer_[0] = kInlineMarker;
-    return buffer_.data() + 1;
-  }
-  auto const allocated = ToMultipleOf8(size);
-  auto *heap = new uint8_t[allocated]{};
-  SetHeap(allocated, heap);
-  return heap;
+  auto const total = kManifestIdWidth + size;
+  auto *storage = [&] {
+    if (total <= kInlineCapacity) {
+      buffer_[0] = kInlineMarker;
+      return buffer_.data() + 1;
+    }
+    auto const allocated = ToMultipleOf8(total);
+    auto *heap = new uint8_t[allocated]{};
+    SetHeap(allocated, heap);
+    return heap;
+  }();
+  std::memcpy(storage, &manifest.value, kManifestIdWidth);
+  return storage + kManifestIdWidth;
 }
 
 auto ManifestPropertyStore::GetProperty(PropertyManifest const &manifest, PropertyManifest::Location location) const
@@ -1096,7 +1098,7 @@ auto ManifestPropertyStore::GetProperty(PropertyManifest const &manifest, Proper
 auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, PropertyId property) const -> PropertyValue {
   if (empty()) return PropertyValue{};
 
-  auto const &manifest = registry.Resolve(manifest_);
+  auto const &manifest = registry.Resolve(this->manifest());
   auto const found = manifest.Find(property);
   if (!found) return PropertyValue{};
   return GetProperty(manifest, *found);
@@ -1104,7 +1106,7 @@ auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, Proper
 
 auto ManifestPropertyStore::HasProperty(ManifestRegistry const &registry, PropertyId property) const -> bool {
   if (empty()) return false;
-  auto const found = registry.Resolve(manifest_).Find(property);
+  auto const found = registry.Resolve(this->manifest()).Find(property);
   return found && IsPresent(data(), found->position);
 }
 
@@ -1112,7 +1114,7 @@ auto ManifestPropertyStore::IsPropertyEqual(ManifestRegistry const &registry, Pr
                                             PropertyValue const &value) const -> bool {
   if (empty()) return value.IsNull();
 
-  auto const &manifest = registry.Resolve(manifest_);
+  auto const &manifest = registry.Resolve(this->manifest());
   auto const found = manifest.Find(property);
   if (!found) return value.IsNull();
 
@@ -1135,7 +1137,7 @@ auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -
   auto properties = utils::small_vector<PropertyPair>{};
   if (empty()) return properties;
 
-  auto const &manifest = registry.Resolve(manifest_);
+  auto const &manifest = registry.Resolve(this->manifest());
   auto const *record = data();
   properties.reserve(manifest.size());
   for (uint32_t position = 0; position != manifest.size(); ++position) {
@@ -1148,7 +1150,7 @@ auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -
 
 auto ManifestPropertyStore::SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value)
     -> bool {
-  auto const found = empty() ? std::nullopt : registry.Resolve(manifest_).Find(property);
+  auto const found = empty() ? std::nullopt : registry.Resolve(this->manifest()).Find(property);
   auto const present = found && IsPresent(data(), found->position);
 
   // Removing only clears a bit: the shape, the layout and the allocation all stay as they
@@ -1161,7 +1163,7 @@ auto ManifestPropertyStore::SetProperty(ManifestRegistry &registry, PropertyId p
   // The common update keeps the shape: the field is already there, at the same type and
   // width, so the value goes straight into the slot the shape points at.
   if (found && found->is_fixed && found->stored_type == StoredTypeOf(value)) {
-    auto const &manifest = registry.Resolve(manifest_);
+    auto const &manifest = registry.Resolve(this->manifest());
     auto *record = data();
     auto const regions = RegionsOf(manifest, record);
     EncodeFixed(value, found->stored_type, std::span{record + regions.fixed + found->offset, found->stored_type.width});
@@ -1215,8 +1217,7 @@ void ManifestPropertyStore::ReserveFields(ManifestRegistry &registry, std::span<
   auto const header = presence + (manifest.variable_count() == 0 ? 0U : 1U + manifest.variable_count() * offset_width);
   auto const total = header + manifest.fixed_region_size();
 
-  manifest_ = manifest_id;
-  auto *record = Reset(total);
+  auto *record = Reset(manifest_id, total);
   if (manifest.variable_count() != 0) record[presence] = offset_width;
 }
 
@@ -1224,7 +1225,6 @@ auto ManifestPropertyStore::ClearProperties() -> bool {
   if (empty()) return false;
   Release();
   buffer_ = {};
-  manifest_ = ManifestId{};
   return true;
 }
 
@@ -1243,7 +1243,7 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::span<Proper
   // laid the record out for what it was about to set would otherwise lose that the first
   // time a value arrived that could not go straight into its slot.
   if (!empty()) {
-    auto const &current = registry.Resolve(manifest_);
+    auto const &current = registry.Resolve(this->manifest());
     auto const *record = data();
     auto merged = utils::small_vector<ManifestEntry>{};
     merged.reserve(entries.size() + current.size());
@@ -1273,8 +1273,7 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::span<Proper
 
   // Safe to write straight into the record's new storage: the values come from the caller or
   // from a decoded copy, so none of them point into the storage being replaced.
-  manifest_ = manifest_id;
-  auto *record = Reset(total);
+  auto *record = Reset(manifest_id, total);
   if (manifest.variable_count() != 0) record[presence] = offset_width;
 
   auto const regions = RegionsOf(manifest, record);
