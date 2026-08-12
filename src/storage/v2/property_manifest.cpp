@@ -31,6 +31,20 @@ auto Canonicalise(std::span<ManifestEntry const> entries) -> std::vector<Manifes
   return canonical;
 }
 
+/// The widest of two shapes of one class: every integer taken at the greater of the two
+/// widths. This is where a class moves when a shape arrives that its current widest cannot
+/// stand in for, and it is a join, so threads widening a class concurrently converge on the
+/// same shape however their updates interleave.
+auto Join(std::span<ManifestEntry const> lhs, std::span<ManifestEntry const> rhs) -> std::vector<ManifestEntry> {
+  DMG_ASSERT(SameShapeClass(lhs, rhs), "Only shapes of one class can be joined");
+  auto joined = std::vector<ManifestEntry>{lhs.begin(), lhs.end()};
+  for (size_t position = 0; position != joined.size(); ++position) {
+    auto &width = joined[position].stored_type.width;
+    width = std::max(width, rhs[position].stored_type.width);
+  }
+  return joined;
+}
+
 /// The shape a thread interned last, and what it got. A load builds record after record of
 /// the same shape, so this answers nearly every intern without touching anything shared.
 struct InternMemo {
@@ -126,13 +140,17 @@ auto ManifestRegistry::Intern(std::span<ManifestEntry const> entries) -> Manifes
   DMG_ASSERT(r::adjacent_find(shape, {}, &ManifestEntry::property) == shape.end(),
              "A manifest cannot hold the same property twice");
 
-  if (memo.instance == instance_ && r::equal(memo.shape, shape)) return memo.id;
+  // The memo answers for every shape the one it holds can stand in for, not only for that
+  // shape itself. Once a class's widest shape has been seen, the narrower records a load goes
+  // on to build are served without touching anything shared.
+  if (memo.instance == instance_ && Dominates(memo.shape, shape)) return memo.id;
 
+  return Promote(shape);
+}
+
+auto ManifestRegistry::InternCanonical(std::span<ManifestEntry const> shape) -> ManifestId {
   auto accessor = shapes_.access();
-  if (auto const it = accessor.find(shape); it != accessor.end()) {
-    Remember(shape, it->id);
-    return it->id;
-  }
+  if (auto const it = accessor.find(shape); it != accessor.end()) return it->id;
 
   // Take an id, make the manifest readable at it, and only then let the shape be found. Two
   // threads racing on the same shape both publish; the one that loses the insert leaves an
@@ -140,9 +158,48 @@ auto ManifestRegistry::Intern(std::span<ManifestEntry const> entries) -> Manifes
   auto const id = ManifestId{next_id_.fetch_add(1, std::memory_order_acq_rel)};
   auto owned = std::vector<ManifestEntry>{shape.begin(), shape.end()};
   Publish(id, new PropertyManifest{owned});
-  auto const interned = accessor.insert(ShapeEntry{.shape = std::move(owned), .id = id}).first->id;
-  Remember(shape, interned);
-  return interned;
+  return accessor.insert(ShapeEntry{.shape = std::move(owned), .id = id}).first->id;
+}
+
+auto ManifestRegistry::Promote(std::span<ManifestEntry const> shape) -> ManifestId {
+  auto accessor = promotions_.access();
+  auto entry = accessor.find(shape);
+  if (entry == accessor.end()) {
+    // Nothing of this class has been seen, so this shape is its widest by definition.
+    auto const id = InternCanonical(shape);
+    auto const [existing, inserted] =
+        accessor.insert(PromotionEntry{.shape_class = {shape.begin(), shape.end()}, .widest = id.value});
+    if (inserted) {
+      Remember(shape, id);
+      return id;
+    }
+    // Another thread claimed the class first; take theirs, and leave the shape just interned
+    // where it is. It is a real shape either way, and may well be the one the class settles on.
+    entry = existing;
+  }
+
+  auto widest = std::atomic_ref{entry->widest};
+  auto best = widest.load(std::memory_order_acquire);
+  while (true) {
+    auto const &best_shape = Resolve(ManifestId{best}).entries();
+    if (Dominates(best_shape, shape)) {
+      // Remember what the class actually holds rather than what was asked for, so the memo
+      // goes on answering for the narrower shapes still to come.
+      Remember(best_shape, ManifestId{best});
+      return ManifestId{best};
+    }
+
+    // Wider than anything the class has, so the class moves up to the widest of the two. The
+    // shape it moves off stays exactly where it is: records already encoded to it go on
+    // decoding through it.
+    auto const joined = Join(best_shape, shape);
+    auto const id = InternCanonical(joined);
+    if (widest.compare_exchange_weak(best, id.value, std::memory_order_acq_rel, std::memory_order_acquire)) {
+      Remember(joined, id);
+      return id;
+    }
+    // Another thread widened the class first; its shape may already cover this one.
+  }
 }
 
 auto ManifestRegistry::Resolve(ManifestId id) const -> PropertyManifest const & {

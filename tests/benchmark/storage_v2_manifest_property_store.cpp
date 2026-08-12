@@ -17,6 +17,7 @@
 #include <benchmark/benchmark.h>
 
 #include <map>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -411,6 +412,38 @@ void ManifestInitRecordThreaded(benchmark::State &state) {
 
 BENCHMARK(CurrentInitRecordThreaded)->ThreadRange(1, 8)->Unit(benchmark::kNanosecond)->UseRealTime();
 BENCHMARK(ManifestInitRecordThreaded)->ThreadRange(1, 8)->Unit(benchmark::kNanosecond)->UseRealTime();
+
+// Records of one logical type do not all encode to one shape: an integer property whose
+// values straddle a width boundary yields a different shape either side of it. On the dataset
+// this benchmark's record comes from, `id` and `bucket` between them put ~22% of records on a
+// shape other than the previous record's, which is a miss in the per-thread memo of the last
+// shape interned. This builds records the same way, so the cost of that is visible.
+void ManifestInitRecordMixedWidths(benchmark::State &state) {
+  ManifestRegistry registry;
+
+  // `id` climbs past its width boundaries as a load does; `bucket` straddles one at random,
+  // which is what makes consecutive records disagree.
+  auto records = std::vector<std::vector<std::pair<PropertyId, PropertyValue>>>{};
+  std::mt19937 gen(7);
+  std::uniform_int_distribution<int64_t> bucket(0, 999);
+  for (int64_t i = 0; i < 4096; ++i) {
+    auto properties = ItemProperties();
+    properties[0].second = PropertyValue(i * 3000);  // crosses 1, 2 and 4 byte widths
+    properties[3].second = PropertyValue(bucket(gen));
+    records.push_back(std::move(properties));
+  }
+
+  size_t next = 0;
+  for (auto _ : state) {
+    ManifestPropertyStore store;
+    store.InitProperties(registry, records[next++ % records.size()]);
+    benchmark::DoNotOptimize(store);
+  }
+  state.SetItemsProcessed(state.iterations());
+  state.counters["shapes"] = static_cast<double>(registry.size());
+}
+
+BENCHMARK(ManifestInitRecordMixedWidths)->Unit(benchmark::kNanosecond);
 
 }  // namespace
 

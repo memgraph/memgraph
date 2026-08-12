@@ -59,6 +59,51 @@ struct ManifestEntry {
   friend bool operator==(ManifestEntry const &, ManifestEntry const &) = default;
 };
 
+/// Orders two entries by their shape class: everything about them except how wide an integer
+/// happens to be. Integers are the only type whose stored width varies with the value rather
+/// than with the type, so leaving that width out of the ordering is what makes the width
+/// variants of one shape order and compare as one.
+///
+/// This sits on the interning path, where a lookup runs it once per entry per skip list node
+/// it passes, so it answers in one pass rather than through a pair of `<` comparisons.
+constexpr auto ClassCompare(ManifestEntry const &lhs, ManifestEntry const &rhs) -> std::strong_ordering {
+  if (auto const order = lhs.property <=> rhs.property; order != 0) return order;
+  if (auto const order = lhs.stored_type.type <=> rhs.stored_type.type; order != 0) return order;
+  if (auto const order = lhs.stored_type.discriminator <=> rhs.stored_type.discriminator; order != 0) return order;
+  if (lhs.stored_type.type == PropertyStoreType::INT) return std::strong_ordering::equal;
+  return lhs.stored_type.width <=> rhs.stored_type.width;
+}
+
+constexpr auto SameShapeClass(std::span<ManifestEntry const> lhs, std::span<ManifestEntry const> rhs) -> bool {
+  if (lhs.size() != rhs.size()) return false;
+  for (size_t position = 0; position != lhs.size(); ++position) {
+    if (ClassCompare(lhs[position], rhs[position]) != 0) return false;
+  }
+  return true;
+}
+
+constexpr auto ShapeClassLess(std::span<ManifestEntry const> lhs, std::span<ManifestEntry const> rhs) -> bool {
+  auto const common = std::min(lhs.size(), rhs.size());
+  for (size_t position = 0; position != common; ++position) {
+    if (auto const order = ClassCompare(lhs[position], rhs[position]); order != 0) return order < 0;
+  }
+  return lhs.size() < rhs.size();
+}
+
+/// True when `wide` can stand in for `narrow`: the same fields, in the same order, at the
+/// same types, with every integer at least as wide. Every value `narrow` can hold encodes
+/// into `wide` unchanged, so a caller that asked for `narrow` loses nothing by being handed
+/// `wide` instead.
+constexpr auto Dominates(std::span<ManifestEntry const> wide, std::span<ManifestEntry const> narrow) -> bool {
+  if (wide.size() != narrow.size()) return false;
+  for (size_t position = 0; position != wide.size(); ++position) {
+    if (ClassCompare(wide[position], narrow[position]) != 0) return false;
+    // Outside of integers the class already fixes the width, so this only tests integers.
+    if (wide[position].stored_type.width < narrow[position].stored_type.width) return false;
+  }
+  return true;
+}
+
 /// Identifies an interned manifest. This is what a record stores in place of its property
 /// ids and types.
 struct ManifestId {
@@ -140,6 +185,12 @@ class ManifestRegistry {
   /// Interns `entries`, which need not be sorted; the shape is canonicalised by property id
   /// so the order properties were written in never creates a second manifest. Passing them
   /// already sorted avoids a copy.
+  ///
+  /// Shapes that differ only by how wide their integers are do not each get a manifest. A
+  /// shape whose integers all fit in one already known is answered with that one, and a
+  /// shape that is wider moves its class up to the widest of the two. The returned manifest
+  /// therefore stores every field at least as wide as asked for, which is what a caller has
+  /// to expect: encode and decode through the manifest, never through the widths handed in.
   auto Intern(std::span<ManifestEntry const> entries) -> ManifestId;
 
   auto Resolve(ManifestId id) const -> PropertyManifest const &;
@@ -174,9 +225,42 @@ class ManifestRegistry {
     }
   };
 
+  /// The widest shape interned so far for one shape class, meaning one set of fields at one
+  /// set of types, however wide its integers happen to be. Interning any member of the class
+  /// hands back this shape, so a load whose integers straddle a width boundary builds one
+  /// manifest rather than the cross product of its fields' widths.
+  ///
+  /// Only ever widened, never retired: a record already encoded to a narrower shape of the
+  /// class keeps that shape and goes on decoding through it.
+  struct PromotionEntry {
+    /// Any shape of the class; only its width-erased form is ever compared.
+    std::vector<ManifestEntry> shape_class;
+    /// Id of the widest shape seen for the class. Read and updated through `std::atomic_ref`
+    /// rather than held as an atomic, because the skip list has to be able to move the entry
+    /// into place. The widths that go with it are read from the manifest the id names, so one
+    /// load gives a consistent pair.
+    uint32_t widest;
+
+    bool operator<(PromotionEntry const &other) const { return ShapeClassLess(shape_class, other.shape_class); }
+
+    bool operator==(PromotionEntry const &other) const { return SameShapeClass(shape_class, other.shape_class); }
+
+    bool operator<(std::span<ManifestEntry const> other) const { return ShapeClassLess(shape_class, other); }
+
+    bool operator==(std::span<ManifestEntry const> other) const { return SameShapeClass(shape_class, other); }
+  };
+
   /// Makes `manifest` readable at `id`. Published before the id can be found, so a thread
   /// that sees the id sees a complete manifest.
   void Publish(ManifestId id, PropertyManifest *manifest);
+
+  /// Interns `shape` exactly as given, creating a manifest for it if this is the first time
+  /// it has been seen. Knows nothing about width classes.
+  auto InternCanonical(std::span<ManifestEntry const> shape) -> ManifestId;
+
+  /// The manifest `shape` is served by: the widest shape of its class, widening the class
+  /// first if `shape` is wider than anything seen for it.
+  auto Promote(std::span<ManifestEntry const> shape) -> ManifestId;
 
   /// Distinguishes this registry from any other, including one that reuses its address
   /// after it is destroyed. The per-thread memo is keyed on it so it can never answer with
@@ -190,6 +274,7 @@ class ManifestRegistry {
   void Remember(std::span<ManifestEntry const> shape, ManifestId id) const;
 
   utils::SkipList<ShapeEntry> shapes_;
+  utils::SkipList<PromotionEntry> promotions_;
   std::array<std::atomic<Chunk *>, kMaxChunks> chunks_{};
   std::atomic<uint32_t> next_id_{0};
 };

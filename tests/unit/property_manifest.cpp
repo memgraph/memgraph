@@ -12,12 +12,15 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <barrier>
+#include <random>
 #include <thread>
 #include <vector>
 
 #include "storage/v2/property_manifest.hpp"
 
+using memgraph::storage::Dominates;
 using memgraph::storage::ManifestEntry;
 using memgraph::storage::ManifestRegistry;
 using memgraph::storage::PropertyId;
@@ -35,6 +38,12 @@ StoredType Double() { return StoredType::Fixed(PropertyStoreType::DOUBLE, 8); }
 StoredType Bool() { return StoredType::Fixed(PropertyStoreType::BOOL, 1); }
 
 StoredType String() { return StoredType::Variable(PropertyStoreType::STRING); }
+
+StoredType Temporal(uint32_t temporal_type) {
+  return StoredType::Fixed(PropertyStoreType::TEMPORAL_DATA, 8, temporal_type);
+}
+
+StoredType Point(uint8_t width, uint32_t crs) { return StoredType::Fixed(PropertyStoreType::POINT, width, crs); }
 
 ManifestEntry Entry(uint32_t id, StoredType type) { return ManifestEntry{.property = Prop(id), .stored_type = type}; }
 
@@ -83,9 +92,26 @@ TEST(PropertyManifest, ShapesDifferingOnlyByTypeAreDistinct) {
   EXPECT_NE(as_int, as_double);
 }
 
-// Width class is part of the shape: keeping int compression means a value that grows past
-// its width class lands in a different manifest.
-TEST(PropertyManifest, ShapesDifferingOnlyByWidthClassAreDistinct) {
+// Width class is not part of a record's identity. A shape whose integers all fit in one
+// already known is served by that one, so values straddling a width boundary cost a wider
+// record rather than a second manifest.
+TEST(PropertyManifest, ANarrowShapeIsServedByAWiderOne) {
+  ManifestRegistry registry;
+
+  auto const wide = registry.Intern(std::vector{Entry(1, Int(8))});
+  auto const narrow = registry.Intern(std::vector{Entry(1, Int(1))});
+
+  EXPECT_EQ(narrow, wide);
+  EXPECT_EQ(registry.size(), 1);
+  EXPECT_EQ(registry.Resolve(narrow).fixed_region_size(), 8);
+  EXPECT_EQ(registry.Resolve(narrow).Find(Prop(1))->stored_type, Int(8));
+}
+
+// The other order cannot reuse what is there, because a record of the wider shape does not
+// fit the narrower one. The class moves up to the wider shape and every narrow shape after
+// it follows, while the shape left behind stays exactly as it was for the records already
+// encoded to it.
+TEST(PropertyManifest, AWiderShapeMovesItsClassUpWithoutDisturbingTheNarrowOne) {
   ManifestRegistry registry;
 
   auto const narrow = registry.Intern(std::vector{Entry(1, Int(1))});
@@ -94,6 +120,81 @@ TEST(PropertyManifest, ShapesDifferingOnlyByWidthClassAreDistinct) {
   EXPECT_NE(narrow, wide);
   EXPECT_EQ(registry.Resolve(narrow).fixed_region_size(), 1);
   EXPECT_EQ(registry.Resolve(wide).fixed_region_size(), 8);
+
+  // Everything of that class now lands on the wider shape.
+  EXPECT_EQ(registry.Intern(std::vector{Entry(1, Int(1))}), wide);
+  EXPECT_EQ(registry.Intern(std::vector{Entry(1, Int(2))}), wide);
+  EXPECT_EQ(registry.Intern(std::vector{Entry(1, Int(8))}), wide);
+  EXPECT_EQ(registry.size(), 2);
+}
+
+// Two shapes each wider than the other in a different field are both covered by neither, so
+// the class moves to the widest of the two rather than to either one of them.
+TEST(PropertyManifest, AClassMovesToTheWidestOfTwoIncomparableShapes) {
+  ManifestRegistry registry;
+
+  auto const wide_first = registry.Intern(std::vector{Entry(1, Int(8)), Entry(2, Int(1))});
+  auto const wide_second = registry.Intern(std::vector{Entry(1, Int(1)), Entry(2, Int(8))});
+  auto const &joined = registry.Resolve(wide_second);
+
+  EXPECT_NE(wide_first, wide_second);
+  EXPECT_EQ(joined.Find(Prop(1))->stored_type, Int(8));
+  EXPECT_EQ(joined.Find(Prop(2))->stored_type, Int(8));
+  EXPECT_EQ(registry.Intern(std::vector{Entry(1, Int(8)), Entry(2, Int(1))}), wide_second);
+  EXPECT_EQ(registry.Intern(std::vector{Entry(1, Int(1)), Entry(2, Int(1))}), wide_second);
+}
+
+// The whole point of the cross product a load produces: one property that outgrows a byte
+// and another that outgrows four costs one manifest, not four.
+TEST(PropertyManifest, AWidthCrossProductCollapsesToOneShape) {
+  ManifestRegistry registry;
+
+  for (auto const first : {1, 2, 4, 8}) {
+    for (auto const second : {1, 2, 4, 8}) {
+      registry.Intern(
+          std::vector{Entry(1, Int(static_cast<uint8_t>(first))), Entry(2, Int(static_cast<uint8_t>(second)))});
+    }
+  }
+
+  auto const settled = registry.Intern(std::vector{Entry(1, Int(1)), Entry(2, Int(1))});
+  EXPECT_EQ(registry.Resolve(settled).fixed_region_size(), 16);
+  for (auto const first : {1, 2, 4, 8}) {
+    for (auto const second : {1, 2, 4, 8}) {
+      EXPECT_EQ(registry.Intern(std::vector{Entry(1, Int(static_cast<uint8_t>(first))),
+                                            Entry(2, Int(static_cast<uint8_t>(second)))}),
+                settled);
+    }
+  }
+}
+
+// Promotion widens integers and nothing else. A width that belongs to the type rather than
+// to the value, or a discriminator the shape carries so the payload can stay fixed width, is
+// never something a shape can be promoted across.
+TEST(PropertyManifest, PromotionNeverCrossesATypeBoundary) {
+  ManifestRegistry registry;
+
+  auto const as_int = registry.Intern(std::vector{Entry(1, Int(8))});
+  auto const as_double = registry.Intern(std::vector{Entry(1, Double())});
+  auto const as_string = registry.Intern(std::vector{Entry(1, String())});
+  auto const as_bool = registry.Intern(std::vector{Entry(1, Bool())});
+  EXPECT_NE(as_int, as_double);
+  EXPECT_NE(as_int, as_string);
+  EXPECT_NE(as_int, as_bool);
+  // A one-byte integer must not be answered with the one-byte bool.
+  EXPECT_NE(registry.Intern(std::vector{Entry(1, Int(1))}), as_bool);
+
+  // Same type and same width, told apart only by the discriminator the shape carries.
+  auto const date = registry.Intern(std::vector{Entry(1, Temporal(1))});
+  auto const duration = registry.Intern(std::vector{Entry(1, Temporal(2))});
+  EXPECT_NE(date, duration);
+  EXPECT_EQ(registry.Resolve(date).Find(Prop(1))->stored_type, Temporal(1));
+
+  // Same type, different arity: a two dimensional point is not a narrow three dimensional one.
+  auto const point_2d = registry.Intern(std::vector{Entry(1, Point(16, 1))});
+  auto const point_3d = registry.Intern(std::vector{Entry(1, Point(24, 2))});
+  EXPECT_NE(point_2d, point_3d);
+  EXPECT_EQ(registry.Resolve(point_2d).fixed_region_size(), 16);
+  EXPECT_EQ(registry.Resolve(point_3d).fixed_region_size(), 24);
 }
 
 TEST(PropertyManifest, FixedValuesGetPrefixSumOffsetsInPropertyOrder) {
@@ -318,6 +419,50 @@ TEST(PropertyManifest, ConcurrentInterningOfOneShapeYieldsOneManifest) {
   for (auto const &per_thread : seen) {
     EXPECT_TRUE(std::ranges::all_of(per_thread, [&](auto id) { return id == expected; }));
   }
+}
+
+// Interning is lock free, so threads widening one class race with one another. However their
+// updates interleave, no thread may be handed a shape too narrow for what it asked for, and
+// the class has to settle on one shape that covers every width any of them used.
+TEST(PropertyManifest, ConcurrentInterningOfMixedWidthsConverges) {
+  ManifestRegistry registry;
+  constexpr auto kThreads = 8;
+  constexpr auto kRounds = 500;
+  constexpr std::array kWidths{uint8_t{1}, uint8_t{2}, uint8_t{4}, uint8_t{8}};
+
+  std::barrier start{kThreads};
+  std::vector<std::jthread> threads;
+  threads.reserve(kThreads);
+
+  for (auto t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&, t] {
+      // Each thread draws its own width sequence, so the order the class is widened in
+      // differs from run to run.
+      std::mt19937 rng(t);
+      std::uniform_int_distribution<size_t> pick(0, kWidths.size() - 1);
+      start.arrive_and_wait();
+      for (auto round = 0; round < kRounds; ++round) {
+        auto const shape =
+            std::vector{Entry(1, Int(kWidths[pick(rng)])), Entry(2, String()), Entry(3, Int(kWidths[pick(rng)]))};
+        auto const &manifest = registry.Resolve(registry.Intern(shape));
+        ASSERT_TRUE(Dominates(manifest.entries(), shape)) << "handed a shape too narrow to encode into";
+      }
+    });
+  }
+  threads.clear();  // join
+
+  auto const settled = registry.Intern(std::vector{Entry(1, Int(1)), Entry(2, String()), Entry(3, Int(1))});
+  auto const &manifest = registry.Resolve(settled);
+  EXPECT_EQ(manifest.Find(Prop(1))->stored_type, Int(8));
+  EXPECT_EQ(manifest.Find(Prop(3))->stored_type, Int(8));
+  for (auto const first : kWidths) {
+    for (auto const third : kWidths) {
+      EXPECT_EQ(registry.Intern(std::vector{Entry(1, Int(first)), Entry(2, String()), Entry(3, Int(third))}), settled);
+    }
+  }
+  // Only shapes of the one class were ever asked for, so nothing outside its cross product
+  // can have been created however the threads raced.
+  EXPECT_LE(registry.size(), kWidths.size() * kWidths.size());
 }
 
 TEST(PropertyManifest, ConcurrentInterningOfDistinctShapesKeepsThemDistinct) {
