@@ -398,9 +398,10 @@ TEST_F(ManifestPropertyStoreTest, RemovingAStringLeavesTheOtherValuesReadable) {
   EXPECT_EQ(store_.Properties(registry_).size(), 2);
 }
 
-// A field that is no longer carried should not follow the record around forever: the next
-// change of shape leaves it behind.
-TEST_F(ManifestPropertyStoreTest, AShapeChangeDropsRemovedFields) {
+// A field the record is laid out for but does not carry survives a change of shape, so that
+// laying a record out in advance is not undone by the first value that has to reshape it.
+// The cost is that a removed field keeps its slot until the record is cleared.
+TEST_F(ManifestPropertyStoreTest, AShapeChangeKeepsFieldsTheRecordNoLongerCarries) {
   Set(1, PropertyValue(int64_t{1}));
   Set(2, PropertyValue(int64_t{2}));
   Set(2, PropertyValue());
@@ -408,8 +409,9 @@ TEST_F(ManifestPropertyStoreTest, AShapeChangeDropsRemovedFields) {
   Set(3, PropertyValue(int64_t{3}));  // adding a property re-interns the shape
 
   auto const &manifest = registry_.Resolve(store_.manifest());
-  EXPECT_EQ(manifest.size(), 2);
-  EXPECT_FALSE(manifest.Find(Prop(2)).has_value());
+  EXPECT_EQ(manifest.size(), 3);
+  EXPECT_TRUE(manifest.Find(Prop(2)).has_value());
+  EXPECT_TRUE(Get(2).IsNull());
   EXPECT_EQ(store_.Properties(registry_).size(), 2);
 }
 
@@ -426,6 +428,72 @@ TEST_F(ManifestPropertyStoreTest, RecordsWithDifferentFieldsMissingShareAShape) 
 
   EXPECT_EQ(store_.manifest(), other.manifest());
   EXPECT_EQ(registry_.size(), shapes_before);
+}
+
+// A caller that knows which properties it is about to set can have the record laid out for
+// them once, and then every set lands in a slot that is already there.
+TEST_F(ManifestPropertyStoreTest, ReservedFieldsAreFilledWithoutReshaping) {
+  using memgraph::storage::ManifestEntry;
+  using memgraph::storage::PropertyStoreType;
+  using memgraph::storage::StoredType;
+
+  auto const fields = std::vector<ManifestEntry>{
+      {.property = Prop(1), .stored_type = StoredType::Fixed(PropertyStoreType::INT, 4)},
+      {.property = Prop(2), .stored_type = StoredType::Fixed(PropertyStoreType::DOUBLE, 8)},
+      {.property = Prop(3), .stored_type = StoredType::Fixed(PropertyStoreType::BOOL, 1)},
+  };
+  store_.ReserveFields(registry_, fields);
+  auto const shape = store_.manifest();
+  auto const shapes_after_reserving = registry_.size();
+
+  // Reserved but not yet given a value: the record carries nothing.
+  EXPECT_TRUE(store_.Properties(registry_).empty());
+  EXPECT_FALSE(store_.HasProperty(registry_, Prop(1)));
+
+  EXPECT_TRUE(store_.SetProperty(registry_, Prop(1), PropertyValue(int64_t{70000})));
+  EXPECT_TRUE(store_.SetProperty(registry_, Prop(2), PropertyValue(2.5)));
+  EXPECT_TRUE(store_.SetProperty(registry_, Prop(3), PropertyValue(true)));
+
+  EXPECT_EQ(store_.manifest(), shape);
+  EXPECT_EQ(registry_.size(), shapes_after_reserving);
+  EXPECT_EQ(Get(1), PropertyValue(int64_t{70000}));
+  EXPECT_EQ(Get(2), PropertyValue(2.5));
+  EXPECT_EQ(Get(3), PropertyValue(true));
+}
+
+// The reservation is a guess about widths and types. A value that does not fit the guess has
+// to still be stored correctly, by reshaping the record as it would have anyway.
+TEST_F(ManifestPropertyStoreTest, AValueWiderThanReservedStillStores) {
+  using memgraph::storage::ManifestEntry;
+  using memgraph::storage::PropertyStoreType;
+  using memgraph::storage::StoredType;
+
+  store_.ReserveFields(registry_,
+                       std::vector<ManifestEntry>{
+                           {.property = Prop(1), .stored_type = StoredType::Fixed(PropertyStoreType::INT, 1)},
+                           {.property = Prop(2), .stored_type = StoredType::Fixed(PropertyStoreType::INT, 1)},
+                       });
+  Set(1, PropertyValue(int64_t{5}));
+
+  Set(2, PropertyValue(int64_t{1} << 40));  // far wider than the byte reserved for it
+
+  EXPECT_EQ(Get(1), PropertyValue(int64_t{5}));
+  EXPECT_EQ(Get(2), PropertyValue(int64_t{1} << 40));
+}
+
+TEST_F(ManifestPropertyStoreTest, ReservingLeavesTheRecordEmptyNotAbsent) {
+  using memgraph::storage::ManifestEntry;
+  using memgraph::storage::PropertyStoreType;
+  using memgraph::storage::StoredType;
+
+  store_.ReserveFields(registry_,
+                       std::vector<ManifestEntry>{
+                           {.property = Prop(1), .stored_type = StoredType::Variable(PropertyStoreType::STRING)},
+                       });
+
+  EXPECT_TRUE(Get(1).IsNull());
+  EXPECT_TRUE(store_.SetProperty(registry_, Prop(1), PropertyValue(std::string{"late"})));
+  EXPECT_EQ(Get(1), PropertyValue(std::string{"late"}));
 }
 
 TEST_F(ManifestPropertyStoreTest, ClearRemovesEverything) {

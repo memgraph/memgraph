@@ -259,6 +259,77 @@ void ManifestBuildRecord(benchmark::State &state) {
 BENCHMARK(CurrentBuildRecord)->Unit(benchmark::kNanosecond);
 BENCHMARK(ManifestBuildRecord)->Unit(benchmark::kNanosecond);
 
+// The same record built one property at a time, but laid out up front for the properties it
+// is about to be given, which is what a planner knows from the query text.
+void ManifestBuildRecordReserved(benchmark::State &state) {
+  ManifestRegistry registry;
+  auto const properties = ItemProperties();
+
+  auto fields = std::vector<memgraph::storage::ManifestEntry>{};
+  {
+    // What the planner would work out once: the fields, and how wide each one will be.
+    ManifestPropertyStore probe;
+    probe.InitProperties(registry, properties);
+    auto const &manifest = registry.Resolve(probe.manifest());
+    fields.assign(manifest.entries().begin(), manifest.entries().end());
+  }
+
+  for (auto _ : state) {
+    ManifestPropertyStore store;
+    store.ReserveFields(registry, fields);
+    for (auto const &[id, value] : properties) store.SetProperty(registry, id, value);
+    benchmark::DoNotOptimize(store);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK(ManifestBuildRecordReserved)->Unit(benchmark::kNanosecond);
+
+// The same again with only the fixed-width properties, to separate the cost of filling a
+// reserved slot from the cost of a value whose width is not known until it arrives.
+void ManifestBuildRecordReservedFixedOnly(benchmark::State &state) {
+  ManifestRegistry registry;
+  auto all = ItemProperties();
+  auto properties = std::vector<std::pair<PropertyId, PropertyValue>>{};
+  for (auto const &pair : all) {
+    if (!pair.second.IsString()) properties.push_back(pair);
+  }
+
+  auto fields = std::vector<memgraph::storage::ManifestEntry>{};
+  {
+    ManifestPropertyStore probe;
+    probe.InitProperties(registry, properties);
+    auto const &manifest = registry.Resolve(probe.manifest());
+    fields.assign(manifest.entries().begin(), manifest.entries().end());
+  }
+
+  for (auto _ : state) {
+    ManifestPropertyStore store;
+    store.ReserveFields(registry, fields);
+    for (auto const &[id, value] : properties) store.SetProperty(registry, id, value);
+    benchmark::DoNotOptimize(store);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+void ManifestBuildRecordFixedOnly(benchmark::State &state) {
+  ManifestRegistry registry;
+  auto all = ItemProperties();
+  auto properties = std::vector<std::pair<PropertyId, PropertyValue>>{};
+  for (auto const &pair : all) {
+    if (!pair.second.IsString()) properties.push_back(pair);
+  }
+  for (auto _ : state) {
+    ManifestPropertyStore store;
+    for (auto const &[id, value] : properties) store.SetProperty(registry, id, value);
+    benchmark::DoNotOptimize(store);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK(ManifestBuildRecordFixedOnly)->Unit(benchmark::kNanosecond);
+BENCHMARK(ManifestBuildRecordReservedFixedOnly)->Unit(benchmark::kNanosecond);
+
 // Building a record the way a load does, with every property known up front.
 void CurrentInitRecord(benchmark::State &state) {
   auto const properties = std::map<PropertyId, PropertyValue>{ItemProperties().begin(), ItemProperties().end()};

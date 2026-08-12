@@ -82,6 +82,13 @@ class ManifestPropertyStore {
   /// Convenience overload for callers that already hold a map.
   auto InitProperties(ManifestRegistry &registry, std::map<PropertyId, PropertyValue> const &properties) -> bool;
 
+  /// Lays a record out for fields it is about to be given, leaving all of them absent. A
+  /// caller that knows which properties it will set, as a planner does for the properties
+  /// named in a query, can then set each one straight into its slot instead of reshaping the
+  /// record once per property. A value that does not match the type or width reserved for it
+  /// still works, at the cost of the reshaping this avoids.
+  void ReserveFields(ManifestRegistry &registry, std::span<ManifestEntry const> fields);
+
   /// Returns true when there was anything to remove.
   auto ClearProperties() -> bool;
 

@@ -373,6 +373,22 @@ auto ManifestPropertyStore::InitProperties(ManifestRegistry &registry,
   return true;
 }
 
+void ManifestPropertyStore::ReserveFields(ManifestRegistry &registry, std::span<ManifestEntry const> fields) {
+  if (fields.empty()) return;
+
+  auto const manifest_id = registry.Intern(fields);
+  auto const &manifest = registry.Resolve(manifest_id);
+  auto const presence = PresenceBytes(manifest.size());
+  // Nothing is present yet, so the variable region is empty and its offsets are all zero.
+  auto const offset_width = OffsetWidth(0);
+  auto const header = presence + (manifest.variable_count() == 0 ? 0U : 1U + manifest.variable_count() * offset_width);
+  auto const total = header + manifest.fixed_region_size();
+
+  manifest_ = manifest_id;
+  auto *record = Reset(total);
+  if (manifest.variable_count() != 0) record[presence] = offset_width;
+}
+
 auto ManifestPropertyStore::ClearProperties() -> bool {
   if (size_ == 0) return false;
   if (size_ > kInlineCapacity) delete[] heap_;
@@ -390,6 +406,26 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::span<Proper
     auto const stored_type = StoredTypeOf(value);
     entries.push_back(ManifestEntry{.property = id, .stored_type = stored_type});
     if (!stored_type.is_fixed_width()) variable_bytes += VariableSize(value);
+  }
+
+  // Fields the record is laid out for but does not carry stay in the shape. A caller that
+  // laid the record out for what it was about to set would otherwise lose that the first
+  // time a value arrived that could not go straight into its slot.
+  if (size_ != 0) {
+    auto const &current = registry.Resolve(manifest_);
+    auto const *record = data();
+    auto merged = utils::small_vector<ManifestEntry>{};
+    merged.reserve(entries.size() + current.size());
+    auto next = size_t{0};
+    for (uint32_t position = 0; position != current.size(); ++position) {
+      if (IsPresent(record, position)) continue;
+      auto const &field = current.entries()[position];
+      while (next != entries.size() && entries[next].property < field.property) merged.push_back(entries[next++]);
+      if (next != entries.size() && entries[next].property == field.property) continue;  // a value is arriving
+      merged.push_back(field);
+    }
+    while (next != entries.size()) merged.push_back(entries[next++]);
+    entries = std::move(merged);
   }
 
   if (entries.empty()) {
@@ -412,14 +448,22 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::span<Proper
 
   auto const regions = RegionsOf(manifest, record);
   auto variable_end = uint32_t{0};
-  // The properties and the shape's fields are both in property order, and the shape was
-  // built from these very properties, so the shape can be walked by position.
-  auto position = uint32_t{0};
-  for (auto const &[id, value] : properties) {
-    if (value.IsNull()) continue;
+  // Walk every field of the shape, not only those a value is arriving for. A field the record
+  // is laid out for but does not carry still owns a slot in the offset table, and that slot
+  // has to hold the running end, or the value after it would appear to start where it does.
+  auto next = size_t{0};
+  for (uint32_t position = 0; position != manifest.size(); ++position) {
+    auto const field = manifest.entries()[position].property;
+    while (next != properties.size() && (properties[next].second.IsNull() || properties[next].first < field)) ++next;
+
     auto const location = manifest.LocationAt(position);
+    if (next == properties.size() || properties[next].first != field) {
+      if (!location.is_fixed) WriteOffset(record + regions.offset_table, offset_width, location.offset, variable_end);
+      continue;
+    }
+
+    auto const &value = properties[next++].second;
     SetPresent(record, position, true);
-    ++position;
     if (location.is_fixed) {
       EncodeFixed(
           value, location.stored_type, std::span{record + regions.fixed + location.offset, location.stored_type.width});
