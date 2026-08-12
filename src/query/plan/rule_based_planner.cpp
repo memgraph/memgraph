@@ -865,9 +865,37 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   return last_op;
 }
 
+/// The ON CREATE / ON MATCH clauses of every MERGE in @p clause, descending into FOREACH bodies.
+void CollectMergeBranchClauses(query::Clause *clause, std::vector<query::Clause *> &out) {
+  if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+    out.append_range(merge->on_create_);
+    out.append_range(merge->on_match_);
+  } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
+    for (auto *nested : foreach->clauses_) {
+      CollectMergeBranchClauses(nested, out);
+    }
+  }
+}
+
 }  // namespace
 
 namespace impl {
+
+std::unordered_set<Symbol> OriginatingIn(
+    const query::Clause *clause,
+    const std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions) {
+  std::unordered_set<Symbol> symbols;
+  for (const auto &[sym, pc] : pending_comprehensions) {
+    if (pc.origin_clause == clause) symbols.insert(sym);
+  }
+  return symbols;
+}
+
+std::unordered_set<Symbol> MergeBranchComprehensions(query::Clause *clause, const SymbolTable &symbol_table) {
+  std::vector<query::Clause *> branch_clauses;
+  CollectMergeBranchClauses(clause, branch_clauses);
+  return CollectPatternComprehensionSymbols(branch_clauses, symbol_table);
+}
 
 std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<Clause *> &clauses,
                                                               const SymbolTable &symbol_table) {

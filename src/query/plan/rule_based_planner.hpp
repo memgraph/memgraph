@@ -205,6 +205,18 @@ Expression *BoolJoin(AstStorage &storage, Expression *expr1, Expression *expr2) 
 std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<Clause *> &clauses,
                                                               const SymbolTable &symbol_table);
 
+/// Result symbols of the pending comprehensions @p clause originates, i.e. the ones its own expressions evaluate.
+/// A drain restricted to these cannot take a comprehension belonging to a clause further down the chain, which is what
+/// put the RollUpApply below a write clause preceding the one that reads it (#4134) and below Accumulate (the
+/// Accumulate freeze).
+std::unordered_set<Symbol> OriginatingIn(
+    const query::Clause *clause,
+    const std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions);
+
+/// Result symbols of the comprehensions the ON CREATE / ON MATCH of every MERGE in @p clause reads, descending into
+/// FOREACH bodies. `GenMerge` splices each onto the branch that evaluates it, so no chain above may drain them first.
+std::unordered_set<Symbol> MergeBranchComprehensions(query::Clause *clause, const SymbolTable &symbol_table);
+
 /// Applies the variable-length rule to the view a drain site would otherwise use, from the single place every
 /// comprehension - nested ones included - passes through, @c RuleBasedPlanner::PlanPatternComprehension.
 ///
@@ -377,10 +389,11 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             // ON CREATE / ON MATCH comprehensions originate here too; GenMerge splices each onto the branch that
             // reads it, so this chain must not take them first.
-            auto only = OriginatingIn(clause, pending_comprehensions);
-            std::erase_if(only, [branch = MergeBranchComprehensions(clause, *context.symbol_table)](const Symbol &sym) {
-              return branch.contains(sym);
-            });
+            auto only = impl::OriginatingIn(clause, pending_comprehensions);
+            std::erase_if(only,
+                          [branch = impl::MergeBranchComprehensions(clause, *context.symbol_table)](const Symbol &sym) {
+                            return branch.contains(sym);
+                          });
             // GenMerge's ON MATCH narrowing asks whether a clause *before* this MERGE wrote.
             bool const wrote_before_merge = write_occurred;
             // A MERGE may create, so it counts as a write - marked before its own drain, as at every other write
@@ -409,14 +422,14 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
           } else if (IsWriteClause(clause)) {
             context.is_write_query = true;
             write_occurred = true;
-            plan_and_apply_comprehensions(OriginatingIn(clause, pending_comprehensions));
+            plan_and_apply_comprehensions(impl::OriginatingIn(clause, pending_comprehensions));
             auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols);
             MG_ASSERT(op, "Expected write clause to be handled");
             input_op = std::move(op);
           } else if (auto *unwind = utils::Downcast<query::Unwind>(clause)) {
             const auto &symbol = context.symbol_table->at(*unwind->named_expression_);
             context.bound_symbols.insert(symbol);
-            plan_and_apply_comprehensions(OriginatingIn(clause, pending_comprehensions));
+            plan_and_apply_comprehensions(impl::OriginatingIn(clause, pending_comprehensions));
             input_op =
                 std::make_unique<plan::Unwind>(std::move(input_op), unwind->named_expression_->expression_, symbol);
           } else if (auto *call_proc = utils::Downcast<query::CallProcedure>(clause)) {
@@ -428,7 +441,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             // Arguments and YIELD ... WHERE need opposite splice points, so this clause drains twice with the same
             // set and lets DepsSatisfied choose: a comprehension reading a YIELD symbol is refused below, where that
             // symbol is registered in query_part_symbols_.all but not yet bound, and accepted above once it is.
-            auto const only = OriginatingIn(clause, pending_comprehensions);
+            auto const only = impl::OriginatingIn(clause, pending_comprehensions);
             plan_and_apply_comprehensions(only);
             for (const auto &sym : result_symbols) {
               context.bound_symbols.insert(sym);
@@ -490,11 +503,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             // One set gates both chains, whichever binds the symbols first. Forced: `ForeachCursor::Pull` evaluates
             // the list expression before writing the loop variable, so a list comprehension must drain here, and
             // `origin_clause` is the whole FOREACH. An uncorrelated body one is therefore hoisted out of the loop.
-            auto only = OriginatingIn(clause, pending_comprehensions);
+            auto only = impl::OriginatingIn(clause, pending_comprehensions);
             // A nested MERGE's branch comprehensions belong to GenMerge, as for a top-level one.
-            std::erase_if(only, [branch = MergeBranchComprehensions(clause, *context.symbol_table)](const Symbol &sym) {
-              return branch.contains(sym);
-            });
+            std::erase_if(only,
+                          [branch = impl::MergeBranchComprehensions(clause, *context.symbol_table)](const Symbol &sym) {
+                            return branch.contains(sym);
+                          });
             plan_and_apply_comprehensions(only);
             input_op = HandleForeachClause(foreach,
                                            std::move(input_op),
@@ -1417,38 +1431,6 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     }
 
     return last_op;
-  }
-
-  /// Result symbols of the pending comprehensions @p clause originates, i.e. the ones its own expressions evaluate.
-  /// A drain restricted to these cannot take a comprehension belonging to a clause further down the chain, which is
-  /// what put the RollUpApply below a write clause preceding the one that reads it (#4134) and below Accumulate (the
-  /// Accumulate freeze).
-  static std::unordered_set<Symbol> OriginatingIn(
-      const query::Clause *clause,
-      const std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions) {
-    std::unordered_set<Symbol> symbols;
-    for (const auto &[sym, pc] : pending_comprehensions) {
-      if (pc.origin_clause == clause) symbols.insert(sym);
-    }
-    return symbols;
-  }
-
-  /// The ON CREATE / ON MATCH clauses of every MERGE in @p clause, descending into FOREACH bodies.
-  static void CollectMergeBranchClauses(query::Clause *clause, std::vector<query::Clause *> &out) {
-    if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-      out.append_range(merge->on_create_);
-      out.append_range(merge->on_match_);
-    } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
-      for (auto *nested : foreach->clauses_) {
-        CollectMergeBranchClauses(nested, out);
-      }
-    }
-  }
-
-  static std::unordered_set<Symbol> MergeBranchComprehensions(query::Clause *clause, const SymbolTable &symbol_table) {
-    std::vector<query::Clause *> branch_clauses;
-    CollectMergeBranchClauses(clause, branch_clauses);
-    return impl::CollectPatternComprehensionSymbols(branch_clauses, symbol_table);
   }
 
   /// True once every symbol the comprehension references that this query part binds elsewhere is bound; symbols from
