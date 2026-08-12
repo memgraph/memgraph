@@ -2566,7 +2566,7 @@ class CallProcedure : public memgraph::query::Clause {
   std::vector<memgraph::query::Identifier *> result_identifiers_;
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
-  bool is_write_;
+  bool is_write_{false};
   bool void_procedure_{false};
   memgraph::query::Where *where_{nullptr};
 

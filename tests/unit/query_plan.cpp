@@ -5637,9 +5637,9 @@ TYPED_TEST(TestPlanner, PatternComprehensionInReturnStaysAboveSameClauseCreate) 
 TYPED_TEST(TestPlanner, MergeBranchComprehensionOverOuterSymbolStaysInBranch) {
   // Test MATCH (p) MERGE (q) ON CREATE SET q.prop = [(p)-[e]->(m) | m]
   // `p` is already bound, so the pre-GenMerge drain found the comprehension satisfiable and took it onto the main
-  // chain - as the Merge's *input*, so the slot was written, but computed before the MERGE created anything and on the
-  // pre-MERGE view, and computed even on rows whose branch never reads it. The branch set is subtracted from the main
-  // chain's drain so it reaches the branch instead, after the create and on View::NEW.
+  // chain - as the Merge's *input*, so the slot was written, but computed before the MERGE created anything, and
+  // computed even on rows whose branch never reads it. The branch set is subtracted from the main chain's drain so it
+  // reaches the branch instead, after the create. The view is View::NEW either way, so plan shape is what this pins.
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
 
@@ -5701,8 +5701,9 @@ TYPED_TEST(TestPlanner, UncorrelatedPatternComprehensionAfterWriteReadsViewNew) 
 TYPED_TEST(TestPlanner, PatternComprehensionOverYieldedSymbolStaysAboveCallProcedure) {
   // Test CALL proc() YIELD field WHERE size([(a)-[e]->(b) WHERE b.prop = field | b]) > 0 RETURN field
   // The comprehension reads `field`, which the CallProcedure itself binds, so it cannot be spliced below that
-  // operator: there the frame slot is unwritten on the first input row and stale from the previous row on every later
-  // one, so the branch filter silently matches nothing. It belongs above the CallProcedure, below the Filter.
+  // operator: there the frame slot is unwritten when the branch runs, so the branch filter silently matches nothing. It
+  // belongs above the CallProcedure, below the Filter. (With a preceding clause supplying more than one input row the
+  // slot is stale from the previous row rather than unwritten - same defect, order-dependent instead of empty.)
   //
   // Expected chain (bottom-up): Once -> CallProcedure -> RollUpApply -> Filter -> Produce
   FakeDbAccessor dba;
@@ -5798,6 +5799,42 @@ TYPED_TEST(TestPlanner, PatternComprehensionInForeachBodyAfterWriteReadsViewNew)
   EXPECT_EQ(scan_all->view_, memgraph::storage::View::NEW)
       << "a FOREACH is a write clause and the CREATE before it wrote, so the body reads View::NEW - the correlation "
          "in the comprehension's WHERE must not change that";
+  EXPECT_EQ(expand->view_, memgraph::storage::View::NEW);
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInMergePatternReadsViewNew) {
+  // Test MERGE (n:A {prop: size([()-[]->() | 1])})
+  // A MERGE is a write clause, so the comprehension in its own pattern reads View::NEW - on a later row the MERGE's
+  // own earlier writes have to be visible, exactly as they are for CREATE. The MERGE used to mark itself a write only
+  // *after* its own drain, so this one read View::OLD while the CREATE twin read View::NEW.
+  //
+  // The pattern atoms are anonymous on purpose: `UsedSymbolsCollector` collects only *user-declared* identifiers from
+  // inside a comprehension, so a user-declared one would land in the property filter's used_symbols, never become
+  // bound, and the query would fail in filter generation before reaching the drain.
+  FakeDbAccessor dba;
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(nullptr,
+                                             PATTERN(NODE("anon_a", std::nullopt, false),
+                                                     EDGE("anon_e", EdgeAtom::Direction::OUT, {}, false),
+                                                     NODE("anon_b", std::nullopt, false)),
+                                             nullptr,
+                                             LITERAL(1));
+
+  auto *node_n = NODE("n", "A");
+  std::get<0>(node_n->properties_)[this->storage.GetPropertyIx("prop")] = pattern_comp;
+
+  auto *query = QUERY(SINGLE_QUERY(MERGE(PATTERN(node_n))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *rollup = FindOpOfType<RollUpApply>(&planner.plan());
+  ASSERT_NE(rollup, nullptr) << "expected a RollUpApply for the comprehension in the MERGE pattern";
+  auto *expand = FindOpOfType<Expand>(rollup->list_collection_branch_.get());
+  ASSERT_NE(expand, nullptr);
+  auto *scan_all = dynamic_cast<ScanAll *>(expand->input_.get());
+  ASSERT_NE(scan_all, nullptr);
+  EXPECT_EQ(scan_all->view_, memgraph::storage::View::NEW)
+      << "the MERGE is a write clause, so a comprehension in its own pattern reads View::NEW";
   EXPECT_EQ(expand->view_, memgraph::storage::View::NEW);
 }
 

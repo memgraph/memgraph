@@ -1091,8 +1091,8 @@ Feature: Pattern comprehensions
             | 1   |
 
     # Discriminates, unlike the scenario above: the MERGE creates the edge the comprehension counts, so the value
-    # differs by where the RollUpApply sits. On the main chain it is the Merge's input - evaluated before the create
-    # and on the pre-MERGE view - and counts only the pre-existing edge.
+    # differs by where the RollUpApply sits. On the main chain it is the Merge's input - evaluated before the create -
+    # and counts only the pre-existing edge.
     Scenario: Pattern comprehension in a MERGE ON CREATE counts what the MERGE just created
         Given an empty graph
         And having executed:
@@ -1147,4 +1147,27 @@ Feature: Pattern comprehensions
             WITH n, [(n)-[e:R]->(m) | m] AS lst
             RETURN size(lst) AS s
             """
+        # "Trying to get relationships of a deleted node." The step cannot assert which error - every typed variant in
+        # steps/errors.py is an alias for `assert context.exception is not None` - so this pins only that it fails.
         Then an error should be raised
+
+    # A MERGE is a write clause, so a comprehension in its own pattern reads View::NEW and the second row sees the edge
+    # the first row created - it computes p = 1, the pattern no longer matches, and a second node is created. Marking
+    # the MERGE a write only after its own drain gave View::OLD, one node and p = 0. Only an all-anonymous
+    # comprehension reaches that drain; a user-declared atom fails earlier in filter generation (pre-existing, and it
+    # affects MATCH equally).
+    Scenario: Pattern comprehension in a MERGE pattern sees what earlier rows created
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND [1, 2] AS i
+            MERGE (n:M {p: size([()-[:R]->() | 1])})-[:R]->(:Z)
+            """
+        When executing query:
+            """
+            MATCH (n:M) RETURN n.p AS p ORDER BY p
+            """
+        Then the result should be:
+            | p |
+            | 0 |
+            | 1 |

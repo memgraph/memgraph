@@ -1296,16 +1296,19 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       // - FOREACH list expression and nested clauses
       // - WITH/RETURN named_expressions, order_by, skip, limit, where
       // - UNWIND expression
-      // - EdgeAtom filter_lambda, weight_lambda, lower_bound, upper_bound
+      // - EdgeAtom lower_bound, upper_bound, total_weight, limit
+      // Not traversed, so a comprehension there is collected by nobody and fails at evaluation: EdgeAtom's
+      // filter_lambda / weight_lambda, dynamic label expressions, and LoadCsv/LoadParquet/LoadJsonl's file and config
+      // expressions. All pre-existing, and all loud rather than silent.
       PatternComprehensionCollector collector(symbol_table, storage);
       clause->Accept(collector);
-      auto matchings = collector.getPatternComprehensionMatchings();
       // Record which clause each comprehension came from, so a drain can tell "can this be planned yet?" from
-      // "should it be?".
+      // "should it be?". Moved, not copied: each matching carries several symbol sets and a nested vector.
+      auto matchings = collector.getPatternComprehensionMatchings();
       for (auto &matching : matchings) {
         matching.origin_clause = clause;
+        query_part->pattern_comprehension_matchings.push_back(std::move(matching));
       }
-      query_part->pattern_comprehension_matchings.append_range(matchings);
 
       // Handle query part boundaries
       if (utils::Downcast<With>(clause) || utils::Downcast<Unwind>(clause) ||

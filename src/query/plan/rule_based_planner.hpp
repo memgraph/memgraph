@@ -273,6 +273,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         // or before write clauses for comprehensions not in any expression.
         std::unordered_map<Symbol, PatternComprehensionMatching> pending_comprehensions;
         for (const auto &pc : single_query_part.pattern_comprehension_matchings) {
+          // An unstamped matching would match no clause, so no drain would ever take it and the expression would read
+          // a frame slot nobody wrote. Only top-level matchings reach this map, and the collect site stamps all of
+          // them - assert it rather than rely on that argument holding across three collectors.
+          DMG_ASSERT(pc.origin_clause, "a pending pattern comprehension must know its originating clause");
           pending_comprehensions.emplace(pc.result_symbol, pc);
         }
 
@@ -375,12 +379,15 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             // as every other write site does: on a later row this MERGE's own earlier writes must be visible to a
             // comprehension in its pattern.
             //
-            // Consistency only, for now: with the branch set subtracted, the only comprehension that can reach this
-            // drain is one in the MERGE's own pattern properties, and such a query already fails earlier.
-            // `Filters::CollectPatternFilters` collects the comprehension's *internal* pattern symbols into the
-            // property filter's `used_symbols`, and nothing on this chain ever binds them, so `PlanMatching` cannot
-            // emit the filter and throws "Expected to generate all filters!". The same expression in a WHERE is fine -
-            // `AnalyzeAndStoreFilter` does not collect them. Pre-existing, and it affects MATCH equally.
+            // What reaches this drain is a comprehension in the MERGE's own pattern properties, and only one whose
+            // atoms are all anonymous: `UsedSymbolsCollector` collects *user-declared* identifiers from inside a
+            // comprehension, so `MERGE (n {p: size([(a)-->(x) | x])})` puts `a`/`x` in the property filter's
+            // used_symbols, nothing binds them, and `PlanMatching` throws "Expected to generate all filters!" before
+            // this drain matters. That failure is pre-existing and affects MATCH equally. The anonymous form does
+            // reach here, so the view this drain picks is observable:
+            //   UNWIND [1, 2] AS i MERGE (n:M {p: size([()-[:R]->() | 1])})-[:R]->(:Z)
+            // yields p = 0, 1 and two nodes under View::NEW, and p = 0 with one node under View::OLD, because the
+            // second row would not see the edge the first row created.
             context.is_write_query = true;
             write_occurred = true;
             plan_and_apply_comprehensions(only);
@@ -913,10 +920,11 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     auto on_match = PlanMatching(match_ctx, std::move(once_with_symbols));
 
     // ON CREATE / ON MATCH run in their own branch, so a comprehension one reads is spliced there. On the MERGE's own
-    // chain it would be the Merge's *input* - so the slot would be written, but computed before the MERGE created
-    // anything and with the pre-MERGE write history, leaving ON CREATE reading the graph as it was; and computed even
-    // on rows whose branch never reads it. Each branch takes only what it evaluates, so they cannot steal each
-    // other's.
+    // chain it would be the Merge's *input* - so the slot would be written, and (since the drain now runs after the
+    // MERGE marks itself a write) on the same View::NEW the branch splice uses. What the subtraction buys is
+    // *position*: the branch splice happens after `GenCreateForPattern`, so ON CREATE sees what this MERGE just
+    // created, where the input would have been computed before it - and it is not computed on rows whose branch never
+    // reads it. Each branch takes only what it evaluates, so they cannot steal each other's.
     auto splice_branch_comprehensions = [&](std::unique_ptr<LogicalOperator> branch,
                                             const std::vector<query::Clause *> &sets,
                                             const std::unordered_set<Symbol> &branch_bound_symbols) {
@@ -1427,7 +1435,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
   /// Result symbols of the pending comprehensions @p clause originates, i.e. the ones its own expressions evaluate.
   /// A drain restricted to these cannot take a comprehension belonging to a clause further down the chain, which is
-  /// what put the RollUpApply below a same-clause write (#4134) and below Accumulate (the Accumulate freeze).
+  /// what put the RollUpApply below a write clause preceding the one that reads it (#4134) and below Accumulate (the
+  /// Accumulate freeze).
   static std::unordered_set<Symbol> OriginatingIn(
       const query::Clause *clause,
       const std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions) {
@@ -1491,10 +1500,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   /// The one *early* place a pending comprehension becomes a `RollUpApply`. It must be spliced onto the chain that
   /// *reads* it, not merely the one its clause sits on; both defects this file has had came from that.
   ///
-  /// Five chains can evaluate a comprehension. Four drain here: the main clause chain, a FOREACH body, each MERGE
-  /// branch, and a `CallProcedure` clause, which is a query-part boundary so nothing downstream could drain it - and
-  /// which drains twice, because its arguments and its `YIELD ... WHERE` need opposite splice points. A WITH/RETURN
-  /// body drains on demand in `ReturnBodyContext`, needing a splice point per position.
+  /// Three chains drain here: the main clause chain, a FOREACH body, and each MERGE branch. A WITH/RETURN body drains
+  /// on demand in `ReturnBodyContext`, needing a splice point per position.
+  ///
+  /// A `CallProcedure` clause drains here twice, both onto the main chain rather than a chain of its own: it is a
+  /// query-part boundary, so nothing downstream could drain it, and its arguments and its `YIELD ... WHERE` need
+  /// opposite splice points relative to the `CallProcedure` operator.
   ///
   /// A leftover here is not necessarily a bug: `CallSubquery::Accept` descends into the subquery, so a comprehension
   /// inside `CALL { ... }` is collected into the outer part too, with the `CallSubquery` as its origin. Nothing drains
@@ -1536,8 +1547,14 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
     // @p write_occurred is the caller's history. A FOREACH is itself a write clause, so a comprehension on the body
     // chain reads the same view one on the main chain would - without this the body dropped to View::OLD and a
-    // semantically inert correlation in the pattern's WHERE flipped the answer. Whether a clause of *this body* has
-    // written is a different question, and only GenMerge's ON MATCH narrowing asks it.
+    // semantically inert correlation in the pattern's WHERE flipped the answer. It is `true` at both call sites by
+    // construction (each marks the write before calling), so the body chain always reads View::NEW; it stays a
+    // parameter to keep the rule "the view is the write history" stated in one place rather than assumed here.
+    //
+    // Whether a clause of *this body* has written is a different question, and only GenMerge's ON MATCH narrowing asks
+    // it. Note that narrowing sees only this body: for the first clause of a body it erases the merge symbols even when
+    // an enclosing body already wrote, which can cost a variable-length comprehension its protective plan-time throw
+    // and leave it on View::OLD. That is master's behaviour too, and is tracked separately.
     bool wrote_in_body = false;
 
     // Plan comprehensions whose dependencies are now satisfied, onto the body's own chain. Restricted to the
