@@ -6783,7 +6783,19 @@ class AggregateCursor : public Cursor {
       : self_(self),
         input_cursor_(self_.input_->MakeCursor(mem, metric_handles)),
         aggregation_(mem),
-        reused_group_by_(self.group_by_.size(), mem) {}
+        reused_group_by_(self.group_by_.size(), mem) {
+    // Which aggregations are a COUNT over a plain identifier, and so can be answered from the
+    // frame slot the identifier names. Worked out once here rather than per row, which is what
+    // takes the virtual dispatch out of the row loop as well as the value it would have built.
+    count_from_frame_slot_.reserve(self.aggregations_.size());
+    for (auto const &aggregation : self.aggregations_) {
+      auto const *identifier = (aggregation.op == Aggregation::Op::COUNT && aggregation.arg1 != nullptr)
+                                   ? utils::Downcast<Identifier>(aggregation.arg1)
+                                   : nullptr;
+      auto const unmapped = identifier == nullptr || identifier->symbol_pos_ < 0;
+      count_from_frame_slot_.push_back(unmapped ? -1 : identifier->symbol_pos_);
+    }
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -6976,6 +6988,9 @@ class AggregateCursor : public Cursor {
   // The single group of an aggregation with no grouping key, once it exists. Null whenever
   // `aggregation_` is empty or has been replaced.
   CompactAggregationValue *single_group_{nullptr};
+  // Per aggregation: the frame slot a COUNT over a plain identifier reads, or -1 when the
+  // aggregation is anything else. Parallel to `self_.aggregations_`.
+  std::vector<int32_t> count_from_frame_slot_;
   // iterator over the accumulated cache
   decltype(aggregation_.begin()) aggregation_it_ = aggregation_.begin();
   // this LogicalOp pulls all from the input on it's first pull
@@ -7062,7 +7077,7 @@ class AggregateCursor : public Cursor {
         single_group_ = &res.first->second;
         if (res.second /*was newly inserted*/) EnsureInitialized(frame, single_group_);
       }
-      Update(evaluator, single_group_);
+      Update(frame, evaluator, single_group_);
       return;
     }
 
@@ -7073,7 +7088,7 @@ class AggregateCursor : public Cursor {
     auto res = aggregation_.try_emplace(reused_group_by_, mem, self_.aggregations_.size(), self_.remember_.size());
     auto &agg_value = res.first->second;
     if (res.second /*was newly inserted*/) EnsureInitialized(frame, &agg_value);
-    Update(evaluator, &agg_value);
+    Update(frame, evaluator, &agg_value);
   }
 
   /** Ensures the new AggregationValue has been initialized. This means
@@ -7100,7 +7115,7 @@ class AggregateCursor : public Cursor {
 
   /** Updates the given AggregationValue with new data. Assumes that
    * the AggregationValue has been initialized */
-  void Update(ExpressionEvaluator *evaluator, AggregateCursor::CompactAggregationValue *agg_value) {
+  void Update(const Frame &frame, ExpressionEvaluator *evaluator, AggregateCursor::CompactAggregationValue *agg_value) {
     DMG_ASSERT(self_.aggregations_.size() == agg_value->num_aggs_,
                "Expected as much AggregationValue.values_ as there are "
                "aggregations.");
@@ -7113,6 +7128,18 @@ class AggregateCursor : public Cursor {
       if (!input_expr_ptr) {
         agg_value->counts_[pos] += 1;
         // value is deferred to post-processing
+        continue;
+      }
+
+      // COUNT only asks whether there is a value, which the frame slot answers on its own when
+      // the argument is a plain identifier. Building the value to ask is what this skips.
+      if (auto const slot = count_from_frame_slot_[pos]; slot >= 0) {
+        DMG_ASSERT(static_cast<size_t>(slot) < frame.elems().size(), "Identifier names no frame slot");
+        auto const &slot_value = frame.elems()[slot];
+        if (slot_value.IsNull()) continue;
+        if (agg_elem.distinct && !agg_value->unique_values_[pos].insert(slot_value).second) continue;
+        agg_value->counts_[pos] += 1;
+        // COUNT's result is read from `counts_` in post processing, so there is no value to set.
         continue;
       }
 

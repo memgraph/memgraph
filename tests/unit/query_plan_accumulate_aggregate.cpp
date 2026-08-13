@@ -484,6 +484,39 @@ TYPED_TEST(QueryPlanTest, AggregateCountEdgeCases) {
   EXPECT_EQ(2, count());
 }
 
+// COUNT over a bare identifier, where the identifier is bound to Null for some rows. Null is
+// skipped by every aggregation, so a row whose identifier holds Null is not counted, and two
+// rows holding the same value are two counts unless DISTINCT says otherwise.
+TYPED_TEST(QueryPlanTest, AggregateCountIdentifierSkipsNull) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  SymbolTable symbol_table;
+
+  // UNWIND [1, Null, 2, Null, 2] AS x RETURN count(x), count(DISTINCT x)
+  auto input_expr = this->storage.template Create<PrimitiveLiteral>(
+      std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue(1),
+                                                            memgraph::storage::ExternalPropertyValue(),
+                                                            memgraph::storage::ExternalPropertyValue(2),
+                                                            memgraph::storage::ExternalPropertyValue(),
+                                                            memgraph::storage::ExternalPropertyValue(2)});
+
+  auto x = symbol_table.CreateSymbol("x", true);
+  auto unwind = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
+
+  auto count = [&](bool distinct) {
+    auto produce = this->MakeAggregationProduce(
+        unwind, symbol_table, {IDENT("x")->MapTo(x)}, {Aggregation::Op::COUNT}, {}, {}, distinct);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+    auto results = CollectProduce(*produce, &context);
+    EXPECT_EQ(1, results.size());
+    EXPECT_EQ(TypedValue::Type::Int, results[0][0].type());
+    return results[0][0].ValueInt();
+  };
+
+  EXPECT_EQ(3, count(false)) << "the two Nulls must not be counted";
+  EXPECT_EQ(2, count(true)) << "Nulls skipped before dedup, and the repeated 2 counted once";
+}
+
 TYPED_TEST(QueryPlanTest, AggregateFirstValueTypes) {
   // testing exceptions that get emitted by the first-value
   // type check
