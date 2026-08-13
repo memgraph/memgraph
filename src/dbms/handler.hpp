@@ -317,10 +317,23 @@ class Handler {
     metrics::ScopedGauge pending;                      //!< holds the pending-destructions gauge up while queued
     utils::Gatekeeper<T> gk;                           //!< the tenant awaiting its last accessor's release
 
-    // Called OFF defer_lock_ (value teardown must not run under the list mutex). Zero-timeout try_delete:
-    // succeeds only if sole holder (value destroyed → true). Nullopt from access() is a dead-state backstop.
+    // Non-blocking trylock, called OFF defer_lock_ (so the value teardown never runs under the list
+    // mutex). Mints an accessor and try_delete()s it with a zero timeout: succeeds only if this is the
+    // sole live accessor RIGHT NOW (all external holders
+    // released), in which case the managed value is destroyed here and true is returned so the tick
+    // splices this node out. Otherwise the accessor is released and false leaves the node for the next
+    // tick -- a tenant nobody releases is retried forever but never blocks the others (round-robin).
+    // Mints with utils::drain_bypass, exactly like DeferDelete's own access() above: a dropped tenant
+    // has been begin_drain()'d, and plain access() refuses a draining tenant. Bypassing is mandatory,
+    // not a convenience -- plain access() would return nullopt for every pending (hence draining)
+    // tenant, so `if (!acc) return true` would splice a still-live tenant out and RunCallback()'s
+    // blocking ~Gatekeeper would wait, under this single worker, for that tenant's last accessor. One
+    // pinned tenant would then head-of-line-block every other tenant's deferred destruction -- the
+    // exact starvation this round-robin worker exists to prevent. The nullopt branch is now only a
+    // dead-state backstop: value_ already gone (state no longer HOT), which try_delete() reports as
+    // done.
     bool TryReserve() {
-      auto acc = gk.access();
+      auto acc = gk.access(utils::drain_bypass);
       if (!acc) return true;
       if (!acc->try_delete(kDeferTryTimeout)) {
         acc->reset();
