@@ -1107,6 +1107,25 @@ class FileCacheHintTest : public ::testing::Test {
     file.Close();
   }
 
+  enum class PositionQueries : uint8_t { kNone, kEveryBatch };
+
+  // Residency of `path` once `data` has been streamed to it with pacing on, which is what says
+  // whether pacing disposed of the windows it completed.
+  static std::optional<double> ResidencyAfterPacedWrite(const fs::path &path, const std::vector<uint8_t> &data,
+                                                        PositionQueries queries) {
+    PacedFile file;
+    file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+    file.EnableWritebackPacing(kWindow);
+    for (size_t offset = 0; offset < data.size(); offset += kChunk) {
+      file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
+      if (queries == PositionQueries::kEveryBatch) file.GetPosition();
+    }
+    file.Sync();
+    auto const resident = memgraph::test::ResidentFraction(path);
+    file.Close();
+    return resident;
+  }
+
   std::vector<uint8_t> ReadFileContents(const fs::path &path) const {
     std::ifstream ifs(path, std::ios::binary);
     return std::vector<uint8_t>(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
@@ -1231,29 +1250,31 @@ TEST_F(FileCacheHintTest, AppendingFromAnotherFileKeepsPacingAlignedWithTheFile)
 // every batch boundary. If that counted as a move it would abandon the window in flight each time,
 // so no window would ever be handed to writeback or dropped, which on a large snapshot is most of
 // the file. Residency is what shows it: the pacer's own offset is right either way.
+//
+// The baseline is the same write without the queries, and it is also the gate: whether pacing can
+// drop anything at all is a property of the filesystem, and one that `PageCacheEvictionObservable`
+// cannot answer, because it asks about a file that has been fsynced. On overlayfs, which is what a
+// container's own filesystem is, `sync_file_range` reports success having done nothing: it writes
+// back the mapping of the inode it is given, and the overlay inode holds no pages, they are all on
+// the upper filesystem's inode. The pages stay dirty, DONTNEED skips dirty pages, and nothing is
+// released. `fsync` is passed through to the upper file and so still works, which is why whole-file
+// eviction after a sync is observable there and this is not.
 TEST_F(FileCacheHintTest, RepositioningToTheCurrentOffsetKeepsTheWindowInFlight) {
-  if (!memgraph::test::PageCacheEvictionObservable(test_dir_ / "probe.bin")) {
-    GTEST_SKIP() << "page cache eviction is not observable under " << test_dir_;
-  }
-
   const auto data = Pattern(kTotal);
-  const auto path = test_dir_ / "position_queried.bin";
 
-  PacedFile file;
-  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
-  file.EnableWritebackPacing(kWindow);
-  for (size_t offset = 0; offset < data.size(); offset += kChunk) {
-    file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
-    file.GetPosition();  // what the snapshot writer does at every batch boundary
+  const auto baseline = ResidencyAfterPacedWrite(test_dir_ / "streamed.bin", data, PositionQueries::kNone);
+  ASSERT_TRUE(baseline.has_value());
+  if (*baseline >= 0.5) {
+    GTEST_SKIP() << "paced writeback releases nothing under " << test_dir_ << ": a stream with no position query at all"
+                 << " left " << (*baseline * 100) << "% of the file cached";
   }
-  file.Sync();
 
-  const auto resident = memgraph::test::ResidentFraction(path);
-  file.Close();
-
+  const auto resident =
+      ResidencyAfterPacedWrite(test_dir_ / "position_queried.bin", data, PositionQueries::kEveryBatch);
   ASSERT_TRUE(resident.has_value());
   EXPECT_LT(*resident, 0.5) << "asking for the position abandoned the window in flight: " << (*resident * 100)
-                            << "% of the file is still cached";
+                            << "% of the file is still cached, against " << (*baseline * 100)
+                            << "% without the queries";
 }
 
 // `EnableWritebackPacing` is the one place that sets the window, and it must also reset where pacing
