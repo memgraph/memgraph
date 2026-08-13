@@ -746,8 +746,25 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     switch (range.type_) {
       case Type::IS_NOT_NULL:
         return db_accessor_->VerticesCount(property);
-      case Type::EQUAL:
+      case Type::EQUAL: {
+        if (auto val = ConstPropertyValue(range.lower_->value())) {
+          return db_accessor_->VerticesCount(
+              property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
+        return db_accessor_->VerticesCount(property) * CardParam::kFilter;
+      }
       case Type::IN: {
+        if (auto *list = range.membership_list_) {
+          auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+          double sum = 0.0;
+          for (auto *elem : list->elements_) {
+            auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters, mapper);
+            if (!resolved) return db_accessor_->VerticesCount(property) * CardParam::kFilter;
+            sum += db_accessor_->VerticesCount(property, resolved->lower_->value());
+          }
+          auto n = static_cast<double>(list->elements_.size());
+          return n > 0 ? sum / n : sum;
+        }
         if (auto val = ConstPropertyValue(range.lower_->value())) {
           return db_accessor_->VerticesCount(
               property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
