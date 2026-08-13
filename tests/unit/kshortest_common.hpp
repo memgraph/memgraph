@@ -499,7 +499,6 @@ class Database {
     spdlog::info("KShortestTest: Pulled {} results", results.size());
     if (limit != -1) {
       spdlog::info("KShortestTest: Limit: {}", limit);
-      ASSERT_LE(results.size(), limit) << "Pulled more results than limit";
     }
 
     if (upper_bound == -1) upper_bound = kVertexCount;
@@ -567,11 +566,10 @@ class Database {
       spdlog::info("KShortestTest: Yen algorithm found {} paths", correct_paths.size());
 
       int expected_count = static_cast<int>(correct_paths.size());
-      // Converting from global limit to pair specific limit
-      if (limit != -1 && j == limit) {
-        spdlog::info("KShortestTest: Limit reached, expected count: {}, limit: {}, j: {}", expected_count, limit, j);
-        if (i == j) break;
-        expected_count = j - i;
+      // The limit applies per input row, so every group is capped by it independently.
+      if (limit != -1 && expected_count > limit) {
+        spdlog::info("KShortestTest: Limit caps this group, expected count: {}, limit: {}", expected_count, limit);
+        expected_count = limit;
         correct_paths.resize(expected_count);
       }
       EXPECT_EQ(j - i, expected_count);

@@ -3798,6 +3798,18 @@ class KShortestPathsCursor : public Cursor {
       upper_bound_ = self_.upper_bound_ ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in expansion")
                                         : std::numeric_limits<int64_t>::max();
 
+      // Both bounds are compared against a `size_t` further down, so a negative one converts to a
+      // huge unsigned value and silently disables the check instead of narrowing the search: the
+      // depth guard stops firing, and the lower-bound top-up loop below never terminates until
+      // every simple path has been enumerated. Every other shortest-path cursor already rejects
+      // this (BFS, WSHORTEST, ALLSHORTEST); KSHORTEST was the only one that did not.
+      if (upper_bound_ < 1) {
+        throw QueryRuntimeException("Maximum depth in KSHORTEST path expansion must be at least 1.");
+      }
+      if (lower_bound_ < 1) {
+        throw QueryRuntimeException("Minimum depth in KSHORTEST path expansion must be at least 1.");
+      }
+
       // Initialize for this new source-target pair
       current_source_ = source_vertex;
       current_target_ = target_vertex;
@@ -4319,6 +4331,10 @@ class KShortestPathsCursor : public Cursor {
     predecessors_.clear();
     // Cleared per input row: the lambda may read outer variables, so verdicts don't survive a row.
     expansion_memo_.clear();
+    // The `|K` limit counts paths per input row. Without this reset the counter carried across rows
+    // (and across `Reset()`), so once the first row had produced K paths every later row - and every
+    // outer row of a subquery or pattern comprehension - returned nothing at all.
+    n_returned_paths_ = 0;
   }
 };
 
