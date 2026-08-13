@@ -122,9 +122,9 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
   return relevant_paths | rv::transform(is_match) | r::to_vector;
 }
 
-auto PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values) const
-    -> std::vector<bool> {
-  return properties.ArePropertiesEqual(sorted_properties_, values, position_lookup_);
+void PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values,
+                                                std::vector<bool> &out) const {
+  properties.ArePropertiesEqual(sorted_properties_, values, position_lookup_, out);
 }
 
 size_t PropertyValueRange::hash() const noexcept {

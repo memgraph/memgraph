@@ -260,10 +260,13 @@ struct PropertiesPermutationHelper {
       -> std::vector<std::pair<std::ptrdiff_t, bool>>;
 
   /** Efficiently compares multiple values in the property store with the given
-   * values. This returns a vector of boolean flags indicating per-element
-   * equality (in monotonic property id order.)
+   * values. Fills `out` with per-element equality flags, in monotonic property id order.
+   *
+   * `out` is supplied by the caller rather than returned, because both callers walk index
+   * entries in a loop and so pay for the storage once instead of once per entry. Its previous
+   * contents are discarded.
    */
-  auto MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values) const -> std::vector<bool>;
+  void MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values, std::vector<bool> &out) const;
 
   /** Returns an augmented view over the values in the given vector, where each
    * element is a tuple comprising: (position, [property id path], and value).

@@ -10,10 +10,10 @@
 // licenses/APL.txt.
 
 #include "storage/v2/durability/snapshot.hpp"
+
 #include <range/v3/all.hpp>
 
 #include <fmt/core.h>
-#include <sys/sendfile.h>
 #include <algorithm>
 #include <atomic>
 #include <filesystem>
@@ -59,6 +59,7 @@
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/page_cache_releaser.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/thread.hpp"
@@ -279,19 +280,17 @@ bool WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_e
         throw RecoveryFailure("Couldn't open snapshot part {}!", res.snapshot_path);
       }
       utils::OnScopeExit cleanup{[part_fd] { close(part_fd); }};
-      // Use sendfile for efficient copying (zero-copy)
-      off_t offset = 0;
-      auto size = res.snapshot_size;
-      while (size > 0) {
-        ssize_t bytes_sent = sendfile(snapshot_encoder.native_handle(), part_fd, &offset, size);
-        if (bytes_sent == -1) {
-          throw RecoveryFailure("Couldn't copy {} part to snapshot! Error: {}", res.snapshot_path, strerror(errno));
-        }
-        if (bytes_sent == 0) {
-          spdlog::trace("EOF {}", res.snapshot_path);
-          break;
-        }
-        size -= bytes_sent;
+      // Copied inside the kernel, and through the encoder so that writeback pacing still bounds
+      // the dirty pages of the snapshot these parts are being folded into.
+      auto const copied = snapshot_encoder.AppendFrom(part_fd, res.snapshot_size);
+      if (!copied) {
+        throw RecoveryFailure("Couldn't copy {} part to snapshot! Error: {}", res.snapshot_path, strerror(errno));
+      }
+      // The part was sized after its last write and synced before its promise was set, so ending
+      // early is not EOF but a part shorter than it claimed to be.
+      if (*copied < res.snapshot_size) {
+        throw RecoveryFailure(
+            "Snapshot part {} ended after {} of {} bytes!", res.snapshot_path, *copied, res.snapshot_size);
       }
     }
   }
@@ -329,7 +328,8 @@ bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Ver
                            uint64_t &offset_edges, uint64_t &offset_vertices, SnapshotEncoder &snapshot_encoder,
                            uint64_t &edges_count, uint64_t &vertices_count, std::vector<BatchInfo> &edge_batch_infos,
                            std::vector<BatchInfo> &vertex_batch_infos, std::unordered_set<uint64_t> &used_ids,
-                           uint64_t thread_count, auto &&snapshot_aborted, SnapshotProgress *progress = nullptr) {
+                           uint64_t thread_count, size_t writeback_window, auto &&snapshot_aborted,
+                           SnapshotProgress *progress = nullptr) {
   SafeTaskQueue tasks;
 
   // Generate edge tasks
@@ -342,12 +342,15 @@ bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Ver
       tasks.AddTask([&edge_res,
                      &partial_edge_handler,
                      id,
+                     writeback_window,
                      start_gid = edge_batch_gid[id],
                      end_gid = edge_batch_gid[id + 1],
                      path = snapshot_encoder.GetPath()] {
         // Create workers temporary file
         {
           SnapshotEncoder edges_snapshot;
+          // This part is copied into the snapshot and deleted moments later, so its pages stay.
+          edges_snapshot.EnableWritebackPacing(writeback_window, utils::PageCachePolicy::kKeep);
           const auto snapshot_path = fmt::format("{}_edge_part_{}", path, id);
           if (!edges_snapshot.Initialize(snapshot_path)) {
             spdlog::warn(
@@ -359,7 +362,7 @@ bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Ver
           }
           // Fill snapshot with edges
           edge_res[id].first = partial_edge_handler(start_gid, end_gid, edges_snapshot);
-          edges_snapshot.Finalize();
+          edges_snapshot.Finalize(utils::PageCachePolicy::kKeep);
         }
         // Signal that the snapshot is done
         edge_res[id].second.set_value(true);
@@ -374,12 +377,14 @@ bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Ver
     tasks.AddTask([&vertex_res,
                    &partial_vertex_handler,
                    id,
+                   writeback_window,
                    start_gid = vertex_batch_gid[id],
                    end_gid = vertex_batch_gid[id + 1],
                    path = snapshot_encoder.GetPath()] {
       // Create workers temporary file
       {
         SnapshotEncoder vertex_snapshot;
+        vertex_snapshot.EnableWritebackPacing(writeback_window, utils::PageCachePolicy::kKeep);
         const auto snapshot_path = fmt::format("{}_vertex_part_{}", path, id);
         if (!vertex_snapshot.Initialize(snapshot_path)) {
           spdlog::warn(
@@ -391,7 +396,7 @@ bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Ver
         }
         // Fill snapshot with vertices
         vertex_res[id].first = partial_vertex_handler(start_gid, end_gid, vertex_snapshot);
-        vertex_snapshot.Finalize();
+        vertex_snapshot.Finalize(utils::PageCachePolicy::kKeep);
       }
       // Signal that the snapshot is done
       vertex_res[id].second.set_value(true);
@@ -428,6 +433,17 @@ bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Ver
   }
   return all_ok;
 };
+
+// Drops a fully-read snapshot from the page cache, off the caller's thread where the process has a
+// releaser to do that on, and on the caller's thread where it does not. Both reach the same state;
+// only the second one waits.
+void DropPageCache(Decoder snapshot) {
+  if (auto const releaser = utils::PageCacheReleaserHandle().lock()) {
+    releaser->Drop(std::move(snapshot));
+    return;
+  }
+  snapshot.DropCachedPages();
+}
 
 // Function used to read information about the snapshot file.
 SnapshotInfo ReadSnapshotInfoPreVersion23(const std::filesystem::path &path) {
@@ -13520,6 +13536,14 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
   if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
   if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
 
+  // Recovery is the only reader of this file, and once it is done the pages are pure overhead: they
+  // compete for memory with the graph just built from them. Dropped after the load rather than
+  // behind the read point, because the load revisits ranges it has already read, and dropping
+  // during it makes those ranges come back from the device a second time.
+  utils::OnScopeExit const drop_page_cache{[&snapshot, &config] {
+    if (config.durability.release_recovered_snapshot_page_cache) DropPageCache(std::move(snapshot));
+  }};
+
   switch (*version) {
     case 14U: {
       return LoadSnapshotVersion14(snapshot,
@@ -14157,8 +14181,17 @@ std::optional<std::filesystem::path> CreateSnapshot(
     return true;
   };
 
+  // How much of this snapshot may sit in the page cache as dirty pages before it is handed to
+  // writeback and dropped. A snapshot is a multi-gigabyte streaming write; left to the kernel's
+  // defaults its dirty pages accumulate until every writer on the machine is throttled at
+  // `dirty_ratio`, and its clean pages evict whatever the workload was using. Pacing costs a little
+  // snapshot throughput and stops the snapshot degrading everything around it. Each parallel writer
+  // below gets the same window, so the footprint scales with the thread count. 0 disables it.
+  auto const writeback_window = storage->config_.durability.snapshot_writeback_window_mib * 1024UL * 1024UL;
+
   spdlog::info("snapshot starting: {} (trigger={})", path, trigger);
   SnapshotEncoder snapshot;
+  snapshot.EnableWritebackPacing(writeback_window);
   if (!snapshot.Initialize(path, kSnapshotMagic, kVersion)) {
     spdlog::warn(
         "Failed to open snapshot file {}. Not a fatal failure, snapshot creation will be retried on the next scheduled "
@@ -14521,6 +14554,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
                                vertex_batch_infos,
                                used_ids,
                                storage->config_.durability.snapshot_thread_count,
+                               writeback_window,
                                snapshot_aborted,
                                progress)) {
       spdlog::warn(
@@ -15096,7 +15130,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     return std::nullopt;
   }
 
-  snapshot.Finalize();
+  snapshot.Finalize(utils::PageCachePolicy::kDrop);
   // The snapshot file is now complete and valid on disk. Mark cleanup as done BEFORE any
   // post-finalize housekeeping (file_size / retention / WAL-ensure below) so that a throw from
   // those steps cannot trip partial_file_cleanup into deleting a finalized, valid snapshot.

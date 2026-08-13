@@ -32,6 +32,25 @@ using enum CoordinateReferenceSystem;
 
 namespace {
 
+/** `ArePropertiesEqual` and `MatchesValues` fill a caller-supplied buffer rather than returning
+ * one, so that a caller walking index entries allocates once per loop instead of once per entry.
+ * These assertions read better against a returned value, so the buffer is kept here rather than at
+ * every call site.
+ */
+auto EqualityMask(PropertyStore const &store, std::span<PropertyPath const> paths,
+                  std::span<PropertyValue const> values, std::span<std::size_t const> lookup) -> std::vector<bool> {
+  std::vector<bool> result;
+  store.ArePropertiesEqual(paths, values, lookup, result);
+  return result;
+}
+
+auto EqualityMask(PropertiesPermutationHelper const &helper, PropertyStore const &store, IndexOrderedValuesView values)
+    -> std::vector<bool> {
+  std::vector<bool> result;
+  helper.MatchesValues(store, values, result);
+  return result;
+}
+
 /** Helper for creating nested maps easily. */
 
 /** Type for  a key-value pair.
@@ -1355,7 +1374,7 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesOneNestedValue) {
        }) {
     PropertyStore store;
     store.InitProperties(data);
-    EXPECT_EQ(store.ArePropertiesEqual(std::array{test.path}, std::array{test.value}, std::array<std::size_t, 1>{0}),
+    EXPECT_EQ(EqualityMask(store, std::array{test.path}, std::array{test.value}, std::array<std::size_t, 1>{0}),
               std::vector{test.result});
   }
 }
@@ -1403,7 +1422,7 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedValues) {
     Test{.paths = {PP{p4}}, .values = {PV{}}, .lookup = {0}, .result = {true}},
            // clang-format on
        }) {
-    EXPECT_EQ(store.ArePropertiesEqual(test.paths, test.values, test.lookup), test.result);
+    EXPECT_EQ(EqualityMask(store, test.paths, test.values, test.lookup), test.result);
   }
 }
 
@@ -1425,9 +1444,10 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedMaps) {
   PropertyStore store;
   store.InitProperties(data);
 
-  EXPECT_EQ(store.ArePropertiesEqual(std::array{PropertyPath{p1, p2}, PropertyPath{p1, p5}},
-                                     std::array{map_prop_value_1, map_prop_value_2},
-                                     std::array<std::size_t, 2>{0, 1}),
+  EXPECT_EQ(EqualityMask(store,
+                         std::array{PropertyPath{p1, p2}, PropertyPath{p1, p5}},
+                         std::array{map_prop_value_1, map_prop_value_2},
+                         std::array<std::size_t, 2>{0, 1}),
             (std::vector{true, true}));
 }
 
@@ -1958,21 +1978,24 @@ TEST(PropertiesPermutationHelper, MatchesValues_ReturnsABooleanMaskOfMatches) {
   PropertyStore store;
   store.InitProperties(data);
 
-  EXPECT_EQ(prop_reader.MatchesValues(
+  EXPECT_EQ(EqualityMask(
+                prop_reader,
                 store,
                 IndexOrderedValuesVector{
                     {PropertyValue{"apple"}, PropertyValue{"banana"}, PropertyValue{"cherry"}, PropertyValue{"date"}}}),
             (std::vector{true, true, true, true}));
 
   EXPECT_EQ(
-      prop_reader.MatchesValues(
+      EqualityMask(
+          prop_reader,
           store,
           IndexOrderedValuesVector{
               {PropertyValue{"applex"}, PropertyValue{"bananax"}, PropertyValue{"cherryx"}, PropertyValue{"datex"}}}),
       (std::vector{false, false, false, false}));
 
   EXPECT_EQ(
-      prop_reader.MatchesValues(
+      EqualityMask(
+          prop_reader,
           store,
           IndexOrderedValuesVector{
               {PropertyValue{"apple"}, PropertyValue{"bananax"}, PropertyValue{"cherry"}, PropertyValue{"datex"}}}),
@@ -1996,13 +2019,15 @@ TEST(PropertiesPermutationHelper, MatchesValues_WorksWithOutOfOrderProperties) {
   PropertyStore store;
   store.InitProperties(data);
 
-  EXPECT_EQ(prop_reader.MatchesValues(
+  EXPECT_EQ(EqualityMask(
+                prop_reader,
                 store,
                 IndexOrderedValuesVector{
                     {PropertyValue{"cherry"}, PropertyValue{"apple"}, PropertyValue{"banana"}, PropertyValue{"date"}}}),
             (std::vector{true, true, true, true}));
 
-  EXPECT_EQ(prop_reader.MatchesValues(
+  EXPECT_EQ(EqualityMask(
+                prop_reader,
                 store,
                 IndexOrderedValuesVector{
                     {PropertyValue{"apple"}, PropertyValue{"banana"}, PropertyValue{"cherry"}, PropertyValue{"date"}}}),
@@ -2027,13 +2052,15 @@ TEST(PropertiesPermutationHelper, MatchesValues_WorksWithNestedProperties) {
   PropertyStore store;
   store.InitProperties(data);
 
-  EXPECT_EQ(prop_reader.MatchesValues(
+  EXPECT_EQ(EqualityMask(
+                prop_reader,
                 store,
                 IndexOrderedValuesVector{
                     {PropertyValue{"banana"}, PropertyValue{"cherry"}, PropertyValue{"apple"}, PropertyValue{"date"}}}),
             (std::vector{true, true, true, true}));
 
-  EXPECT_EQ(prop_reader.MatchesValues(
+  EXPECT_EQ(EqualityMask(
+                prop_reader,
                 store,
                 IndexOrderedValuesVector{
                     {PropertyValue{"apple"}, PropertyValue{"cherry"}, PropertyValue{"banana"}, PropertyValue{"date"}}}),

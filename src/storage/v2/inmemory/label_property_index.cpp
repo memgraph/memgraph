@@ -115,11 +115,11 @@ void EraseEntriesAtKey(Acc &acc, IndexOrderedValuesVector const &values, Vertex 
 // given label and properties.
 bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, PropertiesPermutationHelper const &helper,
                                       IndexOrderedValuesView values, Transaction *transaction, View view,
-                                      bool use_cache = true) {
+                                      std::vector<bool> &scratch, bool use_cache = true) {
   bool exists = true;
   bool deleted = false;
   bool has_label = false;
-  auto current_values_equal_to_value = std::vector<bool>{};
+  auto &current_values_equal_to_value = scratch;
   const Delta *delta = nullptr;
   auto guard = std::shared_lock{vertex.lock};
   delta = vertex.delta();
@@ -127,7 +127,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   if (!delta && deleted) return false;
   has_label = std::ranges::contains(vertex.labels, label);
   if (!delta && !has_label) return false;
-  current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
+  helper.MatchesValues(vertex.properties, values, current_values_equal_to_value);
 
   // If vertex has non-sequential deltas, hold lock while applying them
   if (!vertex.has_uncommitted_non_sequential_deltas()) {
@@ -211,12 +211,12 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
 /// properties values.
 inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, std::span<PropertyPath const> key,
                                          PropertiesPermutationHelper const &helper, IndexOrderedValuesView values,
-                                         uint64_t timestamp) {
+                                         uint64_t timestamp, std::vector<bool> &scratch) {
   Delta const *delta;
   bool exists = true;
   bool deleted;
   bool has_label;
-  auto current_values_equal_to_value = std::vector<bool>{};
+  auto &current_values_equal_to_value = scratch;
   {
     auto guard = std::shared_lock{vertex.lock};
     delta = vertex.delta();
@@ -224,7 +224,7 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
     if (delta == nullptr && deleted) return false;
     has_label = std::ranges::contains(vertex.labels, label);
     if (delta == nullptr && !has_label) return false;
-    current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
+    helper.MatchesValues(vertex.properties, values, current_values_equal_to_value);
   }
 
   if (exists && !deleted && has_label && std::ranges::all_of(current_values_equal_to_value, std::identity{})) {
@@ -259,7 +259,7 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex, auto &current_vertex_accessor,
                         auto *storage, auto *transaction, auto view, auto label, const auto &lower_bound,
                         const auto &upper_bound, auto &permutation_helper, memgraph::storage::Gid max_gid,
-                        bool use_cache = true, bool reverse_iteration = false) {
+                        std::vector<bool> &match_scratch, bool use_cache = true, bool reverse_iteration = false) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->vertex == current_vertex) {
       continue;
@@ -361,6 +361,7 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
                                          index_iterator->values.as_view(),
                                          transaction,
                                          view,
+                                         match_scratch,
                                          use_cache)) {
       current_vertex = index_iterator->vertex;
       current_vertex_accessor = VertexAccessor(current_vertex, storage, transaction);
@@ -1092,6 +1093,7 @@ uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uin
         auto it = index_acc.begin();
         auto end_it = index_acc.end();
         if (it == end_it) return false;
+        auto match_scratch = std::vector<bool>{};
         while (true) {
           if (maybe_stop() && token.stop_requested()) return true;
 
@@ -1106,7 +1108,8 @@ uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uin
                                                                      property_paths,
                                                                      permutationHelper,
                                                                      it->values.as_view(),
-                                                                     oldest_active_start_timestamp)) {
+                                                                     oldest_active_start_timestamp,
+                                                                     match_scratch)) {
               index_acc.remove(*it);
             }
           }
@@ -1162,6 +1165,7 @@ void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid()
                      self_->upper_bound_,
                      self_->permutation_helper_,
                      self_->max_gid_,
+                     match_scratch_,
                      /*use_cache=*/true,
                      /*reverse_iteration=*/is_desc);
 }
@@ -1531,6 +1535,7 @@ void InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::Iterator::AdvanceUntil
                      self_->upper_bound_,
                      self_->permutation_helper_,
                      self_->max_gid_,
+                     match_scratch_,
                      /*use_cache=*/false,
                      /*reverse_iteration=*/is_desc);
 }

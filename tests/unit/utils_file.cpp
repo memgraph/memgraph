@@ -9,6 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <map>
@@ -19,7 +25,9 @@
 
 #include <gtest/gtest.h>
 
+#include "page_cache_probe.hpp"
 #include "utils/file.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
@@ -1048,4 +1056,351 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
     return std::any_of(
         read_counts.cbegin(), read_counts.cend(), [](const auto read_count) { return read_count == number_of_writes; });
   }));
+}
+
+// Writeback pacing is advisory: every syscall it issues can be refused by the kernel with no visible
+// effect. What is *not* advisory is that it may never change a byte of the file, whatever the writer
+// does to it in between. That is the invariant these tests hold.
+class FileCacheHintTest : public ::testing::Test {
+ protected:
+  // The only file type that offers pacing. `OutputFile` deliberately does not: it backs the WAL,
+  // where the trade is wrong, and where `SeekFile` runs without the lock that serialises flushing.
+  using PacedFile = memgraph::utils::NonConcurrentOutputFile;
+
+  void SetUp() override {
+    test_dir_ = fs::temp_directory_path() / "MG_test_file_cache_hints";
+    fs::create_directories(test_dir_);
+  }
+
+  void TearDown() override {
+    if (fs::exists(test_dir_)) {
+      fs::remove_all(test_dir_);
+    }
+  }
+
+  // Comfortably more than one internal buffer (256 KiB) and several pacing windows, so flushes and
+  // window boundaries actually interleave.
+  static constexpr size_t kWindow = 512 * 1024;
+  static constexpr size_t kTotal = 4 * 1024 * 1024;
+
+  // Position-dependent bytes, so a misplaced write shows up as a mismatch at a known offset rather
+  // than as plausible-looking data.
+  static std::vector<uint8_t> Pattern(size_t size, uint8_t salt = 0) {
+    std::vector<uint8_t> data(size);
+    for (size_t i = 0; i < size; ++i) {
+      data[i] = static_cast<uint8_t>((i * 31 + salt) & 0xFF);
+    }
+    return data;
+  }
+
+  // Chunk size shares no factor with the internal buffer or the window, so writes straddle both.
+  static constexpr size_t kChunk = 7000;
+
+  static void WriteStreaming(const fs::path &path, const std::vector<uint8_t> &data, size_t window) {
+    PacedFile file;
+    file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+    file.EnableWritebackPacing(window);
+    for (size_t offset = 0; offset < data.size(); offset += kChunk) {
+      file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
+    }
+    file.Sync();
+    file.Close();
+  }
+
+  enum class PositionQueries : uint8_t { kNone, kEveryBatch };
+
+  // Residency of `path` once `data` has been streamed to it with pacing on, which is what says
+  // whether pacing disposed of the windows it completed.
+  static std::optional<double> ResidencyAfterPacedWrite(const fs::path &path, const std::vector<uint8_t> &data,
+                                                        PositionQueries queries) {
+    PacedFile file;
+    file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+    file.EnableWritebackPacing(kWindow);
+    for (size_t offset = 0; offset < data.size(); offset += kChunk) {
+      file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
+      if (queries == PositionQueries::kEveryBatch) file.GetPosition();
+    }
+    file.Sync();
+    auto const resident = memgraph::test::ResidentFraction(path);
+    file.Close();
+    return resident;
+  }
+
+  std::vector<uint8_t> ReadFileContents(const fs::path &path) const {
+    std::ifstream ifs(path, std::ios::binary);
+    return std::vector<uint8_t>(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+  }
+
+  fs::path test_dir_;
+};
+
+TEST_F(FileCacheHintTest, PacedAndUnpacedWritesProduceIdenticalBytes) {
+  const auto data = Pattern(kTotal);
+  const auto paced = test_dir_ / "paced.bin";
+  const auto unpaced = test_dir_ / "unpaced.bin";
+
+  WriteStreaming(paced, data, kWindow);
+  WriteStreaming(unpaced, data, 0);
+
+  EXPECT_EQ(ReadFileContents(paced), data);
+  EXPECT_EQ(ReadFileContents(unpaced), data);
+}
+
+// The snapshot writer's shape: stream a lot of output, seek back over several already-written
+// windows to patch a placeholder, then return to the end and carry on. A pacer that still believed
+// it was at the old end would from here on address ranges that correspond to nothing.
+TEST_F(FileCacheHintTest, PacingSurvivesTheWriterSeekingBackToPatch) {
+  const auto body = Pattern(kTotal);
+  const auto tail = Pattern(kWindow * 3, 77);
+  const std::vector<uint8_t> patched{1, 2, 3, 4, 5, 6, 7, 8};
+  const auto path = test_dir_ / "patched.bin";
+
+  PacedFile file;
+  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  file.EnableWritebackPacing(kWindow);
+
+  // A placeholder the writer comes back to fill in once it knows the value, as the snapshot encoder
+  // does for each batch's size and for the offset table.
+  const std::vector<uint8_t> placeholder(patched.size(), 0);
+  file.Write(placeholder.data(), placeholder.size());
+
+  for (size_t offset = 0; offset < body.size(); offset += kChunk) {
+    file.Write(body.data() + offset, std::min(kChunk, body.size() - offset));
+  }
+
+  const auto end = file.GetPosition();
+  ASSERT_EQ(file.SetPosition(PacedFile::Position::SET, 0), 0U);
+  file.Write(patched.data(), patched.size());
+
+  ASSERT_EQ(file.SetPosition(PacedFile::Position::SET, static_cast<ssize_t>(end)), end);
+  file.Write(tail.data(), tail.size());
+
+  file.Sync();
+  file.Close();
+
+  const auto contents = ReadFileContents(path);
+  ASSERT_EQ(contents.size(), patched.size() + body.size() + tail.size());
+  EXPECT_TRUE(std::equal(patched.begin(), patched.end(), contents.begin()));
+  EXPECT_TRUE(std::equal(body.begin(), body.end(), contents.begin() + patched.size()));
+  EXPECT_TRUE(std::equal(tail.begin(), tail.end(), contents.begin() + patched.size() + body.size()));
+}
+
+// Pacing knows where it is by counting bytes written, which is the file offset only while the file
+// is append-only. Seeking must therefore reposition it. Byte content cannot show this: misaligned
+// windows still write correct bytes, so this asserts on the pacer's own view of the file.
+TEST_F(FileCacheHintTest, SeekingRepositionsPacing) {
+  const auto data = Pattern(kTotal);
+  const auto path = test_dir_ / "repositioned.bin";
+
+  PacedFile file;
+  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  file.EnableWritebackPacing(kWindow);
+  for (size_t offset = 0; offset < data.size(); offset += kChunk) {
+    file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
+  }
+  file.Sync();
+  EXPECT_EQ(file.PacingOffset(), kTotal) << "pacing did not follow an append-only write";
+
+  file.SetPosition(PacedFile::Position::SET, 0);
+  EXPECT_EQ(file.PacingOffset(), 0U) << "pacing kept addressing the old end of the file after a seek";
+
+  const auto middle = static_cast<ssize_t>(kTotal / 2);
+  file.SetPosition(PacedFile::Position::SET, middle);
+  EXPECT_EQ(file.PacingOffset(), static_cast<size_t>(middle));
+
+  file.Close();
+}
+
+// Parallel snapshot creation appends each worker's part with `sendfile`, straight at the descriptor.
+// Pacing counts the bytes it is handed, so output that skips the buffer has to be counted too, or
+// every window after it addresses a range the file has already moved past, which for a parallel
+// snapshot is all of the data. The buffered head must also land in front of the copied bytes.
+TEST_F(FileCacheHintTest, AppendingFromAnotherFileKeepsPacingAlignedWithTheFile) {
+  const auto head = Pattern(kChunk);
+  const auto part = Pattern(kTotal, 91);
+  const auto part_path = test_dir_ / "part.bin";
+  WriteStreaming(part_path, part, 0);
+
+  const int src_fd = ::open(part_path.c_str(), O_RDONLY);
+  ASSERT_NE(src_fd, -1);
+  const auto close_src = memgraph::utils::OnScopeExit{[src_fd] { ::close(src_fd); }};
+
+  const auto path = test_dir_ / "appended.bin";
+  PacedFile file;
+  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  file.EnableWritebackPacing(kWindow);
+  file.Write(head.data(), head.size());
+
+  const auto copied = file.AppendFrom(src_fd, part.size());
+  ASSERT_TRUE(copied.has_value());
+  EXPECT_EQ(*copied, part.size());
+  file.Sync();
+
+  EXPECT_EQ(file.PacingOffset(), head.size() + part.size())
+      << "pacing lost track of bytes that did not pass through Write";
+  file.Close();
+
+  const auto contents = ReadFileContents(path);
+  ASSERT_EQ(contents.size(), head.size() + part.size());
+  EXPECT_TRUE(std::equal(head.begin(), head.end(), contents.begin()));
+  EXPECT_TRUE(std::equal(part.begin(), part.end(), contents.begin() + head.size()));
+}
+
+// Asking a file for its position seeks to where the file already is, and the snapshot writer asks at
+// every batch boundary. If that counted as a move it would abandon the window in flight each time,
+// so no window would ever be handed to writeback or dropped, which on a large snapshot is most of
+// the file. Residency is what shows it: the pacer's own offset is right either way.
+//
+// The baseline is the same write without the queries, and it is also the gate: whether pacing can
+// drop anything at all is a property of the filesystem, and one that `PageCacheEvictionObservable`
+// cannot answer, because it asks about a file that has been fsynced. On overlayfs, which is what a
+// container's own filesystem is, `sync_file_range` reports success having done nothing: it writes
+// back the mapping of the inode it is given, and the overlay inode holds no pages, they are all on
+// the upper filesystem's inode. The pages stay dirty, DONTNEED skips dirty pages, and nothing is
+// released. `fsync` is passed through to the upper file and so still works, which is why whole-file
+// eviction after a sync is observable there and this is not.
+TEST_F(FileCacheHintTest, RepositioningToTheCurrentOffsetKeepsTheWindowInFlight) {
+  const auto data = Pattern(kTotal);
+
+  const auto baseline = ResidencyAfterPacedWrite(test_dir_ / "streamed.bin", data, PositionQueries::kNone);
+  ASSERT_TRUE(baseline.has_value());
+  if (*baseline >= 0.5) {
+    GTEST_SKIP() << "paced writeback releases nothing under " << test_dir_ << ": a stream with no position query at all"
+                 << " left " << (*baseline * 100) << "% of the file cached";
+  }
+
+  const auto resident =
+      ResidencyAfterPacedWrite(test_dir_ / "position_queried.bin", data, PositionQueries::kEveryBatch);
+  ASSERT_TRUE(resident.has_value());
+  EXPECT_LT(*resident, 0.5) << "asking for the position abandoned the window in flight: " << (*resident * 100)
+                            << "% of the file is still cached, against " << (*baseline * 100)
+                            << "% without the queries";
+}
+
+// `EnableWritebackPacing` is the one place that sets the window, and it must also reset where pacing
+// thinks it is; otherwise re-enabling on a reused handle would carry a stale offset into the new
+// file.
+TEST_F(FileCacheHintTest, EnablingPacingStartsFromTheBeginning) {
+  const auto data = Pattern(kTotal);
+  const auto path = test_dir_ / "re_enabled.bin";
+
+  PacedFile file;
+  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  file.EnableWritebackPacing(kWindow);
+  file.Write(data.data(), data.size());
+  file.Sync();
+  ASSERT_EQ(file.PacingOffset(), kTotal);
+
+  file.EnableWritebackPacing(kWindow);
+  EXPECT_EQ(file.PacingOffset(), 0U);
+
+  file.Close();
+}
+
+// Opening resets pacing too, so a handle reused for a second file starts from that file's
+// beginning without the caller having to re-enable.
+TEST_F(FileCacheHintTest, ReopeningAHandleStartsPacingFromTheNewFile) {
+  const auto data = Pattern(kTotal);
+
+  PacedFile file;
+  file.Open(test_dir_ / "first.bin", PacedFile::Mode::OVERWRITE_EXISTING);
+  file.EnableWritebackPacing(kWindow);
+  file.Write(data.data(), data.size());
+  file.Sync();
+  ASSERT_EQ(file.PacingOffset(), kTotal);
+  file.Close();
+
+  file.Open(test_dir_ / "second.bin", PacedFile::Mode::OVERWRITE_EXISTING);
+  EXPECT_EQ(file.PacingOffset(), 0U) << "pacing carried the previous file's offset into this one";
+
+  file.Write(data.data(), kChunk);
+  file.Sync();
+  EXPECT_EQ(file.PacingOffset(), kChunk);
+
+  file.Close();
+}
+
+// Dropping is an explicit request from a caller that knows this file is finished with, not a
+// feature of pacing. Bounding the dirty footprint while writing and releasing the file afterwards
+// are separate decisions, and a deployment that turns pacing off still gets the release it asked
+// for.
+TEST_F(FileCacheHintTest, DroppingCachedPagesEvictsAnUnpacedFile) {
+  if (!memgraph::test::PageCacheEvictionObservable(test_dir_ / "probe.bin")) {
+    GTEST_SKIP() << "page cache eviction is not observable under " << test_dir_;
+  }
+
+  const auto data = Pattern(kTotal);
+  const auto path = test_dir_ / "unpaced_release.bin";
+
+  PacedFile file;
+  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  for (size_t offset = 0; offset < data.size(); offset += kChunk) {
+    file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
+  }
+  // Clean pages are the only ones DONTNEED can evict.
+  file.Sync();
+
+  const auto before = memgraph::test::ResidentFraction(path);
+  ASSERT_TRUE(before.has_value());
+  ASSERT_GT(*before, 0.9) << "the file was not cached to begin with";
+
+  file.DropCachedPages();
+  const auto after = memgraph::test::ResidentFraction(path);
+  file.Close();
+
+  ASSERT_TRUE(after.has_value());
+  EXPECT_LT(*after, 0.05) << "dropping left " << (*after * 100) << "% of an unpaced file resident";
+}
+
+// A descriptor pacing cannot work on must disable pacing rather than have every flush repeat a
+// syscall that cannot succeed. /dev/null gives that deterministically: sync_file_range answers
+// ESPIPE for anything that is not a regular file, block device or directory. It refuses fsync too,
+// so this file is never synced; nothing here is about durability.
+//
+// The fatal branch, EIO and ENOSPC, needs an injected device failure and is not covered here.
+TEST_F(FileCacheHintTest, PacingDisablesItselfOnADescriptorItCannotPace) {
+  PacedFile file;
+  ASSERT_TRUE(file.Open("/dev/null", PacedFile::Mode::APPEND_TO_EXISTING));
+  file.EnableWritebackPacing(kWindow);
+
+  // Crossing the first window boundary is what issues the syscall, and what fails.
+  const auto data = Pattern(kWindow * 2);
+  file.Write(data.data(), data.size());
+  const auto after_failure = file.PacingOffset();
+  ASSERT_GT(after_failure, 0U) << "the write never reached a window boundary";
+
+  // Pacing is off now, so further writes are neither tracked nor retried.
+  file.Write(data.data(), data.size());
+  EXPECT_EQ(file.PacingOffset(), after_failure) << "pacing kept running on a descriptor it cannot pace";
+
+  file.Close();
+}
+
+// Recovery releases the snapshot through the same handle it read it with, once the load is done.
+// Reading a file leaves its pages clean, and clean pages are the ones DONTNEED can evict.
+TEST_F(FileCacheHintTest, ReadingAFileThenDroppingItEvictsIt) {
+  const auto data = Pattern(kTotal);
+  const auto path = test_dir_ / "read_then_dropped.bin";
+  WriteStreaming(path, data, 0);
+
+  if (!memgraph::test::PageCacheEvictionObservable(test_dir_ / "probe.bin")) {
+    GTEST_SKIP() << "page cache eviction is not observable under " << test_dir_;
+  }
+
+  memgraph::utils::InputFile file;
+  ASSERT_TRUE(file.Open(path));
+  std::vector<uint8_t> scratch(kChunk);
+  for (size_t offset = 0; offset < data.size(); offset += kChunk) {
+    ASSERT_TRUE(file.Read(scratch.data(), std::min(kChunk, data.size() - offset)));
+  }
+
+  const auto before = memgraph::test::ResidentFraction(path);
+  ASSERT_TRUE(before.has_value());
+
+  file.DropCachedPages();
+  const auto after = memgraph::test::ResidentFraction(path);
+  file.Close();
+
+  ASSERT_TRUE(after.has_value());
+  EXPECT_LT(*after, 0.05) << "dropping left " << (*after * 100) << "% resident, was " << (*before * 100) << "%";
 }

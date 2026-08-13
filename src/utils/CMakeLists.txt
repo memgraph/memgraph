@@ -27,6 +27,7 @@ target_sources(mg-utils
     startup_failure.cpp
     memory.cpp
     memory_tracker.cpp
+    page_cache_releaser.cpp
     readable_size.cpp
     signals.cpp
     sysinfo/memory.cpp

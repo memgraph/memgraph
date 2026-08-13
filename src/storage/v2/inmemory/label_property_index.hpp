@@ -18,6 +18,7 @@
 #include <span>
 #include <tuple>
 #include <variant>
+#include <vector>
 
 #include "memory/db_arena_fwd.hpp"
 #include "metrics/metric_handles.hpp"
@@ -309,6 +310,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       typename utils::SkipListDb<EntryT>::Iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
+      // Owned by the iterator rather than by each advance, so one buffer serves the whole sweep.
+      // Its width is the index's arity, so it stops growing after the first entry compared.
+      std::vector<bool> match_scratch_;
     };
 
     Iterator begin();
@@ -367,6 +371,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       typename utils::SkipListDb<EntryT>::ChunkedIterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_{nullptr};
+      // See the corresponding member on Iterable::Iterator.
+      std::vector<bool> match_scratch_;
     };
 
     class Chunk {
