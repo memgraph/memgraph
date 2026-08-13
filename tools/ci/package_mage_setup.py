@@ -31,25 +31,11 @@ SUPPORTED_BUILDS = [
     {"label": "cuda", "os": "ubuntu-24.04", "arch": "amd", "cuda": "true", "cugraph": "false", "malloc": "false"},
     {"label": "cugraph", "os": "ubuntu-24.04", "arch": "amd", "cuda": "false", "cugraph": "true", "malloc": "false"},
     {"label": "malloc", "os": "ubuntu-24.04", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "true"},
-    {"label": "centos-9", "os": "centos-9", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
-    {"label": "centos-10", "os": "centos-10", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
-    # Disabled until MAGE supports Python versions other than 3.12 (see note above).
-    # These mirror the rest of the Memgraph build matrix in build_rc.yml:
-    # {"label": "ubuntu-22.04",  "os": "ubuntu-22.04", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.10
-    # {"label": "debian-12",     "os": "debian-12",    "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.11
-    # {"label": "debian-12-arm", "os": "debian-12",    "arch": "arm", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.11
-    # {"label": "debian-13",     "os": "debian-13",    "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.13
-    # {"label": "debian-13-arm", "os": "debian-13",    "arch": "arm", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.13
-    # {"label": "fedora-42",     "os": "fedora-42",    "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.13
-    # {"label": "fedora-42-arm", "os": "fedora-42",    "arch": "arm", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.13
-    # {"label": "rocky-10",      "os": "rocky-10",     "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.12, not yet validated
+    # TODO(matt): validate MAGE on other Python versions - 3.14 would be particularly desirable for switching
+    # to Ubuntu 26.04 as our Docker image base distro.
 ]
 
-# matrix_build (workflow_dispatch) builds the original ubuntu-24.04 flavour set
-# (amd, arm, cuda, cugraph, malloc) plus centos-9. Selected from SUPPORTED_BUILDS
-# by label, minus the PR-label key. The remaining distros are still reachable via
-# single-OS workflow_dispatch selection or their PR labels.
-MATRIX_BUILD_LABELS = {"amd", "arm", "cuda", "cugraph", "malloc", "centos-9"}
+MATRIX_BUILD_LABELS = {"amd", "arm", "cuda", "cugraph", "malloc"}
 MATRIX_BUILDS = [
     {k: v for k, v in build.items() if k != "label"}
     for build in SUPPORTED_BUILDS
