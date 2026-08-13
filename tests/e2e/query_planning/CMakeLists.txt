@@ -12,5 +12,6 @@ copy_query_planning_e2e_python_files(query_planning_valid_query_plans.py)
 copy_query_planning_e2e_python_files(query_planning_orderby_index.py)
 copy_query_planning_e2e_python_files(query_planning_in_list.py)
 copy_query_planning_e2e_python_files(query_planning_pruning_bfs.py)
+copy_query_planning_e2e_python_files(query_planning_string_operators.py)
 
 copy_e2e_files(query_planning workloads.yaml)

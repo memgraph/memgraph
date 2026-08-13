@@ -51,3 +51,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["query_planning/query_planning_in_list.py"]
     <<: *queries_cluster
+
+  - name: "Query planning string operators"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_string_operators.py"]
+    <<: *queries_cluster

@@ -22,6 +22,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/range.hpp"
 #include "utils/bound.hpp"
@@ -1003,9 +1004,19 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     }
   } else if (utils::Downcast<SubqueryExpression>(expr)) {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Pattern));
-  } else if (utils::Downcast<Function>(expr)) {
+  } else if (auto *func = utils::Downcast<Function>(expr)) {
+    auto const &fn = func->function_name_;
     // WHERE point.withinbbox()
-    if (!add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
+    if (add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
+      // handled
+    } else if ((fn == kContains || fn == kStartsWith || fn == kEndsWith) && func->arguments_.size() == 2) {
+      // CONTAINS/STARTS WITH/ENDS WITH require a string property value.
+      // Treat like REGEX_MATCH: use the label+property index for a
+      // string-range scan, keep the expression as a post-filter.
+      if (!try_add_prop_filter(func->arguments_[0], func->arguments_[1], PropertyFilter::Type::REGEX_MATCH)) {
+        all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+      }
+    } else {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *or_operator = utils::Downcast<OrOperator>(expr)) {
