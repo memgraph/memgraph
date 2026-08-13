@@ -553,7 +553,7 @@ void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] u
   // Rebuild the edge metadata index from the fully recovered adjacency before any
   // other derived structure observes it.
   if (edges_metadata) {
-    edges_metadata->RebuildFrom(*vertices, GetParallelExecInfo(recovery_info, config, db_arena_pool));
+    edges_metadata->RebuildFrom(*vertices, GetParallelExecInfo(recovery_info, config, db_arena_pool), on_progress);
     if (config.salient.items.storage_light_edge) {
       // Light edges live only in the vertex adjacency (pool-allocated); the edges_
       // skiplist is intentionally empty after recovery. RebuildFrom derives metadata
