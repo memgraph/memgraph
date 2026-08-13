@@ -1153,3 +1153,21 @@ Feature: WHERE exists
           | false |
           | true  |
           | true  |
+
+  Scenario: EXISTS subquery body with no operators
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 1})
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          WHERE EXISTS {
+              RETURN 1
+          }
+          RETURN n.id as id;
+          """
+      Then the result should be:
+          | id    |
+          | 1     |
