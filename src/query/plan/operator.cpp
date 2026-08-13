@@ -6773,7 +6773,7 @@ class AggregateCursor : public Cursor {
         // the input has been processed
         case Aggregation::Op::SUM:
           EnsureOkForAvgSum(input_value);
-          agg_value->values_[pos] = agg_value->values_[pos] + input_value;
+          AddInto(agg_value->values_[pos], input_value);
           break;
         case Aggregation::Op::COLLECT_LIST:
           agg_value->values_[pos].ValueList().push_back(std::move(input_value));
@@ -6989,6 +6989,25 @@ class AggregateCursor : public Cursor {
 
   /** Checks if the given TypedValue is legal in AVG and SUM. If not
    * an appropriate exception is thrown. */
+  /// Adds `addend` into the running total `total`, in place where the two agree on a numeric
+  /// type. Both have been through `EnsureOkForAvgSum`, so both are an integer or a double, and
+  /// `operator+` on that pair is an addition and the type rules around it: integers stay integers
+  /// until a double joins them, and the total is a double from then on. Doing it here keeps the
+  /// per-row addition from building a result to move-assign over the total and throwing it away.
+  static void AddInto(TypedValue &total, const TypedValue &addend) {
+    if (total.IsDouble()) {
+      total.ValueDouble() +=
+          addend.IsDouble() ? addend.UnsafeValueDouble() : static_cast<double>(addend.UnsafeValueInt());
+      return;
+    }
+    if (total.IsInt() && addend.IsInt()) {
+      total.ValueInt() += addend.UnsafeValueInt();
+      return;
+    }
+    // An integer total meeting a double: the total changes type, which is the general addition.
+    total = total + addend;
+  }
+
   void EnsureOkForAvgSum(const TypedValue &value) const {
     switch (value.type()) {
       case TypedValue::Type::Int:
