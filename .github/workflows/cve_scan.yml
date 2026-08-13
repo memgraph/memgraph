@@ -100,7 +100,7 @@ jobs:
               mage_prefix="mage-mock-rc"
             fi
             base="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io"
-            memgraph_amd_url="${base}/${memgraph_prefix}/${tag}/docker/memgraph-${VERSION}-docker.tar.gz"
+            memgraph_amd_url="${base}/${memgraph_prefix}/${tag}/docker-x86_64/memgraph-${VERSION}-docker.tar.gz"
             memgraph_arm_url="${base}/${memgraph_prefix}/${tag}/docker-aarch64/memgraph-${VERSION}-docker.tar.gz"
             mage_amd_url="${base}/${mage_prefix}/${tag}/mage-${VERSION}.tar.gz"
             mage_arm_url="${base}/${mage_prefix}/${tag}/mage-${VERSION}-arm64.tar.gz"
