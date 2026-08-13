@@ -7,7 +7,6 @@ source "$SCRIPT_DIR/../util.sh"
 # Distro scripts no longer exposed through install_deps.sh (the files remain
 # and can still be run directly).
 DEPRECATED_OS=(
-    fedora-42
     ubuntu-20.04
 )
 
