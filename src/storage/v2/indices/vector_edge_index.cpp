@@ -89,7 +89,7 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
   }
   auto &item_ptr = it->second;
   auto &spec = item_ptr->spec;
-  auto &registry = NoManifestRegistry();
+  auto &registry = ThrowNoManifestRegistry();
   auto property = edge->properties.GetProperty(registry, spec.property);
   if (property.IsNull()) return;
   // an edge already indexed by another vector-edge index stores no inline vector; recover it from that
@@ -225,7 +225,7 @@ std::optional<VectorEdgeIndex::DroppedIndexCapture> VectorEdgeIndex::DropIndex(s
     std::size_t processed = 0;
     try {
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
-      auto &registry = NoManifestRegistry();
+      auto &registry = ThrowNoManifestRegistry();
       std::vector<double> vector(dimension);
       for (auto *edge : dropped_edges) {
         auto vector_property = edge->properties.GetProperty(registry, spec.property);
@@ -601,7 +601,7 @@ void VectorEdgeIndex::SerializeAllVectorEdgeIndices(durability::BaseEncoder *enc
 void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
                                                 std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
                                                 utils::SkipListDb<Vertex>::Accessor &vertices) {
-  auto &registry = NoManifestRegistry();
+  auto &registry = ThrowNoManifestRegistry();
   for (auto &recovery_info : recovery_info_vec) {
     if (recovery_info.spec.index_name == index_name) {
       auto maybe_index_id = name_id_mapper->NameToIdIfExists(index_name);

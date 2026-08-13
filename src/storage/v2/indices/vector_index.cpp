@@ -194,7 +194,7 @@ std::optional<VectorIndex::DroppedIndexCapture> VectorIndex::DropIndex(std::stri
     rewritten_vertices.reserve(indexed_vertices.size());
     try {
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
-      auto &registry = NoManifestRegistry();
+      auto &registry = ThrowNoManifestRegistry();
       std::vector<double> vector(dimension);
       for (auto *vertex : indexed_vertices) {
         auto vector_property = vertex->properties.GetProperty(registry, spec.property);
@@ -655,7 +655,7 @@ utils::small_vector<float> VectorIndexRecovery::ExtractVectorForRecovery(
 void VectorIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
                                             std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
                                             utils::SkipListDb<Vertex>::Accessor &vertices) {
-  auto &registry = NoManifestRegistry();
+  auto &registry = ThrowNoManifestRegistry();
   for (auto &recovery_info : recovery_info_vec) {
     if (recovery_info.spec.index_name == index_name) {
       for (auto &[gid, vector] : recovery_info.index_entries) {
@@ -689,7 +689,7 @@ void VectorIndexRecovery::UpdateOnLabelAddition(LabelId label, Vertex *vertex, N
     return;
   }
 
-  auto &registry = NoManifestRegistry();
+  auto &registry = ThrowNoManifestRegistry();
   auto vertex_properties = vertex->properties.ExtractPropertyIds(registry);
   for (auto *recovery_info : matching_indices) {
     if (!recovery_info->spec.label_filter.Matches(vertex->labels)) continue;
@@ -725,7 +725,7 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
     return;
   }
 
-  auto &registry = NoManifestRegistry();
+  auto &registry = ThrowNoManifestRegistry();
   auto vertex_properties = vertex->properties.ExtractPropertyIds(registry);
   for (auto *recovery_info : matching_indices) {
     if (recovery_info->spec.label_filter.Matches(vertex->labels)) continue;

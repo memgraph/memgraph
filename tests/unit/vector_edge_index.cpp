@@ -133,6 +133,30 @@ TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {
   EXPECT_EQ(std::get<0>(result[0]).Gid(), edge.Gid());
 }
 
+// The vector index reads records through a registry that resolves none of the shapes they were
+// encoded to, so building one over an edge that already exists used to dereference a manifest
+// that was not there: a segfault in a release build, where those checks are debug-only. Until
+// the index is rebuilt on a representation the property store can encode, every path that
+// reaches for a record has to fail loudly and leave the record alone.
+TEST_F(VectorEdgeIndexTest, BuildingOverAnExistingEdgeFailsRatherThanCrashing) {
+  PropertyValue const property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(0.0)});
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto [fv, tv, edge] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  EXPECT_THROW(this->CreateEdgeIndex(2, 10), memgraph::query::VectorSearchException);
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+  auto prop = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+  ASSERT_TRUE(prop.has_value());
+  EXPECT_EQ(*prop, property_value) << "the failed build left the edge's property rewritten";
+}
+
 TEST_F(VectorEdgeIndexTest, SecondIndexBackfillsAlreadyIndexedEdge) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
@@ -677,10 +701,7 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
       // Set edge property (vector)
       PropertyValue property_value(
           std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
-      // The vector edge index reads and writes records through `NoManifestRegistry`, so this fixture,
-      // which has no storage of its own, has to encode them through the same registry.
-      edge_iter->properties.SetProperty(
-          memgraph::storage::NoManifestRegistry(), PropertyId::FromUint(1), property_value);
+      edge_iter->properties.SetProperty(registry_, PropertyId::FromUint(1), property_value);
 
       // Connect edge to vertices via out_edges
       EdgeRef edge_ref(&(*edge_iter));
@@ -700,6 +721,10 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
         .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
   }
 
+  /// This fixture has no storage of its own, so it interns the shapes of the records it builds
+  /// itself. The vector edge index cannot be handed this registry: it reaches records from entry
+  /// points that have none in scope, which is why it is unsupported by the manifest store.
+  memgraph::storage::ManifestRegistry registry_;
   memgraph::utils::SkipListDb<Vertex> vertices_;
   memgraph::utils::SkipListDb<Edge> edges_;
   VectorEdgeIndex vector_edge_index_;

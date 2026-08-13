@@ -294,13 +294,23 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
 /// `ManifestPropertyStore` has no encoding for, so every property write below throws
 /// `ManifestPropertyStore::UnsupportedType` whatever registry it is handed. None of the vector
 /// index entry points can reach the real registry either: doing so means a `ManifestRegistry`
-/// parameter on callers outside the vector index. Until the vector index is rebuilt on a
-/// representation the manifest store can encode, its property reads and writes go through this
-/// registry, which belongs to no storage and resolves none of the shapes the records were
-/// encoded to.
-inline ManifestRegistry &NoManifestRegistry() {
-  static ManifestRegistry registry;
-  return registry;
+/// parameter on callers outside the vector index.
+///
+/// Never returns: it always throws. Handing those call sites an empty registry instead would be
+/// worse than the feature being unsupported. A record encoded by the database's registry names a
+/// shape an empty one never issued, so reading it resolves a manifest that is not there - a
+/// segfault in a release build, where `Resolve`'s checks are debug-only assertions. Writing is
+/// worse still: a record with no properties yet has no shape to resolve, so the write succeeds
+/// and stamps the record with an id minted by a registry no reader will ever consult, which the
+/// database's own registry then resolves to whatever unrelated shape it gave that id. Failing
+/// here keeps every vector index path loud and leaves every record as it was.
+///
+/// Declared as returning a reference so the call sites keep the shape they will have once the
+/// vector index is rebuilt on a representation the manifest store can encode.
+[[noreturn]] inline ManifestRegistry &ThrowNoManifestRegistry() {
+  throw query::VectorSearchException(
+      "Vector indexes are not supported by this storage engine: a vector index moves a list out of a record and "
+      "leaves behind a handle the property store has no encoding for.");
 }
 
 /// @brief Non-throwing conversion of a PropertyValue list to a vector of floats.
@@ -360,9 +370,13 @@ inline bool UnregisterIndexId(PropertyValue &property_value, uint64_t index_id) 
 
 /// Inverse of UnregisterIndexId: appends index_id to an existing VectorIndexId list,
 /// or promotes a plain Vector property back into a VectorIndexIdData{id}.
+///
+/// One of its callers is an abort path that must not throw. It cannot: the drop that fills the
+/// list this is called over asks for a registry before it rewrites its first record, so under
+/// the manifest store the drop fails there and leaves nothing behind to restore.
 template <typename Entity>
 inline void ReinstallIndexIdInProperty(Entity *entity, PropertyId property, uint64_t index_id) {
-  auto &registry = NoManifestRegistry();
+  auto &registry = ThrowNoManifestRegistry();
   auto property_value = entity->properties.GetProperty(registry, property);
   if (property_value.IsVectorIndexId()) {
     property_value.ValueVectorIndexIds().push_back(index_id);
