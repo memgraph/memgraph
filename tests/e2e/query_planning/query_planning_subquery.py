@@ -75,7 +75,6 @@ def test_scoped_subquery_import_index_result_equivalence(memgraph):
     so assert the indexed plan returns what the unindexed one does across rows carrying different
     lists. Catches a stale or wrongly-scoped seek key, the only way this could give wrong results.
     """
-    memgraph.execute("MATCH (n) DETACH DELETE n;")
     for i in range(12):
         memgraph.execute(f"CREATE (:L {{p: 'v{i}'}});")
 

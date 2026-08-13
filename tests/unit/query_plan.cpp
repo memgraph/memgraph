@@ -59,6 +59,17 @@ namespace ms = memgraph::storage;
 
 namespace {
 
+/// Walks down the single-input chain from @p root and returns the first operator of type TOp, or nullptr.
+template <class TOp>
+TOp *FindOpOfType(memgraph::query::plan::LogicalOperator *root) {
+  for (auto *op = root; op != nullptr;) {
+    if (auto *found = dynamic_cast<TOp *>(op)) return found;
+    if (!op->HasSingleInput()) return nullptr;
+    op = op->input().get();
+  }
+  return nullptr;
+}
+
 class Planner {
  public:
   template <class TDbAccessor>
@@ -2906,142 +2917,113 @@ TYPED_TEST(TestPlanner, SubqueryReturnAllIncludesSubquerySymbols) {
   EXPECT_TRUE(output_names.count("outer")) << "RETURN * should include 'outer' from outer scope";
 }
 
-namespace {
-// Collects every RollUpApply whose list-collection branch may run without a successful input pull.
-class PassInputRollUpApplyCollector : public virtual HierarchicalLogicalOperatorVisitor {
- public:
-  using HierarchicalLogicalOperatorVisitor::PostVisit;
-  using HierarchicalLogicalOperatorVisitor::PreVisit;
-  using HierarchicalLogicalOperatorVisitor::Visit;
-
-  bool Visit(Once & /*unused*/) override { return true; }
-
-  bool PreVisit(RollUpApply &op) override {
-    if (op.pass_input_) ops.push_back(&op);
-    return true;
-  }
-
-  std::vector<RollUpApply *> ops;
-};
-
-// Finds the first operator of type TOp anywhere in the plan, branches included.
-template <typename TOp>
-class FirstOpFinder : public virtual HierarchicalLogicalOperatorVisitor {
- public:
-  using HierarchicalLogicalOperatorVisitor::PostVisit;
-  using HierarchicalLogicalOperatorVisitor::PreVisit;
-  using HierarchicalLogicalOperatorVisitor::Visit;
-
-  bool Visit(Once & /*unused*/) override { return true; }
-
-  bool PreVisit(TOp &op) override {
-    if (found == nullptr) found = &op;
-    return true;
-  }
-
-  TOp *found{nullptr};
-};
-
-template <typename TOp>
-TOp *FindFirstOp(LogicalOperator &root) {
-  FirstOpFinder<TOp> finder;
-  root.Accept(finder);
-  return finder.found;
-}
-}  // namespace
-
-// RollUpApplyCursor::Pull runs the branch even when the input pull fails (`|| self_.pass_input_`), so
-// a symbol declared bound at that branch's input Once need not be on the frame. Pin that it stays
-// empty even inside a scoped CALL, whose query part does have inherited symbols.
-TYPED_TEST(TestPlanner, RollUpApplyPassInputOnceStaysEmpty) {
-  FakeDbAccessor dba;
-  // WITH 1 AS x CALL (x) { MATCH (n) WHERE [(n)--() | 1] = [] RETURN n } RETURN n
-  // A comprehension in a MATCH's WHERE is the only shape producing a pass_input_ RollUpApply.
-  auto *pattern_comp =
-      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("anon1"), NODE("anon2")), nullptr, LITERAL(1));
-  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EQ(pattern_comp, LIST())), RETURN("n"));
-  auto *query = QUERY(SINGLE_QUERY(
-      WITH(LITERAL(1), AS("x")), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"x"}), RETURN("n")));
-
-  auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-
-  PassInputRollUpApplyCollector collector;
-  planner.plan().Accept(collector);
-  ASSERT_FALSE(collector.ops.empty()) << "test observes no pass_input_ RollUpApply; it proves nothing";
-  for (auto *op : collector.ops) {
-    auto *once = dynamic_cast<Once *>(op->input_.get());
-    ASSERT_NE(once, nullptr) << "pass_input_ RollUpApply input is not a Once";
-    EXPECT_TRUE(once->symbols_.empty()) << "pass_input_ RollUpApply input Once must declare no symbols";
-  }
-}
-
-// A predicate on a variable imported into a scoped CALL must drive a label-property index.
-TYPED_TEST(TestPlanner, SubqueryScopedImportDrivesLabelPropertyIndexIn) {
-  // WITH ['a'] AS ids CALL (ids) { MATCH (n:label) WHERE n.property IN ids RETURN n } RETURN n
+// A predicate on a variable imported into a scoped CALL must drive an index. The branch is rewritten
+// by its own rewriter, so the imported symbol reaches it only via inherited_bound_symbols_.
+TYPED_TEST(TestPlanner, SubqueryScopedImportDrivesLabelPropertyIndex) {
   FakeDbAccessor dba;
   auto label = dba.Label("label");
   auto property = PROPERTY_PAIR(dba, "property");
-  dba.SetIndexCount(label, property.second, 1);
 
+  // WITH ['a'] AS ids CALL (ids) { MATCH (n:label) WHERE n.property IN ids RETURN n } RETURN n
   auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
                                 WHERE(IN_LIST(PROPERTY_LOOKUP(dba, "n", property), IDENT("ids"))),
                                 RETURN("n"));
   auto *query = QUERY(SINGLE_QUERY(WITH(LIST(LITERAL("a")), AS("ids")),
                                    CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"ids"}),
                                    RETURN("n")));
+  {
+    // Without the index the same shape must stay ScanAll + Filter: nothing fabricates index usage.
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    std::list<BaseOpChecker *> branch{new ExpectScanAll(), new ExpectFilter(), new ExpectProduce()};
+    CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(branch), ExpectProduce());
+    DeleteListContent(&branch);
+  }
+  {
+    dba.SetIndexCount(label, property.second, 1);
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    // No Filter in the branch: the predicate is fully consumed by the scan.
+    auto *fake_identifier = IDENT("fake");
+    std::list<BaseOpChecker *> branch{
+        new ExpectUnwind(),
+        new ExpectScanAllByLabelProperties(label,
+                                           std::vector{ms::PropertyPath{property.second}},
+                                           std::vector{ExpressionRange::Equal(fake_identifier)}),
+        new ExpectProduce()};
+    CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(branch), ExpectProduce());
+    DeleteListContent(&branch);
+
+    // The checker compares bound expressions by type hash only, so pin the seek key separately: it
+    // must be the Unwind's element symbol, not `ids` (the list itself).
+    auto *apply = FindOpOfType<Apply>(&planner.plan());
+    ASSERT_NE(apply, nullptr);
+    auto *unwind = FindOpOfType<Unwind>(apply->subquery_.get());
+    auto *scan = FindOpOfType<ScanAllByLabelProperties>(apply->subquery_.get());
+    ASSERT_NE(unwind, nullptr);
+    ASSERT_NE(scan, nullptr);
+    ASSERT_EQ(scan->expression_ranges_.size(), 1U);
+    ASSERT_TRUE(scan->expression_ranges_[0].lower_.has_value());
+    auto *seek = memgraph::utils::Downcast<memgraph::query::Identifier>(scan->expression_ranges_[0].lower_->value());
+    ASSERT_NE(seek, nullptr) << "seek key is not an Identifier";
+    EXPECT_EQ(symbol_table.at(*seek), unwind->output_symbol_);
+  }
+}
+
+// The customer-reported shape: plain equality, no IN-list lowering in the way.
+TYPED_TEST(TestPlanner, SubqueryScopedImportEqualityDrivesLabelPropertyIndex) {
+  // WITH 'a' AS v CALL (v) { MATCH (n:label) WHERE n.property = v RETURN n } RETURN n
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR(dba, "property");
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *subquery = SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", "label"))), WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property), IDENT("v"))), RETURN("n"));
+  auto *query = QUERY(SINGLE_QUERY(
+      WITH(LITERAL("a"), AS("v")), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"v"}), RETURN("n")));
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  // No Filter in the branch: the predicate is fully consumed by the scan.
   auto *fake_identifier = IDENT("fake");
-  std::list<BaseOpChecker *> subquery_plan{
-      new ExpectUnwind(),
+  std::list<BaseOpChecker *> branch{
       new ExpectScanAllByLabelProperties(
           label, std::vector{ms::PropertyPath{property.second}}, std::vector{ExpressionRange::Equal(fake_identifier)}),
       new ExpectProduce()};
-  CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(subquery_plan), ExpectProduce());
-  DeleteListContent(&subquery_plan);
-
-  // The checker compares bound expressions by type hash only, so pin the seek key separately: it must
-  // be the Unwind's element symbol, not `ids` (the list itself).
-  auto *unwind = FindFirstOp<Unwind>(planner.plan());
-  auto *scan = FindFirstOp<ScanAllByLabelProperties>(planner.plan());
-  ASSERT_NE(unwind, nullptr);
-  ASSERT_NE(scan, nullptr);
-  ASSERT_EQ(scan->expression_ranges_.size(), 1U);
-  ASSERT_TRUE(scan->expression_ranges_[0].lower_.has_value());
-  auto *seek_ident =
-      memgraph::utils::Downcast<memgraph::query::Identifier>(scan->expression_ranges_[0].lower_->value());
-  ASSERT_NE(seek_ident, nullptr) << "seek key is not an Identifier";
-  EXPECT_EQ(symbol_table.at(*seek_ident), unwind->output_symbol_);
+  CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
 }
 
-// Regression guard: the edge rewriter already picked an index here before the Once was seeded, unlike
-// the node one, so this must keep working.
-TYPED_TEST(TestPlanner, SubqueryScopedImportDrivesEdgeIndex) {
-  // WITH 1 AS v CALL (v) { MATCH ()-[e:type]->() WHERE e.property = v RETURN e } RETURN e
+// id() lookups gate on bound symbols too, so they are fixed by the same change. The edge-type
+// *property* path is not, because its candidate selection never consults the bound set.
+TYPED_TEST(TestPlanner, SubqueryScopedImportDrivesIdIndex) {
   FakeDbAccessor dba;
-  auto edge_type = dba.EdgeType("type");
-  auto property = PROPERTY_PAIR(dba, "property");
-  dba.SetIndexCount(edge_type, property.second, 1);
-
-  auto *subquery = SINGLE_QUERY(
-      MATCH(PATTERN(NODE("anon1"), EDGE("e", memgraph::query::EdgeAtom::Direction::OUT, {"type"}), NODE("anon2"))),
-      WHERE(EQ(PROPERTY_LOOKUP(dba, "e", property), IDENT("v"))),
-      RETURN("e"));
-  auto *query = QUERY(SINGLE_QUERY(
-      WITH(LITERAL(1), AS("v")), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"v"}), RETURN("e")));
-
-  auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-
-  auto *fake_identifier = IDENT("fake");
-  std::list<BaseOpChecker *> subquery_plan{
-      new ExpectScanAllByEdgeTypePropertyValue(edge_type, property, fake_identifier), new ExpectProduce()};
-  CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(subquery_plan), ExpectProduce());
-  DeleteListContent(&subquery_plan);
+  {
+    // WITH 0 AS v CALL (v) { MATCH (n) WHERE id(n) = v RETURN n } RETURN n
+    auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EQ(FN("id", IDENT("n")), IDENT("v"))), RETURN("n"));
+    auto *query = QUERY(SINGLE_QUERY(
+        WITH(LITERAL(0), AS("v")), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"v"}), RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    std::list<BaseOpChecker *> branch{new ExpectScanAllById(), new ExpectProduce()};
+    CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(branch), ExpectProduce());
+    DeleteListContent(&branch);
+  }
+  {
+    // WITH 0 AS v CALL (v) { MATCH ()-[e]->() WHERE id(e) = v RETURN e } RETURN e
+    auto *subquery =
+        SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("e", memgraph::query::EdgeAtom::Direction::OUT), NODE("anon2"))),
+                     WHERE(EQ(FN("id", IDENT("e")), IDENT("v"))),
+                     RETURN("e"));
+    auto *query = QUERY(SINGLE_QUERY(
+        WITH(LITERAL(0), AS("v")), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"v"}), RETURN("e")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    std::list<BaseOpChecker *> branch{new ExpectScanAllByEdgeId(), new ExpectProduce()};
+    CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(branch), ExpectProduce());
+    DeleteListContent(&branch);
+  }
 }
 
 // The scanned symbol is in the filter's value, so is_symbol_in_value_ must still block the index.
@@ -3064,29 +3046,9 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportSelfReferentialFilterNoIndex) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> subquery_plan{new ExpectScanAllByLabel(), new ExpectFilter(), new ExpectProduce()};
-  CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(subquery_plan), ExpectProduce());
-  DeleteListContent(&subquery_plan);
-}
-
-// With no index at all the same shape must stay ScanAll + Filter.
-TYPED_TEST(TestPlanner, SubqueryScopedImportNoIndexFallsBackToScanFilter) {
-  FakeDbAccessor dba;
-  auto property = PROPERTY_PAIR(dba, "property");
-
-  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
-                                WHERE(IN_LIST(PROPERTY_LOOKUP(dba, "n", property), IDENT("ids"))),
-                                RETURN("n"));
-  auto *query = QUERY(SINGLE_QUERY(WITH(LIST(LITERAL("a")), AS("ids")),
-                                   CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"ids"}),
-                                   RETURN("n")));
-
-  auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-
-  std::list<BaseOpChecker *> subquery_plan{new ExpectScanAll(), new ExpectFilter(), new ExpectProduce()};
-  CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(subquery_plan), ExpectProduce());
-  DeleteListContent(&subquery_plan);
+  std::list<BaseOpChecker *> branch{new ExpectScanAllByLabel(), new ExpectFilter(), new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
 }
 
 TYPED_TEST(TestPlanner, PatternComprehensionInReturn) {
@@ -5390,17 +5352,6 @@ TExpand *ExpectCorrelatedBranch(RollUpApply *rollup) {
   EXPECT_NE(dynamic_cast<Once *>(expand->input_.get()), nullptr)
       << "the expansion must start from the bound symbol on the frame, not a ScanAll";
   return expand;
-}
-
-/// Walks down the single-input chain from @p root and returns the first operator of type TOp, or nullptr.
-template <class TOp>
-TOp *FindOpOfType(memgraph::query::plan::LogicalOperator *root) {
-  for (auto *op = root; op != nullptr;) {
-    if (auto *found = dynamic_cast<TOp *>(op)) return found;
-    if (!op->HasSingleInput()) return nullptr;
-    op = op->input().get();
-  }
-  return nullptr;
 }
 
 /// Asserts @p rollup's comprehension branch is uncorrelated - it legitimately scans - and that both the scan and the

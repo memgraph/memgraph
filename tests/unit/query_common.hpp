@@ -653,15 +653,6 @@ auto GetCallSubqueryScoped(AstStorage &storage, TSubquery *subquery, const std::
   return call_subquery;
 }
 
-// `CALL (*) { ... }`
-template <typename TSubquery>
-auto GetCallSubqueryStar(AstStorage &storage, TSubquery *subquery) {
-  auto *call_subquery = GetCallSubquery(storage, subquery);
-  call_subquery->has_variable_scope_ = true;
-  call_subquery->all_variables_scoped_ = true;
-  return call_subquery;
-}
-
 auto GetCallPeriodicSubquery(AstStorage &storage, SingleQuery *subquery, CommitFrequency commit_frequency) {
   auto *periodic_subquery = storage.Create<memgraph::query::CallSubquery>();
 
@@ -878,7 +869,6 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
 #define CALL_SUBQUERY(...) memgraph::query::test_common::GetCallSubquery(this->storage, __VA_ARGS__)
 #define CALL_PERIODIC_SUBQUERY(...) memgraph::query::test_common::GetCallPeriodicSubquery(this->storage, __VA_ARGS__)
 #define CALL_SUBQUERY_SCOPED(...) memgraph::query::test_common::GetCallSubqueryScoped(this->storage, __VA_ARGS__)
-#define CALL_SUBQUERY_STAR(...) memgraph::query::test_common::GetCallSubqueryStar(this->storage, __VA_ARGS__)
 #define PATTERN_COMPREHENSION(variable, pattern, filter, resultExpr) \
   this->storage.template Create<memgraph::query::PatternComprehension>(variable, pattern, filter, resultExpr)
 #define ENUM_VALUE(...) this->storage.template Create<memgraph::query::EnumValueAccess>(__VA_ARGS__)
