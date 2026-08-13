@@ -113,7 +113,7 @@ class DatabaseHandler : public Handler<Database> {
       auto *internals = cell->load(std::memory_order_acquire);
       if (internals == nullptr) return nullptr;
       if (auto db_acc = utils::Gatekeeper<Database>::access_via(internals)) {
-        return std::make_unique<DatabaseProtector>(*db_acc);
+        return std::make_unique<DatabaseProtector>(std::move(*db_acc));
       }
       return nullptr;
     };

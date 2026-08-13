@@ -498,11 +498,16 @@ struct Gatekeeper {
       // open a window where a concurrent begin_resume() starts reading the directory while
       // the old Database is still writing its final WAL segment.
       //
-      // INVARIANT (load-bearing): T's destructor (here ~Database -> ~InMemoryStorage) MUST NOT
-      // call any Gatekeeper method on the gatekeeper that owns it. pimpl_->mutex_ is non-recursive
-      // and held here, so re-entry (e.g. a pre-destruction hook calling access()/try_*()) would
-      // self-deadlock. Verified today: the ~Database/~InMemoryStorage chain takes no gatekeeper
-      // path. Anyone adding a destruction-time DBMS callback must preserve this.
+      // PRECONDITION (load-bearing): callers MUST have already joined this value's background tasks
+      // BEFORE calling finish_suspend(), with pimpl_->mutex_ unheld. This is NOT a "no gatekeeper
+      // path in the destructor" situation: ~Database -> ~InMemoryStorage -> StopAllBackgroundTasks()
+      // joins the TTL / async-indexer threads, and those threads call access_via() on this same
+      // gatekeeper. pimpl_->mutex_ is non-recursive and held here, so if such a join had to actually
+      // wait for a thread that then re-entered the gatekeeper, it would self-deadlock. The reset()
+      // below is safe ONLY because Suspend_ pre-joins via StopAllBackgroundTasks() (mutex unheld)
+      // before it calls us, which makes the in-destructor join a no-op. Anyone reaching this state
+      // without pre-joining, or adding a destruction-time DBMS callback that re-enters the
+      // gatekeeper, breaks this.
       DMG_ASSERT(pimpl_->count_ == 0, "finish_suspend() must not destroy value_ while accessors are live");
       pimpl_->value_.reset();
     }
