@@ -2961,7 +2961,7 @@ class PruningBFSCursor : public query::plan::Cursor {
         to_visit_next_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP("PruningBFSExpand");
 
     ExpressionEvaluator evaluator =
@@ -3031,7 +3031,7 @@ class PruningBFSCursor : public query::plan::Cursor {
   }
 
  private:
-  void expand_from_vertex(VertexAccessor const &vertex, ExpressionEvaluator &evaluator, Frame &frame,
+  void expand_from_vertex(VertexAccessor const &vertex, ExpressionEvaluator &evaluator, Frame & /*frame*/,
                           FrameWriter &frame_writer, ExecutionContext &context) {
     auto try_visit = [&](EdgeAccessor edge, VertexAccessor next_vertex) {
       if (visited_.contains(next_vertex)) return;
