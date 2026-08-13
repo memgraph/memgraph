@@ -806,11 +806,19 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
     }
 
+    // The Unwind above each IN slot already multiplies cardinality by the list
+    // length, so the scan factor must be per-input-row (i.e. divided by the
+    // product of list lengths) to avoid double-counting.
+    double unwind_factor = 1.0;
+    for (auto slot : in_slots) {
+      unwind_factor *= static_cast<double>(expression_ranges[slot].membership_list_->elements_.size());
+    }
+
     if (in_slots.size() == 1) {
-      // Single IN: exact per-element sum
       auto sum = EstimateInListCardinality(
           label, properties, *expression_ranges[in_slots[0]].membership_list_, in_slots[0], maybe_ranges);
-      return sum.value_or(db_accessor_->VerticesCount(label, properties) * CardParam::kFilter);
+      auto total = sum.value_or(db_accessor_->VerticesCount(label, properties) * CardParam::kFilter);
+      return unwind_factor > 0 ? total / unwind_factor : total;
     }
 
     // Multiple IN slots: independence assumption. S_0 * S_1 * ... / T^(k-1)
@@ -828,7 +836,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       result *= *marginal;
     }
     result /= std::pow(static_cast<double>(total), static_cast<double>(in_slots.size() - 1));
-    return std::min(result, static_cast<double>(total));
+    result = std::min(result, static_cast<double>(total));
+    return unwind_factor > 0 ? result / unwind_factor : result;
   }
 
   // Helper function to estimate cardinality for point-based queries.

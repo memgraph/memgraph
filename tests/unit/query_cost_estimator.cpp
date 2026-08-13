@@ -480,8 +480,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInList) {
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInListMultipleElements) {
   AddVertices(100, 30, 20);
-  // IN [5, 10]: 2 elements, each matches 1 vertex. Unwind factor = 2, scan sum = 2.
-  // Current estimate: 2 * 2 = 4 (double-counted; will be fixed in next commit).
+  // IN [5, 10]: 2 elements, each matches 1 vertex. Unwind factor = 2, scan per-row = 1.
   auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
   auto *unwind_expr = MakeInUnwindExpression(storage_, {Literal(5), Literal(10)});
   MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr, NextSymbol());
@@ -491,8 +490,8 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInListMultipleElements) {
                                    label,
                                    std::vector{ms::PropertyPath{prop_a}},
                                    std::vector{ExpressionRange::In(unwind_sym, list)});
-  // cost = CostParam::kUnwind + (2 * 2) * CostParam::kScanAllByLabelProperties
-  EXPECT_COST(CostParam::kUnwind + 4 * CostParam::kScanAllByLabelProperties);
+  // Scan returns per-row factor: S / n = 2 / 2 = 1. Cardinality = 2 * 1 = 2.
+  EXPECT_COST(CostParam::kUnwind + 2 * CostParam::kScanAllByLabelProperties);
 }
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInListNonexistentValue) {
@@ -517,7 +516,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesMultipleInLists) {
   // value i for each vertex, so only diagonal entries (i,i,i) exist.
   // prop_c = 5 (resolved), prop_a IN [5, 10] (unresolved), prop_b IN [5, 10] (unresolved).
   // True matches: only (5,5,5). Independence estimate: S_a * S_b / T = 1 * 1 / 1 = 1.
-  // Unwind factors: 2 * 2 = 4. Current estimate: 4 * 1 = 4 (double-counted).
+  // Unwind factors: 2 * 2 = 4. Scan per-row = 1 / 4 = 0.25. Final cardinality = 1.
   auto *list_a = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
   auto *list_b = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
   // Chain two Unwinds (the real plan has two Unwinds for two IN clauses)
@@ -536,8 +535,8 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesMultipleInLists) {
           ExpressionRange::Equal(Literal(5)), ExpressionRange::In(sym_a, list_a), ExpressionRange::In(sym_b, list_b)});
   // Unwind 1: cost += 1 * kUnwind, cardinality = 2
   // Unwind 2: cost += 2 * kUnwind, cardinality = 4
-  // Scan(S=1): cardinality *= 1 = 4, cost += 4 * kScanAllByLabelProperties
-  EXPECT_COST(3 * CostParam::kUnwind + 4 * CostParam::kScanAllByLabelProperties);
+  // Scan: independence result = 1, unwind_factor = 4, per-row = 0.25. cardinality = 4 * 0.25 = 1.
+  EXPECT_COST(3 * CostParam::kUnwind + 1 * CostParam::kScanAllByLabelProperties);
 }
 
 #undef TEST_OP
