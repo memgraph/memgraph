@@ -213,6 +213,7 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
 
   std::atomic<uint64_t> batch_counter = 0;
   std::atomic<bool> cancelled = false;
+  utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> oom{};
   utils::Synchronized<std::expected<void, ConstraintViolation>, utils::RWSpinLock> maybe_error{};
   {
     std::vector<memory::DbAwareThread> threads;
@@ -228,7 +229,8 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
                             &property,
                             &on_progress,
                             &cancel_check,
-                            &cancelled]() {
+                            &cancelled,
+                            &oom]() {
                              do_per_thread_validation(maybe_error,
                                                       ValidateVertexOnConstraint,
                                                       vertex_batches,
@@ -237,10 +239,15 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
                                                       on_progress,
                                                       cancel_check,
                                                       cancelled,
+                                                      oom,
                                                       label,
                                                       property);
                            });
     }
+  }
+  // Out of memory first: unlike the other two it means the answer is unknown rather than known-and-negative.
+  if (auto failure = oom.Lock(); failure->has_value()) {
+    throw *std::move(*failure);
   }
   // A violation is a real answer about the data, so it outranks having been asked to stop.
   auto result = *maybe_error.Lock();

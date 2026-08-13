@@ -447,6 +447,7 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
 
   std::atomic<uint64_t> batch_counter = 0;
   std::atomic<bool> cancelled = false;
+  utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> oom{};
   utils::Synchronized<std::expected<void, ConstraintViolation>, utils::RWSpinLock> result{};
   {
     std::vector<memory::DbAwareThread> threads;
@@ -462,7 +463,8 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
                             &properties,
                             &on_progress,
                             &cancel_check,
-                            &cancelled]() {
+                            &cancelled,
+                            &oom]() {
                              do_per_thread_validation(result,
                                                       DoValidate,
                                                       vertex_batches,
@@ -471,11 +473,16 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
                                                       on_progress,
                                                       cancel_check,
                                                       cancelled,
+                                                      oom,
                                                       constraint_accessor,
                                                       label,
                                                       properties);
                            });
     }
+  }
+  // Out of memory first: unlike the other two it means the answer is unknown rather than known-and-negative.
+  if (auto failure = oom.Lock(); failure->has_value()) {
+    throw *std::move(*failure);
   }
   // A violation is a real answer about the data, so it outranks having been asked to stop.
   auto validation_result = *result.Lock();
