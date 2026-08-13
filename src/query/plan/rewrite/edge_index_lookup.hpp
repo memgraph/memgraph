@@ -1278,16 +1278,16 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     LOG_FATAL("Error during index rewriting of the query!");
   }
 
-  // What a subquery branch inherits: everything its input side has bound, plus anything this rewriter
-  // itself inherited, so nested subqueries keep the outermost scope's symbols.
+  // A subquery branch additionally inherits whatever its input side has bound.
   auto InheritedFor(const LogicalOperator &op) const -> std::unordered_set<Symbol> {
     auto const input_symbols = op.input()->ModifiedSymbols(*symbol_table_);
-    std::unordered_set<Symbol> inherited(input_symbols.begin(), input_symbols.end());
-    inherited.insert(inherited_bound_symbols_.begin(), inherited_bound_symbols_.end());
-    return inherited;
+    return {input_symbols.begin(), input_symbols.end()};
   }
 
+  // Every branch gets a fresh rewriter, so what this one inherited has to be handed down explicitly or
+  // a Union/Merge/Optional branch inside a subquery would lose the enclosing scope again.
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch, std::unordered_set<Symbol> inherited = {}) {
+    inherited.insert(inherited_bound_symbols_.begin(), inherited_bound_symbols_.end());
     EdgeIndexRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, false, std::move(inherited));
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
