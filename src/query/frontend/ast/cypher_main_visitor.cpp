@@ -3516,8 +3516,6 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(MemgraphCypher::Relation
 }
 
 antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::VariableExpansionContext *ctx) {
-  DMG_ASSERT(ctx->expression().size() <= 2U, "Expected 0, 1 or 2 bounds in range literal.");
-
   EdgeAtom::Type edge_type = EdgeAtom::Type::DEPTH_FIRST;
   if (!ctx->getTokens(MemgraphCypher::BFS).empty())
     edge_type = EdgeAtom::Type::BREADTH_FIRST;
@@ -3536,6 +3534,9 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     --n_expressions;  // Last expression is the limit
     limit = std::any_cast<Expression *>(ctx->k->accept(this));
   }
+  // Asserted after the limit is discounted: the grammar puts the `| k` path limit in the same
+  // `expression` list as the bounds, so `-[*KSHORTEST 1..3 |2]-` has three of them.
+  DMG_ASSERT(n_expressions <= 2U, "Expected 0, 1 or 2 bounds in range literal.");
 
   if (n_expressions == 0U) {
     // Case -[*]-
