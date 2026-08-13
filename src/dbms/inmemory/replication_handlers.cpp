@@ -1761,8 +1761,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                    rv::transform([&](const auto &prop_name) { return storage->NameToProperty(prop_name); }) |
                    r::to_vector;
           });
-          auto ret = transaction->CreateTextIndex(storage::TextIndexSpec{data.index_name, label_id, prop_ids},
-                                                  report_progress);
+          auto ret = transaction->CreateTextIndex(
+              storage::TextIndexSpec{.index_name = data.index_name, .label = label_id, .properties = prop_ids},
+              report_progress);
           if (!ret) {
             throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name, data.label);
           }
@@ -1785,7 +1786,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                           rv::transform([&](const auto &prop_name) { return storage->NameToProperty(prop_name); }) |
                           r::to_vector;
           const auto ret = transaction->CreateTextEdgeIndex(
-              storage::TextEdgeIndexSpec{data.index_name, edge_type, prop_ids}, report_progress);
+              storage::TextEdgeIndexSpec{.index_name = data.index_name, .edge_type = edge_type, .properties = prop_ids},
+              report_progress);
           if (!ret) {
             throw utils::BasicException(
                 "Failed to create text search index {} on {}.", data.index_name, data.edge_type);
