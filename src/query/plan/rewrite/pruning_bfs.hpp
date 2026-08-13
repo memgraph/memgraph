@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <unordered_set>
 
 #include "query/frontend/ast/ast.hpp"
@@ -65,6 +66,10 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Aggregate &op) override {
+    if (!op.aggregations_.empty() &&
+        std::all_of(op.aggregations_.begin(), op.aggregations_.end(), [](auto const &elem) { return elem.distinct; })) {
+      deduplicates_ = true;
+    }
     for (auto const &elem : op.aggregations_) {
       CollectSymbolsFromExpression(elem.arg1);
       CollectSymbolsFromExpression(elem.arg2);

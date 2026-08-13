@@ -52,6 +52,26 @@ def test_no_rewrite_with_plain_aggregation(memgraph):
     assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
 
 
+def test_pruning_bfs_with_count_distinct(memgraph):
+    plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN count(DISTINCT b)")
+    ops = operator_names(plan)
+    assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
+
+
+def test_pruning_bfs_with_collect_distinct(memgraph):
+    plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN collect(DISTINCT b)")
+    ops = operator_names(plan)
+    assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
+
+
+def test_no_rewrite_with_mixed_aggregation(memgraph):
+    """One DISTINCT agg + one plain agg on target: must NOT rewrite."""
+    plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN count(DISTINCT b), count(b)")
+    ops = operator_names(plan)
+    assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
+    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+
+
 def test_pruning_bfs_with_filter_lambda(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*1..5 (e, n | n:N)]->(b) RETURN DISTINCT b")
     ops = operator_names(plan)
@@ -139,6 +159,16 @@ def test_correctness_multiple_sources(memgraph):
     pairs = {(row["s"], row["d"]) for row in results}
     assert ("a", "c") in pairs, f"Expected ('a', 'c') in results, got: {pairs}"
     assert ("b", "c") in pairs, f"Expected ('b', 'c') in results, got: {pairs}"
+
+
+def test_correctness_count_distinct(memgraph):
+    result = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*]->(b) RETURN count(DISTINCT b) AS cnt"))
+    assert result[0]["cnt"] == 4, f"Expected 4, got {result[0]['cnt']}"
+
+
+def test_correctness_collect_distinct(memgraph):
+    result = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*]->(b) RETURN collect(DISTINCT b.id) AS ids"))
+    assert sorted(result[0]["ids"]) == ["b", "c", "d", "e"], f"Got {result[0]['ids']}"
 
 
 if __name__ == "__main__":
