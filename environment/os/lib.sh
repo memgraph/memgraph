@@ -51,7 +51,7 @@ _package_manager() {
 
 list() {
     local -n _packages="$1"
-    [ ${#_packages[@]} -gt 0 ] || return 0
+    [[ ${#_packages[@]} -gt 0 ]] || return 0
     printf '%s\n' "${_packages[@]}"
 }
 
@@ -83,27 +83,27 @@ check() {
         exit 1
     fi
 
-    if [ ${#standard_packages[@]} -gt 0 ]; then
+    if [[ ${#standard_packages[@]} -gt 0 ]]; then
         missing=$(python3 "$_LIB_DIR/check-packages.py" "check" "$OS" "${standard_packages[@]}")
     fi
 
     for pkg in ${custom_packages[@]+"${custom_packages[@]}"}; do
         missing_pkg=$(check_custom_package "$pkg" || true)
-        if [ -n "$missing_pkg" ]; then
+        if [[ -n "$missing_pkg" ]]; then
             missing_custom="$missing_pkg $missing_custom"
         fi
     done
 
-    [ -n "$missing_custom" ] && missing="${missing:+$missing }$missing_custom"
+    [[ -n "$missing_custom" ]] && missing="${missing:+$missing }$missing_custom"
 
-    if [ -n "$missing" ]; then
+    if [[ -n "$missing" ]]; then
         echo "MISSING PACKAGES: $missing"
         exit 1
     fi
 }
 
 install() {
-    if [ "$EUID" -ne 0 ]; then
+  if [[ "$EUID" -ne 0 ]]; then
         echo "Please run as root."
         exit 1
     fi
@@ -112,7 +112,7 @@ install() {
 
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests don't work without the LANG export.
-    if [ -d "/home/gh/actions-runner" ]; then
+    if [[ -d "/home/gh/actions-runner" ]]; then
         echo "LANG=en_US.utf8" >> /home/gh/actions-runner/.env
     else
         echo "NOTE: export LANG=en_US.utf8"
@@ -143,7 +143,7 @@ install() {
         fi
     done
 
-    if [ ${#standard_packages[@]} -gt 0 ]; then
+    if [[ ${#standard_packages[@]} -gt 0 ]]; then
         if ! python3 "$_LIB_DIR/check-packages.py" "install" "$OS" "${standard_packages[@]}"; then
             echo "Failed to install standard packages"
             exit 1
