@@ -499,11 +499,16 @@ struct Gatekeeper {
       // begin_resume() also runs under mutex_, so a concurrent Resume_ cannot read the on-disk
       // directory until the old Database finishes writing its final WAL. Do NOT release early.
       //
-      // Destroying under the lock is safe ONLY because Suspend_ (dbms_handler.cpp) already ran
-      // StopAllBackgroundTasks() OUTSIDE this mutex before calling finish_suspend(): TTL/
-      // async-indexer threads that call access() (needing mutex_) are already joined — the
-      // in-destructor join is a no-op. try_delete() has no such pre-stop so it destroys UNLOCKED.
-      // Remove the caller's pre-stop and this deadlocks.
+      // PRECONDITION (load-bearing): callers MUST have already joined this value's background tasks
+      // BEFORE calling finish_suspend(), with pimpl_->mutex_ unheld. This is NOT a "no gatekeeper
+      // path in the destructor" situation: ~Database -> ~InMemoryStorage -> StopAllBackgroundTasks()
+      // joins the TTL / async-indexer threads, and those threads call access_via() on this same
+      // gatekeeper. pimpl_->mutex_ is non-recursive and held here, so if such a join had to actually
+      // wait for a thread that then re-entered the gatekeeper, it would self-deadlock. The reset()
+      // below is safe ONLY because Suspend_ pre-joins via StopAllBackgroundTasks() (mutex unheld)
+      // before it calls us, which makes the in-destructor join a no-op. Anyone reaching this state
+      // without pre-joining, or adding a destruction-time DBMS callback that re-enters the
+      // gatekeeper, breaks this.
       DMG_ASSERT(pimpl_->count_ == 0, "finish_suspend() must not destroy value_ while accessors are live");
       pimpl_->value_.reset();
     }
