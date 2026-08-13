@@ -290,15 +290,29 @@ TYPED_TEST(InterpreterTest, ConstantExpressionFastPathMatchesNormalPath) {
     out << value;
     return out.str();
   };
+  // One expression per duplicated node in the hand-copied PrimitiveLiteralExpressionEvaluator visitor
+  // surface (OrOperator, Exponentiation, IsNull, Coalesce, UnaryPlus and the full comparison set), plus
+  // null-operand cases that assert the two evaluators agree on null-propagation.
   for (auto const *expr : {"1+1",
                            "3*4-2",
                            "7/2",
                            "7%3",
                            "2>1",
                            "1=1",
+                           "1<>2",
+                           "1<2",
+                           "2<=2",
+                           "3>=1",
                            "true AND false",
+                           "true OR false",
                            "NOT false",
+                           "2 ^ 10",
+                           "null IS NULL",
+                           "coalesce(null, 2)",
+                           "+5",
                            "-5",
+                           "null + 1",
+                           "1 = null",
                            "CASE WHEN false THEN 1 ELSE 2 END"}) {
     SCOPED_TRACE(expr);
     auto fast = this->Interpret(std::string("RETURN ") + expr + " AS r");
@@ -309,6 +323,39 @@ TYPED_TEST(InterpreterTest, ConstantExpressionFastPathMatchesNormalPath) {
     ASSERT_EQ(normal.GetResults().size(), 1U);
     EXPECT_EQ(render(fast.GetResults()[0][0]), render(normal.GetResults()[0][0]));
   }
+
+  // Outcome parity on an edge/error expression: the fast (eager, in PrepareConstantReturnQuery) and normal
+  // (during Pull) evaluators must produce the SAME outcome -- the same value, or the same
+  // QueryRuntimeException text. Whether any given constant expression throws is Memgraph's semantics to
+  // define; what this guards is that the two evaluators never DIVERGE (the drift concern). `capture()`
+  // returns the exception text if one is thrown, else the rendered value, so a single EXPECT_EQ covers both.
+  {
+    auto capture = [this, &render](const std::string &query) -> std::string {
+      try {
+        auto res = this->Interpret(query);
+        return res.GetResults().empty() ? "<no rows>" : render(res.GetResults()[0][0]);
+      } catch (const memgraph::query::QueryRuntimeException &e) {
+        return std::string("throw: ") + e.what();
+      }
+    };
+    EXPECT_EQ(capture("RETURN 1 / 0 AS r"), capture("WITH 1 AS ignored RETURN 1 / 0 AS r"));
+  }
+}
+
+// Only implicit (autocommit) transactions are eligible for the accessor-free fast path. Inside an
+// explicit BEGIN...COMMIT block the accessor is already open, so `RETURN 1` must take the NORMAL path
+// (plan_execution_time present) and leave the session mid-transaction.
+TYPED_TEST(InterpreterTest, ConstantReturnInExplicitTxTakesNormalPath) {
+  auto &interpreter = this->default_interpreter.interpreter;
+  this->Interpret("BEGIN");
+  auto stream = this->Interpret("RETURN 1");
+  // Normal path: an accessor-backed plan was executed, so plan_execution_time is recorded.
+  EXPECT_EQ(stream.GetSummary().count("plan_execution_time"), 1U);
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  // Still inside the explicit transaction (fast-path autocommit would have cleared the id).
+  EXPECT_NE(interpreter.GetTransactionId(), std::nullopt);
+  this->Interpret("COMMIT");
 }
 
 // Lab's `CALL mg.procedures() YIELD *` and sibling mg.* introspection calls read only the module
