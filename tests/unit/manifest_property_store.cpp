@@ -224,6 +224,99 @@ TEST_F(ManifestPropertyStoreTest, ReadingAtAResolvedLocationMatchesLookingItUp) 
   EXPECT_TRUE(records[2].GetProperty(manifest, *location).IsNull());
 }
 
+// A scan reads the same property from record after record of one shape. The memo is what lets it
+// resolve where that property sits once; every record still answers for itself whether it carries
+// a value there.
+TEST_F(ManifestPropertyStoreTest, MemoisedReadsMatchResolvingEveryTime) {
+  std::vector<ManifestPropertyStore> records(4);
+  for (auto i = 0; i < 4; ++i) {
+    records[i].InitProperties(
+        registry_,
+        {{Prop(1), PropertyValue(static_cast<int64_t>(i))}, {Prop(2), PropertyValue(std::string{"shared"})}});
+  }
+  records[2].SetProperty(registry_, Prop(1), PropertyValue());  // one record stops carrying it
+
+  memgraph::storage::PropertyLocationMemo memo;
+  for (auto i = 0; i < 4; ++i) {
+    EXPECT_EQ(records[i].GetProperty(registry_, Prop(1), memo), records[i].GetProperty(registry_, Prop(1)))
+        << "record " << i;
+    EXPECT_EQ(records[i].GetProperty(registry_, Prop(2), memo), records[i].GetProperty(registry_, Prop(2)))
+        << "record " << i;
+  }
+}
+
+// The memo answers for a shape, so a record on a different shape must not be read through it.
+TEST_F(ManifestPropertyStoreTest, MemoDoesNotServeARecordOfAnotherShape) {
+  ManifestPropertyStore narrow;
+  narrow.InitProperties(registry_, {{Prop(1), PropertyValue(int64_t{7})}});
+
+  ManifestPropertyStore wide;
+  wide.InitProperties(registry_,
+                      {{Prop(0), PropertyValue(std::string{"first"})}, {Prop(1), PropertyValue(int64_t{9})}});
+  ASSERT_NE(narrow.manifest(), wide.manifest()) << "the two records must be differently shaped";
+
+  memgraph::storage::PropertyLocationMemo memo;
+  EXPECT_EQ(narrow.GetProperty(registry_, Prop(1), memo).ValueInt(), 7);
+  EXPECT_EQ(wide.GetProperty(registry_, Prop(1), memo).ValueInt(), 9);
+  EXPECT_EQ(narrow.GetProperty(registry_, Prop(1), memo).ValueInt(), 7);
+}
+
+// Reshaping a record moves where its properties sit. A memo filled before the reshape must not be
+// used to read after it.
+TEST_F(ManifestPropertyStoreTest, MemoFollowsARecordThatChangesShape) {
+  store_.InitProperties(registry_, {{Prop(1), PropertyValue(int64_t{42})}});
+
+  memgraph::storage::PropertyLocationMemo memo;
+  ASSERT_EQ(store_.GetProperty(registry_, Prop(1), memo).ValueInt(), 42);
+
+  store_.SetProperty(registry_, Prop(0), PropertyValue(std::string{"pushes the layout"}));
+  EXPECT_EQ(store_.GetProperty(registry_, Prop(1), memo).ValueInt(), 42);
+  EXPECT_EQ(store_.GetProperty(registry_, Prop(0), memo).ValueString(), "pushes the layout");
+}
+
+// An empty record has no shape, and its reported id is the same value a real shape can be given.
+TEST_F(ManifestPropertyStoreTest, MemoIsNotConfusedByAnEmptyRecord) {
+  ManifestPropertyStore first;
+  first.InitProperties(registry_, {{Prop(1), PropertyValue(int64_t{5})}});
+  ASSERT_EQ(first.manifest().value, memgraph::storage::ManifestId{}.value)
+      << "this test needs the first shape interned";
+
+  ManifestPropertyStore empty;
+  memgraph::storage::PropertyLocationMemo memo;
+  EXPECT_EQ(first.GetProperty(registry_, Prop(1), memo).ValueInt(), 5);
+  EXPECT_TRUE(empty.GetProperty(registry_, Prop(1), memo).IsNull());
+  EXPECT_EQ(first.GetProperty(registry_, Prop(1), memo).ValueInt(), 5);
+}
+
+// A property the shape does not hold is worth remembering too: it is the common answer on a scan
+// over records that do not carry it.
+TEST_F(ManifestPropertyStoreTest, MemoRemembersAnAbsentProperty) {
+  store_.InitProperties(registry_, {{Prop(1), PropertyValue(int64_t{1})}});
+
+  memgraph::storage::PropertyLocationMemo memo;
+  EXPECT_TRUE(store_.GetProperty(registry_, Prop(9), memo).IsNull());
+  EXPECT_TRUE(store_.GetProperty(registry_, Prop(9), memo).IsNull());
+  EXPECT_EQ(store_.GetProperty(registry_, Prop(1), memo).ValueInt(), 1);
+}
+
+// Two databases in one process have a registry each, and both hand out the same shape ids. A memo
+// filled against one must not answer for the other.
+TEST_F(ManifestPropertyStoreTest, MemoDoesNotServeAnotherRegistry) {
+  ManifestRegistry other_registry;
+
+  ManifestPropertyStore here;
+  here.InitProperties(registry_, {{Prop(1), PropertyValue(int64_t{11})}});
+
+  ManifestPropertyStore there;
+  there.InitProperties(other_registry, {{Prop(0), PropertyValue(int64_t{0})}, {Prop(1), PropertyValue(int64_t{22})}});
+  ASSERT_EQ(here.manifest(), there.manifest()) << "both registries must have issued the same id";
+
+  memgraph::storage::PropertyLocationMemo memo;
+  EXPECT_EQ(here.GetProperty(registry_, Prop(1), memo).ValueInt(), 11);
+  EXPECT_EQ(there.GetProperty(other_registry, Prop(1), memo).ValueInt(), 22);
+  EXPECT_EQ(here.GetProperty(registry_, Prop(1), memo).ValueInt(), 11);
+}
+
 TEST_F(ManifestPropertyStoreTest, AbsentPropertiesReadAsNull) {
   Set(2, PropertyValue(int64_t{1}));
 

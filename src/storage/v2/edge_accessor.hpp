@@ -80,7 +80,10 @@ class EdgeAccessor final {
   Result<std::map<PropertyId, PropertyValue>> ClearProperties();
 
   /// @throw std::bad_alloc
-  Result<PropertyValue> GetProperty(PropertyId property, View view) const;
+  /// `memo`, when given, remembers where the property sat in the shape it was last read from,
+  /// so a scan reading it from record after record resolves it once. Optional and owned by the
+  /// caller; the read is identical without it.
+  Result<PropertyValue> GetProperty(PropertyId property, View view, PropertyLocationMemo *memo = nullptr) const;
 
   /// Returns the size of the encoded edge property in bytes.
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;

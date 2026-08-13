@@ -31,8 +31,9 @@ class EdgeAccessor final {
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
-  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
-    return impl_.GetProperty(key, view);
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key,
+                                                      storage::PropertyLocationMemo *memo = nullptr) const {
+    return impl_.GetProperty(key, view, memo);
   }
 
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {

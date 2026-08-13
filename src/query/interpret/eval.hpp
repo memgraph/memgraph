@@ -1124,7 +1124,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
-    auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
+    auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix], &property_location_memo_);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1132,7 +1132,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix]);
+      maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix], &property_location_memo_);
     }
     if (!maybe_prop) {
       switch (maybe_prop.error()) {
@@ -1228,6 +1228,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   FrameWriter frame_writer_{*frame_, frame_change_collector_, ctx_->memory};
   /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
   mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
+  /// Where the properties this evaluator reads sat in the shapes it last read them from. Unlike
+  /// the value cache above this is NOT cleared per row, so it pays off for as long as this
+  /// evaluator lives: across the whole input in an operator that pulls it under one evaluator,
+  /// and not at all in one that builds an evaluator per row.
+  mutable storage::PropertyLocationMemo property_location_memo_{};
   // use the getter function GetHopsCounter() to handle possible error for segfault
   const int64_t *hops_counter_;
   const QueryUserOrRole *user_or_role_;

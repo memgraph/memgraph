@@ -674,7 +674,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   return std::move(properties).value_or(ReturnType{});
 }
 
-Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
+Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view, PropertyLocationMemo *memo) const {
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -687,7 +687,8 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
         storage_->manifest_registry(),
         property,
         IndexedPropertyDecoder<Vertex>{
-            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_},
+        memo);
     return prop_value;
   });
 

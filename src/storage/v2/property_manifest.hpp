@@ -163,6 +163,72 @@ class PropertyManifest {
   uint32_t variable_count_{};
 };
 
+class ManifestRegistry;
+
+/// Remembers where a property sat in the shape a record was last read at, so a reader walking
+/// record after record resolves each property once rather than per read.
+///
+/// It amortises over whatever holds it. Held by an expression evaluator it therefore pays off in
+/// an operator that pulls its whole input under one evaluator, as the aggregation does, and not
+/// in one that builds an evaluator per row.
+///
+/// Every answer is kept with the shape and the registry it came from, and checked against the
+/// record being read, because a location only means anything for the shape it was resolved in.
+/// A property the shape does not hold is remembered as such: on a scan over records that do not
+/// carry it, that is the answer being asked for over and over.
+///
+/// Holds a few properties at once, directly mapped, because a row typically reads more than one
+/// and a single slot would be evicted by the next property before the next row could use it.
+class PropertyLocationMemo {
+ public:
+  struct Answer {
+    /// The shape itself. Manifests are never freed and never move while their registry lives, so
+    /// holding one saves resolving the id again on every hit.
+    PropertyManifest const *manifest;
+    /// Where the property sits, or nothing when the shape does not hold it.
+    std::optional<PropertyManifest::Location> location;
+  };
+
+  /// What was remembered for `property` in the shape `manifest` of the registry `instance`, if
+  /// anything. The registry is named by its instance number rather than its address, so a memo
+  /// cannot answer with something a registry that has since been destroyed told it.
+  auto Lookup(uint64_t instance, ManifestId manifest, PropertyId property) const -> std::optional<Answer> {
+    auto const &slot = slots_[SlotFor(property)];
+    if (!slot.filled || slot.instance != instance || slot.manifest != manifest || slot.property != property) {
+      return std::nullopt;
+    }
+    return Answer{slot.shape, slot.location};
+  }
+
+  void Remember(uint64_t instance, ManifestId manifest, PropertyManifest const *shape, PropertyId property,
+                std::optional<PropertyManifest::Location> location) {
+    slots_[SlotFor(property)] = Slot{.instance = instance,
+                                     .manifest = manifest,
+                                     .shape = shape,
+                                     .property = property,
+                                     .location = location,
+                                     .filled = true};
+  }
+
+ private:
+  /// Enough for the several properties a row reads, and small enough to stay in one cache line
+  /// pair. A power of two so the mapping is a mask.
+  static constexpr size_t kSlots = 8;
+
+  static constexpr auto SlotFor(PropertyId property) -> size_t { return property.AsUint() & (kSlots - 1); }
+
+  struct Slot {
+    uint64_t instance{0};
+    ManifestId manifest{};
+    PropertyManifest const *shape{nullptr};
+    PropertyId property{PropertyId::FromUint(0)};
+    std::optional<PropertyManifest::Location> location{};
+    bool filled{false};
+  };
+
+  std::array<Slot, kSlots> slots_{};
+};
+
 /// Interns record shapes. Manifests are never removed and never move, so a resolved
 /// reference stays valid for the lifetime of the registry.
 ///
@@ -197,6 +263,11 @@ class ManifestRegistry {
 
   /// Number of distinct shapes seen. Watch this: it is the manifest-explosion metric.
   auto size() const -> size_t;
+
+  /// Distinguishes this registry from any other, including one that reuses its address after it
+  /// is destroyed. Anything holding on to an answer this registry gave should key on this rather
+  /// than on the registry's address.
+  auto instance() const -> uint64_t { return instance_; }
 
  private:
   static constexpr uint32_t kChunkBits = 6;

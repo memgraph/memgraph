@@ -1217,6 +1217,25 @@ auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, Proper
   return GetProperty(manifest, *found);
 }
 
+auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, PropertyId property,
+                                        PropertyLocationMemo &memo) const -> PropertyValue {
+  // An empty record has no shape to remember, and the id it reports is one a real shape can be
+  // given, so it must never reach the memo.
+  if (empty()) return PropertyValue{};
+
+  auto const shape = this->manifest();
+  if (auto const remembered = memo.Lookup(registry.instance(), shape, property)) {
+    if (!remembered->location) return PropertyValue{};
+    return GetProperty(*remembered->manifest, *remembered->location);
+  }
+
+  auto const &manifest = registry.Resolve(shape);
+  auto const found = manifest.Find(property);
+  memo.Remember(registry.instance(), shape, &manifest, property, found);
+  if (!found) return PropertyValue{};
+  return GetProperty(manifest, *found);
+}
+
 auto ManifestPropertyStore::HasProperty(ManifestRegistry const &registry, PropertyId property) const -> bool {
   if (empty()) return false;
   auto const found = registry.Resolve(this->manifest()).Find(property);
@@ -1250,16 +1269,19 @@ auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -
 
 template <typename T>
 auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, PropertyId property,
-                                        IndexedPropertyDecoder<T> const &decoder) const -> PropertyValue {
-  auto value = GetProperty(registry, property);
+                                        IndexedPropertyDecoder<T> const &decoder, PropertyLocationMemo *memo) const
+    -> PropertyValue {
+  auto value = memo != nullptr ? GetProperty(registry, property, *memo) : GetProperty(registry, property);
   decoder.DecodeProperty(value);
   return value;
 }
 
 template auto ManifestPropertyStore::GetProperty(ManifestRegistry const &, PropertyId,
-                                                 IndexedPropertyDecoder<Vertex> const &) const -> PropertyValue;
+                                                 IndexedPropertyDecoder<Vertex> const &, PropertyLocationMemo *) const
+    -> PropertyValue;
 template auto ManifestPropertyStore::GetProperty(ManifestRegistry const &, PropertyId,
-                                                 IndexedPropertyDecoder<Edge> const &) const -> PropertyValue;
+                                                 IndexedPropertyDecoder<Edge> const &, PropertyLocationMemo *) const
+    -> PropertyValue;
 
 template <typename T>
 auto ManifestPropertyStore::Properties(ManifestRegistry const &registry, IndexedPropertyDecoder<T> const &decoder) const

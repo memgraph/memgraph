@@ -100,8 +100,8 @@ class ManifestPropertyStore {
   /// the plain overload would not; it is here so a caller reads through the decoder from the
   /// start and keeps working once one is.
   template <typename T>
-  auto GetProperty(ManifestRegistry const &registry, PropertyId property,
-                   IndexedPropertyDecoder<T> const &decoder) const -> PropertyValue;
+  auto GetProperty(ManifestRegistry const &registry, PropertyId property, IndexedPropertyDecoder<T> const &decoder,
+                   PropertyLocationMemo *memo = nullptr) const -> PropertyValue;
 
   auto HasProperty(ManifestRegistry const &registry, PropertyId property) const -> bool;
 
@@ -110,6 +110,13 @@ class ManifestPropertyStore {
   /// the whole point of the shape being shared. The caller is responsible for the location
   /// having come from this record's shape; check `manifest()` before trusting it.
   auto GetProperty(PropertyManifest const &manifest, PropertyManifest::Location location) const -> PropertyValue;
+
+  /// As the plain read, but remembering where the property sat in the shape it was last read
+  /// from, so a caller reading one property from record after record resolves it once. The memo
+  /// is checked against this record's own shape, so a record shaped differently, or no longer
+  /// shaped as it was, resolves afresh rather than reading at the wrong offset.
+  auto GetProperty(ManifestRegistry const &registry, PropertyId property, PropertyLocationMemo &memo) const
+      -> PropertyValue;
 
   /// Whether the record holds `value` for `property`, comparing against the encoded bytes
   /// rather than decoding them. A property the record does not carry equals Null.

@@ -399,7 +399,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   return std::move(properties).value_or(ReturnType{});
 }
 
-Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
+Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view, PropertyLocationMemo *memo) const {
   if (!storage_->config_.salient.items.properties_on_edges) return PropertyValue();
   bool exists = true;
   bool deleted = false;
@@ -412,7 +412,8 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
         storage_->manifest_registry(),
         property,
         IndexedPropertyDecoder<Edge>{
-            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr},
+        memo));
     delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
