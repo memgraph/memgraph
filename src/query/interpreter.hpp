@@ -310,11 +310,13 @@ struct CurrentDB {
     }
   }
 
-  // Owning-thread-only (or under the verifier's ACTIVE->VERIFYING CAS). Reads db_acc_ with no synchronization,
-  // safe because a session's queries are serialized -- Bolt's worker pool never runs two for one session at
-  // once, so a writer and this read never overlap regardless of which thread runs each -- adding a concurrent
-  // writer invalidates this contract and every unlocked read in interpreter.cpp. A foreign thread -- including
-  // one observing an IDLE session -- must use foreign_db_view() instead.
+  // Owning-thread-only. Reads db_acc_ with no synchronization, safe only because a session's queries are
+  // serialized -- Bolt's worker pool never runs two for one session at once, so the owning thread's read
+  // never overlaps that session's own SetCurrentDB writer. The verifier's ACTIVE->VERIFYING CAS does NOT
+  // make this safe for a foreign thread: the Pull/write path never consults transaction_status_, so the CAS
+  // establishes no happens-before against SetCurrentDB's db_acc_ swap -- a foreign unlocked read here would
+  // tear against a concurrent USE DATABASE. A foreign thread -- including one observing an IDLE session --
+  // must use foreign_db_view() instead.
   std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
 
   // Safe from any thread: unlike name(), it needs no verifier CAS, which can never succeed on IDLE anyway.
@@ -327,6 +329,11 @@ struct CurrentDB {
   [[nodiscard]] ForeignDbView foreign_db_view() const {
     std::lock_guard lock{db_acc_mutex_};
     if (!db_acc_) return {};
+    // is_marked_for_deletion() MUST resolve to Accessor::is_marked_for_deletion() (the plain atomic_bool
+    // read in gatekeeper.hpp) -- NOT Gatekeeper::is_marked_for_deletion(), which locks GKInternals::mutex_.
+    // db_acc_ is optional<DatabaseAccess = Gatekeeper<Database>::Accessor>, so db_acc_-> yields an Accessor
+    // and this resolves to the lockless overload. Taking the gatekeeper mutex here would add a
+    // db_acc_mutex_ -> gatekeeper-mutex edge and break db_acc_mutex_'s leaf-lock property.
     return {db_acc_->get()->name(), db_acc_->is_marked_for_deletion()};
   }
 

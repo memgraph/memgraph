@@ -7404,8 +7404,11 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       if (lv && rv) return *lv == *rv;
       return false;
     };
-    // current_db_.name() is safe here because the verifier CAS above is held (see CurrentDB::name()'s contract).
-    auto const db_name = interpreter->current_db_.name();
+    // Route through foreign_db_view(): this is a foreign thread. The verifier CAS above does NOT order
+    // against SetCurrentDB (the Pull path never consults transaction_status_), so an unlocked db_acc_ read
+    // could tear against a concurrent USE DATABASE. foreign_db_view() takes db_acc_mutex_ and returns the
+    // same name string CurrentDB::name() would ("" when the session holds no database).
+    auto db_name = interpreter->current_db_.foreign_db_view().name;
     if (!same_user(interpreter->user_or_role_, user_or_role) && !privilege_checker(user_or_role, db_name)) continue;
     auto const runtime_status = verifier->status();
     if (!status_filter.empty()) {
@@ -7433,7 +7436,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
         StartTimeAndElapsedMs(interpreter->transaction_start_time_, interpreter->transaction_start_steady_);
     results.back().emplace_back(std::move(start_tv));
     results.back().emplace_back(elapsed_ms);
-    results.back().emplace_back(db_name);
+    results.back().emplace_back(std::move(db_name));
   }
   return results;
 }
