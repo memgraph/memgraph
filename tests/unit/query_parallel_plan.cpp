@@ -305,6 +305,8 @@ TYPED_TEST(TestPlanner, MultiAgg) {
             ExpectScanParallel(),
             ExpectParallelMerge(),
             ExpectScanChunk(),
+            // All three aggregations read the same property, so the cache reads it once per row for all of them.
+            ExpectCacheProperties("n", 1),
             ExpectAggregate({min_agg, max_agg, count_agg}, {}),
             ExpectAggregateParallel(),
             ExpectProduce());
@@ -707,6 +709,7 @@ TYPED_TEST(TestPlanner, ParallelExecutionMinMaxWithOrderBy) {
             ExpectScanParallel(),
             ExpectParallelMerge(),
             ExpectScanChunk(),
+            ExpectCacheProperties("n", 1),
             ExpectAggregate({min_agg, max_agg}, {}),
             ExpectAggregateParallel(),
             ExpectProduce(),
@@ -714,6 +717,8 @@ TYPED_TEST(TestPlanner, ParallelExecutionMinMaxWithOrderBy) {
 }
 
 TYPED_TEST(TestPlanner, ParallelExecutionSumGroupByWithOrderBy) {
+  // Two lookups on one symbol, so the property cache would fire here; this test is about the parallel shape.
+  CachePropertiesFlagGuard guard{false};
   LicenseWrapper license_wrapper;
   // Test USING PARALLEL EXECUTION MATCH (n) RETURN n.category AS cat, sum(n.value) AS total ORDER BY total DESC
   FakeDbAccessor dba;
@@ -741,6 +746,8 @@ TYPED_TEST(TestPlanner, ParallelExecutionSumGroupByWithOrderBy) {
 }
 
 TYPED_TEST(TestPlanner, ParallelExecutionAvgGroupByWithOrderByAndLimit) {
+  // Two lookups on one symbol, so the property cache would fire here; this test is about the parallel shape.
+  CachePropertiesFlagGuard guard{false};
   LicenseWrapper license_wrapper;
   // Test USING PARALLEL EXECUTION MATCH (n) RETURN n.type AS t, avg(n.score) AS avg_score ORDER BY avg_score LIMIT 10
   FakeDbAccessor dba;

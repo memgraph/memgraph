@@ -527,6 +527,8 @@ TYPED_TEST(TestPlanner, MatchWithSumWhereReturn) {
 
 TYPED_TEST(TestPlanner, MatchReturnSum) {
   // Test MATCH (n) RETURN SUM(n.prop1) AS sum, n.prop2 AS group
+  // Two lookups on one symbol, so the property cache would fire here; this test is about what the Aggregate holds.
+  CachePropertiesFlagGuard guard{false};
   FakeDbAccessor dba;
   auto prop1 = dba.Property("prop1");
   auto prop2 = dba.Property("prop2");
@@ -573,6 +575,8 @@ TYPED_TEST(TestPlanner, MatchWithSumWithDistinctWhereReturn) {
 
 TYPED_TEST(TestPlanner, MatchReturnSumWithDistinct) {
   // Test MATCH (n) RETURN SUM(DISTINCT n.prop1) AS sum, n.prop2 AS group
+  // Two lookups on one symbol, so the property cache would fire here; this test is about what the Aggregate holds.
+  CachePropertiesFlagGuard guard{false};
   FakeDbAccessor dba;
   auto prop1 = dba.Property("prop1");
   auto prop2 = dba.Property("prop2");
@@ -5771,6 +5775,115 @@ TYPED_TEST(TestPlanner, CachePropertiesTwoSymbolsDoNotFire) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CachePropertiesBeneathAggregateGroupByAndArgument) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto prop_b = PROPERTY_PAIR(dba, "b");
+  // The group-by expression is evaluated by the Aggregate, the Produce above only reads the aggregate's outputs, so
+  // this one lookup each is two lookups for the Aggregate and none for the Produce.
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(PROPERTY_LOOKUP(dba, "n", prop_a), AS("a"), SUM(PROPERTY_LOOKUP(dba, "n", prop_b), false), AS("s"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectCacheProperties("n", 2),
+            OpChecker<memgraph::query::plan::Aggregate>(),
+            ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CachePropertiesBeneathAggregateTwoArguments) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto prop_b = PROPERTY_PAIR(dba, "b");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   RETURN(SUM(PROPERTY_LOOKUP(dba, "n", prop_a), false),
+                                          AS("s"),
+                                          SUM(PROPERTY_LOOKUP(dba, "n", prop_b), false),
+                                          AS("t"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectCacheProperties("n", 2),
+            OpChecker<memgraph::query::plan::Aggregate>(),
+            ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CachePropertiesBeneathAggregateCountStarDoesNotCount) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  // `count(*)` carries no argument expression at all; the single remaining lookup must not be worth a cache.
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   RETURN(COUNT(nullptr, false), AS("c"), SUM(PROPERTY_LOOKUP(dba, "n", prop_a), false), AS("s"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), OpChecker<memgraph::query::plan::Aggregate>(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CachePropertiesBeneathAggregateSingleLookupDoesNotFire) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(SUM(PROPERTY_LOOKUP(dba, "n", prop_a), false), AS("s"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), OpChecker<memgraph::query::plan::Aggregate>(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CachePropertiesBeneathAggregateAndProduceTogether) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto prop_b = PROPERTY_PAIR(dba, "b");
+  auto prop_c = PROPERTY_PAIR(dba, "c");
+  // The Aggregate groups on `n.a + n.b` and sums `n.c`, so it caches three properties; the Produce above re-evaluates
+  // `n.a + n.b` off the remembered vertex, so it caches two of its own. Both rewrites fire on one plan.
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   RETURN(ADD(PROPERTY_LOOKUP(dba, "n", prop_a), PROPERTY_LOOKUP(dba, "n", prop_b)),
+                                          AS("s"),
+                                          SUM(PROPERTY_LOOKUP(dba, "n", prop_c), false),
+                                          AS("t"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectCacheProperties("n", 3),
+            OpChecker<memgraph::query::plan::Aggregate>(),
+            ExpectCacheProperties("n", 2),
+            ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CachePropertiesBeneathAggregateTwoSymbolsDoNotFire) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                                   RETURN(SUM(PROPERTY_LOOKUP(dba, "n", prop_a), false),
+                                          AS("s"),
+                                          SUM(PROPERTY_LOOKUP(dba, "m", prop_a), false),
+                                          AS("t"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectExpand(),
+            OpChecker<memgraph::query::plan::Aggregate>(),
+            ExpectProduce());
 }
 
 }  // namespace

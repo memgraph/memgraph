@@ -153,7 +153,8 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   void Visit(NamedExpression &op) override { AcceptExpression(op.expression_); }
 
   // An Aggregation's inner expression is evaluated by the Aggregate operator below this Produce, so a cache inserted
-  // above it would leave the slot unwritten. Pattern comprehensions are likewise evaluated by a subplan.
+  // above it would leave the slot unwritten; the Aggregate is rewritten in its own right instead. Pattern
+  // comprehensions are likewise evaluated by a subplan.
   void Visit(Aggregation &op) override {}
 
   void Visit(PatternComprehension &op) override {}
@@ -252,7 +253,43 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     return true;
   }
 
+  bool PostVisit(Aggregate &op) override {
+    auto input = op.input();
+    if (!input) return true;
+
+    auto cacher = PropertyLookupCacher{symbol_table_, ast_storage_};
+    ForEachRowExpression(op,
+                         [&](Expression *&expression) { cacher.Run(PropertyLookupCacher::Phase::GATHER, expression); });
+
+    auto candidate = Candidate(cacher, *input);
+    if (!candidate) return true;
+
+    auto slots = MakeSlots(cacher.PropertyNames());
+
+    // These slots alias the AST that the Produce above still evaluates, so the replacement has to happen on this
+    // operator's own copy of each expression.
+    ForEachRowExpression(op, [&](Expression *&expression) { expression = expression->Clone(ast_storage_); });
+
+    cacher.SetCachedSymbols(std::move(slots.by_name));
+    ForEachRowExpression(
+        op, [&](Expression *&expression) { cacher.Run(PropertyLookupCacher::Phase::REPLACE, expression); });
+
+    op.set_input(std::make_shared<CacheProperties>(input, *candidate, std::move(slots.properties)));
+    return true;
+  }
+
  private:
+  /// The expressions an Aggregate evaluates once per input row. `arg2` is left out because only some operations
+  /// evaluate it, and `COUNT(*)` has no argument at all.
+  static void ForEachRowExpression(Aggregate &op, auto &&function) {
+    for (auto *&expression : op.group_by_) {
+      function(expression);
+    }
+    for (auto &element : op.aggregations_) {
+      if (element.arg1 != nullptr) function(element.arg1);
+    }
+  }
+
   struct CacheSlots {
     std::map<std::string, Symbol, std::less<>> by_name;
     std::vector<CachedProperty> properties;

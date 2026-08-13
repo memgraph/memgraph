@@ -172,45 +172,100 @@ TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
 
 /// The queries the property cache is allowed to change the plan of, plus the ones it must leave alone. Each fixture
 /// gets a fresh plan cache, so the flag has to be compared across two tests rather than toggled inside one.
-#define CHECK_CACHE_PROPERTIES_RESULTS()                                                                     \
-  do {                                                                                                       \
-    using BoltValue = memgraph::communication::bolt::Value;                                                  \
-    this->Execute("CREATE (:P {id: 1, a: 1, b: 'x'}), (:P {id: 2, a: 2})");                                  \
-    {                                                                                                        \
-      /* Two properties on one symbol, the second missing on one of the nodes. */                            \
-      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a, n.b AS b ORDER BY a");                      \
-      ASSERT_EQ(results.size(), 2);                                                                          \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
-      EXPECT_EQ(results[0][1].ValueString(), "x");                                                           \
-      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
-      EXPECT_EQ(results[1][1].type(), BoltValue::Type::Null);                                                \
-    }                                                                                                        \
-    {                                                                                                        \
-      /* A single lookup must not be cached, but must still answer the same. */                              \
-      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a ORDER BY a");                                \
-      ASSERT_EQ(results.size(), 2);                                                                          \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
-      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
-    }                                                                                                        \
-    {                                                                                                        \
-      /* Lookups spread over two symbols are out of scope for the rewrite. */                                \
-      auto results = this->Execute("MATCH (n:P), (m:P) RETURN n.id AS x, m.a AS y ORDER BY x, y");           \
-      ASSERT_EQ(results.size(), 4);                                                                          \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
-      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                \
-      EXPECT_EQ(results[3][0].ValueInt(), 2);                                                                \
-      EXPECT_EQ(results[3][1].ValueInt(), 2);                                                                \
-    }                                                                                                        \
-    {                                                                                                        \
-      /* The cached symbol is Null for every row here. */                                                    \
-      auto results =                                                                                         \
-          this->Execute("MATCH (n:P) OPTIONAL MATCH (n)-[:R]->(o) RETURN o.a AS a, o.b AS b ORDER BY n.id"); \
-      ASSERT_EQ(results.size(), 2);                                                                          \
-      for (const auto &row : results) {                                                                      \
-        EXPECT_EQ(row[0].type(), BoltValue::Type::Null);                                                     \
-        EXPECT_EQ(row[1].type(), BoltValue::Type::Null);                                                     \
-      }                                                                                                      \
-    }                                                                                                        \
+#define CHECK_CACHE_PROPERTIES_RESULTS()                                                                       \
+  do {                                                                                                         \
+    using BoltValue = memgraph::communication::bolt::Value;                                                    \
+    this->Execute("CREATE (:P {id: 1, a: 1, b: 'x'}), (:P {id: 2, a: 2})");                                    \
+    {                                                                                                          \
+      /* Two properties on one symbol, the second missing on one of the nodes. */                              \
+      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a, n.b AS b ORDER BY a");                        \
+      ASSERT_EQ(results.size(), 2);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                  \
+      EXPECT_EQ(results[0][1].ValueString(), "x");                                                             \
+      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                  \
+      EXPECT_EQ(results[1][1].type(), BoltValue::Type::Null);                                                  \
+    }                                                                                                          \
+    {                                                                                                          \
+      /* A single lookup must not be cached, but must still answer the same. */                                \
+      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a ORDER BY a");                                  \
+      ASSERT_EQ(results.size(), 2);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                  \
+      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                  \
+    }                                                                                                          \
+    {                                                                                                          \
+      /* Lookups spread over two symbols are out of scope for the rewrite. */                                  \
+      auto results = this->Execute("MATCH (n:P), (m:P) RETURN n.id AS x, m.a AS y ORDER BY x, y");             \
+      ASSERT_EQ(results.size(), 4);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                  \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                  \
+      EXPECT_EQ(results[3][0].ValueInt(), 2);                                                                  \
+      EXPECT_EQ(results[3][1].ValueInt(), 2);                                                                  \
+    }                                                                                                          \
+    {                                                                                                          \
+      /* The cached symbol is Null for every row here. */                                                      \
+      auto results =                                                                                           \
+          this->Execute("MATCH (n:P) OPTIONAL MATCH (n)-[:R]->(o) RETURN o.a AS a, o.b AS b ORDER BY n.id");   \
+      ASSERT_EQ(results.size(), 2);                                                                            \
+      for (const auto &row : results) {                                                                        \
+        EXPECT_EQ(row[0].type(), BoltValue::Type::Null);                                                       \
+        EXPECT_EQ(row[1].type(), BoltValue::Type::Null);                                                       \
+      }                                                                                                        \
+    }                                                                                                          \
+    {                                                                                                          \
+      /* Two aggregation arguments on one symbol, evaluated by the Aggregate rather than the Produce. */       \
+      auto results = this->Execute("MATCH (n:P) RETURN sum(n.id) AS s, sum(n.a) AS t");                        \
+      ASSERT_EQ(results.size(), 1);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 3);                                                                  \
+      EXPECT_EQ(results[0][1].ValueInt(), 3);                                                                  \
+    }                                                                                                          \
+    {                                                                                                          \
+      /* Group-by expression plus an aggregation argument, over a property one node lacks. */                  \
+      auto results = this->Execute("MATCH (n:P) RETURN n.id AS id, count(n.b) AS c ORDER BY id");              \
+      ASSERT_EQ(results.size(), 2);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                  \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                  \
+      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                  \
+      EXPECT_EQ(results[1][1].ValueInt(), 0);                                                                  \
+    }                                                                                                          \
+    {                                                                                                          \
+      /* count(*) carries no argument, so the one remaining lookup must not be cached. */                      \
+      auto results = this->Execute("MATCH (n:P) RETURN count(*) AS c, sum(n.a) AS s");                         \
+      ASSERT_EQ(results.size(), 1);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 2);                                                                  \
+      EXPECT_EQ(results[0][1].ValueInt(), 3);                                                                  \
+    }                                                                                                          \
+    {                                                                                                          \
+      /* Both rewrites fire on one plan: a cache beneath the Aggregate and another beneath the Produce. */     \
+      auto results = this->Execute("MATCH (n:P) RETURN n.id + n.a AS k, sum(n.a) AS s ORDER BY k");            \
+      ASSERT_EQ(results.size(), 2);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 2);                                                                  \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                  \
+      EXPECT_EQ(results[1][0].ValueInt(), 4);                                                                  \
+      EXPECT_EQ(results[1][1].ValueInt(), 2);                                                                  \
+    }                                                                                                          \
+    {                                                                                                          \
+      /* DISTINCT dedupes on the argument value, which the cache must not change. */                           \
+      auto results = this->Execute("MATCH (n:P) RETURN count(DISTINCT n.a) AS c, sum(n.id) AS s");             \
+      ASSERT_EQ(results.size(), 1);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 2);                                                                  \
+      EXPECT_EQ(results[0][1].ValueInt(), 3);                                                                  \
+    }                                                                                                          \
+    {                                                                                                          \
+      /* A lookup reachable only through a conditional must not be cached, and must still answer. */           \
+      auto results =                                                                                           \
+          this->Execute("MATCH (n:P) RETURN sum(n.id) AS s, sum(CASE WHEN n.a > 1 THEN 10 ELSE 20 END) AS t"); \
+      ASSERT_EQ(results.size(), 1);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 3);                                                                  \
+      EXPECT_EQ(results[0][1].ValueInt(), 30);                                                                 \
+    }                                                                                                          \
+    {                                                                                                          \
+      /* Aggregating over an optional match whose symbol is Null on every row. */                              \
+      auto results =                                                                                           \
+          this->Execute("MATCH (n:P) OPTIONAL MATCH (n)-[:R]->(o) RETURN count(o.a) AS c, count(o.b) AS d");   \
+      ASSERT_EQ(results.size(), 1);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 0);                                                                  \
+      EXPECT_EQ(results[0][1].ValueInt(), 0);                                                                  \
+    }                                                                                                          \
   } while (false)
 
 TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOff) {
@@ -240,5 +295,14 @@ TYPED_TEST(QueryExecution, CachePropertiesReachesTheRealPlan) {
   {
     CachePropertiesFlagGuard guard{true};
     EXPECT_NE(explained("EXPLAIN MATCH (n:P) RETURN n.a AS c, n.b AS d").find("CacheProperties"), std::string::npos);
+  }
+  {
+    // The Produce above an Aggregate reads only the aggregate's outputs, so this can only come from the Aggregate.
+    CachePropertiesFlagGuard guard{true};
+    auto const plan = explained("EXPLAIN MATCH (n:P) RETURN sum(n.a) AS e, sum(n.b) AS f");
+    auto const cache_at = plan.find("CacheProperties");
+    ASSERT_NE(cache_at, std::string::npos);
+    // Plans print root first, so the cache appearing after the Aggregate is the cache sitting beneath it.
+    EXPECT_LT(plan.find("Aggregate"), cache_at);
   }
 }
