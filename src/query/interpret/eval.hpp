@@ -279,13 +279,15 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, ExecutionContext const &context, storage::View view,
-                      FrameChangeCollector *frame_change_collector = nullptr, int64_t const *hops_counter = nullptr)
+                      FrameChangeCollector *frame_change_collector = nullptr, int64_t const *hops_counter = nullptr,
+                      storage::PropertyLocationMemo *memo = nullptr)
       : frame_(frame),
         symbol_table_(&context.symbol_table),
         ctx_(&context.evaluation_context),
         dba_(context.db_accessor),
         view_(view),
         frame_change_collector_(frame_change_collector),
+        external_location_memo_(memo),
         hops_counter_(hops_counter),
         user_or_role_(context.user_or_role.get()),
         triggering_user_(context.triggering_user.get())
@@ -1124,7 +1126,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
-    auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix], &property_location_memo_);
+    auto *const location_memo = LocationMemo();
+    auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix], location_memo);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1132,7 +1135,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix], &property_location_memo_);
+      maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix], location_memo);
     }
     if (!maybe_prop) {
       switch (maybe_prop.error()) {
@@ -1214,6 +1217,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return *std::move(maybe_props);
   }
 
+  storage::PropertyLocationMemo *LocationMemo() const {
+    return external_location_memo_ != nullptr ? external_location_memo_ : &property_location_memo_;
+  }
+
   storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
 
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
@@ -1233,6 +1240,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   /// evaluator lives: across the whole input in an operator that pulls it under one evaluator,
   /// and not at all in one that builds an evaluator per row.
   mutable storage::PropertyLocationMemo property_location_memo_{};
+  /// Memo owned by whoever built this evaluator, so an operator that builds one evaluator per row
+  /// can still keep what it learned for as long as its cursor lives. Null means use our own.
+  storage::PropertyLocationMemo *external_location_memo_{nullptr};
   // use the getter function GetHopsCounter() to handle possible error for segfault
   const int64_t *hops_counter_;
   const QueryUserOrRole *user_or_role_;

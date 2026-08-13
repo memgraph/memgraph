@@ -26,6 +26,7 @@
 #include "query/plan/preprocess.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/property_manifest.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
@@ -1332,6 +1333,8 @@ class Filter : public memgraph::query::plan::LogicalOperator {
     const Filter &self_;
     const UniqueCursorPtr input_cursor_;
     const std::vector<UniqueCursorPtr> pattern_filter_cursors_;
+    // Outlives the per-row evaluator, so property locations learnt on one row help the next.
+    storage::PropertyLocationMemo location_memo_;
   };
 };
 
@@ -1382,6 +1385,8 @@ class Produce : public memgraph::query::plan::LogicalOperator {
    private:
     const Produce &self_;
     const UniqueCursorPtr input_cursor_;
+    // Outlives the per-row evaluator, so property locations learnt on one row help the next.
+    storage::PropertyLocationMemo location_memo_;
   };
 };
 
