@@ -145,6 +145,8 @@ DECLARE_string(pulsar_service_url);
 DECLARE_string(query_modules_directory);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(query_callable_mappings_path);
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(query_cache_properties);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(license_key);
