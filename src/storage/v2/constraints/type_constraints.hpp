@@ -23,7 +23,6 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
-#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rw_lock.hpp"
@@ -35,18 +34,6 @@ namespace memgraph::storage {
 class TypeConstraints {
  public:
   explicit TypeConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
-
-  struct MultipleThreadsConstraintValidation {
-    std::optional<ConstraintViolation> operator()(const utils::SkipListDb<Vertex>::Accessor &vertices,
-                                                  const LabelId &label, const PropertyId &property);
-
-    const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
-  };
-
-  struct SingleThreadConstraintValidation {
-    std::optional<ConstraintViolation> operator()(const utils::SkipListDb<Vertex>::Accessor &vertices,
-                                                  const LabelId &label, const PropertyId &property);
-  };
 
   struct IndividualConstraint {
     explicit IndividualConstraint(TypeConstraintKind t) : type(t) {}
