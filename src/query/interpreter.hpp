@@ -291,6 +291,10 @@ struct CurrentDB {
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
   // DatabaseAccess
   //       hence, explict bolt "use DB" in metadata wouldn't necessarily get access unless query required it.
+  // db_acc_'s lifetime tracks the Bolt protocol state (Parse->Prepare->Pull->Commit, spanning multiple
+  // messages), not any C++ lexical scope -- so acquire/release is a manual, idempotent pair
+  // (EnsureDbAccessForQuery / ReleaseDbAccessBetweenQueries) plus an explicit 5-conjunct release
+  // predicate, rather than RAII, which cannot express a protocol-scoped lifetime.
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;  // Current db (TODO: expand to support multiple)
   // Session's database identity; outlives db_acc_, which is released between queries
   // (see Interpreter::ReleaseDbAccessBetweenQueries) and re-acquired by EnsureDbAccessForQuery.
