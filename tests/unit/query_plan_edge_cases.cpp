@@ -31,6 +31,7 @@
 #include "storage/v2/storage.hpp"
 
 DECLARE_bool(query_cost_planner);
+DECLARE_bool(query_cache_properties);
 
 template <typename StorageType>
 class QueryExecution : public testing::Test {
@@ -166,4 +167,93 @@ TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
                           "RETURN n, r1, r2")
                 .size(),
             3);
+}
+
+// Restores the flag whatever the test does, so a failing EXPECT cannot leak the rewrite into later tests.
+class CachePropertiesFlagGuard {
+ public:
+  explicit CachePropertiesFlagGuard(bool value) : previous_(FLAGS_query_cache_properties) {
+    FLAGS_query_cache_properties = value;
+  }
+
+  ~CachePropertiesFlagGuard() { FLAGS_query_cache_properties = previous_; }
+
+  CachePropertiesFlagGuard(const CachePropertiesFlagGuard &) = delete;
+  CachePropertiesFlagGuard &operator=(const CachePropertiesFlagGuard &) = delete;
+
+ private:
+  bool previous_;
+};
+
+/// The queries the property cache is allowed to change the plan of, plus the ones it must leave alone. Each fixture
+/// gets a fresh plan cache, so the flag has to be compared across two tests rather than toggled inside one.
+#define CHECK_CACHE_PROPERTIES_RESULTS()                                                                     \
+  do {                                                                                                       \
+    using BoltValue = memgraph::communication::bolt::Value;                                                  \
+    this->Execute("CREATE (:P {id: 1, a: 1, b: 'x'}), (:P {id: 2, a: 2})");                                  \
+    {                                                                                                        \
+      /* Two properties on one symbol, the second missing on one of the nodes. */                            \
+      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a, n.b AS b ORDER BY a");                      \
+      ASSERT_EQ(results.size(), 2);                                                                          \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
+      EXPECT_EQ(results[0][1].ValueString(), "x");                                                           \
+      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
+      EXPECT_EQ(results[1][1].type(), BoltValue::Type::Null);                                                \
+    }                                                                                                        \
+    {                                                                                                        \
+      /* A single lookup must not be cached, but must still answer the same. */                              \
+      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a ORDER BY a");                                \
+      ASSERT_EQ(results.size(), 2);                                                                          \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
+      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
+    }                                                                                                        \
+    {                                                                                                        \
+      /* Lookups spread over two symbols are out of scope for the rewrite. */                                \
+      auto results = this->Execute("MATCH (n:P), (m:P) RETURN n.id AS x, m.a AS y ORDER BY x, y");           \
+      ASSERT_EQ(results.size(), 4);                                                                          \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                \
+      EXPECT_EQ(results[3][0].ValueInt(), 2);                                                                \
+      EXPECT_EQ(results[3][1].ValueInt(), 2);                                                                \
+    }                                                                                                        \
+    {                                                                                                        \
+      /* The cached symbol is Null for every row here. */                                                    \
+      auto results =                                                                                         \
+          this->Execute("MATCH (n:P) OPTIONAL MATCH (n)-[:R]->(o) RETURN o.a AS a, o.b AS b ORDER BY n.id"); \
+      ASSERT_EQ(results.size(), 2);                                                                          \
+      for (const auto &row : results) {                                                                      \
+        EXPECT_EQ(row[0].type(), BoltValue::Type::Null);                                                     \
+        EXPECT_EQ(row[1].type(), BoltValue::Type::Null);                                                     \
+      }                                                                                                      \
+    }                                                                                                        \
+  } while (false)
+
+TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOff) {
+  CachePropertiesFlagGuard guard{false};
+  CHECK_CACHE_PROPERTIES_RESULTS();
+}
+
+TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOn) {
+  CachePropertiesFlagGuard guard{true};
+  CHECK_CACHE_PROPERTIES_RESULTS();
+}
+
+TYPED_TEST(QueryExecution, CachePropertiesReachesTheRealPlan) {
+  // Guards the results tests above from passing because the rewrite never fired.
+  // The two runs must not share a plan cache entry, so they differ in the returned column names.
+  auto explained = [this](const std::string &query) {
+    auto results = this->Execute(query);
+    std::string joined;
+    for (const auto &row : results) joined += row[0].ValueString();
+    return joined;
+  };
+
+  {
+    CachePropertiesFlagGuard guard{false};
+    EXPECT_EQ(explained("EXPLAIN MATCH (n:P) RETURN n.a AS a, n.b AS b").find("CacheProperties"), std::string::npos);
+  }
+  {
+    CachePropertiesFlagGuard guard{true};
+    EXPECT_NE(explained("EXPLAIN MATCH (n:P) RETURN n.a AS c, n.b AS d").find("CacheProperties"), std::string::npos);
+  }
 }

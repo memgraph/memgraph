@@ -294,6 +294,21 @@ class ExpectScanAllById : public OpChecker<ScanAllById> {
   bool expects_string_id_;
 };
 
+class ExpectCacheProperties : public OpChecker<CacheProperties> {
+ public:
+  ExpectCacheProperties(std::string input_symbol_name, size_t cached_count)
+      : input_symbol_name_(std::move(input_symbol_name)), cached_count_(cached_count) {}
+
+  void ExpectOp(CacheProperties &op, const SymbolTable &) override {
+    EXPECT_EQ(op.input_symbol_.name(), input_symbol_name_);
+    EXPECT_EQ(op.cached_properties_.size(), cached_count_);
+  }
+
+ private:
+  std::string input_symbol_name_;
+  size_t cached_count_;
+};
+
 using ExpectExpand = OpChecker<Expand>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;

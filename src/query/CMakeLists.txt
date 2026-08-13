@@ -129,6 +129,7 @@ target_sources(mg-query
     plan/parallel_checker.hpp
     plan/point_distance_condition.hpp
     plan/read_write_type_checker.hpp
+    plan/rewrite/cache_properties.hpp
     plan/rewrite/enum.hpp
     plan/rewrite/order_by_elimination.hpp
     plan/rewrite/parallel_rewrite.hpp
