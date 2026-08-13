@@ -1606,23 +1606,46 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
           return db_->VerticesCount(scan_op->label_, scan_op->properties_, propertyvalue_ranges);
         }
-        // Try resolving IN membership lists element-by-element.
-        // Process each IN slot: sum per-element VerticesCount, then mark
-        // the slot as IsNotNull so subsequent slots see it as resolved.
+        // Collect unresolved IN slots and batch-set to IsNotNull.
+        std::vector<size_t> in_slots;
         for (size_t i = 0; i < scan_op->expression_ranges_.size(); ++i) {
           if (maybe_propertyvalue_ranges[i] || !scan_op->expression_ranges_[i].membership_list_) continue;
-          auto &list = *scan_op->expression_ranges_[i].membership_list_;
+          in_slots.push_back(i);
           maybe_propertyvalue_ranges[i] = storage::PropertyValueRange::IsNotNull();
-          // If any other slot is still unresolved, fall back to coarse total index count.
-          if (ranges::any_of(maybe_propertyvalue_ranges, [](auto const &pvr) { return pvr == std::nullopt; }))
-            return db_->VerticesCount(scan_op->label_, scan_op->properties_);
-          auto pvrs = maybe_propertyvalue_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) |
-                      ranges::to_vector;
-          auto sum = EstimateInListSum(db_, scan_op->label_, scan_op->properties_, list, i, pvrs, parameters_);
-          if (!sum) return db_->VerticesCount(scan_op->label_, scan_op->properties_);
-          if (ranges::none_of(maybe_propertyvalue_ranges, [](auto const &pvr) { return pvr == std::nullopt; }))
-            return *sum;
         }
+        if (in_slots.empty()) return db_->VerticesCount(scan_op->label_, scan_op->properties_);
+        // If non-IN slots are still unresolved, fall back.
+        if (ranges::any_of(maybe_propertyvalue_ranges, [](auto const &pvr) { return pvr == std::nullopt; }))
+          return db_->VerticesCount(scan_op->label_, scan_op->properties_);
+        auto pvrs = maybe_propertyvalue_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) |
+                    ranges::to_vector;
+        if (in_slots.size() == 1) {
+          auto sum = EstimateInListSum(db_,
+                                       scan_op->label_,
+                                       scan_op->properties_,
+                                       *scan_op->expression_ranges_[in_slots[0]].membership_list_,
+                                       in_slots[0],
+                                       pvrs,
+                                       parameters_);
+          return sum.value_or(db_->VerticesCount(scan_op->label_, scan_op->properties_));
+        }
+        // Multiple IN slots: independence assumption.
+        auto const total = db_->VerticesCount(scan_op->label_, scan_op->properties_, pvrs);
+        if (total == 0) return 0.0;
+        double result = 1.0;
+        for (auto slot : in_slots) {
+          auto marginal = EstimateInListSum(db_,
+                                            scan_op->label_,
+                                            scan_op->properties_,
+                                            *scan_op->expression_ranges_[slot].membership_list_,
+                                            slot,
+                                            pvrs,
+                                            parameters_);
+          if (!marginal) return db_->VerticesCount(scan_op->label_, scan_op->properties_);
+          result *= *marginal;
+        }
+        result /= std::pow(static_cast<double>(total), static_cast<double>(in_slots.size() - 1));
+        return std::min(result, static_cast<double>(total));
         return db_->VerticesCount(scan_op->label_, scan_op->properties_);
       });
       return static_cast<double>(cardinality);
