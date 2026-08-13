@@ -118,6 +118,7 @@ bool PlanPrinter::PreVisit(ParallelMerge & /*unused*/) {
 
 PRE_VISIT_TS(Expand);
 PRE_VISIT_TS(Produce);
+PRE_VISIT_TS(CacheProperties);
 
 bool PlanPrinter::PreVisit(ExpandVariable &op) {
   WithPrintLn([this, &op](auto &out) {
