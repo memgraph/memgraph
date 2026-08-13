@@ -1178,7 +1178,6 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
       return LoadWalStatus{.success = false, .num_txns_committed = 0};
     }
 
-
     if (deltas_res) {
       local_delta_idx += deltas_res->current_delta_idx;
       num_txns_committed += deltas_res->num_txns_committed;
@@ -1298,6 +1297,10 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     heartbeat.RecordProgress();
     return heartbeat.PeerGone();
   };
+
+  // The text, point and vector builders report progress but have no cancellation hook, so they get a progress-only
+  // callback rather than schema_progress -- passing that would silently discard its cancel answer.
+  auto const report_progress = [&heartbeat]() { heartbeat.RecordProgress(); };
 
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx) {
     heartbeat.RecordProgress();
@@ -1754,7 +1757,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                    rv::transform([&](const auto &prop_name) { return storage->NameToProperty(prop_name); }) |
                    r::to_vector;
           });
-          auto ret = transaction->CreateTextIndex(storage::TextIndexSpec{data.index_name, label_id, prop_ids});
+          auto ret = transaction->CreateTextIndex(storage::TextIndexSpec{data.index_name, label_id, prop_ids},
+                                                  report_progress);
           if (!ret) {
             throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name, data.label);
           }
@@ -1776,8 +1780,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto prop_ids = data.properties |
                           rv::transform([&](const auto &prop_name) { return storage->NameToProperty(prop_name); }) |
                           r::to_vector;
-          const auto ret =
-              transaction->CreateTextEdgeIndex(storage::TextEdgeIndexSpec{data.index_name, edge_type, prop_ids});
+          const auto ret = transaction->CreateTextEdgeIndex(
+              storage::TextEdgeIndexSpec{data.index_name, edge_type, prop_ids}, report_progress);
           if (!ret) {
             throw utils::BasicException(
                 "Failed to create text search index {} on {}.", data.index_name, data.edge_type);
@@ -1909,7 +1913,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
-          auto res = transaction->CreatePointIndex(labelId, propId);
+          auto res = transaction->CreatePointIndex(labelId, propId, report_progress);
           if (!res) {
             throw utils::BasicException("Failed to create point index on :{}({})", data.label, data.property);
           }
@@ -1937,18 +1941,20 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           label_ids.reserve(data.label_filter.ids.size());
           for (const auto &name : data.label_filter.ids) label_ids.push_back(storage->NameToLabel(name));
 
-          auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
-              .index_name = data.index_name,
-              .label_filter =
-                  storage::VectorLabelFilter{.mode = static_cast<storage::VectorMatchMode>(data.label_filter.mode),
-                                             .ids = std::move(label_ids)},
-              .property = propId,
-              .metric_kind = metric_kind,
-              .dimension = data.dimension,
-              .resize_coefficient = data.resize_coefficient,
-              .capacity = data.capacity,
-              .scalar_kind = scalar_kind,
-          });
+          auto res = transaction->CreateVectorIndex(
+              storage::VectorIndexSpec{
+                  .index_name = data.index_name,
+                  .label_filter =
+                      storage::VectorLabelFilter{.mode = static_cast<storage::VectorMatchMode>(data.label_filter.mode),
+                                                 .ids = std::move(label_ids)},
+                  .property = propId,
+                  .metric_kind = metric_kind,
+                  .dimension = data.dimension,
+                  .resize_coefficient = data.resize_coefficient,
+                  .capacity = data.capacity,
+                  .scalar_kind = scalar_kind,
+              },
+              report_progress);
           if (!res) {
             throw utils::BasicException(
                 "Failed to create vector index {} on property {}", data.index_name, data.property);
@@ -1967,18 +1973,20 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           edge_type_ids.reserve(data.edge_type_filter.ids.size());
           for (const auto &name : data.edge_type_filter.ids) edge_type_ids.push_back(storage->NameToEdgeType(name));
 
-          auto res = transaction->CreateVectorEdgeIndex(storage::VectorEdgeIndexSpec{
-              .index_name = data.index_name,
-              .edge_type_filter = storage::VectorEdgeTypeFilter{.mode = static_cast<storage::VectorMatchMode>(
-                                                                    data.edge_type_filter.mode),
-                                                                .ids = std::move(edge_type_ids)},
-              .property = propId,
-              .metric_kind = metric_kind,
-              .dimension = data.dimension,
-              .resize_coefficient = data.resize_coefficient,
-              .capacity = data.capacity,
-              .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind),
-          });
+          auto res = transaction->CreateVectorEdgeIndex(
+              storage::VectorEdgeIndexSpec{
+                  .index_name = data.index_name,
+                  .edge_type_filter = storage::VectorEdgeTypeFilter{.mode = static_cast<storage::VectorMatchMode>(
+                                                                        data.edge_type_filter.mode),
+                                                                    .ids = std::move(edge_type_ids)},
+                  .property = propId,
+                  .metric_kind = metric_kind,
+                  .dimension = data.dimension,
+                  .resize_coefficient = data.resize_coefficient,
+                  .capacity = data.capacity,
+                  .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind),
+              },
+              report_progress);
           if (!res) {
             throw utils::BasicException(
                 "Failed to create vector edge index {} on property {}", data.index_name, data.property);
@@ -1987,7 +1995,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalVectorIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop vector index {} ", current_delta_idx, data.index_name);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto res = transaction->DropVectorIndex(data.index_name);
+          auto res = transaction->DropVectorIndex(data.index_name, report_progress);
           if (!res) {
             throw utils::BasicException("Failed to drop vector index {}", data.index_name);
           }

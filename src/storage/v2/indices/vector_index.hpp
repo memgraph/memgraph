@@ -307,7 +307,12 @@ class VectorIndex {
   /// transaction abort, or std::nullopt if the index doesn't exist. Callers that
   /// only need a fire-and-forget drop (e.g. CreateIndex's exception rollback)
   /// can discard the return value.
-  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+  /// `on_progress` is invoked once per indexed vertex while their properties are rewritten back from index ids to
+  /// vectors. That rewrite is O(indexed vertices) and runs on the calling thread, so a caller under a peer timeout
+  /// needs to see it advancing. It does NOT cover freeing the usearch index itself, which happens later when the
+  /// last reference to the captured item goes.
+  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper,
+                                               ProgressCallback const &on_progress = {});
 
   /// @brief Reinstalls an index previously evicted by DropIndex. Re-adds the
   /// captured index_id to each rewritten vertex's property and re-inserts the

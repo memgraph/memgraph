@@ -159,7 +159,8 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
 }
 
 std::optional<VectorIndex::DroppedIndexCapture> VectorIndex::DropIndex(std::string_view index_name,
-                                                                       NameIdMapper *name_id_mapper) {
+                                                                       NameIdMapper *name_id_mapper,
+                                                                       ProgressCallback const &on_progress) {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) return std::nullopt;
   const auto index_id = *maybe_id;
@@ -187,6 +188,7 @@ std::optional<VectorIndex::DroppedIndexCapture> VectorIndex::DropIndex(std::stri
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
       std::vector<double> vector(dimension);
       for (auto *vertex : indexed_vertices) {
+        if (on_progress) on_progress();
         auto vector_property = vertex->properties.GetProperty(spec.property);
         if (UnregisterIndexId(vector_property, index_id)) {
           mg_index.index.get(vertex, vector.data());

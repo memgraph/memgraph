@@ -222,7 +222,10 @@ class VectorEdgeIndex {
   /// transaction abort, or std::nullopt if the index doesn't exist. Callers that
   /// only need a fire-and-forget drop (e.g. CreateIndex's exception rollback)
   /// can discard the return value.
-  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+  /// `on_progress` is invoked once per indexed edge while their properties are rewritten back from index ids to
+  /// vectors. See VectorIndex::DropIndex for why the caller needs it.
+  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper,
+                                               ProgressCallback const &on_progress = {});
 
   /// @brief Reinstalls an edge index previously evicted by DropIndex.
   void RestoreIndex(DroppedIndexCapture &&capture);

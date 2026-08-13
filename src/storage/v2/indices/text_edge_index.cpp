@@ -96,11 +96,14 @@ void TextEdgeIndex::PublishActiveIndices(ActiveIndicesUpdater const &updater) {
 }
 
 void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices,
-                                NameIdMapper *name_id_mapper) {
+                                NameIdMapper *name_id_mapper, ProgressCallback const &on_progress) {
   CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_info.index_name), index_info);
 
   auto &index_data = *index_->at(index_info.index_name);
   for (const auto &vertex : vertices) {
+    // Reported per vertex examined, not per edge indexed: a long run of vertices with no matching edge is
+    // still progress.
+    if (on_progress) on_progress();
     const auto edges_accessor = vertex.OutEdges(View::NEW, {index_info.edge_type}).value();
     for (const auto &edge : edges_accessor.edges) {
       // If properties are specified, we serialize only those properties; otherwise, all properties of the edge.

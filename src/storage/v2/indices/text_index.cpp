@@ -88,13 +88,15 @@ void TextIndex::PublishActiveIndices(ActiveIndicesUpdater const &updater) {
 }
 
 void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIterable vertices,
-                            NameIdMapper *name_id_mapper) {
+                            NameIdMapper *name_id_mapper, ProgressCallback const &on_progress) {
   CreateTantivyIndex(
       MakeIndexPath(text_index_storage_dir_, index_info.index_name),
       {.index_name = index_info.index_name, .label = index_info.label, .properties = index_info.properties});
 
   auto &index_data = *index_->at(index_info.index_name);
   for (const auto &v : vertices) {
+    // Reported per vertex examined, not per vertex indexed: a long run of non-matching vertices is still progress.
+    if (on_progress) on_progress();
     if (!v.HasLabel(index_info.label, View::NEW).value()) {
       continue;
     }

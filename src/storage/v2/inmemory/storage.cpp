@@ -2340,11 +2340,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreatePointIndex(
-    storage::LabelId label, storage::PropertyId property) {
+    storage::LabelId label, storage::PropertyId property, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Creating point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
-  if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
+  if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access(), on_progress)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   // Defer publication to commit time so concurrent readers don't observe a
@@ -2385,7 +2385,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateVectorIndex(
-    VectorIndexSpec spec) {
+    VectorIndexSpec spec, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Creating vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
@@ -2393,7 +2393,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector index on nodes with the same name as vector edge index
   if (vector_edge_index.IndexExists(spec.index_name) ||
-      !vector_index.CreateIndex(spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
+      !vector_index.CreateIndex(
+          spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get(), on_progress)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   // Defer publication to commit time so concurrent readers don't observe a
@@ -2415,14 +2416,14 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
-    std::string_view index_name) {
+    std::string_view index_name, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Dropping vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto updater = in_memory->indices_.MakeUpdater();
   auto &metric_handles = in_memory->metric_handles_;
-  if (auto vec_capture = vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
+  if (auto vec_capture = vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get(), on_progress)) {
     transaction_.commit_callbacks_.Add([&vector_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
       vector_index.PublishActiveIndices(updater);
       metric_handles.active_vector_indices.Decrement();
@@ -2432,7 +2433,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
     transaction_.abort_callbacks_.Add([&vector_index, capture = std::move(*vec_capture)]() mutable {
       vector_index.RestoreIndex(std::move(capture));
     });
-  } else if (auto edge_capture = vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
+  } else if (auto edge_capture =
+                 vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get(), on_progress)) {
     transaction_.commit_callbacks_.Add([&vector_edge_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
       vector_edge_index.PublishActiveIndices(updater);
       metric_handles.active_vector_edge_indices.Decrement();
@@ -2461,7 +2463,7 @@ utils::small_vector<float> InMemoryStorage::InMemoryAccessor::GetVectorFromVecto
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateVectorEdgeIndex(
-    VectorEdgeIndexSpec spec) {
+    VectorEdgeIndexSpec spec, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Creating vector edge index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
@@ -2469,7 +2471,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector edge index with the same name as vector index on nodes
   if (vector_index.IndexExists(spec.index_name, in_memory->name_id_mapper_.get()) ||
-      !vector_edge_index.CreateIndex(spec, vertices_acc, in_memory->name_id_mapper_.get())) {
+      !vector_edge_index.CreateIndex(spec, vertices_acc, in_memory->name_id_mapper_.get(), on_progress)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   // Defer publication to commit time. See CreateVectorIndex above.

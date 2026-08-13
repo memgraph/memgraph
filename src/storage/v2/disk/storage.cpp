@@ -2310,7 +2310,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreatePointIndex(
-    storage::LabelId /*label*/, storage::PropertyId /*property*/) {
+    storage::LabelId /*label*/, storage::PropertyId /*property*/, ProgressCallback const & /*on_progress*/) {
   throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
@@ -2322,13 +2322,13 @@ std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAcces
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateVectorIndex(
-    VectorIndexSpec /*spec*/) {
+    VectorIndexSpec /*spec*/, ProgressCallback const & /*on_progress*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropVectorIndex(
-    std::string_view /*index_name*/) {
+    std::string_view /*index_name*/, ProgressCallback const & /*on_progress*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
@@ -2345,7 +2345,7 @@ utils::small_vector<float> DiskStorage::DiskAccessor::GetVectorFromVectorIndex(V
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateVectorEdgeIndex(
-    VectorEdgeIndexSpec /*spec*/) {
+    VectorEdgeIndexSpec /*spec*/, ProgressCallback const & /*on_progress*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }

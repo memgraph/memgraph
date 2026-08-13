@@ -676,7 +676,7 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::CreateTextIndex(
-    const TextIndexSpec &text_index_info) {
+    const TextIndexSpec &text_index_info, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
 
   // Check for name conflicts with existing text edge indexes
@@ -685,7 +685,8 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   }
 
   try {
-    storage_->indices_.text_index_.CreateIndex(text_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get());
+    storage_->indices_.text_index_.CreateIndex(
+        text_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get(), on_progress);
   } catch (const query::TextSearchException &e) {
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
@@ -712,7 +713,7 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::CreateTextEdgeIndex(
-    const TextEdgeIndexSpec &text_edge_index_info) {
+    const TextEdgeIndexSpec &text_edge_index_info, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Creating a text edge index requires unique access to storage!");
 
   // Check for name conflicts with existing text node indexes
@@ -722,7 +723,7 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
 
   try {
     storage_->indices_.text_edge_index_.CreateIndex(
-        text_edge_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get());
+        text_edge_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get(), on_progress);
   } catch (const query::TextSearchException &e) {
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }

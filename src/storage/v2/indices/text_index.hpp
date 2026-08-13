@@ -136,7 +136,8 @@ class TextIndex {
   /// the resulting ActiveIndices snapshot via PublishActiveIndices — typically
   /// deferred through Transaction::commit_callbacks_ so the snapshot is only
   /// observable after the DDL transaction commits.
-  void CreateIndex(const TextIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
+  void CreateIndex(const TextIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper,
+                   ProgressCallback const &on_progress = {});
 
   void RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
                     NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,

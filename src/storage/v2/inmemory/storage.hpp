@@ -469,8 +469,12 @@ class InMemoryStorage final : public Storage {
     using Storage::Accessor::CreateGlobalEdgeIndex;
     using Storage::Accessor::CreateGlobalVertexIndex;
     using Storage::Accessor::CreateIndex;
+    using Storage::Accessor::CreatePointIndex;
     using Storage::Accessor::CreateTypeConstraint;
     using Storage::Accessor::CreateUniqueConstraint;
+    using Storage::Accessor::CreateVectorEdgeIndex;
+    using Storage::Accessor::CreateVectorIndex;
+    using Storage::Accessor::DropVectorIndex;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -551,19 +555,23 @@ class InMemoryStorage final : public Storage {
     std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(PropertyId property) override;
 
     std::expected<void, StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,
-                                                                      storage::PropertyId property) override;
+                                                                      storage::PropertyId property,
+                                                                      ProgressCallback const &on_progress) override;
 
     std::expected<void, StorageIndexDefinitionError> DropPointIndex(storage::LabelId label,
                                                                     storage::PropertyId property) override;
 
-    std::expected<void, StorageIndexDefinitionError> CreateVectorIndex(VectorIndexSpec spec) override;
+    std::expected<void, StorageIndexDefinitionError> CreateVectorIndex(VectorIndexSpec spec,
+                                                                       ProgressCallback const &on_progress) override;
 
     utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) override;
 
     utils::small_vector<float> GetVectorFromVectorIndex(Vertex *vertex, std::string_view index_name) const override;
-    std::expected<void, StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) override;
+    std::expected<void, StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name,
+                                                                     ProgressCallback const &on_progress) override;
 
-    std::expected<void, StorageIndexDefinitionError> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) override;
+    std::expected<void, StorageIndexDefinitionError> CreateVectorEdgeIndex(
+        VectorEdgeIndexSpec spec, ProgressCallback const &on_progress) override;
 
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
