@@ -90,6 +90,25 @@ auto RunBounded(std::chrono::milliseconds timeout, F f) -> std::pair<bool, std::
   return {false, std::nullopt};
 }
 
+// Bounded, retrying cleanup for a tenant created under `name`: retries Delete() past a benign
+// USING/NON_EXISTENT race with another in-flight delete, then waits for AllDetached() to retire the
+// row -- skipping either half leaves a tenant that poisons a later --gtest_repeat iteration's
+// New()/Rename() (EXISTS/ALREADY_EXISTS) or leaves a stale DRAINING/DETACHED row behind. Callers must
+// release every DatabaseAccess for `name` first: Delete() itself still succeeds with one outstanding,
+// but the deferred teardown it starts won't retire the row until the holder is gone, so the second
+// wait times out instead.
+bool DropAndWait(memgraph::dbms::DbmsHandler &dbms, std::string_view name) {
+  const bool dropped = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto del = dbms.Delete(name);
+    return del.has_value() || del.error() == memgraph::dbms::DeleteError::NON_EXISTENT;
+  });
+  if (!dropped) return false;
+  return WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(all_detached, [&](auto const &d) { return d.name == name; });
+  });
+}
+
 // Wedges a tenant's after-commit-trigger thread pool mid-task so a concurrent Delete()'s Phase 2
 // (Database::StopAllBackgroundTasks() -> ThreadPool::ShutDown() -> its jthread vector's destructor;
 // see dbms_handler.cpp's Delete_ Phase 2, database.cpp's StopAllBackgroundTasks, and
@@ -1215,6 +1234,197 @@ TEST(DBMS_Handler, ForceDropOfADrainingTenantIsRetriableNotMissing) {
   cleaned_up = true;
   ASSERT_EQ(del_status, std::future_status::ready) << "the first drop must complete once the stall is released";
   EXPECT_TRUE(del_fut.get().has_value()) << "the first drop itself must still succeed once its stall is released";
+}
+
+// PINS: MakeDatabaseProtectorFactory (database_handler.hpp) must keep resolving its own tenant across a
+// RENAME. A factory that captured the tenant's NAME instead and re-looked it up via Handler<T>::Get
+// would go stale the moment items_ re-keys under the new name, making make_database_protector() return
+// nullptr forever -- both consumers (storage/v2/ttl.cpp, storage/v2/async_indexer.cpp) treat that as
+// "database dropped, stop this worker", silently and permanently killing TTL expiry and async index
+// building for any renamed tenant, with no error, log, or recovery short of a restart. Exercises the
+// real seam (Storage::make_database_protector()), not a hand-rolled lookup.
+TEST(DBMS_Handler, ProtectorFactorySurvivesRename) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("factory_rename_src");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  // Held for the whole test, same reasoning as DrainingTenantIsRefusedToTheProtectorFactory above: this
+  // accessor is what keeps `storage` (and the Database it belongs to) alive across the rename below.
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  auto *storage = acc->storage();
+
+  // Runs even on an early ASSERT_TRUE return (e.g. the rename itself failing) -- without this, a failed
+  // rename left factory_rename_src HOT and held by `acc` for the rest of the process, and a later
+  // --gtest_repeat iteration's dbms.New("factory_rename_src") would fail with EXISTS before ever
+  // reaching the rename this test means to probe. `acc` must be released here (not left to its own
+  // destructor) since DropAndWait's retire-wait won't converge while any accessor is outstanding;
+  // declaring this guard after `acc` means it runs first on unwind, while `acc` is still valid to reset.
+  // Whichever of src/dst the tenant currently answers to, the other DropAndWait() is a cheap expected
+  // NON_EXISTENT no-op.
+  auto cleanup = memgraph::utils::OnScopeExit{[&] {
+    acc.reset();
+    EXPECT_TRUE(DropAndWait(dbms, "factory_rename_src"))
+        << "factory_rename_src must not survive this test (e.g. after a rename that never happened) to "
+           "poison a later --gtest_repeat iteration's New()";
+    EXPECT_TRUE(DropAndWait(dbms, "factory_rename_dst"))
+        << "factory_rename_dst must not survive this test (e.g. after a successful rename) to poison a "
+           "later --gtest_repeat iteration's Rename()";
+  }};
+
+  {
+    auto p0 = storage->make_database_protector();
+    EXPECT_NE(p0, nullptr) << "a HOT tenant must be protectable before the rename -- if this already "
+                              "fails, the assertion below proves nothing about the rename itself";
+  }
+
+  auto rename_result = dbms.Rename("factory_rename_src", "factory_rename_dst");
+  ASSERT_TRUE(rename_result.has_value()) << "the rename itself must succeed for this test to probe anything";
+
+  auto p1 = storage->make_database_protector();
+  EXPECT_NE(p1, nullptr) << "the protector factory must still resolve its own tenant after a RENAME -- a "
+                            "factory that re-looks-up a captured NAME returns nullptr here, and both "
+                            "consumers (storage/v2/ttl.cpp:315 and storage/v2/async_indexer.cpp:96) read "
+                            "nullptr as 'database dropped, stop this worker', silently killing TTL expiry "
+                            "and async index building until process restart";
+}
+
+// PINS: Handler<T>::Get's items_.find (handler.hpp) has no synchronization of its own against
+// structural mutation of items_ (insert/erase under DbmsHandler::lock_ elsewhere). If
+// MakeDatabaseProtectorFactory re-resolves its tenant through that same unsynchronized map on every
+// call, a lock-free reader racing New()/Delete() for an UNRELATED tenant is a data race on items_ --
+// benign-looking under a normal build, but a real find under ThreadSanitizer. Under a non-TSan build
+// this test is a smoke test only: it must not crash or hang. Its real purpose is to give TSan a window
+// on that race; it does not (and cannot, without TSan) prove the race is absent.
+TEST(DBMS_Handler, ProtectorFactoryConcurrentWithHandlerMapMutation) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("factory_race_target");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  auto *storage = acc->storage();
+
+  std::atomic<bool> stop{false};
+  std::atomic<uint64_t> reader_iterations{0};
+  std::atomic<uint64_t> non_null_results{0};
+
+  std::thread reader([&] {
+    constexpr uint64_t kMaxIterations = 20000;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!stop.load(std::memory_order_relaxed) &&
+           reader_iterations.load(std::memory_order_relaxed) < kMaxIterations &&
+           std::chrono::steady_clock::now() < deadline) {
+      // A nullptr result is legitimate here (the target tenant is never itself mutated below), so this
+      // loop intentionally does not assert on the returned protector -- only that calling this seam
+      // concurrently with unrelated map mutation neither crashes nor hangs.
+      auto protector = storage->make_database_protector();
+      if (protector != nullptr) {
+        non_null_results.fetch_add(1, std::memory_order_relaxed);
+      }
+      reader_iterations.fetch_add(1, std::memory_order_relaxed);
+    }
+  });
+
+  // Cross-tenant churn only -- deliberately NOT renaming/dropping factory_race_target itself. A
+  // same-tenant Rename loop would race Handler<T>::Rename's move-then-erase window (handler.hpp), during
+  // which the in-map Gatekeeper::pimpl_ is transiently null; a concurrent lookup landing in that window
+  // is a real finding (NULL-dereference/SIGSEGV) but would crash this whole shared test binary, not just
+  // fail an assertion, so it is out of scope for this smoke test.
+  const auto churn_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  uint64_t churn_iterations = 0;
+  while (churn_iterations < 20000 && std::chrono::steady_clock::now() < churn_deadline) {
+    auto other = dbms.New("factory_race_other");
+    if (other.has_value()) {
+      memgraph::dbms::DatabaseAccess other_acc = std::move(other.value());
+      other_acc.reset();
+      dbms.Delete("factory_race_other");  // best-effort; a USING/NON_EXISTENT race here is not this test's concern
+    }
+    ++churn_iterations;
+  }
+  stop.store(true, std::memory_order_relaxed);
+
+  auto [reader_done, _] = RunBounded(std::chrono::seconds(5), [&] {
+    reader.join();
+    return true;
+  });
+  if (!reader_done) {
+    // Only RunBounded's own worker got detached above; `reader` itself is still joinable, and a
+    // joinable std::thread's destructor calls std::terminate() -- detach it (this file's idiom for a
+    // wedged op, e.g. DropDoesNotHoldTheHandlerLockDuringTeardown's dropper.detach()) so the hang this
+    // test exists to catch fails the assertion instead of killing the whole test binary.
+    ADD_FAILURE() << "the reader thread failed to join within the bound -- possible hang in the seam under test";
+    reader.detach();
+  }
+
+  EXPECT_GT(reader_iterations.load(), 0u) << "the reader must have completed at least one iteration";
+
+  acc.reset();
+
+  // Both names must be gone before returning, or a later --gtest_repeat iteration's dbms.New() for
+  // that name sees EXISTS instead of re-exercising the race: factory_race_target is only ever created
+  // here, and factory_race_other's churn loop only deletes it best-effort, so a straggler from its
+  // last iteration (or one that lost a benign USING/NON_EXISTENT race) can survive too.
+  EXPECT_TRUE(DropAndWait(dbms, "factory_race_target"))
+      << "factory_race_target must end up dropped and retired so a later --gtest_repeat iteration does "
+         "not see EXISTS (still there) or a stale detached row";
+  EXPECT_TRUE(DropAndWait(dbms, "factory_race_other"))
+      << "factory_race_other must end up dropped and retired so a later --gtest_repeat iteration does "
+         "not see EXISTS (still there) or a stale detached row";
+}
+
+// PINS: DatabaseHandler::BuildDetached (database_handler.hpp) -- the hot/cold RESUME path -- must
+// publish the freshly rebuilt generation's OWN GKInternals<Database>* into its own protector cell,
+// exactly as New() does for a brand-new tenant: Suspend destroys the previous Database (and its cell),
+// so every generation must be self-published. A missed publish fails CLOSED and silently -- both
+// consumers (storage/v2/ttl.cpp, storage/v2/async_indexer.cpp) read nullptr as "database dropped, stop
+// this worker", quietly killing TTL expiry and async indexing on every resumed tenant until a restart.
+TEST(DBMS_Handler, ProtectorFactorySurvivesSuspendResume) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("protector_suspend_resume");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+
+  {
+    auto protector = acc->storage()->make_database_protector();
+    EXPECT_NE(protector, nullptr) << "a HOT tenant must be protectable before suspend -- if this already "
+                                     "fails, the assertions below prove nothing about resume";
+  }
+
+  // Suspend requires sole-accessor (try_begin_suspend() waits for count==1); a held DatabaseAccess
+  // would fail the call with ACTIVE_CONNECTIONS regardless of the publish bug this test targets.
+  acc.reset();
+
+  auto suspend_result = dbms.Suspend("protector_suspend_resume");
+  ASSERT_TRUE(suspend_result.has_value())
+      << "suspend itself must succeed for this test to probe anything: " << (int)suspend_result.error();
+
+  auto resume_result = dbms.Resume("protector_suspend_resume");
+  ASSERT_TRUE(resume_result.has_value()) << "resume itself must succeed for this test to probe anything: "
+                                         << (int)resume_result.error();
+
+  // The suspend destroyed the PREVIOUS Database (and its protector cell) -- any pointer taken from
+  // before the suspend is now dangling. Re-acquire a fresh accessor for the resumed generation instead
+  // of reusing `acc`/its old storage pointer.
+  memgraph::dbms::DatabaseAccess fresh_acc = std::move(resume_result.value().db);
+  {
+    // Scoped: DatabaseProtector (dbms/database_protector.hpp) holds its OWN internal DatabaseAccess, so
+    // an unreleased protector is itself a holder -- letting it outlive this block would pin the tenant
+    // at sole-accessor+1 and make the Delete() below take the deferred (never-converging-here) path.
+    auto fresh_protector = fresh_acc->storage()->make_database_protector();
+    EXPECT_NE(fresh_protector, nullptr)
+        << "a resumed tenant must still be protectable -- nullptr here means BuildDetached failed to "
+           "publish the new generation's gatekeeper handle into its own protector cell, silently stopping "
+           "TTL expiry and async index building on every resumed tenant";
+  }
+
+  fresh_acc.reset();
+  auto del = dbms.Delete("protector_suspend_resume");
+  ASSERT_TRUE(del.has_value()) << (int)del.error();
+  const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(all_detached, [](auto const &d) { return d.name == "protector_suspend_resume"; });
+  });
+  EXPECT_TRUE(retired) << "protector_suspend_resume's row must retire once its accessor is released";
 }
 
 int main(int argc, char *argv[]) {
