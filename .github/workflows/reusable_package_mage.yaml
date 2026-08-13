@@ -16,7 +16,7 @@ on:
         default: 'Release'
       build_docker_image:
         type: string
-        description: "Docker image(s) to produce in this job: 'none' (default), 'prod', 'debug', or 'both'. The debug image installs memgraph-mage-debuginfo on top of the prod image, matching memgraph's split-debug pattern."
+        description: "Docker image(s) to produce in this job: 'none' (default), 'prod', 'debug', or 'both'."
         default: 'none'
       push_to_github:
         type: boolean
@@ -77,15 +77,15 @@ on:
         default: false
       memgraph_download_link:
         type: string
-        description: "Memgraph deb package download URL. Empty means memgraph is built inside this job (producing both deb and rpm)."
+        description: "Memgraph deb package download URL."
         default: ''
       memgraph_rpm_download_link:
         type: string
-        description: "Memgraph rpm package download URL, consumed by the rpm smoke images. Only used together with memgraph_download_link; ignored when memgraph is built inside this job."
+        description: "Memgraph rpm package download URL."
         default: ''
       memgraph_debuginfo_download_link:
         type: string
-        description: "Memgraph debuginfo (.deb sidecar) download URL. Required by the relwithdebinfo Dockerfile target when build_docker_image is 'debug' or 'both'; ignored otherwise. Set when memgraph_download_link points at a split-debug package so the MAGE debug image installs the same .debug sidecars."
+        description: "Memgraph debuginfo (.deb sidecar) download URL."
         default: ''
       version:
         type: string
@@ -679,11 +679,7 @@ jobs:
       - name: "Copy mgconsole for smoke tests"
         if: ${{ inputs.run_smoke_tests }}
         run: |
-          # The smoke framework needs an mgconsole that runs on every target
-          # distro; the released download is built against too-new glibc, so
-          # stage the toolchain's (GLIBC floor 2.25) out of the build
-          # container before it is stopped. init_workflow.bash skips its
-          # download when tests/smoke/bin/mgconsole already exists.
+          # TODO(matt): remove when mgconsole 1.7.1 is released
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
@@ -707,7 +703,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
-            --os $OS \
+            --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
             --cugraph $CUGRAPH \
@@ -725,7 +721,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
-            --os $OS \
+            --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
             --cugraph $CUGRAPH \
