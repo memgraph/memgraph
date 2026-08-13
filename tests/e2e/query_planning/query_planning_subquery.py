@@ -69,6 +69,60 @@ def _plan(memgraph, query):
     return "\n".join(row["QUERY PLAN"] for row in memgraph.execute_and_fetch("EXPLAIN " + query))
 
 
+def test_scoped_subquery_import_does_not_invalidate_optional_edge_index_plan(memgraph):
+    """
+    Regression guard. The inherited symbols must reach the branch's index rewriter WITHOUT entering the
+    plan: PlanValidator::PreVisit(Optional) intersects the input's ModifiedSymbols with the optional
+    branch's and forbids indexed edge scans when they overlap, so an inherited symbol visible in
+    ModifiedSymbols invalidates every candidate plan and the query dies with
+    "Could not create a valid query plan".
+
+    Unit tests cannot cover this: the query_plan.cpp harness runs the rewriters but never calls
+    IsValidPlan.
+    """
+    memgraph.execute("CREATE EDGE INDEX ON :T;")
+    try:
+        memgraph.execute("CREATE (a:L {p: 1}), (b:L {p: 2});")
+        memgraph.execute("MATCH (a:L {p: 1}), (b:L {p: 2}) CREATE (a)-[:T {p: 1}]->(b);")
+
+        query = """
+            WITH 1 AS v
+            CALL (v) { MATCH (a) OPTIONAL MATCH ()-[e:T]->() WHERE e.p = v RETURN a, e }
+            RETURN count(*) AS c
+        """
+        assert [row["c"] for row in memgraph.execute_and_fetch(query)] == [2]
+        # CALL (*) reaches the same code path via all_variables_scoped_.
+        star = query.replace("CALL (v)", "CALL (*)")
+        assert [row["c"] for row in memgraph.execute_and_fetch(star)] == [2]
+    finally:
+        # the memgraph fixture's drop_indexes() does not cover edge indexes
+        memgraph.execute("DROP EDGE INDEX ON :T;")
+
+
+def test_scoped_subquery_import_does_not_convert_unrelated_cartesian(memgraph):
+    """
+    Regression guard. An inherited symbol visible in Cartesian::ModifiedSymbols makes does_modify() in
+    IndexLookupRewriter::PostVisit(Filter) false-positive, converting an unrelated Cartesian into an
+    IndexedJoin whose sub-branch is an unindexed scan re-executed once per main row - O(M) to O(N*M).
+    The Cartesian must survive while the indexed scan is still picked up.
+    """
+    memgraph.execute("CREATE INDEX ON :L(p);")
+    memgraph.execute("UNWIND range(1, 5) AS i CREATE (:A {id: i});")
+    memgraph.execute("UNWIND range(1, 5) AS i CREATE (:B {id: i});")
+    memgraph.execute("UNWIND range(1, 3) AS i CREATE (:L {p: 1, q: i});")
+
+    query = """
+        WITH 1 AS v
+        CALL (v) { MATCH (a:A), (b:B) UNWIND [1] AS x MATCH (c:L) WHERE c.p = v RETURN a, b, c }
+        RETURN count(*) AS c
+    """
+    plan = _plan(memgraph, query)
+    assert "ScanAllByLabelProperties" in plan, f"the fix itself stopped working:\n{plan}"
+    assert "IndexedJoin" not in plan, f"unrelated Cartesian was converted:\n{plan}"
+    assert "Cartesian" in plan, f"Cartesian did not survive:\n{plan}"
+    assert [row["c"] for row in memgraph.execute_and_fetch(query)] == [75]
+
+
 def test_scoped_subquery_import_index_result_equivalence(memgraph):
     """
     The seek key inside `CALL (ids) { ... }` is derived from a value that changes on every outer row,
