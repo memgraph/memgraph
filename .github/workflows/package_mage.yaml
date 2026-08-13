@@ -12,7 +12,15 @@ on:
           - "amd"
           - "arm"
       memgraph_download_link:
-        description: "Memgraph package download link. Leave empty to use the official download link."
+        description: "Memgraph package download link (DEB)"
+        default: ""
+        type: string
+      memgraph_rpm_download_link:
+        description: "Memgraph package download link (RPM)"
+        default: ""
+        type: string
+      memgraph_debuginfo_download_link:
+        description: "Memgraph dubuginfo package download link (DEB)"
         default: ""
         type: string
       cuda:
@@ -61,7 +69,7 @@ on:
         default: ''
       os:
         type: choice
-        description: Target OS
+        description: Build container distro
         default: ubuntu-24.04
         # Only Python-3.12 distros are currently supported (MAGE's deps are
         # cp312-only); see tools/ci/package_mage_setup.py for the full note.
@@ -77,7 +85,15 @@ on:
         description: "Architecture to build the image for"
         required: true
       memgraph_download_link:
-        description: "Memgraph package download link. Leave empty to use the official download link."
+        description: "Memgraph package download link (DEB)"
+        default: ""
+        type: string
+      memgraph_rpm_download_link:
+        description: "Memgraph package download link (RPM)"
+        default: ""
+        type: string
+      memgraph_debuginfo_download_link:
+        description: "Memgraph dubuginfo package download link (DEB)"
         default: ""
         type: string
       cuda:
@@ -126,7 +142,7 @@ on:
         default: ''
       os:
         type: string
-        description: Target OS
+        description: Build container distro
         default: ubuntu-24.04
 
 
@@ -170,6 +186,8 @@ jobs:
       # distros publish no MAGE image; PR builds set 'debug' for ubuntu there).
       build_docker_image: ${{ matrix.build_docker_image || 'none' }}
       memgraph_download_link: ${{ matrix.memgraph_download_link }}
+      memgraph_rpm_download_link: ${{ matrix.memgraph_rpm_download_link }}
+      memgraph_debuginfo_download_link: ${{ matrix.memgraph_debuginfo_download_link }}
       s3_dest_dir: ${{ matrix.s3_dest_dir }}
       cuda: ${{ matrix.cuda == 'true' }}
       cugraph: ${{ matrix.cugraph == 'true' }}

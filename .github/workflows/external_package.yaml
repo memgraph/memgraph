@@ -9,43 +9,74 @@ on:
       pr_number:
         type: string
         required: true
-        description: "PR number."
+        description: PR number
       base_master:
         type: boolean
-        description: "Base master?"
+        description: Base on master
         default: false
       os:
         type: choice
-        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS."
-        default: 'ubuntu-24.04'
+        description: Build container distro
+        default: ubuntu-24.04
         options:
-          - all
           - centos-9
           - centos-10
-          - debian-11
-          - debian-11-arm
           - debian-12
-          - debian-12-arm
-          - docker
-          - docker-arm
-          - fedora-41
+          - debian-13
+          - fedora-43
+          - fedora-44
+          - fedora-45
+          - rocky-10
           - ubuntu-22.04
           - ubuntu-24.04
-          - ubuntu-24.04-arm
-      toolchain:
+          - ubuntu-26.04
+      arch:
         type: choice
-        description: "Toolchain version with which memgraph will be packaged."
-        default: 'v6'
+        description: CPU architecture
+        default: amd
         options:
-          - v6
+          - amd
+          - arm
+          - both
+      build_docker_image:
+        type: choice
+        description: Docker image(s) to produce alongside the deb.
+        default: none
+        options:
+          - none
+          - prod
+          - debug
+          - both
       push_to_s3:
         type: boolean
-        description: "Push final packages to an S3 bucket?"
+        description: Push to S3
         default: false
       s3_dest_dir:
         type: string
-        description: "Target dir path in chosen S3 bucket, don't end the path with '/'. For bucket 'deps.memgraph.io' use format 'memgraph/vX.Y.Z'."
+        description: Target S3 path - use format 'memgraph/vX.Y.Z'
         default: ''
+      run_smoke_tests:
+        type: boolean
+        description: Run smoke tests
+        default: false
+      package_smoke_os:
+        type: choice
+        description: Distro(s) to smoke test the built deb/rpm packages on (requires run_smoke_tests).
+        default: ubuntu-24.04
+        options:
+          - all
+          - all deb
+          - all rpm
+          - centos-9
+          - centos-10
+          - debian-12
+          - debian-13
+          - fedora-43
+          - fedora-44
+          - rocky-10
+          - ubuntu-22.04
+          - ubuntu-24.04
+          - ubuntu-26.04
 
 jobs:
   CallCreateStagingBranch:
@@ -60,9 +91,12 @@ jobs:
     uses: ./.github/workflows/package_memgraph.yaml
     with:
       os: ${{ inputs.os }}
-      toolchain: ${{ inputs.toolchain }}
+      arch: ${{ inputs.arch }}
+      build_docker_image: ${{ inputs.build_docker_image }}
       push_to_s3: ${{ inputs.push_to_s3 }}
       s3_dest_dir: ${{ inputs.s3_dest_dir }}
+      run_smoke_tests: ${{ inputs.run_smoke_tests }}
+      package_smoke_os: ${{ inputs.package_smoke_os }}
       ref: ${{ needs.CallCreateStagingBranch.outputs.staging_branch }}
     secrets: inherit
 

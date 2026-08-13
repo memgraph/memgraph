@@ -12,31 +12,32 @@ on:
     inputs:
       os:
         type: choice
-        description: "OS of the mgbuild container the build runs in (the packages themselves are distro-agnostic; use package_smoke_os to pick test targets). To produce a docker image, pick a ubuntu-24.04 variant and set build_docker_image."
-        default: 'ubuntu-24.04'
+        description: Build container distro.
+        default: ubuntu-24.04
         options:
           - centos-9
           - centos-10
           - debian-12
-          - debian-12-arm
           - debian-13
-          - debian-13-arm
           - fedora-43
-          - fedora-43-arm
           - fedora-44
-          - fedora-44-arm
           - fedora-45
-          - fedora-45-arm
           - rocky-10
           - ubuntu-22.04
           - ubuntu-24.04
-          - ubuntu-24.04-arm
           - ubuntu-26.04
-          - ubuntu-26.04-arm
+      arch:
+        type: choice
+        description: CPU architecture
+        default: amd
+        options:
+          - amd
+          - arm
+          - both
       build_docker_image:
         type: choice
-        description: "Docker image(s) to produce alongside the deb. 'none' (default), 'prod', 'debug' (relwithdebinfo, installs memgraph-debuginfo on top), or 'both'. Requires a ubuntu-24.04 os."
-        default: 'none'
+        description: Docker image(s) to produce alongside the deb. 'none' (default), 'prod', 'debug' (relwithdebinfo, installs memgraph-debuginfo on top), or 'both'.
+        default: none
         options:
           - none
           - prod
@@ -44,32 +45,32 @@ on:
           - both
       push_to_s3:
         type: boolean
-        description: "Push final packages to an S3 bucket?"
+        description: Push to S3
         default: false
       push_to_github:
         type: boolean
-        description: "Push final packages to GitHub?"
+        description: Push to GitHub?
         default: false
       s3_dest_dir:
         type: string
-        description: "Target dir path in chosen S3 bucket, don't end the path with '/'. For bucket 'deps.memgraph.io' use format 'memgraph/vX.Y.Z'."
-        default: 'memgraph-unofficial'
+        description: Target S3 path - use format 'memgraph/vX.Y.Z'
+        default: memgraph-unofficial
       malloc:
         type: boolean
-        description: "Package malloc build?"
+        description: Package malloc build?
         default: false
       generate_sbom:
         type: boolean
-        description: "Generate SBOM"
+        description: Generate SBOM
         default: false
       run_smoke_tests:
         type: boolean
-        description: "Run smoke tests on images after building"
+        description: Run smoke tests
         default: false
       package_smoke_os:
         type: choice
-        description: "Distro(s) to smoke test the built deb/rpm packages on (requires run_smoke_tests)."
-        default: 'ubuntu-24.04'
+        description: Distro(s) to smoke test the built deb/rpm packages on (requires run_smoke_tests).
+        default: ubuntu-24.04
         options:
           - all
           - all deb
@@ -89,44 +90,44 @@ on:
     inputs:
       os:
         type: string
-        description: "OS of the mgbuild container the build runs in (the packages themselves are distro-agnostic; use package_smoke_os to pick test targets). To produce a docker image, pick a ubuntu-24.04 variant and set build_docker_image."
+        description: Build container distro.
         default: 'ubuntu-24.04'
+      arch:
+        type: string
+        description: CPU architecture
+        default: amd
       build_docker_image:
         type: string
-        description: "Docker image(s) to produce alongside the deb: 'none' (default), 'prod', 'debug', or 'both'. Requires a ubuntu-24.04 os."
-        default: 'none'
-      toolchain:
-        type: string
-        description: "Toolchain version with which memgraph will be packaged."
-        default: 'v6'
+        description: "Docker image(s) to produce alongside the deb: 'none' (default), 'prod', 'debug', or 'both'"
+        default: none
       push_to_s3:
         type: boolean
-        description: "Push final packages to an S3 bucket?"
+        description: Push to S3
         default: false
       push_to_github:
         type: boolean
-        description: "Push final packages to GitHub?"
+        description: Push to GitHub
         default: false
       s3_dest_dir:
         type: string
-        description: "Target dir path in chosen S3 bucket, don't end the path with '/'. For bucket 'deps.memgraph.io' use format 'memgraph/vX.Y.Z'."
-        default: ''
+        description: Target S3 path - use format 'memgraph/vX.Y.Z'
+        default: memgraph-unofficial
       ref:
         type: string
-        description: "Branch or commit ref to run the workflow on"
+        description: Branch or commit ref to run the workflow on
         required: false
         default: ''
       malloc:
         type: boolean
-        description: "Package malloc build?"
+        description: Package malloc build?
         default: false
       generate_sbom:
         type: boolean
-        description: "Generate SBOM"
+        description: Generate SBOM
         default: false
       run_smoke_tests:
         type: boolean
-        description: "Run smoke tests on images after building"
+        description: Run smoke tests
         default: false
       package_smoke_os:
         type: string
@@ -190,9 +191,8 @@ jobs:
     secrets: inherit
 
   # ARM counterpart, driven by the '-arm' PR labels (e.g.
-  # CI -package=ubuntu-24.04-arm, docker-arm); it runs alongside Package
-  # when both amd and arm labels are present. Dispatch runs pick arm via
-  # the os input instead, which routes through the Package job.
+  # CI -package=ubuntu-24.04-arm, docker-arm) or by dispatching with
+  # arch=arm|both; it runs alongside Package when both arches are selected.
   Package-arm:
     needs: PackageSetup
     if: ${{ needs.PackageSetup.outputs.run_package_arm == 'true' }}
@@ -204,7 +204,7 @@ jobs:
       build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_build_docker_image_arm }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       print_output_url: true
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}

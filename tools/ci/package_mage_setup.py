@@ -102,6 +102,8 @@ class PackageMageSetup:
     def _check_pr_label(self, build: dict, pr_labels: list) -> dict | None:
         default_args = {
             "memgraph_download_link": "",
+            "memgraph_rpm_download_link": "",
+            "memgraph_debuginfo_download_link": "",
             "push_to_s3": "false",
             "s3_dest_dir": "mage-unofficial",
             "run_smoke_tests": "true",
@@ -173,6 +175,8 @@ class PackageMageSetup:
                 "os": distro,
                 "build_docker_image": _build_docker_image(distro, cugraph),
                 "memgraph_download_link": self.workflow_inputs.get("memgraph_download_link", ""),
+                "memgraph_rpm_download_link": self.workflow_inputs.get("memgraph_rpm_download_link", ""),
+                "memgraph_debuginfo_download_link": self.workflow_inputs.get("memgraph_debuginfo_download_link", ""),
                 "generate_sbom": self.workflow_inputs.get("generate_sbom", "false"),
                 **common,
             }

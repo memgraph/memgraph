@@ -117,9 +117,21 @@ class PackageSetup:
     def _setup_workflow_dispatch(self) -> None:
         inputs = self._get_workflow_dispatch_inputs()
         print(f"Workflow dispatch inputs: {inputs}")
-        self._run_package = True
         self._os = inputs.get("os") or DEFAULT_OS
-        self._build_docker_image = inputs.get("build_docker_image") or "none"
+        # arch routes the run to the amd job, the arm job, or both; the docker
+        # image and smoke settings apply to whichever arch stream(s) run.
+        arch = (inputs.get("arch") or "amd").lower()
+        if arch not in ("amd", "arm", "both"):
+            print(f"Error: invalid arch input '{arch}' (expected amd, arm or both)")
+            sys.exit(1)
+        self._run_package = arch in ("amd", "both")
+        self._run_package_arm = arch in ("arm", "both")
+        build_docker_image = inputs.get("build_docker_image") or "none"
+        if self._run_package:
+            self._build_docker_image = build_docker_image
+        if self._run_package_arm:
+            self._build_docker_image_arm = build_docker_image
+            self._package_smoke_os_arm = inputs.get("package_smoke_os", "")
         self._workflow_inputs = dict(inputs)
         self._workflow_inputs.pop("build_docker_image", None)
 
@@ -135,8 +147,9 @@ class PackageSetup:
             sys.exit(1)
 
     def get_outputs(self) -> dict:
-        # The '-arm' suffixed os choices select the same container image on an
-        # arm runner; reusable_package.yaml takes os and arch separately.
+        # Arch is selected via the dedicated arch input (routing to the amd /
+        # arm jobs); a legacy '-arm' suffixed os still maps onto the amd job
+        # with arch=arm for older callers.
         package_os = self._os
         package_arch = "amd"
         if package_os.endswith("-arm"):
