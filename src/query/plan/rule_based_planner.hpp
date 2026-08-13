@@ -267,7 +267,13 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     auto const initial_bound_symbols = context.bound_symbols;
     for (const auto &query_part : query_parts.query_parts) {
       context.bound_symbols = initial_bound_symbols;
+      // A subquery branch is index-rewritten in isolation, so inherited symbols reach it only through
+      // its bottom Once; left empty, no filter on an imported variable can select an index.
       std::unique_ptr<LogicalOperator> input_op;
+      if (!initial_bound_symbols.empty()) {
+        input_op =
+            std::make_unique<Once>(std::vector<Symbol>(initial_bound_symbols.begin(), initial_bound_symbols.end()));
+      }
 
       context.is_write_query = false;
       for (const auto &single_query_part : query_part.single_query_parts) {

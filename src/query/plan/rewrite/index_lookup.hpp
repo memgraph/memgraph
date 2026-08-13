@@ -829,6 +829,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Apply &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
+    // Inherited symbols arrive via the branch's bottom Once, not additional_bound_symbols_: seeding
+    // that here would let a branch-internal SetOnParent overwrite Apply::input_, i.e. the outer plan.
     RewriteBranch(&op.subquery_);
     return false;
   }

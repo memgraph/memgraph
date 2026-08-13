@@ -65,5 +65,57 @@ def test_variable_start_planner_nested_and_left_ast_corruption(memgraph):
     assert result == []
 
 
+def _plan(memgraph, query):
+    return "\n".join(row["QUERY PLAN"] for row in memgraph.execute_and_fetch("EXPLAIN " + query))
+
+
+def test_scoped_subquery_import_index_result_equivalence(memgraph):
+    """
+    The seek key inside `CALL (ids) { ... }` is derived from a value that changes on every outer row,
+    so assert the indexed plan returns what the unindexed one does across rows carrying different
+    lists. Catches a stale or wrongly-scoped seek key, the only way this could give wrong results.
+    """
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    for i in range(12):
+        memgraph.execute(f"CREATE (:L {{p: 'v{i}'}});")
+
+    query = """
+        UNWIND [{i: 0, ids: ['v0', 'v1']},
+                {i: 1, ids: ['v3']},
+                {i: 2, ids: []},
+                {i: 3, ids: ['v5', 'v7', 'v11']},
+                {i: 4, ids: ['v2', 'v2']},
+                {i: 5, ids: ['nope']}] AS row
+        WITH row.i AS i, row.ids AS ids
+        CALL (ids) {
+            MATCH (n:L) WHERE n.p IN ids
+            RETURN collect(n.p) AS found
+        }
+        RETURN i, found ORDER BY i
+    """
+
+    def run():
+        return [(row["i"], sorted(row["found"])) for row in memgraph.execute_and_fetch(query)]
+
+    expected = [
+        (0, ["v0", "v1"]),
+        (1, ["v3"]),
+        (2, []),
+        (3, ["v11", "v5", "v7"]),
+        (4, ["v2"]),
+        (5, []),
+    ]
+
+    unindexed = run()
+    assert "ScanAllByLabelProperties" not in _plan(memgraph, query)
+    assert unindexed == expected
+
+    memgraph.execute("CREATE INDEX ON :L(p);")
+    indexed_plan = _plan(memgraph, query)
+    assert "ScanAllByLabelProperties" in indexed_plan, f"index not used inside scoped CALL:\n{indexed_plan}"
+
+    assert run() == unindexed
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
