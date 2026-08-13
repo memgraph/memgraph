@@ -1170,9 +1170,10 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
   matching.result_expr->MapTo(symbol_table_.at(op));
   matching.result_symbol = symbol_table_.at(op);
 
-  // Compute external symbols: symbols used in filter/result that are NOT bound within the comprehension.
-  // External symbols are references to variables from outer scope (e.g., FOREACH variable `x` in
-  // `[(a)-[r]->(b) WHERE a.id = x | b]`).
+  // Every symbol the comprehension reads that is NOT bound within it, e.g. the FOREACH variable `x` in
+  // `[(a)-[r]->(b) WHERE a.id = x | b]`. `DepsSatisfied` decides from this when a comprehension may drain, so it must
+  // cover every position an outer symbol can appear in, not just the two obvious expressions: a miss splices the
+  // RollUpApply below the operator that writes the symbol, where it reads an unwritten frame slot.
   std::unordered_set<Symbol> used_symbols;
 
   // Collect symbols from filter expression
@@ -1186,6 +1187,24 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
   UsedSymbolsCollector result_symbol_collector(symbol_table_);
   op.resultExpr_->Accept(result_symbol_collector);
   used_symbols.insert(result_symbol_collector.symbols_.begin(), result_symbol_collector.symbols_.end());
+
+  // The collectors above skip the comprehension's own pattern, missing `[(p {name: name})-->(q) | q]`. `AddMatching`
+  // already routed those into the property filters' `used_symbols`.
+  for (const auto &filter : matching.filters) {
+    used_symbols.insert(filter.used_symbols.begin(), filter.used_symbols.end());
+  }
+
+  // `UsedSymbolsCollector` visits only a nested comprehension's pattern, missing what its filter reads. A nested
+  // matching's `external_symbols` comes from this same block, so it is already complete.
+  auto collect_nested_external = [&used_symbols](const PatternComprehensionMatchings &nested) {
+    for (const auto &nested_pc : nested) {
+      used_symbols.insert(nested_pc.external_symbols.begin(), nested_pc.external_symbols.end());
+    }
+  };
+  collect_nested_external(matching.nested_pattern_comprehensions);
+  for (const auto &filter : matching.filters) {
+    collect_nested_external(filter.pattern_comprehension_matchings);
+  }
 
   // Collect symbols bound by nested pattern comprehensions.
   // These should NOT be treated as external symbols - they are bound within their respective nested PCs.
@@ -1296,10 +1315,17 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       // - FOREACH list expression and nested clauses
       // - WITH/RETURN named_expressions, order_by, skip, limit, where
       // - UNWIND expression
-      // - EdgeAtom filter_lambda, weight_lambda, lower_bound, upper_bound
+      // - EdgeAtom lower_bound, upper_bound, total_weight, limit
+      // Not traversed, so a comprehension there is collected by nobody and fails loudly at evaluation: EdgeAtom's
+      // filter/weight lambdas, dynamic label expressions, and LOAD CSV/PARQUET/JSONL file and config expressions.
       PatternComprehensionCollector collector(symbol_table, storage);
       clause->Accept(collector);
-      query_part->pattern_comprehension_matchings.append_range(collector.getPatternComprehensionMatchings());
+      // Record the originating clause, so a drain can tell "can this be planned yet?" from "should it be?".
+      auto matchings = collector.getPatternComprehensionMatchings();
+      for (auto &matching : matchings) {
+        matching.origin_clause = clause;
+        query_part->pattern_comprehension_matchings.push_back(std::move(matching));
+      }
 
       // Handle query part boundaries
       if (utils::Downcast<With>(clause) || utils::Downcast<Unwind>(clause) ||

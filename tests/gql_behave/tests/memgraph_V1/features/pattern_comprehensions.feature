@@ -956,3 +956,196 @@ Feature: Pattern comprehensions
         Then the result should be:
             | ids          | yid |
             | [10, 11, 12] | 4   |
+    Scenario: Pattern comprehension in a CALL YIELD WHERE with no preceding write
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Alice'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            CALL mg.procedures() YIELD name
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN DISTINCT p.name AS name
+            """
+        Then the result should be:
+            | name    |
+            | 'Alice' |
+
+
+    # The comprehension correlates to nothing, so the old rule left it on the pre-write view and it counted only the
+    # pre-existing edge. What decides the view is the write history, not whether the branch reads an outer symbol.
+    Scenario: Uncorrelated pattern comprehension after a write sees that write
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A)-[:R]->(:B)
+            """
+        When executing query:
+            """
+            CREATE (:A)-[:R]->(:B)
+            CREATE (t:T)
+            SET t.c = size([(x:A)-[:R]->(y:B) | y])
+            RETURN t.c AS c
+            """
+        Then the result should be:
+            | c |
+            | 2 |
+
+    Scenario: Pattern comprehension in a WITH projection after a write is evaluated per row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M1'}), (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (b)-[:ACTED_IN]->(:Movie {title: 'M3'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person) SET p.z = 1
+            WITH p.name AS n, [(p)-[:ACTED_IN]->(m) | m] AS lst
+            RETURN n, size(lst) AS s
+            """
+        Then the result should be:
+            | n         | s |
+            | 'Alice'   | 2 |
+            | 'Bob'     | 1 |
+            | 'Carol'   | 0 |
+
+    Scenario: Pattern comprehension in RETURN sees the effects of the CREATE it follows
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A)-[:R]->(:B)
+            """
+        When executing query:
+            """
+            CREATE (:A)-[:R]->(:B) RETURN size([(x:A)-[:R]->(y:B) | y]) AS s
+            """
+        Then the result should be:
+            | s |
+            | 2 |
+
+    # Discriminating: the MERGE creates the edge the comprehension counts, so the value differs by where the
+    # RollUpApply sits. On the main chain it is the Merge's input, evaluated before the create, and counts only
+    # the pre-existing edge.
+    Scenario: Pattern comprehension in a MERGE ON CREATE counts what the MERGE just created
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            """
+        And having executed:
+            """
+            MATCH (p:Person)
+            MERGE (p)-[:ACTED_IN]->(q:Movie {title: 'New'})
+              ON CREATE SET q.cnt = size([(p)-[:ACTED_IN]->(m) | m])
+            """
+        When executing query:
+            """
+            MATCH (q:Movie {title: 'New'}) RETURN q.cnt AS cnt
+            """
+        Then the result should be:
+            | cnt |
+            | 2   |
+
+    # The comprehension reads `name`, which the CALL itself binds, so its RollUpApply must sit above the
+    # CallProcedure. Below it the frame slot is unwritten on the first input row and stale from the previous row on
+    # every later one, so the filter silently matched nothing and the query returned no rows.
+    Scenario: Pattern comprehension in a CALL YIELD WHERE over a yielded symbol
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Proc {name: 'mg.procedures'})-[:R]->(:Target)
+            """
+        When executing query:
+            """
+            CALL mg.procedures() YIELD name
+            WHERE size([(p:Proc)-[:R]->(q) WHERE p.name = name | q]) > 0
+            RETURN name
+            """
+        Then the result should be:
+            | name            |
+            | 'mg.procedures' |
+
+    # A comprehension in a WITH is evaluated after the clauses before it, so after the DELETE - it can no longer
+    # expand from the node that DELETE removed. Pinning the error: before origin-clause gating the comprehension was
+    # drained at the DELETE and evaluated below it, returning a count of edges that no longer existed.
+    Scenario: Pattern comprehension over a node deleted by a preceding clause raises an error
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A)-[:R]->(:B)
+            """
+        When executing query:
+            """
+            MATCH (n:A) DETACH DELETE n
+            WITH n, [(n)-[e:R]->(m) | m] AS lst
+            RETURN size(lst) AS s
+            """
+        # "Trying to get relationships of a deleted node." The step cannot assert which error - every typed variant in
+        # steps/errors.py is an alias for `assert context.exception is not None` - so this pins only that it fails.
+        Then an error should be raised
+
+    # A MERGE is a write clause, so a comprehension in its own pattern reads View::NEW and the second row sees the edge
+    # the first row created - it computes p = 1, the pattern no longer matches, and a second node is created. Marking
+    # the MERGE a write only after its own drain gave View::OLD, one node and p = 0. Only an all-anonymous
+    # comprehension reaches that drain; a user-declared atom fails earlier in filter generation (pre-existing, and it
+    # affects MATCH equally).
+    Scenario: Pattern comprehension in a MERGE pattern sees what earlier rows created
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND [1, 2] AS i
+            MERGE (n:M {p: size([()-[:R]->() | 1])})-[:R]->(:Z)
+            """
+        When executing query:
+            """
+            MATCH (n:M) RETURN n.p AS p ORDER BY p
+            """
+        Then the result should be:
+            | p |
+            | 0 |
+            | 1 |
+
+    # The correlation to the yielded `name` lives in the comprehension's own node property map, not in its WHERE. The
+    # splice decision reads only the comprehension's filter and result expression, so this position was invisible: the
+    # RollUpApply went below the CallProcedure, `name` was still unwritten when the branch ran, and the query returned
+    # no rows. Same defect as the WHERE-borne scenario above, one AST position over.
+    Scenario: Pattern comprehension in a CALL YIELD WHERE correlating through a pattern property
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Proc {name: 'mg.procedures'})-[:R]->(:Target)
+            """
+        When executing query:
+            """
+            CALL mg.procedures() YIELD name
+            WHERE size([(p:Proc {name: name})-[:R]->(q) | q]) > 0
+            RETURN name
+            """
+        Then the result should be:
+            | name            |
+            | 'mg.procedures' |
+
+    # The third position: the correlation is reachable only through a *nested* comprehension's WHERE. The symbol
+    # collector stops at a nested comprehension's pattern, so `name` never surfaced on the outer matching and the whole
+    # pair was spliced below the CallProcedure. `head` rather than `size` on the outer list, so the value actually
+    # depends on the inner count - `size` of the outer list is 1 either way and would not discriminate.
+    Scenario: Pattern comprehension in a CALL YIELD WHERE correlating through a nested comprehension
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Proc {name: 'mg.procedures'})-[:R]->(:Target)
+            """
+        When executing query:
+            """
+            CALL mg.procedures() YIELD name
+            WHERE head([(p:Proc)-[:R]->(q) | size([(r:Proc)-[:R]->(s) WHERE r.name = name | s])]) > 0
+            RETURN name
+            """
+        Then the result should be:
+            | name            |
+            | 'mg.procedures' |
