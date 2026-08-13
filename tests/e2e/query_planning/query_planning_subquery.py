@@ -101,26 +101,38 @@ def test_scoped_subquery_import_does_not_invalidate_optional_edge_index_plan(mem
 
 def test_scoped_subquery_import_does_not_convert_unrelated_cartesian(memgraph):
     """
-    Regression guard. An inherited symbol visible in Cartesian::ModifiedSymbols makes does_modify() in
-    IndexLookupRewriter::PostVisit(Filter) false-positive, converting an unrelated Cartesian into an
-    IndexedJoin whose sub-branch is an unindexed scan re-executed once per main row - O(M) to O(N*M).
-    The Cartesian must survive while the indexed scan is still picked up.
+    The Cartesian -> IndexedJoin conversion must fire only when a *removed* filter spanned both
+    branches. Converting otherwise re-executes the sub-branch per main row and forfeits the HashJoin,
+    since JoinRewriter runs later and only rewrites Cartesian. Measured 0.009s -> 2.1s at 30k rows.
     """
     memgraph.execute("CREATE INDEX ON :L(p);")
     memgraph.execute("UNWIND range(1, 5) AS i CREATE (:A {id: i});")
     memgraph.execute("UNWIND range(1, 5) AS i CREATE (:B {id: i});")
     memgraph.execute("UNWIND range(1, 3) AS i CREATE (:L {p: 1, q: i});")
 
+    # c.p = v touches one side only, so the Cartesian must survive. No UNWIND in between, so this
+    # actually reaches the conversion decision.
     query = """
         WITH 1 AS v
-        CALL (v) { MATCH (a:A), (b:B) UNWIND [1] AS x MATCH (c:L) WHERE c.p = v RETURN a, b, c }
+        CALL (v) { MATCH (a:A), (c:L) WHERE c.p = v RETURN a, c }
         RETURN count(*) AS c
     """
     plan = _plan(memgraph, query)
     assert "ScanAllByLabelProperties" in plan, f"the fix itself stopped working:\n{plan}"
     assert "IndexedJoin" not in plan, f"unrelated Cartesian was converted:\n{plan}"
     assert "Cartesian" in plan, f"Cartesian did not survive:\n{plan}"
-    assert [row["c"] for row in memgraph.execute_and_fetch(query)] == [75]
+    assert [row["c"] for row in memgraph.execute_and_fetch(query)] == [15]
+
+    # The gate must not under-fire: a genuine cross-branch filter still has to convert.
+    joining = """
+        WITH 1 AS v
+        CALL (v) { MATCH (a:A), (c:L) WHERE c.p = a.id RETURN a, c }
+        RETURN count(*) AS c
+    """
+    joining_plan = _plan(memgraph, joining)
+    assert "ScanAllByLabelProperties" in joining_plan, f"cross-branch seek was lost:\n{joining_plan}"
+    assert "Cartesian" not in joining_plan, f"cross-branch filter left a Cartesian:\n{joining_plan}"
+    assert [row["c"] for row in memgraph.execute_and_fetch(joining)] == [3]
 
 
 def test_scoped_subquery_import_index_result_equivalence(memgraph):
