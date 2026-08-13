@@ -148,6 +148,15 @@ class InMemoryStorage final : public Storage {
 
   ~InMemoryStorage() override;
 
+  /// Identifies one edge to delete without holding an EdgeAccessor for it. These are exactly the fields a WAL
+  /// edge-delete record carries, so a replica can ask for a deletion straight from what it decoded.
+  struct EdgeDeleteSpec {
+    Gid edge_gid;
+    Gid from_gid;
+    Gid to_gid;
+    EdgeTypeId edge_type;
+  };
+
   class InMemoryAccessor : public Storage::Accessor {
    private:
     friend class InMemoryStorage;
@@ -730,6 +739,17 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
+    /// Deletes edges identified only by gid, in one DetachDelete, and returns how many were deleted.
+    ///
+    /// Each edge is resolved by the cheapest route this storage config allows, so a caller holding nothing but
+    /// decoded WAL data never pays for the adjacency scan and accessor vector that FindEdge would build:
+    ///   - properties off: no Edge object exists, the EdgeRef is the gid itself, so nothing is looked up;
+    ///   - heavy edges:    the edges_ skip list is keyed by gid;
+    ///   - light edges:    only adjacency can produce the Edge*, so the batch is grouped by from-vertex and each
+    ///                     group is resolved in a single pass over that vertex's out edges.
+    /// @throw std::bad_alloc
+    Result<size_t> DeleteEdgesEx(std::span<EdgeDeleteSpec const> edges);
+
     /// During commit, in some cases you do not need to hand over deltas to GC
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
@@ -1105,6 +1125,11 @@ class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {
   /// @throw std::bad_alloc
   Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid) {
     return InMemoryAccessor::CreateEdgeEx(from, to, edge_type, gid);
+  }
+
+  /// @throw std::bad_alloc
+  Result<size_t> DeleteEdgesEx(std::span<InMemoryStorage::EdgeDeleteSpec const> edges) {
+    return InMemoryAccessor::DeleteEdgesEx(edges);
   }
 
   auto GetCommitTimestamp() -> std::optional<uint64_t> & { return commit_timestamp_; }

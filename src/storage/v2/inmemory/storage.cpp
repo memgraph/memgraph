@@ -5013,6 +5013,25 @@ EdgeInfo ScanOutEdgesForGid(Vertex *from_vertex, Gid edge_gid) {
   }
   return std::nullopt;
 }
+
+// Plural form of ScanOutEdgesForGid: resolves a whole set of GIDs in one pass over the adjacency rather than
+// one pass each, which is what keeps deleting many of a dense vertex's edges linear. Found GIDs are erased from
+// `wanted`, so whatever remains on return is the set this vertex does not have. Kept separate from the singular
+// form rather than sharing an implementation with it: that one is called per vertex by the full-scan light-edge
+// path, which must not pay for a set allocation.
+std::vector<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> ScanOutEdgesForGids(Vertex *from_vertex,
+                                                                                     std::unordered_set<Gid> &wanted) {
+  std::vector<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> found;
+  found.reserve(wanted.size());
+
+  std::shared_lock const guard{from_vertex->lock};
+  for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+    if (wanted.erase(edge_ref.ptr->gid) == 0) continue;
+    found.emplace_back(edge_ref, edge_type, from_vertex, to_vertex);
+    if (wanted.empty()) break;
+  }
+  return found;
+}
 }  // namespace
 
 EdgeInfo InMemoryStorage::FindHeavyEdge(Gid edge_gid) {
@@ -5106,6 +5125,77 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
     throw utils::BasicException("Vertex with GID {} not found in the database", from_vertex_gid.AsUint());
   }
   return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
+}
+
+Result<size_t> InMemoryStorage::InMemoryAccessor::DeleteEdgesEx(std::span<EdgeDeleteSpec const> edges) {
+  if (edges.empty()) return size_t{0};
+
+  // Deliberately not routed through InMemoryStorage::FindEdge: that has to recover the edge type and the
+  // to-vertex from adjacency (via ExtractEdgeInfo / ScanOutEdgesForGid) because its callers know only a GID,
+  // which costs an O(degree) scan per edge. Every spec here already names both, so the only open question is
+  // the EdgeRef — and only the light config needs to touch adjacency to answer it.
+  std::vector<EdgeAccessor> accessors;
+  accessors.reserve(edges.size());
+
+  // Memoized because a batch is typically many edges around few vertices — a hub's whole fan-out resolves to
+  // the same Vertex*, and without this each edge would repeat the skip-list lookup. Safe for the length of the
+  // batch: vertices are only ever deleted after their edges, so nothing here can be removed mid-resolution.
+  std::unordered_map<Gid, Vertex *> resolved_vertices;
+  auto resolve_vertex = [&](Gid gid) -> Vertex * {
+    auto [it, inserted] = resolved_vertices.try_emplace(gid, nullptr);
+    if (inserted) {
+      auto vertex = FindVertex(gid, View::NEW);
+      it->second = vertex ? vertex->vertex_ : nullptr;
+    }
+    return it->second;
+  };
+
+  // Held until after DetachDelete so an Edge* taken out of the skip list cannot be reclaimed underneath the
+  // batch. Engaged only when there is a skip list to read, i.e. heavy edges.
+  std::optional<utils::SkipListDb<Edge>::Accessor> edge_acc;
+
+  if (!config_.storage_light_edge) {
+    if (config_.properties_on_edges) edge_acc = static_cast<InMemoryStorage *>(storage_)->edges_.access();
+
+    for (auto const &spec : edges) {
+      auto *from_vertex = resolve_vertex(spec.from_gid);
+      auto *to_vertex = resolve_vertex(spec.to_gid);
+      if (!from_vertex || !to_vertex) return std::unexpected{Error::NONEXISTENT_OBJECT};
+
+      // Mirrors the split in CreateEdgeInternal: without properties no Edge object is ever allocated and the
+      // EdgeRef carries the GID itself; with them, the edges_ skip list is keyed by GID.
+      auto edge_ref = EdgeRef{spec.edge_gid};
+      if (edge_acc) {
+        auto edge_it = edge_acc->find(spec.edge_gid);
+        if (edge_it == edge_acc->end()) return std::unexpected{Error::NONEXISTENT_OBJECT};
+        edge_ref = EdgeRef{&*edge_it};
+      }
+      accessors.emplace_back(edge_ref, spec.edge_type, from_vertex, to_vertex, storage_, &transaction_);
+    }
+  } else {
+    // Light edges are in no skip list, so adjacency is the only way to reach the Edge*. Grouping by from-vertex
+    // turns that into one scan per vertex instead of one per edge.
+    std::unordered_map<Gid, std::unordered_set<Gid>> wanted_by_from_vertex;
+    for (auto const &spec : edges) {
+      wanted_by_from_vertex[spec.from_gid].insert(spec.edge_gid);
+    }
+
+    for (auto &[from_gid, wanted] : wanted_by_from_vertex) {
+      auto *from_vertex = resolve_vertex(from_gid);
+      if (!from_vertex) return std::unexpected{Error::NONEXISTENT_OBJECT};
+
+      for (auto const &[edge_ref, edge_type, from_v, to_v] : ScanOutEdgesForGids(from_vertex, wanted)) {
+        accessors.emplace_back(edge_ref, edge_type, from_v, to_v, storage_, &transaction_);
+      }
+      if (!wanted.empty()) return std::unexpected{Error::NONEXISTENT_OBJECT};
+    }
+  }
+
+  auto edge_ptrs = accessors | rv::transform([](EdgeAccessor &edge) { return &edge; }) | r::to_vector;
+  auto res = DetachDelete({}, std::move(edge_ptrs), false);
+  if (!res) return std::unexpected{res.error()};
+  if (!*res) return size_t{0};
+  return (*res)->second.size();
 }
 
 Edge *InMemoryStorage::LightEdgePool::Create(Gid gid, Delta *delta) {
