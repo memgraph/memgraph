@@ -61,10 +61,12 @@ enum class GCPolicy : uint8_t { Random, DoNotRun };
 /// primarily becase of the height generator (see the `gen_height` function).
 constexpr uint64_t kSkipListMaxHeight = 32;
 
-/// Bitmask controlling how often `clear()` reports progress: one call per 2^20 destroyed nodes, which at typical node
-/// teardown cost lands in the tens of milliseconds. Chosen to be frequent enough that any timeout waiting on the
-/// teardown sees regular progress, and rare enough that the check costs nothing per node.
-constexpr uint64_t kClearProgressMask = (1UL << 20) - 1;
+/// Bitmask controlling how often `clear()` reports progress: one call per 2^12 destroyed nodes. Sized for the worst
+/// case rather than the typical one -- node teardown cost varies with what the node owns and with allocator pressure,
+/// and a caller reporting liveness to a peer needs the guarantee to hold under load, not just on a good day. Lowering
+/// it does not change the per-node cost, which is an increment, a mask and a predicted-not-taken branch either way;
+/// it only makes the (already amortised) callback fire more often.
+constexpr uint64_t kClearProgressMask = (1UL << 12) - 1;
 
 /// This is the height that a node that is accessed from the list has to have in
 /// order for garbage collection to be triggered. This causes the garbage
