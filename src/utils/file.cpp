@@ -1031,17 +1031,27 @@ void NonConcurrentOutputFile::PaceWriteback(size_t bytes) {
   // other failure says pacing does not apply to this descriptor rather than that anything is wrong
   // with the data; the file is written exactly as it was before pacing, so pacing turns itself off
   // and the file carries on. A descriptor pacing cannot work on will not become one.
-  auto const failed = [this](int rc) {
-    if (rc == 0) return false;
-    auto const err = errno;
-    MG_ASSERT(err != EIO && err != ENOSPC,
-              "While waiting for writeback of {} an error occurred: {} ({}). Data already written to this "
-              "file may not have reached the physical device, and no later fsync will report it.",
-              path_,
-              strerror(err),
-              err);
-    spdlog::warn("Disabling writeback pacing for {}: sync_file_range failed with {} ({}).", path_, strerror(err), err);
-    pacing_window_ = 0;
+  //
+  // Returns whether pacing is still on. Retrying the whole range after EINTR is what `Sync` does
+  // with `fsync`, and is safe because handing the same range over again asks for the same work.
+  auto const sync_range = [this](uint64_t start, uint64_t len, unsigned int flags) {
+    while (::sync_file_range(fd_, static_cast<off64_t>(start), static_cast<off64_t>(len), flags) != 0) {
+      auto const err = errno;
+      if (err == EINTR) continue;
+      MG_ASSERT(err != EIO && err != ENOSPC,
+                "While waiting for writeback of {} an error occurred: {} ({}). Data already written to this "
+                "file may not have reached the physical device, and no later fsync will report it.",
+                path_,
+                strerror(err),
+                err);
+      // A closed descriptor is this class losing track of its own file, which no filesystem can
+      // cause and disabling pacing would hide.
+      DMG_ASSERT(err != EBADF, "Writeback pacing for {} was given a closed descriptor.", path_);
+      spdlog::warn(
+          "Disabling writeback pacing for {}: sync_file_range failed with {} ({}).", path_, strerror(err), err);
+      pacing_window_ = 0;
+      return false;
+    }
     return true;
   };
 
@@ -1053,20 +1063,10 @@ void NonConcurrentOutputFile::PaceWriteback(size_t bytes) {
   // The WRITE-only call is asynchronous in intent, but the kernel may still block it once the range
   // exceeds the device's request queue. That is the trade pacing exists to make: this writer waits
   // instead of every writer on the machine waiting at `dirty_ratio`.
-  if (failed(::sync_file_range(fd_,
-                               static_cast<off64_t>(pacing_pending_start_),
-                               static_cast<off64_t>(pending_len),
-                               SYNC_FILE_RANGE_WRITE))) {
-    return;
-  }
+  if (!sync_range(pacing_pending_start_, pending_len, SYNC_FILE_RANGE_WRITE)) return;
 
   if (pacing_prev_len_ != 0) {
-    if (failed(::sync_file_range(fd_,
-                                 static_cast<off64_t>(pacing_prev_start_),
-                                 static_cast<off64_t>(pacing_prev_len_),
-                                 SYNC_FILE_RANGE_WAIT_BEFORE))) {
-      return;
-    }
+    if (!sync_range(pacing_prev_start_, pacing_prev_len_, SYNC_FILE_RANGE_WAIT_BEFORE)) return;
     if (pacing_completed_window_ == PageCachePolicy::kDrop) {
       ::posix_fadvise(
           fd_, static_cast<off_t>(pacing_prev_start_), static_cast<off_t>(pacing_prev_len_), POSIX_FADV_DONTNEED);
