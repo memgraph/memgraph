@@ -953,17 +953,12 @@ add_unit_test(cpp_api
 
 add_unit_test(vector_index
     SOURCES vector_index.cpp
-    LINK_TARGETS mg::storage ddl_abort_helpers
+    LINK_TARGETS mg::storage mg-glue ddl_abort_helpers
 )
 
 add_unit_test(vector_edge_index
     SOURCES vector_edge_index.cpp
-    LINK_TARGETS mg::storage ddl_abort_helpers
-)
-
-add_unit_test(vector_index_return_omission
-    SOURCES vector_index_return_omission.cpp
-    LINK_TARGETS mg-query mg-glue disk_test_utils
+    LINK_TARGETS mg::storage mg-glue ddl_abort_helpers
 )
 
 add_unit_test(text_index

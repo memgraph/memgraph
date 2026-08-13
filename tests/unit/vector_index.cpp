@@ -11,10 +11,13 @@
 #include <gtest/gtest.h>
 #include <sys/types.h>
 #include <algorithm>
+#include <filesystem>
 #include <string_view>
 #include <thread>
 
 #include "flags/general.hpp"
+#include "flags/run_time_configurable.hpp"
+#include "glue/communication.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -24,6 +27,7 @@
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/ddl_abort_helpers.hpp"
+#include "utils/settings.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -180,6 +184,44 @@ TEST_F(VectorIndexTest, VectorIndexedPropertiesWildcardMatchesAnyLabel) {
   ASSERT_NO_ERROR(labels);
   EXPECT_EQ(vertex.VectorIndexedProperties(*labels),
             (std::vector<PropertyId>{acc->NameToProperty(test_property.data())}));
+}
+
+TEST_F(VectorIndexTest, ToBoltVertexOmitsVectorIndexedPropertyWhenFlagOn) {
+  const auto settings_dir = std::filesystem::temp_directory_path() / "MG_tests_unit_vector_index_omit";
+  std::filesystem::remove_all(settings_dir);
+  memgraph::utils::Settings settings(settings_dir);
+  memgraph::flags::run_time::Initialize(settings);
+  const auto set_omit = [&](bool enabled) {
+    settings.SetValue("storage.omit_vector_index_properties_on_return", enabled ? "true" : "false");
+  };
+  set_omit(false);
+
+  this->CreateIndex(2, 10);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  auto vertex = this->CreateVertex(acc.get(),
+                                   test_property,
+                                   PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)}),
+                                   test_label);
+  ASSERT_TRUE(vertex.SetProperty(acc->NameToProperty("title"), PropertyValue("t")).has_value());
+  // a non-indexed list property is never hidden — hiding is by vector-index membership, not by type
+  ASSERT_TRUE(vertex
+                  .SetProperty(acc->NameToProperty("tags"),
+                               PropertyValue(std::vector<PropertyValue>{PropertyValue(int64_t{1})}))
+                  .has_value());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  auto with_prop = memgraph::glue::ToBoltVertex(vertex, *this->storage, View::NEW, nullptr);
+  ASSERT_TRUE(with_prop.has_value());
+  EXPECT_TRUE(with_prop->properties.contains(test_property.data()));
+
+  set_omit(true);
+  auto without_prop = memgraph::glue::ToBoltVertex(vertex, *this->storage, View::NEW, nullptr);
+  ASSERT_TRUE(without_prop.has_value());
+  EXPECT_FALSE(without_prop->properties.contains(test_property.data()));
+  EXPECT_TRUE(without_prop->properties.contains("title"));
+  EXPECT_TRUE(without_prop->properties.contains("tags"));
+
+  set_omit(false);
 }
 
 TEST_F(VectorIndexTest, ConcurrencyTest) {
