@@ -949,12 +949,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
-  // Symbols a subquery branch inherits from the enclosing scope. They are live on the frame, but they
-  // are NOT produced by this branch, so this must never be pushed into the plan (e.g. onto the
-  // branch's bottom Once): ModifiedSymbols has consumers that read it as "produced by this subtree",
-  // and PlanValidator and the Cartesian->IndexedJoin conversion both mis-fire on inherited symbols.
-  // Unlike additional_bound_symbols_ this is never cleared, so PostVisit(Cartesian) cannot wipe it.
-  std::unordered_set<Symbol> inherited_bound_symbols_;
+  // Enclosing scope's symbols: live on the frame, but not produced by this branch, so they must stay
+  // out of the plan - ModifiedSymbols has consumers that read it as "produced by this subtree".
+  std::unordered_set<Symbol> const inherited_bound_symbols_;
 
   struct LabelPropertyIndex {
     LabelIx label;

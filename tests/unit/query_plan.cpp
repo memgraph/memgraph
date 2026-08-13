@@ -2970,7 +2970,7 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportDrivesLabelPropertyIndex) {
   }
 }
 
-// The customer-reported shape: plain equality, no IN-list lowering in the way.
+// Plain equality, which reaches the scan directly rather than through the IN-list lowering.
 TYPED_TEST(TestPlanner, SubqueryScopedImportEqualityDrivesLabelPropertyIndex) {
   // WITH 'a' AS v CALL (v) { MATCH (n:label) WHERE n.property = v RETURN n } RETURN n
   FakeDbAccessor dba;
@@ -2995,8 +2995,8 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportEqualityDrivesLabelPropertyIndex) {
   DeleteListContent(&branch);
 }
 
-// id() lookups gate on bound symbols too, so they are fixed by the same change. The edge-type
-// *property* path is not, because its candidate selection never consults the bound set.
+// id() lookups gate on bound symbols, so an imported symbol drives them too. The edge-type property
+// path does not, because its candidate selection never consults the bound set.
 TYPED_TEST(TestPlanner, SubqueryScopedImportDrivesIdIndex) {
   FakeDbAccessor dba;
   {

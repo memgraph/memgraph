@@ -69,16 +69,13 @@ def _plan(memgraph, query):
     return "\n".join(row["QUERY PLAN"] for row in memgraph.execute_and_fetch("EXPLAIN " + query))
 
 
-def test_scoped_subquery_import_does_not_invalidate_optional_edge_index_plan(memgraph):
+def test_scoped_subquery_import_with_optional_and_edge_index(memgraph):
     """
-    Regression guard. The inherited symbols must reach the branch's index rewriter WITHOUT entering the
-    plan: PlanValidator::PreVisit(Optional) intersects the input's ModifiedSymbols with the optional
-    branch's and forbids indexed edge scans when they overlap, so an inherited symbol visible in
-    ModifiedSymbols invalidates every candidate plan and the query dies with
-    "Could not create a valid query plan".
+    An OPTIONAL MATCH filtering an edge on the imported variable, with an edge index present. Covers
+    both import forms, and is the only coverage of CALL (*) / all_variables_scoped_.
 
-    Unit tests cannot cover this: the query_plan.cpp harness runs the rewriters but never calls
-    IsValidPlan.
+    Has to be e2e: PlanValidator rejects indexed edge scans under an Optional whose branch and input
+    share a symbol, and the query_plan.cpp harness runs the rewriters but never calls IsValidPlan.
     """
     memgraph.execute("CREATE EDGE INDEX ON :T;")
     try:
@@ -101,9 +98,9 @@ def test_scoped_subquery_import_does_not_invalidate_optional_edge_index_plan(mem
 
 def test_scoped_subquery_import_does_not_convert_unrelated_cartesian(memgraph):
     """
-    The Cartesian -> IndexedJoin conversion must fire only when a *removed* filter spanned both
-    branches. Converting otherwise re-executes the sub-branch per main row and forfeits the HashJoin,
-    since JoinRewriter runs later and only rewrites Cartesian. Measured 0.009s -> 2.1s at 30k rows.
+    The Cartesian -> IndexedJoin conversion must fire only when a removed filter spans both branches.
+    Converting otherwise re-executes the sub-branch once per main row, and forfeits the HashJoin
+    because JoinRewriter runs later and only rewrites Cartesian.
     """
     memgraph.execute("CREATE INDEX ON :L(p);")
     memgraph.execute("UNWIND range(1, 5) AS i CREATE (:A {id: i});")
@@ -137,9 +134,9 @@ def test_scoped_subquery_import_does_not_convert_unrelated_cartesian(memgraph):
 
 def test_scoped_subquery_import_index_result_equivalence(memgraph):
     """
-    The seek key inside `CALL (ids) { ... }` is derived from a value that changes on every outer row,
-    so assert the indexed plan returns what the unindexed one does across rows carrying different
-    lists. Catches a stale or wrongly-scoped seek key, the only way this could give wrong results.
+    The seek key inside `CALL (ids) { ... }` changes on every outer row, so the indexed plan must
+    return what the unindexed one does across rows carrying different lists. Catches a stale or
+    wrongly-scoped seek key.
     """
     for i in range(12):
         memgraph.execute(f"CREATE (:L {{p: 'v{i}'}});")

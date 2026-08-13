@@ -744,9 +744,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::vector<LogicalOperator *> prev_ops_;
   OrderByEliminator<TDbAccessor> order_by_eliminator_;
   std::unordered_set<Symbol> additional_bound_symbols_;
-  // See IndexLookupRewriter::inherited_bound_symbols_: live on the frame but not produced by this
-  // branch, so it stays out of the plan. Never cleared, so PostVisit(Cartesian) cannot wipe it.
-  std::unordered_set<Symbol> inherited_bound_symbols_;
+  // See IndexLookupRewriter::inherited_bound_symbols_.
+  std::unordered_set<Symbol> const inherited_bound_symbols_;
 
   /// Try to record a newly-created edge scan for ORDER BY elimination.
   /// GenScanByEdgeIndex may wrap the scan in a Filter (for edge-type checking
