@@ -30,6 +30,18 @@ auto Canonicalise(std::span<ManifestEntry const> entries) -> std::vector<Manifes
              "A manifest cannot hold the same property twice");
   return canonical;
 }
+
+/// The shape a thread interned last, and what it got. A load builds record after record of
+/// the same shape, so this answers nearly every intern without touching anything shared.
+struct InternMemo {
+  uint64_t instance{0};
+  std::vector<ManifestEntry> shape;
+  ManifestId id;
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+thread_local InternMemo memo{};
+
 }  // namespace
 
 PropertyManifest::PropertyManifest(std::vector<ManifestEntry> entries) : entries_{std::move(entries)} {
@@ -62,41 +74,87 @@ auto PropertyManifest::Find(PropertyId property) const -> std::optional<Location
   };
 }
 
+void ManifestRegistry::Publish(ManifestId id, PropertyManifest *manifest) {
+  auto const chunk_index = id.value >> kChunkBits;
+  MG_ASSERT(chunk_index < kMaxChunks,
+            "Ran out of room for record shapes; the data is far more heterogeneous than this "
+            "store is built for");
+
+  auto *chunk = chunks_[chunk_index].load(std::memory_order_acquire);
+  if (chunk == nullptr) {
+    auto *fresh = new Chunk{};
+    if (!chunks_[chunk_index].compare_exchange_strong(
+            chunk, fresh, std::memory_order_acq_rel, std::memory_order_acquire)) {
+      // Another thread installed this chunk first; keep theirs.
+      delete fresh;
+    } else {
+      chunk = fresh;
+    }
+  }
+  // Release, so a thread that later finds this id through the skip list sees a whole manifest.
+  chunk->at(id.value & kChunkMask).store(manifest, std::memory_order_release);
+}
+
+void ManifestRegistry::Remember(std::span<ManifestEntry const> shape, ManifestId id) const {
+  // Assign rather than construct: a thread that keeps missing (every record a new shape)
+  // would otherwise pay a fresh allocation for every miss.
+  memo.instance = instance_;
+  memo.shape.assign(shape.begin(), shape.end());
+  memo.id = id;
+}
+
+auto ManifestRegistry::NextInstanceId() -> uint64_t {
+  static std::atomic<uint64_t> counter{0};
+  return counter.fetch_add(1, std::memory_order_relaxed) + 1;
+}
+
 auto ManifestRegistry::Intern(std::span<ManifestEntry const> entries) -> ManifestId {
-  auto canonical = Canonicalise(entries);
+  // Only pay for a copy when the caller's entries are not already in shape order.
+  auto canonical = std::vector<ManifestEntry>{};
+  auto const sorted = r::is_sorted(entries, {}, &ManifestEntry::property);
+  if (!sorted) canonical = Canonicalise(entries);
+  auto const shape = sorted ? entries : std::span<ManifestEntry const>{canonical};
+  DMG_ASSERT(r::adjacent_find(shape, {}, &ManifestEntry::property) == shape.end(),
+             "A manifest cannot hold the same property twice");
 
-  // The common case is a shape that already exists, so look under a read lock first and
-  // only take the write lock to install a genuinely new shape.
-  auto const existing = state_.WithReadLock([&](State const &state) -> std::optional<ManifestId> {
-    auto const it = state.lookup.find(canonical);
-    if (it == state.lookup.end()) return std::nullopt;
-    return it->second;
-  });
-  if (existing) return *existing;
+  if (memo.instance == instance_ && r::equal(memo.shape, shape)) return memo.id;
 
-  return state_.WithLock([&](State &state) {
-    // Another thread may have installed this shape between the two locks.
-    auto const it = state.lookup.find(canonical);
-    if (it != state.lookup.end()) return it->second;
+  auto accessor = shapes_.access();
+  if (auto const it = accessor.find(shape); it != accessor.end()) {
+    Remember(shape, it->id);
+    return it->id;
+  }
 
-    auto const id = ManifestId{static_cast<uint32_t>(state.manifests.size())};
-    state.manifests.emplace_back(std::make_unique<PropertyManifest>(canonical));
-    state.lookup.emplace(std::move(canonical), id);
-    return id;
-  });
+  // Take an id, make the manifest readable at it, and only then let the shape be found. Two
+  // threads racing on the same shape both publish; the one that loses the insert leaves an
+  // id nothing resolves, which costs a manifest and buys a lock-free write path.
+  auto const id = ManifestId{next_id_.fetch_add(1, std::memory_order_acq_rel)};
+  auto owned = std::vector<ManifestEntry>{shape.begin(), shape.end()};
+  Publish(id, new PropertyManifest{owned});
+  auto const interned = accessor.insert(ShapeEntry{.shape = std::move(owned), .id = id}).first->id;
+  Remember(shape, interned);
+  return interned;
 }
 
 auto ManifestRegistry::Resolve(ManifestId id) const -> PropertyManifest const & {
-  // Safe to hand out after the lock drops: manifests are heap-stable and never removed.
-  auto const *manifest = state_.WithReadLock([&](State const &state) {
-    DMG_ASSERT(id.value < state.manifests.size(), "Resolving a manifest id this registry never issued");
-    return state.manifests[id.value].get();
-  });
+  auto const chunk_index = id.value >> kChunkBits;
+  DMG_ASSERT(chunk_index < kMaxChunks, "Resolving a manifest id this registry never issued");
+  auto const *chunk = chunks_[chunk_index].load(std::memory_order_acquire);
+  DMG_ASSERT(chunk != nullptr, "Resolving a manifest id this registry never issued");
+  auto const *manifest = chunk->at(id.value & kChunkMask).load(std::memory_order_acquire);
+  DMG_ASSERT(manifest != nullptr, "Resolving a manifest id this registry never issued");
   return *manifest;
 }
 
-auto ManifestRegistry::size() const -> size_t {
-  return state_.WithReadLock([](State const &state) { return state.manifests.size(); });
+auto ManifestRegistry::size() const -> size_t { return shapes_.size(); }
+
+ManifestRegistry::~ManifestRegistry() {
+  for (auto &slot : chunks_) {
+    auto *chunk = slot.load(std::memory_order_acquire);
+    if (chunk == nullptr) continue;
+    for (auto &manifest : *chunk) delete manifest.load(std::memory_order_acquire);
+    delete chunk;
+  }
 }
 
 }  // namespace memgraph::storage

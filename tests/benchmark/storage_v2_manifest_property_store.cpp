@@ -230,6 +230,37 @@ void ManifestInitRecord(benchmark::State &state) {
 BENCHMARK(CurrentInitRecord)->Unit(benchmark::kNanosecond);
 BENCHMARK(ManifestInitRecord)->Unit(benchmark::kNanosecond);
 
+// A load builds records from every thread at once, all of them interning the same shape.
+// Interning has to scale, or it becomes the load's bottleneck rather than the encoding.
+ManifestRegistry &SharedRegistry() {
+  static ManifestRegistry registry;
+  return registry;
+}
+
+void CurrentInitRecordThreaded(benchmark::State &state) {
+  auto const properties = std::map<PropertyId, PropertyValue>{ItemProperties().begin(), ItemProperties().end()};
+  for (auto _ : state) {
+    PropertyStore store;
+    store.InitProperties(properties);
+    benchmark::DoNotOptimize(store);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+void ManifestInitRecordThreaded(benchmark::State &state) {
+  auto &registry = SharedRegistry();
+  auto const properties = std::map<PropertyId, PropertyValue>{ItemProperties().begin(), ItemProperties().end()};
+  for (auto _ : state) {
+    ManifestPropertyStore store;
+    store.InitProperties(registry, properties);
+    benchmark::DoNotOptimize(store);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK(CurrentInitRecordThreaded)->ThreadRange(1, 8)->Unit(benchmark::kNanosecond)->UseRealTime();
+BENCHMARK(ManifestInitRecordThreaded)->ThreadRange(1, 8)->Unit(benchmark::kNanosecond)->UseRealTime();
+
 }  // namespace
 
 int main(int argc, char **argv) {

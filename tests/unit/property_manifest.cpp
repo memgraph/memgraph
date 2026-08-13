@@ -179,6 +179,98 @@ TEST(PropertyManifest, EntriesAreCanonicalSoWriteOrderDoesNotMatter) {
   EXPECT_EQ(registry.size(), 1);
 }
 
+// Manifests are stored in fixed-size chunks, so resolving has to stay correct across the
+// boundaries between them.
+TEST(PropertyManifest, ResolvesEveryShapeAcrossManyChunks) {
+  ManifestRegistry registry;
+  constexpr auto kShapes = 5000;
+
+  std::vector<memgraph::storage::ManifestId> ids;
+  ids.reserve(kShapes);
+  for (uint32_t i = 0; i < kShapes; ++i) {
+    ids.push_back(registry.Intern(std::vector{Entry(i + 1, Int(4))}));
+  }
+
+  ASSERT_EQ(registry.size(), kShapes);
+  for (uint32_t i = 0; i < kShapes; ++i) {
+    auto const &manifest = registry.Resolve(ids[i]);
+    ASSERT_EQ(manifest.size(), 1) << "shape " << i;
+    EXPECT_TRUE(manifest.Find(Prop(i + 1)).has_value()) << "shape " << i;
+  }
+}
+
+// A shape another thread interned has to be fully readable the moment its id is visible.
+TEST(PropertyManifest, ConcurrentlyInternedShapesResolveFromOtherThreads) {
+  ManifestRegistry registry;
+  constexpr auto kThreads = 8;
+  constexpr auto kShapesPerThread = 400;
+
+  std::barrier start{kThreads};
+  std::vector<std::jthread> threads;
+  threads.reserve(kThreads);
+
+  for (auto t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&, t] {
+      start.arrive_and_wait();
+      for (auto i = 0; i < kShapesPerThread; ++i) {
+        // Intern this thread's shapes and read back shapes every thread is racing to create.
+        auto const own = registry.Intern(std::vector{Entry(t * kShapesPerThread + i + 1, Int(4))});
+        auto const &manifest = registry.Resolve(own);
+        ASSERT_EQ(manifest.size(), 1);
+
+        auto const shared = registry.Intern(std::vector{Entry(1'000'000 + i, Double())});
+        auto const &shared_manifest = registry.Resolve(shared);
+        ASSERT_EQ(shared_manifest.size(), 1);
+        ASSERT_TRUE(shared_manifest.Find(Prop(1'000'000 + i)).has_value());
+      }
+    });
+  }
+  threads.clear();  // join
+
+  EXPECT_EQ(registry.size(), kThreads * kShapesPerThread + kShapesPerThread);
+}
+
+// Interning the same shape repeatedly is the common case on a load, and is served from a
+// per-thread memo rather than the registry. The memo must never answer for the wrong
+// registry, including one that happens to reuse a destroyed registry's address.
+TEST(PropertyManifest, MemoDoesNotLeakIdsBetweenRegistries) {
+  auto const shape = std::vector{Entry(1, Int(4)), Entry(2, String())};
+
+  auto first_id = memgraph::storage::ManifestId{};
+  {
+    ManifestRegistry first;
+    first.Intern(std::vector{Entry(9, Bool())});  // push the shared shape off id 0
+    first_id = first.Intern(shape);
+    ASSERT_EQ(first.Intern(shape), first_id);
+  }
+
+  ManifestRegistry second;
+  auto const second_id = second.Intern(shape);
+
+  // The second registry hands out its own ids from zero, so a memo that ignored which
+  // registry it was answering for would return the first registry's id here.
+  EXPECT_EQ(second_id, memgraph::storage::ManifestId{0});
+  EXPECT_NE(second_id, first_id);
+  EXPECT_EQ(second.size(), 1);
+}
+
+TEST(PropertyManifest, MemoStaysCorrectWhenTwoRegistriesAreInterleaved) {
+  ManifestRegistry left;
+  ManifestRegistry right;
+  auto const shape = std::vector{Entry(1, Int(4))};
+  auto const other = std::vector{Entry(2, Double())};
+
+  left.Intern(other);  // so the shared shape gets different ids in each registry
+  auto const left_id = left.Intern(shape);
+  auto const right_id = right.Intern(shape);
+
+  for (auto round = 0; round < 10; ++round) {
+    EXPECT_EQ(left.Intern(shape), left_id);
+    EXPECT_EQ(right.Intern(shape), right_id);
+  }
+  EXPECT_NE(left_id, right_id);
+}
+
 TEST(PropertyManifest, ConcurrentInterningOfOneShapeYieldsOneManifest) {
   ManifestRegistry registry;
   constexpr auto kThreads = 8;

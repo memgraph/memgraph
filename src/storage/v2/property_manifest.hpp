@@ -11,9 +11,11 @@
 
 #pragma once
 
+#include <algorithm>
+#include <array>
+#include <atomic>
 #include <compare>
 #include <cstdint>
-#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -21,8 +23,7 @@
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store_types.hpp"
-#include "utils/rw_spin_lock.hpp"
-#include "utils/synchronized.hpp"
+#include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
 
@@ -103,6 +104,12 @@ class PropertyManifest {
 
 /// Interns record shapes. Manifests are never removed and never move, so a resolved
 /// reference stays valid for the lifetime of the registry.
+///
+/// Neither direction takes a lock. Recognising a shape goes through a skip list, because
+/// interning happens on every write that changes a record's shape and a load does that from
+/// every thread at once. Resolving an id indexes into an append-only chunked array, because
+/// that sits on the per-property read path where even a skip list's epoch bookkeeping would
+/// cost more than the read.
 class ManifestRegistry {
  public:
   ManifestRegistry() = default;
@@ -112,10 +119,11 @@ class ManifestRegistry {
   ManifestRegistry(ManifestRegistry &&) = delete;
   ManifestRegistry &operator=(ManifestRegistry &&) = delete;
 
-  ~ManifestRegistry() = default;
+  ~ManifestRegistry();
 
   /// Interns `entries`, which need not be sorted; the shape is canonicalised by property id
-  /// so the order properties were written in never creates a second manifest.
+  /// so the order properties were written in never creates a second manifest. Passing them
+  /// already sorted avoids a copy.
   auto Intern(std::span<ManifestEntry const> entries) -> ManifestId;
 
   auto Resolve(ManifestId id) const -> PropertyManifest const &;
@@ -124,14 +132,50 @@ class ManifestRegistry {
   auto size() const -> size_t;
 
  private:
-  struct State {
-    /// Held by unique_ptr so growing the vector never moves a manifest.
-    std::vector<std::unique_ptr<PropertyManifest>> manifests;
-    /// Canonical shape to its id, for recognising a shape that has been seen before.
-    std::map<std::vector<ManifestEntry>, ManifestId> lookup;
+  static constexpr uint32_t kChunkBits = 6;
+  static constexpr uint32_t kChunkSize = 1U << kChunkBits;
+  static constexpr uint32_t kChunkMask = kChunkSize - 1;
+  static constexpr uint32_t kMaxChunks = 1024;
+
+  using Chunk = std::array<std::atomic<PropertyManifest *>, kChunkSize>;
+
+  /// A shape and the id it was given. Ordered and compared by the shape alone, including
+  /// against a bare span so a lookup needs no copy of the shape it is looking for.
+  struct ShapeEntry {
+    std::vector<ManifestEntry> shape;
+    ManifestId id;
+
+    bool operator<(ShapeEntry const &other) const { return shape < other.shape; }
+
+    bool operator==(ShapeEntry const &other) const { return shape == other.shape; }
+
+    bool operator<(std::span<ManifestEntry const> other) const {
+      return std::lexicographical_compare(shape.begin(), shape.end(), other.begin(), other.end());
+    }
+
+    bool operator==(std::span<ManifestEntry const> other) const {
+      return std::equal(shape.begin(), shape.end(), other.begin(), other.end());
+    }
   };
 
-  mutable utils::Synchronized<State, utils::RWSpinLock> state_;
+  /// Makes `manifest` readable at `id`. Published before the id can be found, so a thread
+  /// that sees the id sees a complete manifest.
+  void Publish(ManifestId id, PropertyManifest *manifest);
+
+  /// Distinguishes this registry from any other, including one that reuses its address
+  /// after it is destroyed. The per-thread memo is keyed on it so it can never answer with
+  /// an id that belonged to a registry that is gone.
+  uint64_t instance_{NextInstanceId()};
+
+  static auto NextInstanceId() -> uint64_t;
+
+  /// Points this thread's memo at `shape`, so the next record of the same shape skips the
+  /// registry entirely.
+  void Remember(std::span<ManifestEntry const> shape, ManifestId id) const;
+
+  utils::SkipList<ShapeEntry> shapes_;
+  std::array<std::atomic<Chunk *>, kMaxChunks> chunks_{};
+  std::atomic<uint32_t> next_id_{0};
 };
 
 }  // namespace memgraph::storage
