@@ -517,6 +517,63 @@ TYPED_TEST(QueryPlanTest, AggregateCountIdentifierSkipsNull) {
   EXPECT_EQ(2, count(true)) << "Nulls skipped before dedup, and the repeated 2 counted once";
 }
 
+// SUM and AVG accumulate into the value they already hold, so the type of the running total has
+// to follow the same rules addition does: integers stay integers until a double joins them, and
+// from then on the total is a double whatever arrives after it.
+TYPED_TEST(QueryPlanTest, AggregateSumKeepsAdditionsTypeRules) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  SymbolTable symbol_table;
+
+  auto sum_of = [&](std::vector<memgraph::storage::ExternalPropertyValue> values, Aggregation::Op op) {
+    auto input_expr = this->storage.template Create<PrimitiveLiteral>(std::move(values));
+    auto x = symbol_table.CreateSymbol("x", true);
+    auto unwind = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
+    auto produce = this->MakeAggregationProduce(unwind, symbol_table, {IDENT("x")->MapTo(x)}, {op}, {}, {}, false);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+    auto results = CollectProduce(*produce, &context);
+    EXPECT_EQ(1, results.size());
+    return results[0][0];
+  };
+  using PV = memgraph::storage::ExternalPropertyValue;
+
+  auto all_ints = sum_of({PV(1), PV(2), PV(3)}, Aggregation::Op::SUM);
+  EXPECT_EQ(all_ints.type(), TypedValue::Type::Int) << "integers alone keep an integer total";
+  EXPECT_EQ(all_ints.ValueInt(), 6);
+
+  auto int_then_double = sum_of({PV(1), PV(2), PV(0.5)}, Aggregation::Op::SUM);
+  ASSERT_EQ(int_then_double.type(), TypedValue::Type::Double) << "a double arriving promotes the total";
+  EXPECT_DOUBLE_EQ(int_then_double.ValueDouble(), 3.5);
+
+  auto double_then_int = sum_of({PV(0.5), PV(1), PV(2)}, Aggregation::Op::SUM);
+  ASSERT_EQ(double_then_int.type(), TypedValue::Type::Double) << "the total stays a double after that";
+  EXPECT_DOUBLE_EQ(double_then_int.ValueDouble(), 3.5);
+
+  auto with_nulls = sum_of({PV(1), PV(), PV(2)}, Aggregation::Op::SUM);
+  ASSERT_EQ(with_nulls.type(), TypedValue::Type::Int);
+  EXPECT_EQ(with_nulls.ValueInt(), 3) << "Null is skipped rather than making the total Null";
+
+  auto mean = sum_of({PV(1), PV(2)}, Aggregation::Op::AVG);
+  ASSERT_EQ(mean.type(), TypedValue::Type::Double) << "an average is a double even over integers";
+  EXPECT_DOUBLE_EQ(mean.ValueDouble(), 1.5);
+}
+
+TYPED_TEST(QueryPlanTest, AggregateSumRejectsNonNumeric) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  SymbolTable symbol_table;
+
+  auto input_expr =
+      this->storage.template Create<PrimitiveLiteral>(std::vector<memgraph::storage::ExternalPropertyValue>{
+          memgraph::storage::ExternalPropertyValue(1), memgraph::storage::ExternalPropertyValue("not a number")});
+  auto x = symbol_table.CreateSymbol("x", true);
+  auto unwind = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
+  auto produce =
+      this->MakeAggregationProduce(unwind, symbol_table, {IDENT("x")->MapTo(x)}, {Aggregation::Op::SUM}, {}, {}, false);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  EXPECT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
+}
+
 TYPED_TEST(QueryPlanTest, AggregateFirstValueTypes) {
   // testing exceptions that get emitted by the first-value
   // type check
