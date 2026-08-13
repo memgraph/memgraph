@@ -6564,7 +6564,10 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
           "automatically start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
-      if (!db.try_exclusively([](auto &in) {
+      // Bounded wait rather than a single-shot check: transient accessor holders (a /metrics scrape,
+      // a Lab session between queries) release within ms; 3s rides them out but still refuses a busy DB.
+      constexpr auto kSwitchToDiskExclusiveTimeout = std::chrono::seconds{3};
+      if (!db.try_exclusively(kSwitchToDiskExclusiveTimeout, [](auto &in) {
             if (!in.streams()->GetStreamInfo().empty()) {
               throw utils::BasicException(
                   "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
