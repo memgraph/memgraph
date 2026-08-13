@@ -443,6 +443,7 @@ TEST_F(QueryCostEstimator, UnwindNoLiteral) {
           MiscParam::kUnwindNoLiteral);
 }
 
+namespace {
 // Helper to build the toSet(coalesce(list, [])) AST pattern produced by IN-to-Unwind lowering.
 Expression *MakeInUnwindExpression(AstStorage &storage, std::vector<Expression *> elements) {
   auto *inner_list = storage.Create<ListLiteral>(std::move(elements));
@@ -453,6 +454,7 @@ Expression *MakeInUnwindExpression(AstStorage &storage, std::vector<Expression *
   toset->arguments_ = {coalesced};
   return toset;
 }
+}  // namespace
 
 TEST_F(QueryCostEstimator, UnwindInLowering) {
   auto *expr = MakeInUnwindExpression(storage_, {Literal(1), Literal(2), Literal(3)});

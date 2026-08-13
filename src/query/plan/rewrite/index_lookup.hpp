@@ -1646,7 +1646,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
         result /= std::pow(static_cast<double>(total), static_cast<double>(in_slots.size() - 1));
         return std::min(result, static_cast<double>(total));
-        return db_->VerticesCount(scan_op->label_, scan_op->properties_);
       });
       return static_cast<double>(cardinality);
     }
