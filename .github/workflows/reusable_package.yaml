@@ -5,7 +5,7 @@ on:
     inputs:
       os:
         type: string
-        description: "OS of the mgbuild container the build runs in (not a target OS — the deb/rpm packages produced are distro-agnostic). Default value is ubuntu-24.04."
+        description: Build container distro
         default: ubuntu-24.04
       arch:
         type: string
@@ -17,7 +17,7 @@ on:
         default: Release
       build_docker_image:
         type: string
-        description: "Docker image(s) to produce alongside the deb: 'none' (default), 'prod', 'debug', or 'both'. Builds run from the same memgraph binary as the deb so the ELF build-id is shared between standalone-deb installs and container installs. Requires os=ubuntu-24.04."
+        description: "Docker image(s) to produce alongside the deb: 'none' (default), 'prod', 'debug', or 'both'"
         default: 'none'
       additional_build_args:
         type: string
@@ -57,7 +57,7 @@ on:
         default: false
       package_smoke_os:
         type: string
-        description: "Distro(s) to smoke test the built packages on: 'all', 'all deb', 'all rpm', or a space-separated list of distros (e.g. 'debian-13 fedora-45'). Empty means the build container's OS."
+        description: "Distro(s) to smoke test the built packages on: 'all', 'all deb', 'all rpm', or a space-separated list of distros (e.g. 'debian-13 fedora-45')."
         default: ''
       upload_debug_symbols:
         type: boolean
@@ -129,8 +129,8 @@ jobs:
       - name: "Set artifact name and dir"
         run: |
           # S3 package directory will be `{x86_64|aarch64}-{deb|rpm}[-malloc]`
-          artifact_dir='build/output'
-          [[ "$ARCH" == 'arm' ]] && pkg_artifact_name="aarch64" || pkg_artifact_name="x86_64"
+          artifact_dir="build/output"
+          [[ "$ARCH" == "arm" ]] && pkg_artifact_name="aarch64" || pkg_artifact_name="x86_64"
           [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]] && malloc=true || malloc=false
           echo "MALLOC=$malloc" >> $GITHUB_ENV
 
@@ -149,8 +149,8 @@ jobs:
 
           # S3 package directory will be `docker-{x86_64|aarch64}-{deb|rpm}[-malloc][-relwithdebinfo]`
           if [[ "$BUILD_DOCKER_IMAGE" != "none" ]]; then
-            docker_base='docker'
-            [[ "$ARCH" == 'arm' ]] && docker_base="${docker_base}-aarch64" || docker_base="${docker_base}-x86_64"
+            docker_base="docker"
+            [[ "$ARCH" == "arm" ]] && docker_base="${docker_base}-aarch64" || docker_base="${docker_base}-x86_64"
             if [[ "$malloc" == "true" ]]; then
               docker_base="${docker_base}-malloc"
             fi
@@ -316,11 +316,7 @@ jobs:
       - name: "Copy mgconsole for smoke tests"
         if: ${{ inputs.run_smoke_tests }}
         run: |
-          # The smoke framework needs an mgconsole that runs on every target
-          # distro; the released download is built against too-new glibc, so
-          # stage the toolchain's (GLIBC floor 2.25) out of the build
-          # container before it is stopped. init_workflow.bash skips its
-          # download when tests/smoke/bin/mgconsole already exists.
+          # TODO(matt): remove when mgconsole 1.7.1 is released
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
@@ -331,8 +327,6 @@ jobs:
       - name: "Build smoke image from package"
         if: ${{ inputs.run_smoke_tests }}
         run: |
-          # Tags are fixed/derivable so the Run smoke tests step below can
-          # reference them without an extra env handoff.
           for smoke_os in $SMOKE_OS_LIST; do
             image_tag="smoke-${smoke_os}-${ARCH}-${BUILD_TYPE}"
             ./release/package/mgbuild.sh \
@@ -571,9 +565,6 @@ jobs:
           MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
           MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
         run: |
-          # Tags mirror the Build smoke image step. Each mgbuild invocation's
-          # cleanup removes the last-version image, so docker re-pulls it on
-          # the following iteration.
           for smoke_os in $SMOKE_OS_LIST; do
             image_tag="smoke-${smoke_os}-${ARCH}-${BUILD_TYPE}"
             echo "::group::Smoke tests on $smoke_os"
@@ -595,8 +586,6 @@ jobs:
           # PR number + commit). All non-daily callers keep get_version.py
           # naming via the default (false).
 
-          # A single build produces both formats, so rename whichever are
-          # present (debuginfo sidecars only exist for split-debug builds).
           deb_core="$(tools/ci/get_master_package_version.sh)"
           old_name="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph_*.deb 2>/dev/null | head -n 1)"
           if [[ -n "$old_name" ]]; then

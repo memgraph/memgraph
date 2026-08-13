@@ -621,16 +621,15 @@ jobs:
         run: |
           # The debs are distro-agnostic and stored flat in the RC dir with
           # arch and flavour in the filename (memgraph-mage*_<ver>-1_<arch>
-          # [-cuda|-cugraph].deb — main + debuginfo). Promote them all.
+          # [-cuda|-cugraph].deb — main + debuginfo).
           aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "s3://${release_bucket}/${mage_release_dir}/deb/" --recursive --exclude "*" --include "memgraph-mage*_${RELEASE_VERSION}-1_*.deb"
           echo "Copied MAGE deb packages (main + debuginfo) to s3://${release_bucket}/${mage_release_dir}/deb/"
 
       - name: Promote MAGE rpm packages to release bucket
         if: ${{ matrix.image_ext == '' }}
         run: |
-          # The rpms are distro-agnostic (no distro tag in the filename any
-          # more) and stored flat in the RC dir: memgraph-mage*<ver>_1-1.
-          # <arch>[-cuda|-cugraph].rpm — main + debuginfo. Promote them all.
+          # The rpms are distro-agnostic and stored flat in the RC dir:
+          # memgraph-mage*<ver>_1-1.<arch>[-cuda|-cugraph].rpm — main + debuginfo
           dst="s3://${release_bucket}/${mage_release_dir}/rpm/"
           existing=$(aws s3 ls "$dst" 2>/dev/null | awk '/memgraph-mage.*\.rpm/ {print}')
           if [[ -n "${existing}" && "$FORCE_PROMOTE" != "true" ]]; then
