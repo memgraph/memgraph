@@ -4366,7 +4366,7 @@ PreparedQuery PrepareConstantReturnQuery(ParsedQuery parsed_query) {
   // No DB memory tracker without an accessor; use the process allocator (matches PrepareBuiltinIntrospectionQuery).
   evaluation_context.memory = utils::NewDeleteResource();
   evaluation_context.timestamp = QueryTimestamp();
-  evaluation_context.parameters = parsed_query.parameters;
+  evaluation_context.parameters = std::move(parsed_query.parameters);
   PrimitiveLiteralExpressionEvaluator evaluator{evaluation_context, /*dba=*/nullptr};
 
   std::vector<TypedValue> row;
@@ -4449,7 +4449,7 @@ PreparedQuery PrepareBuiltinIntrospectionQuery(ParsedQuery parsed_query) {
       .header = std::move(header),
       .privileges = std::move(parsed_query.required_privileges),
       .query_handler = [validated = std::move(validated),
-                        result_fields = call_procedure->result_fields_,
+                        result_fields = std::move(call_procedure->result_fields_),
                         pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         if (UNLIKELY(!pull_plan)) {
