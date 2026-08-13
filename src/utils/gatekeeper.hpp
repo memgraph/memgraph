@@ -498,15 +498,16 @@ struct Gatekeeper {
       // open a window where a concurrent begin_resume() starts reading the directory while
       // the old Database is still writing its final WAL segment.
       //
-      // INVARIANT (load-bearing, CALLER precondition): ~Database -> ~InMemoryStorage DOES reach a
-      // gatekeeper path -- StopAllBackgroundTasks() joins the TTL scheduler and async indexer, and
-      // those threads call make_database_protector() -> Handler::Get() -> Gatekeeper::access(),
-      // which needs pimpl_->mutex_. Destroying value_ under this non-recursive mutex is safe ONLY
-      // because the suspend caller (Suspend_) has already run StopAllBackgroundTasks() OUTSIDE this
-      // mutex, before finish_suspend(): those two threads are joined by now, so the in-destructor
-      // join is a no-op. (try_delete() destroys the same chain UNLOCKED precisely because it has no
-      // such pre-stop.) If you remove the caller's pre-stop, or add a destruction-time hook that
-      // calls access()/try_*(), this self-deadlocks.
+      // PRECONDITION (load-bearing): callers MUST have already joined this value's background tasks
+      // BEFORE calling finish_suspend(), with pimpl_->mutex_ unheld. This is NOT a "no gatekeeper
+      // path in the destructor" situation: ~Database -> ~InMemoryStorage -> StopAllBackgroundTasks()
+      // joins the TTL / async-indexer threads, and those threads call access_via() on this same
+      // gatekeeper. pimpl_->mutex_ is non-recursive and held here, so if such a join had to actually
+      // wait for a thread that then re-entered the gatekeeper, it would self-deadlock. The reset()
+      // below is safe ONLY because Suspend_ pre-joins via StopAllBackgroundTasks() (mutex unheld)
+      // before it calls us, which makes the in-destructor join a no-op. Anyone reaching this state
+      // without pre-joining, or adding a destruction-time DBMS callback that re-enters the
+      // gatekeeper, breaks this.
       DMG_ASSERT(pimpl_->count_ == 0, "finish_suspend() must not destroy value_ while accessors are live");
       pimpl_->value_.reset();
     }
