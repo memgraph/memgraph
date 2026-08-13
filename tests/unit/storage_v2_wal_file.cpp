@@ -59,8 +59,9 @@ class DeltaGenerator final {
 
     explicit Transaction(DeltaGenerator *gen)
         : gen_(gen),
-          transaction_(gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-                       gen->storage_mode_, false, memgraph::storage::PointIndexStorage{}.CreatePointIndexContext(),
+          transaction_(gen->storage_.get(), gen->transaction_id_++, gen->timestamp_++,
+                       memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION, gen->storage_mode_, false,
+                       memgraph::storage::PointIndexStorage{}.CreatePointIndexContext(),
                        std::make_shared<memgraph::storage::ActiveIndices>(
                            std::make_unique<memgraph::storage::InMemoryLabelIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryLabelPropertyIndex::ActiveIndices>(),
