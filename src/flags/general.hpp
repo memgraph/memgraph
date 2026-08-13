@@ -155,6 +155,9 @@ DECLARE_string(cluster_key_file);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(cluster_ca_file);
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(ca_bundle_file);
+
 namespace memgraph::flags {
 auto IsIntraClusterTLSEnabled() -> bool;
 

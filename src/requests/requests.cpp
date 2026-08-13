@@ -32,6 +32,11 @@
 #include "utils/exceptions.hpp"
 #include "utils/likely.hpp"
 
+// Defined in src/flags/general.cpp; declared directly because mg-requests
+// can't link mg-flags (mg-flags already depends on mg-requests via mg-license).
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(ca_bundle_file);
+
 namespace memgraph::requests {
 
 namespace {
@@ -100,22 +105,34 @@ auto PostProgressCallback(void *clientp, curl_off_t /*dltotal*/, curl_off_t /*dl
 }
 
 // libcurl's default CA bundle path is a build-time constant, wrong on distros
-// other than the build host's; probe the standard locations at runtime.
-void SetCaInfo(CURL *curl) {
-  static const char *bundle = []() -> const char * {
+// other than the build host's; use --ca-bundle-file if set, otherwise probe the
+// standard locations. Resolved once and cached for the process lifetime.
+const char *ResolveCaBundle() {
+  static const std::string resolved = []() -> std::string {
+    // An explicit path is passed through unvalidated so a bad value fails
+    // loudly (CURLE_SSL_CACERT_BADFILE) instead of silently falling back.
+    if (!FLAGS_ca_bundle_file.empty()) return FLAGS_ca_bundle_file;
     constexpr std::array paths = {
-        "/etc/ssl/certs/ca-certificates.crt",  // Debian/Ubuntu
-        "/etc/pki/tls/certs/ca-bundle.crt",    // RHEL/Fedora/CentOS/Rocky
-        "/etc/ssl/ca-bundle.pem",              // SUSE
-        "/etc/ssl/cert.pem",                   // Alpine and others
+        "/etc/ssl/certs/ca-certificates.crt",      // Debian/Ubuntu
+        "/etc/pki/tls/certs/ca-bundle.crt",        // RHEL/Fedora/CentOS/Rocky
+        "/etc/ssl/ca-bundle.pem",                  // SUSE
+        "/usr/local/share/certs/ca-root-nss.crt",  // FreeBSD (ca_root_nss port)
+        "/etc/ssl/cert.pem",                       // OpenBSD, Alpine and others
     };
     for (const auto *path : paths) {
       std::error_code ec;
-      if (std::filesystem::exists(path, ec)) return path;
+      if (std::filesystem::is_regular_file(path, ec)) return path;
     }
-    return nullptr;  // keep libcurl's compiled-in default
+    spdlog::warn(
+        "No system CA bundle found in the standard locations; https requests may fail certificate verification. Set "
+        "--ca-bundle-file to fix this.");
+    return "";  // keep libcurl's compiled-in default
   }();
-  if (bundle != nullptr) {
+  return resolved.empty() ? nullptr : resolved.c_str();
+}
+
+void SetCaInfo(CURL *curl) {
+  if (const char *bundle = ResolveCaBundle(); bundle != nullptr) {
     curl_easy_setopt(curl, CURLOPT_CAINFO, bundle);
   }
 }
