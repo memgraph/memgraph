@@ -250,7 +250,7 @@ auto memgraph::flags::ParseQueryModulesDirectory() -> std::vector<std::filesyste
 }
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(query_cache_properties, false,
+DEFINE_bool(query_cache_properties, true,
             "Controls whether a RETURN/WITH that reads several properties of one node reads them in a single pass "
             "instead of one lookup per property.");
 

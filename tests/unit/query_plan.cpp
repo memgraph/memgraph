@@ -5740,7 +5740,8 @@ class CachePropertiesFlagGuard {
   bool previous_;
 };
 
-TYPED_TEST(TestPlanner, CachePropertiesDisabledByDefault) {
+TYPED_TEST(TestPlanner, CachePropertiesDisabledByFlag) {
+  CachePropertiesFlagGuard guard{false};
   FakeDbAccessor dba;
   auto prop_a = PROPERTY_PAIR(dba, "a");
   auto prop_b = PROPERTY_PAIR(dba, "b");
