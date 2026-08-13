@@ -29,6 +29,12 @@ namespace {
 
 PropertyId Prop(uint32_t id) { return PropertyId::FromUint(id); }
 
+/// The reference store answers with a map; compare like with like.
+auto AsMap(memgraph::utils::small_vector<ManifestPropertyStore::PropertyPair> const &properties)
+    -> std::map<PropertyId, PropertyValue> {
+  return {properties.begin(), properties.end()};
+}
+
 }  // namespace
 
 class ManifestPropertyStoreTest : public ::testing::Test {
@@ -92,6 +98,85 @@ TEST_F(ManifestPropertyStoreTest, RoundTripsStrings) {
   EXPECT_EQ(Get(1), PropertyValue(std::string(5000, 'x')));
 }
 
+// A value that carries a discriminator of its own keeps it in the shape, so these have to
+// round-trip the discriminator as well as the payload.
+TEST_F(ManifestPropertyStoreTest, RoundTripsTemporalData) {
+  using memgraph::storage::TemporalData;
+  using memgraph::storage::TemporalType;
+
+  Set(1, PropertyValue(TemporalData{TemporalType::Date, 1'600'000'000}));
+  EXPECT_EQ(Get(1), PropertyValue(TemporalData{TemporalType::Date, 1'600'000'000}));
+
+  Set(2, PropertyValue(TemporalData{TemporalType::Duration, -42}));
+  EXPECT_EQ(Get(2), PropertyValue(TemporalData{TemporalType::Duration, -42}));
+}
+
+TEST_F(ManifestPropertyStoreTest, TemporalValuesOfDifferentTypesTakeDifferentShapes) {
+  using memgraph::storage::TemporalData;
+  using memgraph::storage::TemporalType;
+
+  Set(1, PropertyValue(TemporalData{TemporalType::Date, 1}));
+  auto const as_date = store_.manifest();
+
+  Set(1, PropertyValue(TemporalData{TemporalType::LocalTime, 1}));
+
+  EXPECT_NE(store_.manifest(), as_date);
+  EXPECT_EQ(Get(1), PropertyValue(TemporalData{TemporalType::LocalTime, 1}));
+}
+
+TEST_F(ManifestPropertyStoreTest, RoundTripsEnum) {
+  using memgraph::storage::Enum;
+  using memgraph::storage::EnumTypeId;
+  using memgraph::storage::EnumValueId;
+
+  Set(1, PropertyValue(Enum{EnumTypeId{3}, EnumValueId{7}}));
+  EXPECT_EQ(Get(1), PropertyValue(Enum{EnumTypeId{3}, EnumValueId{7}}));
+
+  Set(1, PropertyValue(Enum{EnumTypeId{3}, EnumValueId{9}}));
+  EXPECT_EQ(Get(1), PropertyValue(Enum{EnumTypeId{3}, EnumValueId{9}}));
+}
+
+TEST_F(ManifestPropertyStoreTest, RoundTripsPoints) {
+  using memgraph::storage::CoordinateReferenceSystem;
+  using memgraph::storage::Point2d;
+  using memgraph::storage::Point3d;
+
+  Set(1, PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, 1.5, -2.25}));
+  EXPECT_EQ(Get(1), PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, 1.5, -2.25}));
+
+  Set(2, PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
+  EXPECT_EQ(Get(2), PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
+}
+
+// A two dimensional point and a three dimensional one are different widths, so they cannot
+// share a shape even though they are both points.
+TEST_F(ManifestPropertyStoreTest, PointsOfDifferentDimensionsTakeDifferentShapes) {
+  using memgraph::storage::CoordinateReferenceSystem;
+  using memgraph::storage::Point2d;
+  using memgraph::storage::Point3d;
+
+  Set(1, PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}));
+  auto const flat = store_.manifest();
+
+  Set(1, PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
+
+  EXPECT_NE(store_.manifest(), flat);
+  EXPECT_EQ(Get(1), PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
+}
+
+// Small records live in the object; a record that outgrows it moves to the heap and has to
+// keep reading back the same.
+TEST_F(ManifestPropertyStoreTest, RecordsSurviveOutgrowingTheInlineStorage) {
+  Set(1, PropertyValue(int64_t{7}));
+  EXPECT_EQ(Get(1), PropertyValue(int64_t{7}));
+
+  Set(2, PropertyValue(std::string(500, 'x')));
+
+  EXPECT_EQ(Get(1), PropertyValue(int64_t{7}));
+  EXPECT_EQ(Get(2), PropertyValue(std::string(500, 'x')));
+  EXPECT_GT(store_.buffer_size(), 500);
+}
+
 TEST_F(ManifestPropertyStoreTest, HoldsManyPropertiesOfMixedKinds) {
   Set(1, PropertyValue(int64_t{42}));
   Set(2, PropertyValue(std::string{"region_3"}));
@@ -112,7 +197,7 @@ TEST_F(ManifestPropertyStoreTest, HoldsManyPropertiesOfMixedKinds) {
       {Prop(4), PropertyValue(true)},
       {Prop(5), PropertyValue(std::string{"cat_00"})},
   };
-  EXPECT_EQ(store_.Properties(registry_), expected);
+  EXPECT_EQ(AsMap(store_.Properties(registry_)), expected);
 }
 
 TEST_F(ManifestPropertyStoreTest, AbsentPropertiesReadAsNull) {
@@ -209,7 +294,7 @@ TEST_F(ManifestPropertyStoreTest, InitPropertiesSetsThemAllAtOnce) {
   };
 
   EXPECT_TRUE(store_.InitProperties(registry_, properties));
-  EXPECT_EQ(store_.Properties(registry_), properties);
+  EXPECT_EQ(AsMap(store_.Properties(registry_)), properties);
 }
 
 // Bulk init is what keeps a load off the per-prefix interning path: one shape, not one per
@@ -242,6 +327,81 @@ TEST_F(ManifestPropertyStoreTest, InitPropertiesIgnoresNulls) {
 
   EXPECT_FALSE(store_.HasProperty(registry_, Prop(2)));
   EXPECT_EQ(store_.Properties(registry_).size(), 1);
+}
+
+// Removing a property leaves the shape and the record's allocation alone, and only clears
+// the bit that says the value is there. Shape churn on removal is what this avoids.
+TEST_F(ManifestPropertyStoreTest, RemovingAPropertyKeepsTheShape) {
+  Set(1, PropertyValue(int64_t{1}));
+  Set(2, PropertyValue(int64_t{2}));
+  auto const shape = store_.manifest();
+  auto const bytes = store_.buffer_size();
+  auto const shapes_before = registry_.size();
+
+  Set(2, PropertyValue());
+
+  EXPECT_EQ(store_.manifest(), shape);
+  EXPECT_EQ(store_.buffer_size(), bytes);
+  EXPECT_EQ(registry_.size(), shapes_before);
+  EXPECT_TRUE(Get(2).IsNull());
+  EXPECT_FALSE(store_.HasProperty(registry_, Prop(2)));
+  EXPECT_EQ(Get(1), PropertyValue(int64_t{1}));
+}
+
+// Putting a value back where one was removed reuses the slot the shape still points at.
+TEST_F(ManifestPropertyStoreTest, ReAddingARemovedPropertyOfTheSameTypeKeepsTheShape) {
+  Set(1, PropertyValue(int64_t{1}));
+  Set(2, PropertyValue(int64_t{2}));
+  auto const shape = store_.manifest();
+  Set(2, PropertyValue());
+
+  EXPECT_TRUE(store_.SetProperty(registry_, Prop(2), PropertyValue(int64_t{7})));
+
+  EXPECT_EQ(store_.manifest(), shape);
+  EXPECT_EQ(Get(2), PropertyValue(int64_t{7}));
+}
+
+TEST_F(ManifestPropertyStoreTest, RemovingAStringLeavesTheOtherValuesReadable) {
+  Set(1, PropertyValue(std::string{"first"}));
+  Set(2, PropertyValue(std::string{"second"}));
+  Set(3, PropertyValue(int64_t{3}));
+
+  Set(2, PropertyValue());
+
+  EXPECT_EQ(Get(1), PropertyValue(std::string{"first"}));
+  EXPECT_TRUE(Get(2).IsNull());
+  EXPECT_EQ(Get(3), PropertyValue(int64_t{3}));
+  EXPECT_EQ(store_.Properties(registry_).size(), 2);
+}
+
+// A field that is no longer carried should not follow the record around forever: the next
+// change of shape leaves it behind.
+TEST_F(ManifestPropertyStoreTest, AShapeChangeDropsRemovedFields) {
+  Set(1, PropertyValue(int64_t{1}));
+  Set(2, PropertyValue(int64_t{2}));
+  Set(2, PropertyValue());
+
+  Set(3, PropertyValue(int64_t{3}));  // adding a property re-interns the shape
+
+  auto const &manifest = registry_.Resolve(store_.manifest());
+  EXPECT_EQ(manifest.size(), 2);
+  EXPECT_FALSE(manifest.Find(Prop(2)).has_value());
+  EXPECT_EQ(store_.Properties(registry_).size(), 2);
+}
+
+// Records holding the same fields share a shape whether or not they all carry a value for
+// every one of them, which is what keeps removals from multiplying shapes.
+TEST_F(ManifestPropertyStoreTest, RecordsWithDifferentFieldsMissingShareAShape) {
+  ManifestPropertyStore other;
+  store_.InitProperties(registry_, {{Prop(1), PropertyValue(int64_t{1})}, {Prop(2), PropertyValue(int64_t{2})}});
+  other.InitProperties(registry_, {{Prop(1), PropertyValue(int64_t{3})}, {Prop(2), PropertyValue(int64_t{4})}});
+  auto const shapes_before = registry_.size();
+
+  Set(1, PropertyValue());
+  other.SetProperty(registry_, Prop(2), PropertyValue());
+
+  EXPECT_EQ(store_.manifest(), other.manifest());
+  EXPECT_EQ(registry_.size(), shapes_before);
 }
 
 TEST_F(ManifestPropertyStoreTest, ClearRemovesEverything) {
@@ -310,80 +470,7 @@ TEST(ManifestPropertyStoreDifferential, AgreesWithPropertyStoreOverRandomOperati
       auto const manifest_inserted = manifest_store.SetProperty(registry, property, value);
       auto const reference_inserted = reference.SetProperty(property, value);
       ASSERT_EQ(manifest_inserted, reference_inserted) << "seed " << seed << " op " << op;
-      ASSERT_EQ(manifest_store.Properties(registry), reference.Properties()) << "seed " << seed << " op " << op;
+      ASSERT_EQ(AsMap(manifest_store.Properties(registry)), reference.Properties()) << "seed " << seed << " op " << op;
     }
   }
-}
-
-TEST_F(ManifestPropertyStoreTest, RoundTripsTemporalData) {
-  using memgraph::storage::TemporalData;
-  using memgraph::storage::TemporalType;
-
-  Set(1, PropertyValue(TemporalData{TemporalType::Date, 1'600'000'000}));
-  EXPECT_EQ(Get(1), PropertyValue(TemporalData{TemporalType::Date, 1'600'000'000}));
-
-  Set(2, PropertyValue(TemporalData{TemporalType::Duration, -42}));
-  EXPECT_EQ(Get(2), PropertyValue(TemporalData{TemporalType::Duration, -42}));
-}
-
-TEST_F(ManifestPropertyStoreTest, TemporalValuesOfDifferentTypesTakeDifferentShapes) {
-  using memgraph::storage::TemporalData;
-  using memgraph::storage::TemporalType;
-
-  Set(1, PropertyValue(TemporalData{TemporalType::Date, 1}));
-  auto const as_date = store_.manifest();
-
-  Set(1, PropertyValue(TemporalData{TemporalType::LocalTime, 1}));
-
-  EXPECT_NE(store_.manifest(), as_date);
-  EXPECT_EQ(Get(1), PropertyValue(TemporalData{TemporalType::LocalTime, 1}));
-}
-
-TEST_F(ManifestPropertyStoreTest, RoundTripsEnum) {
-  using memgraph::storage::Enum;
-  using memgraph::storage::EnumTypeId;
-  using memgraph::storage::EnumValueId;
-
-  Set(1, PropertyValue(Enum{EnumTypeId{3}, EnumValueId{7}}));
-  EXPECT_EQ(Get(1), PropertyValue(Enum{EnumTypeId{3}, EnumValueId{7}}));
-
-  Set(1, PropertyValue(Enum{EnumTypeId{3}, EnumValueId{9}}));
-  EXPECT_EQ(Get(1), PropertyValue(Enum{EnumTypeId{3}, EnumValueId{9}}));
-}
-
-TEST_F(ManifestPropertyStoreTest, RoundTripsPoints) {
-  using memgraph::storage::CoordinateReferenceSystem;
-  using memgraph::storage::Point2d;
-  using memgraph::storage::Point3d;
-
-  Set(1, PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, 1.5, -2.25}));
-  EXPECT_EQ(Get(1), PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, 1.5, -2.25}));
-
-  Set(2, PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
-  EXPECT_EQ(Get(2), PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
-}
-
-TEST_F(ManifestPropertyStoreTest, PointsOfDifferentDimensionsTakeDifferentShapes) {
-  using memgraph::storage::CoordinateReferenceSystem;
-  using memgraph::storage::Point2d;
-  using memgraph::storage::Point3d;
-
-  Set(1, PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}));
-  auto const flat = store_.manifest();
-
-  Set(1, PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
-
-  EXPECT_NE(store_.manifest(), flat);
-  EXPECT_EQ(Get(1), PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
-}
-
-TEST_F(ManifestPropertyStoreTest, RecordsSurviveOutgrowingTheInlineStorage) {
-  Set(1, PropertyValue(int64_t{7}));
-  EXPECT_EQ(Get(1), PropertyValue(int64_t{7}));
-
-  Set(2, PropertyValue(std::string(500, 'x')));
-
-  EXPECT_EQ(Get(1), PropertyValue(int64_t{7}));
-  EXPECT_EQ(Get(2), PropertyValue(std::string(500, 'x')));
-  EXPECT_GT(store_.buffer_size(), 500);
 }

@@ -230,6 +230,32 @@ void ManifestInitRecord(benchmark::State &state) {
 BENCHMARK(CurrentInitRecord)->Unit(benchmark::kNanosecond);
 BENCHMARK(ManifestInitRecord)->Unit(benchmark::kNanosecond);
 
+// The same thing from a caller that already holds the properties in order, which is the
+// shape of the API both stores really want; the map overloads above pay for a conversion.
+void CurrentInitRecordOrdered(benchmark::State &state) {
+  auto const properties = ItemProperties();
+  for (auto _ : state) {
+    PropertyStore store;
+    store.InitProperties(properties);
+    benchmark::DoNotOptimize(store);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+void ManifestInitRecordOrdered(benchmark::State &state) {
+  ManifestRegistry registry;
+  auto const properties = ItemProperties();
+  for (auto _ : state) {
+    ManifestPropertyStore store;
+    store.InitProperties(registry, properties);
+    benchmark::DoNotOptimize(store);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK(CurrentInitRecordOrdered)->Unit(benchmark::kNanosecond);
+BENCHMARK(ManifestInitRecordOrdered)->Unit(benchmark::kNanosecond);
+
 // A load builds records from every thread at once, all of them interning the same shape.
 // Interning has to scale, or it becomes the load's bottleneck rather than the encoding.
 ManifestRegistry &SharedRegistry() {

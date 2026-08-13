@@ -172,6 +172,9 @@ auto DecodeFixed(StoredType stored_type, std::span<uint8_t const> in) -> Propert
   }
 }
 
+/// Bytes of presence bits a shape of `fields` fields needs.
+constexpr auto PresenceBytes(size_t fields) -> uint32_t { return static_cast<uint32_t>((fields + 7) / 8); }
+
 auto IsPresent(uint8_t const *record, uint32_t position) -> bool {
   return (record[position / 8] & (1U << (position % 8))) != 0;
 }
@@ -188,20 +191,21 @@ void SetPresent(uint8_t *record, uint32_t position, bool present) {
 /// Where the regions of a record sit, given its shape.
 struct Regions {
   uint8_t offset_width;
-  uint32_t offset_table;  // byte offset of the offset table (only meaningful with variable values)
-  uint32_t fixed;         // byte offset of the fixed region
-  uint32_t variable;      // byte offset of the variable region
+  uint32_t offset_table;
+  uint32_t fixed;
+  uint32_t variable;
 };
 
-auto RegionsOf(PropertyManifest const &manifest, uint8_t const *buffer) -> Regions {
+auto RegionsOf(PropertyManifest const &manifest, uint8_t const *record) -> Regions {
+  auto const presence = PresenceBytes(manifest.size());
   if (manifest.variable_count() == 0) {
-    return Regions{.offset_width = 0, .offset_table = 0, .fixed = 0, .variable = 0};
+    return Regions{.offset_width = 0, .offset_table = presence, .fixed = presence, .variable = presence};
   }
-  auto const offset_width = buffer[0];
-  auto const fixed = 1U + manifest.variable_count() * offset_width;
+  auto const offset_width = record[presence];
+  auto const fixed = presence + 1U + manifest.variable_count() * offset_width;
   return Regions{
       .offset_width = offset_width,
-      .offset_table = 1,
+      .offset_table = presence + 1U,
       .fixed = fixed,
       .variable = fixed + manifest.fixed_region_size(),
   };
@@ -264,72 +268,101 @@ auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, Proper
   if (size_ == 0) return PropertyValue{};
 
   auto const &manifest = registry.Resolve(manifest_);
-  auto const location = manifest.Find(property);
-  if (!location) return PropertyValue{};
+  auto const found = manifest.Find(property);
+  if (!found) return PropertyValue{};
 
-  auto const regions = RegionsOf(manifest, data());
-  if (location->is_fixed) {
-    return DecodeFixed(location->stored_type,
-                       std::span{data() + regions.fixed + location->offset, location->stored_type.width});
+  auto const *record = data();
+  if (!IsPresent(record, found->position)) return PropertyValue{};
+
+  auto const regions = RegionsOf(manifest, record);
+  if (found->is_fixed) {
+    return DecodeFixed(found->stored_type, std::span{record + regions.fixed + found->offset, found->stored_type.width});
   }
 
   // Offsets are ends, so a value starts where the previous one finished.
-  auto const *table = data() + regions.offset_table;
-  auto const end = ReadOffset(table, regions.offset_width, location->offset);
-  auto const begin = location->offset == 0 ? 0U : ReadOffset(table, regions.offset_width, location->offset - 1);
+  auto const *table = record + regions.offset_table;
+  auto const end = ReadOffset(table, regions.offset_width, found->offset);
+  auto const begin = found->offset == 0 ? 0U : ReadOffset(table, regions.offset_width, found->offset - 1);
   return PropertyValue{
-      std::string{reinterpret_cast<char const *>(data() + regions.variable + begin), static_cast<size_t>(end - begin)}};
+      std::string{reinterpret_cast<char const *>(record + regions.variable + begin), static_cast<size_t>(end - begin)}};
 }
 
 auto ManifestPropertyStore::HasProperty(ManifestRegistry const &registry, PropertyId property) const -> bool {
-  // Answered by the shape alone; the record is never touched.
   if (size_ == 0) return false;
-  return registry.Resolve(manifest_).Find(property).has_value();
+  auto const found = registry.Resolve(manifest_).Find(property);
+  return found && IsPresent(data(), found->position);
 }
 
-auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -> std::map<PropertyId, PropertyValue> {
-  if (size_ == 0) return {};
+auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -> utils::small_vector<PropertyPair> {
+  auto properties = utils::small_vector<PropertyPair>{};
+  if (size_ == 0) return properties;
 
   auto const &manifest = registry.Resolve(manifest_);
-  auto properties = std::map<PropertyId, PropertyValue>{};
-  for (auto const &entry : manifest.entries()) {
-    properties.emplace(entry.property, GetProperty(registry, entry.property));
+  auto const *record = data();
+  properties.reserve(manifest.size());
+  for (uint32_t position = 0; position != manifest.size(); ++position) {
+    if (!IsPresent(record, position)) continue;
+    auto const property = manifest.entries()[position].property;
+    properties.emplace_back(property, GetProperty(registry, property));
   }
   return properties;
 }
 
 auto ManifestPropertyStore::SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value)
     -> bool {
-  auto const existing = size_ != 0 ? registry.Resolve(manifest_).Find(property) : std::nullopt;
+  auto const found = size_ == 0 ? std::nullopt : registry.Resolve(manifest_).Find(property);
+  auto const present = found && IsPresent(data(), found->position);
 
-  // The common update keeps the shape: same property, same type, same width class. Then the
-  // value can go straight into the slot the shape already points at.
-  if (existing && !value.IsNull() && existing->is_fixed && existing->stored_type == StoredTypeOf(value)) {
-    auto const &manifest = registry.Resolve(manifest_);
-    auto const regions = RegionsOf(manifest, data());
-    EncodeFixed(value,
-                existing->stored_type,
-                std::span{data() + regions.fixed + existing->offset, existing->stored_type.width});
-    return false;
-  }
-
-  auto properties = Properties(registry);
+  // Removing only clears a bit: the shape, the layout and the allocation all stay as they
+  // are, and the field is there to be filled again if a value comes back.
   if (value.IsNull()) {
-    properties.erase(property);
-  } else {
-    properties.insert_or_assign(property, value);
+    if (present) SetPresent(data(), found->position, false);
+    return !present;
   }
+
+  // The common update keeps the shape: the field is already there, at the same type and
+  // width, so the value goes straight into the slot the shape points at.
+  if (found && found->is_fixed && found->stored_type == StoredTypeOf(value)) {
+    auto const &manifest = registry.Resolve(manifest_);
+    auto *record = data();
+    auto const regions = RegionsOf(manifest, record);
+    EncodeFixed(value, found->stored_type, std::span{record + regions.fixed + found->offset, found->stored_type.width});
+    SetPresent(record, found->position, true);
+    return !present;
+  }
+
+  auto const properties = Properties(registry);
+  auto merged = utils::small_vector<PropertyPair>{};
+  merged.reserve(properties.size() + 1);
+  auto placed = false;
+  for (auto const &[id, existing] : properties) {
+    if (!placed && property < id) {
+      merged.emplace_back(property, value);
+      placed = true;
+    }
+    if (id == property) continue;  // replaced by the new value
+    merged.emplace_back(id, existing);
+  }
+  if (!placed) merged.emplace_back(property, value);
+
+  Rebuild(registry, merged);
+  return !present;
+}
+
+auto ManifestPropertyStore::InitProperties(ManifestRegistry &registry, std::span<PropertyPair const> properties)
+    -> bool {
+  if (size_ != 0) return false;
   Rebuild(registry, properties);
-  return !existing.has_value();
+  return true;
 }
 
 auto ManifestPropertyStore::InitProperties(ManifestRegistry &registry,
                                            std::map<PropertyId, PropertyValue> const &properties) -> bool {
   if (size_ != 0) return false;
-
-  // Nulls are skipped by Rebuild, so the caller's map goes straight through rather than
-  // being copied to filter them out.
-  Rebuild(registry, properties);
+  auto ordered = utils::small_vector<PropertyPair>{};
+  ordered.reserve(properties.size());
+  for (auto const &[id, value] : properties) ordered.emplace_back(id, value);
+  Rebuild(registry, ordered);
   return true;
 }
 
@@ -341,7 +374,7 @@ auto ManifestPropertyStore::ClearProperties() -> bool {
   return true;
 }
 
-void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<PropertyId, PropertyValue> const &properties) {
+void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::span<PropertyPair const> properties) {
   auto entries = utils::small_vector<ManifestEntry>{};
   entries.reserve(properties.size());
   auto variable_bytes = uint32_t{0};
@@ -359,33 +392,36 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<Propert
 
   auto const manifest_id = registry.Intern(entries);
   auto const &manifest = registry.Resolve(manifest_id);
+  auto const presence = PresenceBytes(manifest.size());
   auto const offset_width = OffsetWidth(variable_bytes);
-  auto const header = manifest.variable_count() == 0 ? 0U : 1U + manifest.variable_count() * offset_width;
+  auto const header = presence + (manifest.variable_count() == 0 ? 0U : 1U + manifest.variable_count() * offset_width);
   auto const total = header + manifest.fixed_region_size() + variable_bytes;
 
-  // Reset frees the storage the record held; every value written below was read out of it
-  // into a decoded copy, so none of them point into the storage being replaced.
+  // Safe to write straight into the record's new storage: the values come from the caller or
+  // from a decoded copy, so none of them point into the storage being replaced.
   manifest_ = manifest_id;
-  auto *buffer = Reset(total);
-  if (manifest.variable_count() != 0) buffer[0] = offset_width;
+  auto *record = Reset(total);
+  if (manifest.variable_count() != 0) record[presence] = offset_width;
 
-  auto const regions = RegionsOf(manifest, buffer);
+  auto const regions = RegionsOf(manifest, record);
   auto variable_end = uint32_t{0};
-  // The properties and the shape's entries are both in property order, and the entries were
+  // The properties and the shape's fields are both in property order, and the shape was
   // built from these very properties, so the shape can be walked by position.
-  auto position = size_t{0};
+  auto position = uint32_t{0};
   for (auto const &[id, value] : properties) {
     if (value.IsNull()) continue;
-    auto const location = manifest.LocationAt(position++);
+    auto const location = manifest.LocationAt(position);
+    SetPresent(record, position, true);
+    ++position;
     if (location.is_fixed) {
       EncodeFixed(
-          value, location.stored_type, std::span{buffer + regions.fixed + location.offset, location.stored_type.width});
+          value, location.stored_type, std::span{record + regions.fixed + location.offset, location.stored_type.width});
       continue;
     }
     auto const size = VariableSize(value);
-    std::memcpy(buffer + regions.variable + variable_end, value.ValueString().data(), size);
+    std::memcpy(record + regions.variable + variable_end, value.ValueString().data(), size);
     variable_end += size;
-    WriteOffset(buffer + regions.offset_table, offset_width, location.offset, variable_end);
+    WriteOffset(record + regions.offset_table, offset_width, location.offset, variable_end);
   }
 }
 
