@@ -599,7 +599,7 @@ void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, 
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
 std::optional<RecoveryInfo> LoadWal(
-    std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
+    ManifestRegistry &registry, std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
     std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipListDb<Vertex> *vertices,
     utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,

@@ -51,7 +51,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   };
 
   struct MultipleThreadsConstraintValidation {
-    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
+    auto operator()(ManifestRegistry const &registry, const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
                     utils::SkipListDb<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
@@ -61,7 +61,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   };
 
   struct SingleThreadConstraintValidation {
-    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
+    auto operator()(ManifestRegistry const &registry, const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
                     utils::SkipListDb<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
@@ -104,7 +104,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
         -> std::vector<std::pair<LabelId, std::set<PropertyId>>> override;
     void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) override;
     auto GetAbortProcessor() const -> AbortProcessor override;
-    void CollectForAbort(AbortProcessor &processor, Vertex const *vertex) const override;
+    void CollectForAbort(ManifestRegistry const &registry, AbortProcessor &processor,
+                         Vertex const *vertex) const override;
     void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) override;
     bool empty() const override;
 
@@ -132,7 +133,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// exceeds the maximum allowed number of properties, and
   /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
-  auto CreateConstraint(LabelId label, const std::set<PropertyId> &properties,
+  auto CreateConstraint(ManifestRegistry const &registry, LabelId label, const std::set<PropertyId> &properties,
                         const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
                         const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt)

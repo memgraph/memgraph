@@ -194,11 +194,12 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
   if (edge_.ptr->deleted()) return std::unexpected{Error::DELETED_OBJECT};
-  using ReturnType = decltype(edge_.ptr->properties.GetProperty(property));
+  using ReturnType = decltype(edge_.ptr->properties.GetProperty(storage_->manifest_registry(), property));
   std::optional<ReturnType> current_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   utils::AtomicMemoryBlock([this, &current_value, &property, &value, skip_duplicate_write, &schema_acc]() {
     current_value.emplace(edge_.ptr->properties.GetProperty(
+        storage_->manifest_registry(),
         property,
         IndexedPropertyDecoder<Edge>{
             .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
@@ -216,7 +217,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
         transaction_, storage_->config_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, *current_value);
     auto maybe_vector_index_value = TryConvertToVectorEdgeIndexProperty(storage_, edge_type_, property, value);
     const auto &value_to_store = maybe_vector_index_value.has_value() ? *maybe_vector_index_value : value;
-    edge_.ptr->properties.SetProperty(property, value_to_store);
+    edge_.ptr->properties.SetProperty(storage_->manifest_registry(), property, value_to_store);
     storage_->indices_.UpdateOnSetProperty(
         edge_type_, property, value_to_store, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
     if (schema_acc) {
@@ -262,7 +263,7 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
 
   if (edge_.ptr->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
-  if (!edge_.ptr->properties.InitProperties(properties)) return false;
+  if (!edge_.ptr->properties.InitProperties(storage_->manifest_registry(), properties)) return false;
   utils::AtomicMemoryBlock([this, &properties, &schema_acc]() {
     for (const auto &[property, value] : properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
@@ -317,10 +318,10 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
   if (edge_.ptr->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
-  using ReturnType = decltype(edge_.ptr->properties.UpdateProperties(properties));
+  using ReturnType = decltype(edge_.ptr->properties.UpdateProperties(storage_->manifest_registry(), properties));
   std::optional<ReturnType> id_old_new_change;
   utils::AtomicMemoryBlock([this, &properties, &id_old_new_change, skip_duplicate_write, &schema_acc]() {
-    id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
+    id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(storage_->manifest_registry(), properties));
     for (auto const &[property, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_write && old_value == new_value) continue;
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
@@ -361,10 +362,11 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
 
   if (edge_.ptr->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
-  using ReturnType = decltype(edge_.ptr->properties.Properties());
+  using ReturnType = std::map<PropertyId, PropertyValue>;
   std::optional<ReturnType> properties;
   utils::AtomicMemoryBlock([&properties, this, &schema_acc]() {
-    properties.emplace(edge_.ptr->properties.Properties());
+    auto const stored = edge_.ptr->properties.Properties(storage_->manifest_registry());
+    properties.emplace(stored.begin(), stored.end());
     for (const auto &property : *properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDeltaForEdgeSetProperty(transaction_,
@@ -407,6 +409,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
     value.emplace(edge_.ptr->properties.GetProperty(
+        storage_->manifest_registry(),
         property,
         IndexedPropertyDecoder<Edge>{
             .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
@@ -449,7 +452,7 @@ Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) c
   auto guard = std::shared_lock{edge_.ptr->lock};
   Delta *delta = edge_.ptr->delta();
   if (!delta) {
-    return edge_.ptr->properties.PropertySize(property);
+    return edge_.ptr->properties.PropertySize(storage_->manifest_registry(), property);
   }
 
   auto property_result = this->GetProperty(property, view);
@@ -458,10 +461,10 @@ Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) c
     return std::unexpected{property_result.error()};
   }
 
-  auto property_store = storage::PropertyStore();
-  property_store.SetProperty(property, *property_result);
+  auto property_store = storage::ManifestPropertyStore();
+  property_store.SetProperty(storage_->manifest_registry(), property, *property_result);
 
-  return property_store.PropertySize(property);
+  return property_store.PropertySize(storage_->manifest_registry(), property);
 };
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
@@ -473,8 +476,11 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    properties = edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
-        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr});
+    auto const stored = edge_.ptr->properties.Properties(
+        storage_->manifest_registry(),
+        IndexedPropertyDecoder<Edge>{
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr});
+    properties = std::map<PropertyId, PropertyValue>{stored.begin(), stored.end()};
     delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
@@ -530,7 +536,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
     auto property_paths = properties |
                           rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
                           r::to<std::vector<storage::PropertyPath>>();
-    property_values = edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(property_paths);
+    property_values =
+        edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(storage_->manifest_registry(), property_paths);
     delta = edge_.ptr->delta();
   }
   auto properties_map =

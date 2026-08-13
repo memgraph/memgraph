@@ -60,7 +60,8 @@ class DiskLabelIndex : public storage::LabelIndex {
 
   std::unique_ptr<rocksdb::Transaction> CreateAllReadingRocksDBTransaction() const;
 
-  [[nodiscard]] bool SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
+  [[nodiscard]] bool SyncVertexToLabelIndexStorage(ManifestRegistry const &registry, const Vertex &vertex,
+                                                   uint64_t commit_timestamp) const;
 
   [[nodiscard]] bool ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const;
 

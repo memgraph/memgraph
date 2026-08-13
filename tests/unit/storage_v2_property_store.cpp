@@ -19,6 +19,7 @@
 #include <random>
 #include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "storage/v2/id_types.hpp"
@@ -146,6 +147,11 @@ class StoreUnderTest {
     return store_.InitProperties(std::move(properties));
   }
 
+  auto UpdateProperties(std::map<PropertyId, PropertyValue> &properties)
+      -> std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> {
+    return store_.UpdateProperties(properties);
+  }
+
   auto ClearProperties() -> bool { return store_.ClearProperties(); }
 
   /// Encoded bytes the record holds.
@@ -249,6 +255,11 @@ class ManifestStoreUnderTest {
   auto InitProperties(std::vector<std::pair<PropertyId, PropertyValue>> properties) -> bool {
     std::ranges::sort(properties, {}, &std::pair<PropertyId, PropertyValue>::first);
     return store_.InitProperties(Registry(), properties);
+  }
+
+  auto UpdateProperties(std::map<PropertyId, PropertyValue> &properties)
+      -> std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> {
+    return store_.UpdateProperties(Registry(), properties);
   }
 
   auto ClearProperties() -> bool { return store_.ClearProperties(); }
@@ -2981,6 +2992,101 @@ STORE_TYPED_TEST(PropertiesMatchTypesIgnoresARemovedProperty) {
   auto validator = TypeConstraintsValidator{};
   validator.add(label, constraints);
   EXPECT_EQ(store.PropertiesMatchTypes(validator), std::nullopt);
+}
+
+//==============================================================================
+
+namespace {
+
+/// One property `UpdateProperties` decided: its id, what the record held for it, and what the
+/// record holds for it now.
+using PropertyChange = std::tuple<PropertyId, PropertyValue, PropertyValue>;
+
+}  // end namespace
+
+/// Every property arriving at a record that holds none is a change from Null.
+STORE_TYPED_TEST(UpdatePropertiesOnAnEmptyStore) {
+  auto const first = PropertyId::FromInt(1);
+  auto const second = PropertyId::FromInt(2);
+
+  TStore store;
+  auto properties = std::map<PropertyId, PropertyValue>{{first, PropertyValue(1)}, {second, PropertyValue("two")}};
+
+  EXPECT_THAT(store.UpdateProperties(properties),
+              testing::ElementsAre(PropertyChange{first, PropertyValue(), PropertyValue(1)},
+                                   PropertyChange{second, PropertyValue(), PropertyValue("two")}));
+
+  auto const expected = std::map<PropertyId, PropertyValue>{{first, PropertyValue(1)}, {second, PropertyValue("two")}};
+  EXPECT_EQ(properties, expected);
+  EXPECT_EQ(store.Properties(), expected);
+}
+
+/// A property the record already held is reported with the value it held; one it did not is
+/// reported as a change from Null. Properties the record held and the update does not name are
+/// kept, and not reported.
+STORE_TYPED_TEST(UpdatePropertiesReportsOldAndNewValues) {
+  auto const kept = PropertyId::FromInt(1);
+  auto const replaced = PropertyId::FromInt(2);
+  auto const untouched = PropertyId::FromInt(3);
+  auto const added = PropertyId::FromInt(4);
+
+  TStore store;
+  ASSERT_TRUE(store.SetProperty(kept, PropertyValue("one")));
+  ASSERT_TRUE(store.SetProperty(replaced, PropertyValue(2)));
+  ASSERT_TRUE(store.SetProperty(untouched, PropertyValue(3.3)));
+
+  auto properties = std::map<PropertyId, PropertyValue>{{replaced, PropertyValue(22)}, {added, PropertyValue("four")}};
+
+  EXPECT_THAT(store.UpdateProperties(properties),
+              testing::ElementsAre(PropertyChange{added, PropertyValue(), PropertyValue("four")},
+                                   PropertyChange{replaced, PropertyValue(2), PropertyValue(22)}));
+
+  // The caller's map is left holding everything the record now carries, not only what arrived.
+  auto const expected = std::map<PropertyId, PropertyValue>{{kept, PropertyValue("one")},
+                                                            {replaced, PropertyValue(22)},
+                                                            {untouched, PropertyValue(3.3)},
+                                                            {added, PropertyValue("four")}};
+  EXPECT_EQ(properties, expected);
+  EXPECT_EQ(store.Properties(), expected);
+}
+
+/// An update naming nothing changes nothing, and hands back everything the record holds.
+STORE_TYPED_TEST(UpdatePropertiesWithNothingToUpdate) {
+  auto const first = PropertyId::FromInt(1);
+  auto const second = PropertyId::FromInt(2);
+
+  TStore store;
+  ASSERT_TRUE(store.SetProperty(first, PropertyValue(1)));
+  ASSERT_TRUE(store.SetProperty(second, PropertyValue("two")));
+
+  auto properties = std::map<PropertyId, PropertyValue>{};
+  EXPECT_THAT(store.UpdateProperties(properties), testing::IsEmpty());
+
+  auto const expected = std::map<PropertyId, PropertyValue>{{first, PropertyValue(1)}, {second, PropertyValue("two")}};
+  EXPECT_EQ(properties, expected);
+  EXPECT_EQ(store.Properties(), expected);
+}
+
+/// Null removes. A property the record held is reported changing to Null and is gone; a
+/// property it never held is still reported, Null to Null, and is still not there.
+STORE_TYPED_TEST(UpdatePropertiesToNull) {
+  auto const removed = PropertyId::FromInt(1);
+  auto const kept = PropertyId::FromInt(2);
+  auto const absent = PropertyId::FromInt(3);
+
+  TStore store;
+  ASSERT_TRUE(store.SetProperty(removed, PropertyValue(1)));
+  ASSERT_TRUE(store.SetProperty(kept, PropertyValue(2)));
+
+  auto properties = std::map<PropertyId, PropertyValue>{{removed, PropertyValue()}, {absent, PropertyValue()}};
+
+  EXPECT_THAT(store.UpdateProperties(properties),
+              testing::ElementsAre(PropertyChange{absent, PropertyValue(), PropertyValue()},
+                                   PropertyChange{removed, PropertyValue(1), PropertyValue()}));
+
+  EXPECT_EQ(store.Properties(), (std::map<PropertyId, PropertyValue>{{kept, PropertyValue(2)}}));
+  EXPECT_FALSE(store.HasProperty(removed));
+  EXPECT_FALSE(store.HasProperty(absent));
 }
 
 //==============================================================================

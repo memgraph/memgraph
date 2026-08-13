@@ -114,11 +114,14 @@ struct Indices {
     /// Reached only for an edge whose link its source vertex no longer holds. The first few are
     /// answered by scanning the deltas; past that the scanning is what costs, so they are indexed.
     static constexpr auto kMissesBeforeIndexing = 8;
+    /// Resolves the shapes of the records read while collecting. An abort belongs to one
+    /// transaction, and so to one database and one registry.
+    ManifestRegistry *registry_{};
     unsigned misses_{0};
     std::optional<std::vector<std::tuple<Edge *, EdgeTypeId, Vertex *>>> out_edge_links_{};
   };
 
-  auto GetAbortProcessor(ActiveIndices const &active_indices) const -> AbortProcessor;
+  auto GetAbortProcessor(ManifestRegistry &registry, ActiveIndices const &active_indices) const -> AbortProcessor;
 
   // Indices are updated whenever an update occurs, instead of only on commit or
   // advance command. This is necessary because we want indices to support `NEW`

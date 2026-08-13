@@ -120,15 +120,17 @@ std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &prope
   return utils::Join(indexable_properties_as_string, " ");
 }
 
-std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
+std::map<PropertyId, PropertyValue> ExtractProperties(ManifestRegistry const &registry,
+                                                      const ManifestPropertyStore &property_store,
                                                       std::span<PropertyId const> properties) {
   if (properties.empty()) {
-    return property_store.Properties();
+    auto const stored = property_store.Properties(registry);
+    return {stored.begin(), stored.end()};
   }
 
   auto property_paths = properties | rv::transform([](PropertyId property) { return PropertyPath{property}; }) |
                         r::to<std::vector<PropertyPath>>();
-  auto property_values = property_store.ExtractPropertyValuesMissingAsNull(property_paths);
+  auto property_values = property_store.ExtractPropertyValuesMissingAsNull(registry, property_paths);
 
   return rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
            return std::make_pair(property_id_value_pair.first, property_id_value_pair.second);

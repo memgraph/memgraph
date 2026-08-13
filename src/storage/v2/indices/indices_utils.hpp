@@ -163,8 +163,8 @@ inline bool AnyVersionIsVisible(Edge *edge, uint64_t timestamp) {
 /// Helper function for edgetype-property index garbage collection. Returns true if
 /// there's a reachable version of the edge that has the given property value.
 template <typename TEntity>
-inline bool AnyVersionHasProperty(TEntity const &entity, PropertyId key, PropertyValue const &value,
-                                  uint64_t timestamp) {
+inline bool AnyVersionHasProperty(ManifestRegistry const &registry, TEntity const &entity, PropertyId key,
+                                  PropertyValue const &value, uint64_t timestamp) {
   Delta const *delta;
   bool deleted;
   bool current_value_equal_to_value;
@@ -173,7 +173,7 @@ inline bool AnyVersionHasProperty(TEntity const &entity, PropertyId key, Propert
     delta = entity.delta();
     deleted = entity.deleted();
     if (delta == nullptr && deleted) return false;
-    current_value_equal_to_value = entity.properties.IsPropertyEqual(key, value);
+    current_value_equal_to_value = entity.properties.IsPropertyEqual(registry, key, value);
   }
 
   if (!deleted && current_value_equal_to_value) {
@@ -216,8 +216,8 @@ inline bool AnyVersionHasProperty(TEntity const &entity, PropertyId key, Propert
 }
 
 template <typename TEntity>
-inline bool CurrentVersionHasProperty(TEntity const &entity, PropertyId key, PropertyValue const &value,
-                                      Transaction *transaction, View view) {
+inline bool CurrentVersionHasProperty(ManifestRegistry const &registry, TEntity const &entity, PropertyId key,
+                                      PropertyValue const &value, Transaction *transaction, View view) {
   bool exists = true;
   bool deleted = false;
   bool current_value_equal_to_value = value.IsNull();
@@ -225,7 +225,7 @@ inline bool CurrentVersionHasProperty(TEntity const &entity, PropertyId key, Pro
   {
     auto guard = std::shared_lock{entity.lock};
     deleted = entity.deleted();
-    current_value_equal_to_value = entity.properties.IsPropertyEqual(key, value);
+    current_value_equal_to_value = entity.properties.IsPropertyEqual(registry, key, value);
     delta = entity.delta();
   }
 

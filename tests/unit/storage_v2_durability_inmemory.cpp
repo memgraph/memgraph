@@ -4464,8 +4464,11 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       config.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory,
       config.durability.storage_directory / memgraph::storage::durability::kWalDirectory};
 
+  memgraph::storage::ManifestRegistry registry;
+
   // Recover snapshot.
   const auto info = recovery.RecoverData(
+      registry,
       uuid,
       repl_storage_state,
       &vertices,

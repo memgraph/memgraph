@@ -35,13 +35,15 @@ VectorIndex::~VectorIndex() = default;
 
 void VectorIndex::PublishActiveIndices(ActiveIndicesUpdater const &updater) const { updater(GetActiveIndices()); }
 
-bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
+bool VectorIndex::CreateIndex(ManifestRegistry &registry, VectorIndexSpec &spec,
+                              utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
                               NameIdMapper *name_id_mapper, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   try {
     const auto index_id = SetupIndex(spec, name_id_mapper);
     if (!index_id.has_value()) return false;
     PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex, std::optional<std::size_t> thread_id) {
       AddVertexToIndex(
+          registry,
           *index_id,
           vertex,
           IndexedPropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex},
@@ -97,8 +99,9 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
   return inserted ? std::optional<uint64_t>{index_id} : std::nullopt;
 }
 
-void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
-                               Indices *indices, NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
+void VectorIndex::RecoverIndex(ManifestRegistry &registry, VectorIndexRecoveryInfo &recovery_info,
+                               utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
+                               NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &spec = recovery_info.spec;
   try {
@@ -120,6 +123,7 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
         vector.shrink_to_fit();
       } else {
         AddVertexToIndex(
+            registry,
             *index_id,
             vertex,
             IndexedPropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex},
@@ -143,7 +147,8 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
   updater(GetActiveIndices());
 }
 
-void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
+void VectorIndex::AddVertexToIndex(ManifestRegistry &registry, uint64_t index_id, Vertex &vertex,
+                                   const IndexedPropertyDecoder<Vertex> &decoder,
                                    std::optional<std::size_t> thread_id) {
   auto it = index_->find(index_id);
   if (it == index_->end()) {
@@ -154,11 +159,11 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
   if (!spec.label_filter.Matches(vertex.labels)) {
     return;
   }
-  auto property = vertex.properties.GetProperty(spec.property, decoder);
+  auto property = vertex.properties.GetProperty(registry, spec.property, decoder);
   if (property.IsNull()) return;
 
   auto vector = RegisterIndexId(property, index_id);
-  vertex.properties.SetProperty(spec.property, property);
+  vertex.properties.SetProperty(registry, spec.property, property);
   UpdateVectorIndex(item_ptr->mg_index, spec, &vertex, vector, thread_id);
 }
 
@@ -189,14 +194,15 @@ std::optional<VectorIndex::DroppedIndexCapture> VectorIndex::DropIndex(std::stri
     rewritten_vertices.reserve(indexed_vertices.size());
     try {
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+      auto &registry = NoManifestRegistry();
       std::vector<double> vector(dimension);
       for (auto *vertex : indexed_vertices) {
-        auto vector_property = vertex->properties.GetProperty(spec.property);
+        auto vector_property = vertex->properties.GetProperty(registry, spec.property);
         if (UnregisterIndexId(vector_property, index_id)) {
           mg_index.index.get(vertex, vector.data());
-          vertex->properties.SetProperty(spec.property, PropertyValue(vector));
+          vertex->properties.SetProperty(registry, spec.property, PropertyValue(vector));
         } else {
-          vertex->properties.SetProperty(spec.property, vector_property);
+          vertex->properties.SetProperty(registry, spec.property, vector_property);
         }
         rewritten_vertices.push_back(vertex);
       }
@@ -227,20 +233,21 @@ void VectorIndex::RestoreIndex(DroppedIndexCapture &&capture) {
 
 void VectorIndex::Clear() { index_ = std::make_shared<VectorIndexContainer>(); }
 
-void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) {
+void VectorIndex::UpdateOnAddLabel(ManifestRegistry &registry, LabelId label, Vertex *vertex,
+                                   const IndexedPropertyDecoder<Vertex> &decoder) {
   auto matching = GetIndicesByLabel(label);
   if (matching.empty()) {
     return;
   }
 
-  auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  auto vertex_properties = vertex->properties.ExtractPropertyIds(registry);
   for (auto property_id : vertex_properties) {
     for (const auto &[idx_property, index_id] : matching) {
       if (idx_property != property_id) continue;
       auto &item_ptr = index_->at(index_id);
       if (!item_ptr->spec.label_filter.Matches(vertex->labels)) continue;
 
-      auto old_property_value = vertex->properties.GetProperty(property_id, decoder);
+      auto old_property_value = vertex->properties.GetProperty(registry, property_id, decoder);
       if (old_property_value.IsNull()) continue;
 
       auto ids = old_property_value.IsVectorIndexId() ? old_property_value.ValueVectorIndexIds()
@@ -253,18 +260,19 @@ void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedP
 
       ids.push_back(index_id);
       vertex->properties.SetProperty(
-          property_id, PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = {}}));
+          registry, property_id, PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = {}}));
     }
   }
 }
 
-void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) {
+void VectorIndex::UpdateOnRemoveLabel(ManifestRegistry &registry, LabelId label, Vertex *vertex,
+                                      const IndexedPropertyDecoder<Vertex> &decoder) {
   auto matching = GetIndicesByLabel(label);
   if (matching.empty()) {
     return;
   }
 
-  auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  auto vertex_properties = vertex->properties.ExtractPropertyIds(registry);
   for (auto property_id : vertex_properties) {
     for (const auto &[idx_property, index_id] : matching) {
       if (idx_property != property_id) continue;
@@ -273,7 +281,7 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
       // it no longer matches THIS one.
       if (item_ptr->spec.label_filter.Matches(vertex->labels)) continue;
 
-      auto old_vertex_property_value = vertex->properties.GetProperty(property_id, decoder);
+      auto old_vertex_property_value = vertex->properties.GetProperty(registry, property_id, decoder);
       if (!old_vertex_property_value.IsVectorIndexId()) continue;
       auto &ids = old_vertex_property_value.ValueVectorIndexIds();
       if (!std::ranges::contains(ids, index_id)) continue;
@@ -290,7 +298,7 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
         return old_vertex_property_value;
       });
       item_ptr->mg_index.index.remove(vertex);
-      vertex->properties.SetProperty(property_id, property_value_to_set);
+      vertex->properties.SetProperty(registry, property_id, property_value_to_set);
     }
   }
 }
@@ -526,16 +534,17 @@ std::vector<std::pair<uint64_t, VectorLabelFilter const *>> VectorIndex::GetIndi
   return result;
 }
 
-void VectorIndex::AbortEntries(Indices *indices, NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection) {
+void VectorIndex::AbortEntries(ManifestRegistry &registry, Indices *indices, NameIdMapper *name_id_mapper,
+                               AbortableInfo &cleanup_collection) {
   for (auto &[vertex, info] : cleanup_collection) {
     const IndexedPropertyDecoder<Vertex> decoder{
         .indices = indices, .name_id_mapper = name_id_mapper, .entity = vertex};
     const auto &[labels_to_add, labels_to_remove, property_to_abort] = info;
     for (auto label : labels_to_remove) {
-      UpdateOnRemoveLabel(label, vertex, decoder);
+      UpdateOnRemoveLabel(registry, label, vertex, decoder);
     }
     for (auto label : labels_to_add) {
-      UpdateOnAddLabel(label, vertex, decoder);
+      UpdateOnAddLabel(registry, label, vertex, decoder);
     }
     for (const auto &[property, value] : property_to_abort) {
       if (value.IsVectorIndexId()) {
@@ -569,22 +578,24 @@ VectorIndex::AbortProcessor VectorIndex::GetAbortProcessor() const {
   return res;
 }
 
-void VectorIndex::AbortProcessor::CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
+void VectorIndex::AbortProcessor::CollectOnLabelRemoval(ManifestRegistry const &registry, LabelId label,
+                                                        Vertex *vertex) {
   if (l2p.empty()) return;
   auto properties = l2p.find(label);
   if (properties == l2p.end()) return;
-  auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  auto vertex_properties = vertex->properties.ExtractPropertyIds(registry);
   if (!r::any_of(properties->second, [&](auto p) { return r::contains(vertex_properties, p); })) return;
   auto &[label_to_add, label_to_remove, _] = cleanup_collection[vertex];
   label_to_remove.insert(label);
   label_to_add.erase(label);
 }
 
-void VectorIndex::AbortProcessor::CollectOnLabelAddition(LabelId label, Vertex *vertex) {
+void VectorIndex::AbortProcessor::CollectOnLabelAddition(ManifestRegistry const &registry, LabelId label,
+                                                         Vertex *vertex) {
   if (l2p.empty()) return;
   auto properties = l2p.find(label);
   if (properties == l2p.end()) return;
-  auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  auto vertex_properties = vertex->properties.ExtractPropertyIds(registry);
   if (!r::any_of(properties->second, [&](auto p) { return r::contains(vertex_properties, p); })) return;
   auto &[label_to_add, label_to_remove, _] = cleanup_collection[vertex];
   label_to_add.insert(label);
@@ -644,6 +655,7 @@ utils::small_vector<float> VectorIndexRecovery::ExtractVectorForRecovery(
 void VectorIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
                                             std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
                                             utils::SkipListDb<Vertex>::Accessor &vertices) {
+  auto &registry = NoManifestRegistry();
   for (auto &recovery_info : recovery_info_vec) {
     if (recovery_info.spec.index_name == index_name) {
       for (auto &[gid, vector] : recovery_info.index_entries) {
@@ -653,13 +665,13 @@ void VectorIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdM
           continue;
         }
 
-        auto vertex_property = vertex->properties.GetProperty(recovery_info.spec.property);
+        auto vertex_property = vertex->properties.GetProperty(registry, recovery_info.spec.property);
         auto index_id = name_id_mapper->NameToId(index_name);
         if (UnregisterIndexId(vertex_property, index_id)) {
-          vertex->properties.SetProperty(recovery_info.spec.property,
-                                         PropertyValue(std::vector<double>(vector.begin(), vector.end())));
+          vertex->properties.SetProperty(
+              registry, recovery_info.spec.property, PropertyValue(std::vector<double>(vector.begin(), vector.end())));
         } else {
-          vertex->properties.SetProperty(recovery_info.spec.property, vertex_property);
+          vertex->properties.SetProperty(registry, recovery_info.spec.property, vertex_property);
         }
       }
     }
@@ -677,11 +689,12 @@ void VectorIndexRecovery::UpdateOnLabelAddition(LabelId label, Vertex *vertex, N
     return;
   }
 
-  auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  auto &registry = NoManifestRegistry();
+  auto vertex_properties = vertex->properties.ExtractPropertyIds(registry);
   for (auto *recovery_info : matching_indices) {
     if (!recovery_info->spec.label_filter.Matches(vertex->labels)) continue;
     if (r::contains(vertex_properties, recovery_info->spec.property)) {
-      auto old_property_value = vertex->properties.GetProperty(recovery_info->spec.property);
+      auto old_property_value = vertex->properties.GetProperty(registry, recovery_info->spec.property);
       auto vector_to_add = ExtractVectorForRecovery(old_property_value, vertex, recovery_info_vec, name_id_mapper);
 
       if (old_property_value.IsVectorIndexId()) {
@@ -689,11 +702,12 @@ void VectorIndexRecovery::UpdateOnLabelAddition(LabelId label, Vertex *vertex, N
         const auto index_id = name_id_mapper->NameToId(recovery_info->spec.index_name);
         if (std::ranges::contains(ids, index_id)) continue;
         ids.push_back(index_id);
-        vertex->properties.SetProperty(recovery_info->spec.property, old_property_value);
+        vertex->properties.SetProperty(registry, recovery_info->spec.property, old_property_value);
       } else {
         // If property is not a vector index id, we create a new vector index id and set it in the property store.
         auto index_id = name_id_mapper->NameToId(recovery_info->spec.index_name);
         vertex->properties.SetProperty(
+            registry,
             recovery_info->spec.property,
             PropertyValue(PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id},
                                                            .vector = utils::small_vector<float>{}}));
@@ -711,18 +725,20 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
     return;
   }
 
-  auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  auto &registry = NoManifestRegistry();
+  auto vertex_properties = vertex->properties.ExtractPropertyIds(registry);
   for (auto *recovery_info : matching_indices) {
     if (recovery_info->spec.label_filter.Matches(vertex->labels)) continue;
     if (r::contains(vertex_properties, recovery_info->spec.property)) {
-      auto old_property_value = vertex->properties.GetProperty(recovery_info->spec.property);
+      auto old_property_value = vertex->properties.GetProperty(registry, recovery_info->spec.property);
       auto index_id = name_id_mapper->NameToId(recovery_info->spec.index_name);
 
       if (UnregisterIndexId(old_property_value, index_id)) {
         // If the list of index ids is empty, we restore the vector from the recovery info. Otherwise, we keep the
         // property value as is.
         if (auto it = recovery_info->index_entries.find(vertex->gid); it != recovery_info->index_entries.end()) {
-          vertex->properties.SetProperty(recovery_info->spec.property,
+          vertex->properties.SetProperty(registry,
+                                         recovery_info->spec.property,
                                          PropertyValue(std::vector<double>(it->second.begin(), it->second.end())));
         } else {
           throw query::VectorSearchException(
@@ -730,7 +746,7 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
         }
       } else {
         // If the list of index ids is not empty, we keep the property value as is.
-        vertex->properties.SetProperty(recovery_info->spec.property, old_property_value);
+        vertex->properties.SetProperty(registry, recovery_info->spec.property, old_property_value);
       }
       // We remove the vector from the recovery info.
       recovery_info->index_entries.erase(vertex->gid);

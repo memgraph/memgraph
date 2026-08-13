@@ -25,6 +25,8 @@
 
 namespace memgraph::storage {
 
+class ManifestRegistry;
+
 struct Vertex;
 struct PointIndexContext;
 
@@ -72,7 +74,7 @@ struct PointIndexChangeCollector {
 
   explicit PointIndexChangeCollector(PointIndexContext &ctx);
 
-  void UpdateOnChangeLabel(LabelId label, Vertex const *vertex);
+  void UpdateOnChangeLabel(ManifestRegistry const &registry, LabelId label, Vertex const *vertex);
 
   void UpdateOnSetProperty(PropertyId prop_id, const PropertyValue &old_value, const PropertyValue &new_value,
                            Vertex const *vertex);
@@ -83,7 +85,7 @@ struct PointIndexChangeCollector {
 
   void ArchiveCurrentChanges();
 
-  void UpdateOnVertexDelete(Vertex *vertex);
+  void UpdateOnVertexDelete(ManifestRegistry const &registry, Vertex *vertex);
 
  private:
   TrackedChanges current_changes_;

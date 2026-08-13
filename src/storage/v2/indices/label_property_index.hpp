@@ -16,6 +16,7 @@
 #include "storage/v2/indices/label_properties_indices_info.hpp"
 #include "storage/v2/indices/label_property_index_entry.hpp"
 #include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/bound.hpp"
@@ -233,6 +234,11 @@ struct PropertiesPermutationHelper {
    * properties into the index order.
    * @sa ApplyPermutation
    */
+  auto Extract(ManifestRegistry const &registry, ManifestPropertyStore const &properties) const
+      -> std::vector<PropertyValue>;
+
+  /// As above, for a record still held as a `PropertyStore`: the disk engine's on-disk format,
+  /// which is not a manifest record and so needs no registry to read.
   auto Extract(PropertyStore const &properties) const -> std::vector<PropertyValue>;
 
   /** As `Extract`, but writes into the caller-provided `out` (one slot per
@@ -240,6 +246,10 @@ struct PropertiesPermutationHelper {
    * fixed-arity entry can be built into a stack buffer. `out.size()` must equal
    * the index arity.
    */
+  void ExtractInto(ManifestRegistry const &registry, ManifestPropertyStore const &properties,
+                   std::span<PropertyValue> out) const;
+
+  /// As above, for a record still held as a `PropertyStore`. See the `Extract` overload.
   void ExtractInto(PropertyStore const &properties, std::span<PropertyValue> out) const;
 
   /**
@@ -263,6 +273,10 @@ struct PropertiesPermutationHelper {
    * values. This returns a vector of boolean flags indicating per-element
    * equality (in monotonic property id order.)
    */
+  auto MatchesValues(ManifestRegistry const &registry, ManifestPropertyStore const &properties,
+                     IndexOrderedValuesView values) const -> std::vector<bool>;
+
+  /// As above, for a record still held as a `PropertyStore`. See the `Extract` overload.
   auto MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values) const -> std::vector<bool>;
 
   /** Returns an augmented view over the values in the given vector, where each
@@ -332,8 +346,8 @@ struct LabelPropertyIndexAbortProcessor {
   /// contention in place of the work this saves.
   LabelPropertyIndexAbortLookup const *lookup{nullptr};
 
-  void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
-  void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
+  void CollectOnLabelRemoval(ManifestRegistry const &registry, LabelId label, Vertex *vertex);
+  void CollectOnPropertyChange(ManifestRegistry const &registry, PropertyId propId, Vertex *vertex);
 
   // collection
   LabelPropertyIndexAbortableInfo cleanup_collection;

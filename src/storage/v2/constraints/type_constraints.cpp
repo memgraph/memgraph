@@ -28,7 +28,8 @@ namespace {
 
 /// Validate all type constraints for a vertex against a container snapshot.
 /// Used internally by ActiveConstraints::Validate and TypeConstraints::ValidateAllVertices.
-[[nodiscard]] std::expected<void, ConstraintViolation> ValidateVertex(const Vertex &vertex,
+[[nodiscard]] std::expected<void, ConstraintViolation> ValidateVertex(ManifestRegistry const &registry,
+                                                                      const Vertex &vertex,
                                                                       TypeConstraints::ContainerPtr const &container) {
   if (container->constraints_.empty()) return {};
 
@@ -41,7 +42,7 @@ namespace {
 
   if (validator.empty()) return {};
 
-  auto violation = vertex.properties.PropertiesMatchTypes(validator);
+  auto violation = vertex.properties.PropertiesMatchTypes(registry, validator);
   if (!violation) return {};
 
   auto const &[prop_id, label, kind] = *violation;
@@ -76,14 +77,14 @@ std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> TypeConstraints
 
 bool TypeConstraints::ActiveConstraints::empty() const { return container_->constraints_.empty(); }
 
-auto TypeConstraints::ActiveConstraints::Validate(const Vertex &vertex, LabelId label) const
-    -> std::expected<void, ConstraintViolation> {
+auto TypeConstraints::ActiveConstraints::Validate(ManifestRegistry const &registry, const Vertex &vertex,
+                                                  LabelId label) const -> std::expected<void, ConstraintViolation> {
   auto validator = TypeConstraintsValidator{};
   auto it = container_->l2p_constraints_.find(label);
   if (it == container_->l2p_constraints_.end()) return {};
   validator.add(label, it->second);
 
-  auto violation = vertex.properties.PropertiesMatchTypes(validator);
+  auto violation = vertex.properties.PropertiesMatchTypes(registry, validator);
   if (!violation) return {};
   auto const &[prop_id, _, kind] = *violation;
   return std::unexpected{ConstraintViolation{ConstraintViolation::Type::TYPE, label, kind, std::set{prop_id}}};
@@ -113,7 +114,8 @@ auto TypeConstraints::GetActiveConstraints() const -> std::shared_ptr<ActiveCons
 
 // --- TypeConstraints methods ---
 
-[[nodiscard]] auto TypeConstraints::ValidateAllVertices(utils::SkipListDb<Vertex>::Accessor vertices,
+[[nodiscard]] auto TypeConstraints::ValidateAllVertices(ManifestRegistry const &registry,
+                                                        utils::SkipListDb<Vertex>::Accessor vertices,
                                                         std::optional<SnapshotObserverInfo> const &snapshot_info) const
     -> std::expected<void, ConstraintViolation> {
   auto container = container_.ReadCopy();
@@ -121,7 +123,7 @@ auto TypeConstraints::GetActiveConstraints() const -> std::shared_ptr<ActiveCons
     return {};
   }
   for (auto const &vertex : vertices) {
-    if (auto validation_result = ValidateVertex(vertex, container); !validation_result.has_value()) {
+    if (auto validation_result = ValidateVertex(registry, vertex, container); !validation_result.has_value()) {
       return validation_result;
     }
     if (snapshot_info) {
@@ -132,7 +134,8 @@ auto TypeConstraints::GetActiveConstraints() const -> std::shared_ptr<ActiveCons
 }
 
 [[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::ValidateVerticesOnConstraint(
-    utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type) {
+    ManifestRegistry const &registry, utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property,
+    TypeConstraintKind type) {
   auto validator = TypeConstraintsValidator{};
   auto constraint = absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}};
   validator.add(label, constraint);
@@ -141,7 +144,7 @@ auto TypeConstraints::GetActiveConstraints() const -> std::shared_ptr<ActiveCons
     if (vertex.deleted()) continue;
     if (!std::ranges::contains(vertex.labels, label)) continue;
 
-    auto violation = vertex.properties.PropertiesMatchTypes(validator);
+    auto violation = vertex.properties.PropertiesMatchTypes(registry, validator);
     if (!violation) continue;
 
     return std::unexpected{ConstraintViolation{ConstraintViolation::Type::TYPE, label, type, std::set{property}}};

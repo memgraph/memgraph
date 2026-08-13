@@ -41,7 +41,10 @@ class EdgeImportModeCache final {
       const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
       Transaction *transaction) const;
 
-  bool CreateIndex(LabelId label, PropertyId property,
+  /// `registry` must be the registry the cached vertices are read back through, which is the owning
+  /// DiskStorage's: a record encoded against any other registry decodes to nothing the readers can
+  /// use.
+  bool CreateIndex(ManifestRegistry const &registry, LabelId label, PropertyId property,
                    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = {});
 
   bool CreateIndex(LabelId label,

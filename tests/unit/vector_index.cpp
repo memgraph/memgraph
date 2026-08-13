@@ -610,7 +610,7 @@ class VectorIndexRecoveryTest : public testing::Test {
       PropertyValue property_value(
           DoubleListTag{},
           std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
-      vertex_iter->properties.SetProperty(PropertyId::FromUint(1), property_value);
+      vertex_iter->properties.SetProperty(storage_->manifest_registry(), PropertyId::FromUint(1), property_value);
     }
   }
 
@@ -640,7 +640,8 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexSingleThreadTest) {
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo();
 
-  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(storage_->manifest_registry(),
+                                             recovery_info,
                                              vertices_acc,
                                              &storage_->indices_,
                                              storage_->name_id_mapper_.get(),
@@ -659,7 +660,8 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexParallelTest) {
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo();
 
-  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(storage_->manifest_registry(),
+                                             recovery_info,
                                              vertices_acc,
                                              &storage_->indices_,
                                              storage_->name_id_mapper_.get(),
@@ -678,7 +680,8 @@ TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo("resize_test_index", 10);  // Small capacity to force resize
 
-  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(storage_->manifest_registry(),
+                                             recovery_info,
                                              vertices_acc,
                                              &storage_->indices_,
                                              storage_->name_id_mapper_.get(),
@@ -774,7 +777,8 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
                               .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
       .index_entries = std::move(index_entries)};
 
-  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(storage_->manifest_registry(),
+                                             recovery_info,
                                              vertices_acc,
                                              &storage_->indices_,
                                              storage_->name_id_mapper_.get(),

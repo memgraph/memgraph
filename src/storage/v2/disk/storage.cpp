@@ -67,6 +67,19 @@ namespace memgraph::storage {
 
 namespace {
 
+/// Fills a record's properties from the bytes RocksDB holds for it.
+///
+/// The disk engine keeps `PropertyStore` as its on-disk format: a manifest record's bytes begin with
+/// a shape id that is only meaningful to the registry which issued it, and the registry is not
+/// persisted, so writing those bytes out would corrupt the data across a restart. Stored properties
+/// are therefore decoded out of the `PropertyStore` and re-encoded into the record's manifest form
+/// on the way in, and decoded back on the way out. The extra pass is deliberate: this path is
+/// dominated by disk I/O.
+void InitPropertiesFromDisk(ManifestRegistry &registry, ManifestPropertyStore &properties,
+                            const PropertyStore &stored) {
+  properties.InitProperties(registry, stored.Properties());
+}
+
 auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
     -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
@@ -167,7 +180,7 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
 
 PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Transaction *transaction, View view) {
   bool deleted = vertex.deleted();
-  PropertyValue value = vertex.properties.GetProperty(property);
+  PropertyValue value = vertex.properties.GetProperty(transaction->GetStorage()->manifest_registry(), property);
   Delta *delta = vertex.delta();
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
@@ -495,7 +508,7 @@ void DiskStorage::HandleLoadingLabelPropertyForEdgeImportCache(Transaction *tran
   if (!edge_import_mode_cache_->VerticesWithLabelPropertyScanned(label, property)) {
     LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(transaction, label, property);
 
-    if (!edge_import_mode_cache_->CreateIndex(label, property)) {
+    if (!edge_import_mode_cache_->CreateIndex(manifest_registry(), label, property)) {
       throw utils::BasicException("Failed creation of in-memory label-property index.");
     }
   }
@@ -707,11 +720,12 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelIndexCac
       spdlog::trace("Loaded vertex with gid: {} from main index storage to label index", vertex.gid.ToString());
       const uint64_t ts = disk::GetEarliestTimestamp(vertex.delta());
       /// TODO: here are doing serialization and then later deserialization again -> expensive
-      LoadVertexToLabelIndexCache(transaction,
-                                  utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
-                                  utils::SerializeVertexAsValueForLabelIndex(label, vertex.labels, vertex.properties),
-                                  CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
-                                  indexed_vertices->access());
+      LoadVertexToLabelIndexCache(
+          transaction,
+          utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
+          utils::SerializeVertexAsValueForLabelIndex(label, vertex.labels, manifest_registry(), vertex.properties),
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
+          indexed_vertices->access());
     }
   }
   return gids;
@@ -760,12 +774,12 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
     gids.insert(vertex.gid);
     if (label_property_filter(vertex, label, property, view)) {
       const uint64_t ts = disk::GetEarliestTimestamp(vertex.delta());
-      LoadVertexToLabelPropertyIndexCache(
-          transaction,
-          utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
-          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
-          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
-          indexed_vertices->access());
+      LoadVertexToLabelPropertyIndexCache(transaction,
+                                          utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
+                                          utils::SerializeVertexAsValueForLabelPropertyIndex(
+                                              label, vertex.labels, manifest_registry(), vertex.properties),
+                                          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
+                                          indexed_vertices->access());
     }
   }
 
@@ -851,12 +865,12 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
     if (VertexHasLabel(vertex, label, transaction, view) &&
         IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
       const uint64_t ts = disk::GetEarliestTimestamp(vertex.delta());
-      LoadVertexToLabelPropertyIndexCache(
-          transaction,
-          utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
-          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
-          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
-          indexed_vertices->access());
+      LoadVertexToLabelPropertyIndexCache(transaction,
+                                          utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
+                                          utils::SerializeVertexAsValueForLabelPropertyIndex(
+                                              label, vertex.labels, manifest_registry(), vertex.properties),
+                                          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
+                                          indexed_vertices->access());
     }
   }
   return gids;
@@ -1174,7 +1188,7 @@ bool DiskStorage::WriteVertexToVertexColumnFamily(Transaction *transaction, cons
   auto commit_ts = transaction->commit_info->timestamp.load(std::memory_order_relaxed);
   const auto ser_vertex = utils::SerializeVertex(vertex);
   auto status = transaction->disk_transaction_->Put(
-      kvstore_->vertex_chandle, ser_vertex, utils::SerializeProperties(vertex.properties));
+      kvstore_->vertex_chandle, ser_vertex, utils::SerializeProperties(manifest_registry(), vertex.properties));
   if (status.ok()) {
     spdlog::trace("rocksdb: Saved vertex with key {} and ts {} to vertex column family", ser_vertex, commit_ts);
     return true;
@@ -1315,13 +1329,15 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
 
 [[nodiscard]] std::expected<void, StorageManipulationError> DiskStorage::CheckVertexConstraintsBeforeCommit(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
-  if (auto existence_constraint_validation_result = constraints_.existence_constraints_->PerVertexValidate(vertex);
+  if (auto existence_constraint_validation_result =
+          constraints_.existence_constraints_->PerVertexValidate(manifest_registry(), vertex);
       !existence_constraint_validation_result.has_value()) {
     return std::unexpected{StorageManipulationError{existence_constraint_validation_result.error()}};
   }
 
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
-  if (auto unique_constraint_validation_result = disk_unique_constraints->Validate(vertex, unique_storage);
+  if (auto unique_constraint_validation_result =
+          disk_unique_constraints->Validate(manifest_registry(), vertex, unique_storage);
       !unique_constraint_validation_result.has_value()) {
     return std::unexpected{StorageManipulationError{unique_constraint_validation_result.error()}};
   }
@@ -1358,9 +1374,10 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
       return std::unexpected{StorageManipulationError{SerializationError{}}};
     }
 
-    if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, commit_ts) ||
-        !disk_label_index->SyncVertexToLabelIndexStorage(vertex, commit_ts) ||
-        !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, commit_ts)) {
+    auto const &registry = manifest_registry();
+    if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(registry, vertex, commit_ts) ||
+        !disk_label_index->SyncVertexToLabelIndexStorage(registry, vertex, commit_ts) ||
+        !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(registry, vertex, commit_ts)) {
       return std::unexpected{StorageManipulationError{SerializationError{}}};
     }
   }
@@ -1475,7 +1492,8 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
       if (!WriteEdgeToEdgeColumnFamily(
               transaction,
               edge_gid,
-              utils::SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid, modified_edge.second.edge_type_id, &*edge))) {
+              utils::SerializeEdgeAsValue(
+                  src_vertex_gid, dst_vertex_gid, modified_edge.second.edge_type_id, manifest_registry(), *edge))) {
         return std::unexpected{StorageManipulationError{SerializationError{}}};
       }
     }
@@ -1516,7 +1534,7 @@ VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction,
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
   it->labels = std::move(label_ids);
-  it->properties = std::move(properties);
+  InitPropertiesFromDisk(manifest_registry(), it->properties, properties);
   delta->prev.Set(&*it);
   return {&*it, this, transaction};
 }
@@ -1577,7 +1595,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     delta->prev.Set(&*it);
-    edge.ptr->properties.SetBuffer(properties);
+    InitPropertiesFromDisk(manifest_registry(), edge.ptr->properties, PropertyStore::CreateFromBuffer(properties));
   }
 
   const ModifiedEdgeInfo modified_edge(

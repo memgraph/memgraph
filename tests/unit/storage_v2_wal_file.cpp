@@ -151,10 +151,10 @@ class DeltaGenerator final {
                      const memgraph::storage::PropertyValue &value) {
       auto property_id = memgraph::storage::PropertyId::FromUint(gen_->mapper().NameToId(property));
       auto &props = vertex->properties;
-      auto old_value = props.GetProperty(property_id);
+      auto old_value = props.GetProperty(gen_->storage_->manifest_registry(), property_id);
       memgraph::storage::CreateAndLinkDelta(
           &transaction_, &*vertex, memgraph::storage::Delta::SetPropertyTag(), property_id, old_value);
-      props.SetProperty(property_id, value);
+      props.SetProperty(gen_->storage_->manifest_registry(), property_id, value);
       if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return;
       {
         // We don't store the property value here. That is because the storage
@@ -168,10 +168,10 @@ class DeltaGenerator final {
     void SetEdgeProperty(memgraph::storage::Edge *edge, memgraph::storage::Vertex *from_vertex,
                          const std::string &property, const memgraph::storage::PropertyValue &value) {
       auto property_id = memgraph::storage::PropertyId::FromUint(gen_->mapper().NameToId(property));
-      auto old_value = edge->properties.GetProperty(property_id);
+      auto old_value = edge->properties.GetProperty(gen_->storage_->manifest_registry(), property_id);
       memgraph::storage::CreateAndLinkDelta(
           &transaction_, edge, memgraph::storage::Delta::SetPropertyTag(), from_vertex, property_id, old_value);
-      edge->properties.SetProperty(property_id, value);
+      edge->properties.SetProperty(gen_->storage_->manifest_registry(), property_id, value);
       if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return;
       {
         data_.emplace_back(memgraph::storage::durability::WalEdgeSetProperty{edge->gid, property, {}});
@@ -227,7 +227,8 @@ class DeltaGenerator final {
               auto property_id =
                   memgraph::storage::PropertyId::FromUint(gen_->mapper().NameToId(set_property->property));
               set_property->value = memgraph::storage::ToExternalPropertyValue(
-                  vertex->properties.GetProperty(property_id), gen_->storage_->name_id_mapper_.get());
+                  vertex->properties.GetProperty(gen_->storage_->manifest_registry(), property_id),
+                  gen_->storage_->name_id_mapper_.get());
             }
             auto edge_set_property = std::get_if<memgraph::storage::durability::WalEdgeSetProperty>(&data.data_);
             if (edge_set_property) {
@@ -238,7 +239,8 @@ class DeltaGenerator final {
               auto property_id =
                   memgraph::storage::PropertyId::FromUint(gen_->mapper().NameToId(edge_set_property->property));
               edge_set_property->value = memgraph::storage::ToExternalPropertyValue(
-                  edge->properties.GetProperty(property_id), gen_->storage_->name_id_mapper_.get());
+                  edge->properties.GetProperty(gen_->storage_->manifest_registry(), property_id),
+                  gen_->storage_->name_id_mapper_.get());
             }
             gen_->data_.emplace_back(commit_timestamp, data);
           }
@@ -1628,7 +1630,10 @@ void ReplayWal(std::filesystem::path const &path, bool properties_on_edges) {
     return std::nullopt;
   };
 
+  auto registry = memgraph::storage::ManifestRegistry{};
+
   static_cast<void>(memgraph::storage::durability::LoadWal(
+      registry,
       path,
       &indices_constraints,
       std::nullopt,

@@ -1243,6 +1243,7 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
       // Use IndexedPropertyDecoder to resolve VectorIndexId vectors from vector index.
       auto property_value = vertex->properties.GetProperty(
+          storage->manifest_registry(),
           delta.property.key,
           IndexedPropertyDecoder<Vertex>{
               .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = vertex});
@@ -1292,6 +1293,7 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
       // Use IndexedPropertyDecoder to resolve VectorIndexId vectors from vector index.
       auto property_value = edge->properties.GetProperty(
+          storage->manifest_registry(),
           delta.property.key,
           IndexedPropertyDecoder<Edge>{
               .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = edge});
@@ -1367,7 +1369,7 @@ WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
 // Each transaction's CRC is verified as it is replayed, so a finalized file - which states its own extent - never
 // has to be parsed twice.
 std::optional<RecoveryInfo> LoadWal(
-    const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
+    ManifestRegistry &registry, const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
     const std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipListDb<Vertex> *vertices,
     utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -1494,12 +1496,12 @@ std::optional<RecoveryInfo> LoadWal(
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         auto property_value = ToPropertyValue(data.value, name_id_mapper);
         if (schema_info) {
-          const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
+          const auto old_type = vertex->properties.GetExtendedPropertyType(registry, property_id);
           schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
         VectorIndexRecovery::UpdateOnSetProperty(
             property_id, property_value, &*vertex, indices_constraints->indices.vector_indices);
-        vertex->properties.SetProperty(property_id, property_value);
+        vertex->properties.SetProperty(registry, property_id, property_value);
       },
       [&](WalEdgeCreate const &data) {
         const auto from_vertex = vertex_acc.find(data.from_vertex);
@@ -1708,7 +1710,7 @@ std::optional<RecoveryInfo> LoadWal(
               EdgeRecoveryCacheEntry{
                   .edge_ref = edge_ref, .edge_type = edge_type_id, .from_vertex = from_v, .to_vertex = to_v});
           if (schema_info) {
-            const auto old_type = edge_raw->properties.GetExtendedPropertyType(property_id);
+            const auto old_type = edge_raw->properties.GetExtendedPropertyType(registry, property_id);
             schema_info->SetProperty(edge_type_id,
                                      from_v,
                                      to_v,
@@ -1717,7 +1719,7 @@ std::optional<RecoveryInfo> LoadWal(
                                      old_type,
                                      items.properties_on_edges);
           }
-          edge_raw->properties.SetProperty(property_id, property_value);
+          edge_raw->properties.SetProperty(registry, property_id, property_value);
           VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(
               property_id, property_value, edge_raw, indices_constraints->indices.vector_edge_indices);
           return;
@@ -1734,7 +1736,7 @@ std::optional<RecoveryInfo> LoadWal(
           auto cache_it = edge_recovery_cache.find(data.gid);
           if (cache_it != edge_recovery_cache.end()) {
             const auto &entry = cache_it->second;
-            const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
+            const auto old_type = edge->properties.GetExtendedPropertyType(registry, property_id);
             schema_info->SetProperty(entry.edge_type,
                                      entry.from_vertex,
                                      entry.to_vertex,
@@ -1790,7 +1792,7 @@ std::optional<RecoveryInfo> LoadWal(
                 data.gid,
                 EdgeRecoveryCacheEntry{
                     .edge_ref = edge_ref, .edge_type = edge_type, .from_vertex = from_vertex, .to_vertex = to_vertex});
-            const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
+            const auto old_type = edge->properties.GetExtendedPropertyType(registry, property_id);
             schema_info->SetProperty(edge_type,
                                      from_vertex,
                                      to_vertex,
@@ -1801,7 +1803,7 @@ std::optional<RecoveryInfo> LoadWal(
           }
         }
 
-        edge->properties.SetProperty(property_id, property_value);
+        edge->properties.SetProperty(registry, property_id, property_value);
         VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(
             property_id, property_value, &*edge, indices_constraints->indices.vector_edge_indices);
       },

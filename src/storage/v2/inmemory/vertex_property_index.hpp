@@ -245,13 +245,15 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
     mutable std::vector<PropertyId> indexed_;
   };
 
-  bool CreateIndexOnePass(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+  bool CreateIndexOnePass(ManifestRegistry const &registry, PropertyId property,
+                          utils::SkipListDb<Vertex>::Accessor vertices,
                           std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
                           ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   bool RegisterIndex(PropertyId property, ActiveIndicesUpdater const &updater);
-  auto PopulateIndex(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+  auto PopulateIndex(ManifestRegistry const &registry, PropertyId property,
+                     utils::SkipListDb<Vertex>::Accessor vertices,
                      std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,

@@ -261,7 +261,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   // Convience function that does Register + Populate + direct Publish
   // TODO: direct Publish...should it be for a particular timestamp?
-  bool CreateIndexOnePass(LabelId label, PropertiesPaths const &properties,
+  bool CreateIndexOnePass(ManifestRegistry const &registry, LabelId label, PropertiesPaths const &properties,
                           utils::SkipListDb<Vertex>::Accessor vertices,
                           const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                           ActiveIndicesUpdater const &updater,
@@ -271,7 +271,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   bool RegisterIndex(LabelId label, PropertiesPaths const &properties, ActiveIndicesUpdater const &updater,
                      IndexOrder order = IndexOrder::ASC);
 
-  auto PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
+  auto PopulateIndex(ManifestRegistry const &registry, LabelId label, PropertiesPaths const &properties,
+                     utils::SkipListDb<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,

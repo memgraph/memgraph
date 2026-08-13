@@ -215,7 +215,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   storage_->UpdateLabelCount(label, 1);
 
   if (!transaction_->active_constraints_->type_->empty()) {
-    if (auto validation_result = transaction_->active_constraints_->type_->Validate(*vertex_, label);
+    if (auto validation_result =
+            transaction_->active_constraints_->type_->Validate(storage_->manifest_registry(), *vertex_, label);
         !validation_result.has_value()) {
       HandleTypeConstraintViolation(storage_, validation_result.error());
     }
@@ -437,6 +438,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
                                   skip_duplicate_write,
                                   &schema_acc]() {
     old_value = vertex->properties.GetProperty(
+        storage_->manifest_registry(),
         property,
         IndexedPropertyDecoder<Vertex>{
             .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
@@ -448,7 +450,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
     // transactions get a SERIALIZATION_ERROR.
     if (skip_duplicate_write && old_value == new_value) return true;
     CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
-    vertex->properties.SetProperty(property, new_value);
+    vertex->properties.SetProperty(storage_->manifest_registry(), property, new_value);
     if (schema_acc) {
       std::visit(
           utils::Overloaded{[vertex,
@@ -514,7 +516,7 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
   bool result{false};
   utils::AtomicMemoryBlock(
       [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_, &schema_acc]() {
-        if (!vertex->properties.InitProperties(properties)) {
+        if (!vertex->properties.InitProperties(storage->manifest_registry(), properties)) {
           result = false;
           return;
         }
@@ -582,7 +584,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   if (vertex_->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
   const bool skip_duplicate_update = storage_->config_.salient.items.delta_on_identical_property_update;
-  using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
+  using ReturnType = decltype(vertex_->properties.UpdateProperties(storage_->manifest_registry(), properties));
   std::optional<ReturnType> id_old_new_change;
   utils::AtomicMemoryBlock([storage = storage_,
                             transaction = transaction_,
@@ -591,7 +593,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
                             &id_old_new_change,
                             skip_duplicate_update,
                             &schema_acc]() {
-    id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
+    id_old_new_change.emplace(vertex->properties.UpdateProperties(storage->manifest_registry(), properties));
     if (!id_old_new_change) {
       return;
     }
@@ -640,11 +642,12 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 
   if (vertex_->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
-  using ReturnType = decltype(vertex_->properties.Properties());
+  using ReturnType = std::map<PropertyId, PropertyValue>;
   std::optional<ReturnType> properties;
   utils::AtomicMemoryBlock(
       [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &schema_acc]() {
-        properties.emplace(vertex->properties.Properties());
+        auto const stored = vertex->properties.Properties(storage->manifest_registry());
+        properties.emplace(stored.begin(), stored.end());
         if (!properties) {
           return;
         }
@@ -681,6 +684,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     deleted = vertex_->deleted();
     delta = vertex_->delta();
     auto prop_value = vertex_->properties.GetProperty(
+        storage_->manifest_registry(),
         property,
         IndexedPropertyDecoder<Vertex>{
             .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
@@ -728,7 +732,7 @@ Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view)
     auto guard = std::shared_lock{vertex_->lock};
     Delta *delta = vertex_->delta();
     if (!delta) {
-      return vertex_->properties.PropertySize(property);
+      return vertex_->properties.PropertySize(storage_->manifest_registry(), property);
     }
   }
 
@@ -737,10 +741,10 @@ Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view)
     return std::unexpected{property_result.error()};
   }
 
-  auto property_store = storage::PropertyStore();
-  property_store.SetProperty(property, *property_result);
+  auto property_store = storage::ManifestPropertyStore();
+  property_store.SetProperty(storage_->manifest_registry(), property, *property_result);
 
-  return property_store.PropertySize(property);
+  return property_store.PropertySize(storage_->manifest_registry(), property);
 };
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view) const {
@@ -752,8 +756,11 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   {
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
-    properties = vertex_->properties.Properties(IndexedPropertyDecoder<Vertex>{
-        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
+    auto const stored = vertex_->properties.Properties(
+        storage_->manifest_registry(),
+        IndexedPropertyDecoder<Vertex>{
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
+    properties = std::map<PropertyId, PropertyValue>{stored.begin(), stored.end()};
     delta = vertex_->delta();
   }
 
@@ -807,7 +814,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
     auto property_paths = properties |
                           rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
                           r::to<std::vector<storage::PropertyPath>>();
-    property_values = vertex_->properties.ExtractPropertyValuesMissingAsNull(property_paths);
+    property_values =
+        vertex_->properties.ExtractPropertyValuesMissingAsNull(storage_->manifest_registry(), property_paths);
     delta = vertex_->delta();
   }
   auto properties_map =

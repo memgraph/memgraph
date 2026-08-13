@@ -165,7 +165,9 @@ struct Transaction {
         last_durable_num_committed_txns_{last_durable_num_committed_txns},
         active_indices_{std::move(active_indices)},
         active_constraints_{std::move(active_constraints)},
-        async_index_helper_(std::move(async_index_helper)) {}
+        async_index_helper_(std::move(async_index_helper)) {
+    PointAtRegistry();
+  }
 
   Transaction(Transaction &&other) noexcept = default;
 
@@ -178,6 +180,13 @@ struct Transaction {
   bool IsDiskStorage() const { return storage_mode == StorageMode::ON_DISK_TRANSACTIONAL; }
 
   Storage *GetStorage() const { return storage_; }
+
+  /// Points this transaction at its database's registry of record shapes, and its schema diff with
+  /// it. Out of line because the storage is only forward declared here.
+  void PointAtRegistry();
+
+  /// The registry that resolves the shapes of the records this transaction reads and writes.
+  auto registry() const -> ManifestRegistry & { return *registry_; }
 
   /// @throw std::bad_alloc if failed to create the `commit_info`
   void EnsureCommitInfoExists() {
@@ -207,7 +216,7 @@ struct Transaction {
   }
 
   void UpdateOnChangeLabel(LabelId label, Vertex *vertex) {
-    point_index_change_collector_.UpdateOnChangeLabel(label, vertex);
+    point_index_change_collector_.UpdateOnChangeLabel(registry(), label, vertex);
     manyDeltasCache.Invalidate(vertex, label);
   }
 
@@ -218,7 +227,7 @@ struct Transaction {
   }
 
   void UpdateOnVertexDelete(Vertex *vertex) {
-    point_index_change_collector_.UpdateOnVertexDelete(vertex);
+    point_index_change_collector_.UpdateOnVertexDelete(registry(), vertex);
     manyDeltasCache.Invalidate(vertex);
   }
 
@@ -230,6 +239,9 @@ struct Transaction {
   /// always owned (directly or via the accessor holding it) by that storage, so
   /// it cannot outlive it.
   Storage *storage_{};
+
+  /// Resolves the shapes of the records this transaction touches; the storage's own registry.
+  ManifestRegistry *registry_{};
 
   uint64_t transaction_id{};
   uint64_t start_timestamp{};

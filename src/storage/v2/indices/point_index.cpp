@@ -35,8 +35,8 @@ struct PointIndex {
   PointIndex(std::span<Entry<IndexPointWGS2d>> points2dWGS, std::span<Entry<IndexPointCartesian2d>> points2dCartesian,
              std::span<Entry<IndexPointWGS3d>> points3dWGS, std::span<Entry<IndexPointCartesian3d>> points3dCartesian);
 
-  auto CreateNewPointIndex(LabelPropKey labelPropKey, absl::flat_hash_set<Vertex const *> const &changed_vertices) const
-      -> PointIndex;
+  auto CreateNewPointIndex(ManifestRegistry const &registry, LabelPropKey labelPropKey,
+                           absl::flat_hash_set<Vertex const *> const &changed_vertices) const -> PointIndex;
 
   auto EntryCount() const -> std::size_t {
     return wgs_2d_index_->size() + wgs_3d_index_->size() + cartesian_2d_index_->size() + cartesian_3d_index_->size();
@@ -65,8 +65,8 @@ struct PointIndex {
 };
 
 namespace {
-auto update_internal(index_container_t const &src, TrackedChanges const &tracked_changes)
-    -> std::optional<index_container_t> {
+auto update_internal(ManifestRegistry const &registry, index_container_t const &src,
+                     TrackedChanges const &tracked_changes) -> std::optional<index_container_t> {
   // All previous txns will use older index, this new built index will not concurrently be seen by older txns
   if (!tracked_changes.AnyChanges()) return std::nullopt;
 
@@ -93,8 +93,8 @@ auto update_internal(index_container_t const &src, TrackedChanges const &tracked
       new_point_index.emplace(key, it->second);
     } else {
       // this key has changes, need to rebuild PointIndex for it
-      new_point_index.emplace(key,
-                              std::make_shared<PointIndex>(key_src_index.CreateNewPointIndex(key, changed_vertices)));
+      new_point_index.emplace(
+          key, std::make_shared<PointIndex>(key_src_index.CreateNewPointIndex(registry, key, changed_vertices)));
     }
   }
 
@@ -127,7 +127,7 @@ void PointIndexStorage::PublishActiveIndices(ActiveIndicesUpdater const &updater
   updater(std::make_shared<PointIndexStorage::ActiveIndices>(indexes_));
 }
 
-bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
+bool PointIndexStorage::CreatePointIndex(ManifestRegistry const &registry, LabelId label, PropertyId property,
                                          utils::SkipListDb<Vertex>::Accessor vertices,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto key = LabelPropKey{label, property};
@@ -143,7 +143,7 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
     if (!std::ranges::contains(v.labels, label)) continue;
 
     static constexpr auto point_types = std::array{PropertyStoreType::POINT};
-    auto maybe_value = v.properties.GetPropertyOfTypes(property, point_types);
+    auto maybe_value = v.properties.GetPropertyOfTypes(registry, property, point_types);
     if (!maybe_value) continue;
 
     auto value = *maybe_value;
@@ -207,8 +207,8 @@ std::shared_ptr<PointIndex const> PointIndexStorage::DropPointIndex(LabelId labe
   return evicted;
 }
 
-void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context,
-                                             ActiveIndicesUpdater const &updater) {
+void PointIndexStorage::InstallNewPointIndex(ManifestRegistry const &registry, PointIndexChangeCollector &collector,
+                                             PointIndexContext &context, ActiveIndicesUpdater const &updater) {
   if (!context.UsingLocalIndex() && !collector.CurrentChanges().AnyChanges()) {
     // Hence TXN didn't do AdvanceCommand that required new private local index
     // no modification during the last command to require new index now
@@ -220,13 +220,13 @@ void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collecto
     // TODO: make a special case for inplace modification
     //    if (!context.UsingLocalIndex() && context.orig_indexes_.use_count() == 3) { /* ??? */}
     //    3 becasue indexes_ + orig_indexes_ + current_indexes_ should be the only references
-    context.update_current(collector);
+    context.update_current(registry, collector);
     indexes_ = context.current_indexes_;
   } else {
     // Another txn made a commit, we need to build from indexes_ + all collected changes (even from AdvanceCommand)
     // TODO: make a special case for inplace modification
     //    if (indexes_.use_count() == 1) { /* ??? */ }
-    context.rebuild_current(indexes_, collector);
+    context.rebuild_current(registry, indexes_, collector);
     indexes_ = context.current_indexes_;
   };
 
@@ -247,7 +247,7 @@ bool PointIndexStorage::PointIndexExists(LabelId labelId, PropertyId propertyId)
   return indexes->contains(LabelPropKey{labelId, propertyId});
 }
 
-auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
+auto PointIndex::CreateNewPointIndex(ManifestRegistry const &registry, LabelPropKey labelPropKey,
                                      absl::flat_hash_set<Vertex const *> const &changed_vertices) const -> PointIndex {
   DMG_ASSERT(!changed_vertices.empty(), "Expect at least one change");
 
@@ -268,7 +268,7 @@ auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
       continue;
     }
     constexpr auto all_point_types = std::array{PropertyStoreType::POINT};
-    auto prop = v->properties.GetPropertyOfTypes(labelPropKey.property(), all_point_types);
+    auto prop = v->properties.GetPropertyOfTypes(registry, labelPropKey.property(), all_point_types);
     if (!prop) continue;
     if (prop->IsPoint2d()) {
       auto const &val = prop->ValuePoint2d();
@@ -313,19 +313,20 @@ auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
                     helper(cartesian_3d_index_, changed_cartesian_3d)};
 }
 
-void PointIndexContext::rebuild_current(std::shared_ptr<index_container_t> latest_index,
+void PointIndexContext::rebuild_current(ManifestRegistry const &registry,
+                                        std::shared_ptr<index_container_t> latest_index,
                                         PointIndexChangeCollector &collector) {
   orig_indexes_ = std::move(latest_index);
   current_indexes_ = orig_indexes_;
 
-  auto result = update_internal(*current_indexes_, collector.PreviousChanges());
+  auto result = update_internal(registry, *current_indexes_, collector.PreviousChanges());
   if (result) current_indexes_ = std::make_unique<index_container_t>(*std::move(result));
 
-  update_current(collector);
+  update_current(registry, collector);
 }
 
-void PointIndexContext::update_current(PointIndexChangeCollector &collector) {
-  auto result = update_internal(*current_indexes_, collector.CurrentChanges());
+void PointIndexContext::update_current(ManifestRegistry const &registry, PointIndexChangeCollector &collector) {
+  auto result = update_internal(registry, *current_indexes_, collector.CurrentChanges());
   if (result) current_indexes_ = std::make_unique<index_container_t>(*std::move(result));
   collector.ArchiveCurrentChanges();
 }

@@ -19,6 +19,7 @@
 #include "query/exceptions.hpp"
 #include "range/v3/algorithm/remove.hpp"
 #include "storage/v2/indices/tracked_vector_allocator.hpp"
+#include "storage/v2/property_manifest.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
@@ -289,6 +290,19 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
   }
 }
 
+/// TODO: The vector index rewrites a record's list property into a vector handle, which
+/// `ManifestPropertyStore` has no encoding for, so every property write below throws
+/// `ManifestPropertyStore::UnsupportedType` whatever registry it is handed. None of the vector
+/// index entry points can reach the real registry either: doing so means a `ManifestRegistry`
+/// parameter on callers outside the vector index. Until the vector index is rebuilt on a
+/// representation the manifest store can encode, its property reads and writes go through this
+/// registry, which belongs to no storage and resolves none of the shapes the records were
+/// encoded to.
+inline ManifestRegistry &NoManifestRegistry() {
+  static ManifestRegistry registry;
+  return registry;
+}
+
 /// @brief Non-throwing conversion of a PropertyValue list to a vector of floats.
 /// @return The float vector, or nullopt if the value is not a numeric list.
 inline std::optional<utils::small_vector<float>> TryListToVector(const PropertyValue &value) {
@@ -348,14 +362,15 @@ inline bool UnregisterIndexId(PropertyValue &property_value, uint64_t index_id) 
 /// or promotes a plain Vector property back into a VectorIndexIdData{id}.
 template <typename Entity>
 inline void ReinstallIndexIdInProperty(Entity *entity, PropertyId property, uint64_t index_id) {
-  auto property_value = entity->properties.GetProperty(property);
+  auto &registry = NoManifestRegistry();
+  auto property_value = entity->properties.GetProperty(registry, property);
   if (property_value.IsVectorIndexId()) {
     property_value.ValueVectorIndexIds().push_back(index_id);
   } else {
     property_value =
         PropertyValue(PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id}, .vector = {}});
   }
-  entity->properties.SetProperty(property, property_value);
+  entity->properties.SetProperty(registry, property, property_value);
 }
 
 /// @brief Checks if dropping a vector index would exceed the total memory limit.

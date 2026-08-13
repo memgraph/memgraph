@@ -12,6 +12,8 @@
 #pragma once
 
 #include "storage/v2/edge.hpp"
+#include "storage/v2/manifest_property_store.hpp"
+#include "storage/v2/property_manifest.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/vertex.hpp"
 
@@ -77,6 +79,25 @@ inline std::string SerializeLabels(const std::vector<std::string> &labels) { ret
 
 inline std::string SerializeProperties(const storage::PropertyStore &properties) { return properties.StringBuffer(); }
 
+/// The disk engine keeps `PropertyStore` as its on-disk format. A manifest record's bytes begin
+/// with a shape id that is only meaningful to the registry which issued it, and the registry is
+/// not persisted, so those bytes must never reach RocksDB. A record therefore leaves the manifest
+/// form on its way out and is rebuilt into it on its way back in. The extra decode and encode is
+/// deliberate: the path is dominated by disk I/O.
+inline storage::PropertyStore AsPropertyStore(const storage::ManifestRegistry &registry,
+                                              const storage::ManifestPropertyStore &properties) {
+  auto const stored = properties.Properties(registry);
+  std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> values(stored.begin(), stored.end());
+  storage::PropertyStore property_store;
+  property_store.InitProperties(std::move(values));
+  return property_store;
+}
+
+inline std::string SerializeProperties(const storage::ManifestRegistry &registry,
+                                       const storage::ManifestPropertyStore &properties) {
+  return SerializeProperties(AsPropertyStore(registry, properties));
+}
+
 inline std::string PutIndexingLabelAndPropertyFirst(std::string_view indexing_label, std::string_view indexing_property,
                                                     const std::vector<std::string> &vertex_labels) {
   std::string result;
@@ -120,7 +141,7 @@ inline std::string_view GetPropertiesFromEdgeValue(const std::string_view value)
 }
 
 inline std::string SerializeEdgeAsValue(std::string_view src_vertex_gid, std::string_view dst_vertex_gid,
-                                        const storage::EdgeTypeId &edge_type, const storage::Edge *edge = nullptr) {
+                                        const storage::EdgeTypeId &edge_type) {
   std::string edge_type_str = edge_type.ToString();
   std::string result;
   result.reserve(src_vertex_gid.size() + 3 + dst_vertex_gid.size() + edge_type_str.size());
@@ -130,10 +151,14 @@ inline std::string SerializeEdgeAsValue(std::string_view src_vertex_gid, std::st
   result += "|";
   result += edge_type_str;
   result += "|";
-  if (edge) {
-    return result + utils::SerializeProperties(edge->properties);
-  }
   return result;
+}
+
+inline std::string SerializeEdgeAsValue(std::string_view src_vertex_gid, std::string_view dst_vertex_gid,
+                                        const storage::EdgeTypeId &edge_type, const storage::ManifestRegistry &registry,
+                                        const storage::Edge &edge) {
+  return SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid, edge_type) +
+         utils::SerializeProperties(registry, edge.properties);
 }
 
 inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId label_to_remove,
@@ -148,6 +173,14 @@ inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId l
   }
   std::string result = SerializeLabels(TransformIDsToString(labels_without_target)) + "|";
   return result + SerializeProperties(property_store);
+}
+
+inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId label_to_remove,
+                                                              std::span<storage::LabelId const> vertex_labels,
+                                                              const storage::ManifestRegistry &registry,
+                                                              const storage::ManifestPropertyStore &property_store) {
+  return SerializeVertexAsValueForAuxiliaryStorages(
+      label_to_remove, vertex_labels, AsPropertyStore(registry, property_store));
 }
 
 inline std::string_view ExtractGidFromKey(std::string_view key) { return FindPartOfStringView(key, '|', 2); }
@@ -208,6 +241,13 @@ inline std::string SerializeVertexAsValueForUniqueConstraint(const storage::Labe
   return SerializeVertexAsValueForAuxiliaryStorages(constraint_label, vertex_labels, property_store);
 }
 
+inline std::string SerializeVertexAsValueForUniqueConstraint(const storage::LabelId &constraint_label,
+                                                             std::span<storage::LabelId const> vertex_labels,
+                                                             const storage::ManifestRegistry &registry,
+                                                             const storage::ManifestPropertyStore &property_store) {
+  return SerializeVertexAsValueForAuxiliaryStorages(constraint_label, vertex_labels, registry, property_store);
+}
+
 inline storage::LabelId DeserializeConstraintLabelFromUniqueConstraintStorage(std::string_view key) {
   const std::string_view firstPartKey = FindPartOfStringView(key, '|', 1);
   const std::string_view constraint_key = FindPartOfStringView(firstPartKey, ',', 1);
@@ -237,6 +277,13 @@ inline std::string SerializeVertexAsValueForLabelIndex(storage::LabelId indexing
                                                        std::span<storage::LabelId const> vertex_labels,
                                                        const storage::PropertyStore &property_store) {
   return SerializeVertexAsValueForAuxiliaryStorages(indexing_label, vertex_labels, property_store);
+}
+
+inline std::string SerializeVertexAsValueForLabelIndex(storage::LabelId indexing_label,
+                                                       std::span<storage::LabelId const> vertex_labels,
+                                                       const storage::ManifestRegistry &registry,
+                                                       const storage::ManifestPropertyStore &property_store) {
+  return SerializeVertexAsValueForAuxiliaryStorages(indexing_label, vertex_labels, registry, property_store);
 }
 
 inline std::vector<storage::LabelId> DeserializeLabelsFromIndexStorage(std::string_view key, std::string_view value) {
@@ -277,6 +324,13 @@ inline std::string SerializeVertexAsValueForLabelPropertyIndex(storage::LabelId 
                                                                std::span<storage::LabelId const> vertex_labels,
                                                                const storage::PropertyStore &property_store) {
   return SerializeVertexAsValueForAuxiliaryStorages(indexing_label, vertex_labels, property_store);
+}
+
+inline std::string SerializeVertexAsValueForLabelPropertyIndex(storage::LabelId indexing_label,
+                                                               std::span<storage::LabelId const> vertex_labels,
+                                                               const storage::ManifestRegistry &registry,
+                                                               const storage::ManifestPropertyStore &property_store) {
+  return SerializeVertexAsValueForAuxiliaryStorages(indexing_label, vertex_labels, registry, property_store);
 }
 
 inline std::string ExtractGidFromLabelPropertyIndexStorage(std::string_view key) {

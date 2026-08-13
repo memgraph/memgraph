@@ -131,6 +131,13 @@ struct SchemaTracking final : public SchemaTrackingInterface {
                        const VertexKey &new_to_labels, const VertexKey &old_from_labels, const VertexKey &old_to_labels,
                        const std::map<PropertyId, ExtendedPropertyType> &edge_props);
 
+  /// Points the tracking at the registry that resolves the shapes of the records it reads. A
+  /// tracking belongs to one database, as its registry does, so this is set once at construction
+  /// and never changes.
+  void SetRegistry(ManifestRegistry &registry) { registry_ = &registry; }
+
+  auto registry() const -> ManifestRegistry & { return *registry_; }
+
  private:
   friend LocalSchemaTracking;
   friend SharedSchemaTracking;
@@ -147,6 +154,7 @@ struct SchemaTracking final : public SchemaTrackingInterface {
 
   TContainer<VertexKey, TrackingInfo<TContainer>> vertex_state_;  //!< vertex statistics
   TContainer<EdgeKey, TrackingInfo<TContainer>> edge_state_;      //!< edge statistics
+  ManifestRegistry *registry_{};                                  //!< resolves the shapes of the records read
 };
 
 struct SchemaInfo {
@@ -196,6 +204,12 @@ struct SchemaInfo {
 
   // Raw reference
   auto &Get() { return tracking_; }
+
+  /// Points the tracking at the database's registry of record shapes. See
+  /// `SchemaTracking::SetRegistry`.
+  void SetRegistry(ManifestRegistry &registry) { tracking_.SetRegistry(registry); }
+
+  auto registry() const -> ManifestRegistry & { return tracking_.registry(); }
 
   // Advanced modification accessors
   class TransactionalEdgeModifyingAccessor {

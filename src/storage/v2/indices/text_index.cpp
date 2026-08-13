@@ -114,8 +114,9 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
   }
 }
 
-void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
-                             NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
+void TextIndex::RecoverIndex(ManifestRegistry const &registry, const TextIndexSpec &index_info,
+                             utils::SkipListDb<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper,
+                             ActiveIndicesUpdater const &updater,
                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
   auto needs_rebuild = !std::filesystem::exists(index_path);
@@ -139,10 +140,11 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<
     for (const auto &vertex : vertices) {
       if (!std::ranges::contains(vertex.labels, index_info.label)) continue;
 
-      auto properties_to_index = FilterPropertiesToIndex(index_info.properties, vertex.properties.ExtractPropertyIds());
+      auto properties_to_index =
+          FilterPropertiesToIndex(index_info.properties, vertex.properties.ExtractPropertyIds(registry));
       if (properties_to_index.empty()) continue;
 
-      auto properties_to_index_map = ExtractProperties(vertex.properties, properties_to_index);
+      auto properties_to_index_map = ExtractProperties(registry, vertex.properties, properties_to_index);
       TextIndex::AddNodeToTextIndex(vertex.gid.AsInt(),
                                     SerializeProperties(properties_to_index_map, name_id_mapper),
                                     StringifyProperties(properties_to_index_map),
@@ -246,7 +248,7 @@ void TextIndex::ActiveIndices::UpdateOnAddLabel(LabelId label, const Vertex *ver
   if (index_container_->empty()) return;
   auto label_applicable_text_indices = LabelApplicableTextIndices(std::array{label});
   if (label_applicable_text_indices.empty()) return;
-  const auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  const auto vertex_properties = vertex->properties.ExtractPropertyIds(tx.registry());
   auto applicable_text_indices = GetIndicesMatchingProperties(label_applicable_text_indices, vertex_properties);
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::ADD);
 }
@@ -255,7 +257,7 @@ void TextIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId label, const Vertex *
   if (index_container_->empty()) return;
   auto label_applicable_text_indices = LabelApplicableTextIndices(std::array{label});
   if (label_applicable_text_indices.empty()) return;
-  const auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  const auto vertex_properties = vertex->properties.ExtractPropertyIds(tx.registry());
   auto applicable_text_indices = GetIndicesMatchingProperties(label_applicable_text_indices, vertex_properties);
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::REMOVE);
 }
@@ -278,7 +280,7 @@ void TextIndex::ActiveIndices::RemoveNode(const Vertex *vertex, Transaction &tx)
   if (index_container_->empty()) return;
   auto label_applicable_text_indices = LabelApplicableTextIndices(vertex->labels);
   if (label_applicable_text_indices.empty()) return;
-  const auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  const auto vertex_properties = vertex->properties.ExtractPropertyIds(tx.registry());
   auto applicable_text_indices = GetIndicesMatchingProperties(label_applicable_text_indices, vertex_properties);
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::REMOVE);
 }
@@ -420,9 +422,7 @@ void TextIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMapper
     std::vector<PreparedDoc> docs_to_add;
     docs_to_add.reserve(pending.to_add.size());
     for (const auto *vertex : pending.to_add) {
-      auto vertex_properties = index_data_ptr->properties.empty()
-                                   ? vertex->properties.Properties()
-                                   : ExtractProperties(vertex->properties, index_data_ptr->properties);
+      auto vertex_properties = ExtractProperties(tx.registry(), vertex->properties, index_data_ptr->properties);
       docs_to_add.push_back({vertex->gid.AsInt(),
                              SerializeProperties(vertex_properties, name_id_mapper),
                              StringifyProperties(vertex_properties)});

@@ -761,9 +761,9 @@ std::vector<BatchInfo> ReadBatchInfos(Decoder &snapshot) {
 }
 
 template <typename TFunc>
-void LoadPartialEdges(const std::filesystem::path &path, utils::SkipListDb<Edge> &edges, const uint64_t from_offset,
-                      const uint64_t edges_count, const SalientConfig::Items items, TFunc get_property_from_id,
-                      NameIdMapper *name_id_mapper,
+void LoadPartialEdges(ManifestRegistry &registry, const std::filesystem::path &path, utils::SkipListDb<Edge> &edges,
+                      const uint64_t from_offset, const uint64_t edges_count, const SalientConfig::Items items,
+                      TFunc get_property_from_id, NameIdMapper *name_id_mapper,
                       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                       absl::flat_hash_map<uint64_t, Edge *> *light_edge_output = nullptr) {
   Decoder snapshot;
@@ -843,7 +843,11 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipListDb<Edge>
           if (!value) throw RecoveryFailure("Couldn't read edge property value!");
           read_properties.emplace_back(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
         }
-        props.InitProperties(std::move(read_properties));
+        // InitProperties interns one shape for the whole record and needs the fields in property
+        // order to do it; the snapshot's ids are remapped through `get_property_from_id`, so the
+        // order they were written in does not survive into the ids used here.
+        std::ranges::sort(read_properties, {}, &std::pair<PropertyId, PropertyValue>::first);
+        props.InitProperties(registry, read_properties);
       }
     } else {
       spdlog::debug("Ensuring edge {} doesn't have any properties.", *gid);
@@ -866,10 +870,11 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipListDb<Edge>
 
 // Returns the gid of the last recovered vertex
 template <typename TLabelFromIdFunc, typename TPropertyFromIdFunc>
-uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipListDb<Vertex> &vertices,
-                             SharedSchemaTracking *schema_info, const uint64_t from_offset,
-                             const uint64_t vertices_count, TLabelFromIdFunc get_label_from_id,
-                             TPropertyFromIdFunc get_property_from_id, NameIdMapper *name_id_mapper,
+uint64_t LoadPartialVertices(ManifestRegistry &registry, const std::filesystem::path &path,
+                             utils::SkipListDb<Vertex> &vertices, SharedSchemaTracking *schema_info,
+                             const uint64_t from_offset, const uint64_t vertices_count,
+                             TLabelFromIdFunc get_label_from_id, TPropertyFromIdFunc get_property_from_id,
+                             NameIdMapper *name_id_mapper,
                              std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
@@ -941,7 +946,10 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipListD
           if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
           read_properties.emplace_back(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
         }
-        it->properties.InitProperties(std::move(read_properties));
+        // See the note in LoadPartialEdges: the shape is interned once, so the fields have to
+        // arrive in property order.
+        std::ranges::sort(read_properties, {}, &std::pair<PropertyId, PropertyValue>::first);
+        it->properties.InitProperties(registry, read_properties);
       }
     }
 
@@ -1258,7 +1266,7 @@ struct LightEdgeLoader {
   }
 
   template <typename TPropertyFromIdFunc>
-  void RecoverEdges(const std::filesystem::path &path, utils::SkipListDb<Edge> &edges,
+  void RecoverEdges(ManifestRegistry &registry, const std::filesystem::path &path, utils::SkipListDb<Edge> &edges,
                     const std::vector<BatchInfo> &edge_batches, const SalientConfig::Items &items,
                     TPropertyFromIdFunc get_property_from_id, NameIdMapper *name_id_mapper, size_t thread_count,
                     uint64_t total_edges, std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
@@ -1267,9 +1275,10 @@ struct LightEdgeLoader {
       per_batch.resize(edge_batches.size());
       RecoverOnMultipleThreads(
           thread_count,
-          [this, &path, &edges, items, &get_property_from_id, name_id_mapper, &snapshot_info](const size_t batch_index,
-                                                                                              const BatchInfo &batch) {
-            LoadPartialEdges(path,
+          [this, &registry, &path, &edges, items, &get_property_from_id, name_id_mapper, &snapshot_info](
+              const size_t batch_index, const BatchInfo &batch) {
+            LoadPartialEdges(registry,
+                             path,
                              edges,
                              batch.offset,
                              batch.count,
@@ -1291,19 +1300,26 @@ struct LightEdgeLoader {
     } else {
       RecoverOnMultipleThreads(
           thread_count,
-          [&path, &edges, items, &get_property_from_id, name_id_mapper, &snapshot_info](const size_t,
-                                                                                        const BatchInfo &batch) {
-            LoadPartialEdges(
-                path, edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
+          [&registry, &path, &edges, items, &get_property_from_id, name_id_mapper, &snapshot_info](
+              const size_t, const BatchInfo &batch) {
+            LoadPartialEdges(registry,
+                             path,
+                             edges,
+                             batch.offset,
+                             batch.count,
+                             items,
+                             get_property_from_id,
+                             name_id_mapper,
+                             snapshot_info);
           },
           edge_batches);
     }
   }
 };
 
-RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem::path &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion14(ManifestRegistry &registry, Decoder &snapshot,
+                                        const std::filesystem::path &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, SalientConfig::Items items) {
@@ -1420,7 +1436,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
                            name_id_mapper->IdToName(snapshot_id_map.at(*key)),
                            *value,
                            *gid);
-              props.SetProperty(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
+              props.SetProperty(registry, get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
             }
           }
         } else {
@@ -1498,7 +1514,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
                        name_id_mapper->IdToName(snapshot_id_map.at(*key)),
                        *value,
                        *gid);
-          props.SetProperty(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
+          props.SetProperty(registry, get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
         }
       }
 
@@ -1810,9 +1826,9 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
   return {info, ret, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem::path &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion15(ManifestRegistry &registry, Decoder &snapshot,
+                                        const std::filesystem::path &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
@@ -1881,7 +1897,8 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
     const auto vertex_batches = ReadBatchInfos(snapshot);
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path,
+        [&registry,
+         path,
          vertices,
          schema_info,
          &vertex_batches,
@@ -1889,7 +1906,8 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
          &get_property_from_id,
          &last_vertex_gid,
          name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+          const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                    path,
                                                                     *vertices,
                                                                     schema_info,
                                                                     batch.offset,
@@ -1918,7 +1936,8 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -2117,9 +2136,9 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem::path &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion16(ManifestRegistry &registry, Decoder &snapshot,
+                                        const std::filesystem::path &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
@@ -2188,7 +2207,8 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
     const auto vertex_batches = ReadBatchInfos(snapshot);
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path,
+        [&registry,
+         path,
          vertices,
          schema_info,
          &vertex_batches,
@@ -2196,7 +2216,8 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
          &get_property_from_id,
          &last_vertex_gid,
          name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+          const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                    path,
                                                                     *vertices,
                                                                     schema_info,
                                                                     batch.offset,
@@ -2225,7 +2246,8 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -2486,9 +2508,9 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem::path &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion17(ManifestRegistry &registry, Decoder &snapshot,
+                                        const std::filesystem::path &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
@@ -2557,7 +2579,8 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
     const auto vertex_batches = ReadBatchInfos(snapshot);
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path,
+        [&registry,
+         path,
          vertices,
          schema_info,
          &vertex_batches,
@@ -2565,7 +2588,8 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
          &get_property_from_id,
          &last_vertex_gid,
          name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+          const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                    path,
                                                                     *vertices,
                                                                     schema_info,
                                                                     batch.offset,
@@ -2594,7 +2618,8 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -2902,9 +2927,9 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
 
 /// We messed up and accidentally introduced a version bump in a release it was not needed for
 /// hence same load for 18 will work for 19
-RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesystem::path &path,
-                                            utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                            EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion18or19(ManifestRegistry &registry, Decoder &snapshot,
+                                            const std::filesystem::path &path, utils::SkipListDb<Vertex> *vertices,
+                                            utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             SharedSchemaTracking *schema_info, const Config &config,
@@ -3012,7 +3037,8 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
     const auto vertex_batches = ReadBatchInfos(snapshot);
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path,
+        [&registry,
+         path,
          vertices,
          &vertex_batches,
          &get_label_from_id,
@@ -3020,7 +3046,8 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
          &last_vertex_gid,
          schema_info,
          name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+          const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                    path,
                                                                     *vertices,
                                                                     schema_info,
                                                                     batch.offset,
@@ -3049,7 +3076,8 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -3374,9 +3402,9 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesystem::path &path,
-                                            utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                            EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion20or21(ManifestRegistry &registry, Decoder &snapshot,
+                                            const std::filesystem::path &path, utils::SkipListDb<Vertex> *vertices,
+                                            utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             SharedSchemaTracking *schema_info, const Config &config,
@@ -3484,7 +3512,8 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
     const auto vertex_batches = ReadBatchInfos(snapshot);
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path,
+        [&registry,
+         path,
          vertices,
          schema_info,
          &vertex_batches,
@@ -3492,7 +3521,8 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
          &get_property_from_id,
          &last_vertex_gid,
          name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+          const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                    path,
                                                                     *vertices,
                                                                     schema_info,
                                                                     batch.offset,
@@ -3521,7 +3551,8 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -3895,9 +3926,9 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesystem::path &path,
-                                            utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                            EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion22or23(ManifestRegistry &registry, Decoder &snapshot,
+                                            const std::filesystem::path &path, utils::SkipListDb<Vertex> *vertices,
+                                            utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             const Config &config, memgraph::storage::EnumStore *enum_store,
@@ -4006,7 +4037,8 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
     const auto vertex_batches = ReadBatchInfos(snapshot);
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path,
+        [&registry,
+         path,
          vertices,
          schema_info,
          &vertex_batches,
@@ -4015,7 +4047,8 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
          &last_vertex_gid,
          &snapshot_info,
          name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+          const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                    path,
                                                                     *vertices,
                                                                     schema_info,
                                                                     batch.offset,
@@ -4045,7 +4078,8 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -4468,9 +4502,9 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion24(ManifestRegistry &registry, Decoder &snapshot,
+                                        std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -4581,7 +4615,8 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path,
+          [&registry,
+           path,
            vertices,
            schema_info,
            &vertex_batches,
@@ -4590,7 +4625,8 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
            &last_vertex_gid,
            &snapshot_info,
            name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                      path,
                                                                       *vertices,
                                                                       schema_info,
                                                                       batch.offset,
@@ -4621,7 +4657,8 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -5088,9 +5125,9 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion25(ManifestRegistry &registry, Decoder &snapshot,
+                                        std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -5220,7 +5257,8 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path,
+          [&registry,
+           path,
            vertices,
            schema_info,
            &vertex_batches,
@@ -5229,7 +5267,8 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
            &last_vertex_gid,
            &snapshot_info,
            name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                      path,
                                                                       *vertices,
                                                                       schema_info,
                                                                       batch.offset,
@@ -5260,7 +5299,8 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -5700,9 +5740,9 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion26(ManifestRegistry &registry, Decoder &snapshot,
+                                        std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -5833,7 +5873,8 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path,
+          [&registry,
+           path,
            vertices,
            schema_info,
            &vertex_batches,
@@ -5842,7 +5883,8 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
            &last_vertex_gid,
            &snapshot_info,
            name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                      path,
                                                                       *vertices,
                                                                       schema_info,
                                                                       batch.offset,
@@ -5873,7 +5915,8 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -6315,9 +6358,9 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::path const &path,
-                                            utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                            EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion27or28(ManifestRegistry &registry, Decoder &snapshot,
+                                            std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+                                            utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             Config const &config, EnumStore *enum_store,
@@ -6448,7 +6491,8 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path,
+          [&registry,
+           path,
            vertices,
            schema_info,
            &vertex_batches,
@@ -6457,7 +6501,8 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
            &last_vertex_gid,
            &snapshot_info,
            name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                      path,
                                                                       *vertices,
                                                                       schema_info,
                                                                       batch.offset,
@@ -6488,7 +6533,8 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -6984,9 +7030,9 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion29(ManifestRegistry &registry, Decoder &snapshot,
+                                        std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -7117,7 +7163,8 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path,
+          [&registry,
+           path,
            vertices,
            schema_info,
            &vertex_batches,
@@ -7126,7 +7173,8 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
            &last_vertex_gid,
            &snapshot_info,
            name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                      path,
                                                                       *vertices,
                                                                       schema_info,
                                                                       batch.offset,
@@ -7157,7 +7205,8 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -7663,9 +7712,9 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion30(ManifestRegistry &registry, Decoder &snapshot,
+                                        std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -7797,7 +7846,8 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path,
+          [&registry,
+           path,
            vertices,
            schema_info,
            &vertex_batches,
@@ -7806,7 +7856,8 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
            &last_vertex_gid,
            &snapshot_info,
            name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                      path,
                                                                       *vertices,
                                                                       schema_info,
                                                                       batch.offset,
@@ -7837,7 +7888,8 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -8407,9 +8459,9 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion31(ManifestRegistry &registry, Decoder &snapshot,
+                                        std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -8540,7 +8592,8 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path,
+          [&registry,
+           path,
            vertices,
            schema_info,
            &vertex_batches,
@@ -8549,7 +8602,8 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
            &last_vertex_gid,
            &snapshot_info,
            name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                      path,
                                                                       *vertices,
                                                                       schema_info,
                                                                       batch.offset,
@@ -8580,7 +8634,8 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -9191,9 +9246,9 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
 }
 
 // NOLINTNEXTLINE(readability-function-size)
-RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion33(ManifestRegistry &registry, Decoder &snapshot,
+                                        std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -9324,7 +9379,8 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path,
+          [&registry,
+           path,
            vertices,
            schema_info,
            &vertex_batches,
@@ -9333,7 +9389,8 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
            &last_vertex_gid,
            &snapshot_info,
            name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                      path,
                                                                       *vertices,
                                                                       schema_info,
                                                                       batch.offset,
@@ -9364,7 +9421,8 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -10081,8 +10139,8 @@ void RecoverDescriptionStore(Decoder &snapshot, SnapshotInfo const &info, NameId
 
 // NOLINTNEXTLINE(readability-function-size)
 RecoveredSnapshot LoadCurrentVersionSnapshot(
-    Decoder &snapshot, std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
-    utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
+    ManifestRegistry &registry, Decoder &snapshot, std::filesystem::path const &path,
+    utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
     std::deque<std::pair<std::string, uint64_t>> *epoch_history, NameIdMapper *name_id_mapper,
     std::atomic<uint64_t> *edge_count, Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store,
@@ -10212,7 +10270,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path,
+          [&registry,
+           path,
            vertices,
            schema_info,
            &vertex_batches,
@@ -10221,7 +10280,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(
            &last_vertex_gid,
            &snapshot_info,
            name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                      path,
                                                                       *vertices,
                                                                       schema_info,
                                                                       batch.offset,
@@ -10252,7 +10312,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -10956,9 +11017,9 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(
 }
 
 // NOLINTNEXTLINE(readability-function-size)
-RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion36(ManifestRegistry &registry, Decoder &snapshot,
+                                        std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -11090,7 +11151,8 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path,
+          [&registry,
+           path,
            vertices,
            schema_info,
            &vertex_batches,
@@ -11099,7 +11161,8 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
            &last_vertex_gid,
            &snapshot_info,
            name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                      path,
                                                                       *vertices,
                                                                       schema_info,
                                                                       batch.offset,
@@ -11130,7 +11193,8 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -11816,9 +11880,9 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion34(ManifestRegistry &registry, Decoder &snapshot,
+                                        std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -11950,7 +12014,8 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path,
+          [&registry,
+           path,
            vertices,
            schema_info,
            &vertex_batches,
@@ -11959,7 +12024,8 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
            &last_vertex_gid,
            &snapshot_info,
            name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                      path,
                                                                       *vertices,
                                                                       schema_info,
                                                                       batch.offset,
@@ -11990,7 +12056,8 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -12646,9 +12713,9 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path const &path,
-                                        utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                                        EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion35(ManifestRegistry &registry, Decoder &snapshot,
+                                        std::filesystem::path const &path, utils::SkipListDb<Vertex> *vertices,
+                                        utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         Config const &config, EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -12780,7 +12847,8 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path,
+          [&registry,
+           path,
            vertices,
            schema_info,
            &vertex_batches,
@@ -12789,7 +12857,8 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
            &last_vertex_gid,
            &snapshot_info,
            name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch = LoadPartialVertices(path,
+            const auto last_vertex_gid_in_batch = LoadPartialVertices(registry,
+                                                                      path,
                                                                       *vertices,
                                                                       schema_info,
                                                                       batch.offset,
@@ -12820,7 +12889,8 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      loader.RecoverEdges(path,
+      loader.RecoverEdges(registry,
+                          path,
                           *edges,
                           edge_batches,
                           config.salient.items,
@@ -13508,8 +13578,9 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
 
 }  // namespace
 
-RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipListDb<Vertex> *vertices,
-                               utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
+RecoveredSnapshot LoadSnapshot(ManifestRegistry &registry, const std::filesystem::path &path,
+                               utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                               EdgeMetadataIndex *edges_metadata,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
                                memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
@@ -13522,7 +13593,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
   switch (*version) {
     case 14U: {
-      return LoadSnapshotVersion14(snapshot,
+      return LoadSnapshotVersion14(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13534,7 +13606,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    config.salient.items);
     }
     case 15U: {
-      return LoadSnapshotVersion15(snapshot,
+      return LoadSnapshotVersion15(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13546,7 +13619,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    config);
     }
     case 16U: {
-      return LoadSnapshotVersion16(snapshot,
+      return LoadSnapshotVersion16(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13558,7 +13632,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    config);
     }
     case 17U: {
-      return LoadSnapshotVersion17(snapshot,
+      return LoadSnapshotVersion17(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13572,7 +13647,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     case 18U:
       [[fallthrough]];
     case 19U: {
-      return LoadSnapshotVersion18or19(snapshot,
+      return LoadSnapshotVersion18or19(registry,
+                                       snapshot,
                                        path,
                                        vertices,
                                        edges,
@@ -13587,7 +13663,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     case 20U:
       [[fallthrough]];
     case 21U: {
-      return LoadSnapshotVersion20or21(snapshot,
+      return LoadSnapshotVersion20or21(registry,
+                                       snapshot,
                                        path,
                                        vertices,
                                        edges,
@@ -13603,7 +13680,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       [[fallthrough]];
     case 23U: {
       // Version 23 updated the snapshot info (handled via the ReadSnapshotInfo function)
-      return LoadSnapshotVersion22or23(snapshot,
+      return LoadSnapshotVersion22or23(registry,
+                                       snapshot,
                                        path,
                                        vertices,
                                        edges,
@@ -13617,7 +13695,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                        snapshot_info);
     }
     case 24U: {
-      return LoadSnapshotVersion24(snapshot,
+      return LoadSnapshotVersion24(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13631,7 +13710,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    snapshot_info);
     }
     case 25U: {
-      return LoadSnapshotVersion25(snapshot,
+      return LoadSnapshotVersion25(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13645,7 +13725,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    snapshot_info);
     }
     case 26U: {
-      return LoadSnapshotVersion26(snapshot,
+      return LoadSnapshotVersion26(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13661,7 +13742,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     case 27U:
       [[fallthrough]];
     case 28U: {
-      return LoadSnapshotVersion27or28(snapshot,
+      return LoadSnapshotVersion27or28(registry,
+                                       snapshot,
                                        path,
                                        vertices,
                                        edges,
@@ -13675,7 +13757,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                        snapshot_info);
     }
     case 29U: {
-      return LoadSnapshotVersion29(snapshot,
+      return LoadSnapshotVersion29(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13689,7 +13772,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    snapshot_info);
     }
     case 30U: {
-      return LoadSnapshotVersion30(snapshot,
+      return LoadSnapshotVersion30(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13704,7 +13788,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    snapshot_info);
     }
     case 31U: {
-      return LoadSnapshotVersion31(snapshot,
+      return LoadSnapshotVersion31(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13721,7 +13806,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     case 32U:
       [[fallthrough]];
     case 33U: {
-      return LoadSnapshotVersion33(snapshot,
+      return LoadSnapshotVersion33(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13736,7 +13822,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    snapshot_info);
     }
     case 34U: {
-      return LoadSnapshotVersion34(snapshot,
+      return LoadSnapshotVersion34(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13752,7 +13839,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    snapshot_info);
     }
     case 35U: {
-      return LoadSnapshotVersion35(snapshot,
+      return LoadSnapshotVersion35(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13769,7 +13857,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    *version);
     }
     case 36U: {
-      return LoadSnapshotVersion36(snapshot,
+      return LoadSnapshotVersion36(registry,
+                                   snapshot,
                                    path,
                                    vertices,
                                    edges,
@@ -13786,7 +13875,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    *version);
     }
     case 37U: {
-      return LoadCurrentVersionSnapshot(snapshot,
+      return LoadCurrentVersionSnapshot(registry,
+                                        snapshot,
                                         path,
                                         vertices,
                                         edges,

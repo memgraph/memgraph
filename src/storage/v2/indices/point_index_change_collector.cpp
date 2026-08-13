@@ -17,11 +17,12 @@
 
 namespace memgraph::storage {
 
-void PointIndexChangeCollector::UpdateOnChangeLabel(LabelId label, Vertex const *vertex) {
+void PointIndexChangeCollector::UpdateOnChangeLabel(ManifestRegistry const &registry, LabelId label,
+                                                    Vertex const *vertex) {
   if (current_changes_.empty()) return;
 
   constexpr auto all_point_types = std::array{PropertyStoreType::POINT};
-  for (auto prop : vertex->properties.PropertiesOfTypes(all_point_types)) {
+  for (auto prop : vertex->properties.PropertiesOfTypes(registry, all_point_types)) {
     auto k = LabelPropKey{label, prop};
     auto it = current_changes_.find(k);
     if (it != current_changes_.end()) {
@@ -74,11 +75,11 @@ PointIndexChangeCollector::PointIndexChangeCollector(PointIndexContext &ctx)
       /// Note: previous_changes_ will be lazy initialized when needed
       previous_changes_{std::nullopt} {}
 
-void PointIndexChangeCollector::UpdateOnVertexDelete(Vertex *vertex) {
+void PointIndexChangeCollector::UpdateOnVertexDelete(ManifestRegistry const &registry, Vertex *vertex) {
   if (current_changes_.empty()) return;
 
   constexpr auto all_point_types = std::array{PropertyStoreType::POINT};
-  for (auto prop : vertex->properties.PropertiesOfTypes(all_point_types)) {
+  for (auto prop : vertex->properties.PropertiesOfTypes(registry, all_point_types)) {
     for (auto label : vertex->labels) {
       auto k = LabelPropKey{label, prop};
       auto it = current_changes_.find(k);

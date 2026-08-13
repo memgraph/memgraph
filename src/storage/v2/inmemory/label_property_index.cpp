@@ -80,15 +80,15 @@ bool AnyNonNull(auto const &values) {
 // permutes a stack array - no heap traffic on the value path; the dynamic entry
 // uses the vector. The all-null check runs before permutation (order-agnostic).
 template <typename EntryT>
-auto BuildEntryValues(PropertiesPermutationHelper const &helper, PropertyStore const &store)
-    -> std::optional<typename EntryT::ValuesType> {
+auto BuildEntryValues(ManifestRegistry const &registry, PropertiesPermutationHelper const &helper,
+                      ManifestPropertyStore const &store) -> std::optional<typename EntryT::ValuesType> {
   if constexpr (EntryT::kArity == std::dynamic_extent) {
-    auto values = helper.Extract(store);
+    auto values = helper.Extract(registry, store);
     if (!AnyNonNull(values)) return std::nullopt;
     return helper.ApplyPermutation(std::move(values));
   } else {
     std::array<PropertyValue, EntryT::kArity> values{};
-    helper.ExtractInto(store, values);
+    helper.ExtractInto(registry, store, values);
     if (!AnyNonNull(values)) return std::nullopt;
     helper.ApplyPermutationInPlace(std::span{values});
     return typename EntryT::ValuesType{std::move(values)};
@@ -113,9 +113,9 @@ void EraseEntriesAtKey(Acc &acc, IndexOrderedValuesVector const &values, Vertex 
 // Helper function for iterating through label-property index. Returns true if
 // this transaction can see the given vertex, and the visible version has the
 // given label and properties.
-bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, PropertiesPermutationHelper const &helper,
-                                      IndexOrderedValuesView values, Transaction *transaction, View view,
-                                      bool use_cache = true) {
+bool CurrentVersionHasLabelProperties(ManifestRegistry const &registry, const Vertex &vertex, LabelId label,
+                                      PropertiesPermutationHelper const &helper, IndexOrderedValuesView values,
+                                      Transaction *transaction, View view, bool use_cache = true) {
   bool exists = true;
   bool deleted = false;
   bool has_label = false;
@@ -127,7 +127,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   if (!delta && deleted) return false;
   has_label = std::ranges::contains(vertex.labels, label);
   if (!delta && !has_label) return false;
-  current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
+  current_values_equal_to_value = helper.MatchesValues(registry, vertex.properties, values);
 
   // If vertex has non-sequential deltas, hold lock while applying them
   if (!vertex.has_uncommitted_non_sequential_deltas()) {
@@ -209,9 +209,9 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
 /// Helper function for label-properties index garbage collection. Returns true if
 /// there is a reachable version of the vertex that has the given label and
 /// properties values.
-inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, std::span<PropertyPath const> key,
-                                         PropertiesPermutationHelper const &helper, IndexOrderedValuesView values,
-                                         uint64_t timestamp) {
+inline bool AnyVersionHasLabelProperties(ManifestRegistry const &registry, const Vertex &vertex, LabelId label,
+                                         std::span<PropertyPath const> key, PropertiesPermutationHelper const &helper,
+                                         IndexOrderedValuesView values, uint64_t timestamp) {
   Delta const *delta;
   bool exists = true;
   bool deleted;
@@ -224,7 +224,7 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
     if (delta == nullptr && deleted) return false;
     has_label = std::ranges::contains(vertex.labels, label);
     if (delta == nullptr && !has_label) return false;
-    current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
+    current_values_equal_to_value = helper.MatchesValues(registry, vertex.properties, values);
   }
 
   if (exists && !deleted && has_label && std::ranges::all_of(current_values_equal_to_value, std::identity{})) {
@@ -355,7 +355,8 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
       continue;
     }
 
-    if (CurrentVersionHasLabelProperties(*index_iterator->vertex,
+    if (CurrentVersionHasLabelProperties(storage->manifest_registry(),
+                                         *index_iterator->vertex,
                                          label,
                                          *permutation_helper,
                                          index_iterator->values.as_view(),
@@ -392,8 +393,8 @@ bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<=(std::vector<Pr
   return *this < rhs || *this == rhs;
 }
 
-inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
-                                          auto &&index_accessor,
+inline void TryInsertLabelPropertiesIndex(ManifestRegistry const &registry, Vertex &vertex, LabelId label,
+                                          PropertiesPermutationHelper const &props, auto &&index_accessor,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info) {
   // observe regardless
   if (snapshot_info) {
@@ -405,7 +406,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   }
 
   using EntryT = typename std::remove_cvref_t<decltype(index_accessor)>::value_type;
-  auto values = BuildEntryValues<EntryT>(props, vertex.properties);
+  auto values = BuildEntryValues<EntryT>(registry, props, vertex.properties);
   if (!values) return;
 
   // Using 0 as a timestamp is fine because the index is created at timestamp x
@@ -413,8 +414,8 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   index_accessor.insert({std::move(*values), &vertex, 0});
 }
 
-inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
-                                          auto &&index_accessor,
+inline void TryInsertLabelPropertiesIndex(ManifestRegistry const &registry, Vertex &vertex, LabelId label,
+                                          PropertiesPermutationHelper const &props, auto &&index_accessor,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info,
                                           Transaction const &tx) {
   // observe regardless
@@ -432,7 +433,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
     deleted = vertex.deleted();
     delta = vertex.delta();
     has_label = std::ranges::contains(vertex.labels, label);
-    properties = props.Extract(vertex.properties);
+    properties = props.Extract(registry, vertex.properties);
 
     // If vertex has non-sequential deltas, hold lock while applying them
     if (!vertex.has_uncommitted_non_sequential_deltas()) {
@@ -466,12 +467,14 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 }
 
 bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
-    LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
+    ManifestRegistry const &registry, LabelId label, PropertiesPaths const &properties,
+    utils::SkipListDb<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info, IndexOrder order) {
   auto res = RegisterIndex(label, properties, updater, order);
   if (!res) return false;
-  auto res2 = PopulateIndex(label, properties, std::move(vertices), parallel_exec_info, updater, snapshot_info, order);
+  auto res2 = PopulateIndex(
+      registry, label, properties, std::move(vertices), parallel_exec_info, updater, snapshot_info, order);
   if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
@@ -563,7 +566,8 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
 }
 
 auto InMemoryLabelPropertyIndex::PopulateIndex(
-    LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
+    ManifestRegistry const &registry, LabelId label, PropertiesPaths const &properties,
+    utils::SkipListDb<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info, IndexOrder order,
     Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
@@ -578,12 +582,14 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
 
     if (tx) {
       auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
-        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, snapshot_info, *tx);
+        TryInsertLabelPropertiesIndex(
+            registry, vertex, label, index->permutations_helper, index_accessor, snapshot_info, *tx);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     } else {
       auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
-        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, snapshot_info);
+        TryInsertLabelPropertiesIndex(
+            registry, vertex, label, index->permutations_helper, index_accessor, snapshot_info);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     }
@@ -655,7 +661,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
 
   auto const relevant_index = [&](auto &&each) {
     auto &[index_props, _] = each;
-    if (!prop_ids) prop_ids = vertex_after_update->properties.ExtractPropertyIds();
+    if (!prop_ids) prop_ids = vertex_after_update->properties.ExtractPropertyIds(tx.GetStorage()->manifest_registry());
     auto vector_has_property = [&](PropertyId index_prop) { return r::binary_search(*prop_ids, index_prop); };
     return r::any_of(index_props[0], vector_has_property);
   };
@@ -666,7 +672,8 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
     for (auto &[props, index_variant] : it->second | rv::filter(relevant_index)) {
       WithIndex(index_variant, [&](auto &index) {
         using EntryT = typename std::decay_t<decltype(index)>::EntryType;
-        auto values = BuildEntryValues<EntryT>(index.permutations_helper, vertex_after_update->properties);
+        auto values = BuildEntryValues<EntryT>(
+            tx.GetStorage()->manifest_registry(), index.permutations_helper, vertex_after_update->properties);
         if (!values) return;
         auto acc = index.skiplist.access();
         acc.insert({std::move(*values), vertex_after_update, tx.start_timestamp});
@@ -690,7 +697,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId remo
 
   auto const relevant_index = [&](auto &&each) {
     auto &[index_props, _] = each;
-    if (!prop_ids) prop_ids = vertex_before_update->properties.ExtractPropertyIds();
+    if (!prop_ids) prop_ids = vertex_before_update->properties.ExtractPropertyIds(tx.GetStorage()->manifest_registry());
     auto vector_has_property = [&](PropertyId index_prop) { return r::binary_search(*prop_ids, index_prop); };
     return r::any_of(index_props[0], vector_has_property);
   };
@@ -700,7 +707,8 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId remo
     if (it == indices_map.cend()) return;
     for (auto &[props, index_variant] : it->second | rv::filter(relevant_index)) {
       WithIndex(index_variant, [&](auto &index) {
-        auto values = index.permutations_helper.Extract(vertex_before_update->properties);
+        auto values =
+            index.permutations_helper.Extract(tx.GetStorage()->manifest_registry(), vertex_before_update->properties);
         if (!AnyNonNull(values)) return;
         auto acc = index.skiplist.access();
         EraseEntriesAtKey(acc, index.permutations_helper.ApplyPermutation(std::move(values)), vertex_before_update);
@@ -749,14 +757,15 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId p
         if (analytical) [[unlikely]] {
           // Erase the pre-update entry. This rebuilds the old key as a vector
           // (the key-from-value path), kept separate from the hot insert below.
-          auto old_values = helper.Extract(vertex->properties);
+          auto old_values = helper.Extract(tx.GetStorage()->manifest_registry(), vertex->properties);
           helper.Update(property, old_value, old_values);
           if (AnyNonNull(old_values)) {
             EraseEntriesAtKey(with_acc(), helper.ApplyPermutation(std::move(old_values)), vertex);
           }
         }
 
-        if (auto values = BuildEntryValues<EntryT>(helper, vertex->properties); values) {
+        if (auto values = BuildEntryValues<EntryT>(tx.GetStorage()->manifest_registry(), helper, vertex->properties);
+            values) {
           with_acc().insert({std::move(*values), vertex, tx.start_timestamp});
         }
       });
@@ -1101,7 +1110,8 @@ uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uin
           const bool has_next = next_it != end_it;
           if (it->timestamp < oldest_active_start_timestamp) {
             const bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->values == next_it->values;
-            if (redundant_duplicate || !AnyVersionHasLabelProperties(*it->vertex,
+            if (redundant_duplicate || !AnyVersionHasLabelProperties(storage->manifest_registry(),
+                                                                     *it->vertex,
                                                                      label_id,
                                                                      property_paths,
                                                                      permutationHelper,

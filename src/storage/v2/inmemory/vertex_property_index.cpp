@@ -24,12 +24,13 @@ namespace r = ranges;  // NOLINT(misc-unused-alias-decls)
 namespace memgraph::storage {
 
 namespace {
-inline void TryInsertVertexPropertyIndex(Vertex &vertex, PropertyId property, auto &&index_accessor,
+inline void TryInsertVertexPropertyIndex(ManifestRegistry const &registry, Vertex &vertex, PropertyId property,
+                                         auto &&index_accessor,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info) {
   if (vertex.deleted()) {
     return;
   }
-  auto value = vertex.properties.GetProperty(property);
+  auto value = vertex.properties.GetProperty(registry, property);
   if (value.IsNull()) {
     return;
   }
@@ -39,7 +40,8 @@ inline void TryInsertVertexPropertyIndex(Vertex &vertex, PropertyId property, au
   }
 }
 
-inline void TryInsertVertexPropertyIndex(Vertex &vertex, PropertyId property, auto &&index_accessor,
+inline void TryInsertVertexPropertyIndex(ManifestRegistry const &registry, Vertex &vertex, PropertyId property,
+                                         auto &&index_accessor,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info,
                                          Transaction const &tx) {
   bool exists = true;
@@ -51,7 +53,7 @@ inline void TryInsertVertexPropertyIndex(Vertex &vertex, PropertyId property, au
     auto guard = std::shared_lock{vertex.lock};
     deleted = vertex.deleted();
     delta = vertex.delta();
-    property_value = vertex.properties.GetProperty(property);
+    property_value = vertex.properties.GetProperty(registry, property);
 
     if (!vertex.has_uncommitted_non_sequential_deltas()) {
       guard.unlock();
@@ -106,7 +108,12 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, Vertex *&current_vertex,
       continue;
     }
 
-    if (!CurrentVersionHasProperty(*index_iterator->vertex, property, index_iterator->value, transaction, view)) {
+    if (!CurrentVersionHasProperty(storage->manifest_registry(),
+                                   *index_iterator->vertex,
+                                   property,
+                                   index_iterator->value,
+                                   transaction,
+                                   view)) {
       continue;
     }
 
@@ -168,12 +175,12 @@ bool InMemoryVertexPropertyIndex::PublishIndex(PropertyId property, uint64_t com
 }
 
 bool InMemoryVertexPropertyIndex::CreateIndexOnePass(
-    PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+    ManifestRegistry const &registry, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
     std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto res = RegisterIndex(property, updater);
   if (!res) return false;
-  auto res2 = PopulateIndex(property, std::move(vertices), parallel_exec_info, updater, snapshot_info);
+  auto res2 = PopulateIndex(registry, property, std::move(vertices), parallel_exec_info, updater, snapshot_info);
   if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
@@ -181,7 +188,7 @@ bool InMemoryVertexPropertyIndex::CreateIndexOnePass(
 }
 
 auto InMemoryVertexPropertyIndex::PopulateIndex(
-    PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+    ManifestRegistry const &registry, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
     std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info,
     Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
@@ -194,12 +201,12 @@ auto InMemoryVertexPropertyIndex::PopulateIndex(
     auto const accessor_factory = [&] { return index->skip_list_.access(); };
     if (tx) {
       auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
-        TryInsertVertexPropertyIndex(vertex, property, index_accessor, snapshot_info, *tx);
+        TryInsertVertexPropertyIndex(registry, vertex, property, index_accessor, snapshot_info, *tx);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     } else {
       auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
-        TryInsertVertexPropertyIndex(vertex, property, index_accessor, snapshot_info);
+        TryInsertVertexPropertyIndex(registry, vertex, property, index_accessor, snapshot_info);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     }
@@ -342,7 +349,8 @@ uint64_t InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, ui
 
       bool const redundant_duplicate = has_next && it->value == next_it->value && it->vertex == next_it->vertex;
       if (redundant_duplicate ||
-          !AnyVersionHasProperty(*it->vertex, property_id, it->value, oldest_active_start_timestamp)) {
+          !AnyVersionHasProperty(
+              storage->manifest_registry(), *it->vertex, property_id, it->value, oldest_active_start_timestamp)) {
         acc.remove(*it);
       }
 

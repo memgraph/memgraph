@@ -713,6 +713,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     try {
       spdlog::debug("Loading snapshot for db {}.", storage->name());
       auto [snapshot_info, recovery_info, indices_constraints] = storage::durability::LoadSnapshot(
+          storage->manifest_registry(),
           dst_snapshot_file,
           &storage->vertices_,
           &storage->edges_,
@@ -741,7 +742,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       // We are the only active transaction, so mark everything up to the next timestamp
       if (storage->timestamp_ > 0) storage->commit_log_->MarkFinishedInRange(0, storage->timestamp_ - 1);
 
-      RecoverDerivedState(&storage->vertices_,
+      RecoverDerivedState(storage->manifest_registry(),
+                          &storage->vertices_,
                           &storage->edges_,
                           storage->name_id_mapper_.get(),
                           &storage->indices_,

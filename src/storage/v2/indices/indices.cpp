@@ -98,6 +98,7 @@ void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, N
   tx.active_indices_->label_properties_->UpdateOnAddLabel(label, vertex, tx);
   tx.active_indices_->text_->UpdateOnAddLabel(label, vertex, tx);
   vector_index_.UpdateOnAddLabel(
+      tx.registry(),
       label,
       vertex,
       IndexedPropertyDecoder<Vertex>{.indices = this, .name_id_mapper = name_id_mapper, .entity = vertex});
@@ -108,6 +109,7 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx
   tx.active_indices_->label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
   tx.active_indices_->text_->UpdateOnRemoveLabel(label, vertex, tx);
   vector_index_.UpdateOnRemoveLabel(
+      tx.registry(),
       label,
       vertex,
       IndexedPropertyDecoder<Vertex>{.indices = this, .name_id_mapper = name_id_mapper, .entity = vertex});
@@ -190,7 +192,8 @@ Indices::Indices(const Config &config, StorageMode storage_mode, utils::MemoryTr
   active_indices_.WithLock([&](ActiveIndicesPtr &ai) { ai = std::move(snapshot); });
 }
 
-Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_indices) const {
+Indices::AbortProcessor Indices::GetAbortProcessor(ManifestRegistry &registry,
+                                                   ActiveIndices const &active_indices) const {
   return AbortProcessor{.label_ = active_indices.label_->GetAbortProcessor(),
                         .label_properties_ = active_indices.label_properties_->GetAbortProcessor(),
                         .edge_type_ = active_indices.edge_type_->GetAbortProcessor(),
@@ -198,7 +201,8 @@ Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_i
                         .edge_property_ = active_indices.edge_property_->GetAbortProcessor(),
                         .vertex_property_ = active_indices.vertex_property_->GetAbortProcessor(),
                         .vector_ = vector_index_.GetAbortProcessor(),
-                        .vector_edge_ = vector_edge_index_.GetAbortProcessor()};
+                        .vector_edge_ = vector_edge_index_.GetAbortProcessor(),
+                        .registry_ = &registry};
 }
 
 void Indices::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
@@ -208,19 +212,19 @@ void Indices::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex 
 
 void Indices::AbortProcessor::CollectOnLabelRemoval(LabelId labelId, Vertex *vertex) {
   label_.CollectOnLabelRemoval(labelId, vertex);
-  label_properties_.CollectOnLabelRemoval(labelId, vertex);
-  vector_.CollectOnLabelRemoval(labelId, vertex);
+  label_properties_.CollectOnLabelRemoval(*registry_, labelId, vertex);
+  vector_.CollectOnLabelRemoval(*registry_, labelId, vertex);
 }
 
 void Indices::AbortProcessor::CollectOnLabelAddition(LabelId labelId, Vertex *vertex) {
-  vector_.CollectOnLabelAddition(labelId, vertex);
+  vector_.CollectOnLabelAddition(*registry_, labelId, vertex);
 }
 
 void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value,
                                                       Vertex *vertex) {
-  label_properties_.CollectOnPropertyChange(propId, vertex);
+  label_properties_.CollectOnPropertyChange(*registry_, propId, vertex);
   if (vertex_property_.IsInteresting(propId)) {
-    auto value = vertex->properties.GetProperty(propId);
+    auto value = vertex->properties.GetProperty(*registry_, propId);
     if (!value.IsNull()) {
       vertex_property_.CollectOnPropertyChange(propId, vertex, std::move(value));
     }
@@ -286,7 +290,7 @@ void Indices::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, Prop
   auto const ep_interesting = edge_property_.IsInteresting(property);
   if (etp_interesting || ep_interesting) {
     // extract
-    auto value = edge->properties.GetProperty(property);
+    auto value = edge->properties.GetProperty(*registry_, property);
     if (value.IsNull()) return;
 
     if (etp_interesting) {
@@ -311,7 +315,7 @@ void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices const &act
   active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, start_timestamp);
   active_indices.edge_property_->AbortEntries(edge_property_.cleanup_collection_, start_timestamp);
   active_indices.vertex_property_->AbortEntries(vertex_property_.cleanup_collection_, start_timestamp);
-  indices.vector_index_.AbortEntries(&indices, name_id_mapper, vector_.cleanup_collection);
+  indices.vector_index_.AbortEntries(*registry_, &indices, name_id_mapper, vector_.cleanup_collection);
   indices.vector_edge_index_.AbortEntries(vector_edge_.cleanup_collection);
 }
 }  // namespace memgraph::storage

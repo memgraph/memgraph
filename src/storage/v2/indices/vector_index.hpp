@@ -235,8 +235,8 @@ class VectorIndex {
     std::map<PropertyId, std::vector<LabelId>> p2l;
     std::set<PropertyId> wildcard_properties;
 
-    void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
-    void CollectOnLabelAddition(LabelId label, Vertex *vertex);
+    void CollectOnLabelRemoval(ManifestRegistry const &registry, LabelId label, Vertex *vertex);
+    void CollectOnLabelAddition(ManifestRegistry const &registry, LabelId label, Vertex *vertex);
     void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);
 
     AbortableInfo cleanup_collection;
@@ -281,8 +281,8 @@ class VectorIndex {
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @param snapshot_info
   /// @return true if the index was created successfully, false otherwise.
-  bool CreateIndex(VectorIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
-                   NameIdMapper *name_id_mapper,
+  bool CreateIndex(ManifestRegistry &registry, VectorIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices,
+                   Indices *indices, NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Recovers an index based on the provided recovery information.
@@ -291,8 +291,9 @@ class VectorIndex {
   /// @param indices Indices (for property decoding).
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @param snapshot_info The snapshot information to use.
-  void RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
-                    Indices *indices, NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
+  void RecoverIndex(ManifestRegistry &registry, VectorIndexRecoveryInfo &recovery_info,
+                    utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices, NameIdMapper *name_id_mapper,
+                    ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// Captured state from DropIndex. evicted_item keeps the usearch state alive;
@@ -322,19 +323,22 @@ class VectorIndex {
   /// @param label The label being added.
   /// @param vertex The vertex receiving the label.
   /// @param decoder Decoder for this vertex (decoder.entity must be vertex).
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder);
+  void UpdateOnAddLabel(ManifestRegistry &registry, LabelId label, Vertex *vertex,
+                        const IndexedPropertyDecoder<Vertex> &decoder);
 
   /// @brief Updates the vector index when a label is removed from a vertex.
   /// @param label The label being removed.
   /// @param vertex The vertex losing the label.
   /// @param decoder Decoder for this vertex (decoder.entity must be vertex).
-  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder);
+  void UpdateOnRemoveLabel(ManifestRegistry &registry, LabelId label, Vertex *vertex,
+                           const IndexedPropertyDecoder<Vertex> &decoder);
 
   /// @brief Aborts the entries in the vector index.
   /// @param indices Indices (for property decoding).
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @param cleanup_collection The cleanup collection to use.
-  void AbortEntries(Indices *indices, NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection);
+  void AbortEntries(ManifestRegistry &registry, Indices *indices, NameIdMapper *name_id_mapper,
+                    AbortableInfo &cleanup_collection);
 
   /// @brief Updates all vector indices referenced by a VectorIndexId property.
   /// @param property The property that was modified.
@@ -425,7 +429,8 @@ class VectorIndex {
   /// @param vertex The vertex to potentially add.
   /// @param decoder Decoder for this vertex.
   /// @param thread_id Optional thread ID hint for usearch's internal optimizations.
-  void AddVertexToIndex(uint64_t index_id, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
+  void AddVertexToIndex(ManifestRegistry &registry, uint64_t index_id, Vertex &vertex,
+                        const IndexedPropertyDecoder<Vertex> &decoder,
                         std::optional<std::size_t> thread_id = std::nullopt);
 
   utils::MemoryTracker *memory_tracker_{nullptr};

@@ -259,13 +259,13 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   InMemoryEdgePropertyIndex() = default;
 
   /// @throw std::bad_alloc
-  bool CreateIndexOnePass(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                          ActiveIndicesUpdater const &updater,
+  bool CreateIndexOnePass(ManifestRegistry const &registry, PropertyId property,
+                          utils::SkipListDb<Vertex>::Accessor vertices, ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   bool RegisterIndex(PropertyId property, ActiveIndicesUpdater const &updater);
-  auto PopulateIndex(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                     ActiveIndicesUpdater const &updater,
+  auto PopulateIndex(ManifestRegistry const &registry, PropertyId property,
+                     utils::SkipListDb<Vertex>::Accessor vertices, ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;

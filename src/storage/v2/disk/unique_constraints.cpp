@@ -28,10 +28,10 @@ namespace memgraph::storage {
 
 namespace {
 
-bool IsVertexUnderConstraint(const Vertex &vertex, const LabelId &constraint_label,
+bool IsVertexUnderConstraint(ManifestRegistry const &registry, const Vertex &vertex, const LabelId &constraint_label,
                              const std::set<PropertyId> &constraint_properties) {
   return std::ranges::contains(vertex.labels, constraint_label) &&
-         vertex.properties.HasAllProperties(constraint_properties);
+         vertex.properties.HasAllProperties(registry, constraint_properties);
 }
 
 bool IsDifferentVertexWithSameConstraintLabel(const std::string &key, const Gid gid, const LabelId constraint_label) {
@@ -77,7 +77,8 @@ auto DiskUniqueConstraints::ActiveConstraints::GetAbortProcessor() const -> Abor
   return AbortProcessor{};
 }
 
-void DiskUniqueConstraints::ActiveConstraints::CollectForAbort([[maybe_unused]] AbortProcessor &processor,
+void DiskUniqueConstraints::ActiveConstraints::CollectForAbort([[maybe_unused]] ManifestRegistry const &registry,
+                                                               [[maybe_unused]] AbortProcessor &processor,
                                                                [[maybe_unused]] Vertex const *vertex) const {
   // Disk storage handles abort differently - no-op for active constraints
 }
@@ -128,11 +129,12 @@ bool DiskUniqueConstraints::InsertConstraint(
 }
 
 std::expected<void, ConstraintViolation> DiskUniqueConstraints::Validate(
-    const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
+    ManifestRegistry const &registry, const Vertex &vertex,
+    std::vector<std::vector<PropertyValue>> &unique_storage) const {
   for (const auto &[constraint_label, constraint_properties] : constraints_) {
-    if (IsVertexUnderConstraint(vertex, constraint_label, constraint_properties)) {
-      if (auto vertex_check_result =
-              TestIfVertexSatisifiesUniqueConstraint(vertex, unique_storage, constraint_label, constraint_properties);
+    if (IsVertexUnderConstraint(registry, vertex, constraint_label, constraint_properties)) {
+      if (auto vertex_check_result = TestIfVertexSatisifiesUniqueConstraint(
+              registry, vertex, unique_storage, constraint_label, constraint_properties);
           !vertex_check_result.has_value()) {
         return std::unexpected{vertex_check_result.error()};
       }
@@ -142,9 +144,9 @@ std::expected<void, ConstraintViolation> DiskUniqueConstraints::Validate(
 }
 
 std::expected<void, ConstraintViolation> DiskUniqueConstraints::TestIfVertexSatisifiesUniqueConstraint(
-    const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
-    const std::set<PropertyId> &constraint_properties) const {
-  auto property_values = vertex.properties.ExtractPropertyValues(constraint_properties);
+    ManifestRegistry const &registry, const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage,
+    const LabelId &constraint_label, const std::set<PropertyId> &constraint_properties) const {
+  auto property_values = vertex.properties.ExtractPropertyValues(registry, constraint_properties);
 
   /// TODO: better naming. Is vertex unique
   if (property_values.has_value() &&
@@ -247,7 +249,7 @@ bool DiskUniqueConstraints::DeleteVerticesWithRemovedConstraintLabel(DeletionEnt
   return false;
 }
 
-bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(const Vertex &vertex,
+bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(ManifestRegistry const &registry, const Vertex &vertex,
                                                                  uint64_t commit_timestamp) const {
   /// TODO: create method for writing transaction
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
@@ -261,10 +263,11 @@ bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(const Vertex &v
   }
 
   for (const auto &[constraint_label, constraint_properties] : constraints_) {
-    if (IsVertexUnderConstraint(vertex, constraint_label, constraint_properties)) {
+    if (IsVertexUnderConstraint(registry, vertex, constraint_label, constraint_properties)) {
       auto key = utils::SerializeVertexAsKeyForUniqueConstraint(
           constraint_label, constraint_properties, vertex.gid.ToString());
-      auto value = utils::SerializeVertexAsValueForUniqueConstraint(constraint_label, vertex.labels, vertex.properties);
+      auto value = utils::SerializeVertexAsValueForUniqueConstraint(
+          constraint_label, vertex.labels, registry, vertex.properties);
       if (!disk_transaction->Put(key, value).ok()) {
         return false;
       }

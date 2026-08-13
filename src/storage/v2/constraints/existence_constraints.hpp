@@ -37,8 +37,8 @@ class ExistenceConstraints {
   explicit ExistenceConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
   struct MultipleThreadsConstraintValidation {
-    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label,
-                    const PropertyId &property,
+    auto operator()(ManifestRegistry const &registry, const utils::SkipListDb<Vertex>::Accessor &vertices,
+                    const LabelId &label, const PropertyId &property,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
 
@@ -46,8 +46,8 @@ class ExistenceConstraints {
   };
 
   struct SingleThreadConstraintValidation {
-    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label,
-                    const PropertyId &property,
+    auto operator()(ManifestRegistry const &registry, const utils::SkipListDb<Vertex>::Accessor &vertices,
+                    const LabelId &label, const PropertyId &property,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
   };
@@ -119,18 +119,20 @@ class ExistenceConstraints {
    */
 
   /// Commit time validation
-  auto Validate(const std::unordered_set<Vertex const *> &vertices_to_check) const
+  auto Validate(ManifestRegistry const &registry, const std::unordered_set<Vertex const *> &vertices_to_check) const
       -> std::expected<void, ConstraintViolation>;
 
   /// Create/Recover time validation
   [[nodiscard]] static auto ValidateVerticesOnConstraint(
-      utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property,
+      ManifestRegistry const &registry, utils::SkipListDb<Vertex>::Accessor vertices, LabelId label,
+      PropertyId property,
       const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt)
       -> std::expected<void, ConstraintViolation>;
 
   /// [OnDisk] alternative validation performs poorly but disk will be removed soon
-  auto PerVertexValidate(Vertex const &vertex) const -> std::expected<void, ConstraintViolation>;
+  auto PerVertexValidate(ManifestRegistry const &registry, Vertex const &vertex) const
+      -> std::expected<void, ConstraintViolation>;
 
   /// [OnDisk]
   void LoadExistenceConstraints(const std::vector<std::string> &keys);

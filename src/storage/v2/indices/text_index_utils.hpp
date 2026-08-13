@@ -31,6 +31,9 @@ struct SearcherContext;
 
 namespace memgraph::storage {
 
+class ManifestPropertyStore;
+class ManifestRegistry;
+
 class NameIdMapper;
 struct Vertex;
 struct Edge;
@@ -82,7 +85,8 @@ nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &pr
 std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
 // Extract properties from the property store and return them as a map
-std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
+std::map<PropertyId, PropertyValue> ExtractProperties(ManifestRegistry const &registry,
+                                                      const ManifestPropertyStore &property_store,
                                                       std::span<PropertyId const> properties);
 
 // Filter which properties to index: if index_properties is empty, return all entity_properties;

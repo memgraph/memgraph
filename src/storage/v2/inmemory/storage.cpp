@@ -467,6 +467,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     auto info = std::invoke([&] -> std::optional<durability::RecoveryInfo> {
       try {
         return recovery_.RecoverData(
+            manifest_registry(),
             uuid(),
             repl_storage_state_,
             &vertices_,
@@ -1060,6 +1061,7 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Exis
   if (has_any_existence_constraints && transaction_.constraint_verification_info &&
       transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
     auto validation_result = storage_->constraints_.existence_constraints_->Validate(
+        storage_->manifest_registry(),
         transaction_.constraint_verification_info->GetVerticesForExistenceConstraintChecking());
     if (!validation_result.has_value()) {
       return std::unexpected{validation_result.error()};
@@ -1345,8 +1347,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 
   // Install the new point index, if needed
   auto point_updater = mem_storage->indices_.MakeUpdater();
-  mem_storage->indices_.point_index_.InstallNewPointIndex(
-      transaction_.point_index_change_collector_, transaction_.point_index_ctx_, point_updater);
+  mem_storage->indices_.point_index_.InstallNewPointIndex(mem_storage->manifest_registry(),
+                                                          transaction_.point_index_change_collector_,
+                                                          transaction_.point_index_ctx_,
+                                                          point_updater);
 
   // Drop abort callbacks before running publishers: from this point on we are
   // committing — partially or fully — state that must NOT be undone by a later
@@ -1500,7 +1504,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
   if (!transaction_.deltas.empty()) {
-    auto index_abort_processor = storage_->indices_.GetAbortProcessor(*transaction_.active_indices_);
+    auto index_abort_processor =
+        storage_->indices_.GetAbortProcessor(storage_->manifest_registry(), *transaction_.active_indices_);
 
     auto const has_any_unique_constraints = !transaction_.active_constraints_->unique_->empty();
     if (has_any_unique_constraints && transaction_.constraint_verification_info &&
@@ -1510,7 +1515,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       auto vertices_to_check = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
       auto abort_processor = transaction_.active_constraints_->unique_->GetAbortProcessor();
       for (auto const *vertex : vertices_to_check) {
-        transaction_.active_constraints_->unique_->CollectForAbort(abort_processor, vertex);
+        transaction_.active_constraints_->unique_->CollectForAbort(
+            storage_->manifest_registry(), abort_processor, vertex);
       }
       transaction_.active_constraints_->unique_->AbortEntries(std::move(abort_processor.abortable_info_),
                                                               transaction_.start_timestamp);
@@ -1555,7 +1561,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 index_abort_processor.CollectOnEdgePropertyChange(
                     prop_id, *current->property.value, from_vertex, edge, transaction_.deltas);
 
-                edge->properties.SetProperty(prop_id, *current->property.value);
+                edge->properties.SetProperty(storage_->manifest_registry(), prop_id, *current->property.value);
 
                 break;
               }
@@ -1640,7 +1646,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             //  value
             index_abort_processor.CollectOnPropertyChange(current->property.key, *current->property.value, vertex);
             // Setting the correct value
-            vertex->properties.SetProperty(current->property.key, *current->property.value);
+            vertex->properties.SetProperty(
+                storage_->manifest_registry(), current->property.key, *current->property.value);
             break;
           }
           case Delta::Action::ADD_IN_EDGE: {
@@ -1997,7 +2004,8 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   }
   DowngradeToReadIfValid();
   if (!mem_label_property_index
-           ->PopulateIndex(label,
+           ->PopulateIndex(in_memory->manifest_registry(),
+                           label,
                            properties,
                            in_memory->vertices_.access(),
                            std::nullopt,
@@ -2077,7 +2085,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_edge_type_property_index
-           ->PopulateIndex(edge_type,
+           ->PopulateIndex(in_memory->manifest_registry(),
+                           edge_type,
                            property,
                            in_memory->vertices_.access(),
                            updater,
@@ -2118,8 +2127,13 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_edge_property_index
-           ->PopulateIndex(
-               property, in_memory->vertices_.access(), updater, std::nullopt, &transaction_, std::move(cancel_check))
+           ->PopulateIndex(in_memory->manifest_registry(),
+                           property,
+                           in_memory->vertices_.access(),
+                           updater,
+                           std::nullopt,
+                           &transaction_,
+                           std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -2147,7 +2161,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_vertex_property_index
-           ->PopulateIndex(property,
+           ->PopulateIndex(in_memory->manifest_registry(),
+                           property,
                            in_memory->vertices_.access(),
                            std::nullopt,
                            updater,
@@ -2359,7 +2374,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE, "Creating point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
-  if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
+  if (!point_index.CreatePointIndex(in_memory->manifest_registry(), label, property, in_memory->vertices_.access())) {
     return std::unexpected{IndexDefinitionError{}};
   }
   // Defer publication to commit time so concurrent readers don't observe a
@@ -2408,7 +2423,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector index on nodes with the same name as vector edge index
   if (vector_edge_index.IndexExists(spec.index_name) ||
-      !vector_index.CreateIndex(spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
+      !vector_index.CreateIndex(
+          in_memory->manifest_registry(), spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
   // Defer publication to commit time so concurrent readers don't observe a
@@ -2515,7 +2531,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
   }
   try {
     if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(
-            in_memory->vertices_.access(), label, property, std::nullopt, std::nullopt);
+            in_memory->manifest_registry(), in_memory->vertices_.access(), label, property, std::nullopt, std::nullopt);
         !validation_result.has_value()) {
       (void)existence_constraints->DropConstraint(label, property);
       return std::unexpected{StorageExistenceConstraintDefinitionError{validation_result.error()}};
@@ -2570,7 +2586,8 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
-  auto ret = mem_unique_constraints->CreateConstraint(label, properties, in_memory->vertices_.access(), std::nullopt);
+  auto ret = mem_unique_constraints->CreateConstraint(
+      in_memory->manifest_registry(), label, properties, in_memory->vertices_.access(), std::nullopt);
   if (!ret) {
     return std::unexpected{StorageUniqueConstraintDefinitionError{ret.error()}};
   }
@@ -2629,8 +2646,8 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
     return std::unexpected{StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
   try {
-    if (auto validation_result =
-            TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, kind);
+    if (auto validation_result = TypeConstraints::ValidateVerticesOnConstraint(
+            in_memory->manifest_registry(), in_memory->vertices_.access(), label, property, kind);
         !validation_result.has_value()) {
       (void)type_constraints->DropConstraint(label, property, kind);
       return std::unexpected{StorageTypeConstraintDefinitionError{validation_result.error()}};
@@ -4678,7 +4695,8 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
   try {
     spdlog::debug("Recovering from a snapshot {}", local_path);
     auto recovered_snapshot =
-        storage::durability::LoadSnapshot(local_path,
+        storage::durability::LoadSnapshot(manifest_registry(),
+                                          local_path,
                                           &vertices_,
                                           &edges_,
                                           edges_metadata_index_ ? &*edges_metadata_index_ : nullptr,
@@ -4713,7 +4731,8 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     if (timestamp_ > 0) commit_log_->MarkFinishedInRange(0, timestamp_ - 1);
 
     spdlog::trace("Recovering derived state from snapshot.");
-    storage::durability::RecoverDerivedState(&vertices_,
+    storage::durability::RecoverDerivedState(manifest_registry(),
+                                             &vertices_,
                                              &edges_,
                                              name_id_mapper_.get(),
                                              &indices_,

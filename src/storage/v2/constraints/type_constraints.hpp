@@ -79,7 +79,8 @@ class TypeConstraints {
     bool empty() const;
 
     /// Validate type constraints for a specific label being added to the vertex
-    [[nodiscard]] auto Validate(const Vertex &vertex, LabelId label) const -> std::expected<void, ConstraintViolation>;
+    [[nodiscard]] auto Validate(ManifestRegistry const &registry, const Vertex &vertex, LabelId label) const
+        -> std::expected<void, ConstraintViolation>;
 
     /// Validate type constraints for a specific property being set on the vertex
     [[nodiscard]] auto Validate(const Vertex &vertex, PropertyId property_id, const PropertyValue &property_value) const
@@ -91,11 +92,12 @@ class TypeConstraints {
 
   auto GetActiveConstraints() const -> std::shared_ptr<ActiveConstraints>;
 
-  [[nodiscard]] static auto ValidateVerticesOnConstraint(utils::SkipListDb<Vertex>::Accessor vertices, LabelId label,
+  [[nodiscard]] static auto ValidateVerticesOnConstraint(ManifestRegistry const &registry,
+                                                         utils::SkipListDb<Vertex>::Accessor vertices, LabelId label,
                                                          PropertyId property, TypeConstraintKind type)
       -> std::expected<void, ConstraintViolation>;
 
-  [[nodiscard]] auto ValidateAllVertices(utils::SkipListDb<Vertex>::Accessor vertices,
+  [[nodiscard]] auto ValidateAllVertices(ManifestRegistry const &registry, utils::SkipListDb<Vertex>::Accessor vertices,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
       -> std::expected<void, ConstraintViolation>;
 

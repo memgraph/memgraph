@@ -24,8 +24,10 @@ namespace memgraph::storage {
 namespace {
 [[nodiscard]] std::expected<void, ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
                                                                                   const LabelId &label,
-                                                                                  const PropertyId &property) {
-  if (!vertex.deleted() && std::ranges::contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
+                                                                                  const PropertyId &property,
+                                                                                  ManifestRegistry const &registry) {
+  if (!vertex.deleted() && std::ranges::contains(vertex.labels, label) &&
+      !vertex.properties.HasProperty(registry, property)) {
     return std::unexpected{ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set{property}}};
   }
   return {};
@@ -121,12 +123,12 @@ void ExistenceConstraints::RestoreConstraint(LabelId label, PropertyId property,
 }
 
 [[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::Validate(
-    const std::unordered_set<Vertex const *> &vertices_to_check) const {
+    ManifestRegistry const &registry, const std::unordered_set<Vertex const *> &vertices_to_check) const {
   auto constraints = constraints_.ReadCopy();
   auto validate = [&](const Vertex &vertex) -> std::expected<void, ConstraintViolation> {
     for (const auto &[key, constraint] : *constraints) {
       DMG_ASSERT(constraint->status.IsReady(), "For a WRITE query, all constraints MUST already be ready");
-      if (auto validation_result = ValidateVertexOnConstraint(vertex, key.label, key.property);
+      if (auto validation_result = ValidateVertexOnConstraint(vertex, key.label, key.property, registry);
           !validation_result.has_value()) [[unlikely]] {
         return validation_result;
       }
@@ -145,14 +147,14 @@ void ExistenceConstraints::RestoreConstraint(LabelId label, PropertyId property,
 }
 
 [[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::PerVertexValidate(
-    Vertex const &vertex) const {
+    ManifestRegistry const &registry, Vertex const &vertex) const {
   auto constraints = constraints_.ReadCopy();
   for (const auto &[key, constraint] : *constraints) {
     // Only validate against ready (committed) constraints - with copy-on-write, dropped constraints are erased
     if (!constraint->status.IsReady()) {
       continue;
     }
-    if (auto validation_result = ValidateVertexOnConstraint(vertex, key.label, key.property);
+    if (auto validation_result = ValidateVertexOnConstraint(vertex, key.label, key.property, registry);
         !validation_result.has_value()) [[unlikely]] {
       return validation_result;
     }
@@ -189,18 +191,20 @@ ExistenceConstraints::GetCreationFunction(
 }
 
 [[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::ValidateVerticesOnConstraint(
-    utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property,
+    ManifestRegistry const &registry, utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto calling_existence_validation_function = GetCreationFunction(parallel_exec_info);
-  return std::visit([&vertices, &label, &property, &snapshot_info](
-                        auto &calling_object) { return calling_object(vertices, label, property, snapshot_info); },
-                    calling_existence_validation_function);
+  return std::visit(
+      [&registry, &vertices, &label, &property, &snapshot_info](auto &calling_object) {
+        return calling_object(registry, vertices, label, property, snapshot_info);
+      },
+      calling_existence_validation_function);
 }
 
 std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsConstraintValidation::operator()(
-    const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) const {
+    ManifestRegistry const &registry, const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label,
+    const PropertyId &property, std::optional<SnapshotObserverInfo> const &snapshot_info) const {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
@@ -218,7 +222,7 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back(
           parallel_exec_info.arena_pool,
-          [&maybe_error, &vertex_batches, &batch_counter, &vertices, &label, &property, &snapshot_info]() {
+          [&maybe_error, &vertex_batches, &batch_counter, &vertices, &label, &property, &snapshot_info, &registry]() {
             do_per_thread_validation(maybe_error,
                                      ValidateVertexOnConstraint,
                                      vertex_batches,
@@ -226,7 +230,8 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
                                      vertices,
                                      snapshot_info,
                                      label,
-                                     property);
+                                     property,
+                                     registry);
           });
     }
   }
@@ -234,10 +239,11 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
 }
 
 std::expected<void, ConstraintViolation> ExistenceConstraints::SingleThreadConstraintValidation::operator()(
-    const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) const {
+    ManifestRegistry const &registry, const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label,
+    const PropertyId &property, std::optional<SnapshotObserverInfo> const &snapshot_info) const {
   for (const Vertex &vertex : vertices) {
-    if (auto validation_result = ValidateVertexOnConstraint(vertex, label, property); !validation_result.has_value()) {
+    if (auto validation_result = ValidateVertexOnConstraint(vertex, label, property, registry);
+        !validation_result.has_value()) {
       return validation_result;
     }
     if (snapshot_info) {

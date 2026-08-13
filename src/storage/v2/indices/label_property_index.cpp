@@ -67,6 +67,16 @@ PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath 
   }
 }
 
+auto PropertiesPermutationHelper::Extract(ManifestRegistry const &registry,
+                                          ManifestPropertyStore const &properties) const -> std::vector<PropertyValue> {
+  return properties.ExtractPropertyValuesMissingAsNull(registry, sorted_properties_);
+}
+
+void PropertiesPermutationHelper::ExtractInto(ManifestRegistry const &registry, ManifestPropertyStore const &properties,
+                                              std::span<PropertyValue> out) const {
+  properties.ExtractPropertyValuesMissingAsNull(registry, sorted_properties_, out);
+}
+
 auto PropertiesPermutationHelper::Extract(PropertyStore const &properties) const -> std::vector<PropertyValue> {
   return properties.ExtractPropertyValuesMissingAsNull(sorted_properties_);
 }
@@ -122,6 +132,12 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
   return relevant_paths | rv::transform(is_match) | r::to_vector;
 }
 
+auto PropertiesPermutationHelper::MatchesValues(ManifestRegistry const &registry,
+                                                ManifestPropertyStore const &properties,
+                                                IndexOrderedValuesView values) const -> std::vector<bool> {
+  return properties.ArePropertiesEqual(registry, sorted_properties_, values, position_lookup_);
+}
+
 auto PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values) const
     -> std::vector<bool> {
   return properties.ArePropertiesEqual(sorted_properties_, values, position_lookup_);
@@ -139,14 +155,15 @@ size_t PropertyValueRange::hash() const noexcept {
   return seed;
 }
 
-void LabelPropertyIndexAbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex *vertex) {
+void LabelPropertyIndexAbortProcessor::CollectOnPropertyChange(ManifestRegistry const &registry, PropertyId propId,
+                                                               Vertex *vertex) {
   const auto &it = lookup->p2l.find(propId);
   if (it == lookup->p2l.end()) return;
 
   for (auto const &[label, index_info] : it->second) {
     if (!std::ranges::contains(vertex->labels, label)) continue;
     for (auto const &[properties, helper] : index_info) {
-      auto current_values = helper->Extract(vertex->properties);
+      auto current_values = helper->Extract(registry, vertex->properties);
       // Only if current_values has at least one non-null value do we need to cleanup its index entry
       if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
         cleanup_collection[label][properties].emplace_back(helper->ApplyPermutation(std::move(current_values)).values_,
@@ -156,7 +173,8 @@ void LabelPropertyIndexAbortProcessor::CollectOnPropertyChange(PropertyId propId
   }
 }
 
-void LabelPropertyIndexAbortProcessor::CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
+void LabelPropertyIndexAbortProcessor::CollectOnLabelRemoval(ManifestRegistry const &registry, LabelId label,
+                                                             Vertex *vertex) {
   const auto &it = lookup->l2p.find(label);
   if (it == lookup->l2p.end()) return;
 
@@ -167,7 +185,7 @@ void LabelPropertyIndexAbortProcessor::CollectOnLabelRemoval(LabelId label, Vert
     }
   }
   for (auto const &[properties, helper] : dedup) {
-    auto current_values = helper->Extract(vertex->properties);
+    auto current_values = helper->Extract(registry, vertex->properties);
     // Only if current_values has at least one non-null value do we need to cleanup its index entry
     if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
       cleanup_collection[label][properties].emplace_back(helper->ApplyPermutation(std::move(current_values)).values_,

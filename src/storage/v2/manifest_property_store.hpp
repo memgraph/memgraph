@@ -33,6 +33,8 @@
 namespace memgraph::storage {
 
 struct PropertyPath;
+template <typename T>
+struct IndexedPropertyDecoder;
 
 /// A property store that keeps property ids and types in a shared manifest instead of in
 /// every record, so locating a value costs a lookup in the shape rather than a scan over
@@ -93,6 +95,14 @@ class ManifestPropertyStore {
 
   auto GetProperty(ManifestRegistry const &registry, PropertyId property) const -> PropertyValue;
 
+  /// As above, but resolving a value the record only holds a handle to, as a value offloaded
+  /// into the vector index is. No stored type is offloaded yet, so today this decodes nothing
+  /// the plain overload would not; it is here so a caller reads through the decoder from the
+  /// start and keeps working once one is.
+  template <typename T>
+  auto GetProperty(ManifestRegistry const &registry, PropertyId property,
+                   IndexedPropertyDecoder<T> const &decoder) const -> PropertyValue;
+
   auto HasProperty(ManifestRegistry const &registry, PropertyId property) const -> bool;
 
   /// Reads a value whose place in the shape the caller has already worked out. A scan over
@@ -111,6 +121,11 @@ class ManifestPropertyStore {
 
   /// The properties this record carries, in property order.
   auto Properties(ManifestRegistry const &registry) const -> utils::small_vector<PropertyPair>;
+
+  /// As above, with each value resolved through `decoder`. See the decoding `GetProperty`.
+  template <typename T>
+  auto Properties(ManifestRegistry const &registry, IndexedPropertyDecoder<T> const &decoder) const
+      -> utils::small_vector<PropertyPair>;
 
   /// How each property this record carries is typed. Answered from the shape, which holds
   /// every discriminator a type of its own is made of, so no payload is read.
@@ -184,6 +199,14 @@ class ManifestPropertyStore {
 
   /// Convenience overload for callers that already hold a map.
   auto InitProperties(ManifestRegistry &registry, std::map<PropertyId, PropertyValue> const &properties) -> bool;
+
+  /// Merges `properties` into the record, and reports every property whose value the merge
+  /// decided: one entry per property `properties` names, holding the value the record held for
+  /// it (Null when it held none) and the value it now holds. A property the record held and
+  /// `properties` does not name is left as it was and not reported, but is added to
+  /// `properties`, which is left holding everything the record now carries.
+  auto UpdateProperties(ManifestRegistry &registry, std::map<PropertyId, PropertyValue> &properties)
+      -> std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>;
 
   /// Lays a record out for fields it is about to be given, leaving all of them absent. A
   /// caller that knows which properties it will set, as a planner does for the properties

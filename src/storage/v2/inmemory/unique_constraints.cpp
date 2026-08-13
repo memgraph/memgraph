@@ -37,12 +37,12 @@ namespace {
 
 auto DoValidate(const Vertex &vertex,
                 utils::SkipListDb<InMemoryUniqueConstraints::Entry>::Accessor &constraint_accessor,
-                const LabelId &label, const std::set<PropertyId> &properties)
+                const LabelId &label, const std::set<PropertyId> &properties, ManifestRegistry const &registry)
     -> std::expected<void, ConstraintViolation> {
   if (vertex.deleted() || !std::ranges::contains(vertex.labels, label)) {
     return {};
   }
-  auto values = vertex.properties.ExtractPropertyValues(properties);
+  auto values = vertex.properties.ExtractPropertyValues(registry, properties);
   if (!values) {
     return {};
   }
@@ -104,7 +104,8 @@ std::optional<size_t> FindPropertyPosition(const PropertyIdArray &property_array
 /// the last committed version of the given vertex contains the given label and
 /// set of property values. This function should be called when commit lock is
 /// active.
-bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::set<PropertyId> &properties,
+bool LastCommittedVersionHasLabelProperty(ManifestRegistry const &registry, const Vertex &vertex, LabelId label,
+                                          const std::set<PropertyId> &properties,
                                           const std::vector<PropertyValue> &value_array, const Transaction &transaction,
                                           uint64_t commit_timestamp) {
   MG_ASSERT(properties.size() == value_array.size(), "Invalid database state!");
@@ -129,7 +130,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
     has_label = std::ranges::contains(vertex.labels, label);
 
     for (const auto &[i, property] : std::views::enumerate(properties)) {
-      current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, value_array[i]);
+      current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(registry, property, value_array[i]);
     }
 
     // If vertex has non-sequential deltas, hold lock while applying them
@@ -199,8 +200,9 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
 /// Helper function for unique constraint garbage collection. Returns true if
 /// there's a reachable version of the vertex that has the given label and
 /// property values.
-bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::set<PropertyId> &properties,
-                                const std::vector<PropertyValue> &values, uint64_t timestamp) {
+bool AnyVersionHasLabelProperty(ManifestRegistry const &registry, const Vertex &vertex, LabelId label,
+                                const std::set<PropertyId> &properties, const std::vector<PropertyValue> &values,
+                                uint64_t timestamp) {
   MG_ASSERT(properties.size() == values.size(), "Invalid database state!");
 
   PropertyIdArray property_array(properties.size());
@@ -221,14 +223,14 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
     if (delta) {
       // If delta we need to fetch for later processing
       for (const auto &[i, property] : std::views::enumerate(properties)) {
-        current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, values[i]);
+        current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(registry, property, values[i]);
         property_array.values[i] = property;
       }
     } else {
       // otherwise do a short-circuiting check (we already know !deleted && has_label)
       return std::ranges::all_of(std::views::zip(properties, values), [&](const auto &prop_val) {
         const auto &[property, value] = prop_val;
-        return vertex.properties.IsPropertyEqual(property, value);
+        return vertex.properties.IsPropertyEqual(registry, property, value);
       });
     }
 
@@ -343,7 +345,7 @@ void InMemoryUniqueConstraints::ActiveConstraints::UpdateBeforeCommit(const Vert
     for (const auto &[props, individual_constraint] : constraint->second) {
       // creation can only happen with read only access and here a write happened
       // therefore the constraint is already registered/validated and we don't need to check status
-      auto values = vertex->properties.ExtractPropertyValues(props);
+      auto values = vertex->properties.ExtractPropertyValues(tx.GetStorage()->manifest_registry(), props);
 
       if (!values) {
         continue;
@@ -369,9 +371,10 @@ auto InMemoryUniqueConstraints::ActiveConstraints::GetAbortProcessor() const -> 
   return AbortProcessor{std::move(initial)};
 }
 
-void InMemoryUniqueConstraints::ActiveConstraints::CollectForAbort(AbortProcessor &processor,
+void InMemoryUniqueConstraints::ActiveConstraints::CollectForAbort(ManifestRegistry const &registry,
+                                                                   AbortProcessor &processor,
                                                                    Vertex const *vertex) const {
-  processor.Collect(vertex);
+  processor.Collect(registry, vertex);
 }
 
 void InMemoryUniqueConstraints::ActiveConstraints::AbortEntries(
@@ -435,9 +438,10 @@ auto InMemoryUniqueConstraints::GetCreationFunction(
 }
 
 auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
-    const utils::SkipListDb<Vertex>::Accessor &vertex_accessor, utils::SkipListDb<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) const -> std::expected<void, ConstraintViolation> {
+    ManifestRegistry const &registry, const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
+    utils::SkipListDb<Entry>::Accessor &constraint_accessor, const LabelId &label,
+    const std::set<PropertyId> &properties, std::optional<SnapshotObserverInfo> const &snapshot_info) const
+    -> std::expected<void, ConstraintViolation> {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
   MG_ASSERT(!vertex_batches.empty(),
@@ -459,7 +463,8 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
                             &constraint_accessor,
                             &label,
                             &properties,
-                            &snapshot_info]() {
+                            &snapshot_info,
+                            &registry]() {
                              do_per_thread_validation(result,
                                                       DoValidate,
                                                       vertex_batches,
@@ -468,7 +473,8 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
                                                       snapshot_info,
                                                       constraint_accessor,
                                                       label,
-                                                      properties);
+                                                      properties,
+                                                      registry);
                            });
     }
   }
@@ -476,11 +482,12 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
 }
 
 auto InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
-    const utils::SkipListDb<Vertex>::Accessor &vertex_accessor, utils::SkipListDb<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) const -> std::expected<void, ConstraintViolation> {
+    ManifestRegistry const &registry, const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
+    utils::SkipListDb<Entry>::Accessor &constraint_accessor, const LabelId &label,
+    const std::set<PropertyId> &properties, std::optional<SnapshotObserverInfo> const &snapshot_info) const
+    -> std::expected<void, ConstraintViolation> {
   for (const Vertex &vertex : vertex_accessor) {
-    if (auto result = DoValidate(vertex, constraint_accessor, label, properties); !result.has_value()) {
+    if (auto result = DoValidate(vertex, constraint_accessor, label, properties, registry); !result.has_value()) {
       return result;
     }
     if (snapshot_info) {
@@ -491,7 +498,8 @@ auto InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
 }
 
 auto InMemoryUniqueConstraints::CreateConstraint(
-    LabelId label, const std::set<PropertyId> &properties, const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
+    ManifestRegistry const &registry, LabelId label, const std::set<PropertyId> &properties,
+    const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) -> std::expected<CreationStatus, ConstraintViolation> {
   // TODO: we should do the proper register -> populate(with cancel + parallel) -> publish pattern
@@ -515,10 +523,10 @@ auto InMemoryUniqueConstraints::CreateConstraint(
       auto multi_single_thread_processing = GetCreationFunction(par_exec_info);
 
       return std::visit(
-          [&vertex_accessor, &constraint_accessor, &label, &properties, &snapshot_info](
+          [&registry, &vertex_accessor, &constraint_accessor, &label, &properties, &snapshot_info](
               auto &multi_single_thread_processing) {
             return multi_single_thread_processing(
-                vertex_accessor, constraint_accessor, label, properties, snapshot_info);
+                registry, vertex_accessor, constraint_accessor, label, properties, snapshot_info);
           },
           multi_single_thread_processing);
     });
@@ -602,7 +610,7 @@ auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *
       }
 
       for (const auto &[properties, individual_constraint] : constraint->second) {
-        auto value_array = vertex->properties.ExtractPropertyValues(properties);
+        auto value_array = vertex->properties.ExtractPropertyValues(tx.GetStorage()->manifest_registry(), properties);
 
         if (!value_array) {
           continue;
@@ -630,7 +638,8 @@ auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *
         });
 
         for (auto const *v : possible_conflicting) {
-          if (LastCommittedVersionHasLabelProperty(*v, label, properties, *value_array, tx, commit_timestamp)) {
+          if (LastCommittedVersionHasLabelProperty(
+                  tx.GetStorage()->manifest_registry(), *v, label, properties, *value_array, tx, commit_timestamp)) {
             return std::unexpected{ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties}};
           }
         }
@@ -674,7 +683,12 @@ uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
         }
 
         if ((next_it != acc.end() && it->vertex == next_it->vertex && it->values == next_it->values) ||
-            !AnyVersionHasLabelProperty(*it->vertex, label, properties, it->values, oldest_active_start_timestamp)) {
+            !AnyVersionHasLabelProperty(storage->manifest_registry(),
+                                        *it->vertex,
+                                        label,
+                                        properties,
+                                        it->values,
+                                        oldest_active_start_timestamp)) {
           acc.remove(*it);
         }
         it = next_it;

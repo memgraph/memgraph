@@ -207,8 +207,9 @@ struct Properties {
   bool needs_pp{false};
 };
 
-inline std::map<PropertyId, ExtendedPropertyType> GetPropertiesViewOld(const Edge *edge, uint64_t start_timestamp) {
-  auto edge_props = edge->properties.ExtendedPropertyTypes();
+inline std::map<PropertyId, ExtendedPropertyType> GetPropertiesViewOld(ManifestRegistry const &registry,
+                                                                       const Edge *edge, uint64_t start_timestamp) {
+  auto edge_props = edge->properties.ExtendedPropertyTypes(registry);
   // Apply deltas
   ApplyDeltasForRead(edge->delta(), start_timestamp, [&edge_props](const Delta &delta) {
     // clang-format off
@@ -220,10 +221,11 @@ inline std::map<PropertyId, ExtendedPropertyType> GetPropertiesViewOld(const Edg
   return edge_props;
 }
 
-inline Properties GetProperties(const Edge *edge, uint64_t start_timestamp, uint64_t commit_timestamp) {
+inline Properties GetProperties(ManifestRegistry const &registry, const Edge *edge, uint64_t start_timestamp,
+                                uint64_t commit_timestamp) {
   const auto state = GetState(edge->delta(), start_timestamp, commit_timestamp);
   // TODO Should we cache this as well
-  auto edge_props = edge->properties.ExtendedPropertyTypes();
+  auto edge_props = edge->properties.ExtendedPropertyTypes(registry);
 
   if (state == ANOTHER_TX) {
     // Apply deltas
@@ -245,13 +247,14 @@ struct PropertiesDiff {
 };
 
 // Cache needs to be reference stable because we are using it as a key
-inline PropertiesDiff GetPropertiesDiff(const Edge *edge, State state, uint64_t timestamp) {
+inline PropertiesDiff GetPropertiesDiff(ManifestRegistry const &registry, const Edge *edge, State state,
+                                        uint64_t timestamp) {
   // NO CHANGES
-  auto edge_props = edge->properties.ExtendedPropertyTypes();
+  auto edge_props = edge->properties.ExtendedPropertyTypes(registry);
   if (state == NO_CHANGE) return {edge_props, edge_props};
 
   // Properties as seen at transaction start
-  auto pre_props = GetPropertiesViewOld(edge, timestamp);
+  auto pre_props = GetPropertiesViewOld(registry, edge, timestamp);
 
   // THIS TX
   if (state == THIS_TX) {
@@ -260,7 +263,7 @@ inline PropertiesDiff GetPropertiesDiff(const Edge *edge, State state, uint64_t 
 
   // ANOTHER TX
   // Reusing get properties with kTransactionInitialId to get committed labels
-  auto post_props = GetPropertiesViewOld(edge, kTransactionInitialId);
+  auto post_props = GetPropertiesViewOld(registry, edge, kTransactionInitialId);
   return {pre_props, post_props};
 }
 
@@ -321,7 +324,7 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
     PropertiesDiff edge_prop_diff;
     if (property_on_edges) {
-      edge_prop_diff = GetPropertiesDiff(edge_ref.ptr, edge_state, start_ts);
+      edge_prop_diff = GetPropertiesDiff(registry(), edge_ref.ptr, edge_state, start_ts);
     }
 
     // TODO Possible optimization: check if labels or props changed and skip some lookups/updates
@@ -477,7 +480,7 @@ template <template <class...> class TContainer>
 void SchemaTracking<TContainer>::DeleteVertex(Vertex *vertex) {
   auto &info = vertex_state_[vertex->labels];
   --info.n;
-  for (const auto &[key, val] : vertex->properties.ExtendedPropertyTypes()) {
+  for (const auto &[key, val] : vertex->properties.ExtendedPropertyTypes(registry())) {
     auto &prop_info = info.properties[key];
     --prop_info.n;
     --prop_info.types[val];
@@ -493,7 +496,7 @@ void SchemaTracking<TContainer>::UpdateLabels(Vertex *vertex, const VertexKey &o
   auto &new_tracking = vertex_state_[new_labels];
   --old_tracking.n;
   ++new_tracking.n;
-  for (const auto &[property, type] : vertex->properties.ExtendedPropertyTypes()) {
+  for (const auto &[property, type] : vertex->properties.ExtendedPropertyTypes(registry())) {
     auto &old_info = old_tracking.properties[property];
     --old_info.n;
     --old_info.types[type];
@@ -522,7 +525,7 @@ void SchemaTracking<TContainer>::UpdateLabels(Vertex *vertex, const VertexKey &o
     ++new_tracking.n;
     if (prop_on_edges) {
       // No need for edge lock since all edge property operations are unique access
-      for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes()) {
+      for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes(registry())) {
         auto &old_info = old_tracking.properties[property];
         --old_info.n;
         --old_info.types[type];
@@ -553,7 +556,7 @@ void SchemaTracking<TContainer>::DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, 
   auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from->labels, to->labels});
   --tracking_info.n;
   if (prop_on_edges) {
-    for (const auto &[key, type] : edge.ptr->properties.ExtendedPropertyTypes()) {
+    for (const auto &[key, type] : edge.ptr->properties.ExtendedPropertyTypes(registry())) {
       auto &prop_info = tracking_info.properties[key];
       --prop_info.n;
       --prop_info.types[type];
@@ -640,7 +643,7 @@ void SchemaTracking<TContainer>::UpdateEdgeStats(auto &new_tracking, auto &old_t
 
   if (prop_on_edges) {
     // No need for edge lock since all edge property operations are unique access
-    for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes()) {
+    for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes(registry())) {
       auto &old_info = old_tracking.properties[property];
       --old_info.n;
       --old_info.types[type];
@@ -688,7 +691,7 @@ void SchemaTracking<TContainer>::RecoverVertex(Vertex *vertex) {
   // No locking, since this should only be used to recover data
   auto &info = vertex_state_[vertex->labels];
   ++info.n;
-  for (const auto &[property, type] : vertex->properties.ExtendedPropertyTypes()) {
+  for (const auto &[property, type] : vertex->properties.ExtendedPropertyTypes(registry())) {
     auto &prop_info = info.properties[property];
     ++prop_info.n;
     ++prop_info.types[type];
@@ -701,7 +704,7 @@ void SchemaTracking<TContainer>::RecoverEdge(EdgeTypeId edge_type, EdgeRef edge,
   auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from->labels, to->labels});
   ++tracking_info.n;
   if (prop_on_edges) {
-    for (const auto &[key, val] : edge.ptr->properties.ExtendedPropertyTypes()) {
+    for (const auto &[key, val] : edge.ptr->properties.ExtendedPropertyTypes(registry())) {
       auto &prop_post_info = tracking_info.properties[key];
       ++prop_post_info.n;
       ++prop_post_info.types[val];
@@ -764,7 +767,7 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
 
     auto other_labels = GetLabels(other_vertex, start_ts_, commit_ts_, post_process_->vertex_cache);
     Properties edge_props{};
-    if (properties_on_edges_) edge_props = GetProperties(edge_ref.ptr, start_ts_, commit_ts_);
+    if (properties_on_edges_) edge_props = GetProperties(tracking_->registry(), edge_ref.ptr, start_ts_, commit_ts_);
 
     tracking_->UpdateEdgeStats(edge_ref,
                                edge_type,

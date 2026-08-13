@@ -122,8 +122,9 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
   }
 }
 
-void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
-                                 NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
+void TextEdgeIndex::RecoverIndex(ManifestRegistry const &registry, const TextEdgeIndexSpec &index_info,
+                                 utils::SkipListDb<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper,
+                                 ActiveIndicesUpdater const &updater,
                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
   auto needs_rebuild = !std::filesystem::exists(index_path);
@@ -151,10 +152,10 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
 
         auto *edge = edge_ref.ptr;
         auto properties_to_index =
-            FilterPropertiesToIndex(index_info.properties, edge->properties.ExtractPropertyIds());
+            FilterPropertiesToIndex(index_info.properties, edge->properties.ExtractPropertyIds(registry));
         if (properties_to_index.empty()) continue;
 
-        auto properties_to_index_map = ExtractProperties(edge->properties, properties_to_index);
+        auto properties_to_index_map = ExtractProperties(registry, edge->properties, properties_to_index);
         TextEdgeIndex::AddEdgeToTextIndex(edge->gid.AsInt(),
                                           vertex.gid.AsInt(),
                                           to_vertex->gid.AsInt(),
@@ -260,7 +261,7 @@ void TextEdgeIndex::ActiveIndices::RemoveEdge(const Edge *edge, const Vertex *fr
   if (index_container_->empty()) return;
   auto edge_type_applicable_text_indices = EdgeTypeApplicableTextIndices(edge_type);
   if (edge_type_applicable_text_indices.empty()) return;
-  const auto edge_properties = edge->properties.ExtractPropertyIds();
+  const auto edge_properties = edge->properties.ExtractPropertyIds(tx.registry());
   auto applicable_text_indices = GetIndicesMatchingProperties(edge_type_applicable_text_indices, edge_properties);
   TrackTextEdgeIndexChange(
       tx.text_edge_index_change_collector_, applicable_text_indices, edge, from_vertex, to_vertex, TextIndexOp::REMOVE);
@@ -424,9 +425,8 @@ void TextEdgeIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMa
     std::vector<PreparedEdgeDoc> docs_to_add;
     docs_to_add.reserve(pending.to_add.size());
     for (const auto &edge_with_vertices : pending.to_add) {
-      auto edge_properties = index_data_ptr->properties.empty()
-                                 ? edge_with_vertices.edge->properties.Properties()
-                                 : ExtractProperties(edge_with_vertices.edge->properties, index_data_ptr->properties);
+      auto edge_properties =
+          ExtractProperties(tx.registry(), edge_with_vertices.edge->properties, index_data_ptr->properties);
       docs_to_add.push_back({edge_with_vertices.edge->gid.AsInt(),
                              edge_with_vertices.from_vertex->gid.AsInt(),
                              edge_with_vertices.to_vertex->gid.AsInt(),

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,8 +11,14 @@
 
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/async_indexer.hpp"
+#include "storage/v2/storage.hpp"
 
 namespace memgraph::storage {
+
+void Transaction::PointAtRegistry() {
+  registry_ = &storage_->manifest_registry();
+  schema_diff_.SetRegistry(*registry_);
+}
 
 AsyncIndexHelper::AsyncIndexHelper(Config const &config, ActiveIndices const &active_indices,
                                    uint64_t start_timestamp) {

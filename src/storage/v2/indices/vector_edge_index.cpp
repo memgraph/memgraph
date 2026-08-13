@@ -89,7 +89,8 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
   }
   auto &item_ptr = it->second;
   auto &spec = item_ptr->spec;
-  auto property = edge->properties.GetProperty(spec.property);
+  auto &registry = NoManifestRegistry();
+  auto property = edge->properties.GetProperty(registry, spec.property);
   if (property.IsNull()) return;
   // an edge already indexed by another vector-edge index stores no inline vector; recover it from that
   // index's uSearch so RegisterIndexId re-registers the real vector — else this second index gets nothing
@@ -100,7 +101,7 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
   }
 
   auto vector = RegisterIndexId(property, index_id);
-  edge->properties.SetProperty(spec.property, property);
+  edge->properties.SetProperty(registry, spec.property, property);
 
   // Lock order: uSearch mutex (inside UpdateVectorIndex) → edge_endpoints_mutex_
   UpdateVectorIndex(item_ptr->mg_index, spec, edge, vector, thread_id);
@@ -224,14 +225,15 @@ std::optional<VectorEdgeIndex::DroppedIndexCapture> VectorEdgeIndex::DropIndex(s
     std::size_t processed = 0;
     try {
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+      auto &registry = NoManifestRegistry();
       std::vector<double> vector(dimension);
       for (auto *edge : dropped_edges) {
-        auto vector_property = edge->properties.GetProperty(spec.property);
+        auto vector_property = edge->properties.GetProperty(registry, spec.property);
         if (UnregisterIndexId(vector_property, index_id)) {
           mg_index.index.get(edge, vector.data());
-          edge->properties.SetProperty(spec.property, PropertyValue(vector));
+          edge->properties.SetProperty(registry, spec.property, PropertyValue(vector));
         } else {
-          edge->properties.SetProperty(spec.property, vector_property);
+          edge->properties.SetProperty(registry, spec.property, vector_property);
         }
         ++processed;
       }
@@ -599,6 +601,7 @@ void VectorEdgeIndex::SerializeAllVectorEdgeIndices(durability::BaseEncoder *enc
 void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
                                                 std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
                                                 utils::SkipListDb<Vertex>::Accessor &vertices) {
+  auto &registry = NoManifestRegistry();
   for (auto &recovery_info : recovery_info_vec) {
     if (recovery_info.spec.index_name == index_name) {
       auto maybe_index_id = name_id_mapper->NameToIdIfExists(index_name);
@@ -613,12 +616,13 @@ void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, Nam
           auto it = recovery_info.index_entries.find(edge->gid);
           if (it == recovery_info.index_entries.end()) continue;
 
-          auto edge_property = edge->properties.GetProperty(recovery_info.spec.property);
+          auto edge_property = edge->properties.GetProperty(registry, recovery_info.spec.property);
           if (UnregisterIndexId(edge_property, index_id)) {
-            edge->properties.SetProperty(recovery_info.spec.property,
+            edge->properties.SetProperty(registry,
+                                         recovery_info.spec.property,
                                          PropertyValue(std::vector<double>(it->second.begin(), it->second.end())));
           } else {
-            edge->properties.SetProperty(recovery_info.spec.property, edge_property);
+            edge->properties.SetProperty(registry, recovery_info.spec.property, edge_property);
           }
         }
       }

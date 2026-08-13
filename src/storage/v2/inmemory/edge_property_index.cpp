@@ -43,7 +43,8 @@ using View = memgraph::storage::View;
 namespace memgraph::storage {
 
 namespace {
-inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property, auto &&index_accessor,
+inline void TryInsertEdgePropertyIndex(ManifestRegistry const &registry, Vertex &from_vertex, PropertyId property,
+                                       auto &&index_accessor,
                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
   if (from_vertex.deleted()) {
     return;
@@ -52,7 +53,7 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
     if (to_vertex->deleted()) {
       continue;
     }
-    auto value = edge_ref.ptr->properties.GetProperty(property);
+    auto value = edge_ref.ptr->properties.GetProperty(registry, property);
     if (value.IsNull()) {
       continue;
     }
@@ -63,8 +64,8 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
   }
 }
 
-inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property, auto &&index_accessor,
-                                       std::optional<SnapshotObserverInfo> const &snapshot_info,
+inline void TryInsertEdgePropertyIndex(ManifestRegistry const &registry, Vertex &from_vertex, PropertyId property,
+                                       auto &&index_accessor, std::optional<SnapshotObserverInfo> const &snapshot_info,
                                        Transaction const &tx) {
   bool exists = true;
   bool deleted = false;
@@ -106,7 +107,7 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
       exists = true;
       deleted = false;
       delta = edge_ref.ptr->delta();
-      property_value = edge_ref.ptr->properties.GetProperty(property);
+      property_value = edge_ref.ptr->properties.GetProperty(registry, property);
     }
 
     if (delta) {
@@ -162,7 +163,8 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, EdgeRef &current_edge, E
       continue;
     }
 
-    if (!CurrentVersionHasProperty(*index_iterator->edge, property, index_iterator->value, transaction, view)) {
+    if (!CurrentVersionHasProperty(
+            storage->manifest_registry(), *index_iterator->edge, property, index_iterator->value, transaction, view)) {
       continue;
     }
 
@@ -184,12 +186,13 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, EdgeRef &current_edge, E
 }
 }  // namespace
 
-bool InMemoryEdgePropertyIndex::CreateIndexOnePass(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+bool InMemoryEdgePropertyIndex::CreateIndexOnePass(ManifestRegistry const &registry, PropertyId property,
+                                                   utils::SkipListDb<Vertex>::Accessor vertices,
                                                    ActiveIndicesUpdater const &updater,
                                                    std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto res = RegisterIndex(property, updater);
   if (!res) return false;
-  auto res2 = PopulateIndex(property, std::move(vertices), updater, snapshot_info);
+  auto res2 = PopulateIndex(registry, property, std::move(vertices), updater, snapshot_info);
   if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
@@ -227,7 +230,8 @@ bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property, ActiveIndices
                                  /*register_in_all_indices=*/true);
 }
 
-auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+auto InMemoryEdgePropertyIndex::PopulateIndex(ManifestRegistry const &registry, PropertyId property,
+                                              utils::SkipListDb<Vertex>::Accessor vertices,
                                               ActiveIndicesUpdater const &updater,
                                               std::optional<SnapshotObserverInfo> const &snapshot_info,
                                               Transaction const *tx, CheckCancelFunction cancel_check)
@@ -242,14 +246,14 @@ auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipLi
     if (tx) {
       // If we are in a transaction, we need to read the object with the correct MVCC snapshot isolation
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
-        TryInsertEdgePropertyIndex(from_vertex, property, index_accessor, snapshot_info, *tx);
+        TryInsertEdgePropertyIndex(registry, from_vertex, property, index_accessor, snapshot_info, *tx);
       };
       PopulateIndexDispatch(
           vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
-        TryInsertEdgePropertyIndex(from_vertex, property, index_accessor, snapshot_info);
+        TryInsertEdgePropertyIndex(registry, from_vertex, property, index_accessor, snapshot_info);
       };
       PopulateIndexDispatch(
           vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
@@ -372,7 +376,8 @@ uint64_t InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint
                                        it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
                                        it->edge == next_it->edge;
       if (redundant_duplicate ||
-          !AnyVersionHasProperty(*it->edge, property_id, it->value, oldest_active_start_timestamp)) {
+          !AnyVersionHasProperty(
+              storage->manifest_registry(), *it->edge, property_id, it->value, oldest_active_start_timestamp)) {
         edges_acc.remove(*it);
       }
 

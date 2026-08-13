@@ -88,7 +88,8 @@ std::unique_ptr<rocksdb::Transaction> DiskLabelIndex::CreateAllReadingRocksDBTra
   return tx;
 }
 
-bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_t commit_timestamp) const {
+bool DiskLabelIndex::SyncVertexToLabelIndexStorage(ManifestRegistry const &registry, const Vertex &vertex,
+                                                   uint64_t commit_timestamp) const {
   auto disk_transaction = CreateRocksDBTransaction();
 
   if (auto maybe_old_disk_key = disk::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
@@ -103,7 +104,7 @@ bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_
     }
     if (!disk_transaction
              ->Put(utils::SerializeVertexAsKeyForLabelIndex(index_label, vertex.gid),
-                   utils::SerializeVertexAsValueForLabelIndex(index_label, vertex.labels, vertex.properties))
+                   utils::SerializeVertexAsValueForLabelIndex(index_label, vertex.labels, registry, vertex.properties))
              .ok()) {
       return false;
     }

@@ -60,7 +60,9 @@ struct PointIndexContext {
 
   bool UsingLocalIndex() const { return orig_indexes_ != current_indexes_; }
 
-  void AdvanceCommand(PointIndexChangeCollector &collector) { update_current(collector); }
+  void AdvanceCommand(ManifestRegistry const &registry, PointIndexChangeCollector &collector) {
+    update_current(registry, collector);
+  }
 
   auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs, Storage *storage,
                      Transaction *transaction, PropertyValue const &point_value, PropertyValue const &boundary_value,
@@ -77,9 +79,10 @@ struct PointIndexContext {
   explicit PointIndexContext(std::shared_ptr<index_container_t> indexes_)
       : orig_indexes_{std::move(indexes_)}, current_indexes_{orig_indexes_} {}
 
-  void update_current(PointIndexChangeCollector &collector);
+  void update_current(ManifestRegistry const &registry, PointIndexChangeCollector &collector);
 
-  void rebuild_current(std::shared_ptr<index_container_t> latest_index, PointIndexChangeCollector &collector);
+  void rebuild_current(ManifestRegistry const &registry, std::shared_ptr<index_container_t> latest_index,
+                       PointIndexChangeCollector &collector);
 
   std::shared_ptr<index_container_t> orig_indexes_;
   std::shared_ptr<index_container_t> current_indexes_;
@@ -112,7 +115,8 @@ struct PointIndexStorage {
   // Query (modify index set). Caller is responsible for publishing the
   // resulting ActiveIndices snapshot via PublishActiveIndices — for user DDL
   // this is typically deferred through Transaction::commit_callbacks_.
-  bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+  bool CreatePointIndex(ManifestRegistry const &registry, LabelId label, PropertyId property,
+                        utils::SkipListDb<Vertex>::Accessor vertices,
                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   /// Removes the index from the live container and returns the evicted PointIndex,
   /// or nullptr if no index existed for {label, property}. The caller can re-install
@@ -133,8 +137,8 @@ struct PointIndexStorage {
   }
 
   // Commit
-  void InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context,
-                            ActiveIndicesUpdater const &updater);
+  void InstallNewPointIndex(ManifestRegistry const &registry, PointIndexChangeCollector &collector,
+                            PointIndexContext &context, ActiveIndicesUpdater const &updater);
 
   void Clear();
 

@@ -48,7 +48,7 @@ class UniqueConstraints {
 
     explicit AbortProcessor(AbortableInfo &&interesting) : abortable_info_(std::move(interesting)) {}
 
-    void Collect(Vertex const *vertex);
+    void Collect(ManifestRegistry const &registry, Vertex const *vertex);
 
     AbortableInfo abortable_info_;
   };
@@ -59,7 +59,8 @@ class UniqueConstraints {
         -> std::vector<std::pair<LabelId, std::set<PropertyId>>> = 0;
     virtual void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) = 0;
     virtual auto GetAbortProcessor() const -> AbortProcessor = 0;
-    virtual void CollectForAbort(AbortProcessor &processor, Vertex const *vertex) const = 0;
+    virtual void CollectForAbort(ManifestRegistry const &registry, AbortProcessor &processor,
+                                 Vertex const *vertex) const = 0;
     virtual void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) = 0;
     virtual bool empty() const = 0;
 

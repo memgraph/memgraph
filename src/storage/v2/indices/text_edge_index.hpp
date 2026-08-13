@@ -143,8 +143,9 @@ class TextEdgeIndex {
   /// observable after the DDL transaction commits.
   void CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 
-  void RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
-                    NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
+  void RecoverIndex(ManifestRegistry const &registry, const TextEdgeIndexSpec &index_info,
+                    utils::SkipListDb<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper,
+                    ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// Removes the index from the live container and returns the evicted

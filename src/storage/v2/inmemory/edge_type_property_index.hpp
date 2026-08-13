@@ -256,8 +256,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   };
 
   /// @throw std::bad_alloc
-  bool CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                          ActiveIndicesUpdater const &updater,
+  bool CreateIndexOnePass(ManifestRegistry const &registry, EdgeTypeId edge_type, PropertyId property,
+                          utils::SkipListDb<Vertex>::Accessor vertices, ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
@@ -277,8 +277,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   auto GetActiveIndices() const -> std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> override;
 
   auto RegisterIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater) -> bool;
-  auto PopulateIndex(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                     ActiveIndicesUpdater const &updater,
+  auto PopulateIndex(ManifestRegistry const &registry, EdgeTypeId edge_type, PropertyId property,
+                     utils::SkipListDb<Vertex>::Accessor vertices, ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;

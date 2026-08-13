@@ -26,6 +26,7 @@
 #include <variant>
 #include <vector>
 
+#include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/property_store.hpp"  // FLAGS_storage_floating_point_resolution_bits
 #include "utils/logging.hpp"
@@ -1247,6 +1248,32 @@ auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -
   return properties;
 }
 
+template <typename T>
+auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, PropertyId property,
+                                        IndexedPropertyDecoder<T> const &decoder) const -> PropertyValue {
+  auto value = GetProperty(registry, property);
+  decoder.DecodeProperty(value);
+  return value;
+}
+
+template auto ManifestPropertyStore::GetProperty(ManifestRegistry const &, PropertyId,
+                                                 IndexedPropertyDecoder<Vertex> const &) const -> PropertyValue;
+template auto ManifestPropertyStore::GetProperty(ManifestRegistry const &, PropertyId,
+                                                 IndexedPropertyDecoder<Edge> const &) const -> PropertyValue;
+
+template <typename T>
+auto ManifestPropertyStore::Properties(ManifestRegistry const &registry, IndexedPropertyDecoder<T> const &decoder) const
+    -> utils::small_vector<PropertyPair> {
+  auto properties = Properties(registry);
+  for (auto &[property, value] : properties) decoder.DecodeProperty(value);
+  return properties;
+}
+
+template auto ManifestPropertyStore::Properties(ManifestRegistry const &, IndexedPropertyDecoder<Vertex> const &) const
+    -> utils::small_vector<PropertyPair>;
+template auto ManifestPropertyStore::Properties(ManifestRegistry const &, IndexedPropertyDecoder<Edge> const &) const
+    -> utils::small_vector<PropertyPair>;
+
 auto ManifestPropertyStore::ExtendedPropertyTypes(ManifestRegistry const &registry) const
     -> std::map<PropertyId, ExtendedPropertyType> {
   auto types = std::map<PropertyId, ExtendedPropertyType>{};
@@ -1469,6 +1496,33 @@ auto ManifestPropertyStore::InitProperties(ManifestRegistry &registry,
   for (auto const &[id, value] : properties) ordered.emplace_back(id, value);
   Rebuild(registry, ordered);
   return true;
+}
+
+auto ManifestPropertyStore::UpdateProperties(ManifestRegistry &registry,
+                                             std::map<PropertyId, PropertyValue> &properties)
+    -> std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> {
+  auto const held = Properties(registry);
+
+  auto changes = std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>{};
+  changes.reserve(properties.size() + held.size());
+  // Two passes rather than one merge, so a property arriving where the record had none is
+  // reported ahead of every property the record already carried, as `PropertyStore` has it.
+  for (auto const &[property, arriving] : properties) {
+    if (!std::ranges::binary_search(held, property, {}, &PropertyPair::first)) {
+      changes.emplace_back(property, PropertyValue{}, arriving);
+    }
+  }
+  for (auto const &[property, existing] : held) {
+    auto const [it, inserted] = properties.emplace(property, existing);
+    if (!inserted) changes.emplace_back(property, existing, it->second);
+  }
+
+  // Encoded into a record of its own and moved in, so a value that cannot be encoded leaves
+  // the store holding what it held.
+  auto updated = ManifestPropertyStore{};
+  updated.InitProperties(registry, properties);
+  *this = std::move(updated);
+  return changes;
 }
 
 void ManifestPropertyStore::ReserveFields(ManifestRegistry &registry, std::span<ManifestEntry const> fields) {

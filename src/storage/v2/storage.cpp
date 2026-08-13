@@ -101,6 +101,7 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
         };
         return std::make_unique<DefaultDatabaseProtector>();
       }} {
+  schema_info_.SetRegistry(manifest_registry_);
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 
@@ -177,7 +178,8 @@ utils::QueryMemoryTracker &Storage::Accessor::GetTransactionMemoryTracker() {
 void Storage::Accessor::AdvanceCommand() {
   transaction_.manyDeltasCache.Clear();  // TODO: Just invalidate the View::OLD cache, NEW should still be fine
   ++transaction_.command_id;
-  transaction_.point_index_ctx_.AdvanceCommand(transaction_.point_index_change_collector_);
+  transaction_.point_index_ctx_.AdvanceCommand(storage_->manifest_registry(),
+                                               transaction_.point_index_change_collector_);
 }
 
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {

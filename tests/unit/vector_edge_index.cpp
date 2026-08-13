@@ -22,6 +22,7 @@
 #include "storage/v2/indices/text_edge_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
@@ -676,7 +677,10 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
       // Set edge property (vector)
       PropertyValue property_value(
           std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
-      edge_iter->properties.SetProperty(PropertyId::FromUint(1), property_value);
+      // The vector edge index reads and writes records through `NoManifestRegistry`, so this fixture,
+      // which has no storage of its own, has to encode them through the same registry.
+      edge_iter->properties.SetProperty(
+          memgraph::storage::NoManifestRegistry(), PropertyId::FromUint(1), property_value);
 
       // Connect edge to vertices via out_edges
       EdgeRef edge_ref(&(*edge_iter));

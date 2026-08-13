@@ -106,11 +106,11 @@ bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry);
 // edge-metadata index, ...) belongs here, never inlined into a single
 // version loader.
 /// @throw RecoveryFailure
-void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-                         NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
-                         RecoveryInfo const &recovery_info, memory::ArenaPool *db_arena_pool,
-                         RecoveredIndicesAndConstraints &indices_constraints, EdgeMetadataIndex *edges_metadata,
-                         bool properties_on_edges,
+void RecoverDerivedState(ManifestRegistry &registry, utils::SkipListDb<Vertex> *vertices,
+                         utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, Indices *indices,
+                         Constraints *constraints, Config const &config, RecoveryInfo const &recovery_info,
+                         memory::ArenaPool *db_arena_pool, RecoveredIndicesAndConstraints &indices_constraints,
+                         EdgeMetadataIndex *edges_metadata, bool properties_on_edges,
                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
@@ -123,10 +123,11 @@ struct Recovery {
   /// @throw RecoveryFailure
   /// @throw std::bad_alloc
   std::optional<RecoveryInfo> RecoverData(
-      utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipListDb<Vertex> *vertices,
-      utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata, std::atomic<uint64_t> *edge_count,
-      NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
-      memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+      ManifestRegistry &registry, utils::UUID &uuid, ReplicationStorageState &repl_storage_state,
+      utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata,
+      std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints,
+      Config const &config, memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store,
+      SharedSchemaTracking *schema_info,
       std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
       std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
       memgraph::storage::DescriptionStore *description_store);

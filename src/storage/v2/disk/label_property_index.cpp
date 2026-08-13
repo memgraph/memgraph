@@ -23,8 +23,9 @@ namespace memgraph::storage {
 
 namespace {
 
-bool IsVertexIndexedByLabelProperty(const Vertex &vertex, LabelId label, PropertyId property) {
-  return std::ranges::contains(vertex.labels, label) && vertex.properties.HasProperty(property);
+bool IsVertexIndexedByLabelProperty(ManifestRegistry const &registry, const Vertex &vertex, LabelId label,
+                                    PropertyId property) {
+  return std::ranges::contains(vertex.labels, label) && vertex.properties.HasProperty(registry, property);
 }
 
 [[nodiscard]] bool ClearTransactionEntriesWithRemovedIndexingLabel(
@@ -86,7 +87,8 @@ std::unique_ptr<rocksdb::Transaction> DiskLabelPropertyIndex::CreateAllReadingRo
   return tx;
 }
 
-bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex &vertex,
+bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(ManifestRegistry const &registry,
+                                                                   const Vertex &vertex,
                                                                    uint64_t commit_timestamp) const {
   auto disk_transaction = CreateRocksDBTransaction();
 
@@ -96,10 +98,11 @@ bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex 
     }
   }
   for (const auto &[index_label, index_property] : index_) {
-    if (IsVertexIndexedByLabelProperty(vertex, index_label, index_property)) {
+    if (IsVertexIndexedByLabelProperty(registry, vertex, index_label, index_property)) {
       if (!disk_transaction
                ->Put(utils::SerializeVertexAsKeyForLabelPropertyIndex(index_label, index_property, vertex.gid),
-                     utils::SerializeVertexAsValueForLabelPropertyIndex(index_label, vertex.labels, vertex.properties))
+                     utils::SerializeVertexAsValueForLabelPropertyIndex(
+                         index_label, vertex.labels, registry, vertex.properties))
                .ok()) {
         return false;
       }

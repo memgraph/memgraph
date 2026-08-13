@@ -13,7 +13,7 @@
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/property_store.hpp"
+#include "storage/v2/manifest_property_store.hpp"
 #include "utils/logging.hpp"
 #include "utils/pointer_pack.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -31,7 +31,7 @@ struct Edge {
 
   Gid gid{};
 
-  PropertyStore properties{};
+  ManifestPropertyStore properties{};
 
   mutable utils::RWSpinLock lock;
 

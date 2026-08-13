@@ -38,7 +38,8 @@ class DiskUniqueConstraints : public UniqueConstraints {
         -> std::vector<std::pair<LabelId, std::set<PropertyId>>> override;
     void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) override;
     auto GetAbortProcessor() const -> AbortProcessor override;
-    void CollectForAbort(AbortProcessor &processor, Vertex const *vertex) const override;
+    void CollectForAbort(ManifestRegistry const &registry, AbortProcessor &processor,
+                         Vertex const *vertex) const override;
     void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) override;
     bool empty() const override;
 
@@ -62,7 +63,7 @@ class DiskUniqueConstraints : public UniqueConstraints {
       LabelId label, const std::set<PropertyId> &properties,
       const std::vector<std::pair<std::string, std::string>> &vertices_under_constraint);
 
-  std::expected<void, ConstraintViolation> Validate(const Vertex &vertex,
+  std::expected<void, ConstraintViolation> Validate(ManifestRegistry const &registry, const Vertex &vertex,
                                                     std::vector<std::vector<PropertyValue>> &unique_storage) const;
 
   [[nodiscard]] bool ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const;
@@ -71,7 +72,8 @@ class DiskUniqueConstraints : public UniqueConstraints {
                                                               uint64_t transaction_start_timestamp,
                                                               uint64_t transaction_commit_timestamp);
 
-  [[nodiscard]] bool SyncVertexToUniqueConstraintsStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
+  [[nodiscard]] bool SyncVertexToUniqueConstraintsStorage(ManifestRegistry const &registry, const Vertex &vertex,
+                                                          uint64_t commit_timestamp) const;
 
   DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties);
 
@@ -87,8 +89,8 @@ class DiskUniqueConstraints : public UniqueConstraints {
   metrics::GaugeHandle gauge_{};
 
   [[nodiscard]] std::expected<void, ConstraintViolation> TestIfVertexSatisifiesUniqueConstraint(
-      const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
-      const std::set<PropertyId> &constraint_properties) const;
+      ManifestRegistry const &registry, const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage,
+      const LabelId &constraint_label, const std::set<PropertyId> &constraint_properties) const;
 
   bool VertexIsUnique(const std::vector<PropertyValue> &property_values,
                       const std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,

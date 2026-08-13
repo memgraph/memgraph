@@ -13,7 +13,7 @@
 
 namespace memgraph::storage {
 
-void UniqueConstraints::AbortProcessor::Collect(Vertex const *vertex) {
+void UniqueConstraints::AbortProcessor::Collect(ManifestRegistry const &registry, Vertex const *vertex) {
   for (const auto &label : vertex->labels) {
     auto it = abortable_info_.find(label);
     if (it == abortable_info_.end()) {
@@ -21,7 +21,7 @@ void UniqueConstraints::AbortProcessor::Collect(Vertex const *vertex) {
     }
 
     for (auto &[props, collection] : it->second) {
-      auto values = vertex->properties.ExtractPropertyValues(props);
+      auto values = vertex->properties.ExtractPropertyValues(registry, props);
       if (!values) {
         continue;
       }
