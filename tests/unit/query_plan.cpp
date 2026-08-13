@@ -5271,6 +5271,27 @@ TYPED_TEST(TestPlanner, ExistsSubqueryInWithWhere) {
                        ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, ExistsSubqueryInWithWhereAboveOrderBy) {
+  // MATCH (n) WITH n ORDER BY n WHERE EXISTS { MATCH (n)-[r]->(m) } RETURN n
+  // The half ExistsSubqueryInWithWhere cannot see: with no OrderBy in the chain, "above the OrderBy" and "below it"
+  // are the same plan. An OrderBy restores only its own output symbols, so a branch spliced below it would hand the
+  // Filter one frozen value per replayed row.
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WITH("n", ORDER_BY(IDENT("n"))),
+                                   WHERE(EXISTS_SUBQUERY(exists_subquery)),
+                                   RETURN("n")));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}, ExpectProduce{}, ExpectOrderBy{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(query,
+                       this->storage,
+                       ExpectExistsRollUpApply{std::move(input), std::move(branch)},
+                       ExpectFilter(),
+                       ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, ExistsSubqueryInWithOrderBy) {
   // MATCH (n) WITH n ORDER BY EXISTS { MATCH (n)-[r]->(m) } RETURN n
   // The sort key is read by the OrderBy's collection sweep, so this branch goes below it, not above.
@@ -5320,6 +5341,65 @@ TYPED_TEST(TestPlanner, ExistsSubqueryOnAnOptionalMatchVariable) {
   EXPECT_EQ(rollup->fold_, RollUpApply::Fold::kBool);
   EXPECT_NE(dynamic_cast<Optional *>(rollup->input_.get()), nullptr)
       << "the branch must sit above the Optional that binds what it correlates to";
+}
+
+TYPED_TEST(TestPlanner, TwoExistsInOneProjectionSpliceInVisitOrder) {
+  // MATCH (n) RETURN EXISTS { MATCH (n)-[r]->(m) } AS a, EXISTS { MATCH (x:l) } AS b
+  // Two branches at one splice point are spliced in the order they were visited, so the first named expression's sits
+  // lowest. Their bucket is a vector for exactly this reason - as a map it ordered them by symbol hash, which makes
+  // the plan shape depend on where the anonymous symbols happened to land.
+  FakeDbAccessor dba;
+  auto *expand_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *scan_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x", "l")))));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         RETURN(EXISTS_SUBQUERY(expand_subquery), AS("a"), EXISTS_SUBQUERY(scan_subquery), AS("b"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto *upper = dynamic_cast<RollUpApply *>(produce->input_.get());
+  ASSERT_NE(upper, nullptr);
+  auto *lower = dynamic_cast<RollUpApply *>(upper->input_.get());
+  ASSERT_NE(lower, nullptr) << "each EXISTS gets its own RollUpApply";
+  EXPECT_EQ(upper->fold_, RollUpApply::Fold::kBool);
+  EXPECT_EQ(lower->fold_, RollUpApply::Fold::kBool);
+
+  // `a` was visited first, so its branch - the expansion - is the one lower in the chain.
+  EXPECT_NE(dynamic_cast<Expand *>(lower->list_collection_branch_.get()), nullptr)
+      << "the first named expression's branch must be spliced first, i.e. lowest";
+  EXPECT_EQ(dynamic_cast<Expand *>(upper->list_collection_branch_.get()), nullptr);
+}
+
+TYPED_TEST(TestPlanner, ExistsInsideAPatternComprehensionWhere) {
+  // MATCH (n) RETURN [(n)-[r]->(m) WHERE EXISTS { MATCH (m)-[r2]->(k) } | m] AS l
+  // A comprehension's WHERE is a WHERE outside a return body, so the EXISTS in it stays a deferred fold on the
+  // comprehension's own Filter - the only allowed position that reaches MakeExistsFilter from inside another branch.
+  FakeDbAccessor dba;
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("k")))));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(
+          PATTERN_COMPREHENSION(
+              nullptr, PATTERN(NODE("n"), EDGE("r"), NODE("m")), WHERE(EXISTS_SUBQUERY(exists_subquery)), IDENT("m")),
+          AS("l"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto *rollup = dynamic_cast<RollUpApply *>(produce->input_.get());
+  ASSERT_NE(rollup, nullptr);
+  EXPECT_EQ(rollup->fold_, RollUpApply::Fold::kList) << "the comprehension itself still collects a list";
+
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr);
+  auto *filter = dynamic_cast<Filter *>(branch_produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "the comprehension's WHERE is a Filter inside its own branch";
+  ASSERT_EQ(filter->pattern_filters_.size(), 1U);
+  EXPECT_NE(dynamic_cast<EvaluatePatternFilter *>(filter->pattern_filters_[0].get()), nullptr)
+      << "the EXISTS there is a deferred fold, not a RollUpApply on the main chain";
 }
 
 TYPED_TEST(TestPlanner, ExistsSubqueryInWithWhereWithAggregation) {

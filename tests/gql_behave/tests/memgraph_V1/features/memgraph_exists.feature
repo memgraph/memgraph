@@ -1006,23 +1006,6 @@ Feature: WHERE exists
           | name           | h     |
           | 'Regina King'  | false |
 
-  Scenario: Test EXISTS subquery in a projection after a write
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (:Person {name: 'Bob'})
-          """
-      When executing query:
-          """
-          MATCH (p:Person {name: 'Bob'})
-          CREATE (p)-[:ACTED_IN]->(:Movie {title: 'Juno'})
-          WITH p, EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) } AS h
-          RETURN p.name AS name, h;
-          """
-      Then the result should be:
-          | name  | h    |
-          | 'Bob' | true |
-
   Scenario: Test EXISTS subquery in a RETURN projection after a write
       Given an empty graph
       And having executed:
@@ -1098,26 +1081,28 @@ Feature: WHERE exists
           | 1  | true |
           | 2  | true |
 
-  # The EXISTS reads the property the SET just wrote, so this fails if the branch cannot see the write: with `tag`
-  # unset on every node the body matches nothing and both rows come back false. The `n.rank + 1` correlation keeps the
-  # two rows distinguishable, so an all-false and an all-true answer are both detected.
-  Scenario: Test EXISTS subquery in a projection reading what a SET just wrote
+  # The EXISTS matches only nodes this query just created, so it comes back all-false if the branch cannot see the
+  # write. The `n.rank + 1` correlation keeps the two rows distinguishable, so an all-true answer is detected too.
+  #
+  # It has to be a RETURN, not a WITH: GenWith advances the command in its Accumulate, which drains its input before
+  # the branch above it ever pulls, so a WITH sees the write through View::OLD anyway and the scenario would pass with
+  # the view rule reverted.
+  Scenario: Test EXISTS subquery in a projection reading what a CREATE just wrote
       Given an empty graph
       And having executed:
           """
-          CREATE (:Person {name: 'Regina King', rank: 1})
-          CREATE (:Person {name: 'Bob', rank: 2})
+          CREATE (:Person {rank: 1})
+          CREATE (:Person {rank: 2})
           """
       When executing query:
           """
-          MATCH (n:Person) SET n.tag = n.rank
-          WITH n, EXISTS { MATCH (m:Person) WHERE m.tag = n.rank + 1 } AS e
-          RETURN n.name AS name, e ORDER BY name;
+          MATCH (n:Person) CREATE (:Tag {v: n.rank + 1})
+          RETURN n.rank AS rank, EXISTS { MATCH (t:Tag) WHERE t.v = n.rank } AS e ORDER BY rank;
           """
       Then the result should be:
-          | name           | e     |
-          | 'Bob'          | false |
-          | 'Regina King'  | true  |
+          | rank | e     |
+          | 1    | false |
+          | 2    | true  |
 
   Scenario: Test EXISTS subquery correlating to a non-projected variable after a write
       Given an empty graph

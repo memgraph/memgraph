@@ -196,6 +196,19 @@ TYPED_TEST(ExpressionEvaluatorTest, AndExistsOperatorShortCircuit) {
   }
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, ExistsReadsAForcedBoolFold) {
+  // A deferred fold leaves a closure in the frame slot for the Filter to call; a forced one leaves the answer itself,
+  // because the RollUpApply below already ran the branch. Both spellings have to evaluate.
+  {
+    auto *exists = this->CreateExistsWithValue("anon1", TypedValue(true, this->ctx.memory));
+    EXPECT_EQ(this->Eval(exists).ValueBool(), true);
+  }
+  {
+    auto *exists = this->CreateExistsWithValue("anon2", TypedValue(false, this->ctx.memory));
+    EXPECT_EQ(this->Eval(exists).ValueBool(), false);
+  }
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, AndOperatorNull) {
   {
     // Null doesn't short circuit

@@ -1333,6 +1333,22 @@ TYPED_TEST(TestSymbolGenerator, ExistsAllowedPositions) {
   // refusing it here would narrow behaviour that predates the projection work.
   EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))), WHERE(ALL("x", LIST(LITERAL(1)), WHERE(exists_subquery()))), RETURN("n")))));
+
+  // MATCH (n) OPTIONAL MATCH (n)-[e]->(q) WHERE EXISTS { ... } RETURN n
+  // An OPTIONAL MATCH's WHERE is a WHERE outside a return body like any other, and it predates this work.
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                                     OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("q"))),
+                                                     WHERE(exists_subquery()),
+                                                     RETURN("n")))));
+
+  // MATCH (n) RETURN [(n)-[r2]->(m2) WHERE EXISTS { ... } | m2] AS l
+  // A comprehension's WHERE is rung one as well: the comprehension pushes its own scope, so the WHERE inside it does
+  // not read as a return body's. It is planned as a deferred fold on the comprehension's own Filter.
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(PATTERN_COMPREHENSION(
+                 nullptr, PATTERN(NODE("n"), EDGE("r2"), NODE("m2")), WHERE(exists_subquery()), IDENT("m2")),
+             AS("l"))))));
 }
 
 TYPED_TEST(TestSymbolGenerator, ExistsRefusedPositions) {
