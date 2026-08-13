@@ -21,6 +21,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "cache_properties_flag_guard.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "query/auth_checker.hpp"
 #include "query/interpreter.hpp"
@@ -168,22 +169,6 @@ TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
                 .size(),
             3);
 }
-
-// Restores the flag whatever the test does, so a failing EXPECT cannot leak the rewrite into later tests.
-class CachePropertiesFlagGuard {
- public:
-  explicit CachePropertiesFlagGuard(bool value) : previous_(FLAGS_query_cache_properties) {
-    FLAGS_query_cache_properties = value;
-  }
-
-  ~CachePropertiesFlagGuard() { FLAGS_query_cache_properties = previous_; }
-
-  CachePropertiesFlagGuard(const CachePropertiesFlagGuard &) = delete;
-  CachePropertiesFlagGuard &operator=(const CachePropertiesFlagGuard &) = delete;
-
- private:
-  bool previous_;
-};
 
 /// The queries the property cache is allowed to change the plan of, plus the ones it must leave alone. Each fixture
 /// gets a fresh plan cache, so the flag has to be compared across two tests rather than toggled inside one.

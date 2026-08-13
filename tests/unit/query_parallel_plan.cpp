@@ -11,6 +11,7 @@
 
 #include "storage/v2/config.hpp"
 #ifdef MG_ENTERPRISE
+#include "cache_properties_flag_guard.hpp"
 #include "query_plan_checker.hpp"
 
 #include <iostream>

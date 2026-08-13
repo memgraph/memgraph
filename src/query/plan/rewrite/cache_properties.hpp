@@ -26,16 +26,16 @@ namespace memgraph::query::plan {
 
 namespace impl {
 
-/// Walks the named expressions of a single Produce, first counting the property lookups that are candidates for
+/// Walks the expressions one operator evaluates per row, first counting the property lookups that are candidates for
 /// caching, then swapping the chosen ones for identifiers bound to the cache's frame slots.
 ///
 /// Both phases share one traversal so that a lookup which the traversal does not reach is neither counted nor
 /// replaced; a subexpression this visitor refuses to enter simply keeps reading properties the old way.
-class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
+class PropertyLookupCacher final : public ExpressionVisitor<void> {
  public:
   enum class Phase : uint8_t { GATHER, REPLACE };
 
-  ProducePropertyLookupCacher(SymbolTable *symbol_table, AstStorage *ast_storage)
+  PropertyLookupCacher(SymbolTable *symbol_table, AstStorage *ast_storage)
       : symbol_table_(symbol_table), ast_storage_(ast_storage) {}
 
   using ExpressionVisitor<void>::Visit;
@@ -43,6 +43,12 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   void Run(Phase phase, NamedExpression *named_expression) {
     phase_ = phase;
     named_expression->Accept(*this);
+  }
+
+  /// A slot the operator holds directly, which unlike a named expression's body can itself be the lookup to replace.
+  void Run(Phase phase, Expression *&expression) {
+    phase_ = phase;
+    AcceptExpression(expression);
   }
 
   /// The symbol all gathered lookups agree on, or nullopt when there is nothing worth caching.
@@ -221,25 +227,15 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     auto input = op.input();
     if (!input) return true;
 
-    auto cacher = ProducePropertyLookupCacher{symbol_table_, ast_storage_};
+    auto cacher = PropertyLookupCacher{symbol_table_, ast_storage_};
     for (auto *&named_expression : op.named_expressions_) {
-      cacher.Run(ProducePropertyLookupCacher::Phase::GATHER, named_expression);
+      cacher.Run(PropertyLookupCacher::Phase::GATHER, named_expression);
     }
 
-    auto candidate = cacher.Candidate();
+    auto candidate = Candidate(cacher, *input);
     if (!candidate) return true;
 
-    auto const modified = input->ModifiedSymbols(*symbol_table_);
-    if (std::ranges::find(modified, *candidate) == modified.end()) return true;
-
-    auto cached_by_name = std::map<std::string, Symbol, std::less<>>{};
-    auto cached_properties = std::vector<CachedProperty>{};
-    cached_properties.reserve(cacher.PropertyNames().size());
-    for (auto const &property_name : cacher.PropertyNames()) {
-      auto const &output_symbol = symbol_table_->CreateAnonymousSymbol();
-      cached_by_name.emplace(property_name, output_symbol);
-      cached_properties.push_back(CachedProperty{db_->NameToProperty(property_name), output_symbol});
-    }
+    auto slots = MakeSlots(cacher.PropertyNames());
 
     // The variable-start planner rewrites several candidate plans that share one AST, so the replacement has to
     // happen on this plan's own copy of the named expressions.
@@ -247,16 +243,40 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       named_expression = named_expression->Clone(ast_storage_);
     }
 
-    cacher.SetCachedSymbols(std::move(cached_by_name));
+    cacher.SetCachedSymbols(std::move(slots.by_name));
     for (auto *&named_expression : op.named_expressions_) {
-      cacher.Run(ProducePropertyLookupCacher::Phase::REPLACE, named_expression);
+      cacher.Run(PropertyLookupCacher::Phase::REPLACE, named_expression);
     }
 
-    op.set_input(std::make_shared<CacheProperties>(input, *candidate, std::move(cached_properties)));
+    op.set_input(std::make_shared<CacheProperties>(input, *candidate, std::move(slots.properties)));
     return true;
   }
 
  private:
+  struct CacheSlots {
+    std::map<std::string, Symbol, std::less<>> by_name;
+    std::vector<CachedProperty> properties;
+  };
+
+  auto Candidate(PropertyLookupCacher const &cacher, LogicalOperator const &input) const -> std::optional<Symbol> {
+    auto candidate = cacher.Candidate();
+    if (!candidate) return std::nullopt;
+    auto const modified = input.ModifiedSymbols(*symbol_table_);
+    if (std::ranges::find(modified, *candidate) == modified.end()) return std::nullopt;
+    return candidate;
+  }
+
+  auto MakeSlots(std::set<std::string> const &property_names) -> CacheSlots {
+    auto slots = CacheSlots{};
+    slots.properties.reserve(property_names.size());
+    for (auto const &property_name : property_names) {
+      auto const &output_symbol = symbol_table_->CreateAnonymousSymbol();
+      slots.by_name.emplace(property_name, output_symbol);
+      slots.properties.push_back(CachedProperty{db_->NameToProperty(property_name), output_symbol});
+    }
+    return slots;
+  }
+
   SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
   TDbAccessor *db_;
