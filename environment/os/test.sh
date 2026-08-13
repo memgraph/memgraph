@@ -53,7 +53,7 @@ if [[ "${PACKAGE_GROUP}" == "ALL" ]]; then
 elif [[ " ${PACKAGE_GROUPS[*]} " =~ " ${PACKAGE_GROUP} " ]]; then
     GROUPS_TO_TEST=("${PACKAGE_GROUP}")
 else
-    echo "Error: Invalid package group: ${PACKAGE_GROUP} (valid: ${PACKAGE_GROUPS[*]} or ALL)"
+    echo "Error: Invalid package group: ${PACKAGE_GROUP} (valid: ${PACKAGE_GROUPS[*]} or ALL)" >&2
     exit 1
 fi
 
