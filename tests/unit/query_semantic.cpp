@@ -1326,6 +1326,13 @@ TYPED_TEST(TestSymbolGenerator, ExistsAllowedPositions) {
       MATCH(PATTERN(NODE("n"))),
       RETURN(EXISTS(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {}, false), NODE("m", std::nullopt, false))),
              AS("h")))));
+
+  // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { ... }) RETURN n
+  // A per-element lambda is refused in every forced-fold position, but a MATCH's WHERE is a deferred closure that
+  // evaluates where the expression sits, so it stays correct inside a lambda and stays allowed. Pinned because
+  // refusing it here would narrow behaviour that predates the projection work.
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))), WHERE(ALL("x", LIST(LITERAL(1)), WHERE(exists_subquery()))), RETURN("n")))));
 }
 
 TYPED_TEST(TestSymbolGenerator, ExistsRefusedPositions) {
@@ -1364,6 +1371,52 @@ TYPED_TEST(TestSymbolGenerator, ExistsRefusedPositions) {
 
   // RETURN n SKIP EXISTS { ... } - SKIP shares in_return with the projection but has no splice point of its own.
   expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", SKIP(exists_subquery())))), generic);
+
+  // RETURN n LIMIT EXISTS { ... } - the other half of the `!in_skip && !in_limit` conjunct.
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", LIMIT(exists_subquery())))), generic);
+
+  // A per-element lambda body binds its variable outside the planner's reach, so the branch would be spliced once
+  // above the Produce and read an unbound element - a silently wrong bool. Refused in every such construct.
+
+  // RETURN all(x IN [1] WHERE EXISTS { ... }) AS h
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    RETURN(ALL("x", LIST(LITERAL(1)), WHERE(exists_subquery())), AS("h")))),
+                 generic);
+
+  // RETURN single(x IN [1] WHERE EXISTS { ... }) AS h
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    RETURN(SINGLE("x", LIST(LITERAL(1)), WHERE(exists_subquery())), AS("h")))),
+                 generic);
+
+  // RETURN [x IN [1] WHERE EXISTS { ... } | x] AS h - the filter half of a list comprehension.
+  expect_message(
+      QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))),
+          RETURN(LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), WHERE(exists_subquery()), nullptr), AS("h")))),
+      generic);
+
+  // RETURN [x IN [1] | EXISTS { ... }] AS h - and its result half.
+  expect_message(QUERY(SINGLE_QUERY(
+                     MATCH(PATTERN(NODE("n"))),
+                     RETURN(LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), nullptr, exists_subquery()), AS("h")))),
+                 generic);
+
+  // RETURN extract(x IN [1] | EXISTS { ... }) AS h
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    RETURN(EXTRACT("x", LIST(LITERAL(1)), exists_subquery()), AS("h")))),
+                 generic);
+
+  // A lambda in a WITH's WHERE is refused as well: that position is a forced fold too.
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    WITH("n"),
+                                    WHERE(ALL("x", LIST(LITERAL(1)), WHERE(exists_subquery()))),
+                                    RETURN("n"))),
+                 generic);
+
+  // A lambda in ORDER BY, likewise.
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    RETURN("n", ORDER_BY(ALL("x", LIST(LITERAL(1)), WHERE(exists_subquery())))))),
+                 generic);
 
   // reduce(...) keeps its own message, and it now fires from a RETURN too, where !in_where used to answer first.
   expect_message(

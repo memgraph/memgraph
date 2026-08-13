@@ -156,6 +156,10 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_remove_labels{false};
     bool in_pattern_comprehension{false};
     bool in_list_comprehension{false};
+    /// Nesting depth of expressions that bind a per-element identifier and evaluate a body once per element: a list
+    /// comprehension, all/any/none/single, extract, reduce, and an edge atom's filter/weight lambda. A depth rather
+    /// than a flag so a nested one does not clear its parent.
+    uint32_t element_lambda_depth{0};
     // True when visiting a pattern atom (node or edge) identifier, which can be
     // reused or created in the pattern itself.
     bool in_pattern_atom_identifier{false};

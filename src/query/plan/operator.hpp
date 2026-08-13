@@ -3218,7 +3218,8 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> list_collection_branch_;
   Symbol result_symbol_;
-  Symbol list_collection_symbol_;
+  /// Unused by the kBool fold, so it needs an initializer: that ctor does not set it and Clone copies it regardless.
+  Symbol list_collection_symbol_{};
   bool pass_input_{false};
   Fold fold_{Fold::kList};
 };

@@ -5308,6 +5308,27 @@ TYPED_TEST(TestPlanner, ExistsSubqueryInWithWhereWithAggregation) {
                        ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, ExistsSubqueryInWithOrderByWithAggregation) {
+  // MATCH (n) WITH n, count(*) AS c ORDER BY EXISTS { MATCH (n)-[r]->(m) } RETURN n
+  // The aggregating twin of ExistsSubqueryInWithWhereWithAggregation: with an aggregation present ORDER BY is not
+  // visited for group-by collection, so the EXISTS there needs the same dedicated planning pass or its frame slot
+  // stays unwritten and the sort key throws.
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WITH(NEXPR("n", IDENT("n")), NEXPR("c", COUNT(LITERAL(1), false)), ORDER_BY(EXISTS_SUBQUERY(exists_subquery))),
+      RETURN("n")));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}, OpChecker<Aggregate>{}, ExpectProduce{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(query,
+                       this->storage,
+                       ExpectExistsRollUpApply{std::move(input), std::move(branch)},
+                       ExpectOrderBy(),
+                       ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, ExistsSubqueryInsideAggregateArgument) {
   // MATCH (n) RETURN collect(EXISTS { MATCH (n)-[r]->(m) }) AS c
   // The branch is correlated to the input row, so it must run before the Aggregate collapses rows into groups. Its

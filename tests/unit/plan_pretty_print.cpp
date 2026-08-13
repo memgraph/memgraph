@@ -1600,6 +1600,7 @@ TYPED_TEST(PrintToJsonTest, RollUpApply) {
                     }
                 ]
             },
+            "fold": "list",
             "name": "RollUpApply",
             "output_symbol": "node"
           })sep");

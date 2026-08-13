@@ -176,22 +176,17 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       }
       MG_ASSERT(aggregations_.empty(), "Unexpected aggregations in ORDER BY or WHERE");
     } else {
-      // Visiting ORDER BY / WHERE fully would pollute group_by_, so only collect comprehension symbols. Nested ones
-      // are collected too but are never pending, so they drop out of the lookup.
-      auto plan_comprehensions_in = [&](Expression &expr, BodyPosition position) {
-        std::unordered_set<Symbol> pc_symbols;
-        PCSymbolCollector collector(symbol_table_, pc_symbols);
-        expr.Accept(collector);
-        position_ = position;
-        for (const auto &sym : pc_symbols) {
-          PlanPatternComprehensionOnDemand(sym);
-        }
-      };
+      // Visiting ORDER BY / WHERE fully would pollute group_by_. The comprehensions and EXISTS in them still need
+      // planning, so discover them with a visitor that plans and collects nothing else. `position_` is set before
+      // each Accept because this visitor plans during the walk.
+      PostProduceComprehensionPlanner planner(*this);
+      position_ = BodyPosition::kOrderBy;
       for (const auto &order_pair : body.order_by) {
-        plan_comprehensions_in(*order_pair.expression, BodyPosition::kOrderBy);
+        order_pair.expression->Accept(planner);
       }
       if (where) {
-        plan_comprehensions_in(*where->expression_, BodyPosition::kWhere);
+        position_ = BodyPosition::kWhere;
+        where->Accept(planner);
       }
     }
     position_ = BodyPosition::kProjection;
@@ -715,8 +710,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   const auto &exists_in_aggregations() const { return exists_in_aggregations_; }
 
  private:
-  // Finds pattern comprehensions in ORDER BY / WHERE without collecting aggregation or group-by information from
-  // those expressions. Used when the return body aggregates, where a full visit would pollute group_by_.
+  // Finds pattern comprehensions and EXISTS in ORDER BY / WHERE without collecting aggregation or group-by
+  // information from those expressions. Used when the return body aggregates, where a full visit would pollute
+  // group_by_.
   class PostProduceComprehensionPlanner : public HierarchicalTreeVisitor {
    public:
     explicit PostProduceComprehensionPlanner(ReturnBodyContext &context) : context_(context) {}
@@ -772,8 +768,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   /// Plans @p exists if it is still pending, into the bucket matching its position in the return body. The bool fold
   /// is forced, so a projected value is a real bool rather than a closure and the branch runs once per input row.
   void PlanExistsOnDemand(Exists &exists) {
-    // Skip if we don't have a planning context (e.g. when analyzing bound symbols in GetSubqueryBoundSymbols) - the
-    // actual planning will handle them later.
+    // No planning context (e.g. GetSubqueryBoundSymbols); the real planning pass handles them later.
     if (!pc_ctx_ || !pc_ctx_->planner) {
       return;
     }
@@ -786,6 +781,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
         position_ == BodyPosition::kProjection ? kNoExtraBoundSymbols : post_produce_bound_symbols_;
     auto op = pc_ctx_->planner->PlanExistsBranch(
         it->second, SubqueryView(it->second, pc_ctx_->write_occurred), extra_bound_symbols);
+    pc_ctx_->pending_exists.erase(it);
     ExistsBucket(position_).emplace_back(result_sym, std::move(op));
   }
 
@@ -1130,7 +1126,7 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
     // not actually building the query plan. Pattern comprehensions will be handled
     // when the subquery is fully planned later.
     std::unordered_map<Symbol, PatternComprehensionMatching> empty_pending;
-    const std::unordered_map<Symbol, FilterMatching> empty_pending_exists;
+    std::unordered_map<Symbol, FilterMatching> empty_pending_exists;
     SubqueryContext pc_ctx{.pending_comprehensions = empty_pending,
                            .pending_exists = empty_pending_exists,
                            .planner = nullptr,

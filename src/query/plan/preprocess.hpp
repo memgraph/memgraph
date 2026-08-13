@@ -84,7 +84,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    const bool is_ordinary_flow = !in_exists && in_pattern_comprehension_depth == 0;
+    const bool is_ordinary_flow = in_exists_depth == 0 && in_pattern_comprehension_depth == 0;
     if (is_ordinary_flow) {
       symbols_.insert(symbol_table_.at(ident));
     } else if (ident.user_declared_) {
@@ -94,7 +94,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(Exists &exists) override {
-    in_exists = true;
+    ++in_exists_depth;
 
     if (exists.HasPattern()) {
       // We do not visit pattern identifier since we're in exists filter pattern
@@ -125,7 +125,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(Exists & /*exists*/) override {
-    in_exists = false;
+    --in_exists_depth;
     return true;
   }
 
@@ -151,9 +151,10 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   const SymbolTable &symbol_table_;
 
  private:
-  bool in_exists{false};
-  // A depth, not a flag: a pattern's property maps and variable-length bounds may hold another comprehension, whose
-  // `PostVisit` would clear a flag and let the rest of the outer pattern collect anonymous symbols.
+  // Depths, not flags, for the same reason in both cases: a nested one's `PostVisit` would clear a flag and let the
+  // rest of the outer body collect anonymous symbols. A pattern's property maps and variable-length bounds may hold
+  // another comprehension, and an exists body may hold another exists.
+  int in_exists_depth{0};
   int in_pattern_comprehension_depth{0};
 };
 

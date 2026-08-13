@@ -938,6 +938,41 @@ Feature: WHERE exists
           | 'Bob'          | 1 | false |
           | 'Regina King'  | 1 | true  |
 
+  Scenario: Test EXISTS subquery in the WHERE of an aggregating WITH
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
+          CREATE (:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WITH p, count(*) AS c WHERE EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) }
+          RETURN p.name AS name, c;
+          """
+      Then the result should be:
+          | name           | c |
+          | 'Regina King'  | 1 |
+
+  Scenario: Test EXISTS subquery in the ORDER BY of an aggregating WITH
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
+          CREATE (:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WITH p, count(*) AS c ORDER BY EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) } DESC
+          RETURN p.name AS name, c;
+          """
+      Then the result should be, in order:
+          | name           | c |
+          | 'Regina King'  | 1 |
+          | 'Bob'          | 1 |
+
   Scenario: Test EXISTS subquery inside an aggregate argument
       Given an empty graph
       And having executed:
@@ -987,6 +1022,24 @@ Feature: WHERE exists
       Then the result should be:
           | name  | h    |
           | 'Bob' | true |
+
+  Scenario: Test EXISTS subquery in a RETURN projection after a write
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person {name: 'Bob'})
+          CREATE (p)-[:ACTED_IN]->(:Movie {title: 'Juno'})
+          RETURN p.name AS name,
+                 EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) } AS subquery_form,
+                 exists((p)-[:ACTED_IN]->(:Movie)) AS pattern_form;
+          """
+      Then the result should be:
+          | name  | subquery_form | pattern_form |
+          | 'Bob' | true          | true         |
 
   Scenario: Test EXISTS subquery in a projection after a SET
       Given an empty graph
