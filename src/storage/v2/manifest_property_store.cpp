@@ -11,14 +11,13 @@
 
 #include "storage/v2/manifest_property_store.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <limits>
 #include <span>
 #include <string>
-#include <vector>
 
 #include "utils/logging.hpp"
-#include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
 
@@ -26,6 +25,10 @@ namespace {
 
 constexpr uint8_t kBoolWidth = 1;
 constexpr uint8_t kDoubleWidth = 8;
+constexpr uint8_t kTemporalWidth = 8;  // microseconds; which temporal type is part of the shape
+constexpr uint8_t kEnumWidth = 8;      // value id; which enum type is part of the shape
+constexpr uint8_t kPoint2dWidth = 16;  // x, y; the coordinate system is part of the shape
+constexpr uint8_t kPoint3dWidth = 24;  // x, y, z
 
 /// Narrowest signed width that still round-trips `value`.
 auto IntWidth(int64_t value) -> uint8_t {
@@ -35,6 +38,8 @@ auto IntWidth(int64_t value) -> uint8_t {
   return 8;
 }
 
+/// A value that carries a discriminator of its own puts it in the shape, which is what keeps
+/// its payload fixed width and every record of that shape identically laid out.
 auto StoredTypeOf(PropertyValue const &value) -> StoredType {
   switch (value.type()) {
     case PropertyValueType::Bool:
@@ -45,6 +50,18 @@ auto StoredTypeOf(PropertyValue const &value) -> StoredType {
       return StoredType::Fixed(PropertyStoreType::DOUBLE, kDoubleWidth);
     case PropertyValueType::String:
       return StoredType::Variable(PropertyStoreType::STRING);
+    case PropertyValueType::TemporalData:
+      return StoredType::Fixed(
+          PropertyStoreType::TEMPORAL_DATA, kTemporalWidth, static_cast<uint32_t>(value.ValueTemporalData().type));
+    case PropertyValueType::Enum:
+      return StoredType::Fixed(
+          PropertyStoreType::ENUM, kEnumWidth, static_cast<uint32_t>(value.ValueEnum().type_id().value_of()));
+    case PropertyValueType::Point2d:
+      return StoredType::Fixed(
+          PropertyStoreType::POINT, kPoint2dWidth, static_cast<uint32_t>(value.ValuePoint2d().crs()));
+    case PropertyValueType::Point3d:
+      return StoredType::Fixed(
+          PropertyStoreType::POINT, kPoint3dWidth, static_cast<uint32_t>(value.ValuePoint3d().crs()));
     default:
       LOG_FATAL("ManifestPropertyStore cannot yet encode this property type");
   }
@@ -79,6 +96,28 @@ void EncodeFixed(PropertyValue const &value, StoredType stored_type, std::span<u
       std::memcpy(out.data(), &raw, kDoubleWidth);
       return;
     }
+    case PropertyStoreType::TEMPORAL_DATA: {
+      auto const raw = value.ValueTemporalData().microseconds;
+      std::memcpy(out.data(), &raw, kTemporalWidth);
+      return;
+    }
+    case PropertyStoreType::ENUM: {
+      auto const raw = value.ValueEnum().value_id().value_of();
+      std::memcpy(out.data(), &raw, kEnumWidth);
+      return;
+    }
+    case PropertyStoreType::POINT: {
+      if (stored_type.width == kPoint2dWidth) {
+        auto const &point = value.ValuePoint2d();
+        auto const coordinates = std::array{point.x(), point.y()};
+        std::memcpy(out.data(), coordinates.data(), kPoint2dWidth);
+        return;
+      }
+      auto const &point = value.ValuePoint3d();
+      auto const coordinates = std::array{point.x(), point.y(), point.z()};
+      std::memcpy(out.data(), coordinates.data(), kPoint3dWidth);
+      return;
+    }
     default:
       LOG_FATAL("Not a fixed-width property type");
   }
@@ -107,8 +146,42 @@ auto DecodeFixed(StoredType stored_type, std::span<uint8_t const> in) -> Propert
       std::memcpy(&raw, in.data(), kDoubleWidth);
       return PropertyValue{raw};
     }
+    case PropertyStoreType::TEMPORAL_DATA: {
+      int64_t microseconds = 0;
+      std::memcpy(&microseconds, in.data(), kTemporalWidth);
+      return PropertyValue{TemporalData{static_cast<TemporalType>(stored_type.discriminator), microseconds}};
+    }
+    case PropertyStoreType::ENUM: {
+      uint64_t value_id = 0;
+      std::memcpy(&value_id, in.data(), kEnumWidth);
+      return PropertyValue{Enum{EnumTypeId{stored_type.discriminator}, EnumValueId{value_id}}};
+    }
+    case PropertyStoreType::POINT: {
+      auto const crs = static_cast<CoordinateReferenceSystem>(stored_type.discriminator);
+      if (stored_type.width == kPoint2dWidth) {
+        std::array<double, 2> coordinates{};
+        std::memcpy(coordinates.data(), in.data(), kPoint2dWidth);
+        return PropertyValue{Point2d{crs, coordinates[0], coordinates[1]}};
+      }
+      std::array<double, 3> coordinates{};
+      std::memcpy(coordinates.data(), in.data(), kPoint3dWidth);
+      return PropertyValue{Point3d{crs, coordinates[0], coordinates[1], coordinates[2]}};
+    }
     default:
       LOG_FATAL("Not a fixed-width property type");
+  }
+}
+
+auto IsPresent(uint8_t const *record, uint32_t position) -> bool {
+  return (record[position / 8] & (1U << (position % 8))) != 0;
+}
+
+void SetPresent(uint8_t *record, uint32_t position, bool present) {
+  auto const mask = static_cast<uint8_t>(1U << (position % 8));
+  if (present) {
+    record[position / 8] |= mask;
+  } else {
+    record[position / 8] &= static_cast<uint8_t>(~mask);
   }
 }
 

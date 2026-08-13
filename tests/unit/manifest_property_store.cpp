@@ -314,3 +314,65 @@ TEST(ManifestPropertyStoreDifferential, AgreesWithPropertyStoreOverRandomOperati
     }
   }
 }
+
+TEST_F(ManifestPropertyStoreTest, RoundTripsTemporalData) {
+  using memgraph::storage::TemporalData;
+  using memgraph::storage::TemporalType;
+
+  Set(1, PropertyValue(TemporalData{TemporalType::Date, 1'600'000'000}));
+  EXPECT_EQ(Get(1), PropertyValue(TemporalData{TemporalType::Date, 1'600'000'000}));
+
+  Set(2, PropertyValue(TemporalData{TemporalType::Duration, -42}));
+  EXPECT_EQ(Get(2), PropertyValue(TemporalData{TemporalType::Duration, -42}));
+}
+
+TEST_F(ManifestPropertyStoreTest, TemporalValuesOfDifferentTypesTakeDifferentShapes) {
+  using memgraph::storage::TemporalData;
+  using memgraph::storage::TemporalType;
+
+  Set(1, PropertyValue(TemporalData{TemporalType::Date, 1}));
+  auto const as_date = store_.manifest();
+
+  Set(1, PropertyValue(TemporalData{TemporalType::LocalTime, 1}));
+
+  EXPECT_NE(store_.manifest(), as_date);
+  EXPECT_EQ(Get(1), PropertyValue(TemporalData{TemporalType::LocalTime, 1}));
+}
+
+TEST_F(ManifestPropertyStoreTest, RoundTripsEnum) {
+  using memgraph::storage::Enum;
+  using memgraph::storage::EnumTypeId;
+  using memgraph::storage::EnumValueId;
+
+  Set(1, PropertyValue(Enum{EnumTypeId{3}, EnumValueId{7}}));
+  EXPECT_EQ(Get(1), PropertyValue(Enum{EnumTypeId{3}, EnumValueId{7}}));
+
+  Set(1, PropertyValue(Enum{EnumTypeId{3}, EnumValueId{9}}));
+  EXPECT_EQ(Get(1), PropertyValue(Enum{EnumTypeId{3}, EnumValueId{9}}));
+}
+
+TEST_F(ManifestPropertyStoreTest, RoundTripsPoints) {
+  using memgraph::storage::CoordinateReferenceSystem;
+  using memgraph::storage::Point2d;
+  using memgraph::storage::Point3d;
+
+  Set(1, PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, 1.5, -2.25}));
+  EXPECT_EQ(Get(1), PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, 1.5, -2.25}));
+
+  Set(2, PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
+  EXPECT_EQ(Get(2), PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
+}
+
+TEST_F(ManifestPropertyStoreTest, PointsOfDifferentDimensionsTakeDifferentShapes) {
+  using memgraph::storage::CoordinateReferenceSystem;
+  using memgraph::storage::Point2d;
+  using memgraph::storage::Point3d;
+
+  Set(1, PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}));
+  auto const flat = store_.manifest();
+
+  Set(1, PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
+
+  EXPECT_NE(store_.manifest(), flat);
+  EXPECT_EQ(Get(1), PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
+}

@@ -36,8 +36,9 @@ namespace memgraph::storage {
 /// The registry is passed in rather than held, so a record costs nothing to point at the
 /// shapes it shares with every other record.
 ///
-/// Prototype scope: bool, integer, double and string. The remaining property types
-/// (temporal, enum, point, list, map, vector) are not encodable yet and will assert.
+/// Prototype scope: bool, integer, double, string, temporal data, enum and point. The
+/// remaining property types (zoned temporal, list, map, vector) are not encodable yet and
+/// will assert.
 class ManifestPropertyStore {
  public:
   ManifestPropertyStore() = default;

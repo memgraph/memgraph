@@ -34,8 +34,14 @@ struct StoredType {
   PropertyStoreType type{};
   /// Encoded payload width in bytes; zero means the width varies per value.
   uint8_t width{};
+  /// For the types whose value carries a discriminator of its own, that discriminator: which
+  /// temporal type, which enum type, which coordinate system. Keeping it here rather than in
+  /// the record is what makes those types fixed width.
+  uint32_t discriminator{};
 
-  static constexpr StoredType Fixed(PropertyStoreType type, uint8_t width) { return {.type = type, .width = width}; }
+  static constexpr StoredType Fixed(PropertyStoreType type, uint8_t width, uint32_t discriminator = 0) {
+    return {.type = type, .width = width, .discriminator = discriminator};
+  }
 
   static constexpr StoredType Variable(PropertyStoreType type) { return {.type = type, .width = 0}; }
 
@@ -78,6 +84,9 @@ class PropertyManifest {
     /// record's variable-region offset table.
     uint32_t offset;
     StoredType stored_type;
+    /// Which field of the shape this is, and so which of the record's presence bits says
+    /// whether the record carries a value for it.
+    uint32_t position;
   };
 
   explicit PropertyManifest(std::vector<ManifestEntry> entries);

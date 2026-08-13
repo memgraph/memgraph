@@ -113,6 +113,7 @@ auto PropertyManifest::LocationAt(size_t position) const -> Location {
       .is_fixed = entry.stored_type.is_fixed_width(),
       .offset = offsets_[position],
       .stored_type = entry.stored_type,
+      .position = static_cast<uint32_t>(position),
   };
 }
 
