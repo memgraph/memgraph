@@ -67,7 +67,7 @@ install_special_package() {
     case "$1" in
         dotnet-sdk-6.0)
             if ! dpkg -s dotnet-sdk-6.0 &>/dev/null; then
-                wget -nv https://packages.microsoft.com/config/ubuntu/20.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+                wget -nv --https-only https://packages.microsoft.com/config/ubuntu/20.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
                 dpkg -i packages-microsoft-prod.deb
                 apt-get update
                 apt-get install -y dotnet-sdk-6.0

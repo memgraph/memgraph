@@ -72,7 +72,7 @@ MEMGRAPH_RUN_DEPS=(
 setup_repos() {
     # dotnet-sdk-10.0 comes from the Microsoft package repo
     if ! dpkg -s packages-microsoft-prod &>/dev/null; then
-        wget -nv https://packages.microsoft.com/config/debian/13/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+        wget -nv --https-only https://packages.microsoft.com/config/debian/13/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
         dpkg -i packages-microsoft-prod.deb
         apt update -y
     fi

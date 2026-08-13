@@ -106,7 +106,7 @@ prepare_toolchain() {
     fi
 
     echo "Setting up toolchain for $os_arch..."
-    curl -L "$toolchain_url" --output /tmp/toolchain.tar.gz || {
+    curl -fL --proto '=https' --proto-redir '=https' "$toolchain_url" --output /tmp/toolchain.tar.gz || {
         echo "Failed to download toolchain. Please check your internet connection or the URL and try again."
         exit 1
     }
