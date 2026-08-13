@@ -6818,6 +6818,7 @@ class AggregateCursor : public Cursor {
   void Reset() override {
     input_cursor_->Reset();
     aggregation_.clear();
+    single_group_ = nullptr;
     aggregation_it_ = aggregation_.begin();
     pulled_all_input_ = false;
   }
@@ -6972,6 +6973,9 @@ class AggregateCursor : public Cursor {
       aggregation_;
   // this is a for object reuse, to avoid re-allocating this buffer
   utils::pmr::vector<TypedValue> reused_group_by_;
+  // The single group of an aggregation with no grouping key, once it exists. Null whenever
+  // `aggregation_` is empty or has been replaced.
+  CompactAggregationValue *single_group_{nullptr};
   // iterator over the accumulated cache
   decltype(aggregation_.begin()) aggregation_it_ = aggregation_.begin();
   // this LogicalOp pulls all from the input on it's first pull
@@ -7047,8 +7051,21 @@ class AggregateCursor : public Cursor {
     reused_group_by_.clear();
     evaluator->ResetPropertyLookupCache();
 
-    // TODO: if self_.group_by_.size() == 0, aggregation_ -> there is only one (becasue we are doing *)
-    //       can this be optimised so we don't need to do aggregation_.try_emplace which has a hash cost
+    // An aggregation with no grouping key has exactly one group, so every row after the first
+    // hashes an empty key to find the entry it found last time. Holding that entry instead is
+    // what keeps a bare `count(*)` from paying a hash table probe per row. The pointer stays
+    // valid because nothing is inserted or erased once the single group exists.
+    if (self_.group_by_.empty()) {
+      if (single_group_ == nullptr) {
+        auto *mem = aggregation_.get_allocator().resource();
+        auto res = aggregation_.try_emplace(reused_group_by_, mem, self_.aggregations_.size(), self_.remember_.size());
+        single_group_ = &res.first->second;
+        if (res.second /*was newly inserted*/) EnsureInitialized(frame, single_group_);
+      }
+      Update(evaluator, single_group_);
+      return;
+    }
+
     for (Expression *expression : self_.group_by_) {
       reused_group_by_.emplace_back(expression->Accept(*evaluator));
     }
@@ -11624,6 +11641,8 @@ class AggregateParallelCursor : public ParallelBranchCursor {
         // Reuse already completed section if available
         if (complete_aggregation != nullptr) {
           static_cast<AggregateCursor *>(cursor)->aggregation_ = std::move(*complete_aggregation);
+          // The single-group shortcut points into the map that was just replaced.
+          static_cast<AggregateCursor *>(cursor)->single_group_ = nullptr;
         }
       };
       auto post_pull_func = [&branch_aggregations_mutex, &aggregations, &branch_aggregations](Cursor *cursor,
