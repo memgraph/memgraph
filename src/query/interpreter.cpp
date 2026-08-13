@@ -8222,8 +8222,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                                       label_name,
                                       properties_stringified);
                     } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionCancelationError>) {
-                      // TODO: could also be SHUTDOWN...but this is good enough for now
-                      throw HintedAbortError(AbortReason::TERMINATED);
+                      throw HintedAbortError(AbortReason::SHUTDOWN);
                     } else {
                       static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }

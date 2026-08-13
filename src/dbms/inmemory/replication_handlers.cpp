@@ -687,6 +687,10 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     // Started before Clear() so the teardown is covered too: on a large tenant it takes long enough on its own to
     // exhaust the main's timeout, and it used to run entirely unobserved.
     rpc::ProgressHeartbeat heartbeat{res_builder};
+    // Progress only, never cancellation: if the peer goes away mid-recovery this must not abort. Unlike delta
+    // application, whose work sits in a transaction that can no longer be reported as committed and will simply be
+    // resent, the snapshot is already loaded here. Finishing the derived state advances the commit timestamp, so a
+    // reconnecting main may only need WAL deltas from that point instead of resending the whole snapshot.
     auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
 
     // Clear the database
