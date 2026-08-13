@@ -376,3 +376,14 @@ TEST_F(ManifestPropertyStoreTest, PointsOfDifferentDimensionsTakeDifferentShapes
   EXPECT_NE(store_.manifest(), flat);
   EXPECT_EQ(Get(1), PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
 }
+
+TEST_F(ManifestPropertyStoreTest, RecordsSurviveOutgrowingTheInlineStorage) {
+  Set(1, PropertyValue(int64_t{7}));
+  EXPECT_EQ(Get(1), PropertyValue(int64_t{7}));
+
+  Set(2, PropertyValue(std::string(500, 'x')));
+
+  EXPECT_EQ(Get(1), PropertyValue(int64_t{7}));
+  EXPECT_EQ(Get(2), PropertyValue(std::string(500, 'x')));
+  EXPECT_GT(store_.buffer_size(), 500);
+}

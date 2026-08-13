@@ -11,9 +11,9 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <map>
-#include <memory>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_manifest.hpp"
@@ -45,10 +45,10 @@ class ManifestPropertyStore {
 
   ManifestPropertyStore(ManifestPropertyStore const &) = delete;
   ManifestPropertyStore &operator=(ManifestPropertyStore const &) = delete;
-  ManifestPropertyStore(ManifestPropertyStore &&) noexcept = default;
-  ManifestPropertyStore &operator=(ManifestPropertyStore &&) noexcept = default;
+  ManifestPropertyStore(ManifestPropertyStore &&other) noexcept;
+  ManifestPropertyStore &operator=(ManifestPropertyStore &&other) noexcept;
 
-  ~ManifestPropertyStore() = default;
+  ~ManifestPropertyStore();
 
   auto GetProperty(ManifestRegistry const &registry, PropertyId property) const -> PropertyValue;
 
@@ -72,11 +72,27 @@ class ManifestPropertyStore {
   auto buffer_size() const -> uint32_t { return size_; }
 
  private:
+  /// Bytes a record gets without reaching the heap. Chosen so the union costs no more than
+  /// the pointer it replaces.
+  static constexpr uint32_t kInlineCapacity = 8;
+
   /// Re-interns the shape and re-encodes the record from scratch.
   void Rebuild(ManifestRegistry &registry, std::map<PropertyId, PropertyValue> const &properties);
 
   ManifestId manifest_{};
-  std::unique_ptr<uint8_t[]> buffer_{};
+
+  auto data() -> uint8_t * { return size_ <= kInlineCapacity ? inline_.data() : heap_; }
+
+  auto data() const -> uint8_t const * { return size_ <= kInlineCapacity ? inline_.data() : heap_; }
+
+  /// Takes ownership of `size` bytes of storage, freeing whatever the record held before.
+  auto Reset(uint32_t size) -> uint8_t *;
+
+  union {
+    uint8_t *heap_;
+    std::array<uint8_t, kInlineCapacity> inline_;
+  };
+
   uint32_t size_{};
 };
 
