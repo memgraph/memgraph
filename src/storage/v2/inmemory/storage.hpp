@@ -451,7 +451,9 @@ class InMemoryStorage final : public Storage {
 
     std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) override;
 
-    void AbortAndResetCommitTs();
+    // `on_progress` is reported per delta undone. An interrupted 2PC leaves a transaction whose abort is
+    // O(deltas), and on a replica that runs inside an RPC handler whose peer is timing it.
+    void AbortAndResetCommitTs(ProgressCallback const &on_progress = {});
 
     // Represents the 2nd phase of the 2PC protocol
     // NOTE: Needs to be called while holding the engine lock
@@ -461,6 +463,10 @@ class InMemoryStorage final : public Storage {
 
     /// @throw std::bad_alloc
     void Abort() override;
+
+    // Same as Abort(), reporting progress per delta undone. Non-virtual so the Accessor interface, and every
+    // caller that aborts without a peer waiting on it, stays unchanged.
+    void Abort(ProgressCallback const &on_progress);
 
     void FinalizeTransaction() override;
 

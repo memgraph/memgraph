@@ -1112,8 +1112,8 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   }
 }
 
-void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
-  Abort();
+void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs(ProgressCallback const &on_progress) {
+  Abort(on_progress);
   // We have aborted, need to release/cleanup commit_timestamp_ here
   DMG_ASSERT(commit_timestamp_);
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -1483,7 +1483,9 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
   }
 }
 
-void InMemoryStorage::InMemoryAccessor::Abort() {
+void InMemoryStorage::InMemoryAccessor::Abort() { Abort({}); }
+
+void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progress) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -1533,6 +1535,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // nullptr or another monolithic block belonging to a committed but
     // uncollected transaction.
     for (const auto &delta : transaction_.deltas) {
+      if (on_progress) on_progress();
       auto prev = delta.prev.Get();
       switch (prev.type) {
         case PreviousPtr::Type::EDGE: {
@@ -1750,6 +1753,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     DeltaVertexCache delta_vertex_cache{transaction_.transaction_id};
 
     for (Delta &delta : transaction_.deltas) {
+      if (on_progress) on_progress();
       auto prev = delta.prev.Get();
       switch (prev.type) {
         case PreviousPtr::Type::VERTEX: {

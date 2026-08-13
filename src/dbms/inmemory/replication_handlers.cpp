@@ -470,34 +470,37 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     return;
   }
 
-  // Abort prev txn if needed
-  // It could happen that the main instance died before sending finalize for the previous commit and then
-  // the new instance becomes main and sends prepare
-  DestroyReplAccessor();
-  auto &repl_storage_state = storage->repl_storage_state_;
-
-  if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
-    // We should first finalize WAL file and then update the epoch
-    if (storage->wal_file_) {
-      storage->wal_file_->FinalizeWal();
-      storage->wal_file_.reset();
-    }
-
-    repl_storage_state.SaveLatestHistory();
-    repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
-  }
-
-  // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
-  if (req.previous_commit_timestamp > repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
-    DrainAndRejectPrepareCommit(decoder, request_version, res_builder, storage->name());
-    return;
-  }
-
   storage::replication::PrepareCommitRes res{false};
   {
-    // Scoped so the heartbeat is joined before the final response is written: both write to res_builder, and the
-    // socket behind it has no internal locking.
+    // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is O(deltas), and
+    // the first tick only fires one interval after construction. Scoped so the heartbeat is joined before the final
+    // response is written, since both write to res_builder and the socket behind it has no internal locking.
     rpc::ProgressHeartbeat heartbeat{res_builder};
+
+    // Abort prev txn if needed
+    // It could happen that the main instance died before sending finalize for the previous commit and then
+    // the new instance becomes main and sends prepare
+    DestroyReplAccessor(&heartbeat);
+    auto &repl_storage_state = storage->repl_storage_state_;
+
+    if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
+      // We should first finalize WAL file and then update the epoch
+      if (storage->wal_file_) {
+        storage->wal_file_->FinalizeWal();
+        storage->wal_file_.reset();
+      }
+
+      repl_storage_state.SaveLatestHistory();
+      repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
+    }
+
+    // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
+    if (req.previous_commit_timestamp > repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
+      heartbeat.Stop();
+      DrainAndRejectPrepareCommit(decoder, request_version, res_builder, storage->name());
+      return;
+    }
+
     auto deltas_res = ReadAndApplyDeltasSingleTxn(storage,
                                                   &decoder,
                                                   storage::durability::kVersion,
@@ -593,9 +596,13 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
-void InMemoryReplicationHandlers::DestroyReplAccessor() {
+void InMemoryReplicationHandlers::DestroyReplAccessor(rpc::ProgressHeartbeat *heartbeat) {
   if (two_pc_cache_.commit_accessor_) {
-    two_pc_cache_.commit_accessor_->AbortAndResetCommitTs();
+    auto const on_progress = [heartbeat]() -> storage::ProgressCallback {
+      if (heartbeat == nullptr) return {};
+      return [heartbeat] { heartbeat->RecordProgress(); };
+    }();
+    two_pc_cache_.commit_accessor_->AbortAndResetCommitTs(on_progress);
     two_pc_cache_.commit_accessor_.reset();
   }
 }
@@ -608,8 +615,9 @@ void InMemoryReplicationHandlers::AbortTwoPCForTenant(utils::UUID const &uuid) {
   }
 }
 
-void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage) {
-  DestroyReplAccessor();
+void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage,
+                                                       rpc::ProgressHeartbeat *heartbeat) {
+  DestroyReplAccessor(heartbeat);
   if (storage->wal_file_) {
     storage->wal_file_->FinalizeWal();
     storage->wal_file_.reset();
@@ -651,12 +659,23 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     return;
   }
 
-  AbortPrevTxnIfNeeded(storage);
+  // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is O(deltas), and
+  // the first tick only fires one interval after construction. It also covers the Clear() further down, which takes
+  // long enough on a large tenant to exhaust the peer's budget on its own.
+  rpc::ProgressHeartbeat heartbeat{res_builder};
+  // Progress only, never cancellation: if the peer goes away mid-recovery this must not abort. Unlike delta
+  // application, whose work sits in a transaction that can no longer be reported as committed and will simply be
+  // resent, the snapshot is already loaded here. Finishing the derived state advances the commit timestamp, so a
+  // reconnecting main may only need WAL deltas from that point instead of resending the whole snapshot.
+  auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
+
+  AbortPrevTxnIfNeeded(storage, &heartbeat);
 
   // Backup dir
   auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
   if (!utils::EnsureDir(current_snapshot_dir)) {
     spdlog::error("Couldn't get access to the current snapshot directory. Recovery won't be done.");
+    heartbeat.Stop();
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
@@ -668,6 +687,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
   if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
     spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
+    heartbeat.Stop();
     rpc::SendFinalResponse(
         storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
     return;
@@ -678,21 +698,13 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
       spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
+      heartbeat.Stop();
       rpc::SendFinalResponse(
           storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
       return;
     }
 
     spdlog::trace("Clearing database {} before recovering from snapshot.", storage->name());
-
-    // Started before Clear() so the teardown is covered too: on a large tenant it takes long enough on its own to
-    // exhaust the main's timeout, and it used to run entirely unobserved.
-    rpc::ProgressHeartbeat heartbeat{res_builder};
-    // Progress only, never cancellation: if the peer goes away mid-recovery this must not abort. Unlike delta
-    // application, whose work sits in a transaction that can no longer be reported as committed and will simply be
-    // resent, the snapshot is already loaded here. Finishing the derived state advances the commit timestamp, so a
-    // reconnecting main may only need WAL deltas from that point instead of resending the whole snapshot.
-    auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
 
     // Clear the database
     storage->Clear(record_progress);
@@ -854,12 +866,19 @@ void InMemoryReplicationHandlers::WalFilesHandler(
 
   const memory::DbArenaScope db_arena_scope{db_acc->get()};
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
-  AbortPrevTxnIfNeeded(storage);
+
+  // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is
+  // O(deltas), and the first tick only fires one interval after construction.
+  rpc::ProgressHeartbeat heartbeat{res_builder};
+  auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
+
+  AbortPrevTxnIfNeeded(storage, &heartbeat);
 
   auto const current_wal_directory = storage->recovery_.wal_directory_;
 
   if (!utils::EnsureDir(current_wal_directory)) {
     spdlog::error("Couldn't get access to the current wal directory. Recovery won't be done.");
+    heartbeat.Stop();
     rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
@@ -870,11 +889,6 @@ void InMemoryReplicationHandlers::WalFilesHandler(
   // When doing a force reset, replica will clear all its durability files and move them into .old directory
   // Snapshot lock needs to be hold for the whole duration of the WalFilesHandler
   auto snapshot_guard = std::unique_lock(storage->snapshot_lock_, std::defer_lock);
-
-  // Covers everything that can run long enough for the main to give up on us: the force-reset teardown below and the
-  // WAL application further down. Stopped before any response is written, since both write to res_builder.
-  rpc::ProgressHeartbeat heartbeat{res_builder};
-  auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
 
   if (req.reset_needed) {
     if (!TakeSnapshotLock(snapshot_guard, storage)) {
@@ -1008,11 +1022,18 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
 
   const memory::DbArenaScope db_arena_scope{db_acc->get()};
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
-  AbortPrevTxnIfNeeded(storage);
+
+  // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is
+  // O(deltas), and the first tick only fires one interval after construction.
+  rpc::ProgressHeartbeat heartbeat{res_builder};
+  auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
+
+  AbortPrevTxnIfNeeded(storage, &heartbeat);
 
   auto const current_wal_directory = storage->recovery_.wal_directory_;
   if (!utils::EnsureDir(current_wal_directory)) {
     spdlog::error("Couldn't get access to the current wal directory. Recovery won't be done.");
+    heartbeat.Stop();
     rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
@@ -1023,11 +1044,6 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
   // When doing a force reset, replica will clear all its durability files and move them into .old directory
   // Snapshot lock needs to be hold for the whole duration of the CurrentWalHandler
   auto snapshot_guard = std::unique_lock(storage->snapshot_lock_, std::defer_lock);
-
-  // Covers everything that can run long enough for the main to give up on us: the force-reset teardown below and the
-  // WAL application further down. Stopped before any response is written, since both write to res_builder.
-  rpc::ProgressHeartbeat heartbeat{res_builder};
-  auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
 
   if (req.reset_needed) {
     if (!TakeSnapshotLock(snapshot_guard, storage)) {

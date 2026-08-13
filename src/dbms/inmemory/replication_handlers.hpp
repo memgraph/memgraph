@@ -50,10 +50,12 @@ class InMemoryReplicationHandlers {
   // FinalizeCommitReq, then there is the possibility that the cached_commit_accessor_ will stay alive for too long
   // preventing therefore processing of CurrentWalRpc, WalFilesRpc, SnapshotRpc.
   // It should also be invoked during the promote
-  static void AbortPrevTxnIfNeeded(storage::InMemoryStorage *storage);
+  static void AbortPrevTxnIfNeeded(storage::InMemoryStorage *storage, rpc::ProgressHeartbeat *heartbeat = nullptr);
 
   // Destroys repl accessor needed for 2PC
-  static void DestroyReplAccessor();
+  // `on_progress` is reported per delta undone: an interrupted 2PC leaves an abort that is O(deltas), and
+  // callers run it inside an RPC handler whose peer is timing them.
+  static void DestroyReplAccessor(rpc::ProgressHeartbeat *heartbeat = nullptr);
 
   // TD-3': abort + reset the cached 2PC commit accessor ONLY if it belongs to the given tenant's
   // storage. Invoked by the replica SuspendDatabaseRpc apply path before the tenant is torn down:
