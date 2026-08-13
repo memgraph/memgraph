@@ -527,7 +527,8 @@ struct Gatekeeper {
   // drop or a mid-transition tenant is a legal race that the caller turns into a retriable error.
   bool begin_drain() {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    if (pimpl_->state_ != GatekeeperState::HOT || pimpl_->draining_) return false;
+    // value_ term: see try_begin_suspend() above -- you cannot drain a gatekeeper that holds nothing.
+    if (!pimpl_->value_ || pimpl_->state_ != GatekeeperState::HOT || pimpl_->draining_) return false;
     pimpl_->draining_ = true;
     pimpl_->cv_.notify_all();
     return true;
