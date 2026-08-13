@@ -793,6 +793,10 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   return std::move(properties);
 }
 
+std::vector<PropertyId> VertexAccessor::VectorIndexedProperties(std::span<LabelId const> labels) const {
+  return transaction_->active_indices_->vector_->IndexedProperties(labels);
+}
+
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByPropertyIds(
     std::span<PropertyId const> properties, View view) const {
   bool exists = true;

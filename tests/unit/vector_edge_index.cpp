@@ -12,10 +12,13 @@
 #include <gtest/gtest.h>
 #include <sys/types.h>
 #include <chrono>
+#include <filesystem>
 #include <string_view>
 #include <thread>
 
 #include "flags/general.hpp"
+#include "flags/run_time_configurable.hpp"
+#include "glue/communication.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/point_index.hpp"
@@ -34,6 +37,8 @@
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/ddl_abort_helpers.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/settings.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -119,6 +124,48 @@ TEST_F(VectorEdgeIndexTest, SimpleAddEdgeTest) {
   ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   const auto all_vector_indices = acc->ListAllVectorEdgeIndices();
   EXPECT_EQ(all_vector_indices.size(), 1);
+}
+
+TEST_F(VectorEdgeIndexTest, VectorIndexedPropertiesRespectsEdgeTypeFilter) {
+  this->CreateEdgeIndex(2, 10);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  auto [f1, t1, indexed] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+  auto [f2, t2, other] = this->CreateEdge(acc.get(), test_property, property_value, "other_edge_type");
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  EXPECT_EQ(indexed.VectorIndexedProperties(), (std::vector<PropertyId>{acc->NameToProperty(test_property.data())}));
+  EXPECT_TRUE(other.VectorIndexedProperties().empty());
+}
+
+TEST_F(VectorEdgeIndexTest, ToBoltEdgeOmitsVectorIndexedPropertyWhenFlagOn) {
+  const auto settings_dir = std::filesystem::temp_directory_path() / "MG_tests_unit_vector_edge_index_omit";
+  std::filesystem::remove_all(settings_dir);
+  memgraph::utils::Settings settings(settings_dir);
+  memgraph::flags::run_time::Initialize(settings);
+  const auto set_omit = [&](bool enabled) {
+    settings.SetValue("storage.omit_vector_index_properties_on_return", enabled ? "true" : "false");
+  };
+  // restore the process-global flag even if an assertion aborts the test early
+  memgraph::utils::OnScopeExit reset_flag{[&] { set_omit(false); }};
+
+  this->CreateEdgeIndex(2, 10);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  auto [from, to, edge] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+  ASSERT_TRUE(edge.SetProperty(acc->NameToProperty("weight"), PropertyValue(0.5)).has_value());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  set_omit(false);
+  auto with_prop = memgraph::glue::ToBoltEdge(edge, *this->storage, View::NEW, nullptr);
+  ASSERT_TRUE(with_prop.has_value());
+  EXPECT_TRUE(with_prop->properties.contains(test_property.data()));
+
+  set_omit(true);
+  auto without_prop = memgraph::glue::ToBoltEdge(edge, *this->storage, View::NEW, nullptr);
+  ASSERT_TRUE(without_prop.has_value());
+  EXPECT_FALSE(without_prop->properties.contains(test_property.data()));
+  EXPECT_TRUE(without_prop->properties.contains("weight"));
 }
 
 TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {

@@ -229,6 +229,11 @@ startup_config_dict = {
     "strict_flag_check": ("true", "true", "If true, error and exit when suspicious positional arguments are detected."),
     "storage_access_timeout_sec": ("1", "1", "Query's storage level access timeout in seconds."),
     "storage_gc_aggressive": ("false", "false", "Enable aggressive garbage collection."),
+    "storage_omit_vector_index_properties_on_return": (
+        "false",
+        "false",
+        "If set to true, properties backed by a vector index are omitted when a whole node or relationship is returned. They remain accessible via explicit property access.",
+    ),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),
     "storage_python_gc_cycle_sec": ("180", "180", "Storage python full garbage collection interval (in seconds)."),
     "storage_items_per_batch": (

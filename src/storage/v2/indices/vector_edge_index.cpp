@@ -681,4 +681,13 @@ std::optional<uint64_t> VectorEdgeIndex::ActiveIndices::ApproximateEdgesVectorCo
   return it->second->mg_index.index.size();
 }
 
+std::vector<PropertyId> VectorEdgeIndex::ActiveIndices::IndexedProperties(EdgeTypeId edge_type) const {
+  if (!index_container_) return {};
+  std::vector<PropertyId> result;
+  for (const auto &[_, item_ptr] : *index_container_) {
+    if (item_ptr->spec.edge_type_filter.Matches(edge_type)) result.push_back(item_ptr->spec.property);
+  }
+  return result;
+}
+
 }  // namespace memgraph::storage

@@ -101,6 +101,9 @@ class VertexAccessor final {
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
                                                                       View view) const;
 
+  /// Properties of this vertex that are backed by a vector index, given its (view-consistent) labels.
+  std::vector<PropertyId> VectorIndexedProperties(std::span<LabelId const> labels) const;
+
   auto BuildResultOutEdges(edge_store const &out_edges) const;
 
   auto BuildResultInEdges(edge_store const &out_edges) const;
