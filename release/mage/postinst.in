@@ -15,7 +15,12 @@ case "$1" in
         # that mode we treat failure as a warning. For normal apt/dpkg
         # installs the env var is unset and the failure remains hard so a
         # genuine network/pip error doesn't silently leave MAGE broken.
-        if ! su - memgraph -c "/usr/lib/memgraph/install_python_requirements.sh --deb-package --cuda $CUDA --arch $ARCH"; then
+        # MG_SKIP_PYTHON_DEPS=1 skips the pip phase — for installs whose
+        # environment provides the python deps some other way (mirrors the
+        # memgraph package's postinst flag).
+        if [ "${MG_SKIP_PYTHON_DEPS:-}" = "1" ]; then
+            echo "NOTE: MG_SKIP_PYTHON_DEPS=1 — skipping MAGE python requirements install." >&2
+        elif ! su - memgraph -c "/usr/lib/memgraph/install_python_requirements.sh --deb-package --cuda $CUDA --arch $ARCH"; then
             if [ "${MEMGRAPH_OFFLINE_INSTALL:-}" = "1" ]; then
                 echo "WARNING: install_python_requirements.sh exited non-zero." >&2
                 echo "         Tolerated because MEMGRAPH_OFFLINE_INSTALL=1 — the python deps" >&2

@@ -94,7 +94,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   if [ "$BUILD_TYPE" = "RelWithDebInfo" ]; then \
     apt-get install -y gdb libc6-dbg --no-install-recommends; \
   fi && \
-  apt-get install adduser libxmlsec1 python3 libpython3.12 python3-pip -y && \
+  apt-get install adduser libxmlsec1 python3 libpython3.12 python3-pip -y --no-install-recommends && \
   /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \
     --py-version ${PY_VERSION} --cuda true && \
   groupadd -g 103 memgraph && \
@@ -117,7 +117,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
 # Copy modules: extract the memgraph-mage package payload
 RUN mkdir -p /usr/lib/memgraph/query_modules/
 RUN --mount=type=bind,source="./memgraph-mage.deb",target=/memgraph-mage.deb,ro \
-  dpkg-deb -x /memgraph-mage.deb /
+  MG_SKIP_PYTHON_DEPS=1 dpkg-deb -x /memgraph-mage.deb /
 
 # copy script to convert to dev container
 COPY make-dev-container.sh /make-dev-container.sh
