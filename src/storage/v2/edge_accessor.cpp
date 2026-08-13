@@ -464,7 +464,8 @@ Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) c
   return property_store.PropertySize(property);
 };
 
-Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view,
+                                                                     std::span<PropertyId const> skip) const {
   if (!storage_->config_.salient.items.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
   bool exists = true;
   bool deleted = false;
@@ -473,8 +474,10 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    properties = edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
-        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr});
+    properties = edge_.ptr->properties.Properties(
+        IndexedPropertyDecoder<Edge>{
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr},
+        skip);
     delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
@@ -514,6 +517,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   });
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
+  // deltas may have re-introduced a skipped property; drop them from the resolved map
+  for (auto const skipped : skip) properties.erase(skipped);
   return std::move(properties);
 }
 

@@ -86,7 +86,9 @@ class EdgeAccessor final {
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
 
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
+  /// `skip` names properties to exclude from the result; they are never fetched from the index (used to omit
+  /// vector-index-backed properties from a whole-object read without paying their decode cost).
+  Result<std::map<PropertyId, PropertyValue>> Properties(View view, std::span<PropertyId const> skip = {}) const;
 
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
