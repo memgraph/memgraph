@@ -133,6 +133,58 @@ def test_kshortest_limit():
     print("All tests passed! ✅")
 
 
+def test_kshortest_inline_property_filter():
+    """An inlined edge property map is now applied during the search, not only after it.
+
+    The planner turns `{p: 1}` into two filters: an inline one over the expansion's inner edge, and
+    a post-expansion `all(e IN r WHERE e.p = 1)`. The path limit is enforced inside the operator, so
+    before the inline filter was honoured the limit could be spent on paths the post-expansion filter
+    then threw away - yielding fewer than `k` matching paths, or none at all.
+
+    The graph makes the shortest path the non-matching one, so the ordering is deterministic rather
+    than dependent on storage iteration order.
+    """
+    print("Testing kshortest with an inlined edge property map...")
+    execute_query("MATCH (n) DETACH DELETE n")
+    execute_query(
+        """
+        CREATE (s:Route {id: 's'})
+        CREATE (m:Route {id: 'm'})
+        CREATE (t:Route {id: 't'})
+        CREATE (s)-[:LINK {p: 0}]->(t)
+        CREATE (s)-[:LINK {p: 1}]->(m)
+        CREATE (m)-[:LINK {p: 1}]->(t)
+    """
+    )
+
+    # The one-hop path is shorter but has p = 0, so the only matching path is the two-hop one.
+    print("Test: inlined property map with a limit of 1")
+    results = execute_query(
+        """
+        MATCH (s:Route {id: 's'}),(t:Route {id: 't'})
+        WITH s, t MATCH (s)-[r:LINK *KSHORTEST|1 {p: 1}]->(t) RETURN r
+    """
+    )
+    print(f"  Found {len(results)} matching paths with limit 1")
+    assert len(results) == 1, f"Expected 1 path, got {len(results)}"
+    assert len(results[0]["r"]) == 2, f"Expected the two-hop matching path, got {len(results[0]['r'])} edges"
+
+    # Without a limit the answer was already correct, because the post-expansion filter got to see
+    # every path the search produced. Guard that it stayed correct.
+    print("Test: inlined property map without a limit")
+    results = execute_query(
+        """
+        MATCH (s:Route {id: 's'}),(t:Route {id: 't'})
+        WITH s, t MATCH (s)-[r:LINK *KSHORTEST {p: 1}]->(t) RETURN r
+    """
+    )
+    print(f"  Found {len(results)} matching paths without a limit")
+    assert len(results) == 1, f"Expected 1 path, got {len(results)}"
+    assert len(results[0]["r"]) == 2, f"Expected the two-hop matching path, got {len(results[0]['r'])} edges"
+
+    print("Inlined property map tests passed! ✅")
+
+
 def test_syntax_errors():
     """Test that invalid syntax raises appropriate errors."""
     print("Testing syntax error cases...")
@@ -193,6 +245,7 @@ def test_syntax_errors():
 if __name__ == "__main__":
     try:
         test_kshortest_limit()
+        test_kshortest_inline_property_filter()
         test_syntax_errors()
         print("\n🎉 All tests completed successfully!")
     except Exception as e:

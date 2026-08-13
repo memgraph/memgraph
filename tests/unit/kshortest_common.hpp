@@ -615,7 +615,9 @@ class Database {
     memgraph::query::Symbol edges_symbol = context.symbol_table.CreateSymbol("edges", true);
     memgraph::query::Symbol inner_node_symbol = context.symbol_table.CreateSymbol("inner_node", true);
     memgraph::query::Symbol inner_edge_symbol = context.symbol_table.CreateSymbol("inner_edge", true);
+    memgraph::query::Symbol blocked_symbol = context.symbol_table.CreateSymbol("blocked", true);
     memgraph::query::Identifier *inner_node = IDENT("inner_node")->MapTo(inner_node_symbol);
+    memgraph::query::Identifier *blocked = IDENT("blocked")->MapTo(blocked_symbol);
 
     std::vector<memgraph::query::VertexAccessor> vertices;
     std::vector<memgraph::query::EdgeAccessor> edges;
@@ -712,8 +714,18 @@ class Database {
 
     memgraph::query::Expression *filter_expr = nullptr;
     if (blocked_vertex_id) {
-      filter_expr =
-          NEQ(PROPERTY_LOOKUP(db_accessor, inner_node, PROPERTY_PAIR(db_accessor, "id")), LITERAL(*blocked_vertex_id));
+      // Compare vertex identities against a vertex bound on an outer frame symbol, the way
+      // `KShortestTest`'s USE_FRAME case does, rather than reading `inner_node.id`: a property
+      // lookup built here evaluates to null at runtime, which silently made the predicate false for
+      // every expansion and left this whole matrix passing on zero rows.
+      const auto blocked_vertex = std::ranges::find_if(
+          vertices, [&](const auto &v) { return GetProp(v, "id", &db_accessor).ValueInt() == *blocked_vertex_id; });
+      MG_ASSERT(blocked_vertex != vertices.end(), "The blocked vertex must be part of the fixture");
+      input_operator = std::make_shared<Yield>(
+          input_operator,
+          std::vector<memgraph::query::Symbol>{blocked_symbol},
+          std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue(*blocked_vertex)}});
+      filter_expr = NEQ(inner_node, blocked);
       std::erase_if(edges_in_result, [id = *blocked_vertex_id](const auto &e) { return e.second == id; });
     }
 
@@ -739,6 +751,12 @@ class Database {
 
     switch (fine_grained_test_type) {
       case FineGrainedTestType::ALL_GRANTED:
+        // `CheckPathsAndExtractLengths` only validates the paths that came back, so on its own it
+        // passes vacuously if the expansion over-blocks and returns nothing. With every permission
+        // granted at least one path always survives - even with `blocked_vertex_id` set, which only
+        // removes the edges leading into that vertex - so pin non-emptiness here. The denied arms
+        // below can legitimately be empty, which is why they get no such assertion.
+        EXPECT_FALSE(results.empty());
         CheckPathsAndExtractLengths(&db_accessor, edges_in_result, results);
         break;
       case FineGrainedTestType::ALL_DENIED:
