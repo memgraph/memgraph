@@ -236,6 +236,25 @@ TEST_F(SchemaCancellationTest, RetiredUniqueConstraintIsReclaimedOnlyOnceUnrefer
   EXPECT_TRUE(observer.expired()) << "not reclaimed after the last reference went away";
 }
 
+// Teardown must release the retired list too. GC is what normally reaps it, and periodic GC can be off -- without
+// this the entries sit there until the constraints object itself is destroyed.
+TEST_F(SchemaCancellationTest, DropGraphReleasesRetiredUniqueConstraints) {
+  InMemoryUniqueConstraints unique_constraints;
+  auto vertices_acc = vertices_.access();
+  ASSERT_TRUE(
+      unique_constraints.CreateConstraint(label_, std::set<PropertyId>{prop_}, vertices_acc, std::nullopt).has_value());
+
+  auto dropped = unique_constraints.DropConstraint(label_, std::set<PropertyId>{prop_});
+  ASSERT_EQ(dropped.status, InMemoryUniqueConstraints::DeletionStatus::SUCCESS);
+  std::weak_ptr<InMemoryUniqueConstraints::IndividualConstraint> observer = dropped.evicted;
+  unique_constraints.RetireConstraint(std::move(dropped.evicted));
+  ASSERT_FALSE(observer.expired());
+
+  // No RunGC() anywhere in between: DropGraph alone has to let it go.
+  unique_constraints.DropGraphClearConstraints();
+  EXPECT_TRUE(observer.expired()) << "retired constraint outlived DROP GRAPH";
+}
+
 // An aborted DROP restores the constraint, so nothing is retired and it stays enforceable.
 TEST_F(SchemaCancellationTest, RestoredUniqueConstraintSurvivesGc) {
   InMemoryUniqueConstraints unique_constraints;

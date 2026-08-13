@@ -705,10 +705,12 @@ uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
 
 void InMemoryUniqueConstraints::Clear() {
   container_.WithLock([](ContainerPtr &container) { container = std::make_shared<Container const>(); });
+  ReleaseRetiredConstraints();
 }
 
 void InMemoryUniqueConstraints::DropGraphClearConstraints() {
   container_.WithLock([](ContainerPtr &container) { container = std::make_shared<Container const>(); });
+  ReleaseRetiredConstraints();
 }
 
 void InMemoryUniqueConstraints::RetireConstraint(IndividualConstraintPtr evicted) {
@@ -731,6 +733,13 @@ void InMemoryUniqueConstraints::ReclaimRetiredConstraints() {
     }
     std::erase(retired, nullptr);
   });
+}
+
+void InMemoryUniqueConstraints::ReleaseRetiredConstraints() {
+  // Swap out under the lock and destroy after releasing it, as ReclaimRetiredConstraints does: destroying one walks
+  // its whole skiplist.
+  std::vector<IndividualConstraintPtr> pending;
+  retired_.WithLock([&pending](auto &retired) { pending.swap(retired); });
 }
 
 void InMemoryUniqueConstraints::RunGC() {

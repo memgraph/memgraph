@@ -205,6 +205,12 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   // there rather than on a committing thread.
   void ReclaimRetiredConstraints();
 
+  // Drops every reference retired_ holds, for teardown paths where the whole container is going away. Unconditional
+  // rather than refcount-gated: anything a reader snapshot still points at stays alive on its own reference and dies
+  // with that reader. Without this the list keeps entries until the object is destroyed, and with periodic GC off
+  // nothing else would ever release them.
+  void ReleaseRetiredConstraints();
+
   metrics::GaugeHandle gauge_{};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
   // Dropped constraints awaiting reclamation. A reader that took an ActiveConstraints snapshot before the DROP can
