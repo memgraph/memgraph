@@ -31,6 +31,16 @@ on:
         type: boolean
         description: "Build the image for CuGraph"
         default: false
+      build_docker_image:
+        type: choice
+        description: "MAGE docker image(s) to produce. 'default' applies the usual heuristic (debug image on ubuntu-24.04, none for rpm distros / cugraph)."
+        default: default
+        options:
+          - default
+          - none
+          - prod
+          - debug
+          - both
       push_to_s3:
         type: boolean
         description: "Push the image to S3?"
@@ -104,6 +114,10 @@ on:
         type: boolean
         description: "Build the image for CuGraph"
         default: false
+      build_docker_image:
+        type: string
+        description: "MAGE docker image(s) to produce: 'default' (heuristic), 'none', 'prod', 'debug', or 'both'."
+        default: default
       push_to_s3:
         type: boolean
         description: "Push the image to S3?"

@@ -43,6 +43,16 @@ on:
         type: boolean
         description: "Build the image for CuGraph"
         default: false
+      build_docker_image:
+        type: choice
+        description: "MAGE docker image(s) to produce. 'default' applies the usual heuristic (debug image on ubuntu-24.04, none for rpm distros / cugraph)."
+        default: default
+        options:
+          - default
+          - none
+          - prod
+          - debug
+          - both
       push_to_s3:
         type: boolean
         description: "Push the image to S3?"
@@ -99,6 +109,7 @@ jobs:
       memgraph_debuginfo_download_link: ${{ inputs.memgraph_debuginfo_download_link }}
       cuda: ${{ inputs.cuda }}
       cugraph: ${{ inputs.cugraph }}
+      build_docker_image: ${{ inputs.build_docker_image }}
       push_to_s3: ${{ inputs.push_to_s3 }}
       s3_dest_dir: ${{ inputs.s3_dest_dir }}
       matrix_build: ${{ inputs.matrix_build }}
