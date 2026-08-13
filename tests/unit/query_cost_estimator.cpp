@@ -463,38 +463,52 @@ TEST_F(QueryCostEstimator, UnwindInLowering) {
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInList) {
   AddVertices(100, 30, 20);
+  // IN [12]: 1 element, matches 1 vertex. Unwind factor = 1, scan sum = 1.
+  // Current estimate: 1 * 1 = 1 (no double-count for single element).
   auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(12)});
+  auto *unwind_expr = MakeInUnwindExpression(storage_, {Literal(12)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr, NextSymbol());
   auto *unwind_sym = storage_.Create<Identifier>("anon_sym");
-  MakeOp<ScanAllByLabelProperties>(nullptr,
+  MakeOp<ScanAllByLabelProperties>(last_op_,
                                    NextSymbol(),
                                    label,
                                    std::vector{ms::PropertyPath{prop_a}},
                                    std::vector{ExpressionRange::In(unwind_sym, list)});
-  EXPECT_COST(1 * CostParam::kScanAllByLabelProperties);
+  // cost = CostParam::kUnwind + (1 * 1) * CostParam::kScanAllByLabelProperties
+  EXPECT_COST(CostParam::kUnwind + 1 * CostParam::kScanAllByLabelProperties);
 }
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInListMultipleElements) {
   AddVertices(100, 30, 20);
+  // IN [5, 10]: 2 elements, each matches 1 vertex. Unwind factor = 2, scan sum = 2.
+  // Current estimate: 2 * 2 = 4 (double-counted; will be fixed in next commit).
   auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
+  auto *unwind_expr = MakeInUnwindExpression(storage_, {Literal(5), Literal(10)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr, NextSymbol());
   auto *unwind_sym = storage_.Create<Identifier>("anon_sym");
-  MakeOp<ScanAllByLabelProperties>(nullptr,
+  MakeOp<ScanAllByLabelProperties>(last_op_,
                                    NextSymbol(),
                                    label,
                                    std::vector{ms::PropertyPath{prop_a}},
                                    std::vector{ExpressionRange::In(unwind_sym, list)});
-  EXPECT_COST(2 * CostParam::kScanAllByLabelProperties);
+  // cost = CostParam::kUnwind + (2 * 2) * CostParam::kScanAllByLabelProperties
+  EXPECT_COST(CostParam::kUnwind + 4 * CostParam::kScanAllByLabelProperties);
 }
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInListNonexistentValue) {
   AddVertices(100, 30, 20);
+  // IN [999]: 1 element, matches 0 vertices. Unwind factor = 1, scan sum = 0.
   auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(999)});
+  auto *unwind_expr = MakeInUnwindExpression(storage_, {Literal(999)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr, NextSymbol());
   auto *unwind_sym = storage_.Create<Identifier>("anon_sym");
-  MakeOp<ScanAllByLabelProperties>(nullptr,
+  MakeOp<ScanAllByLabelProperties>(last_op_,
                                    NextSymbol(),
                                    label,
                                    std::vector{ms::PropertyPath{prop_a}},
                                    std::vector{ExpressionRange::In(unwind_sym, list)});
-  EXPECT_COST(CostParam::kMinimumCost);
+  // cardinality = 1 * 0 = 0, cost = min_cost + CostParam::kUnwind
+  EXPECT_COST(CostParam::kUnwind + CostParam::kMinimumCost);
 }
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesMultipleInLists) {
@@ -503,19 +517,27 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesMultipleInLists) {
   // value i for each vertex, so only diagonal entries (i,i,i) exist.
   // prop_c = 5 (resolved), prop_a IN [5, 10] (unresolved), prop_b IN [5, 10] (unresolved).
   // True matches: only (5,5,5). Independence estimate: S_a * S_b / T = 1 * 1 / 1 = 1.
-  // Without the fix, this falls back to VerticesCount(label, props) * 0.25 = 20 * 0.25 = 5.
+  // Unwind factors: 2 * 2 = 4. Current estimate: 4 * 1 = 4 (double-counted).
   auto *list_a = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
   auto *list_b = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
+  // Chain two Unwinds (the real plan has two Unwinds for two IN clauses)
+  auto *unwind_expr_a = MakeInUnwindExpression(storage_, {Literal(5), Literal(10)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr_a, NextSymbol());
+  auto *unwind_expr_b = MakeInUnwindExpression(storage_, {Literal(5), Literal(10)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr_b, NextSymbol());
   auto *sym_a = storage_.Create<Identifier>("anon_a");
   auto *sym_b = storage_.Create<Identifier>("anon_b");
   MakeOp<ScanAllByLabelProperties>(
-      nullptr,
+      last_op_,
       NextSymbol(),
       label,
       std::vector{ms::PropertyPath{prop_c}, ms::PropertyPath{prop_a}, ms::PropertyPath{prop_b}},
       std::vector{
           ExpressionRange::Equal(Literal(5)), ExpressionRange::In(sym_a, list_a), ExpressionRange::In(sym_b, list_b)});
-  EXPECT_COST(1 * CostParam::kScanAllByLabelProperties);
+  // Unwind 1: cost += 1 * kUnwind, cardinality = 2
+  // Unwind 2: cost += 2 * kUnwind, cardinality = 4
+  // Scan(S=1): cardinality *= 1 = 4, cost += 4 * kScanAllByLabelProperties
+  EXPECT_COST(3 * CostParam::kUnwind + 4 * CostParam::kScanAllByLabelProperties);
 }
 
 #undef TEST_OP

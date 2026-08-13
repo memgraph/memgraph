@@ -23,13 +23,18 @@ def get_plan(memgraph, query):
 
 
 def setup_graph(memgraph):
-    """Create two labels with very different cardinalities and connect them."""
-    memgraph.execute("CREATE INDEX ON :Big(prop);")
-    memgraph.execute("CREATE INDEX ON :Small(prop);")
-    # 500 Big nodes, 5 Small nodes, each Small connected to every Big.
-    memgraph.execute("UNWIND range(1, 500) AS i CREATE (:Big {prop: toString(i)})")
-    memgraph.execute("UNWIND range(1, 5) AS i CREATE (:Small {prop: 'val' + toString(i)})")
-    memgraph.execute("MATCH (b:Big), (s:Small) CREATE (b)-[:REL]->(s)")
+    """Create two labels with similar cardinalities and connect them.
+
+    Both labels have 50 nodes. Without IN-list awareness the planner sees
+    the IN side as expensive (Unwind factor * label count * kFilter) and
+    picks the wrong starting scan. With the fix the planner uses the actual
+    per-element sum and correctly starts from the selective IN side.
+    """
+    memgraph.execute("CREATE INDEX ON :A(prop);")
+    memgraph.execute("CREATE INDEX ON :B(prop);")
+    memgraph.execute("UNWIND range(1, 50) AS i CREATE (:A {prop: toString(i)})")
+    memgraph.execute("UNWIND range(1, 50) AS i CREATE (:B {prop: toString(i)})")
+    memgraph.execute("MATCH (a:A), (b:B) CREATE (a)-[:REL]->(b)")
 
 
 def bottom_scan_operator(plan):
@@ -39,37 +44,44 @@ def bottom_scan_operator(plan):
 
 
 def test_in_list_picks_same_start_as_equality(memgraph):
-    """IN ['x'] should produce the same starting scan as = 'x'."""
+    """IN ['x'] should produce the same starting scan as = 'x'.
+
+    Both labels have 50 nodes. Equality on A matches 1 node, so the planner
+    should start from A. IN ['x'] should behave identically.
+    """
     setup_graph(memgraph)
 
     eq_plan = get_plan(
         memgraph,
-        "MATCH (a:Big)--(b:Small) WHERE b.prop = 'val1' RETURN a",
+        "MATCH (a:A)--(b:B) WHERE a.prop = '1' RETURN b",
     )
     in_plan = get_plan(
         memgraph,
-        "MATCH (a:Big)--(b:Small) WHERE b.prop IN ['val1'] RETURN a",
+        "MATCH (a:A)--(b:B) WHERE a.prop IN ['1'] RETURN b",
     )
 
     eq_scan = bottom_scan_operator(eq_plan)
     in_scan = bottom_scan_operator(in_plan)
 
-    # Both should start from Small (the selective side).
-    assert "Small" in eq_scan, f"Equality plan should scan Small, got: {eq_scan}"
-    assert "Small" in in_scan, f"IN plan should scan Small, got: {in_scan}"
+    assert ":A" in eq_scan, f"Equality plan should scan A, got: {eq_scan}"
+    assert ":A" in in_scan, f"IN plan should scan A, got: {in_scan}"
 
 
 def test_in_list_multi_element(memgraph):
-    """IN ['x', 'y'] with two matching values should still pick the selective label."""
+    """IN ['x', 'y'] with two matching values: planner should still start from the IN side.
+
+    A has 50 nodes; B has 50 nodes. IN ['1', '2'] on A matches 2 nodes,
+    which is far cheaper than scanning all 50 B nodes.
+    """
     setup_graph(memgraph)
 
     plan = get_plan(
         memgraph,
-        "MATCH (a:Big)--(b:Small) WHERE b.prop IN ['val1', 'val2'] RETURN a",
+        "MATCH (a:A)--(b:B) WHERE a.prop IN ['1', '2'] RETURN b",
     )
 
     scan = bottom_scan_operator(plan)
-    assert "Small" in scan, f"Multi-element IN should scan Small, got: {scan}"
+    assert ":A" in scan, f"Multi-element IN should scan A, got: {scan}"
 
 
 if __name__ == "__main__":
