@@ -384,17 +384,20 @@ Feature: WHERE exists
           | 10     |
           | 11     |
 
-  Scenario: Test exists does not work in WITH clauses
+  Scenario: Test exists in the WHERE of a WITH
       Given an empty graph
       And having executed:
           """
-          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          CREATE (:One {prop:1})-[:TYPE]->(:Two {prop:2})
+          CREATE (:Two {prop:3})
           """
       When executing query:
           """
-          MATCH (n:Two) WITH n WHERE exists((n)<-[:TYPE]-()) RETURN n.prop;
+          MATCH (n:Two) WITH n WHERE exists((n)<-[:TYPE]-()) RETURN n.prop AS prop;
           """
-      Then an error should be raised
+      Then the result should be:
+          | prop |
+          | 2    |
 
   Scenario: Test exists is not null
       Given an empty graph
@@ -512,14 +515,19 @@ Feature: WHERE exists
           """
       Then an error should be raised
 
-  Scenario: Test exists does not work in RETURN clauses
+  Scenario: Test exists in RETURN clauses
       Given an empty graph
       And having executed:
           """
-          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          CREATE (:One {prop:1})-[:TYPE]->(:Two {prop:2})
+          CREATE (:Three {prop:9})
           """
       When executing query:
           """
-          MATCH (n) RETURN exists((n)-[]-());
+          MATCH (n) RETURN n.prop AS prop, exists((n)-[]-()) AS h ORDER BY prop;
           """
-      Then an error should be raised
+      Then the result should be:
+          | prop | h     |
+          | 1    | true  |
+          | 2    | true  |
+          | 9    | false |
