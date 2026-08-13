@@ -3026,6 +3026,37 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportDrivesIdIndex) {
   }
 }
 
+// ScanAllByEdgeId carries no edge type and no node identity, so patterns constraining either must
+// keep their Expand. The untyped form above still gets the id scan.
+TYPED_TEST(TestPlanner, SubqueryScopedImportEdgeIdKeepsPatternConstraints) {
+  FakeDbAccessor dba;
+  auto expect_no_edge_id_scan = [&](memgraph::query::CypherQuery *query) {
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    std::list<BaseOpChecker *> branch{new ExpectScanAll(), new ExpectExpand(), new ExpectFilter(), new ExpectProduce()};
+    CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(branch), ExpectProduce());
+    DeleteListContent(&branch);
+  };
+  {
+    // WITH 0 AS v CALL (v) { MATCH (x)-[e:type]->(y) WHERE id(e) = v RETURN e } RETURN e
+    auto *subquery = SINGLE_QUERY(
+        MATCH(PATTERN(NODE("x"), EDGE("e", memgraph::query::EdgeAtom::Direction::OUT, {"type"}), NODE("y"))),
+        WHERE(EQ(FN("id", IDENT("e")), IDENT("v"))),
+        RETURN("e"));
+    expect_no_edge_id_scan(QUERY(SINGLE_QUERY(
+        WITH(LITERAL(0), AS("v")), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"v"}), RETURN("e"))));
+  }
+  {
+    // Repeated node symbol: WITH 0 AS v CALL (v) { MATCH (x)-[e]->(x) WHERE id(e) = v RETURN e } RETURN e
+    auto *subquery =
+        SINGLE_QUERY(MATCH(PATTERN(NODE("x"), EDGE("e", memgraph::query::EdgeAtom::Direction::OUT), NODE("x"))),
+                     WHERE(EQ(FN("id", IDENT("e")), IDENT("v"))),
+                     RETURN("e"));
+    expect_no_edge_id_scan(QUERY(SINGLE_QUERY(
+        WITH(LITERAL(0), AS("v")), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"v"}), RETURN("e"))));
+  }
+}
+
 // The scanned symbol is in the filter's value, so is_symbol_in_value_ must still block the index.
 TYPED_TEST(TestPlanner, SubqueryScopedImportSelfReferentialFilterNoIndex) {
   // WITH 1 AS x CALL (x) { MATCH (n:label) WHERE n.property = x + n.other RETURN n } RETURN n
