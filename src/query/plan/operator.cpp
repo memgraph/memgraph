@@ -3923,11 +3923,17 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::unordered_set<VertexAccessor, VertexAccessorHash> blocked_vertices_;
   utils::pmr::unordered_map<VertexAccessor, double, VertexAccessorHash> distances_;
   // Raw storage adjacency, deliberately *not* cleared per input row (unlike `expansion_memo_`): it
-  // is stable for the whole cursor (one cursor = one transaction = one `View::OLD`) and exists so
-  // Yen's repeated inner searches don't re-fetch. It must keep storing unfiltered edges - caching
-  // post-filter results here would be wrong the moment the lambda reads an outer-row value.
-  utils::pmr::unordered_map<VertexAccessor, EdgeVertexAccessorResult, VertexAccessorHash> in_edges_;
-  utils::pmr::unordered_map<VertexAccessor, EdgeVertexAccessorResult, VertexAccessorHash> out_edges_;
+  // is stable for the whole command epoch the cursor runs in and exists so Yen's repeated inner
+  // searches don't re-fetch. It must keep storing unfiltered edges - caching post-filter results
+  // here would be wrong the moment the lambda reads an outer-row value.
+  //
+  // The edges are copied into an arena vector rather than cached as the `EdgeVertexAccessorResult`
+  // storage hands back: that struct is not allocator-aware, so its `std::vector` would allocate from
+  // the global heap and escape this query's memory accounting even though the map itself does not.
+  // `expanded_count` is consumed before the insert and never read back, so it is not cached.
+  using CachedEdges = utils::pmr::vector<EdgeAccessor>;
+  utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> in_edges_;
+  utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> out_edges_;
   utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>, VertexAccessorHash> predecessors_;
 
   // Memoised `access check && filter lambda` verdicts. Sound across Yen's O(k*L) inner searches
@@ -4205,9 +4211,12 @@ class KShortestPathsCursor : public Cursor {
             auto out_edges_result =
                 UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
             context.number_of_hops += out_edges_result.expanded_count;
-            out_edges_.emplace(vertex, out_edges_result);
+            out_edges_.emplace(vertex,
+                               CachedEdges(out_edges_result.edges.begin(),
+                                           out_edges_result.edges.end(),
+                                           out_edges_.get_allocator().resource()));
           }
-          for (const auto &edge : out_edges_.at(vertex).edges) {
+          for (const auto &edge : out_edges_.at(vertex)) {
             if (!ShouldExpand<kTo, kForward>(edge, vertex, in_edge, frame, evaluator, context)) {
               continue;
             }
@@ -4223,9 +4232,12 @@ class KShortestPathsCursor : public Cursor {
             auto in_edges_result =
                 UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
             context.number_of_hops += in_edges_result.expanded_count;
-            in_edges_.emplace(vertex, in_edges_result);
+            in_edges_.emplace(
+                vertex,
+                CachedEdges(
+                    in_edges_result.edges.begin(), in_edges_result.edges.end(), in_edges_.get_allocator().resource()));
           }
-          for (const auto &edge : in_edges_.at(vertex).edges) {
+          for (const auto &edge : in_edges_.at(vertex)) {
             if (!ShouldExpand<kFrom, kForward>(edge, vertex, in_edge, frame, evaluator, context)) {
               continue;
             }
@@ -4256,9 +4268,12 @@ class KShortestPathsCursor : public Cursor {
             auto out_edges_result =
                 UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
             context.number_of_hops += out_edges_result.expanded_count;
-            out_edges_.emplace(vertex, out_edges_result);
+            out_edges_.emplace(vertex,
+                               CachedEdges(out_edges_result.edges.begin(),
+                                           out_edges_result.edges.end(),
+                                           out_edges_.get_allocator().resource()));
           }
-          for (const auto &edge : out_edges_.at(vertex).edges) {
+          for (const auto &edge : out_edges_.at(vertex)) {
             if (!ShouldExpand<kTo, kBackward>(edge, vertex, out_edge, frame, evaluator, context)) {
               continue;
             }
@@ -4274,9 +4289,12 @@ class KShortestPathsCursor : public Cursor {
             auto in_edges_result =
                 UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
             context.number_of_hops += in_edges_result.expanded_count;
-            in_edges_.emplace(vertex, in_edges_result);
+            in_edges_.emplace(
+                vertex,
+                CachedEdges(
+                    in_edges_result.edges.begin(), in_edges_result.edges.end(), in_edges_.get_allocator().resource()));
           }
-          for (const auto &edge : in_edges_.at(vertex).edges) {
+          for (const auto &edge : in_edges_.at(vertex)) {
             if (!ShouldExpand<kFrom, kBackward>(edge, vertex, out_edge, frame, evaluator, context)) {
               continue;
             }
