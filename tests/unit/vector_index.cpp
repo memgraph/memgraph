@@ -27,6 +27,7 @@
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/ddl_abort_helpers.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
@@ -194,6 +195,8 @@ TEST_F(VectorIndexTest, ToBoltVertexOmitsVectorIndexedPropertyWhenFlagOn) {
   const auto set_omit = [&](bool enabled) {
     settings.SetValue("storage.omit_vector_index_properties_on_return", enabled ? "true" : "false");
   };
+  // restore the process-global flag even if an assertion aborts the test early
+  memgraph::utils::OnScopeExit reset_flag{[&] { set_omit(false); }};
   set_omit(false);
 
   this->CreateIndex(2, 10);
@@ -220,8 +223,6 @@ TEST_F(VectorIndexTest, ToBoltVertexOmitsVectorIndexedPropertyWhenFlagOn) {
   EXPECT_FALSE(without_prop->properties.contains(test_property.data()));
   EXPECT_TRUE(without_prop->properties.contains("title"));
   EXPECT_TRUE(without_prop->properties.contains("tags"));
-
-  set_omit(false);
 }
 
 TEST_F(VectorIndexTest, ConcurrencyTest) {

@@ -37,6 +37,8 @@
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/ddl_abort_helpers.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/settings.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -144,6 +146,8 @@ TEST_F(VectorEdgeIndexTest, ToBoltEdgeOmitsVectorIndexedPropertyWhenFlagOn) {
   const auto set_omit = [&](bool enabled) {
     settings.SetValue("storage.omit_vector_index_properties_on_return", enabled ? "true" : "false");
   };
+  // restore the process-global flag even if an assertion aborts the test early
+  memgraph::utils::OnScopeExit reset_flag{[&] { set_omit(false); }};
 
   this->CreateEdgeIndex(2, 10);
   auto acc = this->storage->Access(memgraph::storage::WRITE);
@@ -162,8 +166,6 @@ TEST_F(VectorEdgeIndexTest, ToBoltEdgeOmitsVectorIndexedPropertyWhenFlagOn) {
   ASSERT_TRUE(without_prop.has_value());
   EXPECT_FALSE(without_prop->properties.contains(test_property.data()));
   EXPECT_TRUE(without_prop->properties.contains("weight"));
-
-  set_omit(false);
 }
 
 TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {
