@@ -226,3 +226,106 @@ TEST(HotColdGatekeeper, DtorWaitsForAccessorRelease) {
   EXPECT_GE(elapsed, kHold);
   t.join();
 }
+
+// ---------------------------------------------------------------------------
+// TryExclusivelyTimedWaitsOutTransientHolder
+// ---------------------------------------------------------------------------
+// A second accessor that releases shortly (a transient DatabaseAccess, e.g. a
+// /metrics scrape) must be WAITED OUT by the bounded-wait try_exclusively: the
+// exclusive func runs once count drops back to 1, within the deadline.
+TEST(HotColdGatekeeper, TryExclusivelyTimedWaitsOutTransientHolder) {
+  auto gk = make_hot();
+
+  auto primary = gk.access();
+  ASSERT_TRUE(primary.has_value());
+
+  // Transient second accessor acquired HERE so count==2 is established before the
+  // try_exclusively call below (acquiring it inside the worker would race the call
+  // and let it observe count==1 immediately). The worker releases it after ~100ms.
+  auto transient = gk.access();
+  ASSERT_TRUE(transient.has_value());
+  constexpr auto kHold = std::chrono::milliseconds(100);
+  std::thread t([&] {
+    std::this_thread::sleep_for(kHold);
+    transient->reset();
+  });
+
+  bool ran = false;
+  const auto start = std::chrono::steady_clock::now();
+  // 3s deadline mirrors the STORAGE MODE switch; the transient holder releases well within it.
+  auto result = primary->try_exclusively(std::chrono::seconds(3), [&](Widget &w) {
+    ran = true;
+    return w.v;
+  });
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+
+  EXPECT_TRUE(static_cast<bool>(result));  // func ran
+  EXPECT_TRUE(ran);
+  EXPECT_EQ(result.value(), 42);
+  EXPECT_GE(elapsed, kHold);                    // actually waited for the release
+  EXPECT_LT(elapsed, std::chrono::seconds(3));  // and did not exhaust the deadline
+
+  t.join();
+}
+
+// ---------------------------------------------------------------------------
+// TryExclusivelyTimedRefusesPersistentHolder
+// ---------------------------------------------------------------------------
+// A second accessor held for the whole call must make the bounded-wait
+// try_exclusively time out cleanly: func never runs, and it returns after
+// roughly the deadline.
+TEST(HotColdGatekeeper, TryExclusivelyTimedRefusesPersistentHolder) {
+  auto gk = make_hot();
+
+  auto primary = gk.access();
+  ASSERT_TRUE(primary.has_value());
+  auto persistent = gk.access();  // count==2 for the entire call
+  ASSERT_TRUE(persistent.has_value());
+
+  bool ran = false;
+  constexpr auto kTimeout = std::chrono::milliseconds(100);
+  const auto start = std::chrono::steady_clock::now();
+  auto result = primary->try_exclusively(kTimeout, [&](Widget &w) {
+    ran = true;
+    return w.v;
+  });
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+
+  EXPECT_FALSE(static_cast<bool>(result));  // func did NOT run
+  EXPECT_FALSE(ran);
+  EXPECT_GE(elapsed, kTimeout);  // waited the full deadline before refusing
+}
+
+// ---------------------------------------------------------------------------
+// TryExclusivelyNonBlockingFailsFast
+// ---------------------------------------------------------------------------
+// The single-shot overload keeps fail-fast semantics: with count==2 it refuses
+// immediately; once the extra accessor is released it runs.
+TEST(HotColdGatekeeper, TryExclusivelyNonBlockingFailsFast) {
+  auto gk = make_hot();
+
+  auto primary = gk.access();
+  ASSERT_TRUE(primary.has_value());
+
+  {
+    auto second = gk.access();  // count==2
+    ASSERT_TRUE(second.has_value());
+
+    bool ran = false;
+    const auto start = std::chrono::steady_clock::now();
+    auto result = primary->try_exclusively([&](Widget &w) {
+      ran = true;
+      return w.v;
+    });
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    EXPECT_FALSE(static_cast<bool>(result));  // refused
+    EXPECT_FALSE(ran);
+    EXPECT_LT(elapsed, std::chrono::milliseconds(50));  // did not wait
+  }
+  // second released; count==1.
+
+  auto result = primary->try_exclusively([](Widget &w) { return w.v; });
+  EXPECT_TRUE(static_cast<bool>(result));
+  EXPECT_EQ(result.value(), 42);
+}
