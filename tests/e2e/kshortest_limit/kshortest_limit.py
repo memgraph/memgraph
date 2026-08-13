@@ -31,11 +31,17 @@ def execute_query(query: str):
             return list(result)
 
 
-def expect_error(query: str, label: str):
-    """Assert that a query fails. Never swallow the assertion itself."""
+def expect_error(query: str, label: str, expected: str):
+    """Assert that a query fails with `expected` in the message.
+
+    Matching the message matters: a bare `except Exception` would also pass if the server were
+    unreachable, or if the query failed for a completely different reason than the one under test.
+    The assertions are raised outside the `except` block so they cannot be swallowed.
+    """
     try:
         execute_query(query)
     except Exception as exc:
+        assert expected in str(exc), f"Expected {expected!r} in the error for {label}, got: {exc}"
         print(f"  Correctly got error for {label}: {exc}")
         return
     raise AssertionError(f"Expected an error for {label}")
@@ -207,6 +213,7 @@ def test_syntax_errors():
         WITH a, b MATCH (a)-[r:KNOWS *BFS|2]->(b) RETURN r
     """,
         "BFS with limit",
+        "Limit parameter is only supported with KSHORTEST path expansion.",
     )
 
     # kshortest accepts a two-argument filter lambda, but not the accumulated path
@@ -217,6 +224,7 @@ def test_syntax_errors():
         WITH a, b MATCH (a)-[r:KNOWS *KSHORTEST|2 (rel, n, p | size(p) > 0)]->(b) RETURN r
     """,
         "kshortest with an accumulated path in the filter lambda",
+        "KSHORTEST expansion does not support the accumulated path in a filter lambda.",
     )
 
     # kshortest takes at most one lambda; a weight lambda is not accepted
@@ -227,6 +235,7 @@ def test_syntax_errors():
         WITH a, b MATCH (a)-[r:KNOWS *KSHORTEST|2 (rel, n | 1) (rel, n | true)]->(b) RETURN r
     """,
         "kshortest with two lambdas",
+        "Only one filter lambda can be supplied.",
     )
 
     # A filter lambda evaluating to something other than a boolean or null must fail at runtime
@@ -237,6 +246,7 @@ def test_syntax_errors():
         WITH a, b MATCH (a)-[r:KNOWS *KSHORTEST|2 (rel, n | 42)]->(b) RETURN r
     """,
         "kshortest with a non-boolean filter lambda",
+        "Expansion condition must evaluate to boolean or null",
     )
 
     print("Syntax error tests passed! ✅")

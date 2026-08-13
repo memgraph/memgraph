@@ -284,6 +284,11 @@ auto GetProp(const TRecord &rec, std::string prop, memgraph::query::DbAccessor *
 // Removes from `edges` everything the filter lambda blocks, so the Yen oracle runs on exactly the
 // subgraph the expansion sees. Blocking an entity means blocking every edge whose traversal binds
 // it, i.e. the edge itself, or every edge leading into the vertex.
+//
+// A blocked edge is matched by its `(from, to)` property pair rather than by gid, so this is only
+// exact while `kEdges` holds no two edges between the same ordered pair of vertices - the cursor
+// would block one parallel edge where this blocks all of them. Keep `kEdges` free of parallel edges,
+// or switch this to comparing gids.
 std::vector<std::pair<int, int>> GetFilteredEdgeList(const memgraph::query::TypedValue &blocked,
                                                      memgraph::query::EdgeAtom::Direction direction,
                                                      const std::vector<std::string> &edge_types,
@@ -848,6 +853,12 @@ class Database {
   // search without an access check, which is pre-existing behaviour shared with `*BFS`. A memo
   // that cannot tell the two passes apart replays the source side's `false` and loses the
   // one-hop path, falling back to (2)-[:a]->(5)-[:a]->(4).
+  //
+  // That dependency is structural, not incidental: for the two halves to disagree about one edge,
+  // one of the access-checked endpoints has to be a vertex admitted without a check, because any
+  // mid-path denied vertex is rejected by whichever half reaches it first. So if the endpoint
+  // seeding gap is ever closed, this test returns zero rows and needs redesigning around the new
+  // behaviour rather than relaxing.
   void KShortestTestMemoDistinguishesSearchDirections(Database *db) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor db_accessor(storage_dba.get());
