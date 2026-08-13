@@ -18,6 +18,7 @@
 #include "disk_test_utils.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "helpers/stub_property_fga_checker.hpp"
 
 #include "license/license.hpp"
 #include "query/context.hpp"
@@ -1343,4 +1344,181 @@ TYPED_TEST(QueryPlanTest, AggregateTypesWithDistinct) {
   aggregate(n_p2, Aggregation::Op::MAX);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), QueryRuntimeException);
+}
+
+TYPED_TEST(QueryPlanTest, CachePropertiesFillsSlotsInOnePass) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto prop_a = dba.NameToProperty("a");
+  auto prop_b = dba.NameToProperty("b");
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.SetProperty(prop_a, memgraph::storage::PropertyValue(42)).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_b, memgraph::storage::PropertyValue("hello")).has_value());
+  dba.AdvanceCommand();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto cached_a_sym = symbol_table.CreateSymbol("cached_a", true);
+  auto cached_b_sym = symbol_table.CreateSymbol("cached_b", true);
+  auto cache = std::make_shared<CacheProperties>(
+      n.op_, n.sym_, std::vector<CachedProperty>{{prop_a, cached_a_sym}, {prop_b, cached_b_sym}});
+
+  auto a_ne = NEXPR("a", IDENT("cached_a")->MapTo(cached_a_sym))->MapTo(symbol_table.CreateSymbol("a_ne", true));
+  auto b_ne = NEXPR("b", IDENT("cached_b")->MapTo(cached_b_sym))->MapTo(symbol_table.CreateSymbol("b_ne", true));
+  auto produce = MakeProduce(cache, a_ne, b_ne);
+
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 2);
+  EXPECT_EQ(results[0][0].ValueInt(), 42);
+  EXPECT_EQ(results[0][1].ValueString(), "hello");
+}
+
+// The single pass reads a record in the order the record holds its properties, which is the order
+// their names were first interned. A caller groups its properties by name, and the two orders
+// disagree whenever a name interned earlier sorts later, so the operator cannot assume it is handed
+// them in the order the read wants.
+TYPED_TEST(QueryPlanTest, CachePropertiesFillsSlotsWhateverOrderTheyArriveIn) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  // Interned first, so it holds the lower id while sorting after the other.
+  auto prop_zebra = dba.NameToProperty("zebra");
+  auto prop_apple = dba.NameToProperty("apple");
+  ASSERT_LT(prop_zebra.AsUint(), prop_apple.AsUint());
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.SetProperty(prop_zebra, memgraph::storage::PropertyValue(1)).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_apple, memgraph::storage::PropertyValue(2)).has_value());
+  dba.AdvanceCommand();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto apple_sym = symbol_table.CreateSymbol("cached_apple", true);
+  auto zebra_sym = symbol_table.CreateSymbol("cached_zebra", true);
+  // Handed over in the order their names sort, which here is the reverse of the order the record
+  // holds them in.
+  auto cache = std::make_shared<CacheProperties>(
+      n.op_, n.sym_, std::vector<CachedProperty>{{prop_apple, apple_sym}, {prop_zebra, zebra_sym}});
+
+  auto apple_ne =
+      NEXPR("apple", IDENT("cached_apple")->MapTo(apple_sym))->MapTo(symbol_table.CreateSymbol("apple_ne", true));
+  auto zebra_ne =
+      NEXPR("zebra", IDENT("cached_zebra")->MapTo(zebra_sym))->MapTo(symbol_table.CreateSymbol("zebra_ne", true));
+  auto produce = MakeProduce(cache, apple_ne, zebra_ne);
+
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 2);
+  EXPECT_EQ(results[0][0].ValueInt(), 2);
+  EXPECT_EQ(results[0][1].ValueInt(), 1);
+}
+
+#ifdef MG_ENTERPRISE
+TYPED_TEST(QueryPlanTest, CachePropertiesDeniedPropertyIsNull) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto label = dba.NameToLabel("Person");
+  auto prop_name = dba.NameToProperty("name");
+  auto prop_ssn = dba.NameToProperty("ssn");
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(label).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_name, memgraph::storage::PropertyValue("Alice")).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_ssn, memgraph::storage::PropertyValue("secret")).has_value());
+  dba.AdvanceCommand();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto cached_name_sym = symbol_table.CreateSymbol("cached_name", true);
+  auto cached_ssn_sym = symbol_table.CreateSymbol("cached_ssn", true);
+  auto cache = std::make_shared<CacheProperties>(
+      n.op_, n.sym_, std::vector<CachedProperty>{{prop_name, cached_name_sym}, {prop_ssn, cached_ssn_sym}});
+
+  auto name_ne =
+      NEXPR("name", IDENT("cached_name")->MapTo(cached_name_sym))->MapTo(symbol_table.CreateSymbol("name_ne", true));
+  auto ssn_ne =
+      NEXPR("ssn", IDENT("cached_ssn")->MapTo(cached_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
+  auto produce = MakeProduce(cache, name_ne, ssn_ne);
+
+  // A property lookup the caller may not read evaluates to Null, so caching it must not hand the
+  // real value back instead.
+  memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Person", "ssn"}});
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  context.auth_checker = &checker;
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 2);
+  EXPECT_EQ(results[0][0].ValueString(), "Alice");
+  EXPECT_TRUE(results[0][1].IsNull());
+}
+#endif
+
+TYPED_TEST(QueryPlanTest, CachePropertiesAbsentPropertyIsNull) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto prop_a = dba.NameToProperty("a");
+  auto prop_missing = dba.NameToProperty("missing");
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.SetProperty(prop_a, memgraph::storage::PropertyValue(1)).has_value());
+  dba.AdvanceCommand();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto cached_missing_sym = symbol_table.CreateSymbol("cached_missing", true);
+  auto cache =
+      std::make_shared<CacheProperties>(n.op_, n.sym_, std::vector<CachedProperty>{{prop_missing, cached_missing_sym}});
+
+  auto ne = NEXPR("missing", IDENT("cached_missing")->MapTo(cached_missing_sym))
+                ->MapTo(symbol_table.CreateSymbol("missing_ne", true));
+  auto produce = MakeProduce(cache, ne);
+
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 1);
+  EXPECT_TRUE(results[0][0].IsNull());
+}
+
+TYPED_TEST(QueryPlanTest, CachePropertiesNullInputSymbolYieldsNullSlots) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto prop_a = dba.NameToProperty("a");
+
+  SymbolTable symbol_table;
+  // Stands in for an OPTIONAL MATCH that found nothing: the symbol is bound to Null.
+  auto unwind = MakeUnwind(symbol_table, "n", nullptr, LIST(LITERAL(TypedValue())));
+  auto cached_a_sym = symbol_table.CreateSymbol("cached_a", true);
+  auto cache =
+      std::make_shared<CacheProperties>(unwind.op_, unwind.sym_, std::vector<CachedProperty>{{prop_a, cached_a_sym}});
+
+  auto ne = NEXPR("a", IDENT("cached_a")->MapTo(cached_a_sym))->MapTo(symbol_table.CreateSymbol("a_ne", true));
+  auto produce = MakeProduce(cache, ne);
+
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 1);
+  EXPECT_TRUE(results[0][0].IsNull());
+}
+
+TYPED_TEST(QueryPlanTest, CachePropertiesModifiedSymbols) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto prop_a = dba.NameToProperty("a");
+  auto prop_b = dba.NameToProperty("b");
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto cached_a_sym = symbol_table.CreateSymbol("cached_a", true);
+  auto cached_b_sym = symbol_table.CreateSymbol("cached_b", true);
+  auto cache = std::make_shared<CacheProperties>(
+      n.op_, n.sym_, std::vector<CachedProperty>{{prop_a, cached_a_sym}, {prop_b, cached_b_sym}});
+
+  EXPECT_THAT(cache->ModifiedSymbols(symbol_table), UnorderedElementsAre(n.sym_, cached_a_sym, cached_b_sym));
+  // Not a column-defining operator, so it just forwards its input's output symbols.
+  EXPECT_EQ(cache->OutputSymbols(symbol_table), n.op_->OutputSymbols(symbol_table));
 }
