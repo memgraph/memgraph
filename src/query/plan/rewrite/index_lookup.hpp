@@ -178,12 +178,14 @@ template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
   IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints,
-                      const Parameters &parameters, bool parallel_execution = false)
+                      const Parameters &parameters, bool parallel_execution = false,
+                      std::unordered_set<Symbol> inherited_bound_symbols = {})
       : symbol_table_(symbol_table),
         ast_storage_(ast_storage),
         db_(db),
         index_hints_(std::move(index_hints)),
         parameters_(parameters),
+        inherited_bound_symbols_(std::move(inherited_bound_symbols)),
         order_by_eliminator_(db, prev_ops_, parallel_execution) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -829,9 +831,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Apply &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
-    // Inherited symbols arrive via the branch's bottom Once, not additional_bound_symbols_: seeding
-    // that here would let a branch-internal SetOnParent overwrite Apply::input_, i.e. the outer plan.
-    RewriteBranch(&op.subquery_);
+    // The branch sees the outer scope's symbols, but pass them to the child rewriter rather than
+    // seeding additional_bound_symbols_ and descending with `*this`: a branch-internal SetOnParent
+    // would then overwrite Apply::input_, i.e. the outer plan.
+    RewriteBranch(&op.subquery_, InheritedFor(op));
     return false;
   }
 
@@ -895,7 +898,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(PeriodicSubquery &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
-    RewriteBranch(&op.subquery_);
+    RewriteBranch(&op.subquery_, InheritedFor(op));
     return false;
   }
 
@@ -942,6 +945,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
+  // Symbols a subquery branch inherits from the enclosing scope. They are live on the frame, but they
+  // are NOT produced by this branch, so this must never be pushed into the plan (e.g. onto the
+  // branch's bottom Once): ModifiedSymbols has consumers that read it as "produced by this subtree",
+  // and PlanValidator and the Cartesian->IndexedJoin conversion both mis-fire on inherited symbols.
+  // Unlike additional_bound_symbols_ this is never cleared, so PostVisit(Cartesian) cannot wipe it.
+  std::unordered_set<Symbol> inherited_bound_symbols_;
 
   struct LabelPropertyIndex {
     LabelIx label;
@@ -1000,8 +1009,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     LOG_FATAL("Error during index rewriting of the query!");
   }
 
-  void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, index_hints_, parameters_);
+  // What a subquery branch inherits: everything its input side has bound, plus anything this rewriter
+  // itself inherited, so nested subqueries keep the outermost scope's symbols.
+  auto InheritedFor(const LogicalOperator &op) const -> std::unordered_set<Symbol> {
+    auto const input_symbols = op.input()->ModifiedSymbols(*symbol_table_);
+    std::unordered_set<Symbol> inherited(input_symbols.begin(), input_symbols.end());
+    inherited.insert(inherited_bound_symbols_.begin(), inherited_bound_symbols_.end());
+    return inherited;
+  }
+
+  void RewriteBranch(std::shared_ptr<LogicalOperator> *branch, std::unordered_set<Symbol> inherited = {}) {
+    IndexLookupRewriter<TDbAccessor> rewriter(
+        symbol_table_, ast_storage_, db_, index_hints_, parameters_, false, std::move(inherited));
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
@@ -1715,6 +1734,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
     bound_symbols.insert(additional_bound_symbols_.begin(), additional_bound_symbols_.end());
+    bound_symbols.insert(inherited_bound_symbols_.begin(), inherited_bound_symbols_.end());
 
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
