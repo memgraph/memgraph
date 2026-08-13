@@ -48,7 +48,7 @@ class ProgressHeartbeat {
 
   // Records that the handler made progress. Sits on per-item paths (every delta, every vertex visited while
   // populating an index or validating a constraint.
-  void RecordProgress() noexcept { work_done_.exchange(true, std::memory_order_relaxed); }
+  void RecordProgress() noexcept { work_done_.store(true, std::memory_order_relaxed); }
 
   // True once a heartbeat failed to reach the peer. Long-running work polls this to abandon early rather than finish
   // a job whose result can no longer be delivered.
