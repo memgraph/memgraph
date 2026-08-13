@@ -62,48 +62,35 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [centos-9, centos-10, debian-12, debian-13, docker, fedora-42, rocky-10, ubuntu-22.04, ubuntu-24.04]
-        arch: [amd]
+        # The packages are distro-agnostic: one deb and one rpm per arch,
+        # stored under <arch>-{deb,rpm}[-malloc]/; docker tarballs live under
+        # docker-<arch>[-malloc][-relwithdebinfo]/.
+        target: [deb, rpm, docker]
+        arch: [amd, arm]
         malloc: [false]
         build_type: [Release]
         include:
-          - os: docker
-            arch: arm
-            malloc: false
-            build_type: Release
-          - os: docker
+          - target: docker
             arch: amd
             malloc: false
             build_type: RelWithDebInfo
-          - os: docker
+          - target: docker
             arch: arm
             malloc: false
             build_type: RelWithDebInfo
-          - os: docker
+          - target: docker
             arch: amd
             malloc: true
             build_type: RelWithDebInfo
-          - os: docker
+          - target: docker
             arch: arm
             malloc: true
             build_type: RelWithDebInfo
-          - os: debian-12
-            arch: arm
-            malloc: false
+          - target: deb
+            arch: amd
+            malloc: true
             build_type: Release
-          - os: debian-13
-            arch: arm
-            malloc: false
-            build_type: Release
-          - os: fedora-42
-            arch: arm
-            malloc: false
-            build_type: Release
-          - os: ubuntu-24.04
-            arch: arm
-            malloc: false
-            build_type: Release
-          - os: ubuntu-24.04
+          - target: rpm
             arch: amd
             malloc: true
             build_type: Release
@@ -123,50 +110,52 @@ jobs:
 
       - name: Setup package path
         run: |
-          os=${{ matrix.os }}
-          if [[ $os == amzn* || $os == centos* || $os == fedora* || $os == rocky* ]]; then
-            if [[ "${{ matrix.arch }}" == "arm" ]]; then
-              package_name=${package_rpm_arm}
-            else
-              package_name=${package_rpm_amd}
-            fi
-          elif [[ $os == docker ]]; then
-            if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" && "${{ matrix.malloc }}" == "false" ]]; then
-              package_name=${package_docker_relwithdebinfo}
-            elif [[ "${{ matrix.malloc }}" == "true" ]]; then
-              package_name=${package_docker_relwithdebinfo_malloc}
-            else
-              package_name=${package_docker}
-            fi
-          else
-            package_name=${package_deb_amd}
-            if [[ "${{ matrix.arch }}" == "arm" ]]; then
-              package_name=${package_deb_arm}
-            fi
-          fi
-          if [[ "${{ matrix.malloc }}" == "true" ]]; then
-            os="${os}-malloc"
-          fi
+          arch_str="x86_64"
           if [[ "${{ matrix.arch }}" == "arm" ]]; then
-            os="${os}-aarch64"
+            arch_str="aarch64"
           fi
-          if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
-            os="${os}-relwithdebinfo"
+          case "${{ matrix.target }}" in
+            rpm)
+              dir="${arch_str}-rpm"
+              package_name=${package_rpm_amd}
+              [[ "${{ matrix.arch }}" == "arm" ]] && package_name=${package_rpm_arm}
+              ;;
+            deb)
+              dir="${arch_str}-deb"
+              package_name=${package_deb_amd}
+              [[ "${{ matrix.arch }}" == "arm" ]] && package_name=${package_deb_arm}
+              ;;
+            docker)
+              dir="docker-${arch_str}"
+              if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" && "${{ matrix.malloc }}" == "false" ]]; then
+                package_name=${package_docker_relwithdebinfo}
+              elif [[ "${{ matrix.malloc }}" == "true" ]]; then
+                package_name=${package_docker_relwithdebinfo_malloc}
+              else
+                package_name=${package_docker}
+              fi
+              ;;
+          esac
+          if [[ "${{ matrix.malloc }}" == "true" ]]; then
+            dir="${dir}-malloc"
           fi
-          echo "package_path=${os}/${package_name}" >> $GITHUB_ENV
+          if [[ "${{ matrix.target }}" == "docker" && "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
+            dir="${dir}-relwithdebinfo"
+          fi
+          echo "package_path=${dir}/${package_name}" >> $GITHUB_ENV
 
 
       - name: Check if rc package for this build exists
         run: |
           if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${package_path} &> /dev/null; then
-            echo "RC package for ${os} does not exist at s3://${rc_bucket}/${rc_dir}/${package_path}"
+            echo "RC package does not exist at s3://${rc_bucket}/${rc_dir}/${package_path}"
             exit 1
           fi
 
       - name: Check if release package for this build already exists
         run: |
           if aws s3 ls s3://${release_bucket}/${release_dir}/${package_path} &> /dev/null; then
-            echo "Release package for ${os} already exists at s3://${release_bucket}/${release_dir}/${package_path}"
+            echo "Release package already exists at s3://${release_bucket}/${release_dir}/${package_path}"
             if [[ "$FORCE_PROMOTE" != "true" ]]; then
               echo "Set force_promote to true to override existing release!"
               exit 1
@@ -177,15 +166,14 @@ jobs:
       - name: Promote RC to Release
         run: |
           aws s3 cp s3://${rc_bucket}/${rc_dir}/${package_path} s3://${release_bucket}/${release_dir}/${package_path}
-          echo "Successfully promoted RC package for ${os} to s3://${release_bucket}/${release_dir}/${package_path}!"
+          echo "Successfully promoted RC package to s3://${release_bucket}/${release_dir}/${package_path}!"
 
       - name: Promote debuginfo companion (deb/rpm)
-        # Split-debug prod-flavour OS jobs emit a memgraph-debuginfo_*.deb /
+        # Split-debug package builds emit a memgraph-debuginfo_*.deb /
         # memgraph-debuginfo-*.rpm next to the main package. Docker entries
         # have no separate companion (the relwithdebinfo docker image already
-        # bundles symbols). RelWithDebInfo OS entries are the legacy embedded-
-        # symbol flavour with no companion either.
-        if: ${{ matrix.os != 'docker' && matrix.build_type != 'RelWithDebInfo' }}
+        # bundles symbols).
+        if: ${{ matrix.target != 'docker' }}
         run: |
           package_basename=$(basename "$package_path")
           case "$package_basename" in
@@ -243,15 +231,13 @@ jobs:
 
       - name: Set package names and tags
         run: |
-          # TODO(matt): reorder the pieces in the package names to match the order of tags both in Memgraph and MAGE
-
-          # set s3 paths for amd and arm
+          # set s3 paths for amd and arm: docker-<arch>[-malloc][-relwithdebinfo]/
           package="${package_docker}"
-          os_x86="docker"
+          os_x86="docker-x86_64"
           os_arm="docker-aarch64"
           if [[ "${{ matrix.malloc }}" == "true" ]]; then
             os_x86="${os_x86}-malloc"
-            os_arm="docker-malloc-aarch64"  # TODO(matt): reorder this in packaging workflow
+            os_arm="${os_arm}-malloc"
           fi
           if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
             if [[ "${{ matrix.malloc }}" == "false" ]]; then
@@ -477,12 +463,14 @@ jobs:
         run: |
           mage_version="$RELEASE_VERSION"
           image_tag="${mage_version}${{ matrix.image_ext }}"
-          docker_dir_amd="docker"
+          # Release dirs mirror the memgraph docker scheme:
+          # docker-<arch>[-malloc][-relwithdebinfo][-cuda|-cugraph]/
+          docker_dir_amd="docker-x86_64"
           docker_dir_arm="docker-aarch64"
 
           if [[ "${{ matrix.image_ext }}" == *"-malloc"* ]]; then
             docker_dir_amd="${docker_dir_amd}-malloc"
-            docker_dir_arm="docker-malloc-aarch64"
+            docker_dir_arm="${docker_dir_arm}-malloc"
           fi
           if [[ "${{ matrix.image_ext }}" == *"-relwithdebinfo"* ]]; then
             docker_dir_amd="${docker_dir_amd}-relwithdebinfo"
@@ -613,48 +601,45 @@ jobs:
             echo "Skipping ARM tarball copy: RC package not available."
           fi
 
-      - name: Check if MAGE ubuntu packages already exist
+      - name: Check if MAGE deb packages already exist
         if: ${{ matrix.image_ext == '' }}
         run: |
           # Match both memgraph-mage_*.deb (main) and
           # memgraph-mage-debuginfo_*.deb (split-debug companion).
-          release_deb_check=$(aws s3 ls "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" | awk '/memgraph-mage.*\.deb/ {print}')
+          release_deb_check=$(aws s3 ls "s3://${release_bucket}/${mage_release_dir}/deb/" | awk '/memgraph-mage.*\.deb/ {print}')
           if [[ -n "${release_deb_check}" ]]; then
-            echo "MAGE ubuntu packages already exist under s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
+            echo "MAGE deb packages already exist under s3://${release_bucket}/${mage_release_dir}/deb/"
             if [[ "$FORCE_PROMOTE" != "true" ]]; then
               echo "Set force_promote to true to override existing release!"
               exit 1
             fi
-            echo "Forcing promotion of existing ubuntu packages ..."
+            echo "Forcing promotion of existing deb packages ..."
           fi
 
-      - name: Promote MAGE ubuntu packages to release bucket
+      - name: Promote MAGE deb packages to release bucket
         if: ${{ matrix.image_ext == '' }}
         run: |
-          aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" --recursive --exclude "*" --include "memgraph-mage*_${RELEASE_VERSION}-1_*.deb"
-          echo "Copied Ubuntu 24.04 MAGE packages (main + debuginfo) to s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
+          # The debs are distro-agnostic and stored flat in the RC dir with
+          # arch and flavour in the filename (memgraph-mage*_<ver>-1_<arch>
+          # [-cuda|-cugraph].deb — main + debuginfo). Promote them all.
+          aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "s3://${release_bucket}/${mage_release_dir}/deb/" --recursive --exclude "*" --include "memgraph-mage*_${RELEASE_VERSION}-1_*.deb"
+          echo "Copied MAGE deb packages (main + debuginfo) to s3://${release_bucket}/${mage_release_dir}/deb/"
 
       - name: Promote MAGE rpm packages to release bucket
         if: ${{ matrix.image_ext == '' }}
         run: |
-          # MAGE rpms are stored flat in the RC dir with the distro encoded in
-          # the filename (memgraph-mage*-1.<distro>.<arch>.rpm — main + debuginfo).
-          # Promote each distro's rpms into the matching per-distro subdir of the
-          # release bucket, mirroring the ubuntu-24.04 deb layout above. Extend
-          # the list as new distros are enabled for MAGE.
-          for os in centos-9 centos-10; do
-            dst="s3://${release_bucket}/${mage_release_dir}/${os}/"
-            existing=$(aws s3 ls "$dst" 2>/dev/null | awk '/memgraph-mage.*\.rpm/ {print}')
-            if [[ -n "${existing}" && "$FORCE_PROMOTE" != "true" ]]; then
-              echo "MAGE rpm packages already exist under ${dst}"
-              echo "Set force_promote to true to override existing release!"
-              exit 1
-            fi
-            # --recursive copy is a no-op when a distro produced no rpm (e.g. only
-            # centos-9 was built), so missing distros are skipped gracefully.
-            aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "${dst}" --recursive --exclude "*" --include "memgraph-mage*-1.${os}.*.rpm"
-            echo "Copied ${os} MAGE rpms (main + debuginfo) to ${dst}"
-          done
+          # The rpms are distro-agnostic (no distro tag in the filename any
+          # more) and stored flat in the RC dir: memgraph-mage*<ver>_1-1.
+          # <arch>[-cuda|-cugraph].rpm — main + debuginfo. Promote them all.
+          dst="s3://${release_bucket}/${mage_release_dir}/rpm/"
+          existing=$(aws s3 ls "$dst" 2>/dev/null | awk '/memgraph-mage.*\.rpm/ {print}')
+          if [[ -n "${existing}" && "$FORCE_PROMOTE" != "true" ]]; then
+            echo "MAGE rpm packages already exist under ${dst}"
+            echo "Set force_promote to true to override existing release!"
+            exit 1
+          fi
+          aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "${dst}" --recursive --exclude "*" --include "memgraph-mage*${RELEASE_VERSION}_1-1.*.rpm"
+          echo "Copied MAGE rpm packages (main + debuginfo) to ${dst}"
 
       - name: Setup offline installer paths
         run: |
