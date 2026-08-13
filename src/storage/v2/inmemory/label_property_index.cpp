@@ -467,7 +467,9 @@ bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
   if (!res) return false;
   auto res2 = PopulateIndex(label, properties, std::move(vertices), parallel_exec_info, updater, on_progress, order);
   if (!res2) {
-    MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
+    MG_ASSERT(false,
+              "CreateIndexOnePass never cancels: population only fails via a cancel check, and this entry point "
+              "passes none. The trailing callback reports progress and cannot stop the build.");
   }
   return PublishIndex(label, properties, 0, order);
 }
