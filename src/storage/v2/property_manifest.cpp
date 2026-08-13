@@ -108,6 +108,15 @@ auto ManifestRegistry::NextInstanceId() -> uint64_t {
   return counter.fetch_add(1, std::memory_order_relaxed) + 1;
 }
 
+auto PropertyManifest::LocationAt(size_t position) const -> Location {
+  auto const &entry = entries_[position];
+  return Location{
+      .is_fixed = entry.stored_type.is_fixed_width(),
+      .offset = offsets_[position],
+      .stored_type = entry.stored_type,
+  };
+}
+
 auto ManifestRegistry::Intern(std::span<ManifestEntry const> entries) -> ManifestId {
   // Only pay for a copy when the caller's entries are not already in shape order.
   auto canonical = std::vector<ManifestEntry>{};

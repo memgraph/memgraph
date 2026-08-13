@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "utils/logging.hpp"
+#include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
 
@@ -212,13 +213,9 @@ auto ManifestPropertyStore::InitProperties(ManifestRegistry &registry,
                                            std::map<PropertyId, PropertyValue> const &properties) -> bool {
   if (buffer_) return false;
 
-  auto without_nulls = std::map<PropertyId, PropertyValue>{};
-  for (auto const &[id, value] : properties) {
-    if (value.IsNull()) continue;
-    without_nulls.emplace(id, value);
-  }
-
-  Rebuild(registry, without_nulls);
+  // Nulls are skipped by Rebuild, so the caller's map goes straight through rather than
+  // being copied to filter them out.
+  Rebuild(registry, properties);
   return true;
 }
 
@@ -231,18 +228,19 @@ auto ManifestPropertyStore::ClearProperties() -> bool {
 }
 
 void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<PropertyId, PropertyValue> const &properties) {
-  if (properties.empty()) {
-    ClearProperties();
-    return;
-  }
-
-  auto entries = std::vector<ManifestEntry>{};
+  auto entries = utils::small_vector<ManifestEntry>{};
   entries.reserve(properties.size());
   auto variable_bytes = uint32_t{0};
   for (auto const &[id, value] : properties) {
+    if (value.IsNull()) continue;
     auto const stored_type = StoredTypeOf(value);
     entries.push_back(ManifestEntry{.property = id, .stored_type = stored_type});
     if (!stored_type.is_fixed_width()) variable_bytes += VariableSize(value);
+  }
+
+  if (entries.empty()) {
+    ClearProperties();
+    return;
   }
 
   auto const manifest_id = registry.Intern(entries);
@@ -256,19 +254,22 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<Propert
 
   auto const regions = RegionsOf(manifest, buffer.get());
   auto variable_end = uint32_t{0};
+  // The properties and the shape's entries are both in property order, and the entries were
+  // built from these very properties, so the shape can be walked by position.
+  auto position = size_t{0};
   for (auto const &[id, value] : properties) {
-    auto const location = manifest.Find(id);
-    DMG_ASSERT(location, "A property just interned into the shape must be found in it");
-    if (location->is_fixed) {
+    if (value.IsNull()) continue;
+    auto const location = manifest.LocationAt(position++);
+    if (location.is_fixed) {
       EncodeFixed(value,
-                  location->stored_type,
-                  std::span{buffer.get() + regions.fixed + location->offset, location->stored_type.width});
+                  location.stored_type,
+                  std::span{buffer.get() + regions.fixed + location.offset, location.stored_type.width});
       continue;
     }
     auto const size = VariableSize(value);
     std::memcpy(buffer.get() + regions.variable + variable_end, value.ValueString().data(), size);
     variable_end += size;
-    WriteOffset(buffer.get() + regions.offset_table, offset_width, location->offset, variable_end);
+    WriteOffset(buffer.get() + regions.offset_table, offset_width, location.offset, variable_end);
   }
 
   manifest_ = manifest_id;

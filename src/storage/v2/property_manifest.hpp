@@ -94,6 +94,10 @@ class PropertyManifest {
 
   auto Find(PropertyId property) const -> std::optional<Location>;
 
+  /// Where the `position`-th entry of this shape lives. Lets a caller that already walks the
+  /// shape in order skip the search entirely.
+  auto LocationAt(size_t position) const -> Location;
+
  private:
   std::vector<ManifestEntry> entries_;
   /// Parallel to `entries_`: byte offset for fixed values, offset-table index for variable ones.
