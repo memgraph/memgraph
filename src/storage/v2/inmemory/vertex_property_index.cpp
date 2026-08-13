@@ -218,12 +218,8 @@ auto InMemoryVertexPropertyIndex::DropIndex(PropertyId property, ActiveIndicesUp
         if (it == indices_container->indices_.cend()) return {};
         auto evicted_entry = it->second;
 
-        auto new_container = std::make_shared<IndicesContainer>();
-        for (auto const &[existing_property, index] : indices_container->indices_) {
-          if (existing_property != property) {
-            new_container->indices_.emplace(existing_property, index);
-          }
-        }
+        auto new_container = std::make_shared<IndicesContainer>(*indices_container);
+        new_container->indices_.erase(property);
         indices_container = new_container;
         updater(std::make_shared<ActiveIndices>(indices_container));
         return evicted_entry;
