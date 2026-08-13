@@ -178,12 +178,14 @@ template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
   IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints,
-                      const Parameters &parameters, bool parallel_execution = false)
+                      const Parameters &parameters, bool parallel_execution = false,
+                      std::unordered_set<Symbol> inherited_bound_symbols = {})
       : symbol_table_(symbol_table),
         ast_storage_(ast_storage),
         db_(db),
         index_hints_(std::move(index_hints)),
         parameters_(parameters),
+        inherited_bound_symbols_(std::move(inherited_bound_symbols)),
         order_by_eliminator_(db, prev_ops_, parallel_execution) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -203,6 +205,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // free the memory.
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
+
+    // Predicates we consumed here. The Cartesian decision below needs these, not the leftovers.
+    std::vector<FilterInfo> removed_filters;
+    {
+      Filters own_filters;
+      own_filters.CollectFilterExpression(op.expression_, *symbol_table_);
+      for (auto const &filter : own_filters) {
+        if (filter_exprs_for_removal_.contains(filter.expression)) removed_filters.push_back(filter);
+      }
+    }
+
     ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_, ast_storage_);
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
@@ -211,9 +224,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       op.all_filters_ = std::move(leftover_filters);
     }
 
-    // Filters are pushed down as far as they can go.
-    // If there is a Cartesian after, that means that the filter is working on data from both branches.
-    // In that case, we need to convert the Cartesian into a Join
+    // A Cartesian pulls its right branch once per pass, not once per left row, so it cannot feed a
+    // seek keyed on the other branch. Convert only when a consumed filter created such a dependency.
     if (removal.did_remove) {
       LogicalOperator *input = op.input().get();
       LogicalOperator *parent = &op;
@@ -224,24 +236,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         input = input->input().get();
       }
 
-      const bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
-      if (is_child_cartesian) {
-        std::unordered_set<Symbol> modified_symbols;
-        // Number of symbols is small
-        for (const auto &filter : op.all_filters_) {
-          modified_symbols.insert(filter.used_symbols.begin(), filter.used_symbols.end());
-        }
-        auto does_modify = [&]() {
-          const auto &symbols = input->ModifiedSymbols(*symbol_table_);
-          return std::ranges::any_of(
-              symbols, [&modified_symbols](const auto &sym_in) { return modified_symbols.contains(sym_in); });
+      if (input->GetTypeInfo() == Cartesian::kType) {
+        auto *cartesian = dynamic_cast<Cartesian *>(input);
+        // A one-sided predicate, or one on an inherited symbol, leaves the branches independent.
+        // Converting those costs a re-execution per main row and forfeits JoinRewriter's HashJoin.
+        auto spans_both_branches = [cartesian](FilterInfo const &filter) {
+          auto touches = [&filter](std::vector<Symbol> const &side) {
+            return std::ranges::any_of(side, [&filter](Symbol const &s) { return filter.used_symbols.contains(s); });
+          };
+          return touches(cartesian->left_symbols_) && touches(cartesian->right_symbols_);
         };
-        if (does_modify()) {
-          // if we removed something from filter in front of a Cartesian, then we are doing a join from
-          // 2 different branches
-          auto *cartesian = dynamic_cast<Cartesian *>(input);
-          auto indexed_join = std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_);
-          parent->set_input(indexed_join);
+        if (std::ranges::any_of(removed_filters, spans_both_branches)) {
+          parent->set_input(std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_));
         }
       }
     }
@@ -829,7 +835,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Apply &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
-    RewriteBranch(&op.subquery_);
+    // The branch sees the outer scope's symbols, but pass them to the child rewriter rather than
+    // seeding additional_bound_symbols_ and descending with `*this`: a branch-internal SetOnParent
+    // would then overwrite Apply::input_, i.e. the outer plan.
+    RewriteBranch(&op.subquery_, InheritedFor(op));
     return false;
   }
 
@@ -893,7 +902,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(PeriodicSubquery &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
-    RewriteBranch(&op.subquery_);
+    RewriteBranch(&op.subquery_, InheritedFor(op));
     return false;
   }
 
@@ -940,6 +949,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
+  // Enclosing scope's symbols: live on the frame, but not produced by this branch, so they must stay
+  // out of the plan - ModifiedSymbols has consumers that read it as "produced by this subtree".
+  std::unordered_set<Symbol> const inherited_bound_symbols_;
 
   struct LabelPropertyIndex {
     LabelIx label;
@@ -998,8 +1010,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     LOG_FATAL("Error during index rewriting of the query!");
   }
 
-  void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, index_hints_, parameters_);
+  // A subquery branch additionally inherits whatever its input side has bound.
+  auto InheritedFor(const LogicalOperator &op) const -> std::unordered_set<Symbol> {
+    auto const input_symbols = op.input()->ModifiedSymbols(*symbol_table_);
+    return {input_symbols.begin(), input_symbols.end()};
+  }
+
+  // Every branch gets a fresh rewriter, so what this one inherited has to be handed down explicitly or
+  // a Union/Merge/Optional branch inside a subquery would lose the enclosing scope again.
+  void RewriteBranch(std::shared_ptr<LogicalOperator> *branch, std::unordered_set<Symbol> inherited = {}) {
+    inherited.insert(inherited_bound_symbols_.begin(), inherited_bound_symbols_.end());
+    IndexLookupRewriter<TDbAccessor> rewriter(
+        symbol_table_, ast_storage_, db_, index_hints_, parameters_, false, std::move(inherited));
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
@@ -1713,6 +1735,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
     bound_symbols.insert(additional_bound_symbols_.begin(), additional_bound_symbols_.end());
+    bound_symbols.insert(inherited_bound_symbols_.begin(), inherited_bound_symbols_.end());
 
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {

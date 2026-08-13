@@ -640,6 +640,19 @@ auto GetCallSubquery(AstStorage &storage, CypherQuery *subquery) {
   return call_subquery;
 }
 
+// `CALL (v1, v2, ...) { ... }`. Each import builds as `NEXPR(name, IDENT(name))`, which is what
+// SymbolGenerator::PreVisit(CallSubquery) expects. There is no aliased form: the grammar's
+// scopeClause is `ASTERISK | variable (',' variable)*`, so `CALL (v AS w)` does not parse.
+template <typename TSubquery>
+auto GetCallSubqueryScoped(AstStorage &storage, TSubquery *subquery, const std::vector<std::string> &imports) {
+  auto *call_subquery = GetCallSubquery(storage, subquery);
+  call_subquery->has_variable_scope_ = true;
+  for (const auto &name : imports) {
+    call_subquery->scoped_variables_.push_back(storage.Create<NamedExpression>(name, storage.Create<Identifier>(name)));
+  }
+  return call_subquery;
+}
+
 auto GetCallPeriodicSubquery(AstStorage &storage, SingleQuery *subquery, CommitFrequency commit_frequency) {
   auto *periodic_subquery = storage.Create<memgraph::query::CallSubquery>();
 
@@ -855,6 +868,7 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
 #define CALL_PROCEDURE(...) memgraph::query::test_common::GetCallProcedure(storage, __VA_ARGS__)
 #define CALL_SUBQUERY(...) memgraph::query::test_common::GetCallSubquery(this->storage, __VA_ARGS__)
 #define CALL_PERIODIC_SUBQUERY(...) memgraph::query::test_common::GetCallPeriodicSubquery(this->storage, __VA_ARGS__)
+#define CALL_SUBQUERY_SCOPED(...) memgraph::query::test_common::GetCallSubqueryScoped(this->storage, __VA_ARGS__)
 #define PATTERN_COMPREHENSION(variable, pattern, filter, resultExpr) \
   this->storage.template Create<memgraph::query::PatternComprehension>(variable, pattern, filter, resultExpr)
 #define ENUM_VALUE(...) this->storage.template Create<memgraph::query::EnumValueAccess>(__VA_ARGS__)

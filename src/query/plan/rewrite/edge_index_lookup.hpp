@@ -39,10 +39,11 @@ template <class TDbAccessor>
 class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
   EdgeIndexRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db,
-                    bool parallel_execution = false)
+                    bool parallel_execution = false, std::unordered_set<Symbol> inherited_bound_symbols = {})
       : symbol_table_(symbol_table),
         ast_storage_(ast_storage),
         db_(db),
+        inherited_bound_symbols_(std::move(inherited_bound_symbols)),
         order_by_eliminator_(db, prev_ops_, parallel_execution) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -168,7 +169,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
                             .node2_symbol = op.common_.node_symbol,
                             .direction = op.common_.direction,
                             .edge_types = op.common_.edge_types};
-    auto indexed_scan = GenScanByEdgeIndex(op, common);
+    auto indexed_scan = GenScanByEdgeIndex(op, common, /*can_scan_by_edge_id=*/!op.common_.existing_node);
     if (indexed_scan) {
       // We know (and checked) that the input of Expand was a Scan
       // GenScanByEdgeIndex replaced the Expand, yet maintained the input
@@ -636,7 +637,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Apply &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
-    RewriteBranch(&op.subquery_);
+    RewriteBranch(&op.subquery_, InheritedFor(op));
     return false;
   }
 
@@ -700,7 +701,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(PeriodicSubquery &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
-    RewriteBranch(&op.subquery_);
+    RewriteBranch(&op.subquery_, InheritedFor(op));
     return false;
   }
 
@@ -743,6 +744,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::vector<LogicalOperator *> prev_ops_;
   OrderByEliminator<TDbAccessor> order_by_eliminator_;
   std::unordered_set<Symbol> additional_bound_symbols_;
+  // See IndexLookupRewriter::inherited_bound_symbols_.
+  std::unordered_set<Symbol> const inherited_bound_symbols_;
 
   /// Try to record a newly-created edge scan for ORDER BY elimination.
   /// GenScanByEdgeIndex may wrap the scan in a Filter (for edge-type checking
@@ -975,8 +978,10 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("Operator not yet covered by EdgeIndexRewriter"); }
 
+  /// @param can_scan_by_edge_id false when the destination node is already bound on the frame.
   template <class TOperator>
-  auto GenScanByEdgeIndex(const TOperator &op, const ScanByEdgeCommon &common) -> std::shared_ptr<LogicalOperator> {
+  auto GenScanByEdgeIndex(const TOperator &op, const ScanByEdgeCommon &common, bool can_scan_by_edge_id = true)
+      -> std::shared_ptr<LogicalOperator> {
     const auto &input = op.input();
     const auto &view = op.view_;
 
@@ -984,6 +989,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
     bound_symbols.insert(additional_bound_symbols_.begin(), additional_bound_symbols_.end());
+    bound_symbols.insert(inherited_bound_symbols_.begin(), inherited_bound_symbols_.end());
 
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
@@ -996,6 +1002,9 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     for (const auto &filter : filters_.IdFilters(common.edge_symbol)) {
       if (filter.id_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) continue;
+      // ScanAllByEdgeId carries no edge types and no node identity, and we erase the id filter below,
+      // so a pattern constraining either must keep its Expand instead of matching the wrong edge.
+      if (!can_scan_by_edge_id || !common.edge_types.empty() || common.node1_symbol == common.node2_symbol) continue;
       auto *value = filter.id_filter->value_;
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
@@ -1273,8 +1282,17 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     LOG_FATAL("Error during index rewriting of the query!");
   }
 
-  void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    EdgeIndexRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_);
+  // A subquery branch additionally inherits whatever its input side has bound.
+  auto InheritedFor(const LogicalOperator &op) const -> std::unordered_set<Symbol> {
+    auto const input_symbols = op.input()->ModifiedSymbols(*symbol_table_);
+    return {input_symbols.begin(), input_symbols.end()};
+  }
+
+  // Every branch gets a fresh rewriter, so what this one inherited has to be handed down explicitly or
+  // a Union/Merge/Optional branch inside a subquery would lose the enclosing scope again.
+  void RewriteBranch(std::shared_ptr<LogicalOperator> *branch, std::unordered_set<Symbol> inherited = {}) {
+    inherited.insert(inherited_bound_symbols_.begin(), inherited_bound_symbols_.end());
+    EdgeIndexRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, false, std::move(inherited));
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
