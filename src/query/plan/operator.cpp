@@ -5393,6 +5393,127 @@ void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
 
+CacheProperties::CacheProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+                                 std::vector<CachedProperty> cached_properties)
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(std::move(input_symbol)),
+      cached_properties_(std::move(cached_properties)) {}
+
+ACCEPT_WITH_INPUT(CacheProperties)
+
+UniqueCursorPtr CacheProperties::MakeCursor(utils::MemoryResource *mem,
+                                            metrics::DatabaseMetricHandles &metric_handles) const {
+  return MakeUniqueCursorPtr<CachePropertiesCursor>(mem, *this, mem, metric_handles);
+}
+
+std::vector<Symbol> CacheProperties::OutputSymbols(const SymbolTable &symbol_table) const {
+  return input_->OutputSymbols(symbol_table);
+}
+
+std::vector<Symbol> CacheProperties::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.reserve(symbols.size() + cached_properties_.size());
+  for (const auto &cached : cached_properties_) {
+    symbols.emplace_back(cached.output_symbol);
+  }
+  return symbols;
+}
+
+std::unique_ptr<LogicalOperator> CacheProperties::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<CacheProperties>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->input_symbol_ = input_symbol_;
+  object->cached_properties_ = cached_properties_;
+  return object;
+}
+
+std::string CacheProperties::ToString(const DbAccessor *dba) const {
+  return fmt::format(
+      "CacheProperties {{{}}}", utils::IterableToString(cached_properties_, ", ", [&](const auto &cached) {
+        return fmt::format(
+            "{}.{} -> {}", input_symbol_.name(), dba->PropertyToName(cached.property_id), cached.output_symbol.name());
+      }));
+}
+
+CacheProperties::CachePropertiesCursor::CachePropertiesCursor(const CacheProperties &self, utils::MemoryResource *mem,
+                                                              metrics::DatabaseMetricHandles &metric_handles)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
+  auto const count = self_.cached_properties_.size();
+  cached_of_slot_.resize(count);
+  std::iota(cached_of_slot_.begin(), cached_of_slot_.end(), uint32_t{0});
+  // The single pass walks the record in the order it holds its properties, so it needs them in that
+  // order and answers Null for any that arrives out of it. What the caller grouped them by is its
+  // own concern, so the order the read needs is established here rather than asked of it.
+  std::ranges::sort(
+      cached_of_slot_, {}, [this](uint32_t index) { return self_.cached_properties_[index].property_id; });
+
+  property_paths_.reserve(count);
+  for (auto const index : cached_of_slot_) {
+    property_paths_.emplace_back(self_.cached_properties_[index].property_id);
+  }
+  values_.resize(count);
+}
+
+bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP_BY_REF(self_);
+
+  AbortCheck(context);
+
+  if (!input_cursor_->Pull(frame, context)) return false;
+
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+  auto const &input_value = frame[self_.input_symbol_];
+  if (input_value.type() != TypedValue::Type::Vertex) {
+    for (const auto &cached : self_.cached_properties_) {
+      frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
+    }
+    return true;
+  }
+
+  // NEW so that the row sees writes made earlier in this same transaction, as a
+  // property lookup evaluated at this point would.
+  auto const read = input_value.ValueVertex().impl_.ReadPropertyValues(property_paths_, values_, storage::View::NEW);
+  if (!read) {
+    switch (read.error()) {
+      case storage::Error::DELETED_OBJECT:
+        throw QueryRuntimeException("Trying to get a property from a deleted object.");
+      case storage::Error::NONEXISTENT_OBJECT:
+        throw QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
+      case storage::Error::SERIALIZATION_ERROR:
+      case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::PROPERTIES_DISABLED:
+        throw QueryRuntimeException("Unexpected error when getting a property.");
+    }
+  }
+
+  auto *name_id_mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
+  for (std::size_t slot = 0; slot != values_.size(); ++slot) {
+    const auto &cached = self_.cached_properties_[cached_of_slot_[slot]];
+    auto &value = values_[slot];
+#ifdef MG_ENTERPRISE
+    // A property the caller may not read reads back as Null from an expression, so it has to read back as Null from
+    // the cache too; otherwise moving a lookup into the cache would hand out a value the query could not have got.
+    if (!value.IsNull() &&
+        !PropertyReadAllowed(context.auth_checker, input_value.ValueVertex(), storage::View::NEW, cached.property_id)) {
+      value = storage::PropertyValue{};
+    }
+#endif
+    if (value.IsNull()) {
+      frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
+    } else {
+      frame_writer.Write(cached.output_symbol,
+                         TypedValue(std::move(value), name_id_mapper, context.evaluation_context.memory));
+    }
+  }
+  return true;
+}
+
+void CacheProperties::CachePropertiesCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void CacheProperties::CachePropertiesCursor::Reset() { input_cursor_->Reset(); }
+
 Delete::Delete(const std::shared_ptr<LogicalOperator> &input, const std::vector<Expression *> &expressions, bool detach)
     : input_(input ? input : std::make_shared<Once>()), expressions_(expressions), detach_(detach) {}
 
