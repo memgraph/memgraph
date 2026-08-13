@@ -216,12 +216,8 @@ auto InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater
         if (it == indices_container->indices_.cend()) return {};
         auto evicted_entry = it->second;
 
-        auto new_container = std::make_shared<IndicesContainer>();
-        for (auto const &[existing_edge_type, index] : indices_container->indices_) {
-          if (existing_edge_type != edge_type) {
-            new_container->indices_.emplace(existing_edge_type, index);
-          }
-        }
+        auto new_container = std::make_shared<IndicesContainer>(*indices_container);
+        new_container->indices_.erase(edge_type);
         indices_container = new_container;
         updater(std::make_shared<ActiveIndices>(indices_container));
         return evicted_entry;
