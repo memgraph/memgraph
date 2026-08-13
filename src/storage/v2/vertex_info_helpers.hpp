@@ -11,6 +11,7 @@
 #pragma once
 
 #include <algorithm>
+#include <span>
 #include <tuple>
 #include <vector>
 
@@ -127,6 +128,19 @@ inline auto PropertyValueMatch_ActionMethod(bool &match, PropertyId property, Pr
   using enum DeltaAction;
   return ActionMethod<SET_PROPERTY>([&, property](Delta const &delta) {
     if (delta.property.key == property) match = (value == *delta.property.value);
+  });
+}
+
+/// As `Properties_ActionMethod` for a fixed set of properties held positionally: the value of
+/// `properties[i]` lives in `values[i]`. A delta for a property outside the set is ignored; one
+/// that sets a property to Null leaves Null in its slot, which is what a map-based read reports
+/// for the key it would have erased.
+inline auto PropertyValues_ActionMethod(std::span<PropertyId const> properties, std::span<PropertyValue> values) {
+  using enum DeltaAction;
+  return ActionMethod<SET_PROPERTY>([properties, values](Delta const &delta) {
+    auto const it = std::ranges::find(properties, delta.property.key);
+    if (it == properties.end()) return;
+    values[static_cast<std::size_t>(it - properties.begin())] = *delta.property.value;
   });
 }
 

@@ -4784,6 +4784,7 @@ CacheProperties::CachePropertiesCursor::CachePropertiesCursor(const CachePropert
   for (const auto &cached : self_.cached_properties_) {
     property_ids_.push_back(cached.property_id);
   }
+  values_.resize(property_ids_.size());
 }
 
 bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
@@ -4806,9 +4807,9 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
 
   // NEW so that the row sees writes made earlier in this same transaction, as a
   // property lookup evaluated at this point would.
-  auto maybe_properties = input_value.ValueVertex().impl_.PropertiesByPropertyIds(property_ids_, storage::View::NEW);
-  if (!maybe_properties) {
-    switch (maybe_properties.error()) {
+  auto const read = input_value.ValueVertex().ReadPropertyValues(property_ids_, storage::View::NEW, values_);
+  if (!read) {
+    switch (read.error()) {
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get a property from a deleted object.");
       case storage::Error::NONEXISTENT_OBJECT:
@@ -4820,23 +4821,27 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     }
   }
 
-  auto *name_id_mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
-  for (const auto &cached : self_.cached_properties_) {
-    auto it = maybe_properties->find(cached.property_id);
 #ifdef MG_ENTERPRISE
-    // A property the caller may not read reads back as Null from an expression, so it has to read back as Null from
-    // the cache too; otherwise moving a lookup into the cache would hand out a value the query could not have got.
-    if (it != maybe_properties->end() &&
-        !PropertyReadAllowed(context.auth_checker, input_value.ValueVertex(), storage::View::NEW, cached.property_id)) {
-      it = maybe_properties->end();
+  // A property the caller may not read reads back as Null from an expression, so it has to read back as Null from
+  // the cache too; otherwise moving a lookup into the cache would hand out a value the query could not have got.
+  if (context.auth_checker != nullptr && context.auth_checker->HasPropertyRestrictions()) {
+    for (std::size_t i = 0; i != self_.cached_properties_.size(); ++i) {
+      if (!PropertyReadAllowed(context.auth_checker,
+                               input_value.ValueVertex(),
+                               storage::View::NEW,
+                               self_.cached_properties_[i].property_id)) {
+        values_[i] = storage::PropertyValue{};
+      }
     }
+  }
 #endif
-    if (it == maybe_properties->end()) {
-      frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
-    } else {
-      frame_writer.Write(cached.output_symbol,
-                         TypedValue(std::move(it->second), name_id_mapper, context.evaluation_context.memory));
-    }
+
+  // `values_` is positional: slot i holds the value of `property_ids_[i]`, which is the
+  // property of `cached_properties_[i]`. No lookup, and no assumption about id ordering.
+  auto *name_id_mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
+  for (std::size_t i = 0; i != self_.cached_properties_.size(); ++i) {
+    frame_writer.Write(self_.cached_properties_[i].output_symbol,
+                       TypedValue(std::move(values_[i]), name_id_mapper, context.evaluation_context.memory));
   }
   return true;
 }

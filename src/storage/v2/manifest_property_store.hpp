@@ -182,6 +182,13 @@ class ManifestPropertyStore {
                                           std::span<PropertyPath const> ordered_properties,
                                           std::span<PropertyValue> out) const;
 
+  /// As above for top-level properties only, so a caller reading a fixed set of plain
+  /// properties needs neither a path per property nor any ordering between them. Each entry of
+  /// `properties` fills the slot of `out` at the same index. `out.size()` must equal
+  /// `properties.size()`.
+  void ExtractPropertyValuesMissingAsNull(ManifestRegistry const &registry, std::span<PropertyId const> properties,
+                                          std::span<PropertyValue> out) const;
+
   /// Whether each of `ordered_properties` holds the value it is paired with, the value for
   /// `ordered_properties[i]` being `values[position_lookup[i]]`. A path the record has no
   /// value for holds Null. Top-level paths are compared against the encoded bytes rather than

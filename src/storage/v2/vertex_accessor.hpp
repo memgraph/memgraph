@@ -104,6 +104,13 @@ class VertexAccessor final {
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
                                                                       View view) const;
 
+  /// As above, but positional and into the caller's buffer: the value of `properties[i]` lands
+  /// in `out[i]`, Null where the vertex carries no value for it. A caller reading the same set
+  /// once per row can hold one buffer across rows and allocate nothing per read.
+  /// `out.size()` must equal `properties.size()`.
+  Result<void> ReadPropertyValues(std::span<PropertyId const> properties, View view,
+                                  std::span<PropertyValue> out) const;
+
   auto BuildResultOutEdges(edge_store const &out_edges) const;
 
   auto BuildResultInEdges(edge_store const &out_edges) const;

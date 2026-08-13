@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 #include <type_traits>
 #include <vector>
 
@@ -49,6 +50,12 @@ class VertexAccessor final {
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key,
                                                       storage::PropertyLocationMemo *memo = nullptr) const {
     return impl_.GetProperty(key, view, memo);
+  }
+
+  /// Reads several properties in one pass, `out[i]` taking the value of `properties[i]`.
+  storage::Result<void> ReadPropertyValues(std::span<storage::PropertyId const> properties, storage::View view,
+                                           std::span<storage::PropertyValue> out) const {
+    return impl_.ReadPropertyValues(properties, view, out);
   }
 
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {

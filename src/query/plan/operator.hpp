@@ -1448,8 +1448,10 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
    private:
     const CacheProperties &self_;
     const UniqueCursorPtr input_cursor_;
-    // The single-pass read wants the ids contiguously; hoisted out of Pull so it is built once.
+    // Built once and reused for every row: the read is positional, so nothing here is
+    // per-row state and no row allocates a container to receive its values.
     std::vector<storage::PropertyId> property_ids_;
+    std::vector<storage::PropertyValue> values_;
   };
 };
 

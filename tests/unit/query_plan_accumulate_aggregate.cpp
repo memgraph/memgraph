@@ -1217,6 +1217,74 @@ TYPED_TEST(QueryPlanTest, CachePropertiesNullInputSymbolYieldsNullSlots) {
   EXPECT_TRUE(results[0][0].IsNull());
 }
 
+TYPED_TEST(QueryPlanTest, CachePropertiesSeesWritesOfItsOwnTransaction) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto prop_a = dba.NameToProperty("a");
+  auto prop_b = dba.NameToProperty("b");
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.SetProperty(prop_a, memgraph::storage::PropertyValue(1)).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_b, memgraph::storage::PropertyValue(2)).has_value());
+  dba.AdvanceCommand();
+  // Leaves a delta on the vertex, so the read runs its delta-reconciliation path rather than
+  // trusting the record alone.
+  ASSERT_TRUE(v.SetProperty(prop_a, memgraph::storage::PropertyValue(10)).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_b, memgraph::storage::PropertyValue()).has_value());
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n", nullptr, memgraph::storage::View::NEW);
+  auto cached_a_sym = symbol_table.CreateSymbol("cached_a", true);
+  auto cached_b_sym = symbol_table.CreateSymbol("cached_b", true);
+  auto cache = std::make_shared<CacheProperties>(
+      n.op_, n.sym_, std::vector<CachedProperty>{{prop_a, cached_a_sym}, {prop_b, cached_b_sym}});
+
+  auto a_ne = NEXPR("a", IDENT("cached_a")->MapTo(cached_a_sym))->MapTo(symbol_table.CreateSymbol("a_ne", true));
+  auto b_ne = NEXPR("b", IDENT("cached_b")->MapTo(cached_b_sym))->MapTo(symbol_table.CreateSymbol("b_ne", true));
+  auto produce = MakeProduce(cache, a_ne, b_ne);
+
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 2);
+  EXPECT_EQ(results[0][0].ValueInt(), 10);
+  EXPECT_TRUE(results[0][1].IsNull());
+}
+
+TYPED_TEST(QueryPlanTest, CachePropertiesSlotOrderIsIndependentOfPropertyIdOrder) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  // Ids are handed out in creation order, so "a" gets the lower id; caching it into the
+  // second slot puts the request out of ascending id order, which a positional read must
+  // survive.
+  auto prop_a = dba.NameToProperty("a");
+  auto prop_z = dba.NameToProperty("z");
+  ASSERT_LT(prop_a, prop_z);
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.SetProperty(prop_a, memgraph::storage::PropertyValue("value of a")).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_z, memgraph::storage::PropertyValue("value of z")).has_value());
+  dba.AdvanceCommand();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto first_sym = symbol_table.CreateSymbol("cached_z", true);
+  auto second_sym = symbol_table.CreateSymbol("cached_a", true);
+  auto cache = std::make_shared<CacheProperties>(
+      n.op_, n.sym_, std::vector<CachedProperty>{{prop_z, first_sym}, {prop_a, second_sym}});
+
+  auto first_ne = NEXPR("z", IDENT("cached_z")->MapTo(first_sym))->MapTo(symbol_table.CreateSymbol("z_ne", true));
+  auto second_ne = NEXPR("a", IDENT("cached_a")->MapTo(second_sym))->MapTo(symbol_table.CreateSymbol("a_ne", true));
+  auto produce = MakeProduce(cache, first_ne, second_ne);
+
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 2);
+  EXPECT_EQ(results[0][0].ValueString(), "value of z");
+  EXPECT_EQ(results[0][1].ValueString(), "value of a");
+}
+
 TYPED_TEST(QueryPlanTest, CachePropertiesModifiedSymbols) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());

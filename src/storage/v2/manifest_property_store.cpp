@@ -1417,6 +1417,22 @@ void ManifestPropertyStore::ExtractPropertyValuesMissingAsNull(ManifestRegistry 
   for (auto const &path : ordered_properties) *slot++ = reader.Read(path);
 }
 
+void ManifestPropertyStore::ExtractPropertyValuesMissingAsNull(ManifestRegistry const &registry,
+                                                               std::span<PropertyId const> properties,
+                                                               std::span<PropertyValue> out) const {
+  DMG_ASSERT(out.size() == properties.size(), "Output buffer size must match the number of properties");
+  if (empty()) {
+    for (auto &value : out) value = PropertyValue{};
+    return;
+  }
+  auto const record = RecordReader{registry.Resolve(this->manifest()), data()};
+  auto slot = out.begin();
+  for (auto const property : properties) {
+    auto const found = record.Find(property);
+    *slot++ = found ? record.Read(*found) : PropertyValue{};
+  }
+}
+
 auto ManifestPropertyStore::ArePropertiesEqual(ManifestRegistry const &registry,
                                                std::span<PropertyPath const> ordered_properties,
                                                std::span<PropertyValue const> values,
