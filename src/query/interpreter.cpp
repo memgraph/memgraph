@@ -4913,7 +4913,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
             std::visit(
                 [&]<typename T>(T const &) {
                   if constexpr (std::is_same_v<T, storage::IndexDefinitionCancelationError>) {
-                    throw HintedAbortError(AbortReason::TERMINATED);
+                    throw HintedAbortError(AbortReason::SHUTDOWN);
                   } else {
                     index_notification.code = NotificationCode::EXISTENT_INDEX;
                     index_notification.title =
@@ -5000,8 +5000,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
               index_notification.title =
                   fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
             } else if constexpr (std::is_same_v<T, storage::IndexDefinitionCancelationError>) {
-              // TODO: could also be SHUTDOWN...but this is good enough for now
-              throw HintedAbortError(AbortReason::TERMINATED);
+              throw HintedAbortError(AbortReason::SHUTDOWN);
             } else {
               static_assert(utils::always_false<T>, "Unhandled error type in error_visitor");
             }
@@ -5137,8 +5136,7 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
               index_notification.title = fmt::format(
                   "Index on edge-type {} on properties {} already exists.", edge_type_name, properties_stringified);
             } else if constexpr (std::is_same_v<T, storage::IndexDefinitionCancelationError>) {
-              // TODO: could also be SHUTDOWN...but this is good enough for now
-              throw HintedAbortError(AbortReason::TERMINATED);
+              throw HintedAbortError(AbortReason::SHUTDOWN);
             } else {
               static_assert(utils::always_false<T>, "Unhandled error type in error_visitor");
             }
