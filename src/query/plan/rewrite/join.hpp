@@ -375,6 +375,16 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(CacheProperties &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(CacheProperties &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(EmptyResult &op) override {
     prev_ops_.push_back(&op);
     return true;

@@ -142,6 +142,7 @@ class ExpandVariable;
 class ConstructNamedPath;
 class Filter;
 class Produce;
+class CacheProperties;
 class Delete;
 class SetProperty;
 class SetProperties;
@@ -205,7 +206,8 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     AggregateParallel, OrderByParallel, ScanParallel, ScanParallelByLabel, ScanParallelByLabelProperties,
     ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty, ScanParallelByEdge, ScanParallelByEdgeTypePropertyValue,
     ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty, ScanParallelByEdgePropertyValue,
-    ScanParallelByEdgePropertyRange, ScanParallelByVertexProperty, ScanChunk, ScanChunkByEdge, ParallelMerge>;
+    ScanParallelByEdgePropertyRange, ScanParallelByVertexProperty, ScanChunk, ScanChunkByEdge, ParallelMerge,
+    CacheProperties>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1387,6 +1389,67 @@ class Produce : public memgraph::query::plan::LogicalOperator {
     const UniqueCursorPtr input_cursor_;
     // Outlives the per-row evaluator, so property locations learnt on one row help the next.
     storage::PropertyLocationMemo location_memo_;
+  };
+};
+
+/// One property to read, paired with the frame slot its value is written into.
+struct CachedProperty {
+  storage::PropertyId property_id;
+  Symbol output_symbol;
+};
+
+/// Reads several properties of a single vertex-bound symbol in one pass over
+/// the record, writing each value into its own frame slot.
+///
+/// Looking the same properties up one at a time costs one lock acquisition, one
+/// shape resolution and one delta-chain walk per property; doing it in a single
+/// pass pays each of those once for the whole set.
+///
+/// A row whose input symbol does not hold a vertex (Null from an OPTIONAL
+/// MATCH, for instance) still passes through, with Null in every output slot.
+class CacheProperties : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  CacheProperties() = default;
+
+  CacheProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+                  std::vector<CachedProperty> cached_properties);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = std::move(input); }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  Symbol input_symbol_;
+  std::vector<CachedProperty> cached_properties_;
+
+  std::string ToString(const DbAccessor *dba) const override;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+ private:
+  class CachePropertiesCursor : public Cursor {
+   public:
+    CachePropertiesCursor(const CacheProperties &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
+    bool Pull(Frame &, ExecutionContext &) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    const CacheProperties &self_;
+    const UniqueCursorPtr input_cursor_;
+    // The single-pass read wants the ids contiguously; hoisted out of Pull so it is built once.
+    std::vector<storage::PropertyId> property_ids_;
   };
 };
 

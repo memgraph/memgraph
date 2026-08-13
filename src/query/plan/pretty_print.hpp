@@ -102,6 +102,7 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(EmptyResult & /*unused*/) override;
   bool PreVisit(Produce & /*unused*/) override;
+  bool PreVisit(CacheProperties & /*unused*/) override;
   bool PreVisit(Accumulate & /*unused*/) override;
   bool PreVisit(Aggregate & /*unused*/) override;
   bool PreVisit(AggregateParallel & /*unused*/) override;

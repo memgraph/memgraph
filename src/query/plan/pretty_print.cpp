@@ -314,6 +314,7 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(EmptyResult & /*unused*/) override;
   bool PreVisit(Produce & /*unused*/) override;
+  bool PreVisit(CacheProperties & /*unused*/) override;
   bool PreVisit(Accumulate & /*unused*/) override;
   bool PreVisit(Aggregate & /*unused*/) override;
   bool PreVisit(AggregateParallel & /*unused*/) override;
@@ -450,6 +451,7 @@ bool PlanPrinter::PreVisit(ParallelMerge & /*unused*/) {
 PRE_VISIT_TS(Expand);
 PRE_VISIT_TS(ExpandVariable);
 PRE_VISIT_TS(Produce);
+PRE_VISIT_TS(CacheProperties);
 
 PRE_VISIT(ConstructNamedPath);
 PRE_VISIT(SetProperty);
@@ -1148,6 +1150,24 @@ bool PlanToJsonVisitor::PreVisit(Produce &op) {
   json self;
   self["name"] = "Produce";
   self["named_expressions"] = ToJson(op.named_expressions_, *dba_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(CacheProperties &op) {
+  json self;
+  self["name"] = "CacheProperties";
+  self["input_symbol"] = ToJson(op.input_symbol_);
+  json cached = json::array();
+  for (const auto &cached_property : op.cached_properties_) {
+    cached.push_back(json{{"property", ToJson(cached_property.property_id, *dba_)},
+                          {"output_symbol", ToJson(cached_property.output_symbol)}});
+  }
+  self["cached_properties"] = std::move(cached);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

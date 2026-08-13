@@ -130,6 +130,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ConstructNamedPath);
   PRE_VISIT(EmptyResult);
   PRE_VISIT(Produce);
+  PRE_VISIT(CacheProperties);
   PRE_VISIT(SetProperty);
   PRE_VISIT(SetProperties);
   PRE_VISIT(SetLabels);

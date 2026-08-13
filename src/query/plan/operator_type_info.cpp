@@ -100,6 +100,10 @@ constexpr utils::TypeInfo query::plan::Filter::kType{
 constexpr utils::TypeInfo query::plan::Produce::kType{
     .id = utils::TypeId::PRODUCE, .name = "Produce", .superclass = &query::plan::LogicalOperator::kType};
 
+constexpr utils::TypeInfo query::plan::CacheProperties::kType{.id = utils::TypeId::CACHE_PROPERTIES,
+                                                              .name = "CacheProperties",
+                                                              .superclass = &query::plan::LogicalOperator::kType};
+
 constexpr utils::TypeInfo query::plan::Delete::kType{
     .id = utils::TypeId::DELETE, .name = "Delete", .superclass = &query::plan::LogicalOperator::kType};
 

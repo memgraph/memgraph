@@ -33,6 +33,7 @@ inline constexpr double kScanAllByVertexProperty{1.1};
 inline constexpr double kExpand{2.0};
 inline constexpr double kExpandVariable{3.0};
 inline constexpr double kFilter{1.5};
+inline constexpr double kCacheProperties{1.0};  // per property read
 inline constexpr double kEdgeUniquenessFilter{1.5};
 inline constexpr double kUnwind{1.3};
 inline constexpr double kForeach{1.0};

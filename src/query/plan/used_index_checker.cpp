@@ -106,6 +106,7 @@ PRE_VISIT(Cartesian)
 
 PRE_VISIT(EmptyResult)
 PRE_VISIT(Produce)
+PRE_VISIT(CacheProperties)
 PRE_VISIT(Accumulate)
 PRE_VISIT(Aggregate)
 PRE_VISIT(Skip)

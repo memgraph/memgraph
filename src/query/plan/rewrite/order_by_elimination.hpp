@@ -184,7 +184,7 @@ class OrderByEliminator {
            type_info == Distinct::kType || type_info == EvaluatePatternFilter::kType ||
            type_info == RollUpApply::kType || type_info == Apply::kType || type_info == Unwind::kType ||
            type_info == Produce::kType || type_info == Accumulate::kType || type_info == SetLabels::kType ||
-           type_info == RemoveLabels::kType;
+           type_info == RemoveLabels::kType || type_info == CacheProperties::kType;
   }
 
   static bool IsScanAllVariant(const utils::TypeInfo &type_info) {

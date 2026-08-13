@@ -463,6 +463,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PostVisit(CacheProperties &op) override {
+    // One pass per row, but the work in that pass grows with the set read.
+    IncrementCost(CostParam::kCacheProperties * static_cast<double>(op.cached_properties_.size()));
+    return true;
+  }
+
   bool PostVisit(Produce &op) override {
     auto scope = Scope();
 

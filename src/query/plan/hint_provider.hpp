@@ -177,6 +177,10 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Produce & /*unused*/) override { return true; }
 
+  bool PreVisit(CacheProperties & /*unused*/) override { return true; }
+
+  bool PostVisit(CacheProperties & /*unused*/) override { return true; }
+
   bool PreVisit(EmptyResult & /*unused*/) override { return true; }
 
   bool PostVisit(EmptyResult & /*unused*/) override { return true; }
