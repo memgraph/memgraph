@@ -743,8 +743,7 @@ Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view)
   return property_store.PropertySize(property);
 };
 
-Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view,
-                                                                       std::span<PropertyId const> skip) const {
+Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view) const {
   bool exists = true;
   bool deleted = false;
   std::map<PropertyId, PropertyValue> properties;
@@ -753,10 +752,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   {
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
-    properties = vertex_->properties.Properties(
-        IndexedPropertyDecoder<Vertex>{
-            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_},
-        skip);
+    properties = vertex_->properties.Properties(IndexedPropertyDecoder<Vertex>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
     delta = vertex_->delta();
   }
 
@@ -764,9 +761,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   // if we have no deltas then what we already have from the vertex is correct.
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
-    // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION.
-    // The cache holds full property maps, so it is bypassed when `skip` filters some out.
-    auto const useCache = transaction_->UseCache() && skip.empty();
+    // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
+    auto const useCache = transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
@@ -794,8 +790,6 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
 
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
-  // deltas may have re-introduced a skipped property; drop them from the resolved map
-  for (auto const skipped : skip) properties.erase(skipped);
   return std::move(properties);
 }
 

@@ -2779,16 +2779,13 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
 }
 
 template <typename T>
-std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPropertyDecoder<T> &decoder,
-                                                              std::span<PropertyId const> skip) const {
+std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPropertyDecoder<T> &decoder) const {
   auto get_properties = [&](Reader &reader) {
     std::map<PropertyId, PropertyValue> props;
     PropertyValue value;
     while (true) {
       auto prop = DecodeAnyProperty(&reader, value);
       if (!prop) break;
-      // skip before DecodeProperty so vector-index entries are never fetched from the index
-      if (!skip.empty() && std::ranges::contains(skip, *prop)) continue;
       decoder.DecodeProperty(value);
       props.emplace(*prop, std::move(value));
     }
@@ -2797,10 +2794,8 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPrope
   return WithReader(get_properties);
 }
 
-template std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPropertyDecoder<Vertex> &,
-                                                                       std::span<PropertyId const>) const;
-template std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPropertyDecoder<Edge> &,
-                                                                       std::span<PropertyId const>) const;
+template std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPropertyDecoder<Vertex> &) const;
+template std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPropertyDecoder<Edge> &) const;
 
 std::map<PropertyId, ExtendedPropertyType> PropertyStore::ExtendedPropertyTypes() const {
   auto get_properties = [&](Reader &reader) {

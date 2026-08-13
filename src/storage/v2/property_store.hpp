@@ -128,8 +128,7 @@ class PropertyStore {
   /// (e.g. vector index IDs resolved). The time complexity of this function is O(n).
   /// @throw std::bad_alloc
   template <typename T>
-  std::map<PropertyId, PropertyValue> Properties(const IndexedPropertyDecoder<T> &decoder,
-                                                 std::span<PropertyId const> skip = {}) const;
+  std::map<PropertyId, PropertyValue> Properties(const IndexedPropertyDecoder<T> &decoder) const;
 
   std::vector<PropertyId> PropertiesOfTypes(std::span<PropertyStoreType const> types) const;
 

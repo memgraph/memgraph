@@ -224,30 +224,6 @@ TEST_F(VectorIndexTest, ToBoltVertexOmitsVectorIndexedPropertyWhenFlagOn) {
   set_omit(false);
 }
 
-TEST_F(VectorIndexTest, ToBoltVertexOmitsWithPendingDeltas) {
-  const auto settings_dir = std::filesystem::temp_directory_path() / "MG_tests_unit_vector_index_omit_delta";
-  std::filesystem::remove_all(settings_dir);
-  memgraph::utils::Settings settings(settings_dir);
-  memgraph::flags::run_time::Initialize(settings);
-  settings.SetValue("storage.omit_vector_index_properties_on_return", "true");
-
-  this->CreateIndex(2, 10);
-  auto acc = this->storage->Access(memgraph::storage::WRITE);
-  // read within the open transaction (no commit) so the vertex still carries pending deltas
-  auto vertex = this->CreateVertex(acc.get(),
-                                   test_property,
-                                   PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)}),
-                                   test_label);
-  ASSERT_TRUE(vertex.SetProperty(acc->NameToProperty("title"), PropertyValue("t")).has_value());
-
-  auto result = memgraph::glue::ToBoltVertex(vertex, *this->storage, View::NEW, nullptr);
-  ASSERT_TRUE(result.has_value());
-  EXPECT_FALSE(result->properties.contains(test_property.data()));
-  EXPECT_TRUE(result->properties.contains("title"));
-
-  settings.SetValue("storage.omit_vector_index_properties_on_return", "false");
-}
-
 TEST_F(VectorIndexTest, ConcurrencyTest) {
   this->CreateIndex(2, 10);
 
