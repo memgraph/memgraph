@@ -27,10 +27,6 @@ on:
         description: "Memgraph: RelWithDebInfo"
         type: boolean
         default: false
-      mg_release_malloc:
-        description: "Memgraph: Release + malloc"
-        type: boolean
-        default: false
       mg_relwithdebinfo_malloc:
         description: "Memgraph: RelWithDebInfo + malloc"
         type: boolean
@@ -107,9 +103,6 @@ jobs:
           fi
           if [[ "${{ inputs.mg_relwithdebinfo }}" == "true" ]]; then
             mg=$(jq -c '. += [{"variant":"RelWithDebInfo","tag_suffix":"-relwithdebinfo","arch_key_amd":"x86_64-relwithdebinfo","arch_key_arm":"arm64-relwithdebinfo"}]' <<<"$mg")
-          fi
-          if [[ "${{ inputs.mg_release_malloc }}" == "true" ]]; then
-            mg=$(jq -c '. += [{"variant":"Release-malloc","tag_suffix":"-malloc","arch_key_amd":"x86_64-malloc","arch_key_arm":"arm64-malloc"}]' <<<"$mg")
           fi
           if [[ "${{ inputs.mg_relwithdebinfo_malloc }}" == "true" ]]; then
             mg=$(jq -c '. += [{"variant":"RelWithDebInfo-malloc","tag_suffix":"-relwithdebinfo-malloc","arch_key_amd":"x86_64-relwithdebinfo-malloc","arch_key_arm":"arm64-relwithdebinfo-malloc"}]' <<<"$mg")
