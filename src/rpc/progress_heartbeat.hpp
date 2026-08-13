@@ -35,7 +35,8 @@ namespace memgraph::rpc {
 // Stop() must therefore run before the final response is written; the destructor calls it as a backstop.
 class ProgressHeartbeat {
  public:
-  static constexpr std::chrono::milliseconds kDefaultInterval{1000};
+  // min timeout of PrepareCommit,WalFiles,CurrentWal,SnapshotReq - 5s (buffer for network)
+  static constexpr std::chrono::milliseconds kDefaultInterval{25000};
 
   explicit ProgressHeartbeat(slk::Builder *res_builder, std::chrono::milliseconds interval = kDefaultInterval);
   ~ProgressHeartbeat();
@@ -46,15 +47,8 @@ class ProgressHeartbeat {
   ProgressHeartbeat &operator=(ProgressHeartbeat &&) = delete;
 
   // Records that the handler made progress. Sits on per-item paths (every delta, every vertex visited while
-  // populating an index or validating a constraint), so it is guarded by a load: once the flag is set every
-  // subsequent call reads a shared cache line and stores nothing. That caps coherence traffic at one line transfer
-  // per thread per tick rather than one per item, which is what makes it safe on parallel population paths.
-  // Intentionally not using exchange or flag per thread until we verify there is a need for that
-  void RecordProgress() noexcept {
-    if (!work_done_.load(std::memory_order_relaxed)) {
-      work_done_.store(true, std::memory_order_relaxed);
-    }
-  }
+  // populating an index or validating a constraint.
+  void RecordProgress() noexcept { work_done_.exchange(true, std::memory_order_relaxed); }
 
   // True once a heartbeat failed to reach the peer. Long-running work polls this to abandon early rather than finish
   // a job whose result can no longer be delivered.

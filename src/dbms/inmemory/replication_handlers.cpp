@@ -56,7 +56,8 @@ namespace memgraph::dbms {
 
 namespace {
 
-constexpr auto kWaitForMainLockTimeout = 30s;
+// progress hearbeat is turned on every 25s
+constexpr auto kWaitForMainLockTimeout = 20s;
 
 void RemoveDirIfEmpty(std::filesystem::path const &dir) {
   // Exception suppression
