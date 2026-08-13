@@ -703,6 +703,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
       return;
     }
+    // Acquiring a contended lock is a completed step, so it counts. Recorded on success only -- recording while still
+    // blocked would tell the peer we are advancing when we are not.
+    record_progress();
 
     spdlog::trace("Clearing database {} before recovering from snapshot.", storage->name());
 
@@ -896,6 +899,11 @@ void InMemoryReplicationHandlers::WalFilesHandler(
       rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
       return;
     }
+    // Acquiring a contended lock is a completed step, so it counts: the waits here are the only stretch of this
+    // path that reports nothing, and a tick landing in one would find the flag clear and stay silent for another
+    // whole interval. Recorded on success only -- recording while still blocked would tell the peer we are
+    // advancing when we are not.
+    record_progress();
     {
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
@@ -905,6 +913,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(
             storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder, storage->name());
         return;
       }
+      record_progress();
 
       spdlog::trace("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
                     storage->name());
@@ -1051,6 +1060,11 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
       rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
       return;
     }
+    // Acquiring a contended lock is a completed step, so it counts: the waits here are the only stretch of this
+    // path that reports nothing, and a tick landing in one would find the flag clear and stay silent for another
+    // whole interval. Recorded on success only -- recording while still blocked would tell the peer we are
+    // advancing when we are not.
+    record_progress();
     {
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
@@ -1059,6 +1073,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
         rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
         return;
       }
+      record_progress();
       spdlog::trace("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
                     storage->name());
       storage->Clear(record_progress);
