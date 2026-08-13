@@ -639,6 +639,7 @@ class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties
 
     auto const compare_expression_range = [&](auto &&lhs, auto &&rhs) {
       if (lhs.type_ != rhs.type_) return false;
+      if ((lhs.membership_list_ == nullptr) != (rhs.membership_list_ == nullptr)) return false;
       return compare_bound_expression(lhs.lower_, rhs.lower_) && compare_bound_expression(lhs.upper_, rhs.upper_);
     };
 
