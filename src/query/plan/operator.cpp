@@ -3750,7 +3750,11 @@ class KShortestPathsCursor : public Cursor {
                           : std::numeric_limits<int64_t>::max();
 
     // With neither a lambda nor access checks there is nothing to memoise, so don't pay for it.
-    memoize_expansion_ = self_.filter_lambda_.expression != nullptr || FineGrainedAccessCheckEnabled(context);
+    // Lambda-presence must stay the *left* operand: `ShouldExpand` skips the lambda entirely when
+    // this is false, so anything that makes memoisation conditional on something else (a flag, an
+    // entry cap) has to re-audit that branch or it will silently stop filtering.
+    fine_grained_access_check_enabled_ = FineGrainedAccessCheckEnabled(context);
+    memoize_expansion_ = self_.filter_lambda_.expression != nullptr || fine_grained_access_check_enabled_;
 
     auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
       PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource(), context);
@@ -3922,10 +3926,14 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::unordered_set<EdgeAccessor, EdgeAccessorHash> blocked_edges_;
   utils::pmr::unordered_set<VertexAccessor, VertexAccessorHash> blocked_vertices_;
   utils::pmr::unordered_map<VertexAccessor, double, VertexAccessorHash> distances_;
-  // Raw storage adjacency, deliberately *not* cleared per input row (unlike `expansion_memo_`): it
-  // is stable for the whole command epoch the cursor runs in and exists so Yen's repeated inner
-  // searches don't re-fetch. It must keep storing unfiltered edges - caching post-filter results
-  // here would be wrong the moment the lambda reads an outer-row value.
+  // Raw storage adjacency, deliberately *not* cleared per input row (unlike `expansion_memo_`), so
+  // Yen's repeated inner searches don't re-fetch. What makes that safe is not the transaction: a
+  // transaction spans several command epochs and `View::OLD` moves with `AdvanceCommand()`, and
+  // under non-snapshot isolation `OLD` visibility is evaluated live. What keeps one cursor inside
+  // one epoch is that MATCH plans `View::OLD` and the planner throws on a variable-length pattern
+  // whose view is anything else (the `view != storage::View::OLD` check in
+  // `rule_based_planner.hpp`). It must also keep storing unfiltered edges - caching post-filter
+  // results here would be wrong the moment the lambda reads an outer-row value.
   //
   // The edges are copied into an arena vector rather than cached as the `EdgeVertexAccessorResult`
   // storage hands back: that struct is not allocator-aware, so its `std::vector` would allocate from
@@ -3940,6 +3948,7 @@ class KShortestPathsCursor : public Cursor {
   // because the blocked sets - the only per-deviation inputs - are checked outside the memo.
   utils::pmr::unordered_map<ExpansionKey, bool, ExpansionKeyHash> expansion_memo_;
   bool memoize_expansion_{false};
+  bool fine_grained_access_check_enabled_{false};
 
   // Bidirectional search state
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
@@ -4156,7 +4165,12 @@ class KShortestPathsCursor : public Cursor {
     if (!memoize_expansion_) return FineGrainedAccessCheck<To>(edge, context);
 
     const VertexAccessor &inner_node = Backward ? expand_from : next;
-    const ExpansionKey key{.edge = edge.Gid(), .node = inner_node.Gid(), .backward = Backward};
+    // The pass only has to be part of the key because the two halves check access on opposite
+    // endpoints of the same edge. With access checks off the verdict is a pure function of
+    // `(edge, inner_node)`, so dropping the pass merges two entries that are guaranteed to agree and
+    // saves evaluating the lambda a second time on every arc the two frontiers both reach.
+    const ExpansionKey key{
+        .edge = edge.Gid(), .node = inner_node.Gid(), .backward = Backward && fine_grained_access_check_enabled_};
     if (const auto it = expansion_memo_.find(key); it != expansion_memo_.end()) return it->second;
 
     // Access check first: an edge the user cannot read must never make the lambda run on it.
