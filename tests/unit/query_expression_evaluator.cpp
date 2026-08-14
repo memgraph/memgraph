@@ -2924,6 +2924,28 @@ TYPED_TEST(FunctionTest, Split) {
   EXPECT_EQ(result.ValueList()[1].ValueString(), "two");
 }
 
+TYPED_TEST(FunctionTest, SplitEmptyString) {
+  // Splitting a non-null string always yields at least one element, so the
+  // empty string splits to a single empty field rather than to no fields.
+  auto empty_input = this->EvaluateFunction("SPLIT", "", ",");
+  ASSERT_TRUE(empty_input.IsList());
+  ASSERT_EQ(empty_input.ValueList().size(), 1);
+  EXPECT_EQ(empty_input.ValueList()[0].ValueString(), "");
+
+  // A delimiter with nothing either side of it already produced empty fields;
+  // the empty input is the same rule applied to a string with no delimiter.
+  auto lone_delimiter = this->EvaluateFunction("SPLIT", ",", ",");
+  ASSERT_TRUE(lone_delimiter.IsList());
+  ASSERT_EQ(lone_delimiter.ValueList().size(), 2);
+  EXPECT_EQ(lone_delimiter.ValueList()[0].ValueString(), "");
+  EXPECT_EQ(lone_delimiter.ValueList()[1].ValueString(), "");
+
+  auto no_delimiter_present = this->EvaluateFunction("SPLIT", "abc", ",");
+  ASSERT_TRUE(no_delimiter_present.IsList());
+  ASSERT_EQ(no_delimiter_present.ValueList().size(), 1);
+  EXPECT_EQ(no_delimiter_present.ValueList()[0].ValueString(), "abc");
+}
+
 TYPED_TEST(FunctionTest, Substring) {
   EXPECT_THROW(this->EvaluateFunction("SUBSTRING"), QueryRuntimeException);
 

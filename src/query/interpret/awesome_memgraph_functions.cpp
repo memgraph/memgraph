@@ -1496,8 +1496,15 @@ TypedValue Split(const TypedValue *args, int64_t nargs, const FunctionContext &c
   if (args[0].IsNull() || args[1].IsNull()) {
     return TypedValue(ctx.memory);
   }
+  const auto &input = args[0].ValueString();
   TypedValue::TVector result(ctx.memory);
-  utils::Split(&result, args[0].ValueString(), args[1].ValueString());
+  if (input.empty()) {
+    // utils::Split yields no fields at all for an empty input, but splitting a
+    // non-null string must always produce at least one field.
+    result.emplace_back("");
+  } else {
+    utils::Split(&result, input, args[1].ValueString());
+  }
   return TypedValue(std::move(result));
 }
 
