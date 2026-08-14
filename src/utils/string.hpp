@@ -119,6 +119,59 @@ inline std::string ToLowerCase(const std::string_view s) {
 }
 
 /**
+ * Whether `c` continues a UTF-8 sequence rather than starting one.
+ *
+ * Every code point is introduced by exactly one byte that is not a
+ * continuation, which is what makes counting and seeking possible without
+ * decoding the values themselves.
+ */
+constexpr bool IsUtf8Continuation(const char c) { return (static_cast<unsigned char>(c) & 0xC0U) == 0x80U; }
+
+/**
+ * Reverse the order of the UTF-8 code points of `s` and store the result in
+ * `out`.
+ *
+ * Multi-byte sequences are copied whole, so the result is valid UTF-8 whenever
+ * the input is; reversing the bytes instead would place continuation bytes
+ * ahead of the byte that introduces them. A combining mark is a code point of
+ * its own and does not travel with the character it follows.
+ *
+ * Bytes that do not introduce a well-formed sequence are carried across as
+ * they are, so malformed input is reordered rather than rejected.
+ *
+ * `out` must not share storage with `s`, which is written while `s` is read.
+ *
+ * @return pointer to `out`.
+ */
+template <class TAllocator>
+std::basic_string<char, std::char_traits<char>, TAllocator> *ReverseUtf8(
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out, const std::string_view s) {
+  // Read forwards and place each sequence from the back, so the input is
+  // walked once in the direction the prefetcher expects and every byte is
+  // written exactly once, into storage that is never needlessly filled first.
+  out->resize_and_overwrite(s.size(), [s](char *buffer, const size_t size) {
+    auto *tail = buffer + size;
+    for (const auto *sequence = s.begin(); sequence != s.end();) {
+      const auto *const next = std::find_if_not(std::next(sequence), s.end(), IsUtf8Continuation);
+      tail -= std::distance(sequence, next);
+      std::copy(sequence, next, tail);
+      sequence = next;
+    }
+    return size;
+  });
+  return out;
+}
+
+/**
+ * Reverse the order of the UTF-8 code points of `s`.
+ */
+inline std::string ReverseUtf8(const std::string_view s) {
+  std::string res;
+  ReverseUtf8(&res, s);
+  return res;
+}
+
+/**
  * Uppercase all characters of a string and store the result in `out`.
  * Transformation is locale independent.
  * @return pointer to `out`.
