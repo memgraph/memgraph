@@ -15,10 +15,13 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <ranges>
 #include <vector>
 
+#include "storage/v2/batched_list.hpp"
 #include "storage/v2/inmemory/claimed_objects.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
@@ -129,6 +132,76 @@ TEST(ObjectRemoval, CommittedDeleteLeavesRemovalToGarbageCollection) {
   Collect(*storage);
 
   EXPECT_EQ(StoreSizes(*storage).edges, before.edges);
+}
+
+// Objects are appended one at a time by the thread that deleted them and handed over whole, so the
+// batches are what moves and the elements are never touched by a handover.
+TEST(BatchedList, HandoverMovesEverythingAndEmptiesTheSource) {
+  memgraph::storage::BatchedList<Gid> handed_over;
+  memgraph::storage::BatchedList<Gid> shared;
+  for (uint64_t i = 0; i != 5; ++i) handed_over.push_back(Gid::FromUint(i));
+
+  shared.splice(handed_over);
+
+  EXPECT_TRUE(handed_over.empty());
+  EXPECT_EQ(handed_over.size(), 0U);
+  EXPECT_EQ(shared.size(), 5U);
+  EXPECT_TRUE(std::ranges::equal(
+      shared.elements(),
+      std::vector<Gid>{Gid::FromUint(0), Gid::FromUint(1), Gid::FromUint(2), Gid::FromUint(3), Gid::FromUint(4)}));
+}
+
+// Handovers accumulate until a pass collects them, and the elements of all of them read as one
+// sequence regardless of which handover each arrived in.
+TEST(BatchedList, ReadsAsOneSequenceAcrossHandovers) {
+  memgraph::storage::BatchedList<Gid> shared;
+  for (uint64_t producer = 0; producer != 3; ++producer) {
+    memgraph::storage::BatchedList<Gid> handed_over;
+    handed_over.push_back(Gid::FromUint(producer));
+    shared.splice(handed_over);
+  }
+
+  EXPECT_EQ(shared.size(), 3U);
+  EXPECT_EQ(std::ranges::distance(shared.elements()), 3);
+}
+
+// A batch stops growing at a bounded size, so a large handover is many batches rather than one
+// allocation that has to keep doubling, and a small one stays small.
+TEST(BatchedList, BatchesBoundHowMuchOneAllocationHolds) {
+  using List = memgraph::storage::BatchedList<Gid>;
+  static_assert(List::kBatchCapacity > 1, "a batch must hold more than one element to be worth having");
+
+  List one_element;
+  one_element.push_back(Gid::FromUint(1));
+  EXPECT_EQ(one_element.batch_count(), 1U);
+
+  List many;
+  for (uint64_t i = 0; i != List::kBatchCapacity * 2 + 1; ++i) many.push_back(Gid::FromUint(i));
+  EXPECT_EQ(many.size(), List::kBatchCapacity * 2 + 1);
+  EXPECT_EQ(many.batch_count(), 3U);
+}
+
+TEST(BatchedList, SwapExchangesContents) {
+  memgraph::storage::BatchedList<Gid> filled;
+  memgraph::storage::BatchedList<Gid> empty;
+  filled.push_back(Gid::FromUint(1));
+
+  filled.swap(empty);
+
+  EXPECT_TRUE(filled.empty());
+  EXPECT_EQ(filled.size(), 0U);
+  EXPECT_EQ(empty.size(), 1U);
+}
+
+TEST(BatchedList, ClearEmptiesTheList) {
+  memgraph::storage::BatchedList<Gid> list;
+  list.push_back(Gid::FromUint(1));
+
+  list.clear();
+
+  EXPECT_TRUE(list.empty());
+  EXPECT_EQ(list.size(), 0U);
+  EXPECT_EQ(std::ranges::distance(list.elements()), 0);
 }
 
 // A collection pass takes its objects from two sources: the list transactions hand over, and, in

@@ -21,6 +21,7 @@
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
 #include "replication_coordination_glue/role.hpp"
+#include "storage/v2/batched_list.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/edge_ref.hpp"
@@ -776,8 +777,7 @@ class InMemoryStorage final : public Storage {
     /// During commit, in some cases you do not need to hand over deltas to GC
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
-    void GCRapidDeltaCleanup(std::list<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
-                             std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
+    void GCRapidDeltaCleanup(BatchedList<Edge *> &current_deleted_edges, BatchedList<Gid> &current_deleted_vertices,
                              IndexArming &arming);
     SalientConfig::Items config_;
 
@@ -917,9 +917,9 @@ class InMemoryStorage final : public Storage {
   // Light edges are not skip-list nodes, so retiring one hands it to the graveyard drain. The
   // epoch is read here, as the retirement happens: it is what orders a reader that opened earlier
   // ahead of the drain that frees these.
-  void RetireLightEdges(std::list<Edge *, memory::DbAwareAllocator<Edge *>> &&edges) {
+  void RetireLightEdges(BatchedList<Edge *> &&edges) {
     auto const guard_epoch = light_edge_iterable_tracker_.CurrentEpoch();
-    // std::move is an O(1) list move (LightEdgeGraveyardEntry::edges is a std::list) under the lock.
+    // The move is constant time however many edges are being retired, so the lock is held briefly.
     light_edge_graveyard_.WithLock([&](auto &graveyard) { graveyard.emplace_back(guard_epoch, std::move(edges)); });
   }
 
@@ -987,10 +987,8 @@ class InMemoryStorage final : public Storage {
   // guard_epoch confirms every pre-existing reader has released its epoch.
   struct LightEdgeGraveyardEntry {
     uint64_t guard_epoch{0};
-    // std::list (not vector): current_deleted_edges is std::move'd in under the
-    // light_edge_graveyard_ lock, so the transfer must be an O(1) list move, not
-    // an O(batch) copy. The drain iterates it once, off the lock.
-    std::list<Edge *, memory::DbAwareAllocator<Edge *>> edges;
+    // Moved in under the light_edge_graveyard_ lock, so the transfer must not be an O(batch) copy.
+    BatchedList<Edge *> edges;
   };
 
   // Returns a pin that keeps edge-index iterables' underlying Edge memory alive
@@ -1089,13 +1087,13 @@ class InMemoryStorage final : public Storage {
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
-  utils::Synchronized<std::list<Gid, memory::DbAwareAllocator<Gid>>, utils::SpinLock> deleted_vertices_;
+  utils::Synchronized<BatchedList<Gid>, utils::SpinLock> deleted_vertices_;
 
   // Edges that are logically deleted and wait to be removed from the main
   // storage. A std::list (not vector) so the under-lock handover is an O(1)
   // splice: the FastDiscard/Abort critical sections must not do O(batch) work
   // while holding this SpinLock. The GC consume side runs off the lock.
-  utils::Synchronized<std::list<Edge *, memory::DbAwareAllocator<Edge *>>, utils::SpinLock> deleted_edges_;
+  utils::Synchronized<BatchedList<Edge *>, utils::SpinLock> deleted_edges_;
 
   // Deleted light edges awaiting deferred free (see DrainLightEdgeGraveyard).
   utils::Synchronized<std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>>,
