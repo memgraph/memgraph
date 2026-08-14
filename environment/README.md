@@ -14,7 +14,7 @@ or make any adjustments in the overall system setup. Also, the testing script
 helps check if Memgraph runs on a freshly installed operating system (with no
 packages installed).
 
-Each distro script (`<os>-<version>[-arm].sh`) contains only the package
+Each distro script (`<os>-<version>.sh`) contains only the package
 arrays plus optional distro-specific hooks (extra repos, non-repo packages);
 the shared `list`/`check`/`install` machinery lives in `os/lib.sh`. To add a
 new distro, start from `os/template.sh` and add the OS to the image map in
