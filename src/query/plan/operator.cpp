@@ -3096,9 +3096,9 @@ class PruningBFSCursor : public query::plan::Cursor {
   const ExpandVariable &self_;
   const UniqueCursorPtr input_cursor_;
 
-  int64_t lower_bound_{-1};
-  int64_t upper_bound_{-1};
-  int64_t current_depth_{0};
+  int64_t lower_bound_;
+  int64_t upper_bound_;
+  int64_t current_depth_;
 
   // Per-source visited set: cleared on each new input row
   utils::pmr::unordered_set<VertexAccessor> visited_;
