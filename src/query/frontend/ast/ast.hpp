@@ -1897,9 +1897,12 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   /// Filter lambda for variable length expands. Can have an empty expression, but identifiers must be valid, because an
   /// optimization pass may inline other expressions into this lambda.
   memgraph::query::EdgeAtom::Lambda filter_lambda_;
-  /// Used in weighted shortest path. It must have valid expressions and identifiers. In all other expand types, it is
-  /// empty.
+  /// Used in weighted, all and k shortest path expansions to compute edge weights. When present it must have valid
+  /// expressions and identifiers. In all other expand types, it is empty.
   memgraph::query::EdgeAtom::Lambda weight_lambda_;
+  /// Optional A* heuristic for kshortest path expansion. When present, it estimates the remaining cost from the
+  /// traversed node to the target and is used to prioritize the search (f = g + h). Empty in all other cases.
+  memgraph::query::EdgeAtom::Lambda heuristic_lambda_;
   /// Variable where the total weight for weighted shortest path will be stored.
   memgraph::query::Identifier *total_weight_{nullptr};
   /// Limit for the number of paths returned in kshortest path expansion.
@@ -1931,6 +1934,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
     object->upper_bound_ = upper_bound_ ? upper_bound_->Clone(storage) : nullptr;
     object->filter_lambda_ = filter_lambda_.Clone(storage);
     object->weight_lambda_ = weight_lambda_.Clone(storage);
+    object->heuristic_lambda_ = heuristic_lambda_.Clone(storage);
     object->total_weight_ = total_weight_ ? total_weight_->Clone(storage) : nullptr;
     object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
     return object;
