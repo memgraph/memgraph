@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <unordered_set>
+#include <vector>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -61,11 +62,19 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Distinct &) override {
+    dedup_stack_.push_back(deduplicates_);
     deduplicates_ = true;
     return true;
   }
 
+  bool PostVisit(Distinct &) override {
+    deduplicates_ = dedup_stack_.back();
+    dedup_stack_.pop_back();
+    return true;
+  }
+
   bool PreVisit(Aggregate &op) override {
+    dedup_stack_.push_back(deduplicates_);
     if (!op.aggregations_.empty() &&
         std::all_of(op.aggregations_.begin(), op.aggregations_.end(), [](auto const &elem) { return elem.distinct; })) {
       deduplicates_ = true;
@@ -83,6 +92,20 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(Aggregate &) override {
+    deduplicates_ = dedup_stack_.back();
+    dedup_stack_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(EdgeUniquenessFilter &op) override {
+    used_symbols_.insert(op.expand_symbol_.position());
+    for (auto const &sym : op.previous_symbols_) {
+      used_symbols_.insert(sym.position());
+    }
+    return true;
+  }
+
   bool PreVisit(Unwind &op) override {
     CollectSymbolsFromExpression(op.input_expression_);
     return true;
@@ -95,6 +118,9 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ExpandVariable &op) override {
     if (op.type_ != EdgeAtom::Type::DEPTH_FIRST) return true;
+    if (op.common_.existing_node) return true;
+    if (op.filter_lambda_.accumulated_path_symbol) return true;
+    if (op.weight_lambda_) return true;
 
     if (deduplicates_ && !used_symbols_.contains(op.common_.edge_symbol.position())) {
       op.type_ = EdgeAtom::Type::PRUNING_BFS;
@@ -122,6 +148,7 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   SymbolTable const &symbol_table_;
   std::unordered_set<int> used_symbols_;
   bool deduplicates_{false};
+  std::vector<bool> dedup_stack_;
 };
 
 }  // namespace impl
