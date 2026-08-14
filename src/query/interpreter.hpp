@@ -261,8 +261,7 @@ struct CurrentDB {
                           //       future: should be a name + ptr to dbms_handler, lazy fetch when needed
 
   explicit CurrentDB(memgraph::dbms::DatabaseAccess db_acc) : db_acc_{std::move(db_acc)} {
-    // Same identity stash as SetCurrentDB (this ctor is the other entry that binds a fresh accessor),
-    // so the initial session DB survives a reaper release of db_acc_.
+    // Stash identity like SetCurrentDB (the other fresh-accessor entry) so it survives a reaper release.
     current_db_name_ = db_acc_->get()->name();
     current_db_uuid_ = db_acc_->get()->uuid();
   }
@@ -277,7 +276,7 @@ struct CurrentDB {
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // do we lock here?
     // Stash the session DB identity (name + uuid) before moving the accessor in, so it survives a
-    // reaper release of db_acc_ and every call site gets a consistent identity without repeating this.
+    // reaper release of db_acc_.
     current_db_name_ = new_db->name();
     current_db_uuid_ = new_db->uuid();
     db_acc_ = std::move(new_db);
@@ -299,16 +298,12 @@ struct CurrentDB {
   // DatabaseAccess
   //       hence, explict bolt "use DB" in metadata wouldn't necessarily get access unless query required it.
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;  // Current db (TODO: expand to support multiple)
-  // Persistent session DB identity (kept in sync with db_acc_ by SetCurrentDB) so name() stays robust
-  // and the idle-session reaper can release db_acc_ while a query-less session is parked, then have the
-  // next query re-acquire it by name. db_acc_ is connection-scoped (held for the whole session) when the
-  // reaper is off.
+  // Session DB identity (kept in sync with db_acc_ by SetCurrentDB) so name() survives the idle reaper
+  // releasing db_acc_ on a parked session; the next query re-acquires by name.
   std::optional<std::string> current_db_name_;
-  // Tenant UUID captured alongside current_db_name_, so a re-acquire after the idle reaper released
-  // db_acc_ can verify it is the SAME tenant. The reaper only reaps non-default tenants, whose UUID is
-  // a stable identity (the in-place UUID mutation exists only for the default DB, which is never
-  // reaped) -- so a mismatch here means the name was recycled (DROP+CREATE) under us: fail closed
-  // rather than silently attach to a different tenant. See Interpreter::EnsureDbAccessForQuery.
+  // Tenant UUID captured alongside current_db_name_ so a re-acquire can reject a recycled name. Safe
+  // because reaped tenants (non-default) have a stable UUID; the default DB's UUID mutates in place but
+  // is never reaped. See Interpreter::EnsureDbAccessForQuery.
   std::optional<utils::UUID> current_db_uuid_;
   std::unique_ptr<storage::Storage::Accessor> db_transactional_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
@@ -535,55 +530,37 @@ class Interpreter final {
   std::optional<TxVerifier> TryAcquireForVerification();
 
 #ifdef MG_ENTERPRISE
-  // --- Idle-session reaper support (IDLE_SESSION_REAPER only) ---------------------------------
-  // Mark this interpreter as a reapable Bolt session. Set once by SessionHL BEFORE the interpreter
-  // is registered in InterpreterContext::interpreters (the registration's lock publishes it). Also
-  // stamps the idle clock so a never-queried session's idle window starts at connect, not epoch 0.
-  // Stream consumers and internal interpreters leave this false so the reaper never touches their
-  // accessor.
+  // Mark this a reapable Bolt session. Set once by SessionHL BEFORE registration in
+  // InterpreterContext::interpreters (that lock publishes it); stream/internal interpreters stay false
+  // so the reaper never touches them. Also stamps the idle clock so the window starts at connect.
   void MarkReapable() noexcept {
     reapable_ = true;
     last_activity_ns_.store(SteadyNowNs(), std::memory_order_relaxed);
   }
 
-  // Reaper entry point — called ONLY from the background reaper sweep, never the session thread.
-  // If this is a reapable session whose bound tenant has been idle (last_activity_ns_ older than
-  // idle_timeout_ns) and is not the default DB, atomically claim REAPING from IDLE, release
-  // current_db_.db_acc_ (dropping the gatekeeper count so the tenant can suspend/drain), and restore
-  // IDLE. Reads the idle clock only AFTER winning the CAS (so db_acc_ is stable). Returns true iff it
-  // reaped. Single CAS, never spins; never reaps a session that is mid-query or in an explicit
-  // transaction.
+  // Called ONLY from the background reaper sweep. Releases db_acc_ (dropping the gatekeeper count) iff
+  // this is a reapable, non-explicit-txn session on a non-default tenant idle past idle_timeout_ns.
+  // Returns true iff it reaped.
   bool TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_ns);
 
-  // Query-entry claim (session thread, top of Prepare). Spin-waits while the reaper owns REAPING,
-  // then CAS IDLE->PREPARING. Returns true iff it performed the IDLE->PREPARING claim (false if
-  // status was already ACTIVE, e.g. a statement inside an explicit transaction — already owned).
-  // PREPARING (not ACTIVE) is used so a concurrent verifier cannot race current_transaction_ writes;
-  // SetupInterpreterTransaction's store(ACTIVE) later transitions PREPARING->ACTIVE.
+  // Session thread, top of Prepare. Claims the IDLE window (CAS IDLE->PREPARING) to exclude the reaper.
+  // Returns true iff it claimed; false if already owned (ACTIVE, e.g. inside an explicit transaction).
   bool TryClaimForQueryEntry();
 
-  // Counterpart to TryClaimForQueryEntry, run on Prepare exit (success or exception). If we claimed
-  // PREPARING at entry but no transaction was actually set up (early return / parse error before
-  // SetupInterpreterTransaction left status at PREPARING), restore IDLE so the session does not leak
-  // the claim — Bolt's HandleFailure does NOT call Abort(), so without this an unparseable query
-  // would wedge the session in PREPARING until the client sends RESET. If a transaction WAS set up
-  // (status is now ACTIVE, current_transaction_ engaged), leaves it to the normal commit/abort path.
+  // Prepare-exit counterpart: if we claimed but no transaction was set up, restore IDLE so the session
+  // does not leak the claim (Bolt's HandleFailure does not Abort()). No-op once a transaction is ACTIVE.
   void ReleaseEntryClaimIfUnused(bool claimed) noexcept;
 
-  // Re-acquire current_db_.db_acc_ if the idle reaper released it while the session was parked. Called
-  // at the top of Prepare after the IDLE window is claimed. No-op if the accessor is still held or the
-  // session is db-less; on a recycled/dropped tenant it falls back to a db-less session.
+  // Re-acquire db_acc_ if the reaper released it while parked. No-op if held or db-less; on a
+  // recycled/dropped tenant falls back to a db-less session.
   void EnsureDbAccessForQuery();
 #endif
 
-  // --- Message-in-flight reaper-exclusion gate (IDLE_SESSION_REAPER only) -----------------------
-  // Held for the WHOLE span of a Bolt message (set at message dispatch, cleared once the session
-  // parks back to Idle) so the idle-session reaper only reaps a genuinely parked session. The gate
-  // pairs with transaction_status_ via a Dekker StoreLoad (both seq_cst) against TryReapIdleDbAccessor
-  // — see interpreter.cpp. Flag-off (IDLE_SESSION_REAPER disabled): both setters are strict no-ops and
-  // the reaper never consults the gate, so behaviour is byte-identical to today.
-  void SetMessageInFlight() noexcept;    // set gate + Dekker StoreLoad spin
-  void ClearMessageInFlight() noexcept;  // clear gate + stamp idle clock
+  // Held for the whole span of a Bolt message so the reaper only reaps a genuinely parked session.
+  // Pairs with transaction_status_ via a Dekker StoreLoad (both seq_cst) against TryReapIdleDbAccessor.
+  // Flag-off: both are no-ops and the reaper never reads the gate, so behaviour is byte-identical.
+  void SetMessageInFlight() noexcept;
+  void ClearMessageInFlight() noexcept;
 
   std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
   // IDLE_SESSION_REAPER: true for the whole Bolt-message handling span (see Set/ClearMessageInFlight).
@@ -609,7 +586,6 @@ class Interpreter final {
 #ifdef MG_ENTERPRISE
   // True => reapable Bolt session (see MarkReapable). Written once before registration, then const;
   // the registration lock on InterpreterContext::interpreters publishes it to the reaper thread.
-  // Idle duration is measured via last_activity_ns_, read by the reaper under REAPING ownership.
   bool reapable_{false};
 #endif
 
@@ -785,12 +761,9 @@ template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
                                                     std::optional<int> qid) {
 #ifdef MG_ENTERPRISE
-  // Idle-session reaper sync (IDLE_SESSION_REAPER only): the BEGIN handler defers SetupInterpreterTransaction
-  // to Pull time, so on the explicit-BEGIN path transaction_status_ is still IDLE when we read db_acc_
-  // below — exactly the window in which the background reaper may release it. Claim the IDLE window
-  // (IDLE->PREPARING) before that read so the reaper is excluded; SetupInterpreterTransaction then
-  // transitions PREPARING->ACTIVE inside the handler. For every other query the status is already ACTIVE
-  // here, so the CAS is a no-op (returns false) and this is byte-identical to before. Flag-off: no claim.
+  // On the explicit-BEGIN path SetupInterpreterTransaction is deferred to Pull time, so status is still
+  // IDLE when we read db_acc_ below — the reaper's release window. Claim it out first. Any other query
+  // is already ACTIVE here so the claim is a no-op.
   const bool reaper_armed = flags::AreExperimentsEnabled(flags::Experiments::IDLE_SESSION_REAPER);
   const bool entry_claimed = reaper_armed && TryClaimForQueryEntry();
   utils::OnScopeExit release_entry_claim{[this, entry_claimed]() { ReleaseEntryClaimIfUnused(entry_claimed); }};

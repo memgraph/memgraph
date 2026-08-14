@@ -10320,11 +10320,8 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
   const auto trimmed_query = utils::Trim(upper_case_query);
   const bool is_begin = trimmed_query == "BEGIN";
 
-  // Parse runs before the IDLE->PREPARING claim in Prepare, so the idle-session reaper may reset
-  // db_acc_ concurrently (see TryReapIdleDbAccessor). Read the reaper-stable persistent identity
-  // (current_db_name_), never the live accessor, on this pre-claim path. current_db_name_ is kept in
-  // sync with db_acc_ by SetCurrentDB; falling back to name() is safe (it too prefers the persistent
-  // identity when db_acc_ is absent).
+  // Pre-claim path: the reaper may reset db_acc_ concurrently (TryReapIdleDbAccessor), so read the
+  // reaper-stable current_db_name_, never the live accessor.
   const std::string log_db_name = current_db_.current_db_name_ ? *current_db_.current_db_name_ : current_db_.name();
   // Explicit transactions define the metadata at the beginning and reuse it
   spdlog::debug("{}",
@@ -10351,9 +10348,8 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
     const utils::Timer parsing_timer;
     memgraph::logging::EmitSessionTraceEvent("Query parsing started.");
-    // Same reaper-safety as the log above: prefer the reaper-stable current_db_uuid_ over the live
-    // accessor, which the reaper may reset during this pre-claim Parse. (This uuid is only an
-    // AST-cache-key hint; parameters are re-resolved with the real uuid after Prepare re-acquires.)
+    // Same pre-claim reaper-safety: prefer the reaper-stable current_db_uuid_ over the live accessor.
+    // Only an AST-cache-key hint; params are re-resolved with the real uuid after Prepare re-acquires.
     std::string database_uuid;
     if (current_db_.current_db_uuid_) {
       database_uuid = std::string{*current_db_.current_db_uuid_};
@@ -10606,16 +10602,12 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
 #ifdef MG_ENTERPRISE
-  // Idle-session reaper sync (IDLE_SESSION_REAPER only): claim exclusive ownership of db_acc_ for the
-  // IDLE window of Prepare BEFORE the first db_acc_ read below, so the background reaper cannot
-  // release db_acc_ out from under us. TryClaimForQueryEntry spin-waits on REAPING and CAS-es
-  // IDLE->PREPARING (no-op when already inside an explicit transaction). The OnScopeExit restores
-  // IDLE only if we claimed and no transaction was set up (parse error / early return). Flag-off:
-  // no claim, byte-identical to master.
+  // Claim exclusive ownership of db_acc_ (IDLE->PREPARING) BEFORE the first db_acc_ read below, so the
+  // background reaper cannot release it out from under us; OnScopeExit restores IDLE on an unused claim.
   const bool reaper_armed = flags::AreExperimentsEnabled(flags::Experiments::IDLE_SESSION_REAPER);
   const bool entry_claimed = reaper_armed && TryClaimForQueryEntry();
   utils::OnScopeExit release_entry_claim{[this, entry_claimed]() { ReleaseEntryClaimIfUnused(entry_claimed); }};
-  if (reaper_armed) EnsureDbAccessForQuery();  // re-acquire db_acc_ if the reaper released it while idle
+  if (reaper_armed) EnsureDbAccessForQuery();
 #endif
   std::optional<memory::DbArenaScope> db_arena_scope;
   if (current_db_.db_acc_) {
@@ -11386,11 +11378,9 @@ std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() 
 void Interpreter::SetMessageInFlight() noexcept {
   if (!flags::AreExperimentsEnabled(flags::Experiments::IDLE_SESSION_REAPER)) return;
   message_in_flight_.store(true, std::memory_order_seq_cst);
-  // Dekker StoreLoad: the seq_cst store above is globally ordered before this seq_cst load, so it
-  // pairs with TryReapIdleDbAccessor's seq_cst store(REAPING)+load(message_in_flight_). If a reaper
-  // currently owns REAPING, wait it out (it will restore IDLE and — seeing our gate on its re-check —
-  // decline to reap). Our db_acc_ touches then happen after the reap window; EnsureDbAccessForQuery
-  // re-acquires the accessor as usual on the next query.
+  // Dekker StoreLoad: the seq_cst store is globally ordered before this seq_cst load, pairing with
+  // TryReapIdleDbAccessor's seq_cst store(REAPING)+load(message_in_flight_). If a reaper owns REAPING,
+  // wait it out; it will restore IDLE and, seeing our gate on its re-check, decline to reap.
   while (transaction_status_.load(std::memory_order_seq_cst) == TransactionStatus::REAPING) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -11399,17 +11389,15 @@ void Interpreter::SetMessageInFlight() noexcept {
 void Interpreter::ClearMessageInFlight() noexcept {
   if (!flags::AreExperimentsEnabled(flags::Experiments::IDLE_SESSION_REAPER)) return;
   message_in_flight_.store(false, std::memory_order_seq_cst);
-  // Session is parking back to Idle: stamp the idle clock so the reaper measures the idle window from
-  // this moment (not from the last query start), and never from epoch 0 for a session that only ever
-  // ran db-independent commands.
+  // Parking back to Idle: stamp the idle clock so the reaper measures the idle window from now (not
+  // from last query start, and never from epoch 0 for a session that only ran db-independent commands).
   last_activity_ns_.store(SteadyNowNs(), std::memory_order_relaxed);
 }
 
 #ifdef MG_ENTERPRISE
 bool Interpreter::TryClaimForQueryEntry() {
-  // Session thread, top of Prepare. Claim exclusive ownership of db_acc_ for the IDLE window by
-  // moving IDLE -> PREPARING. Spin-wait while the reaper owns REAPING. If status is already ACTIVE
-  // (a statement inside an explicit transaction) we already own it -> not a fresh claim.
+  // Claim db_acc_ ownership by CAS IDLE -> PREPARING, spin-waiting while the reaper owns REAPING. A
+  // non-IDLE status (e.g. ACTIVE inside an explicit transaction) means we already own it -> no claim.
   TransactionStatus st = transaction_status_.load(std::memory_order_acquire);
   for (;;) {
     if (st == TransactionStatus::REAPING) {
@@ -11420,9 +11408,8 @@ bool Interpreter::TryClaimForQueryEntry() {
     if (st != TransactionStatus::IDLE) return false;  // already owned (e.g. explicit-txn ACTIVE)
     if (transaction_status_.compare_exchange_weak(
             st, TransactionStatus::PREPARING, std::memory_order_acq_rel, std::memory_order_acquire)) {
-      return true;  // claimed IDLE -> PREPARING
+      return true;
     }
-    // CAS failed: compare_exchange_weak refreshed `st`; loop.
   }
 }
 
@@ -11431,12 +11418,10 @@ void Interpreter::ReleaseEntryClaimIfUnused(bool claimed) noexcept {
   // If a transaction was set up, SetupInterpreterTransaction already moved PREPARING -> ACTIVE and
   // engaged current_transaction_; ownership is handed to the normal commit/abort lifecycle.
   if (current_transaction_.has_value()) return;
-  // No transaction set up (parse error / early return / exception before SetupInterpreterTransaction).
-  // Restore IDLE only if we still hold the claim (status == PREPARING). A CAS, not a blind store: on an
-  // error path Abort() may already have driven the status to IDLE (and reset current_transaction_), after
-  // which the reaper can win its own CAS IDLE->REAPING. A blind store would clobber that REAPING window;
-  // the CAS instead fails and leaves whoever now owns the transition untouched. Verifiers and the reaper
-  // both ignore PREPARING, so when status really is still PREPARING this thread is its only writer.
+  // No transaction set up (parse error / early return). Restore IDLE via CAS, not a blind store: an
+  // error-path Abort() may have already driven status to IDLE and let the reaper win its own CAS
+  // IDLE->REAPING; a blind store would clobber that REAPING window. Verifiers and the reaper both ignore
+  // PREPARING, so when status really is still PREPARING this thread is its only writer.
   TransactionStatus expected = TransactionStatus::PREPARING;
   transaction_status_.compare_exchange_strong(
       expected, TransactionStatus::IDLE, std::memory_order_acq_rel, std::memory_order_relaxed);
@@ -11447,21 +11432,15 @@ void Interpreter::EnsureDbAccessForQuery() {
     // Connection-scoped: the accessor is already held (acquired at connect / USE / SetCurrentDB).
     return;
   }
-  // Defensive: a session DB name is set but the accessor was released (e.g. by the idle-session reaper,
-  // or because its DB was marked for deletion mid-session via ResetInterpreter). Re-acquire via the
-  // gatekeeper; Get throws UnknownDatabaseException (incl. its SuspendedDatabaseException subtype) if
-  // the tenant is genuinely gone / suspended / draining.
+  // A session DB name is set but the accessor was released (reaper, or DB marked for deletion). Re-acquire
+  // via the gatekeeper; Get throws UnknownDatabaseException if the tenant is gone / suspended / draining.
   if (!current_db_.current_db_name_) return;  // already db-less
   try {
     auto reacquired = interpreter_context_->dbms_handler->Get(*current_db_.current_db_name_);
-    // Recycle guard: the name may have been dropped and a DIFFERENT tenant recreated under it while the
-    // accessor was released. Re-acquiring by name would silently attach to that different tenant. The
-    // reaper only reaps non-default tenants, whose UUID is a stable identity, so a UUID mismatch here is
-    // unambiguously a recycle. (Safe where a name-only guard was not: the default DB, whose UUID mutates
-    // in place, is never reaped, so its accessor is never re-acquired through this path.) Rather than
-    // wedge the session, fall back to a db-less connection -- the client can USE another database (or run
-    // a db-independent command) in the SAME session; a db-requiring query gets the normal "no current
-    // database" error, recoverable without a reconnect.
+    // Recycle guard: the name may have been dropped and a DIFFERENT tenant recreated under it, which a
+    // name-only re-acquire would silently attach to. Reaped tenants are non-default, so their UUID is a
+    // stable identity and a mismatch is unambiguously a recycle -> fall back to a db-less session rather
+    // than wedge (the client can USE another database in the same session).
     if (current_db_.current_db_uuid_ && reacquired->uuid() != *current_db_.current_db_uuid_) {
       spdlog::trace("Session database '{}' was recreated; falling back to a db-less session.",
                     *current_db_.current_db_name_);
@@ -11470,9 +11449,7 @@ void Interpreter::EnsureDbAccessForQuery() {
     }
     current_db_.db_acc_ = std::move(reacquired);
   } catch (const dbms::UnknownDatabaseException &) {
-    // The database was dropped / suspended / draining out from under the session. Same fallback: become
-    // db-less rather than wedge, so the session can USE another database in place instead of being forced
-    // to reconnect.
+    // Dropped / suspended / draining out from under the session. Same db-less fallback rather than wedge.
     spdlog::trace("Session database '{}' no longer available; falling back to a db-less session.",
                   *current_db_.current_db_name_);
     current_db_.ResetDB();
@@ -11493,11 +11470,10 @@ bool Interpreter::TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_n
           expected, TransactionStatus::REAPING, std::memory_order_seq_cst, std::memory_order_acquire)) {
     return false;
   }
-  // Re-check the gate now that we own REAPING, before touching db_acc_. This closes the TOCTOU with
-  // SetMessageInFlight: if the session set message_in_flight_ (seq_cst store) and then observed our
-  // status as not-yet-REAPING (so it did NOT spin-wait), its store is globally ordered either before
-  // our re-check load (we see it here and back out) or after our store(REAPING) (it spins in
-  // SetMessageInFlight until we restore IDLE). Either way one side yields — no torn reap.
+  // Re-check the gate now that we own REAPING, closing the TOCTOU with SetMessageInFlight: if the session
+  // stored message_in_flight_ but observed our status as not-yet-REAPING (so did NOT spin-wait), its
+  // seq_cst store is globally ordered either before this load (we see it and back out) or after our
+  // store(REAPING) (it spins until we restore IDLE). Either way one side yields -- no torn reap.
   if (message_in_flight_.load(std::memory_order_seq_cst)) {
     transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
     return false;
