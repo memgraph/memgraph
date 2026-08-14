@@ -3230,7 +3230,7 @@ TEST(StorageV2Analytical, ExpansionFiltersByEdgeType) {
   auto const filtered = from.OutEdges(memgraph::storage::View::NEW, {wanted});
   ASSERT_TRUE(filtered.has_value());
   ASSERT_EQ(filtered->edges.size(), 1);
-  EXPECT_EQ(filtered->edges.front().EdgeType(), wanted);
+  EXPECT_EQ(filtered->edges.At(0).EdgeType(), wanted);
   // Every edge is walked to decide, whether or not it is kept.
   EXPECT_EQ(filtered->expanded_count, 33);
 
@@ -3241,7 +3241,7 @@ TEST(StorageV2Analytical, ExpansionFiltersByEdgeType) {
   auto const incoming = to.InEdges(memgraph::storage::View::NEW, {wanted});
   ASSERT_TRUE(incoming.has_value());
   ASSERT_EQ(incoming->edges.size(), 1);
-  EXPECT_EQ(incoming->edges.front().EdgeType(), wanted);
+  EXPECT_EQ(incoming->edges.At(0).EdgeType(), wanted);
 }
 
 TEST(StorageV2Analytical, ExpansionSeesWhatThisAccessorJustWrote) {
@@ -3259,7 +3259,7 @@ TEST(StorageV2Analytical, ExpansionSeesWhatThisAccessorJustWrote) {
   auto const edges = from.OutEdges(memgraph::storage::View::NEW);
   ASSERT_TRUE(edges.has_value());
   ASSERT_EQ(edges->edges.size(), 1);
-  EXPECT_EQ(edges->edges.front().EdgeType(), type);
-  EXPECT_EQ(edges->edges.front().ToVertex(), to);
-  EXPECT_EQ(edges->edges.front().FromVertex(), from);
+  EXPECT_EQ(edges->edges.At(0).EdgeType(), type);
+  EXPECT_EQ(edges->edges.At(0).ToVertex(), to);
+  EXPECT_EQ(edges->edges.At(0).FromVertex(), from);
 }

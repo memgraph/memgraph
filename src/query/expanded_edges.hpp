@@ -18,6 +18,7 @@
 
 #include "query/edge_accessor.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/expanded_edges.hpp"
 
 namespace memgraph::query {
 
@@ -34,8 +35,8 @@ class ExpandedEdges {
  public:
   ExpandedEdges() = default;
 
-  /// The usual case: wrap as we go.
-  explicit ExpandedEdges(std::vector<storage::EdgeAccessor> edges) : storage_edges_(std::move(edges)) {}
+  /// The usual case: wrap as we go, over the range storage handed back.
+  explicit ExpandedEdges(storage::ExpandedEdges edges) : storage_edges_(std::move(edges)) {}
 
   /// For a caller that has already built the query-layer list, such as one that filtered it.
   explicit ExpandedEdges(std::vector<EdgeAccessor> edges) : wrapped_edges_(std::move(edges)), wrap_on_demand_(false) {}
@@ -80,11 +81,11 @@ class ExpandedEdges {
 
  private:
   auto At(std::size_t index) const -> EdgeAccessor {
-    if (wrap_on_demand_) return EdgeAccessor{storage_edges_[index]};
+    if (wrap_on_demand_) return EdgeAccessor{storage_edges_.At(index)};
     return wrapped_edges_[index];
   }
 
-  std::vector<storage::EdgeAccessor> storage_edges_;
+  storage::ExpandedEdges storage_edges_;
   std::vector<EdgeAccessor> wrapped_edges_;
   bool wrap_on_demand_{true};
 };

@@ -14054,7 +14054,7 @@ void WriteLightEdgesSection(Storage *storage, Transaction *transaction, utils::S
       if (!va) continue;
       auto maybe_out = va->OutEdges(View::OLD);
       if (!maybe_out.has_value()) continue;
-      for (auto &ea : maybe_out->edges) {
+      for (auto const &ea : maybe_out->edges) {
         auto gid = ea.Gid().AsUint();
         auto maybe_props = ea.Properties(View::OLD);
         MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
@@ -14128,7 +14128,7 @@ void WriteLightEdgesSection(Storage *storage, Transaction *transaction, utils::S
           if (!va) continue;
           auto maybe_out = va->OutEdges(View::OLD);
           if (!maybe_out.has_value()) continue;
-          for (auto &ea : maybe_out->edges) {
+          for (auto const &ea : maybe_out->edges) {
             auto gid = ea.Gid().AsUint();
             auto maybe_props = ea.Properties(View::OLD);
             MG_ASSERT(maybe_props.has_value(), "Invalid database state!");

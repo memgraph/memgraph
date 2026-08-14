@@ -25,8 +25,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
 
   std::vector<EdgeAccessor> edges;
   edges.reserve((*maybe_result).edges.size());
-  std::ranges::transform(
-      (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
+  for (auto const &edge : (*maybe_result).edges) edges.emplace_back(edge);
 
   return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
 }
@@ -40,8 +39,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
 
   std::vector<EdgeAccessor> edges;
   edges.reserve((*maybe_result).edges.size());
-  std::ranges::transform(
-      (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
+  for (auto const &edge : (*maybe_result).edges) edges.emplace_back(edge);
 
   return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
 }
@@ -58,8 +56,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
 
   std::vector<EdgeAccessor> edges;
   edges.reserve((*maybe_result).edges.size());
-  std::ranges::transform(
-      (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
+  for (auto const &edge : (*maybe_result).edges) edges.emplace_back(edge);
 
   return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
 }
@@ -73,8 +70,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
 
   std::vector<EdgeAccessor> edges;
   edges.reserve((*maybe_result).edges.size());
-  std::ranges::transform(
-      (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
+  for (auto const &edge : (*maybe_result).edges) edges.emplace_back(edge);
 
   return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
 }
