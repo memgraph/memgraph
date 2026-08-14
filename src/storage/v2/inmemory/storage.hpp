@@ -148,6 +148,8 @@ class InMemoryStorage final : public Storage {
 
   ~InMemoryStorage() override;
 
+  void RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) override;
+
   class InMemoryAccessor : public Storage::Accessor {
    private:
     friend class InMemoryStorage;

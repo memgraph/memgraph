@@ -24,9 +24,13 @@
 #include "metrics/scoped_gauge.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
 namespace {
+
+namespace r = std::ranges;
 
 std::optional<double> FindSample(std::vector<prometheus::MetricFamily> const &families, std::string_view name,
                                  std::string_view db_name) {
@@ -34,7 +38,7 @@ std::optional<double> FindSample(std::vector<prometheus::MetricFamily> const &fa
     if (family.name != name) continue;
     for (auto const &metric : family.metric) {
       auto const has_db_label =
-          std::ranges::any_of(metric.label, [&](auto const &l) { return l.name == "database" && l.value == db_name; });
+          r::any_of(metric.label, [&](auto const &l) { return l.name == "database" && l.value == db_name; });
       if (!has_db_label) continue;
       if (family.type == prometheus::MetricType::Gauge) return metric.gauge.value;
       if (family.type == prometheus::MetricType::Counter) return metric.counter.value;
@@ -169,6 +173,90 @@ TEST(PrometheusMetrics, UpdateGaugesReturnsZeroAfterDefaultDbUuidChange) {
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "memgraph"), 42.0);
   EXPECT_EQ(FindSample(families, "memgraph_edge_count", "memgraph"), 10.0);
   EXPECT_EQ(FindSample(families, "memgraph_disk_usage_bytes", "memgraph"), 2048.0);
+}
+
+TEST(PrometheusMetrics, RebindDefaultDatabaseUUIDUpdatesUuidLabel) {
+  FLAGS_metrics_format = "OpenMetrics";
+  memgraph::metrics::PrometheusMetrics pm;
+
+  memgraph::utils::UUID const uuid_a{};
+  memgraph::utils::UUID const uuid_b{};
+
+  pm.AddDatabase(uuid_a, "memgraph");
+  pm.RebindDefaultDatabaseUUID(uuid_b);
+
+  auto const families = pm.registry().Collect();
+  auto const find_uuid_label = [&](std::string_view name, std::string_view db_name) -> std::optional<std::string> {
+    for (auto const &family : families) {
+      if (family.name != name) continue;
+      for (auto const &metric : family.metric) {
+        auto const has_db =
+            r::any_of(metric.label, [&](auto const &l) { return l.name == "database" && l.value == db_name; });
+        if (!has_db) continue;
+        auto const it = r::find_if(metric.label, [](auto const &l) { return l.name == "uuid"; });
+        if (it != metric.label.end()) return it->value;
+      }
+    }
+    return std::nullopt;
+  };
+  auto const label = find_uuid_label("memgraph_vertex_count", "memgraph");
+  ASSERT_TRUE(label.has_value());
+  EXPECT_EQ(*label, std::string(uuid_b)) << "uuid label should reflect the new UUID after rebind";
+
+  auto const has_old_uuid = r::any_of(families, [&](auto const &family) {
+    return r::any_of(family.metric, [&](auto const &metric) {
+      return r::any_of(metric.label, [&](auto const &l) { return l.name == "uuid" && l.value == std::string(uuid_a); });
+    });
+  });
+  EXPECT_FALSE(has_old_uuid) << "old UUID series should be fully removed after rebind";
+}
+
+TEST(PrometheusMetrics, RebindPropagatesHandlesToIndicesAndConstraints) {
+  FLAGS_metrics_format = "OpenMetrics";
+  memgraph::metrics::PrometheusMetrics pm;
+
+  memgraph::utils::UUID const uuid_a{};
+  memgraph::utils::UUID const uuid_b{};
+
+  // Register default db with uuid_a, install handles into storage
+  auto handles_a = pm.AddDatabase(uuid_a, "memgraph");
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>();
+  storage->RebindMetricHandles(handles_a);
+
+  // Rebind to uuid_b, which destroys uuid_a gauge objects and creates uuid_b
+  // gauges
+  auto handles_b = pm.RebindDefaultDatabaseUUID(uuid_b);
+  storage->RebindMetricHandles(handles_b);
+
+  // Create index + constraint: these increment gauges via handles
+  // stored inside indices_/constraints_
+  memgraph::storage::LabelId label;
+  memgraph::storage::PropertyId prop;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    label = acc->NameToLabel("TestLabel");
+    prop = acc->NameToProperty("test_prop");
+  }
+  {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_TRUE(acc->CreateIndex(label).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_TRUE(acc->CreateExistenceConstraint(label, prop).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Scrape and verify gauges appear under uuid_b
+  auto const families = pm.registry().Collect();
+  auto const idx_val = FindSample(families, "memgraph_active_label_indices", "memgraph");
+  ASSERT_TRUE(idx_val.has_value());
+  EXPECT_EQ(*idx_val, 1.0);
+
+  auto const constr_val = FindSample(families, "memgraph_active_existence_constraints", "memgraph");
+  ASSERT_TRUE(constr_val.has_value());
+  EXPECT_EQ(*constr_val, 1.0);
 }
 
 TEST(MetricHandles, GaugeHandleNullSafety) {

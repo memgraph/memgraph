@@ -188,7 +188,14 @@ class PrometheusMetrics {
 
   DatabaseMetricHandles AddDatabase(utils::UUID const &uuid, std::string_view name);
   void RemoveDatabase(utils::UUID const &uuid);
-  void RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
+
+  /// Removes the metrics associated with the pre-cluster default database,
+  /// and replaces them with metrics labelled with the UUID of the new
+  /// default database.
+  DatabaseMetricHandles RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
+
+  /// Refresh any gauges whose values are pulled from current storage state,
+  /// rather than updated at point of use.
   void UpdateGauges();
 
   /// Thread-safe update of the global peak_memory_res_bytes gauge.
@@ -231,6 +238,10 @@ class PrometheusMetrics {
     std::string db_name;
     DatabaseMetricHandles handles;
   };
+
+  // Caller must hold databases_.mutex.
+  void RemoveDatabaseUnsafe(utils::UUID const &uuid);
+  DatabaseMetricHandles AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name);
 
   StorageSnapshot ResolveStorageSnapshot(utils::UUID const &uuid) const;
 
