@@ -2996,11 +2996,21 @@ class PruningBFSCursor : public query::plan::Cursor {
                            ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in pruning BFS expansion")
                            : std::numeric_limits<int64_t>::max();
 
-        if (upper_bound_ < 1 || lower_bound_ > upper_bound_) continue;
+        if (lower_bound_ > upper_bound_) continue;
 
         auto const &vertex = vertex_value.ValueVertex();
+        visited_.emplace(vertex);
 
-        current_depth_ = 1;
+        current_depth_ = 0;
+
+        if (lower_bound_ <= 0) {
+          frame_writer.Write(self_.common_.node_symbol, vertex);
+          if (upper_bound_ > 0) {
+            expand_from_vertex(vertex, evaluator, frame, frame_writer, context);
+          }
+          return true;
+        }
+
         expand_from_vertex(vertex, evaluator, frame, frame_writer, context);
         continue;
       }
@@ -3086,7 +3096,7 @@ class PruningBFSCursor : public query::plan::Cursor {
   int64_t upper_bound_{-1};
   int64_t current_depth_{0};
 
-  // Global visited set: NOT cleared between input rows
+  // Per-source visited set: cleared on each new input row
   utils::pmr::unordered_set<VertexAccessor> visited_;
   // BFS frontier: current depth level and next depth level
   utils::pmr::vector<VertexAccessor> to_visit_current_;
