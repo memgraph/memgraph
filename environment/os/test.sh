@@ -20,7 +20,6 @@ declare -A OS_DOCKER_IMAGE_MAP=(
     [centos-10]="quay.io/centos/centos:stream10"
     [debian-12]="debian:12"
     [debian-13]="debian:13"
-    [fedora-42]="fedora:42"
     [fedora-43]="fedora:43"
     [fedora-44]="fedora:44"
     [fedora-45]="fedora:45"

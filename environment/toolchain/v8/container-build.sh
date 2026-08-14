@@ -39,7 +39,7 @@ echo "==> Starting container $CONTAINER"
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 docker run -d --name "$CONTAINER" "$IMAGE" sleep infinity >/dev/null
 
-echo "==> Copying repo into container (excluding .git and stale build state)"
+echo "==> Copying repo into container"
 docker exec "$CONTAINER" mkdir -p /workspace/memgraph
 docker cp "$REPO_ROOT/." "$CONTAINER:/workspace/memgraph"
 
