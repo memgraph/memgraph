@@ -1010,9 +1010,11 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
       // handled
     } else if ((fn == kContains || fn == kStartsWith || fn == kEndsWith) && func->arguments_.size() == 2) {
-      auto const type = fn == kStartsWith ? PropertyFilter::Type::STARTS_WITH
-                        : fn == kContains ? PropertyFilter::Type::CONTAINS
-                                          : PropertyFilter::Type::ENDS_WITH;
+      auto const type = [&] {
+        if (fn == kStartsWith) return PropertyFilter::Type::STARTS_WITH;
+        if (fn == kContains) return PropertyFilter::Type::CONTAINS;
+        return PropertyFilter::Type::ENDS_WITH;
+      }();
       if (!try_add_prop_filter(func->arguments_[0], func->arguments_[1], type)) {
         all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
       }
