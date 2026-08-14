@@ -40,11 +40,6 @@ auto TwoPCCommitCache::Slot() -> utils::Synchronized<Record, std::mutex> & {
   return *slot;
 }
 
-auto TwoPCCommitCache::Instance() -> TwoPCCommitCache & {
-  static auto *instance = new TwoPCCommitCache{};
-  return *instance;
-}
-
 void TwoPCCommitCache::Store(std::unique_ptr<storage::ReplicationAccessor> accessor,
                              uint64_t durability_commit_timestamp, utils::UUID uuid) {
   // Extract any pre-existing accessor instead of move-assigning over it in place: destroying it

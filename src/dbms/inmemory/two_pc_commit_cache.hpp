@@ -37,9 +37,9 @@ namespace memgraph::dbms {
 // with the lock released and never touches the accessor itself, so callers get this discipline for
 // free.
 //
-// The singleton returned by Instance() is heap-allocated and deliberately never freed -- one slot
-// for the whole process, holding at most one accessor, so the leak is bounded. Two reasons this
-// matters, both load-bearing:
+// The slot (Slot(), below) is heap-allocated and deliberately never freed -- one slot for the whole
+// process, holding at most one accessor, so the leak is bounded. Two reasons this matters, both
+// load-bearing:
 //  1. No static destructor. A static object here that is still populated at process exit would be
 //     destroyed after main() returns, i.e. after every Database/InMemoryStorage is already gone,
 //     and destroying the cached ReplicationAccessor then dereferences freed storage
@@ -53,21 +53,16 @@ namespace memgraph::dbms {
 //     already been destroyed.
 class TwoPCCommitCache {
  public:
-  // The process-wide slot. Deliberately never destroyed -- see the class comment above.
-  static auto Instance() -> TwoPCCommitCache &;
-
-  TwoPCCommitCache(TwoPCCommitCache const &) = delete;
-  TwoPCCommitCache(TwoPCCommitCache &&) = delete;
-  TwoPCCommitCache &operator=(TwoPCCommitCache const &) = delete;
-  TwoPCCommitCache &operator=(TwoPCCommitCache &&) = delete;
+  // Static-only: all state lives in the process-wide Slot() (below), so the type is never instantiated.
+  TwoPCCommitCache() = delete;
 
   // Populates the slot, capturing the tenant uuid from storage->uuid() rather than deriving it
   // later from accessor->uuid() (storage_->uuid(), storage.hpp:846). This decouples the uuid
   // checks in TakeForTenant/TakeMatching from relying on cross-file destroy-before-extract
   // ordering holding at every call site -- robustness, not a fix for a currently-reachable
   // use-after-free.
-  void Store(std::unique_ptr<storage::ReplicationAccessor> accessor, uint64_t durability_commit_timestamp,
-             utils::UUID uuid);
+  static void Store(std::unique_ptr<storage::ReplicationAccessor> accessor, uint64_t durability_commit_timestamp,
+                    utils::UUID uuid);
 
   struct Taken {
     std::unique_ptr<storage::ReplicationAccessor> accessor;          // non-null only when the ldt matched
@@ -78,26 +73,24 @@ class TwoPCCommitCache {
   // the cached one. On mismatch the slot is deliberately LEFT POPULATED and the cached value is
   // reported via mismatched_durability_commit_timestamp -- unlike the "missing" case (both fields
   // empty), a mismatch is not treated as terminal by the caller.
-  [[nodiscard]] auto TakeMatching(uint64_t durability_commit_timestamp) -> Taken;
+  [[nodiscard]] static auto TakeMatching(uint64_t durability_commit_timestamp) -> Taken;
 
   // Takes the accessor out iff it belongs to `uuid` (the uuid captured by Store, not one
   // re-derived from the accessor -- see Store's comment for why). No-op (returns nullptr)
   // otherwise, so a pending 2PC for a different tenant is not wrongly dropped.
-  [[nodiscard]] auto TakeForTenant(utils::UUID const &uuid) -> std::unique_ptr<storage::ReplicationAccessor>;
+  [[nodiscard]] static auto TakeForTenant(utils::UUID const &uuid) -> std::unique_ptr<storage::ReplicationAccessor>;
 
   // Takes whatever is cached, regardless of tenant.
-  [[nodiscard]] auto TakeAny() -> std::unique_ptr<storage::ReplicationAccessor>;
+  [[nodiscard]] static auto TakeAny() -> std::unique_ptr<storage::ReplicationAccessor>;
 
  private:
-  TwoPCCommitCache() = default;
-
   // Defined in two_pc_commit_cache.cpp, where storage::ReplicationAccessor is a complete type.
   // Kept incomplete here so this header does not have to pull in the full storage definition.
   struct Record;
 
-  // The Synchronized<Record> instance backing the singleton, heap-allocated and never freed --
-  // see the class comment above for why. Returning it via a function (rather than a member field)
-  // lets Record stay incomplete in this header.
+  // The Synchronized<Record> backing the cache, heap-allocated and never freed -- see the class
+  // comment above for why. Returning it via a function (rather than a member field) lets Record
+  // stay incomplete in this header.
   static auto Slot() -> utils::Synchronized<Record, std::mutex> &;
 };
 
