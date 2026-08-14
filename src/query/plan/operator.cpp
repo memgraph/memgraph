@@ -2990,11 +2990,15 @@ class PruningBFSCursor : public query::plan::Cursor {
         auto const &vertex_value = frame[self_.input_symbol_];
         if (vertex_value.IsNull()) continue;
 
-        lower_bound_ =
-            self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in pruning BFS expansion") : 1;
-        upper_bound_ = self_.upper_bound_
-                           ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in pruning BFS expansion")
-                           : std::numeric_limits<int64_t>::max();
+        auto const calc_bound = [&evaluator](auto &bound, auto const *label) {
+          auto value = EvaluateInt(evaluator, bound, label);
+          if (value < 0) throw QueryRuntimeException("Variable expansion bound must be a non-negative integer.");
+          return value;
+        };
+
+        lower_bound_ = self_.lower_bound_ ? calc_bound(self_.lower_bound_, "Min depth in pruning BFS expansion") : 1;
+        upper_bound_ = self_.upper_bound_ ? calc_bound(self_.upper_bound_, "Max depth in pruning BFS expansion")
+                                          : std::numeric_limits<int64_t>::max();
 
         if (lower_bound_ > upper_bound_) continue;
 
