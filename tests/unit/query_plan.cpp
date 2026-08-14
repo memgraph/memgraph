@@ -2949,7 +2949,7 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportDrivesLabelPropertyIndex) {
         new ExpectUnwind(),
         new ExpectScanAllByLabelProperties(label,
                                            std::vector{ms::PropertyPath{property.second}},
-                                           std::vector{ExpressionRange::Equal(fake_identifier)}),
+                                           std::vector{ExpressionRange::In(fake_identifier, nullptr)}),
         new ExpectProduce()};
     CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(branch), ExpectProduce());
     DeleteListContent(&branch);
