@@ -745,8 +745,8 @@ class InMemoryStorage final : public Storage {
     /// decoded WAL data never pays for the adjacency scan and accessor vector that FindEdge would build:
     ///   - properties off: no Edge object exists, the EdgeRef is the gid itself, so nothing is looked up;
     ///   - heavy edges:    the edges_ skip list is keyed by gid;
-    ///   - light edges:    only adjacency can produce the Edge*, so the batch is grouped by from-vertex and each
-    ///                     group is resolved in a single pass over that vertex's out edges.
+    ///   - light edges:    only adjacency can produce the Edge*, so each edge is resolved from whichever of its
+    ///                     two endpoints has the shorter list, with edges picking the same vertex sharing a pass.
     /// @throw std::bad_alloc
     Result<size_t> DeleteEdgesEx(std::span<EdgeDeleteSpec const> edges);
 
