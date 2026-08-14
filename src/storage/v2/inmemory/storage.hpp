@@ -11,9 +11,12 @@
 
 #pragma once
 
+#include <concepts>
 #include <cstdint>
+#include <list>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <string_view>
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
@@ -889,6 +892,36 @@ class InMemoryStorage final : public Storage {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
+
+  // Objects leave storage only through these, and only from a collection pass. An index entry
+  // holds a raw pointer that nothing keeps alive, so an object may be retired only once that same
+  // pass has removed every index entry naming it.
+  template <std::ranges::input_range TRange>
+    requires std::same_as<std::ranges::range_value_t<TRange>, Gid>
+  void RetireVertices(TRange &&gids) {
+    auto acc = vertices_.access();
+    for (auto const gid : gids) {
+      MG_ASSERT(acc.remove(gid), "Invalid database state!");
+    }
+  }
+
+  template <std::ranges::input_range TRange>
+    requires std::same_as<std::ranges::range_value_t<TRange>, Gid>
+  void RetireEdges(TRange &&gids) {
+    auto acc = edges_.access();
+    for (auto const gid : gids) {
+      MG_ASSERT(acc.remove(gid), "Invalid database state!");
+    }
+  }
+
+  // Light edges are not skip-list nodes, so retiring one hands it to the graveyard drain. The
+  // epoch is read here, as the retirement happens: it is what orders a reader that opened earlier
+  // ahead of the drain that frees these.
+  void RetireLightEdges(std::list<Edge *, memory::DbAwareAllocator<Edge *>> &&edges) {
+    auto const guard_epoch = light_edge_iterable_tracker_.CurrentEpoch();
+    // std::move is an O(1) list move (LightEdgeGraveyardEntry::edges is a std::list) under the lock.
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { graveyard.emplace_back(guard_epoch, std::move(edges)); });
+  }
 
   bool InitializeWalFile(std::string_view epoch_id);
   void FinalizeWalFile();

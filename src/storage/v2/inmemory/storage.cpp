@@ -3638,9 +3638,8 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
 
   // VERTICES (has ptr to Edges, must be before removing edges)
   if (!current_deleted_vertices.empty()) {
-    auto vertex_acc = vertices_.access();
-
     if (!indices_.vector_index_.Empty()) {
+      auto vertex_acc = vertices_.access();
       auto const vertices_to_remove = current_deleted_vertices |
                                       std::ranges::views::transform([&vertex_acc](auto const gid) {
                                         auto it = vertex_acc.find(gid);
@@ -3662,9 +3661,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
       indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
     }
 
-    for (auto vertex : current_deleted_vertices) {
-      MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");
-    }
+    RetireVertices(current_deleted_vertices);
   }
 
   // EDGES / LIGHT EDGES
@@ -3679,23 +3676,15 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
         std::vector<Edge *> const edges_to_remove(current_deleted_edges.begin(), current_deleted_edges.end());
         indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
       }
-      auto const guard_epoch = light_edge_iterable_tracker_.CurrentEpoch();
-      light_edge_graveyard_.WithLock([&](auto &graveyard) {
-        // std::move is an O(1) list move (entry.edges is a std::list) under the lock.
-        graveyard.emplace_back(guard_epoch, std::move(current_deleted_edges));
-      });
+      RetireLightEdges(std::move(current_deleted_edges));
     } else {
-      auto edge_acc = edges_.access();
-
       if (current_deleted_vertices.empty() && !indices_.vector_edge_index_.Empty()) {
         // std::list -> contiguous temp vector for the std::span API (off-lock; see above).
         std::vector<Edge *> const edges_to_remove(current_deleted_edges.begin(), current_deleted_edges.end());
         indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
       }
 
-      for (auto *edge : current_deleted_edges) {
-        MG_ASSERT(edge_acc.remove(edge->gid), "Invalid database state!");
-      }
+      RetireEdges(current_deleted_edges | std::ranges::views::transform(&Edge::gid));
     }
   }
 
@@ -3719,10 +3708,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
       }
     }
 
-    auto vertex_acc = vertices_.access();
-    for (auto *vertex : analytical_deleted_vertices) {
-      vertex_acc.remove(vertex->gid);
-    }
+    RetireVertices(analytical_deleted_vertices | std::ranges::views::transform(&Vertex::gid));
   }
 
   // EXPENSIVE full scan, is only run if an IN_MEMORY_ANALYTICAL transaction involved any deletions
@@ -3738,21 +3724,16 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
 
     auto *idx = edges_metadata_index_ ? &*edges_metadata_index_ : nullptr;
 
-    {
-      auto edge_acc = edges_.access();
-      for (auto *edge : analytical_deleted_edges) {
-        if (idx) idx->OnEdgeDeleted(edge->gid);
-        edge_acc.remove(edge->gid);
-      }
+    if (idx) {
+      for (auto *edge : analytical_deleted_edges) idx->OnEdgeDeleted(edge->gid);
     }
+    RetireEdges(analytical_deleted_edges | std::ranges::views::transform(&Edge::gid));
 
     if (!analytical_deleted_light_edges.empty()) {
-      for (auto *edge : analytical_deleted_light_edges) {
-        if (idx) idx->OnEdgeDeleted(edge->gid);
+      if (idx) {
+        for (auto *edge : analytical_deleted_light_edges) idx->OnEdgeDeleted(edge->gid);
       }
-      auto const guard_epoch = light_edge_iterable_tracker_.CurrentEpoch();
-      light_edge_graveyard_.WithLock(
-          [&](auto &graveyard) { graveyard.emplace_back(guard_epoch, std::move(analytical_deleted_light_edges)); });
+      RetireLightEdges(std::move(analytical_deleted_light_edges));
     }
   }
 }
