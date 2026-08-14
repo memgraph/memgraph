@@ -55,7 +55,7 @@ query language, ACID-compliant, and highly available.
 - **Indexes** - Built-in vector indexes power hybrid graph retrieval with
 similarity search in a single query, alongside text and geospatial indexes for
 keyword and location-aware queries.
-- **[MAGE](mage/README.md) algorithm library** - 40+ graph algorithms in C++,
+- **[MAGE](src/mage/README.md) algorithm library** - 40+ graph algorithms in C++,
 Python, and CUDA including PageRank, community detection, GNN-based link
 prediction, temporal graph networks, embeddings, and native ML.
 - **Atomic GraphRAG** - Pivot search, graph expansion, ranking, and prompt
