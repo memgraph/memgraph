@@ -214,10 +214,11 @@ struct Expansion {
 enum class SplitExpressionMode { AND, OR };
 
 struct PatternComprehensionMatching;
-struct FilterMatching;
+struct ExistsMatching;
 using PatternComprehensionMatchings = std::vector<PatternComprehensionMatching>;
 
-enum class PatternFilterType { EXISTS_PATTERN, EXISTS_SUBQUERY };
+/// Which spelling an EXISTS was written as: `exists(pattern)` or `EXISTS { ... }`.
+enum class ExistsKind : uint8_t { kPattern, kSubquery };
 
 /// Collects pattern comprehensions and EXISTS patterns from any AST node.
 /// Uses HierarchicalTreeVisitor for automatic traversal of all expressions in all clause types.
@@ -251,13 +252,13 @@ class PatternComprehensionCollector : public HierarchicalTreeVisitor {
 
   bool Visit(EnumValueAccess &) override { return true; }
 
-  std::vector<FilterMatching> getFilterMatchings();
+  std::vector<ExistsMatching> getExistsMatchings();
   PatternComprehensionMatchings getPatternComprehensionMatchings();
 
  private:
   SymbolTable &symbol_table_;
   AstStorage &storage_;
-  std::vector<FilterMatching> filter_matchings_;
+  std::vector<ExistsMatching> exists_matchings_;
   PatternComprehensionMatchings pattern_comprehension_matchings_;
 };
 
@@ -380,7 +381,7 @@ struct FilterInfo {
   /// elements.
   enum class Type { Generic, Label, Property, Id, Pattern, Point, EdgeType };
 
-  // FilterInfo is tricky because FilterMatching is not yet defined:
+  // FilterInfo is tricky because ExistsMatching is not yet defined:
   //   * if no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
   //   * if any user-declared constructor -> non-aggregate type -> no designated initializers are possible
   //   * IMPORTANT: Matchings will always be initialized to an empty container.
@@ -409,9 +410,9 @@ struct FilterInfo {
   std::vector<EdgeTypeIx> edgetypes{};
   /// Information for Type::Id filtering.
   std::optional<IdFilter> id_filter{};
-  /// Matchings for filters that include patterns
-  /// NOTE: The vector is not defined here because FilterMatching is forward declared above.
-  std::vector<FilterMatching> matchings;
+  /// The EXISTS this filter evaluates, in either spelling.
+  /// NOTE: The vector is not defined here because ExistsMatching is forward declared above.
+  std::vector<ExistsMatching> exists_matchings;
   PatternComprehensionMatchings pattern_comprehension_matchings;
   /// Information for Type::Point filtering.
   std::optional<PointFilter> point_filter{};
@@ -533,12 +534,14 @@ struct Matching {
 // TODO clumsy to need to declare it before, usually only the struct definition would be in header
 struct QueryParts;
 
-struct FilterMatching : Matching {
-  /// Type of pattern filter
-  PatternFilterType type;
-  /// Symbol for the filter expression
+/// One EXISTS, normalized. The pattern form fills in @c Matching's expansions and filters; the subquery form leaves
+/// those empty and carries a preprocessed body instead.
+struct ExistsMatching : Matching {
+  /// Which spelling this was written as.
+  ExistsKind type;
+  /// The frame slot the fold writes, and the expression reads.
   std::optional<Symbol> symbol;
-  /// For EXISTS_SUBQUERY, holds the full subquery QueryParts
+  /// For @c ExistsKind::kSubquery, the body's own query parts.
   std::shared_ptr<QueryParts> subquery;
 };
 
@@ -681,11 +684,11 @@ struct SingleQueryPart {
   /// need to have access to other parts of the clause, such as pattern, filter clauses.
   PatternComprehensionMatchings pattern_comprehension_matchings;
 
-  /// @brief @c FilterMatching for each EXISTS found in a non-@c Match clause.
+  /// @brief @c ExistsMatching for each EXISTS found in a non-@c Match clause.
   ///
   /// A MATCH's WHERE keeps its EXISTS on the owning @c FilterInfo, as a deferred bool fold inside a @c Filter. These
   /// are the ones a WITH/RETURN body evaluates, so they need a forced fold spliced onto the chain.
-  std::vector<FilterMatching> exists_matchings;
+  std::vector<ExistsMatching> exists_matchings;
 
   /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses{};

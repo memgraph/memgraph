@@ -54,7 +54,7 @@ struct SubqueryBranchPlanner {
   /// Builds an EXISTS branch for a forced bool fold, i.e. without the deferred fold's
   /// `Limit(1) -> EvaluatePatternFilter` tail. Takes @p write_occurred rather than a view, because the branch has to
   /// pass the fact itself down to its own body, not just the view it resolves to here.
-  virtual std::unique_ptr<LogicalOperator> PlanExistsBranch(const FilterMatching &matching, bool write_occurred,
+  virtual std::unique_ptr<LogicalOperator> PlanExistsBranch(const ExistsMatching &matching, bool write_occurred,
                                                             const std::unordered_set<Symbol> &bound_symbols) = 0;
 };
 
@@ -77,7 +77,7 @@ struct SubqueryContext {
   std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions;
   /// The EXISTS matchings of this query part that a WITH/RETURN body may evaluate, keyed by result symbol. Drained
   /// as they are planned, like @c pending_comprehensions.
-  std::unordered_map<Symbol, FilterMatching> &pending_exists;
+  std::unordered_map<Symbol, ExistsMatching> &pending_exists;
   SubqueryBranchPlanner *planner;
   /// Whether a write clause has already been planned in this query part; feeds @c SubqueryView.
   bool write_occurred;
@@ -275,7 +275,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
   /// Implements SubqueryBranchPlanner interface
-  std::unique_ptr<LogicalOperator> PlanExistsBranch(const FilterMatching &matching, bool write_occurred,
+  std::unique_ptr<LogicalOperator> PlanExistsBranch(const ExistsMatching &matching, bool write_occurred,
                                                     const std::unordered_set<Symbol> &bound_symbols) override {
     return MakeExistsBranch(matching, *context_->symbol_table, *context_->ast_storage, bound_symbols, write_occurred);
   }
@@ -328,7 +328,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
         // EXISTS is planned only from a WITH/RETURN body, the one splice point it has. A MATCH's WHERE keeps its own
         // on the FilterInfo and never reaches this map.
-        std::unordered_map<Symbol, FilterMatching> pending_exists;
+        std::unordered_map<Symbol, ExistsMatching> pending_exists;
         for (const auto &exists : single_query_part.exists_matchings) {
           pending_exists.emplace(exists.symbol.value(), exists);
         }
@@ -1670,11 +1670,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// The EXISTS branch, without either fold's tail. The pattern form is rooted at an `Once(bound_symbols)` so the
   /// branch correlates through the shared frame; the subquery form correlates by planning recursively against those
   /// same bound symbols, and gets a bare `Once` from an operator's null-input guard.
-  std::unique_ptr<LogicalOperator> MakeExistsBranch(const FilterMatching &matching, const SymbolTable &symbol_table,
+  std::unique_ptr<LogicalOperator> MakeExistsBranch(const ExistsMatching &matching, const SymbolTable &symbol_table,
                                                     AstStorage &storage,
                                                     const std::unordered_set<Symbol> &bound_symbols,
                                                     bool write_occurred) {
-    if (matching.type == PatternFilterType::EXISTS_SUBQUERY) {
+    if (matching.type == ExistsKind::kSubquery) {
       // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
       // the branch has to correlate against.
       auto branch_bound_symbols = bound_symbols;
@@ -1722,7 +1722,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
   /// The deferred bool fold: the branch plus the tail that installs a closure into the frame. Only usable as a
   /// `Filter` side branch, which is why a projection uses the forced fold instead.
-  std::unique_ptr<LogicalOperator> MakeExistsFilter(const FilterMatching &matching, const SymbolTable &symbol_table,
+  std::unique_ptr<LogicalOperator> MakeExistsFilter(const ExistsMatching &matching, const SymbolTable &symbol_table,
                                                     AstStorage &storage,
                                                     const std::unordered_set<Symbol> &bound_symbols) {
     // Outside an EXISTS branch the flag is false, which resolves to View::OLD.
@@ -1770,7 +1770,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         continue;
       }
 
-      for (const auto &matching : filter.matchings) {
+      for (const auto &matching : filter.exists_matchings) {
         operators.push_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
       }
 
