@@ -175,6 +175,25 @@ TYPED_TEST(InterpreterTest, MultiplePulls) {
   }
 }
 
+TYPED_TEST(InterpreterTest, ExistsSubqueryWithoutReadingClause) {
+  // An EXISTS body whose only clause is a RETURN plans no operator of its own,
+  // because the subquery's RETURN is dropped. It still has to yield a row, so
+  // the predicate holds for every input row.
+  this->Interpret("CREATE (:Node {id: 1}), (:Node {id: 2})");
+  {
+    auto stream = this->Interpret("MATCH (n) WHERE exists { RETURN n } RETURN n.id AS id ORDER BY id");
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 2);
+  }
+  {
+    // The same shape with no correlation to the outer row.
+    auto stream = this->Interpret("MATCH (n) WHERE exists { RETURN 1 } RETURN count(n) AS cnt");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+}
+
 // Run query with different ast twice to see if query executes correctly when
 // ast is read from cache.
 TYPED_TEST(InterpreterTest, AstCache) {

@@ -552,6 +552,15 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         }
       }
 
+      // An EXISTS body whose clauses produce no operator, as in
+      // `exists { RETURN 1 }`, leaves nothing planned: the subquery's RETURN is
+      // dropped and there is no reading clause to plan in its place. The
+      // predicate still needs a row to observe, which is what Once yields.
+      if (!input_op) {
+        input_op =
+            std::make_unique<Once>(std::vector<Symbol>(context.bound_symbols.begin(), context.bound_symbols.end()));
+      }
+
       // Is this the only situation that should be covered
       if (input_op->OutputSymbols(*context.symbol_table).empty() && !context.in_exists_subquery) {
         if (has_periodic_commit && is_root_query) {
