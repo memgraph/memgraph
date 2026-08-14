@@ -20,6 +20,7 @@
 #include <iomanip>
 #include <iterator>
 #include <locale>
+#include <optional>
 #include <random>
 #include <ranges>
 #include <sstream>
@@ -486,6 +487,21 @@ inline std::string DoubleToString(const double value) {
     sv = sv.substr(0, sv.size() - 1);
   }
   return std::string(sv);
+}
+
+/// Smallest string strictly greater than every string prefixed by @p prefix, giving the half-open range
+/// `[prefix, successor)`. Drops trailing 0xFF bytes then increments the last (byte-wise, UTF-8 safe).
+/// Returns nullopt when none exists (empty or all-0xFF prefix): the range is then unbounded above.
+inline std::optional<std::string> PrefixSuccessor(std::string_view prefix) {
+  std::string result(prefix);
+  while (!result.empty() && static_cast<unsigned char>(result.back()) == 0xFF) {
+    result.pop_back();
+  }
+  if (result.empty()) {
+    return std::nullopt;
+  }
+  ++result.back();
+  return result;
 }
 
 // Avoids copies if possible
