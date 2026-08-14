@@ -1029,12 +1029,33 @@ struct mgp_vertices_iterator {
   /// @throw anything VerticesIterable may throw
   mgp_vertices_iterator(mgp_graph *graph, allocator_type alloc);
 
+  /// Iterate a label-property index range. Enforces label-level READ auth like the plain iterator;
+  /// property-level filtering is the caller's concern (consistent with mgp_graph_iter_vertices).
+  /// @throw anything VerticesIterable may throw
+  mgp_vertices_iterator(mgp_graph *graph, memgraph::storage::LabelId label,
+                        std::span<memgraph::storage::PropertyPath const> properties,
+                        std::span<memgraph::storage::PropertyValueRange const> property_ranges, allocator_type alloc);
+
   memgraph::utils::MemoryResource *GetMemoryResource() const { return alloc.resource(); }
 
   allocator_type alloc;
   mgp_graph *graph;
   Cursor cursor;
   std::optional<mgp_vertex> current_v;
+};
+
+struct mgp_label_property_range {
+  using allocator_type = memgraph::utils::Allocator<mgp_label_property_range>;
+
+  explicit mgp_label_property_range(allocator_type alloc) : properties(alloc), ranges(alloc), alloc(alloc) {}
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const { return alloc.resource(); }
+
+  // Parallel vectors: properties[i] is bounded by ranges[i]. One entry ⇒ single-property index;
+  // several ⇒ composite index over the properties in insertion order.
+  memgraph::utils::pmr::vector<memgraph::utils::pmr::string> properties;
+  memgraph::utils::pmr::vector<memgraph::storage::PropertyValueRange> ranges;
+  allocator_type alloc;
 };
 
 struct mgp_type {
