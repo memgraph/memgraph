@@ -36,10 +36,9 @@ bool IsConstantLiteral(const Expression *expression) {
   return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
 }
 
-/// Like UsedSymbolsCollector, but descends into a correlated subquery's body in full - a filter, a result expression
-/// or a body WHERE can correlate an outer name that the base class's pattern-only walk misses, and whatever restores
-/// rows below the branch (Accumulate, OrderBy) has to remember it. The base class stops at the pattern, as its other
-/// callers need.
+/// Like UsedSymbolsCollector, but descends into a correlated subquery's body in full: a filter, a result expression
+/// or a body WHERE can correlate an outer name, and whatever restores rows below the branch (Accumulate, OrderBy)
+/// has to remember it. The base class stops at the pattern, as its other callers need.
 class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
  public:
   using UsedSymbolsCollector::UsedSymbolsCollector;
@@ -176,9 +175,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       }
       MG_ASSERT(aggregations_.empty(), "Unexpected aggregations in ORDER BY or WHERE");
     } else {
-      // Visiting ORDER BY / WHERE fully would pollute group_by_. The comprehensions and EXISTS in them still need
-      // planning, so discover them with a visitor that plans and collects nothing else. `position_` is set before
-      // each Accept because this visitor plans during the walk.
+      // Visiting ORDER BY / WHERE fully would pollute group_by_, so discover the comprehensions and EXISTS in them
+      // with a visitor that plans and collects nothing else. It plans during the walk, hence `position_` first.
       PostProduceComprehensionPlanner planner(*this);
       position_ = BodyPosition::kOrderBy;
       for (const auto &order_pair : body.order_by) {
@@ -583,8 +581,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
   bool PreVisit(Exists &exists) override {
     // Mirrors the comprehension pair. The body is planned into its own branch, so nothing inside it may reach
-    // has_aggregation_, group_by_ or used_symbols_ - but the outer names it correlates to must, or whatever restores
-    // rows below the branch will not remember them.
+    // has_aggregation_ or group_by_ - but the outer names it correlates to must reach used_symbols_, for whatever
+    // restores rows below the branch to remember them.
     aggregations_start_index_stack_.push_back(has_aggregation_.size());
     SubqueryReadSymbolsCollector collector(symbol_table_);
     exists.Accept(collector);
@@ -746,8 +744,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
   // Plans @p result_sym's comprehension if it is still pending, into the bucket matching its position in the body.
   void PlanPatternComprehensionOnDemand(const Symbol &result_sym) {
-    // Skip if we don't have a planning context (e.g. when analyzing bound symbols in GetSubqueryBoundSymbols) - the
-    // actual planning will handle them later.
+    // No planning context (e.g. GetSubqueryBoundSymbols); the real planning pass handles them later.
     if (!pc_ctx_ || !pc_ctx_->planner) {
       return;
     }

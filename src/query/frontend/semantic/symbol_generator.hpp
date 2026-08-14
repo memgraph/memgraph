@@ -157,8 +157,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_pattern_comprehension{false};
     bool in_list_comprehension{false};
     /// Nesting depth of expressions that bind a per-element identifier and evaluate a body once per element: a list
-    /// comprehension, all/any/none/single, extract, reduce, and an edge atom's filter/weight lambda. A depth rather
-    /// than a flag so a nested one does not clear its parent.
+    /// comprehension, all/any/none/single, extract, reduce, and an edge atom's filter/weight lambda. A depth so a
+    /// nested one does not clear its parent.
     uint32_t element_lambda_depth{0};
     // True when visiting a pattern atom (node or edge) identifier, which can be
     // reused or created in the pattern itself.
@@ -189,9 +189,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
-  /// The positive allow-list of positions an EXISTS may appear in - the ones the planner has a splice point for.
-  /// Default-deny: an unnamed position reaches a planner with no placement machinery for it, which would make the
-  /// expression read a frame slot nobody ever wrote instead of raising an error.
+  /// The positions an EXISTS may appear in - the ones the planner has a splice point for. Default-deny, because an
+  /// unlisted position leaves the frame slot unwritten and the expression reads it without an error.
   static bool IsSupportedExistsPosition(const Scope &scope);
 
   // Whether @p name resolves in any scope from @p from outwards; pass `call_subquery_base` to ask about a subquery.

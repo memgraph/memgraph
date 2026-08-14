@@ -46,10 +46,9 @@ struct PatternComprehensionData {
 /// Interface for planning correlated-subquery branches, avoiding std::function overhead.
 struct SubqueryBranchPlanner {
   virtual ~SubqueryBranchPlanner() = default;
-  /// @param extra_bound_symbols Symbols bound by an operator the branch will be planned after, but which are
-  /// not yet in the planning context (the output symbols of a WITH/RETURN whose WHERE or ORDER BY holds the
-  /// subquery). Has no default: a default argument on a virtual function is bound statically, so it would mean
-  /// something different depending on whether the call goes through this interface or through RuleBasedPlanner.
+  /// @param extra_bound_symbols Symbols bound by an operator the branch will be planned after, but not yet in the
+  /// planning context (the output symbols of a WITH/RETURN whose WHERE or ORDER BY holds the subquery). No default,
+  /// since a default argument on a virtual binds statically and would differ per call path.
   virtual std::unique_ptr<LogicalOperator> Plan(const PatternComprehensionMatching &matching, storage::View view,
                                                 const std::unordered_set<Symbol> &extra_bound_symbols) = 0;
   /// Builds an EXISTS branch for a forced bool fold, i.e. without the deferred fold's
@@ -63,15 +62,14 @@ struct SubqueryBranchPlanner {
 inline const std::unordered_set<Symbol> kNoExtraBoundSymbols{};
 
 /// ExpandVariable requires View::OLD, so a branch whose pattern has a variable-length edge must use it.
-/// Planning one with View::NEW kills the server.
 inline bool HasVariableLengthExpansion(const Matching &matching) {
   return std::ranges::any_of(matching.expansions,
                              [](const auto &expansion) { return expansion.edge && expansion.edge->IsVariable(); });
 }
 
-/// The one view rule for a correlated-subquery branch, shared by every splice point. A clause sees the effects of the
-/// clauses before it, and within one command there is no AdvanceCommand to fold a write into View::OLD, so a
-/// branch planned after a write reads View::NEW - except where ExpandVariable cannot service it.
+/// The view rule for a correlated-subquery branch, shared by every splice point. A clause sees the effects of the
+/// clauses before it, and within one command no AdvanceCommand folds a write into View::OLD, so a branch planned
+/// after a write reads View::NEW - except where ExpandVariable cannot service it.
 inline storage::View SubqueryView(const Matching &matching, bool write_occurred) {
   if (HasVariableLengthExpansion(matching)) return storage::View::OLD;
   return write_occurred ? storage::View::NEW : storage::View::OLD;
@@ -81,7 +79,7 @@ inline storage::View SubqueryView(const Matching &matching, bool write_occurred)
 struct SubqueryContext {
   std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions;
   /// The EXISTS matchings of this query part that a WITH/RETURN body may evaluate, keyed by result symbol. Drained
-  /// as they are planned, like @c pending_comprehensions, so planning one twice cannot splice two folds.
+  /// as they are planned, like @c pending_comprehensions.
   std::unordered_map<Symbol, FilterMatching> &pending_exists;
   SubqueryBranchPlanner *planner;
   /// Whether a write clause has already been planned in this query part; feeds @c SubqueryView.
@@ -341,9 +339,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           }
           pending_comprehensions.emplace(pc.result_symbol, pc);
         }
-        // EXISTS is planned only where a splice point exists for it, i.e. from a WITH/RETURN body. Semantic analysis
-        // refuses every other position, so an entry left here belongs to a clause with no drain (a MATCH WHERE keeps
-        // its own on the FilterInfo and never reaches this map).
+        // EXISTS is planned only from a WITH/RETURN body, the one splice point it has. A MATCH's WHERE keeps its own
+        // on the FilterInfo and never reaches this map.
         std::unordered_map<Symbol, FilterMatching> pending_exists;
         for (const auto &exists : single_query_part.exists_matchings) {
           pending_exists.emplace(exists.symbol.value(), exists);
@@ -418,7 +415,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         bool write_occurred = false;
 
         // What a subquery branch planned here has to see: a write earlier in this part, or - when this part *is* an
-        // EXISTS branch - the write it was spliced after. Separate from `write_occurred`, which the MERGE, CALL and
+        // EXISTS branch - the write it was spliced after. Kept apart from `write_occurred`, which the MERGE, CALL and
         // FOREACH arms below read to ask about this part alone.
         auto const branch_sees_write = [&] { return write_occurred || exists_branch_after_write_; };
 
@@ -611,8 +608,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       }
 
       // Is this the only situation that should be covered
-      // `in_exists_subquery` first: an exists body whose every clause is dropped (`EXISTS { RETURN 1 }`) leaves
-      // input_op null, and the old operand order dereferenced it before the short-circuit could save it.
+      // An exists body whose every clause is dropped (`EXISTS { RETURN 1 }`) leaves input_op null, so short-circuit
+      // on `in_exists_subquery` before dereferencing it.
       if (!context.in_exists_subquery && input_op && input_op->OutputSymbols(*context.symbol_table).empty()) {
         if (has_periodic_commit && is_root_query) {
           // this periodic commit is from USING PERIODIC COMMIT
@@ -666,9 +663,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// Whether the EXISTS subquery branch currently being planned is spliced after a write in its enclosing query part.
   /// The recursive plan of a subquery body starts a fresh query part with no write history, so without this its
   /// matchings would read View::OLD and miss a write the branch is supposed to see. Every view decision inside the
-  /// branch has to consult it, not just the body's own MATCH: a body WITH/RETURN plans its comprehensions and nested
-  /// EXISTS on demand through `branch_sees_write`, and a body MATCH's WHERE reaches `MakeExistsFilter`. Miss one and
-  /// the branch disagrees with itself about the write, silently.
+  /// branch consults it, not just the body's own MATCH: a body WITH/RETURN plans its comprehensions and nested EXISTS
+  /// on demand through `branch_sees_write`, and a body MATCH's WHERE reaches `MakeExistsFilter`.
   bool exists_branch_after_write_{false};
 
   /// What the query part being planned binds. Scoped to one query part and saved/restored around it, because a
@@ -746,7 +742,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                   const SingleQueryPart &single_query_part,
                                                   const SymbolTable &symbol_table,
                                                   std::unordered_set<Symbol> &bound_symbols) {
-    // Outside an EXISTS branch the flag is false and SubqueryView collapses to View::OLD, the previous default.
+    // Outside an EXISTS branch the flag is false and SubqueryView collapses to View::OLD.
     MatchContext match_ctx{single_query_part.matching,
                            symbol_table,
                            bound_symbols,
@@ -1000,8 +996,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                             const std::vector<query::Clause *> &sets,
                                             const std::unordered_set<Symbol> &branch_bound_symbols) {
       const auto eligible = impl::CollectPatternComprehensionSymbols(sets, *context_->symbol_table);
-      // The branch binds the MERGE pattern into its own copy, so those symbols are not in the planning context yet -
-      // pass them as extras so a branch comprehension correlating to one plans against it rather than re-scanning.
+      // ON MATCH binds the MERGE pattern into its own copy, so those symbols are not in the planning context yet -
+      // pass them as extras for a branch comprehension correlating to one to plan against them rather than re-scan.
       return SpliceSatisfiedComprehensions(std::move(branch),
                                            pending_comprehensions,
                                            branch_bound_symbols,
@@ -1696,19 +1692,19 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // EmptyResult wrapper is suppressed, and GenWith keeps outer-scope vertex/edge symbols across a body WITH.
       const bool old_context_exists_subquery = context_->in_exists_subquery;
       context_->in_exists_subquery = true;
-      // The body's own matchings inherit the branch's view. A subquery matching carries no expansions of its own, so
-      // SubqueryView reduced to `write_occurred ? NEW : OLD` - View::NEW here means a write preceded the branch.
+      // The body's own matchings inherit the branch's view. A subquery matching carries no expansions, so
+      // SubqueryView reduces to `write_occurred ? NEW : OLD`: View::NEW here means a write preceded the branch.
       const bool old_branch_after_write = exists_branch_after_write_;
       exists_branch_after_write_ = view == storage::View::NEW;
-      // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would then empty the very
-      // set the branch has to correlate against - which shows up as a spurious ScanAll clobbering the outer row.
+      // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
+      // the branch has to correlate against.
       auto branch_bound_symbols = bound_symbols;
       auto outer_scope_bound_symbols = std::move(context_->bound_symbols);
       context_->bound_symbols = std::move(branch_bound_symbols);
 
       std::unique_ptr<LogicalOperator> last_op = Plan(*matching.subquery);
-      // A body whose clauses all dropped plans to nothing, and it still matches exactly one (empty) row - so the fold
-      // has to see a row, not a null branch it would dereference when making its cursor.
+      // A body whose clauses all dropped plans to nothing, yet still matches one (empty) row - so give the fold a
+      // branch to pull rather than a null it would dereference when making its cursor.
       if (!last_op) last_op = std::make_unique<Once>();
 
       context_->in_exists_subquery = old_context_exists_subquery;
@@ -1736,7 +1732,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   std::unique_ptr<LogicalOperator> MakeExistsFilter(const FilterMatching &matching, const SymbolTable &symbol_table,
                                                     AstStorage &storage,
                                                     const std::unordered_set<Symbol> &bound_symbols) {
-    // Outside an EXISTS branch the flag is false and SubqueryView collapses to View::OLD, the previous constant.
+    // Outside an EXISTS branch the flag is false and SubqueryView collapses to View::OLD.
     auto last_op = MakeExistsBranch(
         matching, symbol_table, storage, bound_symbols, SubqueryView(matching, exists_branch_after_write_));
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));

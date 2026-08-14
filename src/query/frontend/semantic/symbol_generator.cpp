@@ -696,15 +696,12 @@ bool SymbolGenerator::PostVisit(ListComprehension & /*list_comprehension*/) {
 }
 
 bool SymbolGenerator::IsSupportedExistsPosition(const Scope &scope) {
-  // A WHERE that is not part of a return body at all: a MATCH's filter or a pattern comprehension's. It becomes a
-  // deferred closure on the owning Filter, evaluated wherever the expression sits - so it stays correct even inside a
-  // per-element lambda, and is left exactly as it was. A CALL ... YIELD ... WHERE also lands here, and its Filter
-  // gets no branch, so the value is never computed - pre-existing, tracked with the drain work.
+  // A WHERE outside a return body: a MATCH's filter or a pattern comprehension's. It becomes a deferred closure on
+  // the owning Filter, evaluated where the expression sits, so a per-element lambda is fine here.
   if (scope.in_where && !scope.in_with && !scope.in_return) return true;
 
-  // Everything below is a forced fold spliced onto the main chain. A per-element lambda body is out of reach there:
-  // the branch would run once, above the Produce and outside the lambda's scope, and read an unbound element variable
-  // - a silently wrong bool rather than an error.
+  // Everything below is a forced fold spliced onto the main chain, out of reach of a per-element lambda body: the
+  // branch would run once above the Produce and read an unbound element variable.
   if (scope.element_lambda_depth > 0) return false;
   // A WHERE of a WITH, consumed by a Filter above any OrderBy.
   if (scope.in_where) return true;
@@ -1093,8 +1090,8 @@ void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
     identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
     prev_symbols.emplace_back(prev_symbol, identifier);
   }
-  // Visit the expressions with the new symbols bound. Every construct that binds a per-element identifier funnels
-  // through here, so this is the one place that has to mark the body as element-scoped.
+  // Visit the expressions with the new symbols bound. Every construct binding a per-element identifier funnels
+  // through here, so this is the one place that marks the body as element-scoped.
   const auto scope_idx = scopes_.size() - 1;
   ++scopes_[scope_idx].element_lambda_depth;
   for (auto *expr : exprs) {

@@ -151,9 +151,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   const SymbolTable &symbol_table_;
 
  private:
-  // Depths, not flags, for the same reason in both cases: a nested one's `PostVisit` would clear a flag and let the
-  // rest of the outer body collect anonymous symbols. A pattern's property maps and variable-length bounds may hold
-  // another comprehension, and an exists body may hold another exists.
+  // Depths, not flags: a nested one's `PostVisit` would clear a flag and let the rest of the outer body collect
+  // anonymous symbols. Both nest - a pattern's property maps and variable-length bounds may hold another
+  // comprehension, and an exists body may hold another exists.
   int in_exists_depth{0};
   int in_pattern_comprehension_depth{0};
 };
@@ -682,8 +682,8 @@ struct SingleQueryPart {
 
   /// @brief @c FilterMatching for each EXISTS found in a non-@c Match clause.
   ///
-  /// A MATCH's WHERE keeps its EXISTS on the owning @c FilterInfo, where it becomes a deferred bool fold inside a
-  /// @c Filter. These are the ones a WITH/RETURN body evaluates, so they need a forced fold spliced onto the chain.
+  /// A MATCH's WHERE keeps its EXISTS on the owning @c FilterInfo, as a deferred bool fold inside a @c Filter. These
+  /// are the ones a WITH/RETURN body evaluates, so they need a forced fold spliced onto the chain.
   std::vector<FilterMatching> exists_matchings;
 
   /// @brief All the remaining clauses (without @c Match).
