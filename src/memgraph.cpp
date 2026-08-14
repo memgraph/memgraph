@@ -1139,7 +1139,7 @@ int main(int argc, char **argv) {
     }
 
     // Defense-in-depth, not a UAF fix: the 2PC commit-accessor slot is a deliberately-leaked heap
-    // singleton with no static destructor (TwoPCCommitCache::Instance()/Slot()), so skipping this would
+    // singleton with no static destructor (TwoPCCommitCache::Slot()), so skipping this would
     // just defer the abort to ~Database during ~DbmsHandler teardown instead of crashing. Doing it here
     // aborts the in-flight prepared txn now, while storages are alive, and TakeAny() (not uuid-scoped) is
     // safe because Shutdown() above already joined the replica's RPC worker threads, so nothing can
