@@ -1041,6 +1041,63 @@ Feature: WHERE exists
           | name  | subquery_form | pattern_form |
           | 'Bob' | true          | true         |
 
+  # A subquery expression nested in the body has to inherit the branch's view. Planned on demand from the body's own
+  # WITH, it starts a query part with no write history of its own, so without the branch flag it reads View::OLD and
+  # disagrees with the body's MATCH about the write - silently, in the RETURN position, where no Accumulate advances
+  # the command.
+  Scenario: Test EXISTS subquery nested in an EXISTS body in a RETURN projection after a write
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Root)
+          """
+      When executing query:
+          """
+          MATCH (r:Root) CREATE (:New)
+          RETURN EXISTS { MATCH (r) WITH r, EXISTS { MATCH (x:New) } AS i WHERE i } AS nested,
+                 EXISTS { MATCH (x:New) } AS flat;
+          """
+      Then the result should be:
+          | nested | flat |
+          | true   | true |
+
+  # The same, one AST node over: a body MATCH's WHERE reaches MakeExistsFilter, which chose the view separately.
+  Scenario: Test EXISTS subquery in an EXISTS body's WHERE in a RETURN projection after a write
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Root)
+          """
+      When executing query:
+          """
+          MATCH (r:Root) CREATE (:New)
+          RETURN EXISTS { MATCH (r) WHERE EXISTS { MATCH (x:New) } } AS h;
+          """
+      Then the result should be:
+          | h    |
+          | true |
+
+  # The comprehension half of the same rule: a pattern comprehension in the body is planned through the same
+  # on-demand path and must see the write too.
+  Scenario: Test pattern comprehension in an EXISTS body in a RETURN projection after a write
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (p:P) CREATE (p)-[:Z]->(:New)
+          RETURN p.id AS id,
+                 EXISTS { MATCH (r:P) WITH r, [(r)-[:Z]->(x) | x] AS l WHERE size(l) > 0 } AS h
+          ORDER BY id;
+          """
+      Then the result should be:
+          | id | h    |
+          | 1  | true |
+          | 2  | true |
+
   Scenario: Test EXISTS subquery in a projection after a SET
       Given an empty graph
       And having executed:

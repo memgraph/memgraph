@@ -417,16 +417,21 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         // need to use View::NEW to see the newly created/modified data.
         bool write_occurred = false;
 
+        // What a subquery branch planned here has to see: a write earlier in this part, or - when this part *is* an
+        // EXISTS branch - the write it was spliced after. Separate from `write_occurred`, which the MERGE, CALL and
+        // FOREACH arms below read to ask about this part alone.
+        auto const branch_sees_write = [&] { return write_occurred || exists_branch_after_write_; };
+
         // Plan and apply the satisfiable comprehensions this clause originates, before the clause itself.
         auto plan_and_apply_comprehensions = [&](const std::unordered_set<Symbol> &eligible) {
           input_op = SpliceSatisfiedComprehensions(
-              std::move(input_op), pending_comprehensions, context.bound_symbols, write_occurred, eligible);
+              std::move(input_op), pending_comprehensions, context.bound_symbols, branch_sees_write(), eligible);
         };
 
         for (const auto &clause : single_query_part.remaining_clauses) {
           MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
 
-          SubqueryContext pc_ctx{pending_comprehensions, pending_exists, this, write_occurred};
+          SubqueryContext pc_ctx{pending_comprehensions, pending_exists, this, branch_sees_write()};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
             input_op = impl::GenReturn(*ret,
@@ -660,7 +665,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   TPlanningContext *context_;
   /// Whether the EXISTS subquery branch currently being planned is spliced after a write in its enclosing query part.
   /// The recursive plan of a subquery body starts a fresh query part with no write history, so without this its
-  /// matchings would read View::OLD and miss a write the branch is supposed to see.
+  /// matchings would read View::OLD and miss a write the branch is supposed to see. Every view decision inside the
+  /// branch has to consult it, not just the body's own MATCH: a body WITH/RETURN plans its comprehensions and nested
+  /// EXISTS on demand through `branch_sees_write`, and a body MATCH's WHERE reaches `MakeExistsFilter`. Miss one and
+  /// the branch disagrees with itself about the write, silently.
   bool exists_branch_after_write_{false};
 
   /// What the query part being planned binds. Scoped to one query part and saved/restored around it, because a
@@ -1728,7 +1736,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   std::unique_ptr<LogicalOperator> MakeExistsFilter(const FilterMatching &matching, const SymbolTable &symbol_table,
                                                     AstStorage &storage,
                                                     const std::unordered_set<Symbol> &bound_symbols) {
-    auto last_op = MakeExistsBranch(matching, symbol_table, storage, bound_symbols, storage::View::OLD);
+    // Outside an EXISTS branch the flag is false and SubqueryView collapses to View::OLD, the previous constant.
+    auto last_op = MakeExistsBranch(
+        matching, symbol_table, storage, bound_symbols, SubqueryView(matching, exists_branch_after_write_));
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
     return std::make_unique<EvaluatePatternFilter>(std::move(last_op), matching.symbol.value());
   }
