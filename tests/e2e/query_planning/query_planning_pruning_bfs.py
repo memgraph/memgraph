@@ -122,6 +122,33 @@ def test_no_rewrite_for_explicit_bfs(memgraph):
     assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
 
 
+def test_no_rewrite_when_existing_node(memgraph):
+    plan = get_plan(memgraph, "MATCH (a:N {id: 'a'}), (b:N {id: 'c'}) WITH a, b MATCH (a)-[*]->(b) RETURN DISTINCT b")
+    ops = operator_names(plan)
+    assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
+    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+
+
+def test_no_rewrite_with_accumulated_path_lambda(memgraph):
+    plan = get_plan(memgraph, "MATCH (a:N)-[* (e, n, p | size(nodes(p)) < 5)]->(b) RETURN DISTINCT b")
+    ops = operator_names(plan)
+    assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
+    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+
+
+def test_no_rewrite_with_multi_expand(memgraph):
+    plan = get_plan(memgraph, "MATCH (a:N)-[*]->(b)-[*]->(c) RETURN DISTINCT c")
+    ops = operator_names(plan)
+    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+
+
+def test_no_rewrite_leaks_across_union(memgraph):
+    plan = get_plan(memgraph, "MATCH (a)-[*]->(b) RETURN DISTINCT b UNION ALL MATCH (a)-[*]->(b) RETURN b")
+    plan_text = "\n".join(plan)
+    assert plan_text.count("PruningBFSExpand") <= 1, f"Right branch should not be rewritten, got: {plan}"
+    assert "ExpandVariable" in plan_text, f"Expected ExpandVariable in right branch, got: {plan}"
+
+
 # === Correctness tests: pruning BFS results == DFS + DISTINCT ===
 
 
@@ -169,6 +196,33 @@ def test_correctness_count_distinct(memgraph):
 def test_correctness_collect_distinct(memgraph):
     result = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*]->(b) RETURN collect(DISTINCT b.id) AS ids"))
     assert sorted(result[0]["ids"]) == ["b", "c", "d", "e"], f"Got {result[0]['ids']}"
+
+
+def test_correctness_bounded_depth(memgraph):
+    """B1: bounded [*1..2] must match DFS results."""
+    pruning = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*1..2]->(b) RETURN DISTINCT b.id AS id"))
+    dfs = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[r*1..2]->(b) RETURN DISTINCT b.id AS id"))
+    assert {r["id"] for r in pruning} == {r["id"] for r in dfs}
+
+
+def test_correctness_zero_lower_bound(memgraph):
+    """B6: [*0..2] must include the start vertex."""
+    results = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*0..2]->(b) RETURN DISTINCT b.id AS id"))
+    ids = {r["id"] for r in results}
+    assert "a" in ids, f"Start vertex missing, got: {ids}"
+
+
+def test_correctness_zero_zero_bound(memgraph):
+    """B6: [*0..0] must return only the start vertex."""
+    results = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*0..0]->(b) RETURN DISTINCT b.id AS id"))
+    ids = {r["id"] for r in results}
+    assert ids == {"a"}, f"Expected only start vertex, got: {ids}"
+
+
+def test_negative_bound_throws(memgraph):
+    """N2: negative parameterised bound must raise, not silently succeed."""
+    with pytest.raises(Exception):
+        list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*$lo..5]->(b) RETURN DISTINCT b", {"lo": -1}))
 
 
 if __name__ == "__main__":

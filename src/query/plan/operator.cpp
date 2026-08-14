@@ -3003,11 +3003,11 @@ class PruningBFSCursor : public query::plan::Cursor {
         if (lower_bound_ > upper_bound_) continue;
 
         auto const &vertex = vertex_value.ValueVertex();
-        visited_.emplace(vertex);
 
         current_depth_ = 0;
 
         if (lower_bound_ <= 0) {
+          visited_.emplace(vertex);
           frame_writer.Write(self_.common_.node_symbol, vertex);
           if (upper_bound_ > 0) {
             expand_from_vertex(vertex, evaluator, frame, frame_writer, context);
