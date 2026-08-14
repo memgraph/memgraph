@@ -107,7 +107,6 @@ print_help () {
   echo -e "  generate-memgraph-build-sbom       Generate Memgraph build SBOM"
   echo -e "  generate-mage-image-sbom [OPTIONS] Generate MAGE image SBOM"
   echo -e "  build-pymgclient                   Build pymgclient inside mgbuild container"
-  echo -e "  build-gssapi [OPTIONS]             Build python gssapi wheel inside mgbuild container"
   echo -e "  build-ssl [OPTIONS]                Build OpenSSL inside mgbuild container"
 
   echo -e "\nSupported tests:"
@@ -2676,37 +2675,6 @@ build_pymgclient() {
   echo -e "${GREEN_BOLD}Package: ${RED_BOLD}$package_name${RESET}"
 }
 
-build_gssapi() {
-  echo -e "${GREEN_BOLD}Packaging gssapi${RESET}"
-  local dest_dir="$PROJECT_ROOT/release/package/mage/wheels"
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --dest-dir)
-        dest_dir="$PROJECT_ROOT/$2"
-        shift 2
-      ;;
-      *)
-        echo "Error: Unknown flag '$1'"
-        print_help
-        exit 1
-      ;;
-    esac
-  done
-  mkdir -p "$dest_dir"
-  # TODO(matt): remove in toolchain v8
-  # we need to install libkrb5-dev in the container to build gssapi as it has been added as a build dependency sing the container image was built
-  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/install_deps.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/install_deps.sh install MEMGRAPH_BUILD_DEPS"
-  docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/tools/ci && ./build-gssapi.sh"
-  local package_name
-  package_name=$(docker exec -i -u mg $build_container bash -c "ls -1 \$HOME/memgraph/tools/ci/gssapi/dist/*.whl | head -n 1 | xargs -n1 basename")
-  if [[ -z "$package_name" ]]; then
-    echo -e "${RED_BOLD}Error: no gssapi wheel produced${RESET}"
-    exit 1
-  fi
-  docker cp "$build_container:/home/mg/memgraph/tools/ci/gssapi/dist/$package_name" "$dest_dir/"
-  echo -e "${GREEN_BOLD}Package: ${RED_BOLD}$package_name${RESET} -> ${dest_dir}"
-}
-
 generate_memgraph_build_sbom() {
   local conan_remote=""
   local sbom_scripts_dir=""
@@ -3405,9 +3373,6 @@ case $command in
     ;;
     build-pymgclient)
       build_pymgclient $@
-    ;;
-    build-gssapi)
-      build_gssapi $@
     ;;
     generate-memgraph-build-sbom)
       generate_memgraph_build_sbom $@
