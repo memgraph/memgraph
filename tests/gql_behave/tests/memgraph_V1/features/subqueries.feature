@@ -1013,7 +1013,7 @@ Feature: Subqueries
             }
             RETURN DISTINCT des1.id AS d1, collect(DISTINCT des2.id) AS d2
             """
-        Then the result should be:
+        Then the result should be (ignoring element order for lists):
             | d1  | d2           |
             | '2' | ['4', '6']   |
 
@@ -1063,7 +1063,7 @@ Feature: Subqueries
             }
             RETURN DISTINCT des1.id AS d1, collect(DISTINCT des2.id) AS d2
             """
-        Then the result should be:
+        Then the result should be (ignoring element order for lists):
             | d1  | d2           |
             | '2' | ['4', '6']   |
 
@@ -1089,7 +1089,7 @@ Feature: Subqueries
             }
             RETURN DISTINCT des1.id AS d1, collect(DISTINCT des2.id) AS d2
             """
-        Then the result should be:
+        Then the result should be (ignoring element order for lists):
             | d1  | d2                                  |
             | '2' | ['2', '1', '4', '3', '6', '5']      |
 

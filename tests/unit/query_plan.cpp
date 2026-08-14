@@ -3247,6 +3247,39 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportShadowedByNamedExpressionIsNotProjec
   DeleteListContent(&branch);
 }
 
+// The active import set is not reset per query part, so every UNION branch of the body keeps it -
+// mirroring SymbolGenerator, which carries the imports into each branch's scope.
+TYPED_TEST(TestPlanner, SubqueryScopedImportSurvivesIntermediateWithInEveryUnionBranch) {
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN b
+  //                      UNION ALL
+  //                      MATCH (m)-[r3]-(c) WITH c MATCH (m)-[r4]-(d) RETURN d AS b } RETURN b
+  FakeDbAccessor dba;
+  auto *subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                      WITH("a"),
+                                      MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("b"))),
+                                      RETURN("b")),
+                         UNION_ALL(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r3"), NODE("c"))),
+                                                WITH("c"),
+                                                MATCH(PATTERN(NODE("m"), EDGE("r4"), NODE("d"))),
+                                                RETURN(NEXPR("b", IDENT("d"))))));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"m"}), RETURN("b")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Neither branch re-scans `m`.
+  std::list<BaseOpChecker *> left_branch{
+      new ExpectExpand(), new ExpectProduce(), new ExpectExpand(), new ExpectProduce()};
+  std::list<BaseOpChecker *> right_branch{
+      new ExpectExpand(), new ExpectProduce(), new ExpectExpand(), new ExpectProduce()};
+  std::list<BaseOpChecker *> branch{new ExpectUnion(left_branch, right_branch)};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+  DeleteListContent(&left_branch);
+  DeleteListContent(&right_branch);
+}
+
 TYPED_TEST(TestPlanner, PatternComprehensionInReturn) {
   FakeDbAccessor dba;
   const auto prop = PROPERTY_PAIR(dba, "prop");
