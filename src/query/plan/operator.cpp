@@ -145,6 +145,14 @@ auto ExpressionRange::In(Expression *runtime_value, ListLiteral *membership_list
 
 auto ExpressionRange::RegexMatch() -> ExpressionRange { return {Type::REGEX_MATCH, std::nullopt, std::nullopt}; }
 
+auto ExpressionRange::StartsWith(Expression *value) -> ExpressionRange {
+  return {Type::STARTS_WITH, utils::MakeBoundInclusive(value), std::nullopt};
+}
+
+auto ExpressionRange::Contains() -> ExpressionRange { return {Type::CONTAINS, std::nullopt, std::nullopt}; }
+
+auto ExpressionRange::EndsWith() -> ExpressionRange { return {Type::ENDS_WITH, std::nullopt, std::nullopt}; }
+
 auto ExpressionRange::Range(std::optional<utils::Bound<Expression *>> lower,
                             std::optional<utils::Bound<Expression *>> upper) -> ExpressionRange {
   return {Type::RANGE, std::move(lower), std::move(upper)};
@@ -172,10 +180,26 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       return storage::PropertyValueRange::Bounded(bounded_property_value, bounded_property_value);
     }
 
-    case Type::REGEX_MATCH: {
+    case Type::REGEX_MATCH:
+    case Type::CONTAINS:
+    case Type::ENDS_WITH: {
       auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
       auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
       return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
+    }
+
+    case Type::STARTS_WITH: {
+      auto const typed_value = lower_->value()->Accept(evaluator);
+      if (!typed_value.IsString()) {
+        throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
+      }
+      auto const &prefix = typed_value.ValueString();
+      auto lower_bound = utils::MakeBoundInclusive(storage::PropertyValue(prefix));
+      auto successor = storage::PrefixSuccessor(prefix);
+      auto upper_bound =
+          successor ? std::make_optional(utils::MakeBoundExclusive(storage::PropertyValue(std::move(*successor))))
+                    : storage::UpperBoundForType(storage::PropertyValueType::String);
+      return storage::PropertyValueRange::Bounded(std::move(lower_bound), std::move(upper_bound));
     }
 
     case Type::RANGE: {
@@ -237,10 +261,25 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
                                                   std::get<obpv>(bounded_property_value));
     }
 
-    case Type::REGEX_MATCH: {
+    case Type::REGEX_MATCH:
+    case Type::CONTAINS:
+    case Type::ENDS_WITH: {
       auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
       auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
       return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
+    }
+
+    case Type::STARTS_WITH: {
+      auto maybe_lower = to_bounded_property_value(lower_);
+      if (std::holds_alternative<UnknownAtPlanTime>(maybe_lower)) return std::nullopt;
+      auto lower_bound = std::get<obpv>(maybe_lower);
+      if (!lower_bound || !lower_bound->value().IsString()) return std::nullopt;
+      auto const &prefix = lower_bound->value().ValueString();
+      auto successor = storage::PrefixSuccessor(prefix);
+      auto upper_bound =
+          successor ? std::make_optional(utils::MakeBoundExclusive(storage::PropertyValue(std::move(*successor))))
+                    : storage::UpperBoundForType(storage::PropertyValueType::String);
+      return storage::PropertyValueRange::Bounded(std::move(lower_bound), std::move(upper_bound));
     }
 
     case Type::RANGE: {

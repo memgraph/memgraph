@@ -103,5 +103,34 @@ def test_no_index_falls_back_to_scan_all(memgraph):
     assert [r["t"] for r in result] == ["hello"]
 
 
+def test_starts_with_empty_string_matches_all(memgraph):
+    result = list(memgraph.execute_and_fetch("MATCH (n:N) WHERE n.type STARTS WITH '' RETURN n.type AS t ORDER BY t"))
+    assert [r["t"] for r in result] == ["alpha", "beta", "gamma"]
+
+
+def test_starts_with_exact_match(memgraph):
+    result = list(memgraph.execute_and_fetch("MATCH (n:N) WHERE n.type STARTS WITH 'alpha' RETURN n.type AS t"))
+    assert [r["t"] for r in result] == ["alpha"]
+
+
+def test_starts_with_no_match(memgraph):
+    result = list(memgraph.execute_and_fetch("MATCH (n:N) WHERE n.type STARTS WITH 'z' RETURN n.type AS t"))
+    assert [r["t"] for r in result] == []
+
+
+def test_starts_with_shared_prefix(memgraph):
+    """Values 'alpha', 'beta', 'gamma' — STARTS WITH 'al' should only match 'alpha'."""
+    result = list(memgraph.execute_and_fetch("MATCH (n:N) WHERE n.type STARTS WITH 'al' RETURN n.type AS t"))
+    assert [r["t"] for r in result] == ["alpha"]
+
+
+def test_starts_with_mixed_types(memgraph):
+    """Non-string property values should not be returned."""
+    memgraph.execute("CREATE (:N {type: 123});")
+    memgraph.execute("CREATE (:N {type: true});")
+    result = list(memgraph.execute_and_fetch("MATCH (n:N) WHERE n.type STARTS WITH 'al' RETURN n.type AS t"))
+    assert [r["t"] for r in result] == ["alpha"]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))

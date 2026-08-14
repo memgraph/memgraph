@@ -84,4 +84,14 @@ auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<Pro
   }
 }
 
+auto PrefixSuccessor(std::string_view prefix) -> std::optional<std::string> {
+  auto result = std::string{prefix};
+  while (!result.empty() && static_cast<unsigned char>(result.back()) == 0xFF) {
+    result.pop_back();
+  }
+  if (result.empty()) return std::nullopt;
+  ++result.back();
+  return result;
+}
+
 }  // namespace memgraph::storage

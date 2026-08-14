@@ -1010,10 +1010,10 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
       // handled
     } else if ((fn == kContains || fn == kStartsWith || fn == kEndsWith) && func->arguments_.size() == 2) {
-      // CONTAINS/STARTS WITH/ENDS WITH require a string property value.
-      // Treat like REGEX_MATCH: use the label+property index for a
-      // string-range scan, keep the expression as a post-filter.
-      if (!try_add_prop_filter(func->arguments_[0], func->arguments_[1], PropertyFilter::Type::REGEX_MATCH)) {
+      auto const type = fn == kStartsWith ? PropertyFilter::Type::STARTS_WITH
+                        : fn == kContains ? PropertyFilter::Type::CONTAINS
+                                          : PropertyFilter::Type::ENDS_WITH;
+      if (!try_add_prop_filter(func->arguments_[0], func->arguments_[1], type)) {
         all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
       }
     } else {

@@ -277,7 +277,22 @@ class PropertyFilter {
 
   /// Depending on type, this PropertyFilter may be a value equality, regex
   /// matched value or a range with lower and (or) upper bounds, IN list filter.
-  enum class Type : uint8_t { EQUAL = 0, REGEX_MATCH = 1, RANGE = 2, IN = 3, IS_NOT_NULL = 4 };
+  enum class Type : uint8_t {
+    EQUAL = 0,
+    REGEX_MATCH = 1,
+    RANGE = 2,
+    IN = 3,
+    IS_NOT_NULL = 4,
+    STARTS_WITH = 5,
+    CONTAINS = 6,
+    ENDS_WITH = 7
+  };
+
+  /// True when the index scan is a superset and the original expression
+  /// must be retained as a post-filter.
+  static constexpr bool RequiresPostFilter(Type t) {
+    return t == Type::REGEX_MATCH || t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH;
+  }
 
   /// Construct with Expression being the equality or regex match check.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, Expression *, Type);

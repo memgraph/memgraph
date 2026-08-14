@@ -1047,10 +1047,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (found_index) {
       // Copy the property filter and then erase it from filters.
       const auto prop_filter = *found_index->filter.property_filter;
-      if (prop_filter.type_ != PropertyFilter::Type::REGEX_MATCH) {
-        // Remove the original expression from Filter operation only if it's not
-        // a regex match. In such a case we need to perform the matching even
-        // after we've scanned the index.
+      if (!PropertyFilter::RequiresPostFilter(prop_filter.type_)) {
         filter_exprs_for_removal_.insert(found_index->filter.expression);
       }
       filters_.EraseFilter(found_index->filter);
@@ -1071,10 +1068,23 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                                 prop_filter.upper_bound_,
                                                                 view);
       }
-      if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
-        // Generate index scan using the empty string as a lower bound.
+      if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH ||
+          prop_filter.type_ == PropertyFilter::Type::CONTAINS || prop_filter.type_ == PropertyFilter::Type::ENDS_WITH) {
         Expression *empty_string = ast_storage_->Create<PrimitiveLiteral>("");
         auto lower_bound = utils::MakeBoundInclusive(empty_string);
+        return std::make_unique<ScanAllByEdgeTypePropertyRange>(input,
+                                                                common.edge_symbol,
+                                                                common.node1_symbol,
+                                                                common.node2_symbol,
+                                                                common.direction,
+                                                                GetEdgeType(found_index.value()),
+                                                                GetProperty(prop_filter.property_ids_.path[0]),
+                                                                std::make_optional(lower_bound),
+                                                                std::nullopt,
+                                                                view);
+      }
+      if (prop_filter.type_ == PropertyFilter::Type::STARTS_WITH) {
+        auto lower_bound = utils::MakeBoundInclusive(prop_filter.value_);
         return std::make_unique<ScanAllByEdgeTypePropertyRange>(input,
                                                                 common.edge_symbol,
                                                                 common.node1_symbol,
@@ -1160,10 +1170,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto const build_scan_edgeproperty = [&]() -> std::shared_ptr<LogicalOperator> {
       // Copy the property filter and then erase it from filters.
       const auto prop_filter = *found_property_index->filter.property_filter;
-      if (prop_filter.type_ != PropertyFilter::Type::REGEX_MATCH) {
-        // Remove the original expression from Filter operation only if it's not
-        // a regex match. In such a case we need to perform the matching even
-        // after we've scanned the index.
+      if (!PropertyFilter::RequiresPostFilter(prop_filter.type_)) {
         filter_exprs_for_removal_.insert(found_property_index->filter.expression);
       }
       filters_.EraseFilter(found_property_index->filter);
@@ -1178,10 +1185,22 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                             prop_filter.upper_bound_,
                                                             view);
       }
-      if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
-        // Generate index scan using the empty string as a lower bound.
+      if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH ||
+          prop_filter.type_ == PropertyFilter::Type::CONTAINS || prop_filter.type_ == PropertyFilter::Type::ENDS_WITH) {
         Expression *empty_string = ast_storage_->Create<PrimitiveLiteral>("");
         auto lower_bound = utils::MakeBoundInclusive(empty_string);
+        return std::make_shared<ScanAllByEdgePropertyRange>(input,
+                                                            common.edge_symbol,
+                                                            common.node1_symbol,
+                                                            common.node2_symbol,
+                                                            common.direction,
+                                                            GetProperty(prop_filter.property_ids_.path[0]),
+                                                            std::make_optional(lower_bound),
+                                                            std::nullopt,
+                                                            view);
+      }
+      if (prop_filter.type_ == PropertyFilter::Type::STARTS_WITH) {
+        auto lower_bound = utils::MakeBoundInclusive(prop_filter.value_);
         return std::make_shared<ScanAllByEdgePropertyRange>(input,
                                                             common.edge_symbol,
                                                             common.node1_symbol,

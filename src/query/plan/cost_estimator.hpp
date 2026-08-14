@@ -773,6 +773,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       }
       case Type::RANGE:
       case Type::REGEX_MATCH:
+      case Type::STARTS_WITH:
+      case Type::CONTAINS:
+      case Type::ENDS_WITH:
         return EstimateVertexPropertyRangeCardinality(property, range.lower_, range.upper_);
     }
     std::unreachable();
