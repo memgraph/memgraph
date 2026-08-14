@@ -4077,6 +4077,11 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                 interpreter.query_planner_context(),
                                 parsed_query.module_generation);
 
+  // Backstop for the accessor-free path: classification decided this query needs no storage transaction, so
+  // the plan below runs against a null dba. If the classifier ever drifts and admits a graph-touching query,
+  // reject it here with a clean error instead of dereferencing the null accessor deep in a cursor.
+  if (no_storage_access) plan::ValidateNoStorageAccessPlan(plan->plan());
+
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);

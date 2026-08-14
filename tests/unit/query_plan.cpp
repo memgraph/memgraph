@@ -4866,6 +4866,24 @@ TEST(UsedIndexChecker, CollectsEveryBranchOfDisjunctionUnion) {
   EXPECT_THAT(checker.required_indices_.label_, ::testing::UnorderedElementsAreArray(labels));
 }
 
+// The accessor-free (NO_ACCESS) path runs its plan against a null DbAccessor. ValidateNoStorageAccessPlan is
+// the backstop that turns "the classifier admitted a graph-touching query" from a null-accessor crash into a
+// clean QueryRuntimeException: a storage-free plan (Produce over Once) is accepted; any storage operator (a
+// scan) is rejected. New/other operators reach DefaultPreVisit and are rejected by default.
+TEST(ValidateNoStorageAccessPlan, AcceptsStorageFreeRejectsScan) {
+  FakeDbAccessor dba;
+  const std::shared_ptr<LogicalOperator> once = std::make_shared<Once>();
+
+  // Produce over Once -- the constant-RETURN shape -- is storage-free and accepted.
+  auto produce = std::make_shared<Produce>(once, std::vector<memgraph::query::NamedExpression *>{});
+  EXPECT_NO_THROW(ValidateNoStorageAccessPlan(*produce));
+
+  // A scan needs the accessor, so the plan is rejected loudly instead of dereferencing a null dba.
+  const memgraph::query::Symbol node_symbol{"n", 0, /*user_declared=*/false};
+  auto scan = std::make_shared<ScanAllByLabel>(once, node_symbol, dba.Label("L"));
+  EXPECT_THROW(ValidateNoStorageAccessPlan(*scan), memgraph::query::QueryRuntimeException);
+}
+
 TYPED_TEST(TestPlanner, ORLabelExpressionMatchWhereCombination) {
   // Test Match (n:Label1|Label2) WHERE n:Label3 OR n:Label4 RETURN n
   FakeDbAccessor dba;

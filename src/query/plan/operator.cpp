@@ -11996,4 +11996,34 @@ void Limit::LimitCursor::Reset() {
   shared_quota_.reset();
 }
 
+namespace {
+// Walks a plan and rejects it unless every operator is storage-free. The allowlist is exactly the
+// operators the accessor-free classifier can produce: Produce (a constant RETURN projection),
+// CallProcedure (a no_graph_access introspection call -- its cursor re-checks the flag), and the Once leaf.
+// Every other operator (scans, expands, writes, Unwind, Aggregate, Filter, ...) reaches DefaultPreVisit
+// and throws, so a future operator is rejected by default rather than silently reaching a null accessor.
+class NoStorageAccessPlanChecker final : public HierarchicalLogicalOperatorVisitor {
+ public:
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  bool DefaultPreVisit() override {
+    throw QueryRuntimeException("Internal error: an accessor-free query produced a plan that requires storage access.");
+  }
+
+  bool PreVisit(Produce & /*unused*/) override { return true; }
+
+  bool PreVisit(CallProcedure & /*unused*/) override { return true; }
+
+  bool Visit(Once & /*unused*/) override { return true; }
+};
+}  // namespace
+
+void ValidateNoStorageAccessPlan(const LogicalOperator &plan) {
+  NoStorageAccessPlanChecker checker;
+  // Accept is non-const only because the visitor framework lacks const visiting; the checker never mutates.
+  const_cast<LogicalOperator &>(plan).Accept(checker);
+}
+
 }  // namespace memgraph::query::plan

@@ -3292,5 +3292,12 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
+/// Verifies that `plan` runs without a storage transaction: it must contain only storage-free operators
+/// (Produce / CallProcedure / Once). Throws QueryRuntimeException on any other operator. This is the
+/// execution-time backstop for the accessor-free (NO_ACCESS) path -- if the AST classifier ever admits a
+/// query whose plan touches the graph, this turns the otherwise-null DbAccessor dereference into a clean
+/// error instead of a crash.
+void ValidateNoStorageAccessPlan(const LogicalOperator &plan);
+
 }  // namespace plan
 }  // namespace memgraph::query
