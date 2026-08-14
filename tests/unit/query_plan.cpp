@@ -5288,6 +5288,40 @@ TYPED_TEST(TestPlanner, ExistsSubqueryInWithOrderBy) {
                        ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, ExistsSubqueryInReturnOrderBy) {
+  // MATCH (n) RETURN n AS n ORDER BY EXISTS { MATCH (n)-[r]->(m) }
+  // A RETURN's own ORDER BY takes the same bucket as a WITH's - the branch below the OrderBy that reads it.
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", ORDER_BY(EXISTS_SUBQUERY(exists_subquery)))));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}, ExpectProduce{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectExistsRollUpApply{std::move(input), std::move(branch)}, ExpectOrderBy());
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryOnAnOptionalMatchVariable) {
+  // MATCH (n) OPTIONAL MATCH (n)-[e]->(q) RETURN EXISTS { MATCH (q)-[r]->(m) } AS h
+  // The branch correlates to a variable the Optional may leave null, so it must sit above that Optional - below it the
+  // frame slot is unwritten on the first row and stale from the previous one on every later row.
+  FakeDbAccessor dba;
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("q"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("q"))),
+                                   RETURN(EXISTS_SUBQUERY(exists_subquery), AS("h"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto *rollup = dynamic_cast<RollUpApply *>(produce->input_.get());
+  ASSERT_NE(rollup, nullptr) << "the projected EXISTS must be a RollUpApply below the Produce";
+  EXPECT_EQ(rollup->fold_, RollUpApply::Fold::kBool);
+  EXPECT_NE(dynamic_cast<Optional *>(rollup->input_.get()), nullptr)
+      << "the branch must sit above the Optional that binds what it correlates to";
+}
+
 TYPED_TEST(TestPlanner, ExistsSubqueryInWithWhereWithAggregation) {
   // MATCH (n) WITH n, count(*) AS c WHERE EXISTS { MATCH (n)-[r]->(m) } RETURN n
   // With an aggregation present the WHERE is not visited for group-by collection; the EXISTS there must still be

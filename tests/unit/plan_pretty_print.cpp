@@ -1605,3 +1605,47 @@ TYPED_TEST(PrintToJsonTest, RollUpApply) {
             "output_symbol": "node"
           })sep");
 }
+
+TYPED_TEST(PrintToJsonTest, RollUpApplyBoolFold) {
+  auto x = this->GetSymbol("x");
+  auto e = this->GetSymbol("edge");
+  auto n = this->GetSymbol("node");
+  auto branch = std::make_shared<Expand>(nullptr,
+                                         x,
+                                         n,
+                                         e,
+                                         memgraph::query::EdgeAtom::Direction::BOTH,
+                                         std::vector<memgraph::storage::EdgeTypeId>{},
+                                         false,
+                                         memgraph::storage::View::OLD);
+  auto input_op = std::make_shared<ScanAll>(nullptr, x);
+  // The bool-fold ctor: no collected column, so no list_collection_symbols.
+  auto rollup_op =
+      std::make_shared<RollUpApply>(std::move(input_op), std::move(branch), this->GetSymbol("output_symbol"));
+
+  this->Check(rollup_op.get(), R"sep(
+          {
+            "input": {
+                "input": {
+                    "name": "Once"
+                },
+                "name": "ScanAll",
+                "output_symbol": "x"
+            },
+            "list_collection_branch": {
+                "direction": "both",
+                "edge_symbol": "edge",
+                "edge_types": null,
+                "existing_node": false,
+                "input": {
+                    "name": "Once"
+                },
+                "input_symbol": "x",
+                "name": "Expand",
+                "node_symbol": "node"
+            },
+            "fold": "bool",
+            "name": "RollUpApply",
+            "output_symbol": "output_symbol"
+          })sep");
+}

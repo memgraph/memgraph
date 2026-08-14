@@ -1098,17 +1098,20 @@ Feature: WHERE exists
           | 1  | true |
           | 2  | true |
 
-  Scenario: Test EXISTS subquery in a projection after a SET
+  # The EXISTS reads the property the SET just wrote, so this fails if the branch cannot see the write: with `tag`
+  # unset on every node the body matches nothing and both rows come back false. The `n.rank + 1` correlation keeps the
+  # two rows distinguishable, so an all-false and an all-true answer are both detected.
+  Scenario: Test EXISTS subquery in a projection reading what a SET just wrote
       Given an empty graph
       And having executed:
           """
-          CREATE (:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
-          CREATE (:Person {name: 'Bob'})
+          CREATE (:Person {name: 'Regina King', rank: 1})
+          CREATE (:Person {name: 'Bob', rank: 2})
           """
       When executing query:
           """
-          MATCH (n:Person) SET n.tag = 1
-          WITH n, EXISTS { MATCH (n)-[:ACTED_IN]->() } AS e
+          MATCH (n:Person) SET n.tag = n.rank
+          WITH n, EXISTS { MATCH (m:Person) WHERE m.tag = n.rank + 1 } AS e
           RETURN n.name AS name, e ORDER BY name;
           """
       Then the result should be:
