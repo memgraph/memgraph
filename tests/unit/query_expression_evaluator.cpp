@@ -1155,6 +1155,8 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullList) {
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
+  // One definite match alongside an unknown: the total is either one or two, so
+  // whether exactly one element matches is itself unknown.
   AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *single = SINGLE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
@@ -1162,8 +1164,35 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
   auto value = this->Eval(single);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementBeforeMatch) {
+  // Same as above with the unknown first: element order must not change the
+  // result.
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single = SINGLE("x", LIST(LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(true)), WHERE(ident_x));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(single);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleTwoMatchesWithNullIsFalse) {
+  // Two definite matches settle the answer no matter what the unknown resolves
+  // to, so an unknown alongside them does not make the result unknown.
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single = SINGLE(
+      "x", LIST(LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(true), LITERAL(true)), WHERE(ident_x));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(single);
   ASSERT_TRUE(value.IsBool());
-  EXPECT_TRUE(value.ValueBool());
+  EXPECT_FALSE(value.ValueBool());
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList2) {
