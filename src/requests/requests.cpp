@@ -27,15 +27,11 @@
 #include <sstream>
 #include <utility>
 
+#include "flags/general.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/likely.hpp"
-
-// Defined in src/flags/general.cpp; declared directly because mg-requests
-// can't link mg-flags (mg-flags already depends on mg-requests via mg-license).
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(ca_bundle_file);
 
 namespace memgraph::requests {
 
