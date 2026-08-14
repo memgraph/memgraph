@@ -2979,7 +2979,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
         auto acc = this->storage->Access(memgraph::storage::WRITE);
         for (auto vertex : acc->Vertices(View::OLD)) {
           auto edges = vertex.OutEdges(View::OLD)->edges;
-          for (auto &edge : edges) {
+          for (auto edge : edges) {
             int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
             if (id % 3 == 0) {
               ASSERT_NO_ERROR(acc->DeleteEdge(&edge));
@@ -2999,7 +2999,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
         auto acc = this->storage->Access(memgraph::storage::WRITE);
         for (auto vertex : acc->Vertices(View::OLD)) {
           auto edges = vertex.OutEdges(View::OLD)->edges;
-          for (auto &edge : edges) {
+          for (auto edge : edges) {
             int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
             if (id % 5 == 0) {
               ASSERT_NO_ERROR(acc->DetachDelete({&vertex}, {}, true));
@@ -3155,7 +3155,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexBasic) {
 
     for (auto vertex : acc->Vertices(View::OLD)) {
       auto edges = vertex.OutEdges(View::OLD)->edges;
-      for (auto &edge : edges) {
+      for (auto edge : edges) {
         int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
         if (id % 2 == 0) {
           ASSERT_NO_ERROR(acc->DetachDelete({}, {&edge}, false));
@@ -3531,7 +3531,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
       auto acc = this->storage->Access(memgraph::storage::WRITE);
       for (auto vertex : acc->Vertices(View::OLD)) {
         auto edges = vertex.OutEdges(View::OLD)->edges;
-        for (auto &edge : edges) {
+        for (auto edge : edges) {
           int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
           if (id % 3 == 0) {
             ASSERT_NO_ERROR(acc->DeleteEdge(&edge));
@@ -3551,7 +3551,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
       auto acc = this->storage->Access(memgraph::storage::WRITE);
       for (auto vertex : acc->Vertices(View::OLD)) {
         auto edges = vertex.OutEdges(View::OLD)->edges;
-        for (auto &edge : edges) {
+        for (auto edge : edges) {
           int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
           if (id % 5 == 0) {
             ASSERT_NO_ERROR(acc->DetachDelete({&vertex}, {}, true));
@@ -3730,7 +3730,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexBasic) {
 
   for (auto vertex : acc->Vertices(View::OLD)) {
     auto edges = vertex.OutEdges(View::OLD)->edges;
-    for (auto &edge : edges) {
+    for (auto edge : edges) {
       int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
       if (id % 2 == 0) {
         ASSERT_NO_ERROR(acc->DetachDelete({}, {&edge}, false));
@@ -4065,7 +4065,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
       auto acc = this->storage->Access(memgraph::storage::WRITE);
       for (auto vertex : acc->Vertices(View::OLD)) {
         auto edges = vertex.OutEdges(View::OLD)->edges;
-        for (auto &edge : edges) {
+        for (auto edge : edges) {
           int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
           if (id % 3 == 0) {
             ASSERT_NO_ERROR(acc->DeleteEdge(&edge));
@@ -4085,7 +4085,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
       auto acc = this->storage->Access(memgraph::storage::WRITE);
       for (auto vertex : acc->Vertices(View::OLD)) {
         auto edges = vertex.OutEdges(View::OLD)->edges;
-        for (auto &edge : edges) {
+        for (auto edge : edges) {
           int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
           if (id % 5 == 0) {
             ASSERT_NO_ERROR(acc->DetachDelete({&vertex}, {}, true));
@@ -4255,7 +4255,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexBasic) {
 
   for (auto vertex : acc->Vertices(View::OLD)) {
     auto edges = vertex.OutEdges(View::OLD)->edges;
-    for (auto &edge : edges) {
+    for (auto edge : edges) {
       int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
       if (id % 2 == 0) {
         ASSERT_NO_ERROR(acc->DetachDelete({}, {&edge}, false));
