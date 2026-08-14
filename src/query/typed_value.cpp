@@ -703,18 +703,13 @@ TypedValue::operator storage::ExternalPropertyValue() const {
   }
 }
 
-TypedValue::TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{alloc}, type_(other.type_) {
+void TypedValue::CopyComplexValue(TypedValue const &other) {
   switch (other.type_) {
     case TypedValue::Type::Null:
-      return;
     case TypedValue::Type::Bool:
-      this->bool_v = other.bool_v;
-      return;
     case Type::Int:
-      this->int_v = other.int_v;
-      return;
     case Type::Double:
-      this->double_v = other.double_v;
+      // Copied inline by the constructor; never reached.
       return;
     case TypedValue::Type::String:
       alloc_trait::construct(alloc_, &string_v, other.string_v);
@@ -1530,9 +1525,9 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
   return *this;
 }
 
-TypedValue::~TypedValue() {
+void TypedValue::DestroyValue() {
   switch (type_) {
-      // destructor for primitive types does nothing
+      // Handled inline by the destructor; never reached.
     case Type::Null:
     case Type::Bool:
     case Type::Int:

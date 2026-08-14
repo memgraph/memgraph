@@ -168,8 +168,29 @@ class TypedValue {
   TypedValue(const TypedValue &other)
       : TypedValue(other, alloc_trait::select_on_container_copy_construction(other.alloc_)) {}
 
-  /** Construct a copy given allocator_type */
-  TypedValue(const TypedValue &other, allocator_type alloc);
+  /** Construct a copy given allocator_type.
+   *
+   * Copying a number is an assignment; everything that needs an allocation, a nested copy, or a
+   * placement new is left to `CopyComplexValue`, so the common case does not pay for reaching it.
+   */
+  TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{alloc}, type_(other.type_) {
+    switch (other.type_) {
+      case Type::Null:
+        return;
+      case Type::Bool:
+        bool_v = other.bool_v;
+        return;
+      case Type::Int:
+        int_v = other.int_v;
+        return;
+      case Type::Double:
+        double_v = other.double_v;
+        return;
+      default:
+        CopyComplexValue(other);
+        return;
+    }
+  }
 
   /**
    * Construct with the value of other.
@@ -506,7 +527,13 @@ class TypedValue {
   TypedValue &operator=(std::map<std::string, TypedValue> &&);
   TypedValue &operator=(Path &&);
 
-  ~TypedValue();
+  /// Most values a query builds hold a number, and destroying one of those has nothing to do. That
+  /// was reached through an out-of-line switch over every type a value can hold, once per value, and
+  /// a row's worth of expression evaluation destroys a value per node it walks.
+  ~TypedValue() {
+    if (HasTrivialDestructor(type_)) return;
+    DestroyValue();
+  }
 
   Type type() const { return type_; }
 
@@ -812,6 +839,22 @@ class TypedValue {
   friend auto GetCRS(TypedValue const &tv) -> std::optional<storage::CoordinateReferenceSystem>;
 
  private:
+  /// The types whose destructor does nothing: the scalars, and the temporals, enum and points,
+  /// which hold no allocation of their own. `~TypedValue` is the one place that decides this, and
+  /// `DestroyValue` handles exactly the types this rejects.
+  static constexpr bool HasTrivialDestructor(Type type) {
+    constexpr auto bit = [](Type t) { return uint32_t{1} << static_cast<unsigned>(t); };
+    constexpr auto trivial = bit(Type::Null) | bit(Type::Bool) | bit(Type::Int) | bit(Type::Double) | bit(Type::Date) |
+                             bit(Type::LocalTime) | bit(Type::LocalDateTime) | bit(Type::ZonedDateTime) |
+                             bit(Type::Duration) | bit(Type::Enum) | bit(Type::Point2d) | bit(Type::Point3d);
+    return (trivial & bit(type)) != 0;
+  }
+
+  /// The rest of the destructor and of the copy constructor. Both assume `type_` is already the
+  /// type being destroyed or copied, and neither is reached for a type handled inline above.
+  void DestroyValue();
+  void CopyComplexValue(TypedValue const &other);
+
   [[no_unique_address]] allocator_type alloc_{};
 
   // storage for the value of the property
