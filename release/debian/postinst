@@ -21,7 +21,6 @@ case "$1" in
     configure)
         # Add the 'memgraph' user and group and set permissions on
         # 'var/*/memgraph' directories. useradd (essential passwd package)
-        # rather than adduser; getent guards keep upgrades idempotent.
         getent group memgraph >/dev/null || groupadd --system memgraph || exit 1
         getent passwd memgraph >/dev/null || \
             useradd --system --gid memgraph --home-dir /var/lib/memgraph \
