@@ -69,5 +69,39 @@ def test_ends_with_correctness(memgraph):
     assert [r["t"] for r in result] == ["gamma"]
 
 
+def test_and_composition_two_string_ops(memgraph):
+    plan = get_plan(memgraph, "MATCH (n:N) WHERE n.type CONTAINS 'a' AND n.type STARTS WITH 'a' RETURN n")
+    ops = operator_names(plan)
+    assert "ScanAllByLabelProperties" in ops, f"Expected ScanAllByLabelProperties, got: {plan}"
+    assert "ScanAll" not in ops, f"ScanAll should not appear, got: {plan}"
+    result = list(
+        memgraph.execute_and_fetch(
+            "MATCH (n:N) WHERE n.type CONTAINS 'a' AND n.type STARTS WITH 'a' RETURN n.type AS t ORDER BY t"
+        )
+    )
+    assert [r["t"] for r in result] == ["alpha"]
+
+
+def test_not_falls_back_to_scan_all(memgraph):
+    plan = get_plan(memgraph, "MATCH (n:N) WHERE NOT n.type CONTAINS 'alp' RETURN n")
+    ops = operator_names(plan)
+    assert "ScanAll" in ops or "ScanAllByLabel" in ops, f"Expected ScanAll or ScanAllByLabel, got: {plan}"
+    result = list(
+        memgraph.execute_and_fetch("MATCH (n:N) WHERE NOT n.type CONTAINS 'alp' RETURN n.type AS t ORDER BY t")
+    )
+    assert [r["t"] for r in result] == ["beta", "gamma"]
+
+
+def test_no_index_falls_back_to_scan_all(memgraph):
+    memgraph.execute("CREATE (:M {name: 'hello'});")
+    plan = get_plan(memgraph, "MATCH (n:M) WHERE n.name CONTAINS 'ell' RETURN n")
+    ops = operator_names(plan)
+    assert (
+        "ScanAllByLabelProperties" not in ops
+    ), f"ScanAllByLabelProperties should not appear without index, got: {plan}"
+    result = list(memgraph.execute_and_fetch("MATCH (n:M) WHERE n.name CONTAINS 'ell' RETURN n.name AS t"))
+    assert [r["t"] for r in result] == ["hello"]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
