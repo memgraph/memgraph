@@ -1398,15 +1398,16 @@ struct CachedProperty {
   Symbol output_symbol;
 };
 
-/// Reads several properties of a single vertex-bound symbol in one pass over
-/// the record, writing each value into its own frame slot.
+/// Reads several properties of a single vertex- or edge-bound symbol in one
+/// pass over the record, writing each value into its own frame slot.
 ///
 /// Looking the same properties up one at a time costs one lock acquisition, one
 /// shape resolution and one delta-chain walk per property; doing it in a single
 /// pass pays each of those once for the whole set.
 ///
-/// A row whose input symbol does not hold a vertex (Null from an OPTIONAL
-/// MATCH, for instance) still passes through, with Null in every output slot.
+/// A row whose input symbol holds neither (Null from an OPTIONAL MATCH, for
+/// instance) still passes through, with Null in every output slot. So does an
+/// edge when the storage carries no properties on edges at all.
 class CacheProperties : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;

@@ -278,6 +278,22 @@ TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
       EXPECT_EQ(results[1][0].ValueInt(), 200);                                                                \
       EXPECT_EQ(results[1][1].ValueInt(), 2);                                                                  \
     }                                                                                                          \
+    {                                                                                                          \
+      /* An edge read twice: a relationship holds a record like a vertex does, and reads from it the same      \
+       * way. Idempotent for the same reason as the write above. */                                            \
+      this->Execute("MATCH (x:P {id: 1}), (y:P {id: 2}) MERGE (x)-[:E {p: 7, q: 9}]->(y)");                    \
+      auto results = this->Execute("MATCH (:P)-[e:E]->(:P) RETURN e.p AS p, e.q AS q");                        \
+      ASSERT_EQ(results.size(), 1);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 7);                                                                  \
+      EXPECT_EQ(results[0][1].ValueInt(), 9);                                                                  \
+    }                                                                                                          \
+    {                                                                                                          \
+      /* An edge property the relationship does not carry has to read back as Null, not as a stale slot. */    \
+      auto results = this->Execute("MATCH (:P)-[e:E]->(:P) RETURN e.p AS p, e.absent AS a");                   \
+      ASSERT_EQ(results.size(), 1);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 7);                                                                  \
+      EXPECT_EQ(results[0][1].type(), BoltValue::Type::Null);                                                  \
+    }                                                                                                          \
   } while (false)
 
 TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOff) {

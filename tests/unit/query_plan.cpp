@@ -5917,8 +5917,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAnEdgeLookupDoesNotDisableTheVertex) {
   FakeDbAccessor dba;
   auto prop_a = PROPERTY_PAIR(dba, "a");
   auto prop_b = PROPERTY_PAIR(dba, "b");
-  // The edge property is not cacheable, but it must not cost the vertex its cache - this is the shape that
-  // leaves the benchmark's slowest query reading every property the long way.
+  // One lookup on the edge is below the bar on its own, but it must not cost the vertex its cache - this is
+  // the shape that left the benchmark's slowest query reading every property the long way.
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
                                    RETURN(PROPERTY_LOOKUP(dba, "n", prop_a),
                                           AS("a"),
@@ -5930,6 +5930,22 @@ TYPED_TEST(TestPlanner, CachePropertiesAnEdgeLookupDoesNotDisableTheVertex) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(
       planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectCacheProperties("n", 2), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CachePropertiesCachesAnEdgeSymbol) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto prop_b = PROPERTY_PAIR(dba, "b");
+  // An edge reads from a record exactly as a vertex does, so a relationship read twice is worth the same
+  // single pass. This is the shape of the benchmark's relationship aggregation.
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                   RETURN(PROPERTY_LOOKUP(dba, "r", prop_a), AS("a"), PROPERTY_LOOKUP(dba, "r", prop_b), AS("b"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectCacheProperties("r", 2), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, CachePropertiesBeneathAggregateTwoSymbolsDoNotFire) {

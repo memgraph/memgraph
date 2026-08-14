@@ -95,6 +95,19 @@ class EdgeAccessor final {
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
                                                                       View view) const;
 
+  /// Positional read into the caller's buffer: the value of `properties[i]` lands in `out[i]`,
+  /// Null where the edge carries no value for it. `out.size()` must equal `properties.size()`.
+  /// The vertex accessor's twin, and here for the same reason: a caller reading the same set once
+  /// per row holds one buffer across rows and allocates nothing per read.
+  Result<void> ReadPropertyValues(std::span<PropertyId const> properties, View view,
+                                  std::span<PropertyValue> out) const;
+
+  /// As above, but building each value into whatever `out` holds. See
+  /// `VertexAccessor::ReadPropertyValuesInto`; defined in `edge_accessor_materialise.hpp`.
+  template <typename Materialiser>
+  Result<void> ReadPropertyValuesInto(std::span<PropertyId const> properties, View view,
+                                      std::span<PropertyValue> scratch, Materialiser &out) const;
+
   auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
 
   auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }

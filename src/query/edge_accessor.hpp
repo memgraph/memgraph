@@ -40,6 +40,14 @@ class EdgeAccessor final {
     return impl_.GetPropertySize(key, view);
   }
 
+  /// Reads several properties in one pass, building each into whatever `out` holds. The caller
+  /// includes `storage/v2/edge_accessor_materialise.hpp` for the definition.
+  template <typename Materialiser>
+  storage::Result<void> ReadPropertyValuesInto(std::span<storage::PropertyId const> properties, storage::View view,
+                                               std::span<storage::PropertyValue> scratch, Materialiser &out) const {
+    return impl_.ReadPropertyValuesInto(properties, view, scratch, out);
+  }
+
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }

@@ -86,10 +86,13 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 
     switch (phase_) {
       case Phase::GATHER: {
-        // The cursor fills its slots with Null for anything that is not a vertex, so an edge or an untyped
-        // symbol would silently lose its properties. Such a lookup simply keeps reading the old way; it does
-        // not disqualify the other symbols in the same expression.
-        if (symbol.type() != Symbol::Type::VERTEX) return;
+        // The cursor fills its slots with Null for anything that is neither a vertex nor an edge, so a
+        // symbol of any other type would silently lose its properties. Such a lookup simply keeps reading
+        // the old way; it does not disqualify the other symbols in the same expression.
+        //
+        // An untyped symbol is excluded rather than checked at runtime: what it turns out to hold is not
+        // known here, and a cache that reads nothing is worse than no cache.
+        if (symbol.type() != Symbol::Type::VERTEX && symbol.type() != Symbol::Type::EDGE) return;
         auto &gathered = per_symbol_[symbol];
         gathered.property_names.insert(op.property_.name);
         ++gathered.lookup_count;

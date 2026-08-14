@@ -585,6 +585,43 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
   return properties_map;
 }
 
+Result<void> EdgeAccessor::ReadPropertyValues(std::span<PropertyId const> properties, View view,
+                                              std::span<PropertyValue> out) const {
+  DMG_ASSERT(out.size() == properties.size(), "Output buffer size must match the number of properties");
+
+  // Without properties on edges there is no record to read: `edge_` holds a gid rather than a
+  // pointer, so this has to answer before anything dereferences it. Every property is Null, as
+  // the single-property read has it.
+  if (!storage_->config_.salient.items.properties_on_edges) {
+    for (auto &value : out) value = PropertyValue();
+    return {};
+  }
+
+  bool exists = true;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  {
+    auto guard = std::shared_lock{edge_.ptr->lock};
+    deleted = edge_.ptr->deleted();
+    edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(storage_->manifest_registry(), properties, out);
+    delta = edge_.ptr->delta();
+  }
+
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, properties, out](const Delta &delta) {
+    // clang-format off
+    DeltaDispatch(delta, utils::ChainedOverloaded{
+      Deleted_ActionMethod(deleted),
+      Exists_ActionMethod(exists),
+      PropertyValues_ActionMethod(properties, out)
+    });
+    // clang-format on
+  });
+
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
+  return {};
+}
+
 Gid EdgeAccessor::Gid() const noexcept {
   if (storage_->config_.salient.items.properties_on_edges) {
     return edge_.ptr->gid;

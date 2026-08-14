@@ -57,6 +57,7 @@
 #include "query/procedure/module.hpp"
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/edge_accessor_materialise.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
@@ -4872,7 +4873,8 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   auto const &input_value = frame[self_.input_symbol_];
-  if (input_value.type() != TypedValue::Type::Vertex) {
+  auto const type = input_value.type();
+  if (type != TypedValue::Type::Vertex && type != TypedValue::Type::Edge) {
     for (const auto &cached : self_.cached_properties_) {
       frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
     }
@@ -4880,17 +4882,20 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
   }
 
   // Which properties this caller may not read, worked out before the values are, because it
-  // depends on the vertex rather than on what it holds. Left empty when nothing is restricted,
-  // which is the case that must cost nothing.
+  // depends on the graph element rather than on what it holds. Left empty when nothing is
+  // restricted, which is the case that must cost nothing.
   denied_.clear();
 #ifdef MG_ENTERPRISE
   if (context.auth_checker != nullptr && context.auth_checker->HasPropertyRestrictions()) {
     denied_.resize(self_.cached_properties_.size());
     for (std::size_t i = 0; i != self_.cached_properties_.size(); ++i) {
-      denied_[i] = static_cast<uint8_t>(!PropertyReadAllowed(context.auth_checker,
-                                                             input_value.ValueVertex(),
-                                                             storage::View::NEW,
-                                                             self_.cached_properties_[i].property_id));
+      auto const property = self_.cached_properties_[i].property_id;
+      // An edge's permission is decided by its type, which it carries, so that overload needs no view.
+      auto const allowed =
+          type == TypedValue::Type::Vertex
+              ? PropertyReadAllowed(context.auth_checker, input_value.ValueVertex(), storage::View::NEW, property)
+              : PropertyReadAllowed(context.auth_checker, input_value.ValueEdge(), property);
+      denied_[i] = static_cast<uint8_t>(!allowed);
     }
   }
 #endif
@@ -4906,7 +4911,9 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
   // NEW so that the row sees writes made earlier in this same transaction, as a
   // property lookup evaluated at this point would.
   auto const read =
-      input_value.ValueVertex().ReadPropertyValuesInto(property_ids_, storage::View::NEW, values_, materialiser);
+      type == TypedValue::Type::Vertex
+          ? input_value.ValueVertex().ReadPropertyValuesInto(property_ids_, storage::View::NEW, values_, materialiser)
+          : input_value.ValueEdge().ReadPropertyValuesInto(property_ids_, storage::View::NEW, values_, materialiser);
   if (!read) {
     switch (read.error()) {
       case storage::Error::DELETED_OBJECT:
