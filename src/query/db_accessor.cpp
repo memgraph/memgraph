@@ -189,7 +189,7 @@ storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(stora
   const auto &graph_edges = graph_->edges();
 
   std::vector<storage::EdgeAccessor> filteredOutEdges;
-  for (auto &edge : edges) {
+  for (auto const &edge : edges) {
     auto edge_q = EdgeAccessor(edge);
     if (graph_edges.contains(edge_q)) {
       filteredOutEdges.push_back(edge);
@@ -211,7 +211,7 @@ storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::InEdges(storag
   const auto &graph_edges = graph_->edges();
 
   std::vector<storage::EdgeAccessor> filteredOutEdges;
-  for (auto &edge : edges) {
+  for (auto const &edge : edges) {
     auto edge_q = EdgeAccessor(edge);
     if (graph_edges.contains(edge_q)) {
       filteredOutEdges.push_back(edge);

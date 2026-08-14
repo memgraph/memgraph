@@ -18,6 +18,7 @@
 
 #include "query/edge_accessor.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/expanded_edges.hpp"
 
 namespace memgraph::query {
 
@@ -34,7 +35,7 @@ class ExpandedEdges {
  public:
   ExpandedEdges() = default;
 
-  explicit ExpandedEdges(std::vector<storage::EdgeAccessor> edges) : storage_edges_(std::move(edges)) {}
+  explicit ExpandedEdges(storage::ExpandedEdges edges) : storage_edges_(std::move(edges)) {}
 
   class Iterator {
    public:
@@ -74,10 +75,20 @@ class ExpandedEdges {
 
   auto empty() const -> bool { return size() == 0; }
 
- private:
-  auto At(std::size_t index) const -> EdgeAccessor { return EdgeAccessor{storage_edges_[index]}; }
+  /// The array, for a caller that needs one after all, which is every caller that has not moved to
+  /// taking this range. Nothing on a hot path should want it: building it is the cost this type
+  /// exists to avoid.
+  auto Materialise() const -> std::vector<EdgeAccessor> {
+    auto built = std::vector<EdgeAccessor>{};
+    built.reserve(size());
+    for (auto const &edge : *this) built.emplace_back(edge);
+    return built;
+  }
 
-  std::vector<storage::EdgeAccessor> storage_edges_;
+ private:
+  auto At(std::size_t index) const -> EdgeAccessor { return EdgeAccessor{storage_edges_.At(index)}; }
+
+  storage::ExpandedEdges storage_edges_;
 };
 
 struct ExpandedEdgesResult {
