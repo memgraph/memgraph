@@ -3687,9 +3687,13 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
   ctx_.evaluation_context.parameters = parameters;
-  ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
-  ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
-  ctx_.evaluation_context.edgetypes = NamesToEdgeTypes(plan->ast_storage().edge_types_, dba);
+  // Accessor-free plans (null dba) never resolve a property/label/edge-type by id at runtime -- the only
+  // names they register are string-keyed map literals -- so leave the id maps empty instead of dereferencing.
+  if (dba != nullptr) {
+    ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
+    ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
+    ctx_.evaluation_context.edgetypes = NamesToEdgeTypes(plan->ast_storage().edge_types_, dba);
+  }
   ctx_.evaluation_context.resolved_user_functions = ResolveUserFunctions(plan->ast_storage().user_functions_);
   ctx_.user_or_role = user_or_role;  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
@@ -3712,15 +3716,19 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
-  auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
-  // Single query memory limit
-  memory_tracker.SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
-  if (memory_limit_) memgraph::memory::StartTrackingCurrentThread(&memory_tracker);
+  // Accessor-free plans have no storage transaction, hence no transaction memory tracker to arm; a
+  // query-level MEMORY LIMIT is rejected in classification and PROCEDURE MEMORY LIMIT runs in the cursor.
+  auto *memory_tracker = ctx_.db_accessor != nullptr ? &ctx_.db_accessor->GetTransactionMemoryTracker() : nullptr;
+  if (memory_tracker != nullptr) {
+    // Single query memory limit
+    memory_tracker->SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
+    if (memory_limit_) memgraph::memory::StartTrackingCurrentThread(memory_tracker);
+  }
 #ifdef MG_ENTERPRISE
   // User-specific resource monitoring
-  if (user_resource_ &&
+  if (memory_tracker != nullptr && user_resource_ &&
       user_resource_->GetTransactionsMemory().second != utils::TransactionsMemoryResource::kUnlimited) {
-    memgraph::memory::StartTrackingCurrentThread(&memory_tracker);  // Needs the query tracker for accurate tracking
+    memgraph::memory::StartTrackingCurrentThread(memory_tracker);  // Needs the query tracker for accurate tracking
     memgraph::memory::StartTrackingUserResource(user_resource_.get());
   }
 #endif
@@ -4051,10 +4059,11 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
   }
 
-  MG_ASSERT(current_db.execution_db_accessor_, "Cypher query expects a current DB transaction");
-  auto *dba =
-      &*current_db
-            .execution_db_accessor_;  // todo pass the full current_db into planner...make plan optimisation optional
+  // Accessor-free (NO_ACCESS) queries reach here with no storage transaction and are planned/executed with a
+  // null dba; everything the planner and cursor need comes from db_acc_ (plan cache, metrics, arena).
+  MG_ASSERT(current_db.db_acc_, "Cypher query expects a current database");
+  auto *dba = current_db.execution_db_accessor_ ? &*current_db.execution_db_accessor_ : nullptr;
+  const bool no_storage_access = dba == nullptr;
 
   const auto is_cacheable = parsed_query.is_cacheable;
   auto *plan_cache = is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
@@ -4076,7 +4085,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
   if (memgraph::logging::IsSessionTraceEnabled()) {
     std::stringstream printed_plan;
-    plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
+    plan::PrettyPrint(dba, &plan->plan(), &printed_plan);
     memgraph::logging::EmitSessionTraceEvent("Explain plan:\n{}", printed_plan.str());
   }
 
@@ -4087,7 +4096,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (flags::run_time::GetEffectiveLogMinDurationMs(*interpreter.GetLogContext()) >= 0) {
     slow_query_plan_renderer = [plan, dba]() {
       std::stringstream printed_plan;
-      plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
+      plan::PrettyPrint(dba, &plan->plan(), &printed_plan);
       return printed_plan.str();
     };
   }
@@ -4099,7 +4108,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (memgraph::logging::IsSessionTraceEnabled()) {
     is_profile_query = true;
   }
-  AccessorCompliance(*plan, *dba);
+  // Only reads the accessor for write plans; accessor-free plans are read-only (RWType::NONE/R), so skip it
+  // rather than dereference a null dba.
+  if (dba != nullptr) AccessorCompliance(*plan, *dba);
   const auto rw_type = plan->rw_type();
 
 #ifdef MG_ENTERPRISE
@@ -4145,19 +4156,28 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               user_resource
 #endif
   );
+  // Surface the fact that no storage transaction was opened: this, not the presence of a plan, is the
+  // observable NO_ACCESS contract (a planned Lab ping still reports plan_execution_time like any query).
+  if (no_storage_access) summary->insert_or_assign("no_storage_access", true);
+
   return PreparedQuery{
       .header = std::move(header),
       .privileges = std::move(parsed_query.required_privileges),
-      .query_handler = [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+      // Accessor-free queries opened no transaction: return NOTHING (not COMMIT) so the interpreter disposes
+      // the ACTIVE tracking state via FinishAutocommitNothing instead of leaving the session mid-transaction.
+      .query_handler =
+          [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary, no_storage_access](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->Pull(stream, n, output_symbols, summary)) {
-          return QueryHandlerResult::COMMIT;
+          return no_storage_access ? QueryHandlerResult::NOTHING : QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
       },
       .rw_type = rw_type,
       .db = current_db.db_acc_->get()->name(),
-      .priority = utils::Priority::LOW,  // Default to LOW priority for all Cypher queries
+      // Accessor-free Lab pings are latency-sensitive connect-time probes: keep them at HIGH priority;
+      // other Cypher queries default to LOW.
+      .priority = no_storage_access ? utils::Priority::HIGH : utils::Priority::LOW,
       .slow_query_plan_renderer = std::move(slow_query_plan_renderer)};
 }
 
@@ -4316,8 +4336,8 @@ bool IsConstantExpression(Expression *expression) {
   return false;
 }
 
-// Memory limit and `USING` pre-query directives (index hints, hops limit, commit frequency, parallel
-// execution) aren't honoured by the accessor-free preparers, so a query setting any of them must not qualify.
+// A query-level MEMORY LIMIT and `USING` directives (index hints, hops limit, commit frequency, parallel
+// execution) can't be honoured without a storage transaction, so a query setting any must not qualify.
 bool HasNoQueryLevelModifiers(const CypherQuery &query) {
   auto const &directives = query.pre_query_directives_;
   return query.memory_limit_ == nullptr && directives.index_hints_.empty() && directives.hops_limit_ == nullptr &&
@@ -4344,53 +4364,6 @@ bool IsConstantReturnQuery(const CypherQuery &query) {
   });
 }
 
-// Evaluates the constant expressions with no DbAccessor and streams the single row. Header derivation
-// mirrors PrepareCypherQuery's (interpreter.cpp:4004) so the column names are byte-identical.
-PreparedQuery PrepareConstantReturnQuery(ParsedQuery parsed_query) {
-  auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
-  MG_ASSERT(cypher_query && cypher_query->single_query_, "Constant RETURN query expects a cypher single query");
-  auto *return_clause = utils::Downcast<Return>(cypher_query->single_query_->clauses_.front());
-  MG_ASSERT(return_clause, "Constant RETURN query expects a RETURN clause");
-  auto const &named_expressions = return_clause->body_.named_expressions;
-
-  std::vector<std::string> header;
-  header.reserve(named_expressions.size());
-  for (auto *named_expression : named_expressions) {
-    header.push_back(utils::FindOr(parsed_query.stripped_query.named_expressions(),
-                                   named_expression->token_position_,
-                                   std::string{named_expression->name_})
-                         .first);
-  }
-
-  EvaluationContext evaluation_context;
-  // No DB memory tracker without an accessor; use the process allocator (matches PrepareBuiltinIntrospectionQuery).
-  evaluation_context.memory = utils::NewDeleteResource();
-  evaluation_context.timestamp = QueryTimestamp();
-  evaluation_context.parameters = std::move(parsed_query.parameters);
-  PrimitiveLiteralExpressionEvaluator evaluator{evaluation_context, /*dba=*/nullptr};
-
-  std::vector<TypedValue> row;
-  row.reserve(named_expressions.size());
-  for (auto *named_expression : named_expressions) {
-    row.emplace_back(named_expression->expression_->Accept(evaluator));
-  }
-  std::vector<std::vector<TypedValue>> rows;
-  rows.push_back(std::move(row));
-
-  return PreparedQuery{
-      .header = std::move(header),
-      .privileges = std::move(parsed_query.required_privileges),
-      .query_handler = [pull_plan = std::make_shared<PullPlanVector>(std::move(rows))](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->Pull(stream, n)) {
-          return QueryHandlerResult::NOTHING;
-        }
-        return std::nullopt;
-      },
-      .rw_type = RWType::NONE,
-      .priority = utils::Priority::HIGH};
-}
-
 // Reads the module registry (shared lock, released before this returns) -- deliberately the LAST check
 // in IsBuiltinIntrospectionQuery so it can't deadlock against mg.procedures, which takes the lock exclusively.
 bool ProcedureIsAccessorFreeEligible(std::string_view procedure_name) {
@@ -4407,11 +4380,9 @@ bool IsBuiltinIntrospectionQuery(const CypherQuery &query) {
   auto *call_procedure = utils::Downcast<CallProcedure>(clauses.front());
   if (call_procedure == nullptr) return false;
   if (!call_procedure->arguments_.empty() || call_procedure->result_fields_.empty()) return false;
-  // A YIELD ... WHERE is held on the CallProcedure clause itself (the clause count stays 1), and the
-  // accessor-free preparer does not filter, so accepting one here would silently drop the predicate.
+  // A YIELD ... WHERE could carry a graph-touching predicate (e.g. EXISTS) that plans a scan/expand -- not
+  // safe with a null accessor -- so reject it. (A per-call PROCEDURE MEMORY LIMIT is fine: enforced in the cursor.)
   if (call_procedure->where_ != nullptr) return false;
-  // Likewise a per-call `PROCEDURE MEMORY LIMIT`, which the accessor-free path does not install.
-  if (call_procedure->memory_limit_ != nullptr) return false;
   // Cheap AST-level read check: the parser stamps this from the registry at parse time.
   if (call_procedure->is_write_) return false;
   return ProcedureIsAccessorFreeEligible(call_procedure->procedure_name_);
@@ -4425,44 +4396,6 @@ std::optional<AccessorFreeQueryKind> ClassifyAccessorFreeQuery(const CypherQuery
   if (IsConstantReturnQuery(query)) return AccessorFreeQueryKind::kConstantReturn;
   if (IsBuiltinIntrospectionQuery(query)) return AccessorFreeQueryKind::kBuiltinIntrospection;
   return std::nullopt;
-}
-
-// Skips CallProcedure telemetry (owned by CallProcedureCursor, bypassed here) since Lab's polling isn't
-// workload. Only validation (proc exists / not write / no_graph_access / not batched) runs in Prepare, so
-// those errors surface on RUN; `cb` itself is deferred to first Pull, like a normal query, so cb errors
-// surface on PULL and the query stays abortable while cb runs.
-PreparedQuery PrepareBuiltinIntrospectionQuery(ParsedQuery parsed_query) {
-  auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
-  MG_ASSERT(cypher_query && cypher_query->single_query_, "Introspection query expects a cypher single query");
-  auto *call_procedure = utils::Downcast<CallProcedure>(cypher_query->single_query_->clauses_.front());
-  MG_ASSERT(call_procedure, "Introspection query expects a CALL clause");
-
-  std::vector<std::string> header;
-  header.reserve(call_procedure->result_identifiers_.size());
-  for (auto *identifier : call_procedure->result_identifiers_) {
-    header.push_back(identifier->name_);
-  }
-
-  auto validated = plan::FindAndValidateNoGraphReadProcedure(call_procedure->procedure_name_);
-
-  return PreparedQuery{
-      .header = std::move(header),
-      .privileges = std::move(parsed_query.required_privileges),
-      .query_handler = [validated = std::move(validated),
-                        result_fields = std::move(call_procedure->result_fields_),
-                        pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
-                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-        if (UNLIKELY(!pull_plan)) {
-          pull_plan = std::make_shared<PullPlanVector>(
-              plan::ExecuteNoGraphReadProcedure(validated, result_fields, utils::NewDeleteResource()));
-        }
-        if (pull_plan->Pull(stream, n)) {
-          return QueryHandlerResult::NOTHING;
-        }
-        return std::nullopt;
-      },
-      .rw_type = RWType::NONE,
-      .priority = utils::Priority::HIGH};
 }
 
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -11030,29 +10963,23 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #endif
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      // Accessor-free queries must not reach PrepareCypherQuery, which MG_ASSERTs a current DB transaction
-      // (interpreter.cpp:3939); accessor_free_kind is nullopt whenever accessor_type_ was left unset above.
-      if (accessor_free_kind == AccessorFreeQueryKind::kConstantReturn) {
-        prepared_query = PrepareConstantReturnQuery(std::move(parsed_query));
-      } else if (accessor_free_kind == AccessorFreeQueryKind::kBuiltinIntrospection) {
-        prepared_query = PrepareBuiltinIntrospectionQuery(std::move(parsed_query));
-      } else {
-        prepared_query = PrepareCypherQuery(std::move(parsed_query),
-                                            &query_execution->summary,
-                                            interpreter_context_,
-                                            current_db_,
-                                            memory_resource,
-                                            &query_execution->notifications,
-                                            user_or_role_,
-                                            make_stopping_context(),
-                                            *this,
-                                            &*frame_change_collector_
+      // Accessor-free (NO_ACCESS) queries plan and execute like any Cypher query, except no storage
+      // transaction was opened: execution_db_accessor_ is null and PrepareCypherQuery threads a null dba through.
+      prepared_query = PrepareCypherQuery(std::move(parsed_query),
+                                          &query_execution->summary,
+                                          interpreter_context_,
+                                          current_db_,
+                                          memory_resource,
+                                          &query_execution->notifications,
+                                          user_or_role_,
+                                          make_stopping_context(),
+                                          *this,
+                                          &*frame_change_collector_
 #ifdef MG_ENTERPRISE
-                                            ,
-                                            user_resource_
+                                          ,
+                                          user_resource_
 #endif
-        );
-      }
+      );
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(
           std::move(parsed_query), &query_execution->notifications, interpreter_context_, *this, current_db_);
