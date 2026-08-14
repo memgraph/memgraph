@@ -49,6 +49,12 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   // No trace stream needed; nullptr opts out of the per-message guard.
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return nullptr; }
 
+  // Idle-session-reaper message-in-flight gate hooks. No-ops in this protocol-level unit test: there is
+  // no interpreter behind TestSession, so there is nothing for the reaper to exclude.
+  void SetMessageInFlight() {}
+
+  void ClearMessageInFlight() {}
+
   void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
