@@ -137,7 +137,7 @@ LicenseChecker global_license_checker;
 LicenseChecker::~LicenseChecker() { Finalize(); }
 
 void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
-  std::lock_guard revalidate_guard{revalidate_mutex_};
+  const std::lock_guard revalidate_guard{revalidate_mutex_};
   spdlog::trace("License revalidation started");
 
   // Passing 0 to SetHardLimit restores the limit to maximum_hard_limit_ (the --memory-limit flag value)
@@ -171,7 +171,7 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
 
   if (enterprise_enabled_) [[unlikely]] {
     const auto type = state_.load(std::memory_order_acquire).type;
-    state_.store(LicenseState{true, type}, std::memory_order_release);
+    state_.store(LicenseState{.valid = true, .type = type}, std::memory_order_release);
     set_memory_limit(0, type);
     return;
   }
@@ -221,7 +221,7 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
       locked->reset();
     }
     const auto type = state_.load(std::memory_order_acquire).type;
-    state_.store(LicenseState{false, type}, std::memory_order_release);
+    state_.store(LicenseState{.valid = false, .type = type}, std::memory_order_release);
     set_memory_limit(0);
     return;
   }
@@ -253,11 +253,11 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
     }
   }
 
-  state_.store(LicenseState{true, winner.license.type}, std::memory_order_release);
+  state_.store(LicenseState{.valid = true, .type = winner.license.type}, std::memory_order_release);
 }
 
 void LicenseChecker::EnableTesting(const LicenseType license_type) {
-  std::lock_guard revalidate_guard{revalidate_mutex_};
+  const std::lock_guard revalidate_guard{revalidate_mutex_};
   enterprise_enabled_ = true;
   {
     auto locked = previous_license_info_.Lock();
@@ -265,19 +265,19 @@ void LicenseChecker::EnableTesting(const LicenseType license_type) {
     (*locked)->is_valid = true;
     (*locked)->license.type = license_type;
   }
-  state_.store(LicenseState{true, license_type}, std::memory_order_release);
+  state_.store(LicenseState{.valid = true, .type = license_type}, std::memory_order_release);
   spdlog::info("The license type {} is set for testing.", LicenseTypeToString(license_type));
 }
 
 void LicenseChecker::DisableTesting() {
-  std::lock_guard revalidate_guard{revalidate_mutex_};
+  const std::lock_guard revalidate_guard{revalidate_mutex_};
   enterprise_enabled_ = false;
   {
     auto locked = previous_license_info_.Lock();
     locked->reset();
   }
   const auto type = state_.load(std::memory_order_acquire).type;
-  state_.store(LicenseState{false, type}, std::memory_order_release);
+  state_.store(LicenseState{.valid = false, .type = type}, std::memory_order_release);
   spdlog::info("The license is disabled for testing.");
 }
 
