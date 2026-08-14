@@ -2142,7 +2142,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
   // The transaction-end delta goes through the flush guard before it commits, so the buffer is always drained
   // by the time the loop exits.
-  DMG_ASSERT(pending_edge_deletes.empty(), "Buffered edge deletions were never applied");
+  MG_ASSERT(pending_edge_deletes.empty(), "Buffered edge deletions were never applied");
 
   spdlog::debug("Applied {} deltas. Committed {} txns.", applied_deltas, num_committed_txns);
 
