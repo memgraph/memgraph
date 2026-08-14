@@ -1643,8 +1643,51 @@ bool IsTemporalType(const TypedValue::Type type) {
 
 }  // namespace
 
-// TODO: make it faster
+NumericOrdering CompareNumeric(TypedValue const &a, TypedValue const &b) noexcept {
+  // Two ints are compared as ints, and anything mixed as doubles, because that is what `<` and `==`
+  // do below - including losing precision on an int64 too large to be a double. Answering
+  // differently here would make a comparison's result depend on which operator was written.
+  if (a.type() == TypedValue::Type::Int && b.type() == TypedValue::Type::Int) {
+    auto const lhs = a.UnsafeValueInt();
+    auto const rhs = b.UnsafeValueInt();
+    if (lhs < rhs) return NumericOrdering::Less;
+    return lhs == rhs ? NumericOrdering::Equal : NumericOrdering::Greater;
+  }
+
+  auto as_double = [](TypedValue const &value) -> std::optional<double> {
+    switch (value.type()) {
+      case TypedValue::Type::Int:
+        return static_cast<double>(value.UnsafeValueInt());
+      case TypedValue::Type::Double:
+        return value.UnsafeValueDouble();
+      default:
+        return std::nullopt;
+    }
+  };
+  auto const lhs = as_double(a);
+  if (!lhs) return NumericOrdering::NotNumeric;
+  auto const rhs = as_double(b);
+  if (!rhs) return NumericOrdering::NotNumeric;
+
+  auto const ordering = *lhs <=> *rhs;
+  if (ordering == std::partial_ordering::less) return NumericOrdering::Less;
+  if (ordering == std::partial_ordering::equivalent) return NumericOrdering::Equal;
+  if (ordering == std::partial_ordering::greater) return NumericOrdering::Greater;
+  return NumericOrdering::Unordered;
+}
+
 TypedValue operator<(const TypedValue &a, const TypedValue &b) {
+  switch (CompareNumeric(a, b)) {
+    case NumericOrdering::Less:
+      return TypedValue(true, a.alloc_);
+    case NumericOrdering::Equal:
+    case NumericOrdering::Greater:
+    case NumericOrdering::Unordered:
+      return TypedValue(false, a.alloc_);
+    case NumericOrdering::NotNumeric:
+      break;
+  }
+
   auto is_legal = [](TypedValue::Type type) {
     switch (type) {
       case TypedValue::Type::Null:

@@ -46,6 +46,24 @@ concept TypedValueValidPrimativeType =
     std::is_same_v<T, utils::Duration> || std::is_same_v<T, utils::Duration> || std::is_same_v<T, std::string>;
 }
 
+class TypedValue;
+
+/// How two numbers compare, or that they are not both numbers.
+///
+/// `Unordered` is the pair a floating-point comparison answers "no" to whichever way round it is
+/// asked, which is what a NaN operand produces.
+enum class NumericOrdering : uint8_t { Less, Equal, Greater, Unordered, NotNumeric };
+
+/// The comparison operators below are reached by composition: `a > b` is `!(a < b || a == b)`, so
+/// asking whether one number exceeds another runs two full comparisons over every type a value can
+/// hold, an `||`, a `!`, and builds a `TypedValue` for each. Numbers are the overwhelming majority
+/// of what a query compares, so they are answered here instead and the general path is left alone.
+///
+/// This says how `<` and `==` would have answered, rather than what the comparison means: the
+/// operators keep deriving their result the way they did, so the `Unordered` case still reports
+/// whatever the composed form reported.
+NumericOrdering CompareNumeric(TypedValue const &a, TypedValue const &b) noexcept;
+
 // TODO: Neo4j does overflow checking. Should we also implement it?
 /**
  * Stores a query runtime value and its type.
@@ -638,8 +656,18 @@ class TypedValue {
    * @throw TypedValueException if the values cannot be compared, i.e. they are
    *        not either Null, numeric or a character string type.
    */
-  // TODO: why not `!(b < a)` or C++20 auto generated
-  friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) { return a < b || a == b; }
+  friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) {
+    switch (CompareNumeric(a, b)) {
+      case NumericOrdering::Less:
+      case NumericOrdering::Equal:
+        return TypedValue(true, a.alloc_);
+      case NumericOrdering::Greater:
+      case NumericOrdering::Unordered:
+        return TypedValue(false, a.alloc_);
+      case NumericOrdering::NotNumeric:
+        return a < b || a == b;
+    }
+  }
 
   /**
    * Compare TypedValues and return true, false or Null.
@@ -651,7 +679,18 @@ class TypedValue {
    * @throw TypedValueException if the values cannot be compared, i.e. they are
    *        not either Null, numeric or a character string type.
    */
-  friend TypedValue operator>(const TypedValue &a, const TypedValue &b) { return !(a <= b); }
+  friend TypedValue operator>(const TypedValue &a, const TypedValue &b) {
+    switch (CompareNumeric(a, b)) {
+      case NumericOrdering::Greater:
+      case NumericOrdering::Unordered:
+        return TypedValue(true, a.alloc_);
+      case NumericOrdering::Less:
+      case NumericOrdering::Equal:
+        return TypedValue(false, a.alloc_);
+      case NumericOrdering::NotNumeric:
+        return !(a <= b);
+    }
+  }
 
   /**
    * Compare TypedValues and return true, false or Null.
@@ -663,7 +702,18 @@ class TypedValue {
    * @throw TypedValueException if the values cannot be compared, i.e. they are
    *        not either Null, numeric or a character string type.
    */
-  friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) { return !(a < b); }
+  friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) {
+    switch (CompareNumeric(a, b)) {
+      case NumericOrdering::Equal:
+      case NumericOrdering::Greater:
+      case NumericOrdering::Unordered:
+        return TypedValue(true, a.alloc_);
+      case NumericOrdering::Less:
+        return TypedValue(false, a.alloc_);
+      case NumericOrdering::NotNumeric:
+        return !(a < b);
+    }
+  }
 
   // arithmetic operators
 

@@ -900,3 +900,90 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
     }
   }
 }
+
+// The four ordering comparisons used to reach their answer through `<` and `==`: `a > b` was
+// `!(a < b || a == b)`. Numbers now answer without going round that loop, so these pin the corners
+// where a shortcut could quietly answer differently from the composition it replaced.
+namespace {
+
+void ExpectOrdering(TypedValue const &smaller, TypedValue const &larger) {
+  EXPECT_TRUE((smaller < larger).ValueBool());
+  EXPECT_TRUE((smaller <= larger).ValueBool());
+  EXPECT_FALSE((smaller > larger).ValueBool());
+  EXPECT_FALSE((smaller >= larger).ValueBool());
+
+  EXPECT_FALSE((larger < smaller).ValueBool());
+  EXPECT_FALSE((larger <= smaller).ValueBool());
+  EXPECT_TRUE((larger > smaller).ValueBool());
+  EXPECT_TRUE((larger >= smaller).ValueBool());
+}
+
+void ExpectEquivalent(TypedValue const &a, TypedValue const &b) {
+  EXPECT_FALSE((a < b).ValueBool());
+  EXPECT_TRUE((a <= b).ValueBool());
+  EXPECT_FALSE((a > b).ValueBool());
+  EXPECT_TRUE((a >= b).ValueBool());
+}
+
+}  // namespace
+
+TEST(TypedValueComparison, OrdersNumbersAcrossIntAndDouble) {
+  ExpectOrdering(TypedValue(1), TypedValue(2));
+  ExpectOrdering(TypedValue(1.5), TypedValue(2.5));
+  ExpectOrdering(TypedValue(1), TypedValue(1.5));
+  ExpectOrdering(TypedValue(1.5), TypedValue(2));
+  ExpectOrdering(TypedValue(-2), TypedValue(-1.5));
+
+  ExpectEquivalent(TypedValue(2), TypedValue(2));
+  ExpectEquivalent(TypedValue(2), TypedValue(2.0));
+  ExpectEquivalent(TypedValue(2.0), TypedValue(2));
+}
+
+TEST(TypedValueComparison, KeepsHowNaNUsedToCompare) {
+  // Every ordering question about NaN answers no, so a comparison derived by negating one answers
+  // yes. That is what `!(a <= b)` reported before and what is reported now; it is pinned here as
+  // the behaviour it is, not endorsed as the behaviour it should be.
+  auto const nan = TypedValue(std::numeric_limits<double>::quiet_NaN());
+  auto const one = TypedValue(1.0);
+
+  EXPECT_FALSE((nan < one).ValueBool());
+  EXPECT_FALSE((nan <= one).ValueBool());
+  EXPECT_TRUE((nan > one).ValueBool());
+  EXPECT_TRUE((nan >= one).ValueBool());
+
+  EXPECT_FALSE((one < nan).ValueBool());
+  EXPECT_FALSE((one <= nan).ValueBool());
+  EXPECT_TRUE((one > nan).ValueBool());
+  EXPECT_TRUE((one >= nan).ValueBool());
+
+  EXPECT_FALSE((nan < nan).ValueBool());
+  EXPECT_TRUE((nan > nan).ValueBool());
+}
+
+TEST(TypedValueComparison, KeepsNullAndNonNumericBehaviour) {
+  auto const null = TypedValue();
+  EXPECT_TRUE((null < TypedValue(1)).IsNull());
+  EXPECT_TRUE((null <= TypedValue(1)).IsNull());
+  EXPECT_TRUE((null > TypedValue(1)).IsNull());
+  EXPECT_TRUE((null >= TypedValue(1)).IsNull());
+  EXPECT_TRUE((TypedValue(1) < null).IsNull());
+  EXPECT_TRUE((TypedValue(1) > null).IsNull());
+
+  ExpectOrdering(TypedValue("abc"), TypedValue("abd"));
+  ExpectEquivalent(TypedValue("abc"), TypedValue("abc"));
+
+  // Two orderable types that cannot be ordered against each other answer Null, and a type with no
+  // ordering at all is an error. Both are decided before any of this, on the types alone.
+  EXPECT_TRUE((TypedValue(1) < TypedValue("a")).IsNull());
+  EXPECT_TRUE((TypedValue(1) > TypedValue("a")).IsNull());
+  EXPECT_THROW(auto _ = TypedValue(true) < TypedValue(false), TypedValueException);
+  EXPECT_THROW(auto _ = TypedValue(true) > TypedValue(false), TypedValueException);
+}
+
+TEST(TypedValueComparison, KeepsIntsExactBeyondDoublePrecision) {
+  // Two ints that land on the same double still compare as the ints they are, because the ordering
+  // comparisons never converted an int pair to double.
+  auto const lower = TypedValue(int64_t{1} << 53);
+  auto const higher = TypedValue((int64_t{1} << 53) + 1);
+  ExpectOrdering(lower, higher);
+}
