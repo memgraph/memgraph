@@ -28,7 +28,6 @@
 #include "storage/v2/indices/vertex_property_index.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
@@ -247,14 +246,12 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
 
   bool CreateIndexOnePass(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                           std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
-                          ActiveIndicesUpdater const &updater,
-                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                          ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {});
 
   bool RegisterIndex(PropertyId property, ActiveIndicesUpdater const &updater);
   auto PopulateIndex(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                      std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
-                     ActiveIndicesUpdater const &updater,
-                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(PropertyId property, uint64_t commit_timestamp);

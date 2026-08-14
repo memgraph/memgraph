@@ -1032,6 +1032,12 @@ add_unit_test(rpc_in_progress
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
+# Test rpc progress heartbeat (sends only on recorded progress)
+add_unit_test(rpc_progress_heartbeat
+    SOURCES rpc_progress_heartbeat.cpp
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+)
+
 # Test rpc file framing (receive-buffer duplicate-file bug)
 add_unit_test(rpc_file_framing
     SOURCES rpc_file_framing.cpp
@@ -1048,6 +1054,12 @@ add_unit_test(replication_rpc_progress
 add_unit_test(snapshot_rpc_progress
     SOURCES snapshot_rpc_progress.cpp
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+)
+
+# Test cancellation of full-scan schema operations (index population, constraint validation)
+add_unit_test(storage_v2_schema_cancellation
+    SOURCES storage_v2_schema_cancellation.cpp
+    LINK_TARGETS mg-storage-v2
 )
 
 add_unit_test(snapshot_progress

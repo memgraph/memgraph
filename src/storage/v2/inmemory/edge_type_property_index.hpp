@@ -30,7 +30,6 @@
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/rw_lock.hpp"
 
@@ -257,8 +256,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                          ActiveIndicesUpdater const &updater,
-                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                          ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {});
 
   /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
   /// Caller can re-install via RestoreIndex on abort. The returned shared_ptr keeps
@@ -278,8 +276,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   auto RegisterIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater) -> bool;
   auto PopulateIndex(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                     ActiveIndicesUpdater const &updater,
-                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp);

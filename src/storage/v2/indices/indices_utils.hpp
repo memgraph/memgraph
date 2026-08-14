@@ -258,6 +258,10 @@ inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipLis
             "creation!");
 
   std::atomic<uint64_t> batch_counter = 0;
+  // A cancel check throwing inside a worker would escape the thread function and terminate the process, so it is
+  // caught per worker and re-thrown from this thread once they have all joined. That keeps cancellation identical
+  // whether population ran on one thread or many.
+  std::atomic<bool> cancelled = false;
 
   // TODO(composite_index): return std::optional<utils::OutOfMemoryException>, handle index cleanup from caller
   auto maybe_error = utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock>{};
@@ -268,7 +272,7 @@ inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipLis
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back(parallel_exec_info.arena_pool, [&, func /*local copy incase there is local state*/]() {
         auto acc = accessor_factory();
-        while (!maybe_error.Lock()->has_value()) {
+        while (!maybe_error.Lock()->has_value() && !cancelled.load(std::memory_order_relaxed)) {
           const auto batch_index = batch_counter++;
           if (batch_index >= vertex_batches.size()) {
             return;
@@ -284,14 +288,20 @@ inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipLis
           } catch (utils::OutOfMemoryException &failure) {
             utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
             *maybe_error.Lock() = std::move(failure);
+          } catch (PopulateCancel const &) {
+            cancelled.store(true, std::memory_order_relaxed);
           }
         }
       });
     }
   }
+  // Out of memory wins over cancellation: it is the more specific failure and the caller unwinds it differently.
   auto error = maybe_error.Lock();
   if (error->has_value()) {
     throw *std::move(*error);
+  }
+  if (cancelled.load(std::memory_order_relaxed)) {
+    throw PopulateCancel{};
   }
 }
 
@@ -305,8 +315,6 @@ inline void PopulateIndexOnSingleThread(TVerticesAccessor &vertices, TSkipListAc
     func(vertex, acc);
   }
 }
-
-struct PopulateCancel : std::exception {};
 
 template <typename TVerticesAccessor, typename TSkipListAccessorFactory, typename TFunc>
 inline void PopulateIndexDispatch(TVerticesAccessor &vertices, TSkipListAccessorFactory &&accessor_factory,
@@ -329,74 +337,6 @@ inline void PopulateIndexDispatch(TVerticesAccessor &vertices, TSkipListAccessor
   } else {
     PopulateIndexOnSingleThread(
         vertices, std::forward<TSkipListAccessorFactory>(accessor_factory), checked_insert_function);
-  }
-}
-
-// @TODO Is `Create` the correct term here? Should this be `PopulateIndexOnSingleThread`?
-template <typename TVerticesAccessor, typename TSkiplistIter, typename TIndex, typename TFunc>
-inline void CreateIndexOnSingleThread(TVerticesAccessor &vertices, TSkiplistIter it, TIndex &index, const TFunc &func) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-
-  try {
-    auto acc = it->second.access();
-    for (Vertex &vertex : vertices) {
-      func(vertex, acc);
-    }
-  } catch (const utils::OutOfMemoryException &) {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-    index.erase(it);
-    throw;
-  }
-}
-
-template <typename TVerticesAccessor, typename TIndex, typename TSKiplistIter, typename TFunc>
-inline void CreateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSKiplistIter skiplist_iter, TIndex &index,
-                                         const durability::ParallelizedSchemaCreationInfo &parallel_exec_info,
-                                         const TFunc &func) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-
-  const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
-  const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
-
-  MG_ASSERT(!vertex_batches.empty(),
-            "The size of batches should always be greater than zero if you want to use the parallel version of index "
-            "creation!");
-
-  std::atomic<uint64_t> batch_counter = 0;
-
-  // TODO(composite_index): return std::optional<utils::OutOfMemoryException>, handle index cleanup from caller
-  utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
-  {
-    std::vector<memory::DbAwareThread> threads;
-    threads.reserve(thread_count);
-
-    for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(parallel_exec_info.arena_pool, [&]() {
-        while (!maybe_error.Lock()->has_value()) {
-          const auto batch_index = batch_counter++;
-          if (batch_index >= vertex_batches.size()) {
-            return;
-          }
-          const auto &batch = vertex_batches[batch_index];
-          auto index_accessor = skiplist_iter->second.access();
-          auto it = vertices.find(batch.first);
-
-          try {
-            for (auto i{0U}; i < batch.second; ++i, ++it) {
-              func(*it, index_accessor);
-            }
-
-          } catch (utils::OutOfMemoryException &failure) {
-            utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-            index.erase(skiplist_iter);  // TODO(composite_index): make this safe...only should only be called once
-            *maybe_error.Lock() = std::move(failure);
-          }
-        }
-      });
-    }
-  }
-  if (maybe_error.Lock()->has_value()) {
-    throw utils::OutOfMemoryException((*maybe_error.Lock())->what());
   }
 }
 

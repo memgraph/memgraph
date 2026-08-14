@@ -36,7 +36,7 @@ VectorIndex::~VectorIndex() = default;
 void VectorIndex::PublishActiveIndices(ActiveIndicesUpdater const &updater) const { updater(GetActiveIndices()); }
 
 bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
-                              NameIdMapper *name_id_mapper, std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                              NameIdMapper *name_id_mapper, ProgressCallback const &on_progress) {
   try {
     const auto index_id = SetupIndex(spec, name_id_mapper);
     if (!index_id.has_value()) return false;
@@ -46,9 +46,7 @@ bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipListDb<Vertex>::
           vertex,
           IndexedPropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex},
           thread_id);
-      if (snapshot_info) {
-        snapshot_info->Update(UpdateType::VECTOR_IDX);
-      }
+      if (on_progress) on_progress();
     });
     return true;
   } catch (const std::exception &) {
@@ -99,7 +97,7 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
 
 void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
                                Indices *indices, NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
-                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                               ProgressCallback const &on_progress) {
   auto &spec = recovery_info.spec;
   try {
     auto &recovery_entries = recovery_info.index_entries;
@@ -125,9 +123,7 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
             IndexedPropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex},
             thread_id);
       }
-      if (snapshot_info) {
-        snapshot_info->Update(UpdateType::VECTOR_IDX);
-      }
+      if (on_progress) on_progress();
     };
 
     if (FLAGS_storage_parallel_schema_recovery && FLAGS_storage_recovery_thread_count > 1) {
@@ -163,7 +159,8 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
 }
 
 std::optional<VectorIndex::DroppedIndexCapture> VectorIndex::DropIndex(std::string_view index_name,
-                                                                       NameIdMapper *name_id_mapper) {
+                                                                       NameIdMapper *name_id_mapper,
+                                                                       ProgressCallback const &on_progress) {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) return std::nullopt;
   const auto index_id = *maybe_id;
@@ -191,6 +188,7 @@ std::optional<VectorIndex::DroppedIndexCapture> VectorIndex::DropIndex(std::stri
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
       std::vector<double> vector(dimension);
       for (auto *vertex : indexed_vertices) {
+        if (on_progress) on_progress();
         auto vector_property = vertex->properties.GetProperty(spec.property);
         if (UnregisterIndexId(vector_property, index_id)) {
           mg_index.index.get(vertex, vector.data());

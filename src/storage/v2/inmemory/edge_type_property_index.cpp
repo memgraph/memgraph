@@ -33,8 +33,7 @@ InMemoryEdgeTypePropertyIndex::IndividualIndex::~IndividualIndex() = default;
 
 namespace {
 inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_type, PropertyId property,
-                                           auto &&index_accessor,
-                                           std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                           auto &&index_accessor, ProgressCallback const &on_progress) {
   if (from_vertex.deleted()) {
     return;
   }
@@ -47,15 +46,12 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
     }
 
     index_accessor.insert({std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, 0});
-    if (snapshot_info) {
-      snapshot_info->Update(UpdateType::EDGES);
-    }
+    if (on_progress) on_progress();
   }
 }
 
 inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_type, PropertyId property,
-                                           auto &&index_accessor,
-                                           std::optional<SnapshotObserverInfo> const &snapshot_info,
+                                           auto &&index_accessor, ProgressCallback const &on_progress,
                                            Transaction const &tx) {
   bool exists = true;
   bool deleted = false;
@@ -119,9 +115,7 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
     }
 
     index_accessor.insert({std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, tx.start_timestamp});
-    if (snapshot_info) {
-      snapshot_info->Update(UpdateType::EDGES);
-    }
+    if (on_progress) on_progress();
   }
 }
 
@@ -225,12 +219,14 @@ void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_tim
 bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property,
                                                        utils::SkipListDb<Vertex>::Accessor vertices,
                                                        ActiveIndicesUpdater const &updater,
-                                                       std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                                       ProgressCallback const &on_progress) {
   auto res = RegisterIndex(edge_type, property, updater);
   if (!res) return false;
-  auto res2 = PopulateIndex(edge_type, property, std::move(vertices), updater, snapshot_info);
+  auto res2 = PopulateIndex(edge_type, property, std::move(vertices), updater, on_progress);
   if (!res2) {
-    MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
+    MG_ASSERT(false,
+              "CreateIndexOnePass never cancels: population only fails via a cancel check, and this entry point "
+              "passes none. The trailing callback reports progress and cannot stop the build.");
   }
   return PublishIndex(edge_type, property, 0);
 }
@@ -275,8 +271,8 @@ auto InMemoryEdgeTypePropertyIndex::GetActiveIndices() const -> std::shared_ptr<
 auto InMemoryEdgeTypePropertyIndex::PopulateIndex(EdgeTypeId edge_type, PropertyId property,
                                                   utils::SkipListDb<Vertex>::Accessor vertices,
                                                   ActiveIndicesUpdater const &updater,
-                                                  std::optional<SnapshotObserverInfo> const &snapshot_info,
-                                                  Transaction const *tx, CheckCancelFunction cancel_check)
+                                                  ProgressCallback const &on_progress, Transaction const *tx,
+                                                  CheckCancelFunction cancel_check)
     -> std::expected<void, IndexPopulateError> {
   auto index = GetIndividualIndex(edge_type, property);
   if (!index) {
@@ -288,14 +284,14 @@ auto InMemoryEdgeTypePropertyIndex::PopulateIndex(EdgeTypeId edge_type, Property
     if (tx) {
       // If we are in a transaction, we need to read the object with the correct MVCC snapshot isolation
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
-        TryInsertEdgeTypePropertyIndex(from_vertex, edge_type, property, index_accessor, snapshot_info, *tx);
+        TryInsertEdgeTypePropertyIndex(from_vertex, edge_type, property, index_accessor, on_progress, *tx);
       };
       PopulateIndexDispatch(
           vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
-        TryInsertEdgeTypePropertyIndex(from_vertex, edge_type, property, index_accessor, snapshot_info);
+        TryInsertEdgeTypePropertyIndex(from_vertex, edge_type, property, index_accessor, on_progress);
       };
       PopulateIndexDispatch(
           vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);

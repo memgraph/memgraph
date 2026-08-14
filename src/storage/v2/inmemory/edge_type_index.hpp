@@ -28,7 +28,6 @@
 #include "storage/v2/indices/errors.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/inmemory/light_edge_guard.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/rw_lock.hpp"
 
@@ -230,13 +229,11 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::Accessor vertices,
-                          ActiveIndicesUpdater const &updater,
-                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                          ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {});
 
   bool RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater);
   auto PopulateIndex(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::Accessor vertices,
-                     ActiveIndicesUpdater const &updater,
-                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
 

@@ -87,7 +87,7 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
                                memgraph::storage::EnumStore *enum_store,
                                memgraph::storage::SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
                                memgraph::storage::DescriptionStore *description_store,
-                               std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                               ProgressCallback const &on_progress = {});
 
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
 

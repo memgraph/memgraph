@@ -340,9 +340,16 @@ class DiskStorage final : public Storage {
     void FinalizeTransaction() override;
 
     // Bring base class convenience overloads into scope (they provide default neverCancel)
+    using Storage::Accessor::CreateExistenceConstraint;
     using Storage::Accessor::CreateGlobalEdgeIndex;
     using Storage::Accessor::CreateGlobalVertexIndex;
     using Storage::Accessor::CreateIndex;
+    using Storage::Accessor::CreatePointIndex;
+    using Storage::Accessor::CreateTypeConstraint;
+    using Storage::Accessor::CreateUniqueConstraint;
+    using Storage::Accessor::CreateVectorEdgeIndex;
+    using Storage::Accessor::CreateVectorIndex;
+    using Storage::Accessor::DropVectorIndex;
     using Storage::Accessor::Vertices;
 
     std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
@@ -381,35 +388,38 @@ class DiskStorage final : public Storage {
       return std::unexpected{IndexDefinitionError{}};
     }
 
-    std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,
-                                                                               storage::PropertyId property) override;
+    std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(
+        storage::LabelId label, storage::PropertyId property, ProgressCallback const &on_progress) override;
 
     std::expected<void, storage::StorageIndexDefinitionError> DropPointIndex(storage::LabelId label,
                                                                              storage::PropertyId property) override;
 
-    std::expected<void, storage::StorageIndexDefinitionError> CreateVectorIndex(VectorIndexSpec spec) override;
+    std::expected<void, storage::StorageIndexDefinitionError> CreateVectorIndex(
+        VectorIndexSpec spec, ProgressCallback const &on_progress) override;
 
-    std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) override;
+    std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(
+        std::string_view index_name, ProgressCallback const &on_progress) override;
 
     utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) override;
 
     utils::small_vector<float> GetVectorFromVectorIndex(Vertex *vertex, std::string_view index_name) const override;
-    std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) override;
+    std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(
+        VectorEdgeIndexSpec spec, ProgressCallback const &on_progress) override;
 
     std::expected<void, StorageExistenceConstraintDefinitionError> CreateExistenceConstraint(
-        LabelId label, PropertyId property) override;
+        LabelId label, PropertyId property, CheckCancelFunction cancel_check) override;
 
     std::expected<void, StorageExistenceConstraintDroppingError> DropExistenceConstraint(LabelId label,
                                                                                          PropertyId property) override;
 
     std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> CreateUniqueConstraint(
-        LabelId label, const std::set<PropertyId> &properties) override;
+        LabelId label, const std::set<PropertyId> &properties, CheckCancelFunction cancel_check) override;
 
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
 
     std::expected<void, StorageExistenceConstraintDefinitionError> CreateTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraintKind type) override;
+        LabelId label, PropertyId property, TypeConstraintKind type, CheckCancelFunction cancel_check) override;
 
     std::expected<void, StorageExistenceConstraintDroppingError> DropTypeConstraint(LabelId label, PropertyId property,
                                                                                     TypeConstraintKind type) override;

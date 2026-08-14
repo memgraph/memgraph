@@ -403,6 +403,48 @@ TEST(SkipList, Move) {
   }
 }
 
+// clear() is what frees a large storage during a replica force-reset, and it reports nothing on its own -- size_ is
+// only zeroed once the walk finishes. An RPC handler waiting on that teardown relies on this callback to tell its peer
+// it is still alive, so a silent clear() is a peer timeout.
+TEST(SkipList, ClearReportsProgress) {
+  memgraph::utils::SkipList<int64_t> list;
+  constexpr uint64_t kInterval = memgraph::utils::kClearProgressMask + 1;
+  constexpr int64_t kElements = 3 * kInterval;
+
+  {
+    auto acc = list.access();
+    for (int64_t i = 0; i < kElements; ++i) {
+      ASSERT_TRUE(acc.insert(i).second);
+    }
+  }
+
+  uint64_t reports = 0;
+  list.clear([&reports] { ++reports; });
+
+  EXPECT_EQ(reports, 3) << "expected one report per " << kInterval << " destroyed nodes";
+  {
+    auto acc = list.access();
+    EXPECT_EQ(acc.size(), 0);
+  }
+}
+
+// A clear() with no callback must still work: that is how every caller outside the recovery paths uses it, including
+// ~SkipList.
+TEST(SkipList, ClearWithoutProgressCallback) {
+  memgraph::utils::SkipList<int64_t> list;
+  {
+    auto acc = list.access();
+    for (int64_t i = 0; i < 100; ++i) {
+      ASSERT_TRUE(acc.insert(i).second);
+    }
+  }
+
+  list.clear();
+
+  auto acc = list.access();
+  EXPECT_EQ(acc.size(), 0);
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(SkipList, Clear) {
   memgraph::utils::SkipList<int64_t> list;

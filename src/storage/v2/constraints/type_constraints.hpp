@@ -19,12 +19,11 @@
 
 #include "metrics/metric_handles.hpp"
 #include "metrics/scoped_gauge.hpp"
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
-#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
@@ -35,18 +34,6 @@ namespace memgraph::storage {
 class TypeConstraints {
  public:
   explicit TypeConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
-
-  struct MultipleThreadsConstraintValidation {
-    std::optional<ConstraintViolation> operator()(const utils::SkipListDb<Vertex>::Accessor &vertices,
-                                                  const LabelId &label, const PropertyId &property);
-
-    const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
-  };
-
-  struct SingleThreadConstraintValidation {
-    std::optional<ConstraintViolation> operator()(const utils::SkipListDb<Vertex>::Accessor &vertices,
-                                                  const LabelId &label, const PropertyId &property);
-  };
 
   struct IndividualConstraint {
     explicit IndividualConstraint(TypeConstraintKind t) : type(t) {}
@@ -91,12 +78,15 @@ class TypeConstraints {
 
   auto GetActiveConstraints() const -> std::shared_ptr<ActiveConstraints>;
 
+  /// @throw PopulateCancel if `cancel_check` asks to stop; the caller is responsible for deregistering the constraint.
   [[nodiscard]] static auto ValidateVerticesOnConstraint(utils::SkipListDb<Vertex>::Accessor vertices, LabelId label,
-                                                         PropertyId property, TypeConstraintKind type)
+                                                         PropertyId property, TypeConstraintKind type,
+                                                         ProgressCallback const &on_progress = {},
+                                                         CheckCancelFunction const &cancel_check = neverCancel)
       -> std::expected<void, ConstraintViolation>;
 
   [[nodiscard]] auto ValidateAllVertices(utils::SkipListDb<Vertex>::Accessor vertices,
-                                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
+                                         ProgressCallback const &on_progress = {}) const
       -> std::expected<void, ConstraintViolation>;
 
   [[nodiscard]] bool RegisterConstraint(LabelId label, PropertyId property, TypeConstraintKind type);

@@ -904,43 +904,84 @@ class Accessor {
 
   virtual std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(PropertyId property) = 0;
 
-  virtual std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,
-                                                                                     storage::PropertyId property) = 0;
+  virtual std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(
+      storage::LabelId label, storage::PropertyId property, ProgressCallback const &on_progress) = 0;
 
   virtual std::expected<void, storage::StorageIndexDefinitionError> DropPointIndex(storage::LabelId label,
                                                                                    storage::PropertyId property) = 0;
 
-  std::expected<void, storage::StorageIndexDefinitionError> CreateTextIndex(const TextIndexSpec &text_index_info);
+  std::expected<void, storage::StorageIndexDefinitionError> CreateTextIndex(const TextIndexSpec &text_index_info,
+                                                                            ProgressCallback const &on_progress = {});
 
   std::expected<void, storage::StorageIndexDefinitionError> DropTextIndex(const std::string &index_name);
 
   std::expected<void, storage::StorageIndexDefinitionError> CreateTextEdgeIndex(
-      const TextEdgeIndexSpec &text_edge_index_info);
+      const TextEdgeIndexSpec &text_edge_index_info, ProgressCallback const &on_progress = {});
 
-  virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorIndex(VectorIndexSpec spec) = 0;
+  virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorIndex(
+      VectorIndexSpec spec, ProgressCallback const &on_progress) = 0;
 
-  virtual std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) = 0;
+  // Dropping a vector index rewrites every indexed vertex's property back from an index id to its vector, which
+  // is O(indexed vertices) on the calling thread; on_progress lets a caller under a peer timeout observe it.
+  virtual std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(
+      std::string_view index_name, ProgressCallback const &on_progress) = 0;
 
   virtual utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) = 0;
 
   virtual utils::small_vector<float> GetVectorFromVectorIndex(Vertex *vertex, std::string_view index_name) const = 0;
 
-  virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) = 0;
+  virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(
+      VectorEdgeIndexSpec spec, ProgressCallback const &on_progress) = 0;
 
+  // Constraint creation walks every vertex, so it takes the same cancel check as index creation: it is called once
+  // per vertex and returning true abandons the validation, leaving the constraint unpublished.
   virtual std::expected<void, StorageExistenceConstraintDefinitionError> CreateExistenceConstraint(
-      LabelId label, PropertyId property) = 0;
+      LabelId label, PropertyId property, CheckCancelFunction cancel_check) = 0;
 
   virtual std::expected<void, StorageExistenceConstraintDroppingError> DropExistenceConstraint(LabelId label,
                                                                                                PropertyId property) = 0;
 
   virtual std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
-  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) = 0;
+  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties, CheckCancelFunction cancel_check) = 0;
 
   virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                  const std::set<PropertyId> &properties) = 0;
 
   virtual std::expected<void, StorageExistenceConstraintDefinitionError> CreateTypeConstraint(
-      LabelId label, PropertyId property, TypeConstraintKind type) = 0;
+      LabelId label, PropertyId property, TypeConstraintKind type, CheckCancelFunction cancel_check) = 0;
+
+  // Convenience overloads with default cancel check
+  auto CreateExistenceConstraint(LabelId label, PropertyId property)
+      -> std::expected<void, StorageExistenceConstraintDefinitionError> {
+    return CreateExistenceConstraint(label, property, neverCancel);
+  }
+
+  auto CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties)
+      -> std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> {
+    return CreateUniqueConstraint(label, properties, neverCancel);
+  }
+
+  auto CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintKind type)
+      -> std::expected<void, StorageExistenceConstraintDefinitionError> {
+    return CreateTypeConstraint(label, property, type, neverCancel);
+  }
+
+  auto CreatePointIndex(storage::LabelId label, storage::PropertyId property)
+      -> std::expected<void, storage::StorageIndexDefinitionError> {
+    return CreatePointIndex(label, property, {});
+  }
+
+  auto CreateVectorIndex(VectorIndexSpec spec) -> std::expected<void, storage::StorageIndexDefinitionError> {
+    return CreateVectorIndex(std::move(spec), {});
+  }
+
+  auto CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) -> std::expected<void, storage::StorageIndexDefinitionError> {
+    return CreateVectorEdgeIndex(std::move(spec), {});
+  }
+
+  auto DropVectorIndex(std::string_view index_name) -> std::expected<void, storage::StorageIndexDefinitionError> {
+    return DropVectorIndex(index_name, {});
+  }
 
   virtual std::expected<void, StorageExistenceConstraintDroppingError> DropTypeConstraint(LabelId label,
                                                                                           PropertyId property,

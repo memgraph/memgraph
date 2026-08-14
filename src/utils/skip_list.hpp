@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -59,6 +60,13 @@ enum class GCPolicy : uint8_t { Random, DoNotRun };
 /// small. Also, the internal implementation can handle a maximum height of 32
 /// primarily becase of the height generator (see the `gen_height` function).
 constexpr uint64_t kSkipListMaxHeight = 32;
+
+/// Bitmask controlling how often `clear()` reports progress: one call per 2^12 destroyed nodes. Sized for the worst
+/// case rather than the typical one -- node teardown cost varies with what the node owns and with allocator pressure,
+/// and a caller reporting liveness to a peer needs the guarantee to hold under load, not just on a good day. Lowering
+/// it does not change the per-node cost, which is an increment, a mask and a predicted-not-taken branch either way;
+/// it only makes the (already amortised) callback fire more often.
+constexpr uint64_t kClearProgressMask = (1UL << 12) - 1;
 
 /// This is the height that a node that is accessed from the list has to have in
 /// order for garbage collection to be triggered. This causes the garbage
@@ -1257,19 +1265,25 @@ class SkipList final : detail::SkipListNode_base {
   /// This function removes all elements from the list.
   /// NOTE: The function *isn't* thread-safe. It must be called only if there are
   /// no more active accessors using the list.
-  void clear() {
+  /// `on_progress`, when set, is invoked every kClearProgressMask+1 nodes. Tearing down a large list takes minutes
+  /// and reports nothing on its own -- `size_` is only reset once the walk below completes -- so a caller that owes
+  /// liveness to somebody else has no other way to observe that this is still advancing.
+  void clear(std::function<void()> const &on_progress = {}) {
 #ifndef NDEBUG
     auto const alive = gc_.AliveAccessors();
     DMG_ASSERT(alive == 0, "SkipList::clear() called with {} live accessor(s)", alive);
 #endif
     auto alloc = gc_.get_allocator();
     TNode *curr = head_->nexts[0].load(std::memory_order_acquire);
+    uint64_t destroyed = 0;
     while (curr != nullptr) {
       TNode *succ = curr->nexts[0].load(std::memory_order_acquire);
       size_t bytes = SkipListNodeSize(*curr);
       curr->~TNode();
       detail::deallocate_bytes(alloc, curr, bytes, SkipListNodeAlign<TObj>());
       curr = succ;
+      // Mask first so the common path is an increment and a predicted-not-taken branch.
+      if (((++destroyed & kClearProgressMask) == 0) && on_progress) on_progress();
     }
     for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
       head_->nexts[layer] = nullptr;

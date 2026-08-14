@@ -1116,8 +1116,8 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   }
 }
 
-void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
-  Abort();
+void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs(ProgressCallback const &on_progress) {
+  Abort(on_progress);
   // We have aborted, need to release/cleanup commit_timestamp_ here
   DMG_ASSERT(commit_timestamp_);
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -1487,7 +1487,9 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
   }
 }
 
-void InMemoryStorage::InMemoryAccessor::Abort() {
+void InMemoryStorage::InMemoryAccessor::Abort() { Abort({}); }
+
+void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progress) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -1537,6 +1539,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // nullptr or another monolithic block belonging to a committed but
     // uncollected transaction.
     for (const auto &delta : transaction_.deltas) {
+      if (on_progress) on_progress();
       auto prev = delta.prev.Get();
       switch (prev.type) {
         case PreviousPtr::Type::EDGE: {
@@ -1754,6 +1757,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     DeltaVertexCache delta_vertex_cache{transaction_.transaction_id};
 
     for (Delta &delta : transaction_.deltas) {
+      if (on_progress) on_progress();
       auto prev = delta.prev.Get();
       switch (prev.type) {
         case PreviousPtr::Type::VERTEX: {
@@ -1958,13 +1962,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_label_index
-           ->PopulateIndex(label,
-                           in_memory->vertices_.access(),
-                           std::nullopt,
-                           updater,
-                           std::nullopt,
-                           &transaction_,
-                           std::move(cancel_check))
+           ->PopulateIndex(
+               label, in_memory->vertices_.access(), std::nullopt, updater, {}, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -2002,7 +2001,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
                            in_memory->vertices_.access(),
                            std::nullopt,
                            updater,
-                           std::nullopt,
+                           {},
                            order,
                            &transaction_,
                            std::move(cancel_check))
@@ -2043,7 +2042,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   DowngradeToReadIfValid();
   if (!mem_edge_type_index
            ->PopulateIndex(
-               edge_type, in_memory->vertices_.access(), updater, std::nullopt, &transaction_, std::move(cancel_check))
+               edge_type, in_memory->vertices_.access(), updater, {}, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -2077,13 +2076,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_edge_type_property_index
-           ->PopulateIndex(edge_type,
-                           property,
-                           in_memory->vertices_.access(),
-                           updater,
-                           std::nullopt,
-                           &transaction_,
-                           std::move(cancel_check))
+           ->PopulateIndex(
+               edge_type, property, in_memory->vertices_.access(), updater, {}, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -2118,8 +2112,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_edge_property_index
-           ->PopulateIndex(
-               property, in_memory->vertices_.access(), updater, std::nullopt, &transaction_, std::move(cancel_check))
+           ->PopulateIndex(property, in_memory->vertices_.access(), updater, {}, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -2151,7 +2144,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
                            in_memory->vertices_.access(),
                            std::nullopt,
                            updater,
-                           std::nullopt,
+                           {},
                            &transaction_,
                            std::move(cancel_check))
            .has_value()) {
@@ -2355,11 +2348,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreatePointIndex(
-    storage::LabelId label, storage::PropertyId property) {
+    storage::LabelId label, storage::PropertyId property, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Creating point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
-  if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
+  if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access(), on_progress)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   // Defer publication to commit time so concurrent readers don't observe a
@@ -2400,7 +2393,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateVectorIndex(
-    VectorIndexSpec spec) {
+    VectorIndexSpec spec, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Creating vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
@@ -2408,7 +2401,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector index on nodes with the same name as vector edge index
   if (vector_edge_index.IndexExists(spec.index_name) ||
-      !vector_index.CreateIndex(spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
+      !vector_index.CreateIndex(
+          spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get(), on_progress)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   // Defer publication to commit time so concurrent readers don't observe a
@@ -2430,14 +2424,14 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
-    std::string_view index_name) {
+    std::string_view index_name, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Dropping vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto updater = in_memory->indices_.MakeUpdater();
   auto &metric_handles = in_memory->metric_handles_;
-  if (auto vec_capture = vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
+  if (auto vec_capture = vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get(), on_progress)) {
     transaction_.commit_callbacks_.Add([&vector_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
       vector_index.PublishActiveIndices(updater);
       metric_handles.active_vector_indices.Decrement();
@@ -2447,7 +2441,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
     transaction_.abort_callbacks_.Add([&vector_index, capture = std::move(*vec_capture)]() mutable {
       vector_index.RestoreIndex(std::move(capture));
     });
-  } else if (auto edge_capture = vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
+  } else if (auto edge_capture =
+                 vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get(), on_progress)) {
     transaction_.commit_callbacks_.Add([&vector_edge_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
       vector_edge_index.PublishActiveIndices(updater);
       metric_handles.active_vector_edge_indices.Decrement();
@@ -2476,7 +2471,7 @@ utils::small_vector<float> InMemoryStorage::InMemoryAccessor::GetVectorFromVecto
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateVectorEdgeIndex(
-    VectorEdgeIndexSpec spec) {
+    VectorEdgeIndexSpec spec, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Creating vector edge index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
@@ -2484,7 +2479,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector edge index with the same name as vector index on nodes
   if (vector_index.IndexExists(spec.index_name, in_memory->name_id_mapper_.get()) ||
-      !vector_edge_index.CreateIndex(spec, vertices_acc, in_memory->name_id_mapper_.get())) {
+      !vector_edge_index.CreateIndex(spec, vertices_acc, in_memory->name_id_mapper_.get(), on_progress)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   // Defer publication to commit time. See CreateVectorIndex above.
@@ -2504,7 +2499,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageExistenceConstraintDefinitionError>
-InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
+InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property,
+                                                             CheckCancelFunction cancel_check) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
             "Creating existence requires a read only or unique access to the storage!");
@@ -2515,7 +2511,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
   }
   try {
     if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(
-            in_memory->vertices_.access(), label, property, std::nullopt, std::nullopt);
+            in_memory->vertices_.access(), label, property, std::nullopt, {}, cancel_check);
         !validation_result.has_value()) {
       (void)existence_constraints->DropConstraint(label, property);
       return std::unexpected{StorageExistenceConstraintDefinitionError{validation_result.error()}};
@@ -2523,6 +2519,9 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
   } catch (const utils::OutOfMemoryException &) {
     (void)existence_constraints->DropConstraint(label, property);
     throw;
+  } catch (const PopulateCancel &) {
+    (void)existence_constraints->DropConstraint(label, property);
+    return std::unexpected{StorageExistenceConstraintDefinitionError{ConstraintDefinitionCancelationError{}}};
   }
   // Defer publication to commit time for MVCC correctness
   auto updater = in_memory->constraints_.MakeUpdater();
@@ -2563,16 +2562,30 @@ std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::In
 }
 
 std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
-InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
+InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                                          CheckCancelFunction cancel_check) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
             "Creating unique constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
-  auto ret = mem_unique_constraints->CreateConstraint(label, properties, in_memory->vertices_.access(), std::nullopt);
+  // CreateConstraint drops the constraint it installed before letting the cancellation out.
+  auto ret =
+      std::invoke([&]() -> std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> {
+        try {
+          auto created = mem_unique_constraints->CreateConstraint(
+              label, properties, in_memory->vertices_.access(), std::nullopt, {}, cancel_check);
+          if (!created) {
+            return std::unexpected{StorageUniqueConstraintDefinitionError{created.error()}};
+          }
+          return created.value();
+        } catch (const PopulateCancel &) {
+          return std::unexpected{StorageUniqueConstraintDefinitionError{ConstraintDefinitionCancelationError{}}};
+        }
+      });
   if (!ret) {
-    return std::unexpected{StorageUniqueConstraintDefinitionError{ret.error()}};
+    return std::unexpected{ret.error()};
   }
   if (ret.value() != UniqueConstraints::CreationStatus::SUCCESS) {
     return ret.value();
@@ -2606,9 +2619,14 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   // Defer publication to commit time so concurrent readers don't observe the
   // drop if the DDL transaction aborts. Matches the CREATE path above.
   auto updater = in_memory->constraints_.MakeUpdater();
-  transaction_.commit_callbacks_.Add([mem_unique_constraints, updater](uint64_t /*commit_ts*/) {
-    updater(mem_unique_constraints->GetActiveConstraints());
-  });
+  // Hand the evicted constraint to GC rather than letting it die with these callbacks: freeing its skiplist is
+  // O(constrained vertices), and on a replica this runs on the RPC handler thread its peer is waiting on. Only on
+  // commit -- an abort restores the constraint instead, and then this callback never runs.
+  transaction_.commit_callbacks_.Add(
+      [mem_unique_constraints, updater, evicted = captured.evicted](uint64_t /*commit_ts*/) mutable {
+        updater(mem_unique_constraints->GetActiveConstraints());
+        mem_unique_constraints->RetireConstraint(std::move(evicted));
+      });
   // Reinstall the evicted entry on abort so the constraint stays live.
   transaction_.abort_callbacks_.Add(
       [mem_unique_constraints, label, properties, evicted = std::move(captured.evicted)]() mutable {
@@ -2619,7 +2637,7 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
 }
 
 std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(
-    LabelId label, PropertyId property, TypeConstraintKind kind) {
+    LabelId label, PropertyId property, TypeConstraintKind kind, CheckCancelFunction cancel_check) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
             "Creating IS TYPED constraint requires a read only or unique access to the storage!");
@@ -2629,8 +2647,8 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
     return std::unexpected{StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
   try {
-    if (auto validation_result =
-            TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, kind);
+    if (auto validation_result = TypeConstraints::ValidateVerticesOnConstraint(
+            in_memory->vertices_.access(), label, property, kind, {}, cancel_check);
         !validation_result.has_value()) {
       (void)type_constraints->DropConstraint(label, property, kind);
       return std::unexpected{StorageTypeConstraintDefinitionError{validation_result.error()}};
@@ -2638,6 +2656,9 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
   } catch (const utils::OutOfMemoryException &) {
     (void)type_constraints->DropConstraint(label, property, kind);
     throw;
+  } catch (const PopulateCancel &) {
+    (void)type_constraints->DropConstraint(label, property, kind);
+    return std::unexpected{StorageTypeConstraintDefinitionError{ConstraintDefinitionCancelationError{}}};
   }
   // Defer publication to commit time for MVCC correctness
   auto updater = in_memory->constraints_.MakeUpdater();
@@ -5159,16 +5180,19 @@ void InMemoryStorage::HarvestDeltaChainOnlyLightEdges() noexcept {
   waiting_gc_deltas_.WithLock(harvest);
 }
 
-void InMemoryStorage::ClearLightEdges() noexcept {
+void InMemoryStorage::ClearLightEdges(std::function<void()> const &on_progress) noexcept {
   // Free ONLY live light edges held in vertex adjacency. Each edge appears
   // exactly once across all out_edges (a self-loop has a single source-vertex
   // entry), so no deduplication is needed. Deleted light edges still queued in
   // the graveyard are freed by the loop below.
   auto vertex_acc = vertices_.access();
+  uint64_t visited = 0;
   for (auto &vertex : vertex_acc) {
     for (auto const &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
       InMemoryStorage::LightEdgePool::Destroy(edge_ref.ptr);
     }
+    // Mask first so the common path is an increment and a predicted-not-taken branch.
+    if (((++visited & utils::kClearProgressMask) == 0) && on_progress) on_progress();
   }
 
   // Also free any deleted light edges still queued in the graveyard. Swap out
@@ -5203,7 +5227,7 @@ void InMemoryStorage::ClearLightEdges() noexcept {
   });
 }
 
-void InMemoryStorage::Clear() {
+void InMemoryStorage::Clear(std::function<void()> const &on_progress) {
   // NOTE: Make sure this function is called while exclusively holding on to the main lock
   // When creating a snapshot, we first lock the snapshot, then create the accessor
   // GC could be running without the main lock
@@ -5233,15 +5257,15 @@ void InMemoryStorage::Clear() {
   // Free live light edges before clearing vertices (their adjacency lists are
   // the only handle to the pool-allocated Edge*).
   if (config_.salient.items.storage_light_edge) {
-    ClearLightEdges();
+    ClearLightEdges(on_progress);
   }
 
   // Clear main memory
-  vertices_.clear();
+  vertices_.clear(on_progress);
   vertices_.run_gc();
   vertex_id_.store(0, std::memory_order_release);
 
-  edges_.clear();
+  edges_.clear(on_progress);
   edges_.run_gc();
   edge_id_.store(0, std::memory_order_release);
   edge_count_.store(0, std::memory_order_release);

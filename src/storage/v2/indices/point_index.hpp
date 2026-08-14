@@ -11,10 +11,10 @@
 
 #pragma once
 #include <cstdint>
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/skip_list.hpp"
 
@@ -113,7 +113,7 @@ struct PointIndexStorage {
   // resulting ActiveIndices snapshot via PublishActiveIndices — for user DDL
   // this is typically deferred through Transaction::commit_callbacks_.
   bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                        ProgressCallback const &on_progress = {});
   /// Removes the index from the live container and returns the evicted PointIndex,
   /// or nullptr if no index existed for {label, property}. The caller can re-install
   /// the result via RestorePointIndex on transaction abort.

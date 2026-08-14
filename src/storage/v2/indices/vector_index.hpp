@@ -19,13 +19,13 @@
 #include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>
 
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/indices/vector_match_mode.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
 #include "utils/memory_tracker.hpp"
@@ -282,21 +282,20 @@ class VectorIndex {
   /// @param vertices vertices from which to create vector index
   /// @param indices Indices (for property decoding).
   /// @param name_id_mapper Name id mapper (for property decoding).
-  /// @param snapshot_info
+  /// @param on_progress Invoked once per indexed item so a caller under a peer timeout can observe liveness.
   /// @return true if the index was created successfully, false otherwise.
   bool CreateIndex(VectorIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
-                   NameIdMapper *name_id_mapper,
-                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                   NameIdMapper *name_id_mapper, ProgressCallback const &on_progress = {});
 
   /// @brief Recovers an index based on the provided recovery information.
   /// @param recovery_info The recovery information to use.
   /// @param vertices vertices from which to recover the index.
   /// @param indices Indices (for property decoding).
   /// @param name_id_mapper Name id mapper (for property decoding).
-  /// @param snapshot_info The snapshot information to use.
+  /// @param on_progress Invoked once per indexed item so a caller under a peer timeout can observe liveness.
   void RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
                     Indices *indices, NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                    ProgressCallback const &on_progress = {});
 
   /// Captured state from DropIndex. evicted_item keeps the usearch state alive;
   /// rewritten_vertices is the list whose properties were demoted to plain Vector
@@ -311,7 +310,12 @@ class VectorIndex {
   /// transaction abort, or std::nullopt if the index doesn't exist. Callers that
   /// only need a fire-and-forget drop (e.g. CreateIndex's exception rollback)
   /// can discard the return value.
-  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+  /// `on_progress` is invoked once per indexed vertex while their properties are rewritten back from index ids to
+  /// vectors. That rewrite is O(indexed vertices) and runs on the calling thread, so a caller under a peer timeout
+  /// needs to see it advancing. It does NOT cover freeing the usearch index itself, which happens later when the
+  /// last reference to the captured item goes.
+  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper,
+                                               ProgressCallback const &on_progress = {});
 
   /// @brief Reinstalls an index previously evicted by DropIndex. Re-adds the
   /// captured index_id to each rewritten vertex's property and re-inserts the

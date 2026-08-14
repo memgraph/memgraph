@@ -394,12 +394,9 @@ bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<=(std::vector<Pr
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
-                                          auto &&index_accessor,
-                                          std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                          auto &&index_accessor, ProgressCallback const &on_progress) {
   // observe regardless
-  if (snapshot_info) {
-    snapshot_info->Update(UpdateType::VERTICES);
-  }
+  if (on_progress) on_progress();
 
   if (vertex.deleted() || !std::ranges::contains(vertex.labels, label)) {
     return;
@@ -415,13 +412,10 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
-                                          auto &&index_accessor,
-                                          std::optional<SnapshotObserverInfo> const &snapshot_info,
+                                          auto &&index_accessor, ProgressCallback const &on_progress,
                                           Transaction const &tx) {
   // observe regardless
-  if (snapshot_info) {
-    snapshot_info->Update(UpdateType::VERTICES);
-  }
+  if (on_progress) on_progress();
 
   bool exists = true;
   bool deleted = false;
@@ -469,12 +463,14 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
     LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info, IndexOrder order) {
+    ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress, IndexOrder order) {
   auto res = RegisterIndex(label, properties, updater, order);
   if (!res) return false;
-  auto res2 = PopulateIndex(label, properties, std::move(vertices), parallel_exec_info, updater, snapshot_info, order);
+  auto res2 = PopulateIndex(label, properties, std::move(vertices), parallel_exec_info, updater, on_progress, order);
   if (!res2) {
-    MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
+    MG_ASSERT(false,
+              "CreateIndexOnePass never cancels: population only fails via a cancel check, and this entry point "
+              "passes none. The trailing callback reports progress and cannot stop the build.");
   }
   return PublishIndex(label, properties, 0, order);
 }
@@ -566,8 +562,8 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info, IndexOrder order,
-    Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
+    ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress, IndexOrder order, Transaction const *tx,
+    CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
   auto populate = [&](auto index) {
     if (!index) {
       MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -579,12 +575,12 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
 
     if (tx) {
       auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
-        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, snapshot_info, *tx);
+        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, on_progress, *tx);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     } else {
       auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
-        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, snapshot_info);
+        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, on_progress);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     }
