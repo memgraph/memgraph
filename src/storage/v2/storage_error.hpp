@@ -84,6 +84,10 @@ inline bool operator==(const SerializationError & /*err1*/, const SerializationE
 using StorageManipulationError = std::variant<ConstraintViolation, ReplicationError, SerializationError,
                                               PersistenceError, ReplicaShouldNotWriteError>;
 
+// Returns true iff `error` is a ReplicationError with `transaction_committed` set: a SYNC replica failed after
+// main already ran FinalizeCommitPhase. Every other error variant means the transaction was rolled back.
+auto TransactionWasCommitted(StorageManipulationError const &error) -> bool;
+
 using StorageIndexDefinitionError = std::variant<IndexDefinitionError, IndexDefinitionAlreadyExistsError,
                                                  IndexDefinitionConfigError, IndexDefinitionCancelationError>;
 

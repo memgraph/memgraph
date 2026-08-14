@@ -11609,22 +11609,35 @@ void Interpreter::Commit() {
         error);
   }
 
+  bool const txn_committed =
+      maybe_commit_error.has_value() || storage::TransactionWasCommitted(maybe_commit_error.error());
+
   // The ordered execution of after commit triggers is heavily depending on the exclusiveness of
   // db_accessor_->Commit(): only one of the transactions can be commiting at the same time, so when the commit is
   // finished, that transaction probably will schedule its after commit triggers, because the other transactions that
   // want to commit are still waiting for commiting or one of them just started commiting its changes. This means the
   // ordered execution of after commit triggers are not guaranteed.
-  if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
-    db->AddTask(
-        [db_acc = *current_db_.db_acc_,
-         interpreter_context = interpreter_context_,
-         trigger_context = std::move(*trigger_context),
-         triggering_user = user_or_role_ ? user_or_role_->clone() : nullptr /* deep copy (otherwise not thread safe) */,
-         user_transaction = std::move(current_db_.db_transactional_accessor_)]() {
-          RunTriggersAfterCommit(db_acc, interpreter_context, trigger_context, triggering_user);
-          user_transaction->FinalizeTransaction();
-          SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
-        });
+  auto const after_commit_trigger_count = db->trigger_store()->AfterCommitTriggers().size();
+  if (trigger_context && after_commit_trigger_count > 0) {
+    // The ReplicationError arm above doesn't throw, so an aborted STRICT_SYNC transaction still reaches here;
+    // the throw happens further down. Skip the trigger run so it doesn't fire for rolled-back effects.
+    if (txn_committed) {
+      db->AddTask([db_acc = *current_db_.db_acc_,
+                   interpreter_context = interpreter_context_,
+                   trigger_context = std::move(*trigger_context),
+                   triggering_user =
+                       user_or_role_ ? user_or_role_->clone() : nullptr /* deep copy (otherwise not thread safe) */,
+                   user_transaction = std::move(current_db_.db_transactional_accessor_)]() {
+        RunTriggersAfterCommit(db_acc, interpreter_context, trigger_context, triggering_user);
+        user_transaction->FinalizeTransaction();
+        SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
+      });
+    } else {
+      spdlog::warn("Skipping {} AFTER COMMIT trigger(s) on database '{}' because the transaction was aborted: {}",
+                   after_commit_trigger_count,
+                   db->name(),
+                   replication_error_msg.value_or("no replication error was recorded"));
+    }
   }
 
   SPDLOG_DEBUG("Finished committing the transaction");

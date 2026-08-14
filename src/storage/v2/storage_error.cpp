@@ -102,4 +102,9 @@ auto FormatReplicationError(ReplicationError const &error) -> std::string {
   return msg;
 }
 
+auto TransactionWasCommitted(StorageManipulationError const &error) -> bool {
+  auto const *replication_error = std::get_if<ReplicationError>(&error);
+  return replication_error != nullptr && replication_error->transaction_committed;
+}
+
 }  // namespace memgraph::storage

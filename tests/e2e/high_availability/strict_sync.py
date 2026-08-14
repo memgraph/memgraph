@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 
+import glob
 import os
 import sys
 import time
@@ -429,6 +430,100 @@ def test_mt_strict_sync_commit(test_name):
     # memgraph
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
     assert get_vertex_count(main_cursor) == 100
+
+
+def get_labeled_vertex_count(cursor, label):
+    return execute_and_fetch_all(cursor, f"MATCH (n:{label}) RETURN count(n)")[0][0]
+
+
+def get_main_log_path(test_name):
+    # Memgraph's log sink appends a "_<YYYY-MM-DD>" date suffix to the filename, so the exact name
+    # below never exists on disk -- glob for it instead.
+    log_dir = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name))
+    matches = glob.glob(os.path.join(log_dir, "instance_3*.log"))
+    assert matches, f"No instance_3 log found in {log_dir} (glob pattern: 'instance_3*.log')"
+    return max(matches, key=os.path.getmtime)
+
+
+def read_log_since(log_path, offset):
+    with open(log_path, "r") as f:
+        f.seek(offset)
+        return f.read()
+
+
+def log_contains_any(log_path, offset, substrings):
+    content = read_log_since(log_path, offset)
+    return any(substring in content for substring in substrings)
+
+
+# Regression test: an AFTER COMMIT trigger must not fire when the txn aborted (STRICT_SYNC replica
+# down => 2PC prepare fails); Commit() used to enqueue the trigger task unconditionally.
+def test_after_commit_trigger_does_not_fire_for_aborted_txn(test_name):
+    trigger_name = "audit_trigger"
+    inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
+    main_cursor = connect(host="localhost", port=7689).cursor()
+
+    # Trigger must be DELETE-typed: TriggerContext::AdaptForAccessor re-resolves objects by Gid post-abort
+    # and prunes created_vertices_ (a CREATE trigger's body would never run, making this test vacuous),
+    # but deliberately leaves deleted_vertices_ unpruned, so a DELETE trigger's body still runs.
+    execute_and_fetch_all(main_cursor, "CREATE (n:Node {id: 1})")
+    execute_and_fetch_all(
+        main_cursor, f"CREATE TRIGGER {trigger_name} ON () DELETE AFTER COMMIT EXECUTE CREATE (:Audit)"
+    )
+    mg_sleep_and_assert(1, partial(get_labeled_vertex_count, main_cursor, "Node"))
+
+    main_log_path = get_main_log_path(test_name)
+    # Ignore everything logged by the healthy setup above; only look at what the aborted txn produces.
+    start_offset = os.path.getsize(main_log_path)
+
+    # This test never restarts instance_1, so its data directory must be dropped now or it poisons the next run.
+    interactive_mg_runner.kill(inner_instances_description, "instance_1", keep_directories=False)
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(main_cursor, "MATCH (n:Node) DETACH DELETE n")
+    assert "Failed to replicate to STRICT_SYNC replica" in str(e.value)
+
+    # The delete must not have taken effect -- this is the precondition proving we are really in the
+    # aborted-transaction state, not just observing a no-op.
+    assert get_labeled_vertex_count(main_cursor, "Node") == 1
+
+    # Assert on MAIN's log, not graph data: the trigger's own CREATE (:Audit) commit also aborts under
+    # STRICT_SYNC, so a MATCH (:Audit) count reads 0 with or without the fix and proves nothing. The
+    # signal is the log line Commit() emits when it dispatches (unfixed) or skips (fixed) the trigger task.
+    # Trigger task runs asynchronously; wait (bounded) so the test can't pass by looking too early.
+    mg_sleep_and_assert(
+        True,
+        partial(
+            log_contains_any,
+            main_log_path,
+            start_offset,
+            ("Skipping 1 AFTER COMMIT trigger(s)", f"Trigger '{trigger_name}' replication:"),
+        ),
+        max_duration=10,
+    )
+
+    log_content = read_log_since(main_log_path, start_offset)
+    assert f"Trigger '{trigger_name}' replication:" not in log_content
+    # Kept as a separate assertion from the one above: a future wording change to one line shouldn't be
+    # able to mask a regression in the other.
+    assert "Skipping 1 AFTER COMMIT trigger(s)" in log_content
+
+
+# Regression guard: on a healthy cluster the trigger must still fire and its write must still persist --
+# suppressing it for a committed txn would be worse than the bug being fixed. Passes on the unfixed
+# binary too (verified); it catches over-suppression, the test above is the one that catches the abort bug.
+def test_after_commit_trigger_fires_for_committed_txn(test_name):
+    setup_cluster(test_name, get_default_setup_queries())
+    main_cursor = connect(host="localhost", port=7689).cursor()
+
+    execute_and_fetch_all(main_cursor, "CREATE (n:Node {id: 1})")
+    execute_and_fetch_all(main_cursor, "CREATE TRIGGER audit_trigger ON () DELETE AFTER COMMIT EXECUTE CREATE (:Audit)")
+    mg_sleep_and_assert(1, partial(get_labeled_vertex_count, main_cursor, "Node"))
+
+    execute_and_fetch_all(main_cursor, "MATCH (n:Node) DETACH DELETE n")
+    mg_sleep_and_assert(0, partial(get_labeled_vertex_count, main_cursor, "Node"))
+
+    mg_sleep_and_assert(1, partial(get_labeled_vertex_count, main_cursor, "Audit"))
 
 
 if __name__ == "__main__":

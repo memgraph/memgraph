@@ -116,3 +116,83 @@ TEST(ThreadPool, MoveOnlyLambdaHighConcurrency) {
     ASSERT_EQ(sum.load(), expected);
   }
 }
+
+TEST(ThreadPool, ShutDownReportsDiscardedTasks) {
+  static constexpr size_t task_count = 5;
+
+  std::atomic<int> ran{0};
+  // Pool size 0 spawns no worker thread, so nothing can pop task_queue_ before ShutDown() runs --
+  // every added task is still queued, making the discarded count exact with no synchronization needed.
+  memgraph::utils::ThreadPool pool{0};
+
+  for (size_t i = 0; i < task_count; ++i) {
+    pool.AddTask([&] { ran.fetch_add(1); });
+  }
+
+  ASSERT_EQ(pool.UnfinishedTasksNum(), task_count);
+  ASSERT_EQ(pool.ShutDown(), task_count);
+  ASSERT_EQ(ran.load(), 0);
+  ASSERT_EQ(pool.UnfinishedTasksNum(), 0U);
+}
+
+TEST(ThreadPool, AddTaskRejectedAfterShutDown) {
+  memgraph::utils::ThreadPool pool{1};
+
+  std::atomic<int> ran{0};
+  ASSERT_TRUE(pool.AddTask([&] { ran.fetch_add(1); }));
+
+  while (pool.UnfinishedTasksNum() != 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  pool.ShutDown();
+
+  ASSERT_FALSE(pool.AddTask([&] { ran.fetch_add(1); }));
+  ASSERT_EQ(ran.load(), 1);
+  ASSERT_EQ(pool.UnfinishedTasksNum(), 0U);
+}
+
+TEST(ThreadPool, ShutDownDrainsNothingButFinishesTheRunningTask) {
+  static constexpr size_t queued_after_start = 3;
+
+  memgraph::utils::ThreadPool pool{1};
+
+  std::atomic<bool> started{false};
+  std::atomic<bool> release{false};
+  std::atomic<bool> finished{false};
+
+  pool.AddTask([&] {
+    started = true;
+    while (!release.load()) {
+      std::this_thread::sleep_for(1ms);
+    }
+    finished = true;
+  });
+
+  while (!started.load()) {
+    std::this_thread::sleep_for(1ms);
+  }
+
+  std::atomic<int> ran{0};
+  for (size_t i = 0; i < queued_after_start; ++i) {
+    pool.AddTask([&] { ran.fetch_add(1); });
+  }
+
+  std::atomic<size_t> discarded{0};
+  std::jthread shutdown_thread([&] { discarded.store(pool.ShutDown()); });
+
+  release = true;
+  shutdown_thread.join();
+
+  ASSERT_TRUE(finished.load());
+
+  // Unlike the pool-size-0 test above, a real worker may drain any number of the queued tasks before
+  // ShutDown() takes pool_lock_; that race is genuine, so only the discarded+ran total is exact.
+  ASSERT_LE(discarded.load(), queued_after_start);
+  ASSERT_EQ(discarded.load() + static_cast<size_t>(ran.load()), queued_after_start);
+}
+
+TEST(ThreadPool, ShutDownOnIdlePoolReportsZero) {
+  memgraph::utils::ThreadPool pool{2};
+  ASSERT_EQ(pool.ShutDown(), 0U);
+}
