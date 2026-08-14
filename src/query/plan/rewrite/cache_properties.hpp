@@ -26,6 +26,12 @@ namespace memgraph::query::plan {
 
 namespace impl {
 
+/// `Symbol` has no ordering of its own. Position is unique within a symbol table and stable across a plan,
+/// which is what keeps the emitted operators in the same order from one planning run to the next.
+struct SymbolPositionLess {
+  bool operator()(Symbol const &lhs, Symbol const &rhs) const { return lhs.position() < rhs.position(); }
+};
+
 /// Walks the expressions one operator evaluates per row, first counting the property lookups that are candidates for
 /// caching, then swapping the chosen ones for identifiers bound to the cache's frame slots.
 ///
@@ -51,15 +57,23 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     AcceptExpression(expression);
   }
 
-  /// The symbol all gathered lookups agree on, or nullopt when there is nothing worth caching.
-  auto Candidate() const -> std::optional<Symbol> {
-    if (!single_symbol_ || lookup_count_ < 2) return std::nullopt;
-    return single_symbol_;
+  /// Every symbol read often enough to be worth a cache, each with the properties to read for it.
+  /// Ordered by symbol position so the plan does not depend on which lookup the traversal met first.
+  ///
+  /// Two lookups is the bar, counted as mentions rather than distinct properties: reading one property three
+  /// times and reading three properties once each are both a single pass instead of several.
+  auto Candidates() const -> std::map<Symbol, std::set<std::string>, SymbolPositionLess> {
+    auto candidates = std::map<Symbol, std::set<std::string>, SymbolPositionLess>{};
+    for (auto const &[symbol, gathered] : per_symbol_) {
+      if (gathered.lookup_count < 2) continue;
+      candidates.emplace(symbol, gathered.property_names);
+    }
+    return candidates;
   }
 
-  auto PropertyNames() const -> const std::set<std::string> & { return property_names_; }
-
-  void SetCachedSymbols(std::map<std::string, Symbol, std::less<>> cached) { cached_ = std::move(cached); }
+  void SetCachedSymbols(std::map<Symbol, std::map<std::string, Symbol, std::less<>>, SymbolPositionLess> cached) {
+    cached_ = std::move(cached);
+  }
 
  private:
   void Visit(PropertyLookup &op) override {
@@ -68,26 +82,24 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     auto *identifier = static_cast<Identifier *>(op.expression_);
     if (identifier->symbol_pos_ < 0) return;
 
+    auto const &symbol = symbol_table_->at(*identifier);
+
     switch (phase_) {
       case Phase::GATHER: {
-        if (disabled_) return;
-        auto const &symbol = symbol_table_->at(*identifier);
-        // The cursor fills its slots with Null for anything that is not a vertex, so an edge or an untyped symbol
-        // would silently lose its properties. A second symbol is out of scope for this rewrite.
-        if (symbol.type() != Symbol::Type::VERTEX || (single_symbol_ && !(*single_symbol_ == symbol))) {
-          single_symbol_.reset();
-          lookup_count_ = 0;
-          disabled_ = true;
-          return;
-        }
-        single_symbol_ = symbol;
-        property_names_.insert(op.property_.name);
-        ++lookup_count_;
+        // The cursor fills its slots with Null for anything that is not a vertex, so an edge or an untyped
+        // symbol would silently lose its properties. Such a lookup simply keeps reading the old way; it does
+        // not disqualify the other symbols in the same expression.
+        if (symbol.type() != Symbol::Type::VERTEX) return;
+        auto &gathered = per_symbol_[symbol];
+        gathered.property_names.insert(op.property_.name);
+        ++gathered.lookup_count;
         return;
       }
       case Phase::REPLACE: {
-        auto it = cached_.find(op.property_.name);
-        if (it == cached_.end()) return;
+        auto symbol_it = cached_.find(symbol);
+        if (symbol_it == cached_.end()) return;
+        auto it = symbol_it->second.find(op.property_.name);
+        if (it == symbol_it->second.end()) return;
         auto *replacement = ast_storage_->Create<Identifier>(it->second.name(), false);
         replacement->MapTo(it->second);
         prev_expressions_.back() = replacement;
@@ -203,11 +215,14 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   AstStorage *ast_storage_;
   Phase phase_{Phase::GATHER};
   std::vector<Expression *> prev_expressions_;
-  std::optional<Symbol> single_symbol_;
-  std::set<std::string> property_names_;
-  std::map<std::string, Symbol, std::less<>> cached_;
-  int lookup_count_{0};
-  bool disabled_{false};
+
+  struct Gathered {
+    std::set<std::string> property_names;
+    int lookup_count{0};
+  };
+
+  std::map<Symbol, Gathered, SymbolPositionLess> per_symbol_;
+  std::map<Symbol, std::map<std::string, Symbol, std::less<>>, SymbolPositionLess> cached_;
 };
 
 template <class TDbAccessor>
@@ -233,10 +248,8 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       cacher.Run(PropertyLookupCacher::Phase::GATHER, named_expression);
     }
 
-    auto candidate = Candidate(cacher, *input);
-    if (!candidate) return true;
-
-    auto slots = MakeSlots(cacher.PropertyNames());
+    auto plan = PlanCaches(cacher, *input);
+    if (plan.empty()) return true;
 
     // The variable-start planner rewrites several candidate plans that share one AST, so the replacement has to
     // happen on this plan's own copy of the named expressions.
@@ -244,12 +257,12 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       named_expression = named_expression->Clone(ast_storage_);
     }
 
-    cacher.SetCachedSymbols(std::move(slots.by_name));
+    cacher.SetCachedSymbols(TakeSlotsByName(plan));
     for (auto *&named_expression : op.named_expressions_) {
       cacher.Run(PropertyLookupCacher::Phase::REPLACE, named_expression);
     }
 
-    op.set_input(std::make_shared<CacheProperties>(input, *candidate, std::move(slots.properties)));
+    op.set_input(ChainCaches(input, std::move(plan)));
     return true;
   }
 
@@ -261,20 +274,18 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     ForEachRowExpression(op,
                          [&](Expression *&expression) { cacher.Run(PropertyLookupCacher::Phase::GATHER, expression); });
 
-    auto candidate = Candidate(cacher, *input);
-    if (!candidate) return true;
-
-    auto slots = MakeSlots(cacher.PropertyNames());
+    auto plan = PlanCaches(cacher, *input);
+    if (plan.empty()) return true;
 
     // These slots alias the AST that the Produce above still evaluates, so the replacement has to happen on this
     // operator's own copy of each expression.
     ForEachRowExpression(op, [&](Expression *&expression) { expression = expression->Clone(ast_storage_); });
 
-    cacher.SetCachedSymbols(std::move(slots.by_name));
+    cacher.SetCachedSymbols(TakeSlotsByName(plan));
     ForEachRowExpression(
         op, [&](Expression *&expression) { cacher.Run(PropertyLookupCacher::Phase::REPLACE, expression); });
 
-    op.set_input(std::make_shared<CacheProperties>(input, *candidate, std::move(slots.properties)));
+    op.set_input(ChainCaches(input, std::move(plan)));
     return true;
   }
 
@@ -290,17 +301,46 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     }
   }
 
+  /// One cache to insert: the symbol to read from, the properties to read, and the slot each lands in.
+  struct PlannedCache {
+    Symbol input_symbol;
+    std::map<std::string, Symbol, std::less<>> by_name;
+    std::vector<CachedProperty> properties;
+  };
+
   struct CacheSlots {
     std::map<std::string, Symbol, std::less<>> by_name;
     std::vector<CachedProperty> properties;
   };
 
-  auto Candidate(PropertyLookupCacher const &cacher, LogicalOperator const &input) const -> std::optional<Symbol> {
-    auto candidate = cacher.Candidate();
-    if (!candidate) return std::nullopt;
+  /// One planned cache per symbol the input actually binds. A symbol the input does not bind cannot be read
+  /// here at all, and is dropped rather than disqualifying the rest.
+  auto PlanCaches(PropertyLookupCacher const &cacher, LogicalOperator const &input) -> std::vector<PlannedCache> {
     auto const modified = input.ModifiedSymbols(*symbol_table_);
-    if (std::ranges::find(modified, *candidate) == modified.end()) return std::nullopt;
-    return candidate;
+    auto planned = std::vector<PlannedCache>{};
+    for (auto const &[symbol, property_names] : cacher.Candidates()) {
+      if (std::ranges::find(modified, symbol) == modified.end()) continue;
+      auto slots = MakeSlots(property_names);
+      planned.push_back(PlannedCache{symbol, std::move(slots.by_name), std::move(slots.properties)});
+    }
+    return planned;
+  }
+
+  static auto TakeSlotsByName(std::vector<PlannedCache> &plan)
+      -> std::map<Symbol, std::map<std::string, Symbol, std::less<>>, SymbolPositionLess> {
+    auto by_symbol = std::map<Symbol, std::map<std::string, Symbol, std::less<>>, SymbolPositionLess>{};
+    for (auto &cache : plan) by_symbol.emplace(cache.input_symbol, cache.by_name);
+    return by_symbol;
+  }
+
+  /// Caches stack: each reads from the row the one below produced, and every slot is written before the
+  /// operator above evaluates anything.
+  static auto ChainCaches(std::shared_ptr<LogicalOperator> input, std::vector<PlannedCache> plan)
+      -> std::shared_ptr<LogicalOperator> {
+    for (auto &cache : plan) {
+      input = std::make_shared<CacheProperties>(input, cache.input_symbol, std::move(cache.properties));
+    }
+    return input;
   }
 
   auto MakeSlots(std::set<std::string> const &property_names) -> CacheSlots {

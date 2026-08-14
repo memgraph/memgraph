@@ -5867,6 +5867,54 @@ TYPED_TEST(TestPlanner, CachePropertiesBeneathAggregateAndProduceTogether) {
             ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, CachePropertiesTwoSymbolsEachGetTheirOwnCache) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto prop_b = PROPERTY_PAIR(dba, "b");
+  // Two vertices, two lookups each. One cache per symbol; a symbol worth caching must not be held back by
+  // another symbol appearing in the same projection.
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                                   RETURN(PROPERTY_LOOKUP(dba, "n", prop_a),
+                                          AS("a"),
+                                          PROPERTY_LOOKUP(dba, "n", prop_b),
+                                          AS("b"),
+                                          PROPERTY_LOOKUP(dba, "m", prop_a),
+                                          AS("c"),
+                                          PROPERTY_LOOKUP(dba, "m", prop_b),
+                                          AS("d"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  // The chain is built in symbol order, so `n` (declared first) sits nearer the leaf.
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectExpand(),
+            ExpectCacheProperties("n", 2),
+            ExpectCacheProperties("m", 2),
+            ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CachePropertiesAnEdgeLookupDoesNotDisableTheVertex) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto prop_b = PROPERTY_PAIR(dba, "b");
+  // The edge property is not cacheable, but it must not cost the vertex its cache - this is the shape that
+  // leaves the benchmark's slowest query reading every property the long way.
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                                   RETURN(PROPERTY_LOOKUP(dba, "n", prop_a),
+                                          AS("a"),
+                                          PROPERTY_LOOKUP(dba, "n", prop_b),
+                                          AS("b"),
+                                          PROPERTY_LOOKUP(dba, "r", prop_a),
+                                          AS("c"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectCacheProperties("n", 2), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, CachePropertiesBeneathAggregateTwoSymbolsDoNotFire) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
