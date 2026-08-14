@@ -296,6 +296,25 @@ class ExpectScanAllById : public OpChecker<ScanAllById> {
 using ExpectExpand = OpChecker<Expand>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;
+
+// Asserts which columns a Produce projects, for cases where the plan shape alone does not discriminate.
+class ExpectProduceColumns : public OpChecker<Produce> {
+ public:
+  explicit ExpectProduceColumns(std::vector<std::string> names) : names_(std::move(names)) {}
+
+  void ExpectOp(Produce &produce, const SymbolTable &) override {
+    std::vector<std::string> actual;
+    actual.reserve(produce.named_expressions_.size());
+    for (auto *named_expr : produce.named_expressions_) {
+      actual.emplace_back(named_expr->name_);
+    }
+    EXPECT_THAT(actual, testing::UnorderedElementsAreArray(names_));
+  }
+
+ private:
+  std::vector<std::string> names_;
+};
+
 using ExpectEmptyResult = OpChecker<EmptyResult>;
 using ExpectSetProperty = OpChecker<SetProperty>;
 using ExpectSetProperties = OpChecker<SetProperties>;

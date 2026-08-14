@@ -1119,3 +1119,26 @@ Feature: Subqueries
         Then the result should be:
             | total | from_id | to_labels   |
             | 3     | '1'     | ['Probe']   |
+
+    Scenario: An OPTIONAL MATCH miss on a scoped CALL import does not null the outer variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (m1:Movie {id: '1'})-[:relatedTo]->(m2:Movie {id: '2'})
+            """
+        # The subquery shares the outer frame, so treating `source` as a fresh variable here would
+        # null its slot on the OPTIONAL MATCH miss - visible after the CALL as `outer_after`.
+        When executing query:
+            """
+            MATCH (source:Movie {id: '1'})
+            CALL (source) {
+              MATCH (source)-[]-(des1)
+              WITH des1
+              OPTIONAL MATCH (source)-[:noSuchType]-(des2)
+              RETURN des1, des2
+            }
+            RETURN source.id AS outer_after, des1.id AS d1, des2 AS d2
+            """
+        Then the result should be:
+            | outer_after | d1  | d2   |
+            | '1'         | '2' | null |
