@@ -99,7 +99,8 @@ list_wheels() {
   local source="$1" listing
   case "$source" in
     cache)
-      listing="$(curl -fsS --connect-timeout 5 --max-time 60 "${CACHE_BASE_URL}/" \
+      listing="$(curl -fsS --connect-timeout 5 --max-time 60 "${CACHE_BASE_URL}/")" || return 1
+      listing="$(printf '%s\n' "$listing" \
         | grep -oE 'href="[^"?]+\.whl"' | sed -e 's/^href="//' -e 's/"$//')" || return 1
     ;;
     s3)

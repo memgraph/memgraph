@@ -31,7 +31,7 @@ USER memgraph
 COPY --chown=memgraph:memgraph install_python_requirements.sh /home/memgraph/install_python_requirements.sh
 COPY --chown=memgraph:memgraph ./wheels /tmp/wheels
 RUN cd $HOME && \
-    pip install --no-cache-dir --find-links=/tmp/wheels --only-binary=gssapi gssapi --break-system-packages && \
+    pip install --no-cache-dir --find-links=/tmp/wheels --only-binary=gssapi gssapi==1.11.1 --break-system-packages && \
     chmod +x /home/memgraph/install_python_requirements.sh && \
     ./install_python_requirements.sh --arch ${TARGETARCH} --ci --cuda ${CUDA} --cache-present ${CACHE_PRESENT} --wheel-cache-dir /tmp/wheels && \
     rm /home/memgraph/install_python_requirements.sh && \
