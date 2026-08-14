@@ -69,15 +69,18 @@ kerberos_dump_logs() {
 }
 
 kerberos_wait_for_bolt() {
-  # With the module enabled Bolt is access-controlled, so an unauthenticated
-  # probe query can't tell "not listening yet" from "auth refused". Wait for
-  # the line memgraph logs once the Bolt server is accepting instead.
-  local container="$1"
   local retries=0
-  until docker logs "$container" 2>&1 | grep -q "Bolt server is fully armed and operational"; do
+  until docker exec "$KERBEROS_KDC_CONTAINER" \
+    bash -c "echo > /dev/tcp/${KERBEROS_MG_HOST}/7687" >/dev/null 2>&1; do
+    # A memgraph that died on startup will never open the port; say so now
+    # instead of after the full timeout.
+    if [ "$(docker inspect -f '{{.State.Running}}' "$KERBEROS_MG_CONTAINER" 2>/dev/null)" != "true" ]; then
+      echo "memgraph container $KERBEROS_MG_CONTAINER is not running"
+      return 1
+    fi
     retries=$((retries + 1))
     if [ "$retries" -ge 300 ]; then
-      echo "memgraph in $container never opened its Bolt server"
+      echo "memgraph in $KERBEROS_MG_CONTAINER never opened its Bolt port"
       return 1
     fi
     sleep 0.2
@@ -150,7 +153,7 @@ test_kerberos_auth_setup() {
     "$MEMGRAPH_DOCKERHUB_IMAGE" \
     $MEMGRAPH_GENERAL_FLAGS --auth-module-mappings=kerberos >/dev/null
 
-  kerberos_wait_for_bolt "$KERBEROS_MG_CONTAINER"
+  kerberos_wait_for_bolt
 }
 
 test_kerberos_auth() {
