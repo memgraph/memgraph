@@ -595,6 +595,43 @@ Feature: WHERE exists
           | name   |
           | 'John' |
 
+  # Regression for https://github.com/memgraph/memgraph/issues/4485
+  Scenario: Test EXISTS subquery with RETURN only
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})
+          CREATE (:Person {name: 'Alice'})
+          """
+      When executing query:
+          """
+          MATCH (n) WHERE exists { RETURN n } RETURN n.name AS name ORDER BY name;
+          """
+      Then the result should be:
+          | name    |
+          | 'Alice' |
+          | 'John'  |
+
+  # Regression for https://github.com/memgraph/memgraph/issues/4485 — empty database must not crash
+  Scenario: Test EXISTS subquery with RETURN only on empty graph
+      Given an empty graph
+      When executing query:
+          """
+          MATCH (n) WHERE exists { RETURN n } RETURN n;
+          """
+      Then the result should be empty
+
+  # Regression for https://github.com/memgraph/memgraph/issues/4478
+  Scenario: Test EXISTS RETURN-only subquery inside pattern comprehension filter
+      Given an empty graph
+      When executing query:
+          """
+          RETURN [p = ()-[]->() WHERE EXISTS { RETURN 1 } | p] AS paths;
+          """
+      Then the result should be:
+          | paths |
+          | []    |
+
   Scenario: Test nested EXISTS subqueries
       Given an empty graph
       And having executed:
