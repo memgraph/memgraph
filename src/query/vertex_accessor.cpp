@@ -11,6 +11,8 @@
 
 #include "query/vertex_accessor.hpp"
 
+#include <utility>
+
 #include "query/edge_accessor.hpp"
 
 namespace memgraph::query {
@@ -26,7 +28,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
   std::ranges::transform(
       (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
 
-  return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
+  return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
 }
 
 storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View view,
@@ -41,7 +43,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
   std::ranges::transform(
       (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
 
-  return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
+  return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
 }
 
 storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View view) const {
@@ -59,7 +61,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
   std::ranges::transform(
       (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
 
-  return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
+  return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
 }
 
 storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View view,
@@ -74,7 +76,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
   std::ranges::transform(
       (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
 
-  return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
+  return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
 }
 
 storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View view) const {
