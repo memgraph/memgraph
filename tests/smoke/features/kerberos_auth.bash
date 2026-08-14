@@ -1,8 +1,5 @@
 #!/bin/bash
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-# Captured before utils.bash is sourced: sourcing it repoints SCRIPT_DIR at
-# tests/smoke. test_kerberos_auth re-invokes this file (see --steps below).
-KERBEROS_FEATURE_FILE="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/../utils.bash"
 
 # End-to-end Kerberos/GSSAPI login against the image under test: a real KDC
@@ -17,6 +14,11 @@ source "$SCRIPT_DIR/../utils.bash"
 #
 #   memgraph_smoke_kdc  ubuntu + MIT KDC, and the Bolt client (kerberos/client.py)
 #   memgraph_smoke_krb  the image under test, SSO enabled, keytab mounted
+#
+# It is also split in two: test_kerberos_auth_setup builds the realm and the
+# instance, test_kerberos_auth does the login. The caller runs them one after
+# the other under `set -e`, so any failing step in either stops the suite right
+# where it broke.
 #
 # The whole configuration lives here; both container-side scripts read it from
 # the environment so the realm and principals are defined exactly once.
@@ -57,6 +59,15 @@ kerberos_cleanup() {
   rm -rf "$KERBEROS_SHARED_DIR"
 }
 
+kerberos_dump_logs() {
+  echo "--- $KERBEROS_MG_CONTAINER (memgraph, TRACE) ---"
+  docker logs "$KERBEROS_MG_CONTAINER" 2>&1 | tail -n 80 || true
+  # The container's stdout is just `sleep infinity`; the KDC's own log is
+  # what says whether tickets were issued (see [logging] in setup-kdc.sh).
+  echo "--- $KERBEROS_KDC_CONTAINER (krb5kdc.log) ---"
+  docker exec "$KERBEROS_KDC_CONTAINER" tail -n 30 /var/log/krb5kdc.log 2>&1 || true
+}
+
 kerberos_wait_for_bolt() {
   # With the module enabled Bolt is access-controlled, so an unauthenticated
   # probe query can't tell "not listening yet" from "auth refused". Wait for
@@ -73,7 +84,13 @@ kerberos_wait_for_bolt() {
   done
 }
 
-kerberos_setup() {
+test_kerberos_auth_setup() {
+  echo "FEATURE: Kerberos (GSSAPI) authentication -- realm and instance setup"
+  # Leftovers from a run that was killed mid-way: clearing them here (rather
+  # than in a trap) is what makes a failed run self-healing, and it leaves the
+  # containers around for inspection when something did break.
+  kerberos_cleanup
+
   rm -rf "$KERBEROS_SHARED_DIR"
   mkdir -p "$KERBEROS_SHARED_DIR"
   docker network create "$KERBEROS_NETWORK" >/dev/null
@@ -148,60 +165,33 @@ kerberos_setup() {
   kerberos_wait_for_bolt "$KERBEROS_MG_CONTAINER"
 }
 
-kerberos_login() {
-  echo "SUBFEATURE: authenticating with a Kerberos service ticket"
-  # Runs in the KDC container so the client reaches both the KDC and memgraph
-  # over the test network, by the same names the principals use.
-  docker exec \
+test_kerberos_auth() {
+  echo "FEATURE: Kerberos (GSSAPI) authentication -- login with a service ticket"
+  # The client runs in the KDC container so it reaches both the KDC and
+  # memgraph over the test network, by the same names the principals use.
+  # `if !` keeps the failure in hand just long enough to dump the logs that
+  # explain it; everything else in this file fails through errexit.
+  if ! docker exec \
     -e MEMGRAPH_URI="bolt://${KERBEROS_MG_HOST}:7687" \
     -e KRB5_CLIENT_PRINCIPAL="$KERBEROS_CLIENT_PRINCIPAL" \
     -e KRB5_CLIENT_PASSWORD="$KERBEROS_CLIENT_PASSWORD" \
     -e KRB5_SERVICE_PRINCIPAL="$KERBEROS_SERVICE_PRINCIPAL" \
     -e KRB5_EXPECTED_USER="$KERBEROS_CLIENT_USER" \
     -e KRB5_EXPECTED_ROLE="$KERBEROS_ROLE" \
-    "$KERBEROS_KDC_CONTAINER" python3 -u /kerberos/client.py
-}
-
-test_kerberos_auth() {
-  echo "FEATURE: Kerberos (GSSAPI) authentication"
-  kerberos_cleanup  # an aborted earlier run may have left containers behind
-
-  # The steps run in a child bash rather than inline, because this function is
-  # called from a suite that tests its return value: in that context bash
-  # ignores errexit for everything it runs, including subshells that set it
-  # themselves, so an inline failure would be skipped past instead of failing
-  # the test. A separate process gets a real errexit and stops at the first
-  # broken step. The environment is passed explicitly so the child works
-  # whether or not the caller exported these.
-  local status=0
-  MEMGRAPH_DOCKERHUB_IMAGE="$MEMGRAPH_DOCKERHUB_IMAGE" \
-  MEMGRAPH_ENTERPRISE_LICENSE="$MEMGRAPH_ENTERPRISE_LICENSE" \
-  MEMGRAPH_ORGANIZATION_NAME="$MEMGRAPH_ORGANIZATION_NAME" \
-    bash "$KERBEROS_FEATURE_FILE" --steps || status=$?
-
-  if [ "$status" -ne 0 ]; then
+    "$KERBEROS_KDC_CONTAINER" python3 -u /kerberos/client.py; then
     echo "FEATURE FAILED: Kerberos (GSSAPI) authentication -- container logs follow"
-    echo "--- $KERBEROS_MG_CONTAINER (memgraph, TRACE) ---"
-    docker logs "$KERBEROS_MG_CONTAINER" 2>&1 | tail -n 80 || true
-    # The container's stdout is just `sleep infinity`; the KDC's own log is
-    # what says whether tickets were issued (see [logging] in setup-kdc.sh).
-    echo "--- $KERBEROS_KDC_CONTAINER (krb5kdc.log) ---"
-    docker exec "$KERBEROS_KDC_CONTAINER" tail -n 30 /var/log/krb5kdc.log 2>&1 || true
+    kerberos_dump_logs
+    return 1
   fi
 
   kerberos_cleanup
-  return $status
 }
 
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then
   set -e # To make sure the script will return non-0 in case of a failure.
-  if [ "${1:-}" == "--steps" ]; then
-    # Internal entry point used by test_kerberos_auth; cleanup and log dumping
-    # stay with the caller.
-    kerberos_setup
-    kerberos_login
-  else
-    trap kerberos_cleanup EXIT # To make sure cleanup is done.
-    test_kerberos_auth
-  fi
+  # No EXIT trap: on success test_kerberos_auth cleans up, and on failure the
+  # containers are worth keeping around to poke at. The next run starts by
+  # clearing them.
+  test_kerberos_auth_setup
+  test_kerberos_auth
 fi
