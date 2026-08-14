@@ -105,29 +105,40 @@ class TypedValue {
     return H::combine(std::move(h), Hash{}(value));
   }
 
-  /** A value type. Each type corresponds to exactly one C++ type */
+  /** A value type. Each type corresponds to exactly one C++ type.
+   *
+   * The order is load-bearing, and is the only thing here that is. Two questions are asked of a
+   * type on every value the engine touches - can it be copied by assigning it, and does destroying
+   * it have anything to do - and the types that answer yes are grouped first so that each question
+   * is one comparison rather than a table lookup. `IsInlineCopyable` and `HasTrivialDestructor`
+   * name the boundaries; nothing else depends on the numeric values, which are not persisted or
+   * sent anywhere.
+   */
   enum class Type : unsigned {
+    // Held in the union as a value that is copied by assigning it.
     Null,
     Bool,
     Int,
     Double,
-    String,
-    List,
-    Map,
     Vertex,
     Edge,
-    Path,
+    // Owns no allocation either, so needs no destructor, but is copied case by case.
     Date,
     LocalTime,
     LocalDateTime,
     ZonedDateTime,
     Duration,
-    Graph,
-    VirtualGraph,
-    Function,
     Enum,
     Point2d,
     Point3d,
+    // Owns something: needs a destructor, and copying means allocating.
+    String,
+    List,
+    Map,
+    Path,
+    Graph,
+    VirtualGraph,
+    Function,
     VirtualEdge,
     VirtualNode
   };
@@ -174,7 +185,7 @@ class TypedValue {
    * placement new is left to `CopyComplexValue`, so the common case does not pay for reaching it.
    */
   TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{alloc}, type_(other.type_) {
-    if (!IsScalar(other.type_)) {
+    if (!IsInlineCopyable(other.type_)) {
       CopyComplexValue(other);
       return;
     }
@@ -187,8 +198,14 @@ class TypedValue {
       case Type::Int:
         int_v = other.int_v;
         return;
-      default:
+      case Type::Double:
         double_v = other.double_v;
+        return;
+      case Type::Vertex:
+        vertex_v = other.vertex_v;
+        return;
+      default:
+        edge_v = other.edge_v;
         return;
     }
   }
@@ -523,7 +540,7 @@ class TypedValue {
    * writing a row into the frame does per slot per row. `MoveAssignComplex` has the rest.
    */
   TypedValue &operator=(TypedValue &&other) noexcept(false) {
-    if (IsScalar(type_) && IsScalar(other.type_) && this != &other && alloc_ == other.alloc_) {
+    if (HasTrivialDestructor(type_) && IsInlineCopyable(other.type_) && this != &other && alloc_ == other.alloc_) {
       auto const was = type_;
       switch (other.type_) {
         case Type::Null:
@@ -534,8 +551,14 @@ class TypedValue {
         case Type::Int:
           int_v = other.int_v;
           break;
-        default:
+        case Type::Double:
           double_v = other.double_v;
+          break;
+        case Type::Vertex:
+          vertex_v = other.vertex_v;
+          break;
+        default:
+          edge_v = other.edge_v;
           break;
       }
       type_ = other.type_;
@@ -560,7 +583,7 @@ class TypedValue {
   /// was reached through an out-of-line switch over every type a value can hold, once per value, and
   /// a row's worth of expression evaluation destroys a value per node it walks.
   ~TypedValue() {
-    if (IsScalar(type_)) return;
+    if (HasTrivialDestructor(type_)) return;
     DestroyValue();
   }
 
@@ -868,17 +891,16 @@ class TypedValue {
   friend auto GetCRS(TypedValue const &tv) -> std::optional<storage::CoordinateReferenceSystem>;
 
  private:
-  /// Whether the union holds this type as a plain scalar: nothing to destroy, and copying it is
-  /// copying those bytes. The four sit first in `Type` so that asking is a single comparison, which
-  /// matters because the values that answer no - strings and lists - ask just as often as the ones
-  /// that answer yes, and then go on to pay for the out-of-line call anyway.
-  ///
-  /// The temporals, enum and points own no allocation either and could answer yes to the destructor
-  /// question, but they are left to `DestroyValue`, where they are already no-ops: telling them
-  /// apart needs a mask test rather than a comparison, and that is paid by every value the engine
-  /// touches to save a call on the few queries built out of them.
-  static constexpr bool IsScalar(Type type) {
-    return static_cast<unsigned>(type) <= static_cast<unsigned>(Type::Double);
+  /// Whether copying a value of this type is assigning it: the numbers, and the two accessors,
+  /// which are trivially copyable structs naming a record and the transaction reading it.
+  static constexpr bool IsInlineCopyable(Type type) {
+    return static_cast<unsigned>(type) <= static_cast<unsigned>(Type::Edge);
+  }
+
+  /// Whether destroying a value of this type has nothing to do, so it can be overwritten where it
+  /// stands. Everything up to `Point3d` owns no allocation of its own.
+  static constexpr bool HasTrivialDestructor(Type type) {
+    return static_cast<unsigned>(type) <= static_cast<unsigned>(Type::Point3d);
   }
 
   /// The rest of the destructor and of the copy constructor. Both assume `type_` is already the
