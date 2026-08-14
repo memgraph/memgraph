@@ -42,6 +42,7 @@
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/inmemory/claimed_objects.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
@@ -164,86 +165,6 @@ DeltaChainState ComputeDeltaChainState(bool has_blocker, WriteResult result) {
   if (result == WriteResult::NON_SEQUENTIAL) return DeltaChainState::NON_SEQUENTIAL;
   return DeltaChainState::SEQUENTIAL;
 }
-
-// Flattens a vertex skip-list accessor into a range of Edge references
-// by walking every vertex's out_edges. Only safe while the vertex
-// accessor (and therefore all vertices) remain alive. Used by the light-edge
-// analytical full-scan paths to enumerate deleted light edges.
-class LightEdgeIterable {
- public:
-  using VertexIterator = utils::SkipListDb<Vertex>::Accessor::iterator;
-
-  class Iterator {
-   public:
-    using value_type = Edge;
-    using reference = Edge &;
-    using pointer = Edge *;
-    using difference_type = std::ptrdiff_t;
-    using iterator_category = std::forward_iterator_tag;
-
-    Iterator() = default;
-
-    Iterator(VertexIterator vertex_it, VertexIterator vertex_end) : vertex_it_(vertex_it), vertex_end_(vertex_end) {
-      AdvanceToNextEdge();
-    }
-
-    reference operator*() const { return *std::get<2>(*edge_it_).ptr; }
-
-    pointer operator->() const { return std::get<2>(*edge_it_).ptr; }
-
-    Iterator &operator++() {
-      ++edge_it_;
-      if (edge_it_ == edge_end_) {
-        ++vertex_it_;
-        AdvanceToNextEdge();
-      }
-      return *this;
-    }
-
-    friend bool operator==(Iterator const &lhs, Iterator const &rhs) {
-      // Both iterators are at end when their vertex_it_ values agree AND one of
-      // them is at its own vertex_end_ (past-the-end iterators compare equal
-      // regardless of edge_it_, which is default-initialised for end()). When
-      // neither is at end, edge_it_ must also agree for equality.
-      if (lhs.vertex_it_ != rhs.vertex_it_) return false;
-      if (lhs.vertex_it_ == lhs.vertex_end_ || rhs.vertex_it_ == rhs.vertex_end_) return true;
-      return lhs.edge_it_ == rhs.edge_it_;
-    }
-
-   private:
-    void AdvanceToNextEdge() {
-      for (; vertex_it_ != vertex_end_; ++vertex_it_) {
-        auto &out_edges = vertex_it_->out_edges;
-        if (!out_edges.empty()) {
-          edge_it_ = out_edges.begin();
-          edge_end_ = out_edges.end();
-          return;
-        }
-      }
-    }
-
-    VertexIterator vertex_it_{};
-    VertexIterator vertex_end_{};
-    Edges::iterator edge_it_{};
-    Edges::iterator edge_end_{};
-  };
-
-  explicit LightEdgeIterable(utils::SkipListDb<Vertex>::Accessor &vertex_acc) {
-    // Cache end() once: the accessor is valid for the lifetime of this
-    // iterable, and repeated calls to end() are O(1) but redundant.
-    auto end_it = vertex_acc.end();
-    begin_ = Iterator{vertex_acc.begin(), end_it};
-    end_ = Iterator{end_it, end_it};
-  }
-
-  Iterator begin() const { return begin_; }
-
-  Iterator end() const { return end_; }
-
- private:
-  Iterator begin_;
-  Iterator end_;
-};
 
 class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::utils::SchedulerInterval> {
  public:
@@ -812,18 +733,9 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       mem_storage->gc_full_scan_edges_delete_.store(true, std::memory_order_release);
 
-      // Analytical-mode leak fix: in analytical mode the edge is pop_back'd from
-      // vertex adjacency at delete time, so the GC full-scan light arm (which
-      // iterates LightEdgeIterable over LIVE adjacency) can never find these light
-      // Edge* -> they would be unreachable and leak (heavy works because its node
-      // persists in the edges_ skip-list scanned by the heavy full-scan arm). Route
-      // the deleted LIGHT Edge* into deleted_edges_, exactly like the transactional
-      // FastDiscard path. CollectGarbage swaps deleted_edges_ into
-      // current_deleted_edges and the light arm pushes them to the graveyard with
-      // guard_epoch snapped at COLLECTION time, preserving the epoch-gated drain
-      // invariant. The full-scan light arm then finds nothing for these (not in
-      // adjacency) -> no double-push. Heavy mode keeps the skip-list full-scan path
-      // byte-identical.
+      // A light edge is named only by the adjacency of its endpoints, and deleting an edge erases
+      // it from both, so nothing can reach it afterwards to collect it: hand it over here instead.
+      // A heavy edge needs no handover, its skip-list node is still there for the scan to find.
       if (config_.storage_light_edge) {
         // Collect the Edge* off-lock, then splice in O(1) under the SpinLock — the
         // critical section must not do O(batch) node allocation while locked.
@@ -3540,8 +3452,6 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // what the transactional path does by working from a list swapped out up front.
   auto analytical_deleted_vertices = std::vector<Vertex *>{};
   auto analytical_deleted_edges = std::vector<Edge *>{};
-  // std::list: moved into a graveyard entry under a lock further down, which must stay O(1).
-  auto analytical_deleted_light_edges = std::list<Edge *, memory::DbAwareAllocator<Edge *>>{};
   // Reads under the object's lock: `deleted` shares its word with the delta pointer, and a
   // concurrent analytical delete writes both. Deciding collectability from an unsynchronised read
   // is a data race, and the answer decides whether this pass removes the object from storage.
@@ -3550,34 +3460,29 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     return object.delta() == nullptr && object.deleted();
   };
 
+  // An object handed over by a transaction is collectable, so this scan would find it again. Both
+  // sets are retired by this pass, and retiring an object twice removes it twice, so the scan takes
+  // only what the handover has not already claimed. `current_deleted_*` is complete by now: the
+  // swap and the delta unlinking above are the only things that add to it.
+  auto const claimed_vertices = ClaimedObjects{current_deleted_vertices};
+  auto const claimed_edges = ClaimedObjects{current_deleted_edges};
+
   if (need_full_scan_vertices) {
     auto vertex_acc = vertices_.access();
     for (auto &vertex : vertex_acc) {
-      if (is_collectable(vertex)) analytical_deleted_vertices.push_back(&vertex);
+      if (!claimed_vertices.contains(vertex.gid) && is_collectable(vertex)) {
+        analytical_deleted_vertices.push_back(&vertex);
+      }
     }
   }
-  if (need_full_scan_edges) {
-    if (config_.salient.items.storage_light_edge) {
-      // Light edges are reachable only through vertex adjacency, and an analytical write mutates
-      // that in place, so each vertex's edges are copied out under its lock rather than walked
-      // while a writer is changing them. Collectability is then decided off the lock, so this never
-      // holds a vertex lock and an edge lock at once.
-      auto vertex_acc = vertices_.access();
-      for (auto &vertex : vertex_acc) {
-        auto edges = Edges{};
-        {
-          auto guard = std::shared_lock{vertex.lock};
-          edges = vertex.out_edges;
-        }
-        for (auto const &[edge_type, to_vertex, edge_ref] : edges) {
-          if (is_collectable(*edge_ref.ptr)) analytical_deleted_light_edges.push_back(edge_ref.ptr);
-        }
-      }
-    } else {
-      auto edge_acc = edges_.access();
-      for (auto &edge : edge_acc) {
-        if (is_collectable(edge)) analytical_deleted_edges.push_back(&edge);
-      }
+  // Light edges are not scanned for. A deleted edge is erased from the adjacency of both its
+  // endpoints as it is deleted, and adjacency is the only thing that names a light edge, so a
+  // scan can no longer reach one. The delete hands them to `deleted_edges_` instead, which is why
+  // they arrive here in `current_deleted_edges` like transactional ones.
+  if (need_full_scan_edges && !config_.salient.items.storage_light_edge) {
+    auto edge_acc = edges_.access();
+    for (auto &edge : edge_acc) {
+      if (!claimed_edges.contains(&edge) && is_collectable(edge)) analytical_deleted_edges.push_back(&edge);
     }
   }
 
@@ -3699,13 +3604,8 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     }
 
     // Remove edges from vector edge index BEFORE vertex skip-list removal.
-    if (!indices_.vector_edge_index_.Empty()) {
-      auto edges_to_remove = analytical_deleted_edges;
-      edges_to_remove.insert(
-          edges_to_remove.end(), analytical_deleted_light_edges.begin(), analytical_deleted_light_edges.end());
-      if (!edges_to_remove.empty()) {
-        indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
-      }
+    if (!indices_.vector_edge_index_.Empty() && !analytical_deleted_edges.empty()) {
+      indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
     }
 
     RetireVertices(analytical_deleted_vertices | std::ranges::views::transform(&Vertex::gid));
@@ -3713,28 +3613,14 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
 
   // EXPENSIVE full scan, is only run if an IN_MEMORY_ANALYTICAL transaction involved any deletions
   if (need_full_scan_edges) {
-    if (!need_full_scan_vertices && !indices_.vector_edge_index_.Empty()) {
-      auto edges_to_remove = analytical_deleted_edges;
-      edges_to_remove.insert(
-          edges_to_remove.end(), analytical_deleted_light_edges.begin(), analytical_deleted_light_edges.end());
-      if (!edges_to_remove.empty()) {
-        indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
-      }
+    if (!need_full_scan_vertices && !indices_.vector_edge_index_.Empty() && !analytical_deleted_edges.empty()) {
+      indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
     }
 
-    auto *idx = edges_metadata_index_ ? &*edges_metadata_index_ : nullptr;
-
-    if (idx) {
+    if (auto &idx = edges_metadata_index_) {
       for (auto *edge : analytical_deleted_edges) idx->OnEdgeDeleted(edge->gid);
     }
     RetireEdges(analytical_deleted_edges | std::ranges::views::transform(&Edge::gid));
-
-    if (!analytical_deleted_light_edges.empty()) {
-      if (idx) {
-        for (auto *edge : analytical_deleted_light_edges) idx->OnEdgeDeleted(edge->gid);
-      }
-      RetireLightEdges(std::move(analytical_deleted_light_edges));
-    }
   }
 }
 
