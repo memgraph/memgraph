@@ -205,13 +205,13 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           SubqueryContext &pc_ctx, Expression *commit_frequency,
+                                           SubqueryContext &subquery_ctx, Expression *commit_frequency,
                                            bool in_exists_subquery);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                         SubqueryContext &pc_ctx, Expression *commit_frequency,
+                                         SubqueryContext &subquery_ctx, Expression *commit_frequency,
                                          bool in_exists_subquery,
                                          const std::unordered_set<Symbol> &scoped_call_imports);
 
@@ -415,10 +415,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         for (const auto &clause : single_query_part.remaining_clauses) {
           MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
 
-          SubqueryContext pc_ctx{.pending_comprehensions = pending_comprehensions,
-                                 .pending_exists = pending_exists,
-                                 .planner = this,
-                                 .write_occurred = branch_sees_write()};
+          SubqueryContext subquery_ctx{.pending_comprehensions = pending_comprehensions,
+                                       .pending_exists = pending_exists,
+                                       .planner = this,
+                                       .write_occurred = branch_sees_write()};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
             input_op = impl::GenReturn(*ret,
@@ -427,7 +427,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        context.is_write_query,
                                        context.bound_symbols,
                                        *context.ast_storage,
-                                       pc_ctx,
+                                       subquery_ctx,
                                        query_parts.commit_frequency,
                                        context.in_exists_subquery);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
@@ -458,7 +458,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                      context.is_write_query,
                                      context.bound_symbols,
                                      *context.ast_storage,
-                                     pc_ctx,
+                                     subquery_ctx,
                                      nullptr,
                                      context.in_exists_subquery,
                                      context.scoped_call_imports);

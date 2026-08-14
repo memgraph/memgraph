@@ -126,13 +126,13 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   enum class BodyPosition : uint8_t { kProjection, kOrderBy, kWhere };
 
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols,
-                    AstStorage &storage, SubqueryContext *pc_ctx, Where *where = nullptr)
+                    AstStorage &storage, SubqueryContext *subquery_ctx, Where *where = nullptr)
       : body_(body),
         symbol_table_(symbol_table),
         bound_symbols_(bound_symbols),
         storage_(storage),
         where_(where),
-        pc_ctx_(pc_ctx) {
+        subquery_ctx_(subquery_ctx) {
     // Collect symbols from named expressions.
     output_symbols_.reserve(body_.named_expressions.size());
     if (body.all_identifiers) {
@@ -726,16 +726,16 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // Plans @p result_sym's comprehension if it is still pending, into the bucket matching its position in the body.
   void PlanPatternComprehensionOnDemand(const Symbol &result_sym) {
     // No planning context (e.g. GetSubqueryBoundSymbols); the real planning pass handles them later.
-    if (!pc_ctx_ || !pc_ctx_->planner) {
+    if (!subquery_ctx_ || !subquery_ctx_->planner) {
       return;
     }
-    auto &pending = pc_ctx_->pending_comprehensions;
+    auto &pending = subquery_ctx_->pending_comprehensions;
     auto it = pending.find(result_sym);
     if (it == pending.end()) {
       return;
     }
-    auto op =
-        pc_ctx_->planner->Plan(it->second, SubqueryView(it->second, pc_ctx_->write_occurred), BranchBoundSymbols());
+    auto op = subquery_ctx_->planner->Plan(
+        it->second, SubqueryView(it->second, subquery_ctx_->write_occurred), BranchBoundSymbols());
     auto &datas = Bucket(position_);
     datas[result_sym] = PatternComprehensionData(std::move(op), result_sym, it->second.expansion_symbols);
     pending.erase(it);
@@ -746,15 +746,15 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   /// input row.
   void PlanExistsOnDemand(const Symbol &result_sym) {
     // No planning context (e.g. GetSubqueryBoundSymbols); the real planning pass handles them later.
-    if (!pc_ctx_ || !pc_ctx_->planner) {
+    if (!subquery_ctx_ || !subquery_ctx_->planner) {
       return;
     }
-    auto it = pc_ctx_->pending_exists.find(result_sym);
-    if (it == pc_ctx_->pending_exists.end()) {
+    auto it = subquery_ctx_->pending_exists.find(result_sym);
+    if (it == subquery_ctx_->pending_exists.end()) {
       return;
     }
-    auto op = pc_ctx_->planner->PlanExistsBranch(it->second, pc_ctx_->write_occurred, BranchBoundSymbols());
-    pc_ctx_->pending_exists.erase(it);
+    auto op = subquery_ctx_->planner->PlanExistsBranch(it->second, subquery_ctx_->write_occurred, BranchBoundSymbols());
+    subquery_ctx_->pending_exists.erase(it);
     ExistsBucket(position_).emplace_back(result_sym, std::move(op));
   }
 
@@ -825,7 +825,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // When non-null, pattern comprehensions are planned as they are visited.
   // When null (e.g., in GetSubqueryBoundSymbols), we skip tracking pattern
   // comprehensions since they'll be handled during actual subquery planning.
-  SubqueryContext *pc_ctx_ = nullptr;
+  SubqueryContext *subquery_ctx_ = nullptr;
 };
 
 std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
@@ -1068,13 +1068,13 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
     // when the subquery is fully planned later.
     std::unordered_map<Symbol, PatternComprehensionMatching> empty_pending;
     std::unordered_map<Symbol, ExistsMatching> empty_pending_exists;
-    SubqueryContext pc_ctx{.pending_comprehensions = empty_pending,
-                           .pending_exists = empty_pending_exists,
-                           .planner = nullptr,
-                           .write_occurred = false};
+    SubqueryContext subquery_ctx{.pending_comprehensions = empty_pending,
+                                 .pending_exists = empty_pending_exists,
+                                 .planner = nullptr,
+                                 .write_occurred = false};
     // No planning context here, hence no scoped `CALL` imports either.
     auto input_op =
-        impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, pc_ctx, nullptr, false, {});
+        impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, subquery_ctx, nullptr, false, {});
     return bound_symbols;
   }
 
@@ -1106,7 +1106,7 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           SubqueryContext &pc_ctx, Expression *commit_frequency,
+                                           SubqueryContext &subquery_ctx, Expression *commit_frequency,
                                            bool in_exists_subquery) {
   // In existential subqueries, we should omit any return clauses as per Neo4j documentation
   if (in_exists_subquery) {
@@ -1122,14 +1122,14 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
   bool const has_periodic_commit = commit_frequency != nullptr;
   bool const accumulate = is_write && !has_periodic_commit;
   bool advance_command = false;
-  const ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, &pc_ctx);
+  const ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, &subquery_ctx);
   return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
 }
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                         SubqueryContext &pc_ctx, Expression *commit_frequency,
+                                         SubqueryContext &subquery_ctx, Expression *commit_frequency,
                                          bool in_exists_subquery,
                                          const std::unordered_set<Symbol> &scoped_call_imports) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
@@ -1140,7 +1140,7 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
   bool const accumulate = is_write && !has_periodic_commit;
   // No need to advance the command if we only performed reads.
   bool advance_command = is_write;
-  const ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, &pc_ctx, with.where_);
+  const ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, &subquery_ctx, with.where_);
   auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
 
   // In EXISTS subqueries, we need to preserve outer scope variables
