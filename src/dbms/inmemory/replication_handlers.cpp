@@ -510,8 +510,8 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     heartbeat.Stop();
 
     if (deltas_res) {
-      dbms::TwoPCCommitCache::Instance().Store(std::move(deltas_res->commit_acc), req.durability_commit_timestamp,
-                                               storage->uuid());
+      dbms::TwoPCCommitCache::Store(
+          std::move(deltas_res->commit_acc), req.durability_commit_timestamp, storage->uuid());
       res.success = true;
     }
   }
@@ -545,7 +545,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   // engine_lock_ happens below, on the local, with the cache's internal lock already released --
   // see TwoPCCommitCache::TakeMatching's declaration comment for the mismatch-leaves-it-populated
   // contract.
-  auto extracted = dbms::TwoPCCommitCache::Instance().TakeMatching(req.durability_commit_timestamp);
+  auto extracted = dbms::TwoPCCommitCache::TakeMatching(req.durability_commit_timestamp);
 
   // In this handler, we can either commit or abort. If cached accessor is nullptr, it is impossible we should commit
   // because replying to prepare happens after assignment to the accessor
@@ -606,7 +606,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 void InMemoryReplicationHandlers::DestroyReplAccessor() {
   // Extract under the cache's internal lock, then abort the local outside it -- AbortAndResetCommitTs()
   // walks the transaction's deltas and must not run with the cache mutex held.
-  auto accessor = dbms::TwoPCCommitCache::Instance().TakeAny();
+  auto accessor = dbms::TwoPCCommitCache::TakeAny();
   if (accessor) {
     accessor->AbortAndResetCommitTs();
   }
@@ -617,7 +617,7 @@ void InMemoryReplicationHandlers::AbortTwoPCForTenant(utils::UUID const &uuid, r
   // pending 2PC for a different tenant would be wrongly dropped. See TwoPCCommitCache::TakeForTenant's
   // declaration comment for why the comparison uses the uuid captured at populate time, not one
   // re-derived from the accessor.
-  auto accessor = dbms::TwoPCCommitCache::Instance().TakeForTenant(uuid);
+  auto accessor = dbms::TwoPCCommitCache::TakeForTenant(uuid);
   if (accessor) {
     // on_progress is reported per delta undone: an interrupted 2PC's abort is O(deltas), and the RPC
     // pre-abort callers run it inside a handler whose peer is timing them.
