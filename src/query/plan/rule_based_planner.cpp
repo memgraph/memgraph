@@ -968,7 +968,9 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
     std::unordered_map<Symbol, PatternComprehensionMatching> empty_pending;
     PatternComprehensionContext pc_ctx{
         .pending_comprehensions = empty_pending, .planner = nullptr, .view = storage::View::OLD};
-    auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, pc_ctx, nullptr, false);
+    // No planning context here, hence no scoped `CALL` imports either.
+    auto input_op =
+        impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, pc_ctx, nullptr, false, {});
     return bound_symbols;
   }
 
@@ -1024,7 +1026,8 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                          PatternComprehensionContext &pc_ctx, Expression *commit_frequency,
-                                         bool in_exists_subquery) {
+                                         bool in_exists_subquery,
+                                         const std::unordered_set<Symbol> &scoped_call_imports) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to
@@ -1055,6 +1058,14 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
     bound_symbols.clear();
     for (const auto &symbol : body.output_symbols()) {
       bound_symbols.insert(symbol);
+    }
+    // Scoped `CALL` imports stay in scope for the whole subquery body, unless a named expression
+    // redeclared the name and shadowed the import.
+    for (const auto &import : scoped_call_imports) {
+      if (std::ranges::none_of(body.output_symbols(),
+                               [&import](const Symbol &out) { return out.name() == import.name(); })) {
+        bound_symbols.insert(import);
+      }
     }
   }
   return last_op;

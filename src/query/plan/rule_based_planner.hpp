@@ -85,6 +85,10 @@ struct PlanningContext {
   /// write) the first `n`, but the latter `n` would only read the already
   /// written information.
   std::unordered_set<Symbol> bound_symbols{};
+  /// @brief Symbols imported by an enclosing `CALL (v1, v2, ...) { ... }` / `CALL (*) { ... }`.
+  /// Unlike ordinary bindings these remain in scope for the whole subquery body, so they survive
+  /// a WITH inside it (mirroring SymbolGenerator) and a later pattern must not re-scan them.
+  std::unordered_set<Symbol> scoped_call_imports{};
   bool is_write_query{false};
   bool in_exists_subquery{false};
 };
@@ -187,7 +191,8 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                          PatternComprehensionContext &pc_ctx, Expression *commit_frequency,
-                                         bool in_exists_subquery);
+                                         bool in_exists_subquery,
+                                         const std::unordered_set<Symbol> &scoped_call_imports);
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
@@ -416,7 +421,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                      *context.ast_storage,
                                      pc_ctx,
                                      nullptr,
-                                     context.in_exists_subquery);
+                                     context.in_exists_subquery,
+                                     context.scoped_call_imports);
             // WITH clause advances the command, so reset the flag.
             context.is_write_query = false;
           } else if (IsWriteClause(clause)) {
@@ -1541,13 +1547,21 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
                                      std::make_move_iterator(context_->bound_symbols.end()));
 
+    // An enclosing subquery's imports do not carry into this body; restored once this body is planned.
+    auto const restore_imports = utils::OnScopeExit{[this, saved = std::move(context_->scoped_call_imports)]() mutable {
+      context_->scoped_call_imports = std::move(saved);
+    }};
+
     if (scoped_variables) {
       // `CALL (v1, v2, ...) { ... }`: seed the subquery planner with exactly
       // the imported outer symbols. The legacy leading-WITH scan is bypassed.
       context_->bound_symbols = *scoped_variables;
+      context_->scoped_call_imports = *scoped_variables;
     } else {
       context_->bound_symbols =
           impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage);
+      // The legacy `CALL { WITH v ... }` form imports nothing; standard WITH narrowing applies.
+      context_->scoped_call_imports.clear();
     }
 
     auto subquery_op = Plan(*subquery);

@@ -3082,6 +3082,93 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportSelfReferentialFilterNoIndex) {
   DeleteListContent(&branch);
 }
 
+// An import stays in scope for the whole subquery body, so a pattern written after an intermediate
+// WITH that drops the name must still expand from the imported vertex instead of re-scanning it.
+TYPED_TEST(TestPlanner, SubqueryScopedImportSurvivesIntermediateWith) {
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
+  FakeDbAccessor dba;
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                WITH("a"),
+                                MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("b"))),
+                                RETURN("a", "b"));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"m"}), RETURN("a", "b")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // No ExpectScanAll before the second ExpectExpand: `m` is still bound.
+  std::list<BaseOpChecker *> branch{new ExpectExpand(), new ExpectProduce(), new ExpectExpand(), new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+}
+
+// `CALL (*) { ... }` imports the same way, through all_variables_scoped_.
+TYPED_TEST(TestPlanner, SubqueryScopedAllImportSurvivesIntermediateWith) {
+  // MATCH (m) CALL (*) { MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
+  FakeDbAccessor dba;
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                WITH("a"),
+                                MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("b"))),
+                                RETURN("a", "b"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED_ALL(subquery), RETURN("a", "b")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> branch{new ExpectExpand(), new ExpectProduce(), new ExpectExpand(), new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+}
+
+// The legacy leading-WITH form imports nothing, so ordinary WITH narrowing applies and the name
+// written after it is a fresh variable that must be scanned.
+TYPED_TEST(TestPlanner, SubqueryLegacyImportDoesNotSurviveIntermediateWith) {
+  // MATCH (m) CALL { WITH m MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
+  FakeDbAccessor dba;
+  auto *subquery = SINGLE_QUERY(WITH("m"),
+                                MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                WITH("a"),
+                                MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("b"))),
+                                RETURN("a", "b"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(subquery), RETURN("a", "b")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> branch{new ExpectProduce(),
+                                    new ExpectExpand(),
+                                    new ExpectProduce(),
+                                    new ExpectScanAll(),
+                                    new ExpectExpand(),
+                                    new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+}
+
+// A nested `CALL (*) { ... }` after the WITH collects its imports from the bound set, so the
+// preserved import has to reach it.
+TYPED_TEST(TestPlanner, SubqueryScopedImportReachesNestedScopedAllAfterWith) {
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a CALL (*) { MATCH (m)-[r2]-(b) RETURN b }
+  //                      RETURN a, b } RETURN a, b
+  FakeDbAccessor dba;
+  auto *nested = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("b"))), RETURN("b"));
+  auto *subquery = SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))), WITH("a"), CALL_SUBQUERY_SCOPED_ALL(nested), RETURN("a", "b"));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"m"}), RETURN("a", "b")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> nested_branch{new ExpectExpand(), new ExpectProduce()};
+  std::list<BaseOpChecker *> branch{
+      new ExpectExpand(), new ExpectProduce(), new ExpectApply(nested_branch), new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+  DeleteListContent(&nested_branch);
+}
+
 TYPED_TEST(TestPlanner, PatternComprehensionInReturn) {
   FakeDbAccessor dba;
   const auto prop = PROPERTY_PAIR(dba, "prop");
