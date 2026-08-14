@@ -1239,6 +1239,13 @@ int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
   if (edges.empty()) return 0;
 
+  // Grown a doubling at a time, a vertex of high degree is reallocated and copied twenty-odd times
+  // on the way to its final size, and each new buffer is pages the kernel has to fault in. Asking
+  // for the whole edge list up front costs an over-allocation where the filter turns out to be
+  // selective, and saves all of that where it does not - which is the case whenever a query names
+  // the only edge type its vertices have.
+  result_edges.reserve(edges.size());
+
   uint64_t expanded_count = 0;
   for (const auto &[edge_type, vertex, edge] : edges) {
     if (hops_limit && hops_limit->IsUsed()) {
