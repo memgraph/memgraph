@@ -1,4 +1,4 @@
-FROM fedora:42
+FROM fedora:45
 
 ARG TOOLCHAIN_VERSION
 
@@ -10,7 +10,7 @@ RUN yum -y update \
 
 RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOLCHAIN_VERSION}/toolchain-${TOOLCHAIN_VERSION}-binaries-aarch64.tar.gz \
     -O toolchain-${TOOLCHAIN_VERSION}-binaries-aarch64.tar.gz \
-    && tar xzvf toolchain-${TOOLCHAIN_VERSION}-binaries-aarch64.gz -C /opt \
+    && tar xzvf toolchain-${TOOLCHAIN_VERSION}-binaries-aarch64.tar.gz -C /opt \
     && rm toolchain-${TOOLCHAIN_VERSION}-binaries-aarch64.tar.gz
 
 # Install toolchain run deps and memgraph build deps
@@ -18,10 +18,10 @@ ARG GIT_REF
 SHELL ["/bin/bash", "-c"]
 RUN git clone --branch ${GIT_REF} https://github.com/memgraph/memgraph.git \
     && cd memgraph \
-    && ./environment/os/fedora-42.sh install TOOLCHAIN_RUN_DEPS \
-    && ./environment/os/fedora-42.sh install MEMGRAPH_BUILD_DEPS \
-    && ./environment/os/fedora-42.sh install MEMGRAPH_TEST_DEPS \
-    && ./environment/os/fedora-42.sh install MEMGRAPH_RUN_DEPS \
+    && ./environment/os/fedora-45.sh install TOOLCHAIN_RUN_DEPS \
+    && ./environment/os/fedora-45.sh install MEMGRAPH_BUILD_DEPS \
+    && ./environment/os/fedora-45.sh install MEMGRAPH_TEST_DEPS \
+    && ./environment/os/fedora-45.sh install MEMGRAPH_RUN_DEPS \
     && cd .. && rm -rf memgraph
 
 # Create mg user and set as default

@@ -56,17 +56,6 @@ services:
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_debian-13"
 
-  mgbuild_v8_fedora-42:
-    image: "memgraph/mgbuild:v8_fedora-42"
-    build:
-      context: fedora-42
-      args:
-        TOOLCHAIN_VERSION: "v8"
-    extra_hosts:
-      - "bench-graph-api:100.124.112.121"
-    ulimits: *mgbuild-ulimits
-    container_name: "mgbuild_v8_fedora-42"
-
   mgbuild_v8_fedora-43:
     image: "memgraph/mgbuild:v8_fedora-43"
     build:
@@ -77,6 +66,28 @@ services:
       - "bench-graph-api:100.124.112.121"
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_fedora-43"
+
+  mgbuild_v8_fedora-44:
+    image: "memgraph/mgbuild:v8_fedora-44"
+    build:
+      context: fedora-44
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_fedora-44"
+
+  mgbuild_v8_fedora-45:
+    image: "memgraph/mgbuild:v8_fedora-45"
+    build:
+      context: fedora-45
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_fedora-45"
 
   mgbuild_v8_rocky-10:
     image: "memgraph/mgbuild:v8_rocky-10"

@@ -56,17 +56,6 @@ services:
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_ubuntu-26.04-arm"
 
-  mgbuild_v8_fedora-42-arm:
-    image: "memgraph/mgbuild:v8_fedora-42-arm"
-    build:
-      context: fedora-42-arm
-      args:
-        TOOLCHAIN_VERSION: "v8"
-    extra_hosts:
-      - "bench-graph-api:100.124.112.121"
-    ulimits: *mgbuild-ulimits
-    container_name: "mgbuild_v8_fedora-42-arm"
-
   mgbuild_v8_fedora-43-arm:
     image: "memgraph/mgbuild:v8_fedora-43-arm"
     build:
@@ -77,3 +66,25 @@ services:
       - "bench-graph-api:100.124.112.121"
     ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v8_fedora-43-arm"
+
+  mgbuild_v8_fedora-44-arm:
+    image: "memgraph/mgbuild:v8_fedora-44-arm"
+    build:
+      context: fedora-44-arm
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_fedora-44-arm"
+
+  mgbuild_v8_fedora-45-arm:
+    image: "memgraph/mgbuild:v8_fedora-45-arm"
+    build:
+      context: fedora-45-arm
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_fedora-45-arm"
