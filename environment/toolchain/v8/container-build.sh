@@ -41,20 +41,7 @@ docker run -d --name "$CONTAINER" "$IMAGE" sleep infinity >/dev/null
 
 echo "==> Copying repo into container (excluding .git and stale build state)"
 docker exec "$CONTAINER" mkdir -p /workspace/memgraph
-# Exclude:
-#   .git                                 — not needed by build.sh, just bulk
-#   ./build                              — host-side memgraph build artifacts
-#   ./environment/toolchain/v8/build     — host-side toolchain build state
-#   ./environment/toolchain/v8/output    — host-side prior tarballs
-# Keep environment/toolchain/v8/archives so downloaded source tarballs are
-# reused (saves ~1GB of re-fetching on every run).
-tar -C "$REPO_ROOT" \
-    --exclude=./.git \
-    --exclude=./build \
-    --exclude=./environment/toolchain/v8/build \
-    --exclude=./environment/toolchain/v8/output \
-    -cf - . \
-    | docker exec -i "$CONTAINER" tar -C /workspace/memgraph -xf -
+docker cp "$REPO_ROOT/." "$CONTAINER:/workspace/memgraph"
 
 echo "==> Running build.sh inside container"
 if [[ "$(arch)" == "aarch64" ]]; then
