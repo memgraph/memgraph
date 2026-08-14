@@ -22,7 +22,6 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
   && rm -rf /var/lib/apt/lists/*
 
 # Set up build dependencies and environment via provided scripts
-# (the distro script serves both architectures)
 RUN cd /memgraph && \
     ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS && \
     ./environment/os/ubuntu-24.04.sh install MEMGRAPH_BUILD_DEPS
