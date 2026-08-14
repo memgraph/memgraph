@@ -85,8 +85,6 @@ on:
         # cp312-only); see tools/ci/package_mage_setup.py for the full note.
         options:
           - ubuntu-24.04
-          - centos-9
-          - centos-10
 
   workflow_call:
     inputs:

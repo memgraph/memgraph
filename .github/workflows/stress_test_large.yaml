@@ -19,17 +19,7 @@ on:
         default: 'ubuntu-24.04'
         options:
           - all
-          - centos-9
-          - centos-10
-          - debian-12
-          - debian-13
-          - fedora-43
-          - fedora-44
-          - fedora-45
-          - rocky-10
-          - ubuntu-22.04
           - ubuntu-24.04
-          - ubuntu-26.04
 
 jobs:
   StressTestLargeIndividual:
@@ -47,7 +37,7 @@ jobs:
     if: ${{ github.event.inputs.os == 'all' }}
     strategy:
       matrix:
-        os: [centos-9, centos-10, debian-12, debian-13, fedora-44, fedora-44, fedora-45, rocky-10, ubuntu-22.04, ubuntu-24.04, ubuntu-26.04]
+        os: [ubuntu-24.04]  # currently only Ubuntu 24.04 is used, we may add in other distributions if required
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ matrix.os }}

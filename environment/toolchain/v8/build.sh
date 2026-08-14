@@ -216,10 +216,6 @@ if [[ ! -f libipt-$LIBIPT_VERSION.tar.gz ]]; then
 fi
 
 # verify all archives
-# NOTE: Verification can fail if the archive is signed by another developer. I
-# haven't added commands to download all developer GnuPG keys because the
-# download is very slow. If the verification fails for you, figure out who has
-# signed the archive and download their public key instead.
 GPG="gpg --homedir .gnupg"
 KEYSERVER="hkp://keyserver.ubuntu.com"
 mkdir -p .gnupg
@@ -381,10 +377,8 @@ if [[ ! -f "$PREFIX/bin/gcc" ]]; then
             --enable-default-pie \
             --with-tune=generic \
             --without-cuda-driver
-            #--program-suffix=$( printf "$GCC_VERSION" | cut -d '.' -f 1,2 ) \
     fi
     make -j$CPUS
-    # make -k check # run test suite
     make install
     popd && popd
 fi
@@ -545,7 +539,6 @@ if [[ ! -f "$PREFIX/bin/ld" ]]; then
                 --disable-werror
     fi
     make -j$CPUS
-    # make -k check # run test suite
     make install
     popd && popd
 fi
