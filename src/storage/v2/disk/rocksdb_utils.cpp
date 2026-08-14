@@ -34,9 +34,11 @@ rocksdb::InfoLogLevel ParseRocksDBInfoLogLevel(std::string_view level) {
 
 }  // namespace
 
-void ApplyRocksDBConfig(rocksdb::Options &options, std::string_view info_log_level, bool enable_thread_tracking) {
+void ApplyRocksDBConfig(rocksdb::Options &options, std::string_view info_log_level, bool enable_thread_tracking,
+                        size_t keep_log_file_num) {
   options.info_log_level = ParseRocksDBInfoLogLevel(info_log_level);
   options.enable_thread_tracking = enable_thread_tracking;
+  options.keep_log_file_num = keep_log_file_num;
 }
 
 }  // namespace memgraph::storage

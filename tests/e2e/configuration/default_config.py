@@ -353,5 +353,10 @@ startup_config_dict = {
         "INFO_LEVEL",
         "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, FATAL_LEVEL, HEADER_LEVEL. Default is INFO_LEVEL.",
     ),
+    "storage_rocksdb_keep_log_file_num": (
+        "50",
+        "50",
+        "Maximum number of RocksDB info log files kept on disk. Older files are deleted. Default is 50.",
+    ),
     "debug_query_plans": ("false", "false", "Enable DEBUG logging of potential query plans."),
 }
