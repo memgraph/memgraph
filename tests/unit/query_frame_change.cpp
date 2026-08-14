@@ -216,3 +216,76 @@ TEST_F(FrameChangeCollectorTest, AnyCachesAfterMerge) {
   EXPECT_TRUE(main_collector.AnyInListCaches());
   EXPECT_FALSE(main_collector.AnyRegexCaches());
 }
+
+// `IN` reports Null rather than false when the list holds one. That is a property of the list, so
+// it is worked out when the list is cached rather than probed for on every row that misses.
+namespace {
+
+TypedValue ListOf(std::size_t count, int64_t first = 0) {
+  std::vector<TypedValue> values;
+  values.reserve(count);
+  for (std::size_t index = 0; index != count; ++index) values.emplace_back(static_cast<int64_t>(first + index));
+  return TypedValue{std::move(values)};
+}
+
+}  // namespace
+
+TEST_F(FrameChangeCollectorTest, CachedSetKnowsWhetherItHoldsNull) {
+  {
+    CachedSet cache{NewDeleteResource()};
+    EXPECT_FALSE(cache.HasNull());
+    ASSERT_TRUE(cache.SetValue(ListOf(3, 10)));
+    EXPECT_FALSE(cache.HasNull());
+    EXPECT_TRUE(cache.Contains(TypedValue{int64_t{10}}));
+    EXPECT_FALSE(cache.Contains(TypedValue{}));
+  }
+  {
+    CachedSet cache{NewDeleteResource()};
+    ASSERT_TRUE(cache.SetValue(TypedValue{std::vector<TypedValue>{TypedValue{int64_t{1}}, TypedValue{}}}));
+    EXPECT_TRUE(cache.HasNull());
+    // The membership question still answers it the same way, so the flag is a shortcut rather than
+    // a second source of truth.
+    EXPECT_TRUE(cache.Contains(TypedValue{}));
+  }
+  {
+    // A Null arriving through a merge counts too.
+    CachedSet cache{NewDeleteResource()};
+    ASSERT_TRUE(cache.SetValue(ListOf(2)));
+    ASSERT_FALSE(cache.HasNull());
+    cache.Insert(TypedValue{});
+    EXPECT_TRUE(cache.HasNull());
+  }
+}
+
+TEST_F(FrameChangeCollectorTest, CachedSetResetForgetsNull) {
+  CachedSet cache{NewDeleteResource()};
+  ASSERT_TRUE(cache.SetValue(TypedValue{std::vector<TypedValue>{TypedValue{}}}));
+  ASSERT_TRUE(cache.HasNull());
+  ASSERT_FALSE(cache.Empty());
+
+  cache.Reset();
+  EXPECT_FALSE(cache.HasNull());
+  EXPECT_TRUE(cache.Empty());
+}
+
+TEST_F(FrameChangeCollectorTest, MergeCarriesNullAcross) {
+  FrameChangeCollector main_collector{NewDeleteResource()};
+  FrameChangeCollector branch_collector{NewDeleteResource()};
+  auto key = MakeKey(1);
+
+  main_collector.AddInListKey(key).SetValue(ListOf(2));
+  branch_collector.AddInListKey(key).SetValue(TypedValue{std::vector<TypedValue>{TypedValue{}}});
+
+  main_collector.MergeFrom(std::move(branch_collector));
+
+  auto const merged = main_collector.TryGetInlistCachedValue(key);
+  ASSERT_TRUE(merged.has_value());
+  EXPECT_TRUE(merged->get().HasNull());
+  EXPECT_TRUE(merged->get().Contains(TypedValue{int64_t{0}}));
+}
+
+TEST_F(FrameChangeCollectorTest, CachedSetRejectsWhatIsNotAList) {
+  CachedSet cache{NewDeleteResource()};
+  EXPECT_FALSE(cache.SetValue(TypedValue{int64_t{1}}));
+  EXPECT_TRUE(cache.Empty());
+}
