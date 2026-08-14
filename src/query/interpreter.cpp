@@ -6505,7 +6505,13 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
           "automatically start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
-      if (!db.try_exclusively([](auto &in) {
+      // Wait briefly for sole-accessor exclusivity instead of demanding it on the first check.
+      // Transient DatabaseAccess holders — a Prometheus /metrics scrape (vmagent scrapes every
+      // ~15s and holds an accessor), or one of Lab's parallel sessions between queries — release
+      // within milliseconds, so a single-shot check spuriously refuses the switch. 3s comfortably
+      // rides those out while still refusing cleanly if a real long-lived session keeps the DB busy.
+      constexpr auto kSwitchToDiskExclusiveTimeout = std::chrono::seconds{3};
+      if (!db.try_exclusively(kSwitchToDiskExclusiveTimeout, [](auto &in) {
             if (!in.streams()->GetStreamInfo().empty()) {
               throw utils::BasicException(
                   "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
@@ -6529,13 +6535,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
             in.SwitchToOnDisk();
           })) {  // Try exclusively failed
         throw utils::BasicException(
-            "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
-            "multiple sessions active. Close all other sessions and try again. As Memgraph Lab uses "
-            "multiple sessions to run queries in parallel, "
-            "it is currently impossible to switch to the on-disk storage mode within Lab. "
-            "Close it, connect to the instance with mgconsole "
-            "and change the storage mode to on-disk from there. Then, you can reconnect with the Lab "
-            "and continue to use the instance as usual.");
+            "You cannot switch from an in-memory storage mode to the on-disk storage mode while another session is "
+            "actively using this database. Close all other sessions on this database and try again.");
       }
     }
     return std::vector<std::vector<TypedValue>>();

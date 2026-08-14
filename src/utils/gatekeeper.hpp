@@ -271,6 +271,33 @@ struct Gatekeeper {
       return {run_t{}, std::forward<Func>(func), *owner_->value_};
     }
 
+    // Bounded-wait variant: wait up to `timeout` for this to become the sole live accessor
+    // (count_ == 1) before running `func` exclusively, instead of the single-shot check above.
+    // Motivation: the non-blocking overload refuses the instant any transient DatabaseAccess is
+    // live — a Prometheus /metrics scrape or one of Lab's parallel sessions bumps count_ to >=2 —
+    // so an operation like the STORAGE MODE switch spuriously fails even though those holders
+    // release within milliseconds. Waiting rides out the transient holder while a genuinely-stuck
+    // holder still refuses cleanly once the deadline expires.
+    //
+    // Wakeup is guaranteed: every count_ decrement (~Accessor/reset()/operator=) happens under
+    // mutex_ and calls cv_.notify_all(), so this wait cannot miss a release. No value_ guard is
+    // needed for the same reason the non-blocking overload omits one — our own live accessor keeps
+    // count_ >= 1, so value_ cannot be destroyed (finish_suspend/try_delete both require count_==0
+    // / count_==1 with the value handed to us) while we hold the lock and run func.
+    template <typename Func>
+    [[nodiscard]] auto try_exclusively(std::chrono::steady_clock::duration timeout, Func &&func)
+        -> EvalResult<std::invoke_result_t<Func, T &>> {
+      if (!owner_) return {not_run_t{}};
+      // Prevent new access
+      auto guard = std::unique_lock{owner_->mutex_};
+      // Wait for exclusive access; on timeout refuse without running func.
+      if (!owner_->cv_.wait_for(guard, timeout, [this] { return owner_->count_ == 1; })) {
+        return {not_run_t{}};
+      }
+      // Invoke and hold result in wrapper type
+      return {run_t{}, std::forward<Func>(func), *owner_->value_};
+    }
+
     // Completely invalidated the accessor if return true
     template <typename Func = decltype([](T &) { return true; })>
     [[nodiscard]] bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100),
