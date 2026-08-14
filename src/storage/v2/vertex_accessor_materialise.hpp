@@ -87,4 +87,64 @@ Result<void> VertexAccessor::ReadPropertyValuesInto(std::span<PropertyId const> 
   return {};
 }
 
+template <typename Materialiser>
+Result<void> VertexAccessor::ReadPropertyValueInto(PropertyId property, View view, PropertyLocationMemo &memo,
+                                                   Materialiser &out) const {
+  bool exists = true;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  bool materialised = false;
+  // Only the delta path needs one, and only until the values are handed on.
+  auto scratch = PropertyValue{};
+
+  VertexReadLock read_lock{vertex_};
+  {
+    auto const guard = read_lock.AcquireLock();
+    deleted = vertex_->deleted();
+    delta = vertex_->delta();
+
+    auto const no_deltas_to_apply =
+        delta == nullptr || transaction_->isolation_level == IsolationLevel::READ_UNCOMMITTED;
+    if (no_deltas_to_apply) {
+      vertex_->properties.ExtractPropertyInto(storage_->manifest_registry(), property, memo, out);
+      materialised = true;
+    } else {
+      scratch = vertex_->properties.GetProperty(storage_->manifest_registry(), property, memo);
+    }
+  }
+
+  if (!materialised) {
+    auto const useCache = transaction_->UseCache();
+    if (useCache) {
+      auto const &cache = transaction_->manyDeltasCache;
+      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
+    }
+
+    auto const properties = std::span{&property, 1};
+    auto const values = std::span{&scratch, 1};
+    auto const n_processed =
+        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, properties, values](const Delta &delta) {
+          // clang-format off
+          DeltaDispatch(delta, utils::ChainedOverloaded{
+            Deleted_ActionMethod(deleted),
+            Exists_ActionMethod(exists),
+            PropertyValues_ActionMethod(properties, values)
+          });
+          // clang-format on
+        });
+
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
+      auto &cache = transaction_->manyDeltasCache;
+      cache.StoreExists(view, vertex_, exists);
+      cache.StoreDeleted(view, vertex_, deleted);
+    }
+
+    out.Emit(0, std::move(scratch));
+  }
+
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
+  return {};
+}
+
 }  // namespace memgraph::storage

@@ -125,6 +125,20 @@ class VertexAccessor final {
   Result<void> ReadPropertyValuesInto(std::span<PropertyId const> properties, View view,
                                       std::span<PropertyValue> scratch, Materialiser &out) const;
 
+  /// One property, built into whatever `out` holds, remembering through `memo` where it sat in the
+  /// shape it was last read from.
+  ///
+  /// This is the read behind an expression's `n.prop`. The batched form above is reached only
+  /// through the operator that caches a row's repeated properties, so a lookup that operator does
+  /// not serve was building a `PropertyValue` and converting it - twice the value construction, per
+  /// row. Defined in `vertex_accessor_materialise.hpp`.
+  ///
+  /// `out` is given exactly one value, at index 0, except that a retry over a missing object may
+  /// give it a second; the last one is the answer.
+  template <typename Materialiser>
+  Result<void> ReadPropertyValueInto(PropertyId property, View view, PropertyLocationMemo &memo,
+                                     Materialiser &out) const;
+
   auto BuildResultOutEdges(edge_store const &out_edges) const;
 
   auto BuildResultInEdges(edge_store const &out_edges) const;

@@ -12,6 +12,7 @@
 #include "query/plan/operator.hpp"
 #include <range/v3/all.hpp>
 #include "metrics/prometheus_metrics.hpp"
+#include "query/typed_value_materialiser.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -4787,67 +4788,27 @@ namespace {
 /// rebuilt as the `TypedValue` the frame holds. Both are a switch over a wide tagged union, and
 /// on a grouped aggregation the pair of them is the largest thing in the profile that is not
 /// the allocator. Handing this to the read instead builds each value once.
-class FrameSlotMaterialiser {
+class FrameSlotMaterialiser : public TypedValueMaterialiser<FrameSlotMaterialiser> {
  public:
   FrameSlotMaterialiser(FrameWriter &writer, std::span<CachedProperty const> cached, std::span<uint8_t const> denied,
                         storage::NameIdMapper *name_id_mapper, utils::MemoryResource *memory)
-      : writer_{&writer}, cached_{cached}, denied_{denied}, name_id_mapper_{name_id_mapper}, memory_{memory} {}
+      : TypedValueMaterialiser{name_id_mapper, memory}, writer_{&writer}, cached_{cached}, denied_{denied} {}
 
-  void EmitNull(std::size_t index) { Write(index, TypedValue{memory_}); }
-
-  void Emit(std::size_t index, bool value) { Write(index, TypedValue{value, memory_}); }
-
-  void Emit(std::size_t index, int64_t value) { Write(index, TypedValue{value, memory_}); }
-
-  void Emit(std::size_t index, double value) { Write(index, TypedValue{value, memory_}); }
-
-  void Emit(std::size_t index, std::string_view value) { Write(index, TypedValue{value, memory_}); }
-
-  void Emit(std::size_t index, storage::Enum value) { Write(index, TypedValue{value, memory_}); }
-
-  void Emit(std::size_t index, storage::Point2d value) { Write(index, TypedValue{value, memory_}); }
-
-  void Emit(std::size_t index, storage::Point3d value) { Write(index, TypedValue{value, memory_}); }
-
-  void Emit(std::size_t index, storage::TemporalData value) {
-    switch (value.type) {
-      case storage::TemporalType::Date:
-        return Write(index, TypedValue{utils::Date{std::chrono::microseconds{value.microseconds}}, memory_});
-      case storage::TemporalType::LocalTime:
-        return Write(index, TypedValue{utils::LocalTime{value.microseconds}, memory_});
-      case storage::TemporalType::LocalDateTime:
-        return Write(index, TypedValue{utils::LocalDateTime{value.microseconds}, memory_});
-      case storage::TemporalType::Duration:
-        return Write(index, TypedValue{utils::Duration{value.microseconds}, memory_});
-    }
-  }
-
-  void Emit(std::size_t index, storage::ZonedTemporalData value) {
-    Write(index, TypedValue{utils::ZonedDateTime{value.microseconds, value.timezone}, memory_});
-  }
-
-  /// The fallback: a list, a map or a vector-index handle still arrives as a storage value.
-  void Emit(std::size_t index, storage::PropertyValue &&value) {
-    Write(index, TypedValue{std::move(value), name_id_mapper_, memory_});
-  }
-
- private:
   /// A property the caller may not read has to read back as Null here exactly as it would from
   /// an expression, or moving a lookup into the cache would hand out a value the query could
   /// not otherwise have got.
   void Write(std::size_t index, TypedValue &&value) {
     if (!denied_.empty() && denied_[index]) {
-      writer_->Write(cached_[index].output_symbol, TypedValue{memory_});
+      writer_->Write(cached_[index].output_symbol, TypedValue{memory()});
       return;
     }
     writer_->Write(cached_[index].output_symbol, std::move(value));
   }
 
+ private:
   FrameWriter *writer_;
   std::span<CachedProperty const> cached_;
   std::span<uint8_t const> denied_;
-  storage::NameIdMapper *name_id_mapper_;
-  utils::MemoryResource *memory_;
 };
 
 }  // namespace

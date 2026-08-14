@@ -1123,6 +1123,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 #endif
 
+  /// One property, built once.
+  ///
+  /// `GetProperty` below returns a `storage::PropertyValue`, which a lookup then rebuilds as the
+  /// `TypedValue` it wanted: two constructions and a destruction per property per row, and on the
+  /// benchmark's filtered aggregation that pair is 40% of the query. The operator that caches a
+  /// row's repeated properties already avoids it, but it only serves a property mentioned more than
+  /// once; this is the same materialising read for the lookups it does not serve.
+  ///
+  /// Defined in `eval.cpp`, which includes the materialising reads so no other translation unit
+  /// pays for them.
+  template <class TRecordAccessor>
+  TypedValue GetPropertyValue(TRecordAccessor const &record_accessor, PropertyIx const &prop);
+
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};

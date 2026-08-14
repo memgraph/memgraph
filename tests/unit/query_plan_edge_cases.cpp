@@ -294,6 +294,16 @@ TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
       EXPECT_EQ(results[0][0].ValueInt(), 7);                                                                  \
       EXPECT_EQ(results[0][1].type(), BoltValue::Type::Null);                                                  \
     }                                                                                                          \
+    {                                                                                                          \
+      /* The same for a vertex, and read once so the cache does not serve it: a lookup the operator            \
+       * skips reads through the single-property path, where a property the record does not carry is           \
+       * the one case that produces a value without decoding anything. */                                      \
+      auto results = this->Execute("MATCH (n:P) RETURN n.id AS i, n.absent AS a ORDER BY i");                  \
+      ASSERT_EQ(results.size(), 2);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                  \
+      EXPECT_EQ(results[0][1].type(), BoltValue::Type::Null);                                                  \
+      EXPECT_EQ(results[1][1].type(), BoltValue::Type::Null);                                                  \
+    }                                                                                                          \
   } while (false)
 
 TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOff) {

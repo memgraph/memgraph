@@ -216,6 +216,36 @@ class ManifestPropertyStore {
     }
   }
 
+  /// One property, materialised the same way, and remembering where it sat in the shape it was
+  /// last read from.
+  ///
+  /// This is what an expression's `n.prop` wants: the batched read above is reached only through
+  /// the operator that caches a row's repeated properties, so a lookup the operator does not serve
+  /// was still building a `PropertyValue` and converting it. The memo is the same one the
+  /// `PropertyValue`-returning read takes, so a scan reading one property from record after record
+  /// resolves it once either way.
+  ///
+  /// Always hands `out` exactly one value, at index 0.
+  template <typename Materialiser>
+  void ExtractPropertyInto(ManifestRegistry const &registry, PropertyId property, PropertyLocationMemo &memo,
+                           Materialiser &out) const {
+    // An empty record has no shape to remember, and the id it reports is one a real shape can be
+    // given, so it must never reach the memo.
+    if (empty()) return out.EmitNull(0);
+
+    auto const shape = this->manifest();
+    if (auto const remembered = memo.Lookup(registry.instance(), shape, property)) {
+      if (!remembered->location) return out.EmitNull(0);
+      return RecordReader{*remembered->manifest, data()}.ReadInto(*remembered->location, 0, out);
+    }
+
+    auto const &manifest = registry.Resolve(shape);
+    auto const found = manifest.Find(property);
+    memo.Remember(registry.instance(), shape, &manifest, property, found);
+    if (!found) return out.EmitNull(0);
+    return RecordReader{manifest, data()}.ReadInto(*found, 0, out);
+  }
+
   /// Whether each of `ordered_properties` holds the value it is paired with, the value for
   /// `ordered_properties[i]` being `values[position_lookup[i]]`. A path the record has no
   /// value for holds Null. Top-level paths are compared against the encoded bytes rather than

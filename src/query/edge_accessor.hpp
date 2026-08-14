@@ -48,6 +48,13 @@ class EdgeAccessor final {
     return impl_.ReadPropertyValuesInto(properties, view, scratch, out);
   }
 
+  /// One property, built into whatever `out` holds. What an expression's `r.prop` reads through.
+  template <typename Materialiser>
+  storage::Result<void> ReadPropertyValueInto(storage::PropertyId property, storage::View view,
+                                              storage::PropertyLocationMemo &memo, Materialiser &out) const {
+    return impl_.ReadPropertyValueInto(property, view, memo, out);
+  }
+
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }

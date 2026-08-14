@@ -75,4 +75,54 @@ Result<void> EdgeAccessor::ReadPropertyValuesInto(std::span<PropertyId const> pr
   return {};
 }
 
+template <typename Materialiser>
+Result<void> EdgeAccessor::ReadPropertyValueInto(PropertyId property, View view, PropertyLocationMemo &memo,
+                                                 Materialiser &out) const {
+  // Without properties on edges `edge_` holds a gid rather than a pointer, so this has to answer
+  // before anything dereferences it.
+  if (!storage_->config_.salient.items.properties_on_edges) {
+    out.EmitNull(0);
+    return {};
+  }
+
+  bool exists = true;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  bool materialised = false;
+  auto scratch = PropertyValue{};
+
+  {
+    auto guard = std::shared_lock{edge_.ptr->lock};
+    deleted = edge_.ptr->deleted();
+    delta = edge_.ptr->delta();
+
+    if (delta == nullptr) {
+      edge_.ptr->properties.ExtractPropertyInto(storage_->manifest_registry(), property, memo, out);
+      materialised = true;
+    } else {
+      scratch = edge_.ptr->properties.GetProperty(storage_->manifest_registry(), property, memo);
+    }
+  }
+
+  if (!materialised) {
+    auto const properties = std::span{&property, 1};
+    auto const values = std::span{&scratch, 1};
+    ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, properties, values](const Delta &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Deleted_ActionMethod(deleted),
+        Exists_ActionMethod(exists),
+        PropertyValues_ActionMethod(properties, values)
+      });
+      // clang-format on
+    });
+
+    out.Emit(0, std::move(scratch));
+  }
+
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
+  return {};
+}
+
 }  // namespace memgraph::storage

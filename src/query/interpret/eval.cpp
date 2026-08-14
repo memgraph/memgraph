@@ -13,7 +13,10 @@
 
 #include "query/auth_checker.hpp"
 #include "query/graph.hpp"
+#include "query/typed_value_materialiser.hpp"
 #include "query/virtual_graph.hpp"
+#include "storage/v2/edge_accessor_materialise.hpp"
+#include "storage/v2/vertex_accessor_materialise.hpp"
 
 #include <ranges>
 #include <regex>
@@ -267,6 +270,35 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
   }
 }
 
+template <class TRecordAccessor>
+TypedValue ExpressionEvaluator::GetPropertyValue(TRecordAccessor const &record_accessor, PropertyIx const &prop) {
+  auto const property_id = ctx_->properties[prop.ix];
+  if (!IsPropertyAllowed(record_accessor, property_id)) return TypedValue{ctx_->memory};
+
+  auto materialiser = SingleValueMaterialiser{GetNameIdMapper(), ctx_->memory};
+  auto *const location_memo = LocationMemo();
+  auto result = record_accessor.ReadPropertyValueInto(property_id, view_, *location_memo, materialiser);
+  if (result == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
+    // The same hack the `PropertyValue` read carries, for the same reason: the old storage
+    // answered an `OLD` view it did not have with the `NEW` one, and MERGE still depends on it.
+    // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
+    result = record_accessor.ReadPropertyValueInto(property_id, storage::View::NEW, *location_memo, materialiser);
+  }
+  if (!result) {
+    switch (result.error()) {
+      case storage::Error::DELETED_OBJECT:
+        throw QueryRuntimeException("Trying to get a property from a deleted object.");
+      case storage::Error::NONEXISTENT_OBJECT:
+        throw QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
+      case storage::Error::SERIALIZATION_ERROR:
+      case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::PROPERTIES_DISABLED:
+        throw QueryRuntimeException("Unexpected error when getting a property.");
+    }
+  }
+  return materialiser.Take();
+}
+
 TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
   ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, ctx_);
 
@@ -442,9 +474,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
         if (inserted) it->second = GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_);
         return {it->second, GetNameIdMapper(), ctx_->memory};
       } else {
-        return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_),
-                GetNameIdMapper(),
-                ctx_->memory};
+        return GetPropertyValue(expression_result_ptr->ValueVertex(), property_lookup.property_);
       }
     case TypedValue::Type::Edge:
       if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
@@ -455,9 +485,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
         if (inserted) it->second = GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_);
         return {it->second, GetNameIdMapper(), ctx_->memory};
       } else {
-        return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_),
-                GetNameIdMapper(),
-                ctx_->memory};
+        return GetPropertyValue(expression_result_ptr->ValueEdge(), property_lookup.property_);
       }
     case TypedValue::Type::VirtualEdge: {
       auto prop_id = dba_->NameToProperty(property_lookup.property_.name);

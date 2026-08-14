@@ -67,6 +67,13 @@ class VertexAccessor final {
     return impl_.ReadPropertyValuesInto(properties, view, scratch, out);
   }
 
+  /// One property, built into whatever `out` holds. What an expression's `n.prop` reads through.
+  template <typename Materialiser>
+  storage::Result<void> ReadPropertyValueInto(storage::PropertyId property, storage::View view,
+                                              storage::PropertyLocationMemo &memo, Materialiser &out) const {
+    return impl_.ReadPropertyValueInto(property, view, memo, out);
+  }
+
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
     return impl_.GetPropertySize(key, view);
   }
