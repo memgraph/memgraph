@@ -1411,7 +1411,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
   return *this;
 }
 
-TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
+TypedValue &TypedValue::MoveAssignComplex(TypedValue &&other) {
   static_assert(!std::allocator_traits<utils::Allocator<TypedValue>>::propagate_on_container_move_assignment::value,
                 "Allocator propagation not implemented");
   if (this != &other) {

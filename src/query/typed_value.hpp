@@ -516,8 +516,38 @@ class TypedValue {
   /** Copy assign other, allocator_type of `this` is used */
   TypedValue &operator=(const TypedValue &other);
 
-  /** Move assign other, allocator_type of `this` is used. */
-  TypedValue &operator=(TypedValue &&other) noexcept(false);
+  /** Move assign other, allocator_type of `this` is used.
+   *
+   * Moving a number onto a value that owns nothing is an assignment, and it is what an operator
+   * writing a row into the frame does per slot per row. `MoveAssignComplex` has the rest.
+   */
+  TypedValue &operator=(TypedValue &&other) noexcept(false) {
+    if (this != &other && alloc_ == other.alloc_ && HasTrivialDestructor(type_)) {
+      auto const was = type_;
+      switch (other.type_) {
+        case Type::Null:
+          break;
+        case Type::Bool:
+          bool_v = other.bool_v;
+          break;
+        case Type::Int:
+          int_v = other.int_v;
+          break;
+        case Type::Double:
+          double_v = other.double_v;
+          break;
+        default:
+          return MoveAssignComplex(std::move(other));
+      }
+      type_ = other.type_;
+      // The general path reaches a value of a different type by destroying this one and
+      // move-constructing over it, which leaves the source Null; a value of the same type is
+      // assigned in place and the source is left as it was. Both are kept.
+      if (was != other.type_) other.type_ = Type::Null;
+      return *this;
+    }
+    return MoveAssignComplex(std::move(other));
+  }
 
   // move assignment operators
   TypedValue &operator=(TString &&);
@@ -854,6 +884,7 @@ class TypedValue {
   /// type being destroyed or copied, and neither is reached for a type handled inline above.
   void DestroyValue();
   void CopyComplexValue(TypedValue const &other);
+  TypedValue &MoveAssignComplex(TypedValue &&other);
 
   [[no_unique_address]] allocator_type alloc_{};
 
