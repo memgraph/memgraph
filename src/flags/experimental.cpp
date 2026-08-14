@@ -49,9 +49,11 @@ namespace memgraph::flags {
 
 auto const mapping = std::map{
     std::pair{"planner-v2"sv, Experiments::PLANNER_V2},
+    std::pair{"idle-session-reaper"sv, Experiments::IDLE_SESSION_REAPER},
 };
 auto const reverse_mapping = std::map{
     std::pair{Experiments::PLANNER_V2, "planner-v2"sv},
+    std::pair{Experiments::IDLE_SESSION_REAPER, "idle-session-reaper"sv},
 };
 auto const config_mapping = std::map<std::string_view, Experiments>{};
 
