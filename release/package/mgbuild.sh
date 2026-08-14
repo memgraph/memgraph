@@ -763,7 +763,7 @@ build_memgraph () {
   CMD_START="cd $MGBUILD_ROOT_DIR"
 
   # Hash compiler binary content rather than its mtime. Container image rebuilds
-  # (or any tar/copy that resets /opt/toolchain-v7/bin/clang++ mtime) would
+  # (or any tar/copy that resets /opt/toolchain-v8/bin/clang++ mtime) would
   # otherwise invalidate every ccache entry. Content hashing of the 191 KB
   # clang frontend driver is sub-millisecond, so the overhead is negligible.
   if [[ "$ccache_enabled" == "true" ]]; then
