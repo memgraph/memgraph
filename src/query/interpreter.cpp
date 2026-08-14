@@ -10218,7 +10218,10 @@ void Interpreter::EnsureDbAccessForQuery() {
     if (current_db_.current_db_uuid_ && *current_db_.current_db_uuid_ != acc->uuid()) return;
     current_db_.db_acc_ = std::move(acc);
   } catch (const dbms::UnknownDatabaseException &) {
-    // leave disengaged
+    // The database was dropped while this session's accessor was released; stay disengaged and let the
+    // per-query machinery surface "no current database" on the next statement that needs one.
+    spdlog::trace("Session database '{}' no longer exists; leaving its accessor disengaged.",
+                  *current_db_.current_db_name_);
   }
 }
 
