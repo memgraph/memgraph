@@ -174,6 +174,10 @@ class TypedValue {
    * placement new is left to `CopyComplexValue`, so the common case does not pay for reaching it.
    */
   TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{alloc}, type_(other.type_) {
+    if (!IsScalar(other.type_)) {
+      CopyComplexValue(other);
+      return;
+    }
     switch (other.type_) {
       case Type::Null:
         return;
@@ -183,11 +187,8 @@ class TypedValue {
       case Type::Int:
         int_v = other.int_v;
         return;
-      case Type::Double:
-        double_v = other.double_v;
-        return;
       default:
-        CopyComplexValue(other);
+        double_v = other.double_v;
         return;
     }
   }
@@ -522,7 +523,7 @@ class TypedValue {
    * writing a row into the frame does per slot per row. `MoveAssignComplex` has the rest.
    */
   TypedValue &operator=(TypedValue &&other) noexcept(false) {
-    if (this != &other && alloc_ == other.alloc_ && HasTrivialDestructor(type_)) {
+    if (IsScalar(type_) && IsScalar(other.type_) && this != &other && alloc_ == other.alloc_) {
       auto const was = type_;
       switch (other.type_) {
         case Type::Null:
@@ -533,11 +534,9 @@ class TypedValue {
         case Type::Int:
           int_v = other.int_v;
           break;
-        case Type::Double:
+        default:
           double_v = other.double_v;
           break;
-        default:
-          return MoveAssignComplex(std::move(other));
       }
       type_ = other.type_;
       // The general path reaches a value of a different type by destroying this one and
@@ -561,7 +560,7 @@ class TypedValue {
   /// was reached through an out-of-line switch over every type a value can hold, once per value, and
   /// a row's worth of expression evaluation destroys a value per node it walks.
   ~TypedValue() {
-    if (HasTrivialDestructor(type_)) return;
+    if (IsScalar(type_)) return;
     DestroyValue();
   }
 
@@ -869,15 +868,17 @@ class TypedValue {
   friend auto GetCRS(TypedValue const &tv) -> std::optional<storage::CoordinateReferenceSystem>;
 
  private:
-  /// The types whose destructor does nothing: the scalars, and the temporals, enum and points,
-  /// which hold no allocation of their own. `~TypedValue` is the one place that decides this, and
-  /// `DestroyValue` handles exactly the types this rejects.
-  static constexpr bool HasTrivialDestructor(Type type) {
-    constexpr auto bit = [](Type t) { return uint32_t{1} << static_cast<unsigned>(t); };
-    constexpr auto trivial = bit(Type::Null) | bit(Type::Bool) | bit(Type::Int) | bit(Type::Double) | bit(Type::Date) |
-                             bit(Type::LocalTime) | bit(Type::LocalDateTime) | bit(Type::ZonedDateTime) |
-                             bit(Type::Duration) | bit(Type::Enum) | bit(Type::Point2d) | bit(Type::Point3d);
-    return (trivial & bit(type)) != 0;
+  /// Whether the union holds this type as a plain scalar: nothing to destroy, and copying it is
+  /// copying those bytes. The four sit first in `Type` so that asking is a single comparison, which
+  /// matters because the values that answer no - strings and lists - ask just as often as the ones
+  /// that answer yes, and then go on to pay for the out-of-line call anyway.
+  ///
+  /// The temporals, enum and points own no allocation either and could answer yes to the destructor
+  /// question, but they are left to `DestroyValue`, where they are already no-ops: telling them
+  /// apart needs a mask test rather than a comparison, and that is paid by every value the engine
+  /// touches to save a call on the few queries built out of them.
+  static constexpr bool IsScalar(Type type) {
+    return static_cast<unsigned>(type) <= static_cast<unsigned>(Type::Double);
   }
 
   /// The rest of the destructor and of the copy constructor. Both assume `type_` is already the
