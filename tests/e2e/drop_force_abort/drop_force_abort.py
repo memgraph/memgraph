@@ -10,18 +10,17 @@
 # licenses/APL.txt.
 
 """
-E2E coverage for `DROP DATABASE ... FORCE ABORT` draining against a live accessor.
+E2E coverage for releasing a session's database accessor between queries (`DROP DATABASE ... FORCE`).
 
-The drop bounds its drain against `DbmsHandler::kDrainDeadline` (10s) and converges once the
-tenant's gatekeeper has no holder left but the drop's own accessor. An idle *pooled* Bolt
-connection used to hold onto its `Interpreter::current_db_.db_acc_` until its next request, so the
-drain always ran to the full 10s deadline instead of converging in milliseconds. `Successfully
-deleted <db>` is returned either way, so wall-clock elapsed time -- not the result row -- is the
-signal that distinguishes a converged drop from an expired one.
+An idle *pooled* Bolt connection used to hold onto its `Interpreter::current_db_.db_acc_` until its
+next request, pinning the tenant's gatekeeper so a `DROP DATABASE ... FORCE` could never free the
+database's storage. The session now releases that accessor once a query finishes, so a dropped
+database is fully gone: the idle session sees its database vanish on its next query, `SHOW DATABASES`
+no longer lists it, and the session is not bricked. An explicit transaction keeps its accessor for
+the duration of the transaction, and repeated queries transparently re-acquire it.
 """
 
 import sys
-import time
 import uuid
 
 import mgclient
@@ -29,10 +28,6 @@ import pytest
 
 BOLT_PORT = 7687
 DB_NAME_PREFIX = "e2e_dfa_"
-
-# Generous margin under the 10s kDrainDeadline: a converged drop is expected to take milliseconds,
-# an expired one always takes ~10s, so anything below this line still cleanly tells the two apart.
-CONVERGENCE_BUDGET_SEC = 2.0
 
 
 def connect(database="memgraph", autocommit=True):
@@ -81,7 +76,7 @@ def make_database():
     """
     Factory fixture, module-scoped: the admin connection it owns is set up once, but each call
     mints a fresh, uniquely-named database so tests stay independent and repeat-safe. Cleanup uses
-    FORCE ABORT so a test's deliberately-left-idle pinning connection can't block it.
+    FORCE so a test's deliberately-left-idle pinning connection can't block it.
     """
     admin = connect()
     created = []
@@ -97,7 +92,7 @@ def make_database():
     cursor = admin.cursor()
     for name in created:
         try:
-            execute(cursor, f"DROP DATABASE {name} FORCE ABORT")
+            execute(cursor, f"DROP DATABASE {name} FORCE")
             cursor.fetchall()
         except mgclient.DatabaseError:
             pass
@@ -114,41 +109,12 @@ def pin_database_idle(db_name):
     return conn
 
 
-def force_abort_drop(db_name):
-    """Run `DROP DATABASE ... FORCE ABORT` from a fresh admin connection and return elapsed seconds."""
+def force_drop(db_name):
+    """Run `DROP DATABASE ... FORCE` from a fresh admin connection."""
     admin = connect()
     cursor = admin.cursor()
-    started = time.monotonic()
-    execute(cursor, f"DROP DATABASE {db_name} FORCE ABORT")
+    execute(cursor, f"DROP DATABASE {db_name} FORCE")
     cursor.fetchall()
-    return time.monotonic() - started
-
-
-def test_force_abort_converges_against_idle_connection(make_database):
-    db_name = make_database("converges")
-    idle = pin_database_idle(db_name)
-    idle_cursor = idle.cursor()
-
-    # `idle` must outlive the timed section below: an unreferenced mgclient.Connection is closed by
-    # CPython refcounting as soon as pin_database_idle returns, which releases the accessor on its
-    # own and makes the drop converge for the wrong reason regardless of the fix under test. This
-    # query proves the connection is still alive right before the clock starts.
-    assert fetch_all(idle_cursor, "MATCH (n) RETURN count(n)")[0][0] == 1
-
-    elapsed = force_abort_drop(db_name)
-
-    assert elapsed < CONVERGENCE_BUDGET_SEC, (
-        f"DROP DATABASE {db_name} FORCE ABORT took {elapsed:.3f}s against an idle pooled "
-        f"connection (budget {CONVERGENCE_BUDGET_SEC}s). A converged drop is expected to take "
-        f"milliseconds; anything this slow means the drain expired against kDrainDeadline (10s) "
-        f"instead of converging."
-    )
-
-    # `idle` is read here on purpose, after the timing assertion: this is what keeps the reference
-    # alive across the timed section above, so a later "unused variable" tidy-up can't silently
-    # reintroduce the vacuity this guards against.
-    with pytest.raises(mgclient.DatabaseError):
-        fetch_all(idle_cursor, "MATCH (n) RETURN n LIMIT 1")
 
 
 def test_idle_session_after_drop_is_usable(make_database):
@@ -156,8 +122,14 @@ def test_idle_session_after_drop_is_usable(make_database):
     idle = pin_database_idle(db_name)
     idle_cursor = idle.cursor()
 
-    force_abort_drop(db_name)
+    # The pin proves the accessor was actually held before the drop: without the release-between-queries
+    # fix, `idle` keeps its db_acc_ and the next query below would read the zombie instead of throwing.
+    assert fetch_all(idle_cursor, "MATCH (n) RETURN count(n)")[0][0] == 1
 
+    force_drop(db_name)
+
+    # The session released its accessor after its last query, so the drop converged and its database is
+    # gone: the next query re-acquires and finds nothing.
     with pytest.raises(mgclient.DatabaseError):
         fetch_all(idle_cursor, "MATCH (n) RETURN n LIMIT 1")
 
@@ -167,7 +139,7 @@ def test_idle_session_after_drop_is_usable(make_database):
 
 def test_dropped_database_is_gone(make_database):
     db_name = make_database("gone")
-    force_abort_drop(db_name)
+    force_drop(db_name)
 
     fresh_cursor = connect().cursor()
     assert db_name not in list_databases(fresh_cursor)
