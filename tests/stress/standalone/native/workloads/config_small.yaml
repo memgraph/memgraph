@@ -171,3 +171,20 @@ customWorkloads:
       script_args:
         ["--endpoint", "127.0.0.1:7687", "--parallelism", "4", "--num-tenants", "3", "--duration-sec", "90"]
       timeout_min: 12
+    # Copied from workloads/idle_session_reaper/workload.yaml
+    - name: idle-session-reaper-stress
+      memgraph_args:
+        - "--experimental-enabled=idle-session-reaper"
+        - "--session-idle-accessor-release-sec=2"
+        - "--storage-wal-enabled=true"
+        - "--storage-snapshot-interval-sec=300"
+        - "--data-recovery-on-startup=true"
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/idle_session_reaper/workload.py
+      script_args:
+        ["--endpoint", "127.0.0.1:7687", "--parallelism", "8", "--num-tenants", "6", "--duration-sec", "120", "--idle-timeout-sec", "2"]
+      timeout_min: 15
