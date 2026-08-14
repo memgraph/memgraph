@@ -56,8 +56,6 @@ set(BUILD_MGCONSOLE_SCRIPT "${SOURCE_DIR}/tools/ci/build-mgconsole.sh")
 set(MGCONSOLE_SOURCE "${SOURCE_DIR}/build/mgconsole/bin/mgconsole")
 set(MGCONSOLE_BINARY "${BUILD_DIR}/bin/mgconsole")
 
-# v1.7.0 matches the toolchain's own mgconsole recipe (the version its
-# sysroot build is validated against) and the smoke suite's version check.
 if(NOT DEFINED MGCONSOLE_GIT_TAG)
     set(MGCONSOLE_GIT_TAG "v1.7.0")
 endif()

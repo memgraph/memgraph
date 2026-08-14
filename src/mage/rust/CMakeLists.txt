@@ -3,9 +3,6 @@
 # copied into the dist with the "lib" prefix stripped, since memgraph loads
 # modules by bare name.
 
-# Resolve cargo to an absolute path at configure time (same rationale as
-# mgcxx/text_search): a bare `cargo` is looked up on PATH at ninja time, which
-# breaks in CI / non-login shells where ~/.cargo/env was never sourced.
 find_program(CARGO_EXECUTABLE cargo HINTS "$ENV{HOME}/.cargo/bin")
 if(NOT CARGO_EXECUTABLE)
     message(FATAL_ERROR "cargo not found (searched PATH and ~/.cargo/bin). "
