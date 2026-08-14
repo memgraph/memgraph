@@ -9,9 +9,10 @@ MG_CONSOLE_BINARY="$SCRIPT_DIR/bin/mgconsole"
 if [ ! -f "$MG_CONSOLE_BINARY" ]; then
   mkdir -p "$SCRIPT_DIR/bin"
   # TODO(matt): build the mgconsole release for GLIBC 2.31 and drop the
-  # toolchain override. The released binary is built against GLIBC 2.38+,
-  # which fails on older smoke targets (e.g. debian-12 ships 2.36); the
-  # toolchain's mgconsole is built against the sysroot (GLIBC floor 2.25).
+  # toolchain override. The released binary for version 1.7.0 is built
+  # against GLIBC 2.38+, which fails on older smoke targets (e.g. debian-12
+  # ships 2.36); the toolchain's mgconsole is built against the sysroot (GLIBC floor 2.25).
+  # mgconsole 1.7.1 will be built against the new toolchain and this can be removed.
   toolchain_mgconsole=""
   if [ -n "${MG_TOOLCHAIN_ROOT:-}" ] && [ -x "$MG_TOOLCHAIN_ROOT/bin/mgconsole" ]; then
     toolchain_mgconsole="$MG_TOOLCHAIN_ROOT/bin/mgconsole"
