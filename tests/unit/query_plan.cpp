@@ -2516,7 +2516,7 @@ TYPED_TEST(TestPlanner, LabelPropertyInListValidOptimization) {
               ExpectUnwind(),
               ExpectScanAllByLabelProperties(label,
                                              std::vector{ms::PropertyPath{property.second}},
-                                             std::vector{ExpressionRange::In(fake_identifier, nullptr)}),
+                                             std::vector{ExpressionRange::In(fake_identifier, lit_list_a)}),
               ExpectProduce());
   }
 }
