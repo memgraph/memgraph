@@ -5867,6 +5867,23 @@ TYPED_TEST(TestPlanner, CachePropertiesBeneathAggregateAndProduceTogether) {
             ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, CachePropertiesCachesACaseCondition) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto prop_b = PROPERTY_PAIR(dba, "b");
+  auto prop_c = PROPERTY_PAIR(dba, "c");
+  // A CASE condition is evaluated for every row, so reading it in the batch is never wasted. The branches are
+  // not: only `a` and `c` are cached here, `b` keeps reading the old way.
+  auto *if_expr = this->storage.template Create<memgraph::query::IfOperator>(
+      PROPERTY_LOOKUP(dba, "n", prop_a), PROPERTY_LOOKUP(dba, "n", prop_b), LITERAL(0));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(if_expr, AS("x"), PROPERTY_LOOKUP(dba, "n", prop_c), AS("y"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 2), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, CachePropertiesTwoSymbolsEachGetTheirOwnCache) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;

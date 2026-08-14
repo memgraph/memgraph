@@ -173,7 +173,9 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 
   void Visit(ListSlicingOperator &op) override {}
 
-  void Visit(IfOperator &op) override {}
+  /// A CASE evaluates its condition for every row, so a lookup there is never a read the row would have
+  /// skipped. The branches are a different matter - only one of them runs - so they keep the old path.
+  void Visit(IfOperator &op) override { AcceptExpression(op.condition_); }
 
   void Visit(ListLiteral &op) override {}
 
