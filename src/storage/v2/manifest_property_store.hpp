@@ -25,6 +25,7 @@
 #include "storage/v2/constraints/type_constraints_validator.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_manifest.hpp"
+#include "storage/v2/property_materialiser.hpp"
 #include "storage/v2/property_store_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
@@ -188,6 +189,32 @@ class ManifestPropertyStore {
   /// `properties.size()`.
   void ExtractPropertyValuesMissingAsNull(ManifestRegistry const &registry, std::span<PropertyId const> properties,
                                           std::span<PropertyValue> out) const;
+
+  /// As above, but builds each value into whatever `out` holds rather than into a
+  /// `PropertyValue` the caller then converts.
+  ///
+  /// `out` is handed each value as what it is: `out.Emit(index, v)` for a type the shape and a
+  /// flat payload fully describe, `out.EmitNull(index)` for a property the record does not
+  /// carry, and `out.Emit(index, PropertyValue&&)` for a list, map or vector-index handle,
+  /// which still decodes into a storage value first. A caller whose destination is not a
+  /// `PropertyValue` therefore constructs each value once instead of twice.
+  template <typename Materialiser>
+  void ExtractPropertiesInto(ManifestRegistry const &registry, std::span<PropertyId const> properties,
+                             Materialiser &out) const {
+    if (empty()) {
+      for (size_t index = 0; index != properties.size(); ++index) out.EmitNull(index);
+      return;
+    }
+    auto const record = RecordReader{registry.Resolve(manifest()), data()};
+    for (size_t index = 0; index != properties.size(); ++index) {
+      auto const found = record.Find(properties[index]);
+      if (!found) {
+        out.EmitNull(index);
+        continue;
+      }
+      record.ReadInto(*found, index, out);
+    }
+  }
 
   /// Whether each of `ordered_properties` holds the value it is paired with, the value for
   /// `ordered_properties[i]` being `values[position_lookup[i]]`. A path the record has no

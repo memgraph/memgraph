@@ -3090,6 +3090,121 @@ STORE_TYPED_TEST(UpdatePropertiesToNull) {
 }
 
 //==============================================================================
+// Materialising reads: building the caller's value directly, rather than a storage value on the
+// way to it.
+
+namespace {
+
+/** Builds `PropertyValue`s, and remembers how each one arrived.
+ *
+ * The value is what proves the decode is correct. The route is what proves it is worth doing:
+ * a type that arrives through `Emit(PropertyValue&&)` has been built twice, which is exactly
+ * what a materialising read exists to avoid.
+ */
+struct RouteRecordingMaterialiser {
+  enum class Route : uint8_t { kDirect, kViaPropertyValue };
+
+  std::vector<PropertyValue> values;
+  std::vector<Route> routes;
+
+  void Place(size_t index, PropertyValue &&value, Route route) {
+    if (values.size() <= index) {
+      values.resize(index + 1);
+      routes.resize(index + 1, Route::kDirect);
+    }
+    values[index] = std::move(value);
+    routes[index] = route;
+  }
+
+  void EmitNull(size_t i) { Place(i, PropertyValue{}, Route::kDirect); }
+
+  void Emit(size_t i, bool v) { Place(i, PropertyValue{v}, Route::kDirect); }
+
+  void Emit(size_t i, int64_t v) { Place(i, PropertyValue{v}, Route::kDirect); }
+
+  void Emit(size_t i, double v) { Place(i, PropertyValue{v}, Route::kDirect); }
+
+  void Emit(size_t i, std::string_view v) { Place(i, PropertyValue{std::string{v}}, Route::kDirect); }
+
+  void Emit(size_t i, TemporalData v) { Place(i, PropertyValue{v}, Route::kDirect); }
+
+  void Emit(size_t i, ZonedTemporalData v) { Place(i, PropertyValue{v}, Route::kDirect); }
+
+  void Emit(size_t i, Enum v) { Place(i, PropertyValue{v}, Route::kDirect); }
+
+  void Emit(size_t i, Point2d v) { Place(i, PropertyValue{v}, Route::kDirect); }
+
+  void Emit(size_t i, Point3d v) { Place(i, PropertyValue{v}, Route::kDirect); }
+
+  void Emit(size_t i, PropertyValue &&v) { Place(i, std::move(v), Route::kViaPropertyValue); }
+};
+
+}  // namespace
+
+TEST(ManifestPropertyStoreMaterialise, EveryTypeReadsBackAsItWasWritten) {
+  using Route = RouteRecordingMaterialiser::Route;
+
+  auto const written = std::vector<std::pair<PropertyId, PropertyValue>>{
+      {PropertyId::FromInt(1), PropertyValue{true}},
+      {PropertyId::FromInt(2), PropertyValue{int64_t{42}}},
+      {PropertyId::FromInt(3), PropertyValue{2.5}},
+      {PropertyId::FromInt(4), PropertyValue{std::string{"cat_07"}}},
+      // Longer than the small-string buffer, so the copy a non-materialising read makes is a
+      // real allocation rather than a memcpy into the object.
+      {PropertyId::FromInt(5), PropertyValue{std::string(64, 'x')}},
+      {PropertyId::FromInt(6), PropertyValue{TemporalData{TemporalType::Date, 1234}}},
+      {PropertyId::FromInt(7), PropertyValue{Enum{EnumTypeId{3}, EnumValueId{4}}}},
+      {PropertyId::FromInt(8), PropertyValue{Point2d{WGS84_2d, 1.5, 2.5}}},
+      {PropertyId::FromInt(9), PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}},
+      // Not materialised by the first cut: these must fall back rather than break.
+      {PropertyId::FromInt(10), PropertyValue{PropertyValue::list_t{PropertyValue{int64_t{1}}}}},
+  };
+
+  ManifestPropertyStore store;
+  for (auto const &[property, value] : written) {
+    ASSERT_TRUE(store.SetProperty(Registry(), property, value)) << "writing " << property.AsInt();
+  }
+
+  auto ids = std::vector<PropertyId>{};
+  ids.reserve(written.size() + 1);
+  for (auto const &[property, _] : written) ids.push_back(property);
+  // A property the record does not carry has to arrive as Null, in its own slot.
+  ids.push_back(PropertyId::FromInt(99));
+
+  RouteRecordingMaterialiser out;
+  store.ExtractPropertiesInto(Registry(), ids, out);
+
+  ASSERT_EQ(out.values.size(), ids.size());
+  for (size_t i = 0; i != written.size(); ++i) {
+    EXPECT_EQ(out.values[i], written[i].second) << "property " << written[i].first.AsInt();
+  }
+  EXPECT_TRUE(out.values.back().IsNull());
+
+  // The point of the exercise: everything except the list is built once.
+  for (size_t i = 0; i != written.size() - 1; ++i) {
+    EXPECT_EQ(out.routes[i], Route::kDirect) << "property " << written[i].first.AsInt() << " was built twice";
+  }
+  EXPECT_EQ(out.routes[written.size() - 1], Route::kViaPropertyValue) << "a list should still fall back";
+}
+
+TEST(ManifestPropertyStoreMaterialise, AgreesWithTheNonMaterialisingRead) {
+  auto const properties = std::vector<PropertyId>{
+      PropertyId::FromInt(1), PropertyId::FromInt(2), PropertyId::FromInt(3), PropertyId::FromInt(4)};
+
+  ManifestPropertyStore store;
+  ASSERT_TRUE(store.SetProperty(Registry(), properties[0], PropertyValue{int64_t{7}}));
+  ASSERT_TRUE(store.SetProperty(Registry(), properties[2], PropertyValue{std::string{"region_3"}}));
+
+  auto expected = std::vector<PropertyValue>(properties.size());
+  store.ExtractPropertyValuesMissingAsNull(Registry(), properties, expected);
+
+  RouteRecordingMaterialiser out;
+  store.ExtractPropertiesInto(Registry(), properties, out);
+
+  EXPECT_EQ(out.values, expected);
+}
+
+//==============================================================================
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);

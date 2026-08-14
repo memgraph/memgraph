@@ -28,44 +28,13 @@
 
 #include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/property_materialiser.hpp"
 #include "storage/v2/property_store.hpp"  // FLAGS_storage_floating_point_resolution_bits
 #include "utils/logging.hpp"
 
 namespace memgraph::storage {
 
 namespace {
-
-constexpr uint8_t kBoolWidth = 1;
-constexpr uint8_t kHalfWidth = 2;      // --storage_floating_point_resolution_bits=16
-constexpr uint8_t kFloatWidth = 4;     // --storage_floating_point_resolution_bits=32
-constexpr uint8_t kDoubleWidth = 8;    // --storage_floating_point_resolution_bits=64
-constexpr uint8_t kTemporalWidth = 8;  // microseconds; which temporal type is part of the shape
-constexpr uint8_t kEnumWidth = 8;      // value id; which enum type is part of the shape
-constexpr uint8_t kPoint2dWidth = 16;  // x, y; the coordinate system is part of the shape
-constexpr uint8_t kPoint3dWidth = 24;  // x, y, z
-/// Microseconds; the zoned temporal type and the offset are both part of the shape.
-constexpr uint8_t kOffsetZonedTemporalWidth = 8;
-/// Microseconds, which the timezone name follows for the rest of the value's bytes.
-constexpr uint32_t kZonedTemporalMicrosecondsWidth = 8;
-
-/// The shape discriminator an offset-defined zoned temporal carries: the zoned temporal type
-/// above the offset itself. An offset is at most ±18 hours (`utils::MAX_OFFSET_MINUTES`), so it
-/// fits in the low half of the discriminator, the type rides above it and the payload stays the
-/// microseconds alone. Two records whose offsets differ therefore have different shapes, which
-/// is what the discriminator is for and what keeps every record of one shape identically laid
-/// out; the number of distinct offsets a zone can have is small and fixed.
-constexpr auto PackZonedOffset(ZonedTemporalType type, int64_t offset_minutes) -> uint32_t {
-  static_assert(utils::MAX_OFFSET_MINUTES <= std::numeric_limits<int16_t>::max());
-  return (static_cast<uint32_t>(type) << 16U) | static_cast<uint16_t>(static_cast<int16_t>(offset_minutes));
-}
-
-constexpr auto UnpackZonedType(uint32_t discriminator) -> ZonedTemporalType {
-  return static_cast<ZonedTemporalType>(discriminator >> 16U);
-}
-
-constexpr auto UnpackZonedOffset(uint32_t discriminator) -> std::chrono::minutes {
-  return std::chrono::minutes{static_cast<int16_t>(discriminator & 0xFFFFU)};
-}
 
 /// A zoned temporal is stored as the UTC instant plus the timezone it is to be read in, never
 /// as a local time plus an offset, so nothing here has to pick between the two instants a
@@ -321,43 +290,6 @@ void EncodeFixed(PropertyValue const &value, StoredType stored_type, std::span<u
 /// The value an integer payload holds, sign-extended from whatever width it was stored at.
 /// Two records of the same value may disagree on that width, so nothing may be concluded from
 /// the bytes without widening them first.
-auto DecodeInt(uint8_t width, std::span<uint8_t const> in) -> int64_t {
-  uint64_t raw = 0;
-  std::memcpy(&raw, in.data(), width);
-  switch (width) {
-    case 1:
-      return static_cast<int8_t>(raw);
-    case 2:
-      return static_cast<int16_t>(raw);
-    case 4:
-      return static_cast<int32_t>(raw);
-    default:
-      return static_cast<int64_t>(raw);
-  }
-}
-
-/// The value a floating point payload holds, at the resolution it was stored at rather than
-/// the one currently in force.
-auto DecodeDouble(uint8_t width, std::span<uint8_t const> in) -> double {
-  switch (width) {
-    case kHalfWidth: {
-      uint16_t half = 0;
-      std::memcpy(&half, in.data(), kHalfWidth);
-      return fp16_ieee_to_fp32_value(half);
-    }
-    case kFloatWidth: {
-      float single = 0.0F;
-      std::memcpy(&single, in.data(), kFloatWidth);
-      return single;
-    }
-    default: {
-      double raw = 0.0;
-      std::memcpy(&raw, in.data(), kDoubleWidth);
-      return raw;
-    }
-  }
-}
-
 auto DecodeFixed(StoredType stored_type, std::span<uint8_t const> in) -> PropertyValue {
   switch (stored_type.type) {
     case PropertyStoreType::BOOL:
@@ -944,15 +876,6 @@ auto WriteVariable(PropertyValue const &value, uint8_t *out) -> uint32_t {
   return written.size();
 }
 
-/// The instant and the zone name a named-zone temporal payload holds.
-auto ReadZonedTemporal(uint8_t const *begin, uint32_t size) -> std::pair<int64_t, std::string_view> {
-  int64_t microseconds = 0;
-  std::memcpy(&microseconds, begin, kZonedTemporalMicrosecondsWidth);
-  return {microseconds,
-          std::string_view{reinterpret_cast<char const *>(begin + kZonedTemporalMicrosecondsWidth),
-                           size - kZonedTemporalMicrosecondsWidth}};
-}
-
 auto DecodeVariable(StoredType stored_type, uint8_t const *begin, uint32_t size) -> PropertyValue {
   if (stored_type.type == PropertyStoreType::STRING) {
     return PropertyValue{std::string_view{reinterpret_cast<char const *>(begin), size}};
@@ -988,13 +911,6 @@ auto VariableEquals(StoredType stored_type, uint8_t const *begin, uint32_t size,
   return BlobEquals(reader, value);
 }
 
-/// Bytes of presence bits a shape of `fields` fields needs.
-constexpr auto PresenceBytes(size_t fields) -> uint32_t { return static_cast<uint32_t>((fields + 7) / 8); }
-
-auto IsPresent(uint8_t const *record, uint32_t position) -> bool {
-  return (record[position / 8] & (1U << (position % 8))) != 0;
-}
-
 void SetPresent(uint8_t *record, uint32_t position, bool present) {
   auto const mask = static_cast<uint8_t>(1U << (position % 8));
   if (present) {
@@ -1002,35 +918,6 @@ void SetPresent(uint8_t *record, uint32_t position, bool present) {
   } else {
     record[position / 8] &= static_cast<uint8_t>(~mask);
   }
-}
-
-/// Where the regions of a record sit, given its shape.
-struct Regions {
-  uint8_t offset_width;
-  uint32_t offset_table;
-  uint32_t fixed;
-  uint32_t variable;
-};
-
-auto RegionsOf(PropertyManifest const &manifest, uint8_t const *record) -> Regions {
-  auto const presence = PresenceBytes(manifest.size());
-  if (manifest.variable_count() == 0) {
-    return Regions{.offset_width = 0, .offset_table = presence, .fixed = presence, .variable = presence};
-  }
-  auto const offset_width = record[presence];
-  auto const fixed = presence + 1U + manifest.variable_count() * offset_width;
-  return Regions{
-      .offset_width = offset_width,
-      .offset_table = presence + 1U,
-      .fixed = fixed,
-      .variable = fixed + manifest.fixed_region_size(),
-  };
-}
-
-auto ReadOffset(uint8_t const *table, uint8_t width, uint32_t index) -> uint32_t {
-  uint32_t offset = 0;
-  std::memcpy(&offset, table + static_cast<size_t>(index) * width, width);
-  return offset;
 }
 
 void WriteOffset(uint8_t *table, uint8_t width, uint32_t index, uint32_t offset) {
@@ -1075,55 +962,6 @@ auto ExtendedTypeOf(StoredType stored_type) -> ExtendedPropertyType {
   }
 }
 
-/// One record read through its shape. Resolving the shape and locating the record's regions is
-/// done once here, so an operation that reads several values pays for it once.
-class RecordReader {
- public:
-  RecordReader(PropertyManifest const &manifest, uint8_t const *record)
-      : manifest_{&manifest}, record_{record}, regions_{RegionsOf(manifest, record)} {}
-
-  auto manifest() const -> PropertyManifest const & { return *manifest_; }
-
-  auto Carries(uint32_t position) const -> bool { return IsPresent(record_, position); }
-
-  /// Where `property` sits, or nothing when the record carries no value for it. A field the
-  /// shape has but the record's presence bits deny is no value at all.
-  auto Find(PropertyId property) const -> std::optional<PropertyManifest::Location> {
-    auto const found = manifest_->Find(property);
-    if (!found || !Carries(found->position)) return std::nullopt;
-    return found;
-  }
-
-  /// The bytes a value occupies. A variable-width value is bounded by the offset table, whose
-  /// entries are ends, so a value starts where the one before it finished.
-  auto Payload(PropertyManifest::Location const &location) const -> std::span<uint8_t const> {
-    if (location.is_fixed) {
-      return std::span{record_ + regions_.fixed + location.offset, location.stored_type.width};
-    }
-    auto const *table = record_ + regions_.offset_table;
-    auto const end = ReadOffset(table, regions_.offset_width, location.offset);
-    auto const begin = location.offset == 0 ? 0U : ReadOffset(table, regions_.offset_width, location.offset - 1);
-    return std::span{record_ + regions_.variable + begin, end - begin};
-  }
-
-  auto Read(PropertyManifest::Location const &location) const -> PropertyValue {
-    auto const payload = Payload(location);
-    if (location.is_fixed) return DecodeFixed(location.stored_type, payload);
-    return DecodeVariable(location.stored_type, payload.data(), static_cast<uint32_t>(payload.size()));
-  }
-
-  auto Equals(PropertyManifest::Location const &location, PropertyValue const &value) const -> bool {
-    auto const payload = Payload(location);
-    if (location.is_fixed) return FixedEquals(location.stored_type, payload, value);
-    return VariableEquals(location.stored_type, payload.data(), static_cast<uint32_t>(payload.size()), value);
-  }
-
- private:
-  PropertyManifest const *manifest_;
-  uint8_t const *record_;
-  Regions regions_;
-};
-
 /// Reads the values a run of property paths names. Paths come in property order, so those
 /// sharing a top-level property arrive together and decode it once between them, which is what
 /// keeps a composite index over several branches of one map to a single decode.
@@ -1161,6 +999,16 @@ class PathReader {
 };
 
 }  // namespace
+
+auto DecodePayload(StoredType stored_type, uint8_t const *begin, uint32_t size) -> PropertyValue {
+  if (stored_type.is_fixed_width()) return DecodeFixed(stored_type, std::span{begin, size});
+  return DecodeVariable(stored_type, begin, size);
+}
+
+auto PayloadEquals(StoredType stored_type, uint8_t const *begin, uint32_t size, PropertyValue const &value) -> bool {
+  if (stored_type.is_fixed_width()) return FixedEquals(stored_type, std::span{begin, size}, value);
+  return VariableEquals(stored_type, begin, size, value);
+}
 
 ManifestPropertyStore::ManifestPropertyStore(ManifestPropertyStore &&other) noexcept : buffer_{other.buffer_} {
   other.buffer_ = {};
