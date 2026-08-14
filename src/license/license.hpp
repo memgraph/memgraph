@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -37,6 +38,14 @@ enum class LicenseType : uint8_t {
 constexpr bool IsEnterpriseTier(LicenseType type) noexcept {
   return type == LicenseType::ENTERPRISE || type == LicenseType::AI_PLATFORM || type == LicenseType::OEM;
 }
+
+// Validity and tier are published together as one atomic value, so a reader always observes a pair
+// that was actually stored together, never a mix of an old type with a new validity (or vice versa).
+struct LicenseState {
+  bool valid{false};
+  LicenseType type{LicenseType::ENTERPRISE};
+  bool operator==(const LicenseState &) const = default;
+};
 
 std::string LicenseTypeToString(LicenseType license_type);
 
@@ -126,12 +135,20 @@ struct LicenseChecker {
  private:
   void RevalidateLicense(utils::Settings &settings);
 
+  // Written once at startup (SetCliLicense/CheckEnvLicense on the main thread) before the background
+  // scheduler and the Bolt server exist; thread creation publishes them to every later reader. This
+  // startup-only invariant is what makes these non-atomic fields safe -- a runtime writer would need
+  // the same serialisation as state_ (they are not trivially copyable, so they cannot be atomics).
   std::optional<std::pair<std::string, std::string>> cli_license_info_;
   std::optional<std::pair<std::string, std::string>> env_license_info_;
   mutable utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> previous_license_info_{std::nullopt};
-  bool enterprise_enabled_{false};
-  std::atomic<bool> is_valid_{false};
-  LicenseType license_type_;
+  std::atomic<bool> enterprise_enabled_{false};
+  std::atomic<LicenseState> state_{};
+  static_assert(std::atomic<LicenseState>::is_always_lock_free);
+  // Serialises state_ mutators (RevalidateLicense/EnableTesting/DisableTesting), not IsEnterpriseValidFast()
+  // (lock-free, per-row hot path). Order: revalidate_mutex_ -> settings_lock_ -> previous_license_info_;
+  // reverse can't happen since Settings::SetValue releases settings_lock_ before invoking its callback.
+  std::mutex revalidate_mutex_;
   utils::Scheduler scheduler_;
 
   friend void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &settings);

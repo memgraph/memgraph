@@ -137,6 +137,7 @@ LicenseChecker global_license_checker;
 LicenseChecker::~LicenseChecker() { Finalize(); }
 
 void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
+  const std::lock_guard revalidate_guard{revalidate_mutex_};
   spdlog::trace("License revalidation started");
 
   // Passing 0 to SetHardLimit restores the limit to maximum_hard_limit_ (the --memory-limit flag value)
@@ -169,8 +170,9 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   };
 
   if (enterprise_enabled_) [[unlikely]] {
-    is_valid_.store(true, std::memory_order_release);
-    set_memory_limit(0, license_type_);
+    const auto type = state_.load(std::memory_order_acquire).type;
+    state_.store(LicenseState{.valid = true, .type = type}, std::memory_order_release);
+    set_memory_limit(0, type);
     return;
   }
 
@@ -218,7 +220,8 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
       spdlog::warn("No valid license found. Running in community mode.");
       locked->reset();
     }
-    is_valid_.store(false, std::memory_order_relaxed);
+    const auto type = state_.load(std::memory_order_acquire).type;
+    state_.store(LicenseState{.valid = false, .type = type}, std::memory_order_release);
     set_memory_limit(0);
     return;
   }
@@ -250,32 +253,31 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
     }
   }
 
-  // Write license_type_ before the release store so the acquire load in IsEnterpriseValidFast()
-  // establishes a happens-before and reads the correct type.
-  license_type_ = winner.license.type;
-  is_valid_.store(true, std::memory_order_release);
+  state_.store(LicenseState{.valid = true, .type = winner.license.type}, std::memory_order_release);
 }
 
 void LicenseChecker::EnableTesting(const LicenseType license_type) {
+  const std::lock_guard revalidate_guard{revalidate_mutex_};
   enterprise_enabled_ = true;
-  license_type_ = license_type;
   {
     auto locked = previous_license_info_.Lock();
     locked->emplace("test-key", "test-org");
     (*locked)->is_valid = true;
     (*locked)->license.type = license_type;
   }
-  is_valid_.store(true, std::memory_order_release);
+  state_.store(LicenseState{.valid = true, .type = license_type}, std::memory_order_release);
   spdlog::info("The license type {} is set for testing.", LicenseTypeToString(license_type));
 }
 
 void LicenseChecker::DisableTesting() {
+  const std::lock_guard revalidate_guard{revalidate_mutex_};
   enterprise_enabled_ = false;
   {
     auto locked = previous_license_info_.Lock();
     locked->reset();
   }
-  is_valid_.store(false, std::memory_order_relaxed);
+  const auto type = state_.load(std::memory_order_acquire).type;
+  state_.store(LicenseState{.valid = false, .type = type}, std::memory_order_release);
   spdlog::info("The license is disabled for testing.");
 }
 
@@ -451,10 +453,8 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
 }
 
 bool LicenseChecker::IsEnterpriseValidFast() const {
-  // Acquire synchronizes with release stores in RevalidateLicense/EnableTesting.
-  // This ensures we see the license_type_ write that precedes those release stores,
-  // avoiding a data race on the non-atomic license_type_.
-  return is_valid_.load(std::memory_order_acquire) && IsEnterpriseTier(license_type_);
+  const auto s = state_.load(std::memory_order_acquire);
+  return s.valid && IsEnterpriseTier(s.type);
 }
 
 std::string Encode(const License &license) {
