@@ -12,12 +12,14 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <random>
 #include <ranges>
@@ -682,6 +684,18 @@ TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext 
   }
 }
 
+// Truncates toward zero, or reports that no int64 corresponds to the value.
+// Converting out-of-range doubles is undefined behaviour, so the range has to
+// be checked before the cast rather than after.
+std::optional<int64_t> TruncateToInteger(double value) {
+  // int64's maximum is not representable as a double; the smallest double at or
+  // above the range is 2^63, which is.
+  constexpr double kExclusiveUpperBound = 9223372036854775808.0;
+  constexpr auto kInclusiveLowerBound = static_cast<double>(std::numeric_limits<int64_t>::min());
+  if (std::isnan(value) || value < kInclusiveLowerBound || value >= kExclusiveUpperBound) return std::nullopt;
+  return static_cast<int64_t>(value);
+}
+
 TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<ToNumericTypes>("toInteger", args, nargs);
   const auto &value = args[0];
@@ -692,12 +706,26 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContex
   } else if (value.IsInt()) {
     return TypedValue(value, ctx.memory);
   } else if (value.IsDouble()) {
-    return TypedValue(static_cast<int64_t>(value.ValueDouble()), ctx.memory);
+    const auto truncated = TruncateToInteger(value.ValueDouble());
+    return truncated ? TypedValue(*truncated, ctx.memory) : TypedValue(ctx.memory);
   } else {
+    const auto trimmed = utils::Trim(value.ValueString());
+    // A whole-number string is parsed as an integer directly. A double holds
+    // fewer significant digits than int64, so going through one would round
+    // large values onto a neighbouring integer or off the end of the range.
+    int64_t parsed{};
+    const auto *const begin = trimmed.data();
+    const auto *const end = begin + trimmed.size();
+    if (const auto [stopped_at, ec] = std::from_chars(begin, end, parsed); stopped_at == end) {
+      if (ec == std::errc{}) return TypedValue(parsed, ctx.memory);
+      // The whole string was digits but named a value outside int64.
+      return TypedValue(ctx.memory);
+    }
+    // Anything else is only meaningful as a floating point number, and is
+    // truncated toward zero once parsed.
     try {
-      // Yup, this is correct. String is valid if it has floating point
-      // number, then it is parsed and converted to int.
-      return TypedValue(static_cast<int64_t>(utils::ParseDouble(utils::Trim(value.ValueString()))), ctx.memory);
+      const auto truncated = TruncateToInteger(utils::ParseDouble(trimmed));
+      return truncated ? TypedValue(*truncated, ctx.memory) : TypedValue(ctx.memory);
     } catch (const utils::BasicException &) {
       return TypedValue(ctx.memory);
     }

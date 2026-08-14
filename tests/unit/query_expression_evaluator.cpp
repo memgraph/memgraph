@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
@@ -2103,6 +2104,29 @@ TYPED_TEST(FunctionTest, ToInteger) {
   ASSERT_THROW(this->EvaluateFunction("TOINTEGER", MakeTypedValueList(1, 2, 3)), QueryRuntimeException);
   ASSERT_THROW(this->EvaluateFunction("TOINTEGER", TypedValue(std::map<std::string, TypedValue>{})),
                QueryRuntimeException);
+}
+
+TYPED_TEST(FunctionTest, ToIntegerPreservesFullInt64Range) {
+  // Every int64 must survive the conversion. Routing the string through a
+  // double first cannot represent the values near the limits, so they round
+  // onto a different integer and adjacent inputs collapse together.
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "9223372036854775807").ValueInt(), std::numeric_limits<int64_t>::max());
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "9223372036854775806").ValueInt(),
+            std::numeric_limits<int64_t>::max() - 1);
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "-9223372036854775808").ValueInt(),
+            std::numeric_limits<int64_t>::min());
+  ASSERT_NE(this->EvaluateFunction("TOINTEGER", "9223372036854775807").ValueInt(),
+            this->EvaluateFunction("TOINTEGER", "9223372036854775806").ValueInt());
+
+  // Outside the range there is no integer to return.
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "9223372036854775808").IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "99999999999999999999").IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", 1.0e30).IsNull());
+
+  // Forms that only a floating-point parse accepts keep working.
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", " -3.5 \n\t").ValueInt(), -3);
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "1e3").ValueInt(), 1000);
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "\n\t3X ").IsNull());
 }
 
 TYPED_TEST(FunctionTest, ToBooleanOrNull) {
