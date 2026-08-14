@@ -107,6 +107,10 @@ class Database {
 
   utils::SafeString::ConstSafeWrapper name_view() const;
 
+  // Opt-in customization point utils::GatekeeperLabelFor<Database> detects via SFINAE (see
+  // gatekeeper.hpp) so ~Gatekeeper's stall warning can name the tenant — looks unused otherwise.
+  std::string gatekeeper_label() const { return name(); }
+
   /**
    * @brief Unique storage identified (uuid)
    *

@@ -80,6 +80,26 @@ def test_self_transaction():
     assert len(results) == 1
 
 
+def test_show_transactions_database_column():
+    """Tests that the last column of SHOW TRANSACTIONS reports the connection's real
+    current database, not a placeholder. The unit test fixture leaves the storage name
+    empty, so a non-empty value here can only be checked in e2e."""
+    cursor = connect().cursor()
+    # No USE DATABASE was issued on this connection, so it is on the default database;
+    # ask the server for its name instead of hardcoding it.
+    db_name = execute_and_fetch_all(cursor, "SHOW DATABASE")[0][0]
+    assert db_name == "memgraph"
+    results = execute_and_fetch_all(cursor, "SHOW TRANSACTIONS")
+    assert len(results) == 1
+    row = results[0]
+    # 8-wide header: username, transaction_id, query, status, metadata, start_time, elapsed_ms, database.
+    # A reverted header (or a dropped emplace_back(db_name)) surfaces as an IndexError here,
+    # not a silently-passing comparison.
+    assert len(row) == 8
+    assert row[2] == ["SHOW TRANSACTIONS"]
+    assert row[7] == db_name
+
+
 def test_multitenant_transactions():
     """Tests that show transactions work on another database"""
     test_cursor = connect().cursor()
