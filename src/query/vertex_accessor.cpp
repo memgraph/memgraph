@@ -79,6 +79,44 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
   return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
 }
 
+storage::Result<ExpandedEdgesResult> VertexAccessor::InEdgesLazy(storage::View view,
+                                                                 const std::vector<storage::EdgeTypeId> &edge_types,
+                                                                 query::HopsLimit *hops_limit) const {
+  auto maybe_result = impl_.InEdges(view, edge_types, nullptr, hops_limit);
+  if (!maybe_result) return std::unexpected{maybe_result.error()};
+  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move((*maybe_result).edges)},
+                             .expanded_count = (*maybe_result).expanded_count};
+}
+
+storage::Result<ExpandedEdgesResult> VertexAccessor::InEdgesLazy(storage::View view,
+                                                                 const std::vector<storage::EdgeTypeId> &edge_types,
+                                                                 const VertexAccessor &dest,
+                                                                 query::HopsLimit *hops_limit) const {
+  auto maybe_result = impl_.InEdges(view, edge_types, &dest.impl_, hops_limit);
+  if (!maybe_result) return std::unexpected{maybe_result.error()};
+  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move((*maybe_result).edges)},
+                             .expanded_count = (*maybe_result).expanded_count};
+}
+
+storage::Result<ExpandedEdgesResult> VertexAccessor::OutEdgesLazy(storage::View view,
+                                                                  const std::vector<storage::EdgeTypeId> &edge_types,
+                                                                  query::HopsLimit *hops_limit) const {
+  auto maybe_result = impl_.OutEdges(view, edge_types, nullptr, hops_limit);
+  if (!maybe_result) return std::unexpected{maybe_result.error()};
+  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move((*maybe_result).edges)},
+                             .expanded_count = (*maybe_result).expanded_count};
+}
+
+storage::Result<ExpandedEdgesResult> VertexAccessor::OutEdgesLazy(storage::View view,
+                                                                  const std::vector<storage::EdgeTypeId> &edge_types,
+                                                                  const VertexAccessor &dest,
+                                                                  query::HopsLimit *hops_limit) const {
+  auto maybe_result = impl_.OutEdges(view, edge_types, &dest.impl_, hops_limit);
+  if (!maybe_result) return std::unexpected{maybe_result.error()};
+  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move((*maybe_result).edges)},
+                             .expanded_count = (*maybe_result).expanded_count};
+}
+
 storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View view) const {
   return OutEdges(view, {});
 }
