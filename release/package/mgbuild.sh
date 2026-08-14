@@ -807,10 +807,6 @@ build_memgraph () {
     echo "UBSAN enabled"
   fi
 
-  # The host profile must match --toolchain: the v8 profile carries the
-  # --sysroot/--gcc-toolchain conf that pins compiles to the toolchain's
-  # glibc; with the wrong profile, memgraph compiles against the container's
-  # host glibc and the binary won't run on older distros.
   local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_${toolchain_version} $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
 
   # MAGE-only: trim the conan graph; the generated toolchain then also sets
@@ -1298,9 +1294,7 @@ package_smoke_image() {
     # /etc/dpkg/dpkg.cfg.d/excludes, dropping memgraph's license files
     # (MEL.pdf/BSL.txt/APL.txt) which the smoke license check verifies.
     # Add a path-include exception before installing the package, matching
-    # the workaround in release/docker/v7_deb.dockerfile.
-    # libcurl4/libseccomp2 are runtime deps of mgconsole/memgraph that the
-    # package does not declare; everything else comes from its Depends.
+    # the workaround in release/docker/v8_deb.dockerfile.
     install_cmd="export DEBIAN_FRONTEND=noninteractive && \
       apt-get update && \
       apt-get install -y --no-install-recommends libcurl4 libseccomp2 && \
@@ -1418,6 +1412,7 @@ copy_memgraph() {
         shift 1
       ;;
       --mgconsole)
+        # TODO(matt): remove when mgconsole 1.7.1 is released
         # The toolchain's mgconsole is built against the sysroot (GLIBC floor
         # 2.25), so it runs on every smoke target distro — unlike the released
         # download (see tests/smoke/init_workflow.bash, which skips its
