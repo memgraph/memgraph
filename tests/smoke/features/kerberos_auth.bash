@@ -107,7 +107,15 @@ kerberos_setup() {
     $MEMGRAPH_ENTERPRISE_DOCKER_ENVS \
     "$MEMGRAPH_DOCKERHUB_IMAGE" $MEMGRAPH_GENERAL_FLAGS >/dev/null
   wait_for_memgraph "$MEMGRAPH_DEFAULT_HOST" "$KERBEROS_BOLT_PORT"
-  echo "CREATE ROLE $KERBEROS_ROLE; GRANT ALL PRIVILEGES TO $KERBEROS_ROLE; SHOW ROLES;" \
+  # GRANT ALL PRIVILEGES covers the system privileges but NOT the fine-grained
+  # label permissions, which start out granted to nobody -- without the second
+  # grant the session authenticates and then fails any write with "missing
+  # CREATE permission on labels". CREATE + READ is what the login check below
+  # exercises.
+  echo "CREATE ROLE $KERBEROS_ROLE;
+        GRANT ALL PRIVILEGES TO $KERBEROS_ROLE;
+        GRANT CREATE, READ ON NODES CONTAINING LABELS * TO $KERBEROS_ROLE;
+        SHOW ROLES;" \
     | $MEMGRAPH_CONSOLE_BINARY --host "$MEMGRAPH_DEFAULT_HOST" --port "$KERBEROS_BOLT_PORT"
   # SIGTERM, not SIGKILL: let the auth storage close cleanly before the next
   # container opens it.
@@ -175,8 +183,10 @@ test_kerberos_auth() {
     echo "FEATURE FAILED: Kerberos (GSSAPI) authentication -- container logs follow"
     echo "--- $KERBEROS_MG_CONTAINER (memgraph, TRACE) ---"
     docker logs "$KERBEROS_MG_CONTAINER" 2>&1 | tail -n 80 || true
-    echo "--- $KERBEROS_KDC_CONTAINER (KDC) ---"
-    docker logs "$KERBEROS_KDC_CONTAINER" 2>&1 | tail -n 30 || true
+    # The container's stdout is just `sleep infinity`; the KDC's own log is
+    # what says whether tickets were issued (see [logging] in setup-kdc.sh).
+    echo "--- $KERBEROS_KDC_CONTAINER (krb5kdc.log) ---"
+    docker exec "$KERBEROS_KDC_CONTAINER" tail -n 30 /var/log/krb5kdc.log 2>&1 || true
   fi
 
   kerberos_cleanup

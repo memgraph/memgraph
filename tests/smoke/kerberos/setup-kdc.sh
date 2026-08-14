@@ -53,6 +53,13 @@ cat > "$KRB5_SHARED_DIR/krb5.conf" <<EOF
         kdc = $KRB5_KDC_HOST
         admin_server = $KRB5_KDC_HOST
     }
+
+[logging]
+    # Only the kdc key, which nothing but the krb5kdc daemon reads: the
+    # memgraph container mounts this same file and must not be told to write
+    # logs into a path it has no business writing to. The feature script dumps
+    # this file when the test fails.
+    kdc = FILE:/var/log/krb5kdc.log
 EOF
 cp "$KRB5_SHARED_DIR/krb5.conf" /etc/krb5.conf
 
