@@ -150,10 +150,11 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
 
- private:
+ protected:
   // Depths, not flags: a nested one's `PostVisit` would clear a flag and let the rest of the outer body collect
   // anonymous symbols. Both nest - a pattern's property maps and variable-length bounds may hold another
-  // comprehension, and an exists body may hold another exists.
+  // comprehension, and an exists body may hold another exists. Protected so a subclass that walks the body itself
+  // can enter without also triggering the base's walk.
   int in_exists_depth{0};
   int in_pattern_comprehension_depth{0};
 };

@@ -1418,6 +1418,14 @@ TYPED_TEST(TestSymbolGenerator, ExistsRefusedPositions) {
                                     RETURN("n", ORDER_BY(ALL("x", LIST(LITERAL(1)), WHERE(exists_subquery())))))),
                  generic);
 
+  // The gate runs before either form is inspected, so the pattern form is refused identically. Pinned once here
+  // rather than per position.
+  expect_message(QUERY(SINGLE_QUERY(
+                     MATCH(PATTERN(NODE("n"))),
+                     UNWIND(NEXPR("h", LIST(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("m", std::nullopt, false)))))),
+                     RETURN("h"))),
+                 generic);
+
   // reduce(...) keeps its own message, and it now fires from a RETURN too, where !in_where used to answer first.
   expect_message(
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),

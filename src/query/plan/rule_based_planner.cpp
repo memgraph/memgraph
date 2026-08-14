@@ -56,8 +56,8 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   }
 
   bool PreVisit(Exists &exists) override {
-    // Visits the body's match patterns and enters the exists, which keeps anonymous symbols out.
-    UsedSymbolsCollector::PreVisit(exists);
+    // The whole body, not just the base's pattern walk - and entering keeps anonymous symbols out.
+    ++in_exists_depth;
     if (exists.HasPattern()) {
       exists.GetPattern()->Accept(*this);
     } else if (exists.HasSubquery()) {
@@ -71,8 +71,9 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
 /// Used to track which subqueries appear inside aggregate expressions, and which ones a MERGE branch reads.
 class PCSymbolCollector : public HierarchicalTreeVisitor {
  public:
+  /// @param exists_symbols Collected in visit order, so a caller that plans from them splices a deterministic chain.
   PCSymbolCollector(const SymbolTable &symbol_table, std::unordered_set<Symbol> &pc_symbols,
-                    std::unordered_set<Symbol> *exists_symbols = nullptr)
+                    std::vector<Symbol> *exists_symbols = nullptr)
       : symbol_table_(symbol_table), pc_symbols_(pc_symbols), exists_symbols_(exists_symbols) {}
 
   using HierarchicalTreeVisitor::PostVisit;
@@ -94,7 +95,7 @@ class PCSymbolCollector : public HierarchicalTreeVisitor {
 
   bool PreVisit(Exists &exists) override {
     if (exists_symbols_) {
-      exists_symbols_->insert(symbol_table_.at(exists));
+      exists_symbols_->push_back(symbol_table_.at(exists));
     }
     return false;  // The body is planned by its own branch, so nothing inside it belongs to this expression.
   }
@@ -104,7 +105,7 @@ class PCSymbolCollector : public HierarchicalTreeVisitor {
   const SymbolTable &symbol_table_;
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   std::unordered_set<Symbol> &pc_symbols_;
-  std::unordered_set<Symbol> *exists_symbols_;
+  std::vector<Symbol> *exists_symbols_;
 };
 
 // Ast tree visitor which collects the context for a return body.
@@ -175,16 +176,26 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       }
       MG_ASSERT(aggregations_.empty(), "Unexpected aggregations in ORDER BY or WHERE");
     } else {
-      // Visiting ORDER BY / WHERE fully would pollute group_by_, so discover the comprehensions and EXISTS in them
-      // with a visitor that plans and collects nothing else. It plans during the walk, hence `position_` first.
-      PostProduceComprehensionPlanner planner(*this);
-      position_ = BodyPosition::kOrderBy;
+      // Visiting ORDER BY / WHERE fully would pollute group_by_, so only collect the subquery symbols in them and
+      // plan from those. Nested ones are collected too but are never pending, so they drop out of the lookup.
+      auto plan_subqueries_in = [&](Expression &expr, BodyPosition position) {
+        std::unordered_set<Symbol> pc_symbols;
+        std::vector<Symbol> exists_symbols;
+        PCSymbolCollector collector(symbol_table_, pc_symbols, &exists_symbols);
+        expr.Accept(collector);
+        position_ = position;
+        for (const auto &sym : pc_symbols) {
+          PlanPatternComprehensionOnDemand(sym);
+        }
+        for (const auto &sym : exists_symbols) {
+          PlanExistsOnDemand(sym);
+        }
+      };
       for (const auto &order_pair : body.order_by) {
-        order_pair.expression->Accept(planner);
+        plan_subqueries_in(*order_pair.expression, BodyPosition::kOrderBy);
       }
       if (where) {
-        position_ = BodyPosition::kWhere;
-        where->Accept(planner);
+        plan_subqueries_in(*where->expression_, BodyPosition::kWhere);
       }
     }
     position_ = BodyPosition::kProjection;
@@ -580,10 +591,10 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(Exists &exists) override {
-    // Mirrors the comprehension pair. The body is planned into its own branch, so nothing inside it may reach
-    // has_aggregation_ or group_by_ - but the outer names it correlates to must reach used_symbols_, for whatever
-    // restores rows below the branch to remember them.
-    aggregations_start_index_stack_.push_back(has_aggregation_.size());
+    // Mirrors the comprehension pair, minus its aggregation bookkeeping: this returns false, so nothing inside the
+    // body is visited and there is no nesting to unwind. The body is planned into its own branch, so nothing inside
+    // it may reach has_aggregation_ or group_by_ - but the outer names it correlates to must reach used_symbols_,
+    // for whatever restores rows below the branch to remember them.
     SubqueryReadSymbolsCollector collector(symbol_table_);
     exists.Accept(collector);
     for (const auto &symbol : collector.symbols_) {
@@ -595,14 +606,12 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(Exists &exists) override {
-    MG_ASSERT(!aggregations_start_index_stack_.empty(), "Exists start index stack is empty");
-    aggregations_start_index_stack_.pop_back();
     // An EXISTS is a scalar and its body's aggregations belong to the branch, not to this return body.
     has_aggregation_.emplace_back(false);
 
     // Only plan a top-level EXISTS; one nested in a comprehension is built inside that comprehension's own tree.
     if (aggregations_start_index_stack_.empty()) {
-      PlanExistsOnDemand(exists);
+      PlanExistsOnDemand(symbol_table_.at(exists));
     }
     return true;
   }
@@ -708,39 +717,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   const auto &exists_in_aggregations() const { return exists_in_aggregations_; }
 
  private:
-  // Finds pattern comprehensions and EXISTS in ORDER BY / WHERE without collecting aggregation or group-by
-  // information from those expressions. Used when the return body aggregates, where a full visit would pollute
-  // group_by_.
-  class PostProduceComprehensionPlanner : public HierarchicalTreeVisitor {
-   public:
-    explicit PostProduceComprehensionPlanner(ReturnBodyContext &context) : context_(context) {}
-
-    using HierarchicalTreeVisitor::PostVisit;
-    using HierarchicalTreeVisitor::PreVisit;
-    using HierarchicalTreeVisitor::Visit;
-
-    bool Visit(Identifier & /*unused*/) override { return true; }
-
-    bool Visit(PrimitiveLiteral & /*unused*/) override { return true; }
-
-    bool Visit(ParameterLookup & /*unused*/) override { return true; }
-
-    bool Visit(EnumValueAccess & /*unused*/) override { return true; }
-
-    bool PreVisit(PatternComprehension &pattern_comprehension) override {
-      context_.PlanPatternComprehensionOnDemand(context_.symbol_table_.at(pattern_comprehension));
-      return false;  // Nested comprehensions are planned within their parent's operator tree.
-    }
-
-    bool PreVisit(Exists &exists) override {
-      context_.PlanExistsOnDemand(exists);
-      return false;  // The body is planned into its own branch.
-    }
-
-   private:
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
-    ReturnBodyContext &context_;
-  };
+  /// What a branch spliced at @c position_ may correlate to: an ORDER BY or WHERE one sits above the Produce, so it
+  /// also sees this body's own output symbols.
+  const std::unordered_set<Symbol> &BranchBoundSymbols() const {
+    return position_ == BodyPosition::kProjection ? bound_symbols_ : post_produce_bound_symbols_;
+  }
 
   // Plans @p result_sym's comprehension if it is still pending, into the bucket matching its position in the body.
   void PlanPatternComprehensionOnDemand(const Symbol &result_sym) {
@@ -753,31 +734,26 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     if (it == pending.end()) {
       return;
     }
-    const auto &extra_bound_symbols =
-        position_ == BodyPosition::kProjection ? kNoExtraBoundSymbols : post_produce_bound_symbols_;
     auto op =
-        pc_ctx_->planner->Plan(it->second, SubqueryView(it->second, pc_ctx_->write_occurred), extra_bound_symbols);
+        pc_ctx_->planner->Plan(it->second, SubqueryView(it->second, pc_ctx_->write_occurred), BranchBoundSymbols());
     auto &datas = Bucket(position_);
     datas[result_sym] = PatternComprehensionData(std::move(op), result_sym, it->second.expansion_symbols);
     pending.erase(it);
   }
 
-  /// Plans @p exists if it is still pending, into the bucket matching its position in the return body. The bool fold
-  /// is forced, so a projected value is a real bool rather than a closure and the branch runs once per input row.
-  void PlanExistsOnDemand(Exists &exists) {
+  /// Plans @p result_sym's EXISTS if it is still pending, into the bucket matching its position in the return body.
+  /// The bool fold is forced, so a projected value is a real bool rather than a closure and the branch runs once per
+  /// input row.
+  void PlanExistsOnDemand(const Symbol &result_sym) {
     // No planning context (e.g. GetSubqueryBoundSymbols); the real planning pass handles them later.
     if (!pc_ctx_ || !pc_ctx_->planner) {
       return;
     }
-    const auto result_sym = symbol_table_.at(exists);
     auto it = pc_ctx_->pending_exists.find(result_sym);
     if (it == pc_ctx_->pending_exists.end()) {
       return;
     }
-    const auto &extra_bound_symbols =
-        position_ == BodyPosition::kProjection ? kNoExtraBoundSymbols : post_produce_bound_symbols_;
-    auto op = pc_ctx_->planner->PlanExistsBranch(
-        it->second, SubqueryView(it->second, pc_ctx_->write_occurred), extra_bound_symbols);
+    auto op = pc_ctx_->planner->PlanExistsBranch(it->second, pc_ctx_->write_occurred, BranchBoundSymbols());
     pc_ctx_->pending_exists.erase(it);
     ExistsBucket(position_).emplace_back(result_sym, std::move(op));
   }
@@ -842,7 +818,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // These must be planned BEFORE the Aggregate operator so their values are available.
   std::unordered_set<Symbol> pattern_comprehensions_in_aggregations_;
   // EXISTS result symbols that appear inside aggregate expressions.
-  std::unordered_set<Symbol> exists_in_aggregations_;
+  std::vector<Symbol> exists_in_aggregations_;
   // Stack of aggregation start indices for nested pattern comprehensions
   std::vector<size_t> aggregations_start_index_stack_;
   // Context for on-demand planning of pattern comprehensions.
@@ -869,52 +845,6 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   auto pc_data = body.pattern_comprehension_data();
   auto exists_data = body.exists_data();
 
-  // Track PC result symbols that go BEFORE Aggregate but are NOT inside aggregates.
-  // These need to be in the Aggregate's remember set.
-  std::vector<Symbol> pc_results_to_remember;
-  // The same for EXISTS result symbols.
-  std::vector<Symbol> exists_results_to_remember;
-
-  if (has_aggregations && !pc_data.empty()) {
-    // Get PCs that are used inside aggregate expressions
-    const auto &pcs_in_aggregations = body.pattern_comprehensions_in_aggregations();
-
-    for (auto &[result_symbol, list_collection_data] : pc_data) {
-      if (!list_collection_data.op) continue;
-
-      const bool in_aggregation = pcs_in_aggregations.contains(result_symbol);
-
-      // When there are aggregations, ALL pattern comprehensions must go BEFORE the Aggregate
-      // operator. This is because:
-      // 1. PCs inside aggregates need their results for the aggregation
-      // 2. PCs with external refs need those symbols before they're consumed by Aggregate
-      // 3. PCs without external refs still need to be evaluated per-input-row, not per-group
-      // The optimization to place PCs without external refs after Aggregate was removed
-      // because it caused runtime issues with symbol resolution.
-      auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
-      last_op = std::make_unique<RollUpApply>(
-          std::move(last_op), std::move(list_collection_data.op), list_collection_symbols, result_symbol);
-
-      // If this PC is NOT inside an aggregate, its result needs to survive through Aggregate
-      if (!in_aggregation) {
-        pc_results_to_remember.push_back(result_symbol);
-      }
-    }
-  }
-
-  // Same rule for EXISTS: the branch is correlated to the input row, so it must run before the Aggregate collapses
-  // rows into groups.
-  if (has_aggregations) {
-    const auto &exists_in_aggregations = body.exists_in_aggregations();
-    for (auto &[result_symbol, op] : exists_data) {
-      if (!op) continue;
-      last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(op), result_symbol);
-      if (!exists_in_aggregations.contains(result_symbol)) {
-        exists_results_to_remember.push_back(result_symbol);
-      }
-    }
-  }
-
   if (has_aggregations) {
     // Build remember set: symbols used in GROUP BY that should be preserved through aggregation.
     // IMPORTANT: Exclude symbols that are internal to pattern comprehensions (declared in PC patterns),
@@ -937,12 +867,26 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
       }
     }
 
-    // Add PC result symbols that go BEFORE Aggregate but are NOT inside aggregates
-    for (const auto &sym : pc_results_to_remember) {
-      remember.push_back(sym);
+    // Every correlated branch is per input row, so it must run before the Aggregate collapses rows into groups.
+    // A result the aggregate itself consumes is read below the Aggregate, so only the others have to survive it.
+    const auto &pcs_in_aggregations = body.pattern_comprehensions_in_aggregations();
+    for (auto &[result_symbol, list_collection_data] : pc_data) {
+      if (!list_collection_data.op) continue;
+      auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
+      last_op = std::make_unique<RollUpApply>(
+          std::move(last_op), std::move(list_collection_data.op), list_collection_symbols, result_symbol);
+      if (!pcs_in_aggregations.contains(result_symbol)) {
+        remember.push_back(result_symbol);
+      }
     }
-    for (const auto &sym : exists_results_to_remember) {
-      remember.push_back(sym);
+
+    const auto &exists_in_aggregations = body.exists_in_aggregations();
+    for (auto &[result_symbol, op] : exists_data) {
+      if (!op) continue;
+      last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(op), result_symbol);
+      if (!std::ranges::contains(exists_in_aggregations, result_symbol)) {
+        remember.push_back(result_symbol);
+      }
     }
 
     last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);

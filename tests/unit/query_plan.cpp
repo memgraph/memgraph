@@ -5384,6 +5384,16 @@ TYPED_TEST(TestPlanner, ExistsSubqueryAlongsideAggregation) {
       << "the EXISTS result must be in the Aggregate's remember set, or every group reads the last row's value";
 }
 
+/// The symbol of the first MATCH's first node atom - what a correlated branch has to reach.
+inline memgraph::query::Symbol FirstMatchNodeSymbol(memgraph::query::CypherQuery *query,
+                                                    const memgraph::query::SymbolTable &symbol_table) {
+  auto *match = dynamic_cast<memgraph::query::Match *>(query->single_query_->clauses_[0]);
+  EXPECT_NE(match, nullptr);
+  auto *atom = dynamic_cast<memgraph::query::NodeAtom *>(match->patterns_[0]->atoms_[0]);
+  EXPECT_NE(atom, nullptr);
+  return symbol_table.at(*atom->identifier_);
+}
+
 TYPED_TEST(TestPlanner, ExistsSubqueryInWithProjectionAfterWrite) {
   // MATCH (n) SET n.prop = 1 WITH n, EXISTS { MATCH (n)-[r]->(m) } AS e RETURN n
   // Accumulate restores only its remember set, so it must hold `n` for the branch above it to correlate - while the
@@ -5400,10 +5410,7 @@ TYPED_TEST(TestPlanner, ExistsSubqueryInWithProjectionAfterWrite) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   const auto exists_symbol = symbol_table.at(*exists);
-  const auto n_symbol = symbol_table.at(
-      *dynamic_cast<memgraph::query::NodeAtom *>(
-           dynamic_cast<memgraph::query::Match *>(query->single_query_->clauses_[0])->patterns_[0]->atoms_[0])
-           ->identifier_);
+  const auto n_symbol = FirstMatchNodeSymbol(query, symbol_table);
 
   auto *produce = dynamic_cast<Produce *>(&planner.plan());
   ASSERT_NE(produce, nullptr);
@@ -5445,10 +5452,7 @@ TYPED_TEST(TestPlanner, ExistsSubqueryCorrelatesToANonProjectedSymbolAfterWrite)
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  const auto n_symbol = symbol_table.at(
-      *dynamic_cast<memgraph::query::NodeAtom *>(
-           dynamic_cast<memgraph::query::Match *>(query->single_query_->clauses_[0])->patterns_[0]->atoms_[0])
-           ->identifier_);
+  const auto n_symbol = FirstMatchNodeSymbol(query, symbol_table);
 
   auto *produce = dynamic_cast<Produce *>(&planner.plan());
   ASSERT_NE(produce, nullptr);

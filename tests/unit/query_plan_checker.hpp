@@ -903,7 +903,9 @@ class ExpectRollUpApply : public OpChecker<RollUpApply> {
 /// A RollUpApply carrying the bool fold - what an EXISTS in a projection, an ORDER BY or a WITH's WHERE is planned as.
 class ExpectExistsRollUpApply : public ExpectRollUpApply {
  public:
+  /// Constrained so the pack cannot hijack this type's own copy/move construction.
   template <typename... TArgs>
+    requires(sizeof...(TArgs) != 1 || !(std::same_as<std::remove_cvref_t<TArgs>, ExpectExistsRollUpApply> || ...))
   explicit ExpectExistsRollUpApply(TArgs &&...args) : ExpectRollUpApply(std::forward<TArgs>(args)...) {
     expected_fold_ = RollUpApply::Fold::kBool;
   }
