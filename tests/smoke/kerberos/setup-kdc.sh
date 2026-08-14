@@ -24,14 +24,8 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-# krb5-kdc/krb5-admin-server: the realm. krb5-user: kadmin.local + client libs.
-# python3-gssapi: the client's GSSAPI bindings (distro build, unrelated to the
-# wheel the memgraph image installs on the acceptor side).
 apt-get install -y -qq --no-install-recommends \
   krb5-kdc krb5-admin-server krb5-user python3-gssapi python3-pip
-# The Bolt client needs the neo4j driver. Pure python, so no toolchain needed.
-# Pinned to the version in tests/smoke/requirements.txt so this test doesn't
-# start floating onto whatever the latest driver release happens to be.
 pip3 install --quiet --no-cache-dir --break-system-packages neo4j==5.23
 
 # One krb5.conf for both sides: written into the shared dir so the memgraph

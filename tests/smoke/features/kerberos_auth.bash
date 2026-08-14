@@ -86,10 +86,6 @@ kerberos_wait_for_bolt() {
 
 test_kerberos_auth_setup() {
   echo "FEATURE: Kerberos (GSSAPI) authentication -- realm and instance setup"
-  # Leftovers from a run that was killed mid-way: clearing them here (rather
-  # than in a trap) is what makes a failed run self-healing, and it leaves the
-  # containers around for inspection when something did break.
-  kerberos_cleanup
 
   rm -rf "$KERBEROS_SHARED_DIR"
   mkdir -p "$KERBEROS_SHARED_DIR"
@@ -124,18 +120,13 @@ test_kerberos_auth_setup() {
     $MEMGRAPH_ENTERPRISE_DOCKER_ENVS \
     "$MEMGRAPH_DOCKERHUB_IMAGE" $MEMGRAPH_GENERAL_FLAGS >/dev/null
   wait_for_memgraph "$MEMGRAPH_DEFAULT_HOST" "$KERBEROS_BOLT_PORT"
-  # GRANT ALL PRIVILEGES covers the system privileges but NOT the fine-grained
-  # label permissions, which start out granted to nobody -- without the second
-  # grant the session authenticates and then fails any write with "missing
-  # CREATE permission on labels". CREATE + READ is what the login check below
-  # exercises.
+
   echo "CREATE ROLE $KERBEROS_ROLE;
         GRANT ALL PRIVILEGES TO $KERBEROS_ROLE;
         GRANT CREATE, READ ON NODES CONTAINING LABELS * TO $KERBEROS_ROLE;
         SHOW ROLES;" \
     | $MEMGRAPH_CONSOLE_BINARY --host "$MEMGRAPH_DEFAULT_HOST" --port "$KERBEROS_BOLT_PORT"
-  # SIGTERM, not SIGKILL: let the auth storage close cleanly before the next
-  # container opens it.
+
   docker stop -t 30 "$KERBEROS_BOOTSTRAP_CONTAINER" >/dev/null
   docker rm -f "$KERBEROS_BOOTSTRAP_CONTAINER" >/dev/null
 
@@ -145,9 +136,6 @@ test_kerberos_auth_setup() {
   # (src/auth/reference_modules/kerberos.py). role_mapping_mode=principal maps
   # the Kerberos principal straight onto a memgraph role, which keeps LDAP out
   # of the picture.
-  # No published port: the client reaches Bolt over the test network, and
-  # readiness is read from the log, so nothing here needs a host port -- one
-  # less thing to collide with the bootstrap container that just released it.
   docker run -d --name "$KERBEROS_MG_CONTAINER" \
     --network "$KERBEROS_NETWORK" --network-alias "$KERBEROS_MG_HOST" \
     -v "$KERBEROS_DATA_VOLUME:/var/lib/memgraph" \
@@ -181,17 +169,17 @@ test_kerberos_auth() {
     "$KERBEROS_KDC_CONTAINER" python3 -u /kerberos/client.py; then
     echo "FEATURE FAILED: Kerberos (GSSAPI) authentication -- container logs follow"
     kerberos_dump_logs
+    kerberos_cleanup
     return 1
   fi
 
   kerberos_cleanup
+  return 0
 }
 
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then
-  set -e # To make sure the script will return non-0 in case of a failure.
-  # No EXIT trap: on success test_kerberos_auth cleans up, and on failure the
-  # containers are worth keeping around to poke at. The next run starts by
-  # clearing them.
+  trap kerberos_cleanup EXIT
+  set -e
   test_kerberos_auth_setup
   test_kerberos_auth
 fi
