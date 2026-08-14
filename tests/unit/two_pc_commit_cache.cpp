@@ -64,7 +64,7 @@ auto TakeReplicationAccessor(InMemoryStorage *storage) -> std::unique_ptr<Replic
   return std::unique_ptr<ReplicationAccessor>(static_cast<ReplicationAccessor *>(acc.release()));
 }
 
-// The cache is a process-wide singleton (TwoPCCommitCache::Instance()), so tests share it.
+// The cache is a process-wide singleton (its state lives in TwoPCCommitCache's static slot), so tests share it.
 // TearDown drains any leftover slot with TakeAny() so one test's leftovers cannot make a later
 // test pass (or fail) for the wrong reason. Storage members are declared in the fixture (not as
 // TEST_F-local variables) so they outlive TearDown()'s drain -- letting an accessor destruct
@@ -73,7 +73,7 @@ class TwoPCCommitCacheTest : public ::testing::Test {
  protected:
   void TearDown() override {
     // See the class comment above: drain the slot while storage_a_/storage_b_ are still alive.
-    auto leftover = TwoPCCommitCache::Instance().TakeAny();
+    auto leftover = TwoPCCommitCache::TakeAny();
   }
 
   std::unique_ptr<InMemoryStorage> storage_a_ = MakeStorage(kUuidA);
@@ -85,92 +85,87 @@ class TwoPCCommitCacheTest : public ::testing::Test {
 // TakeForTenant with a non-matching uuid must not consume the slot: the pending 2PC belongs to a
 // different tenant and must survive for that tenant's own FinalizeCommitRpc/TakeForTenant to find.
 TEST_F(TwoPCCommitCacheTest, TakeForTenantNonMatchingUuidLeavesSlotPopulated) {
-  auto &cache = TwoPCCommitCache::Instance();
   UUID uuid_a;
   uuid_a.set(kUuidA);
   UUID uuid_b;
   uuid_b.set(kUuidB);
 
-  cache.Store(TakeReplicationAccessor(storage_a_.get()), kCommitTs, uuid_a);
+  TwoPCCommitCache::Store(TakeReplicationAccessor(storage_a_.get()), kCommitTs, uuid_a);
 
   // Wrong tenant: must return nullptr and must NOT empty the slot.
-  auto wrong_take = cache.TakeForTenant(uuid_b);
+  auto wrong_take = TwoPCCommitCache::TakeForTenant(uuid_b);
   ASSERT_EQ(wrong_take, nullptr);
 
   // Prove "still populated" by having the real owner successfully take it afterwards.
-  auto right_take = cache.TakeForTenant(uuid_a);
+  auto right_take = TwoPCCommitCache::TakeForTenant(uuid_a);
   ASSERT_NE(right_take, nullptr);
 
   // Slot is empty now; a second take (by anyone) must fail.
-  ASSERT_EQ(cache.TakeForTenant(uuid_a), nullptr);
+  ASSERT_EQ(TwoPCCommitCache::TakeForTenant(uuid_a), nullptr);
 }
 
 TEST_F(TwoPCCommitCacheTest, TakeForTenantMatchingUuidEmptiesSlot) {
-  auto &cache = TwoPCCommitCache::Instance();
   UUID uuid_a;
   uuid_a.set(kUuidA);
 
-  cache.Store(TakeReplicationAccessor(storage_a_.get()), kCommitTs, uuid_a);
+  TwoPCCommitCache::Store(TakeReplicationAccessor(storage_a_.get()), kCommitTs, uuid_a);
 
-  auto first_take = cache.TakeForTenant(uuid_a);
+  auto first_take = TwoPCCommitCache::TakeForTenant(uuid_a);
   ASSERT_NE(first_take, nullptr);
 
   // Second call on the now-empty slot must return nullptr.
-  ASSERT_EQ(cache.TakeForTenant(uuid_a), nullptr);
+  ASSERT_EQ(TwoPCCommitCache::TakeForTenant(uuid_a), nullptr);
 }
 
 // Mirrors FinalizeCommitHandler's "reply true, keep the slot" path: a durability_commit_timestamp
 // mismatch is not terminal, so the accessor must stay cached for a later, matching call.
 TEST_F(TwoPCCommitCacheTest, TakeMatchingNonMatchingTimestampLeavesSlotPopulated) {
-  auto &cache = TwoPCCommitCache::Instance();
   UUID uuid_a;
   uuid_a.set(kUuidA);
   constexpr uint64_t kCachedTs = 42;
   constexpr uint64_t kWrongTs = 43;
 
-  cache.Store(TakeReplicationAccessor(storage_a_.get()), kCachedTs, uuid_a);
+  TwoPCCommitCache::Store(TakeReplicationAccessor(storage_a_.get()), kCachedTs, uuid_a);
 
-  auto mismatch = cache.TakeMatching(kWrongTs);
+  auto mismatch = TwoPCCommitCache::TakeMatching(kWrongTs);
   ASSERT_EQ(mismatch.accessor, nullptr);
   ASSERT_TRUE(mismatch.mismatched_durability_commit_timestamp.has_value());
   EXPECT_EQ(*mismatch.mismatched_durability_commit_timestamp, kCachedTs);
 
   // Slot must still be populated -- a matching call afterwards succeeds.
-  auto match = cache.TakeMatching(kCachedTs);
+  auto match = TwoPCCommitCache::TakeMatching(kCachedTs);
   ASSERT_NE(match.accessor, nullptr);
   ASSERT_FALSE(match.mismatched_durability_commit_timestamp.has_value());
 }
 
 TEST_F(TwoPCCommitCacheTest, TakeMatchingMatchingTimestampEmptiesSlot) {
-  auto &cache = TwoPCCommitCache::Instance();
   UUID uuid_a;
   uuid_a.set(kUuidA);
   constexpr uint64_t kCachedTs = 7;
 
-  cache.Store(TakeReplicationAccessor(storage_a_.get()), kCachedTs, uuid_a);
+  TwoPCCommitCache::Store(TakeReplicationAccessor(storage_a_.get()), kCachedTs, uuid_a);
 
-  auto match = cache.TakeMatching(kCachedTs);
+  auto match = TwoPCCommitCache::TakeMatching(kCachedTs);
   ASSERT_NE(match.accessor, nullptr);
 
   // Slot is empty now; even the same timestamp must miss.
-  auto second = cache.TakeMatching(kCachedTs);
+  auto second = TwoPCCommitCache::TakeMatching(kCachedTs);
   ASSERT_EQ(second.accessor, nullptr);
   ASSERT_FALSE(second.mismatched_durability_commit_timestamp.has_value());
 }
 
 TEST_F(TwoPCCommitCacheTest, TakeAnyIgnoresUuidAndEmptiesSlot) {
-  auto &cache = TwoPCCommitCache::Instance();
   UUID uuid_b;
   uuid_b.set(kUuidB);
 
   // Cached for tenant B; TakeAny must return it regardless of tenant.
-  cache.Store(TakeReplicationAccessor(storage_b_.get()), kCommitTs, uuid_b);
+  TwoPCCommitCache::Store(TakeReplicationAccessor(storage_b_.get()), kCommitTs, uuid_b);
 
-  auto taken = cache.TakeAny();
+  auto taken = TwoPCCommitCache::TakeAny();
   ASSERT_NE(taken, nullptr);
 
   // Slot is empty now.
-  ASSERT_EQ(cache.TakeAny(), nullptr);
+  ASSERT_EQ(TwoPCCommitCache::TakeAny(), nullptr);
 }
 
 // Regression coverage for InMemoryReplicationHandlers::AbortPrevTxnIfNeeded's tenant scoping: it
@@ -183,7 +178,6 @@ TEST_F(TwoPCCommitCacheTest, TakeAnyIgnoresUuidAndEmptiesSlot) {
 // ...ClearsOwnTenantsEntry) pins the tenant-scoped behaviour on both sides: must not touch a
 // different tenant's slot, must still clear its own.
 TEST_F(TwoPCCommitCacheTest, AbortPrevTxnIfNeededLeavesOtherTenantsEntryIntact) {
-  auto &cache = TwoPCCommitCache::Instance();
   UUID uuid_a;
   uuid_a.set(kUuidA);
 
@@ -192,7 +186,7 @@ TEST_F(TwoPCCommitCacheTest, AbortPrevTxnIfNeededLeavesOtherTenantsEntryIntact) 
   // unconditionally dereferences commit_timestamp_, so seed it even though this build's DMG_ASSERT
   // would not catch an unseeded one.
   accessor_a->GetCommitTimestamp().emplace(kCommitTs);
-  cache.Store(std::move(accessor_a), kCommitTs, uuid_a);
+  TwoPCCommitCache::Store(std::move(accessor_a), kCommitTs, uuid_a);
 
   // Fixed behavior: AbortPrevTxnIfNeeded is scoped to storage_b_'s own uuid, so it must be a no-op
   // against A's populated slot. Before the fix, this called the tenant-oblivious
@@ -201,25 +195,24 @@ TEST_F(TwoPCCommitCacheTest, AbortPrevTxnIfNeededLeavesOtherTenantsEntryIntact) 
 
   // A's entry must have survived. Take it back out and let it destruct while storage_a_ is still a
   // live fixture member (drained here rather than deferred to TearDown, matching Group A's pattern).
-  auto still_a = cache.TakeForTenant(uuid_a);
+  auto still_a = TwoPCCommitCache::TakeForTenant(uuid_a);
   ASSERT_NE(still_a, nullptr);
 }
 
 TEST_F(TwoPCCommitCacheTest, AbortPrevTxnIfNeededClearsOwnTenantsEntry) {
-  auto &cache = TwoPCCommitCache::Instance();
   UUID uuid_a;
   uuid_a.set(kUuidA);
 
   auto accessor_a = TakeReplicationAccessor(storage_a_.get());
   accessor_a->GetCommitTimestamp().emplace(kCommitTs);
-  cache.Store(std::move(accessor_a), kCommitTs, uuid_a);
+  TwoPCCommitCache::Store(std::move(accessor_a), kCommitTs, uuid_a);
 
   // AbortPrevTxnIfNeeded(storage_a_) is scoped to storage_a_'s own uuid, so the cached accessor
   // (which belongs to that same uuid) must be taken, aborted, and reset by this call.
   InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage_a_.get());
 
   // Slot is empty now -- AbortPrevTxnIfNeeded already consumed it via AbortTwoPCForTenant.
-  ASSERT_EQ(cache.TakeAny(), nullptr);
+  ASSERT_EQ(TwoPCCommitCache::TakeAny(), nullptr);
 }
 
 namespace {
@@ -263,7 +256,7 @@ class TwoPCCommitCacheDatabaseTest : public ::testing::Test {
     // Both TEST_Fs below already drain the slot themselves before their Database(s) go out of
     // scope, so this always finds it empty; drain anyway so a future test added to this fixture
     // can't leak an entry into the next one.
-    auto leftover = TwoPCCommitCache::Instance().TakeAny();
+    auto leftover = TwoPCCommitCache::TakeAny();
   }
 };
 
@@ -284,7 +277,7 @@ TEST_F(TwoPCCommitCacheDatabaseTest, DestroyingDatabaseDiscardsItsCachedAccessor
     // be a real UB dereference of an empty optional, not a caught assertion. Seed it so the
     // aborted-transaction path this test exercises is well-defined regardless of build type.
     accessor->GetCommitTimestamp().emplace(kCommitTs);
-    TwoPCCommitCache::Instance().Store(std::move(accessor), kCommitTs, db_uuid);
+    TwoPCCommitCache::Store(std::move(accessor), kCommitTs, db_uuid);
 
     // db (and its storage/arena) is destroyed at the end of this scope.
   }
@@ -297,7 +290,7 @@ TEST_F(TwoPCCommitCacheDatabaseTest, DestroyingDatabaseDiscardsItsCachedAccessor
   // ~ResourceLockGuard -> unlock a freed main_lock_) would crash the test binary against freed
   // memory instead of reporting this ASSERT_EQ's clean gtest failure. TakeAny() has already
   // emptied the slot by this point regardless of what we do with the returned pointer.
-  auto taken = TwoPCCommitCache::Instance().TakeAny();
+  auto taken = TwoPCCommitCache::TakeAny();
   auto *const raw = taken.get();
   if (taken != nullptr) {
     taken.release();
@@ -317,7 +310,7 @@ TEST_F(TwoPCCommitCacheDatabaseTest, DestroyingUnrelatedDatabaseLeavesOtherTenan
     auto *inmemory_storage_a = static_cast<InMemoryStorage *>(db_a->storage());
     auto accessor_a = TakeReplicationAccessor(inmemory_storage_a);
     accessor_a->GetCommitTimestamp().emplace(kCommitTs);
-    TwoPCCommitCache::Instance().Store(std::move(accessor_a), kCommitTs, uuid_a);
+    TwoPCCommitCache::Store(std::move(accessor_a), kCommitTs, uuid_a);
   }
 
   {
@@ -328,6 +321,6 @@ TEST_F(TwoPCCommitCacheDatabaseTest, DestroyingUnrelatedDatabaseLeavesOtherTenan
   }
 
   // A's entry must have survived db_b's destruction.
-  auto still_a = TwoPCCommitCache::Instance().TakeForTenant(uuid_a);
+  auto still_a = TwoPCCommitCache::TakeForTenant(uuid_a);
   ASSERT_NE(still_a, nullptr);
 }
