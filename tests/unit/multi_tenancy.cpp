@@ -333,9 +333,9 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
 TEST_F(MultiTenantTest, DbmsNewDelete) {
   // 1) Create multiple interpreters with the default db
   // 2) Create multiple databases using dbms
-  // 3) Defer delete databases while the interpreters are using them
-  // 4) Database should be a zombie until the using interpreter retries to query it
-  // 5) Check it is deleted from disk
+  // 3) Delete databases after the interpreters go idle (their accessors are released between queries)
+  // 4) Every dropped database converges immediately and is gone from disk; a later query still throws
+  // 5) Re-check that the databases stay deleted from disk
 
   // 1
   auto interpreter1 = this->NewInterpreter();
@@ -366,7 +366,10 @@ TEST_F(MultiTenantTest, DbmsNewDelete) {
 
   // 4
   ASSERT_EQ(dbms.All().size(), 1);
-  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3);  // All used databases remain on disk, but unusable
+  // The interpreters released their database accessors after their last (autocommit) query, so every
+  // dropped database converges immediately -- none linger as on-disk zombies. Only the default remains.
+  // (Contrast DbmsNewDeleteWTx, where an open transaction keeps the accessor and the dbs do zombie.)
+  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 1);
   ASSERT_THROW(RunQuery(interpreter1, "MATCH(:Node{on:db4}) RETURN count(*)"),
                memgraph::query::DatabaseContextRequiredException);
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(:Node{on:db2}) RETURN count(*)"),
