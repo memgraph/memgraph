@@ -135,9 +135,13 @@ class Session {
         case State::Idle:
         case State::Result:
           at_least_one_run_ = true;
+          // idle-session reaper: hold the reaper-exclusion gate for the whole handler span (no-op when
+          // the flag is off). Cleared below once the session parks back to Idle (or closes).
+          impl.SetMessageInFlight();
           state_ = StateExecutingRun(impl, state_);
           break;
         case State::Error:
+          impl.SetMessageInFlight();
           state_ = StateErrorRun(impl, state_);
           break;
         default:
@@ -155,6 +159,12 @@ class Session {
         // Try to not break from Prepare till the end of the execution as this will lead to worse performance.
         // Last pull will set the state to State::Idle
         return true;  // more data to process
+      }
+
+      if (state_ == State::Idle || state_ == State::Close) {
+        // The Bolt message span is over: the session has parked back to Idle (or is closing). Release
+        // the reaper-exclusion gate so an idle session becomes reapable again (no-op when flag off).
+        impl.ClearMessageInFlight();
       }
 
       if (state_ == State::Close) [[unlikely]] {
