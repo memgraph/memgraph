@@ -598,7 +598,15 @@ void PlanPrinter::Branch(query::plan::LogicalOperator &op, const std::string &br
 }
 
 void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out) {
-  PlanPrinter printer(&dba, out);
+  PrettyPrint(&dba, plan_root, out);
+}
+
+void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out) {
+  // dba may be null for accessor-free plans (constant RETURN / no_graph_access CALL). That is safe only
+  // because such plans contain no scan/expand operator, and the operators they do contain
+  // (Once/Produce/Filter/CallProcedure) ignore the dba in ToString. PlanPrinter holds the accessor as a
+  // nullable pointer, so nothing dereferences it here.
+  PlanPrinter printer(dba, out);
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }

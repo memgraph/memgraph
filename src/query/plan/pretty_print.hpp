@@ -30,6 +30,10 @@ class LogicalOperator;
 /// because we don't have support for visiting a const LogicalOperator.
 void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out);
 
+// Pointer overload tolerating a null accessor, for accessor-free plans (constant RETURN /
+// no_graph_access CALL) whose operators never dereference the dba.
+void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out);
+
 /// Convert a `LogicalOperator` plan to a JSON representation.
 /// DbAccessor is needed for resolving label and property names.
 nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root);

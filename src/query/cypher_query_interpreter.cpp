@@ -302,7 +302,12 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
       // validate the index usage
       auto &ptr = existing_plan.value();
 
-      auto const all_satisfied = db_accessor->CheckIndicesAreReady(ptr->required_indices());
+      // Accessor-free plans (constant RETURN / no_graph_access CALL) are planned with a null accessor and,
+      // being scan-free, require no indices -- so index readiness is vacuously satisfied. This lets these
+      // queries hit the plan cache instead of re-planning on every Lab ping (CheckIndicesAreReady would
+      // otherwise dereference the storage transaction).
+      auto const all_satisfied =
+          db_accessor != nullptr ? db_accessor->CheckIndicesAreReady(ptr->required_indices()) : true;
       if (all_satisfied && IsFresh(ptr->ast_storage(), ptr->module_generation(), module_generation)) {
         return ptr;
       } else {

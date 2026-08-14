@@ -8416,8 +8416,7 @@ std::unordered_map<std::string, int64_t> CallProcedure::GetAndResetCounters() {
 namespace {
 
 // Populates `result.signature`: yielded `result_fields` first (in YIELD order), then any remaining
-// proc fields at higher indices. Shared by CallProcedureCursor and ExecuteNoGraphReadProcedure so the two paths
-// cannot drift.
+// proc fields at higher indices.
 void BuildProcedureResultSignature(mgp_result &result, const mgp_proc &proc,
                                    const std::vector<std::string> &result_fields, std::string_view procedure_name) {
   for (size_t i = 0UZ; i < result_fields.size(); ++i) {
@@ -8426,15 +8425,17 @@ void BuildProcedureResultSignature(mgp_result &result, const mgp_proc &proc,
       throw QueryRuntimeException(
           "The procedure named '{}' has no result field named '{}'.", procedure_name, result_fields[i]);
     }
-    result.signature.emplace(
-        result_fields[i],
-        ResultsMetadata{signature_it->second.first, signature_it->second.second, static_cast<uint32_t>(i)});
+    result.signature.emplace(result_fields[i],
+                             ResultsMetadata{.type = signature_it->second.first,
+                                             .is_deprecated = signature_it->second.second,
+                                             .field_id = static_cast<uint32_t>(i)});
   }
   if (proc.results.size() == result_fields.size()) return;
   uint32_t index = result_fields.size();
   for (auto const &[name, signature] : proc.results) {
     if (!result.signature.contains(name)) {
-      result.signature.emplace(name, ResultsMetadata{signature.first, signature.second, index++});
+      result.signature.emplace(
+          name, ResultsMetadata{.type = signature.first, .is_deprecated = signature.second, .field_id = index++});
     }
   }
 }
@@ -8524,7 +8525,8 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: What about cross library boundary exceptions? OMG C++?! <- should be fine since moving to shared libstd
     proc.cb(&proc_args, &graph, result, &proc_memory);
 
-    if (graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
+    // getImpl() is the null DbAccessor on the accessor-free path (no transaction) -> nothing to serialize.
+    if (graph.getImpl() != nullptr && graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
       static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
     }
 
@@ -8539,86 +8541,14 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
 
-    if (graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
+    // getImpl() is the null DbAccessor on the accessor-free path (no transaction) -> nothing to serialize.
+    if (graph.getImpl() != nullptr && graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
       static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
     }
   }
 }
 
 }  // namespace
-
-ValidatedNoGraphReadProcedure FindAndValidateNoGraphReadProcedure(std::string_view procedure_name) {
-  auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, procedure_name);
-  if (!maybe_found) {
-    throw QueryRuntimeException("There is no procedure named '{}'.", procedure_name);
-  }
-  // Hold the module shared_ptr for the whole invocation (mirrors CallProcedureCursor).
-  auto module = std::move(maybe_found->first);
-  const auto *proc = maybe_found->second;
-  if (proc->info.is_write) {
-    throw QueryRuntimeException("The procedure named '{}' is a write procedure.", procedure_name);
-  }
-  // Re-validate rather than trust the classification check: the module could be reloaded between
-  // that check and this call. Without a graph accessor a procedure touching the graph would
-  // null-dereference, so fail loudly instead.
-  if (!proc->info.no_graph_access) {
-    throw QueryRuntimeException("The procedure named '{}' requires graph access.", procedure_name);
-  }
-  // This path calls `cb` once, bypassing CallProcedureCursor's per-batch loop and initializer/cleanup
-  // hooks. No builtin introspection procedure is batched, but reject it explicitly rather than
-  // silently yield only the first batch if that ever changes.
-  if (proc->info.is_batched || proc->initializer || proc->cleanup) {
-    throw QueryRuntimeException("The procedure named '{}' cannot run without graph access.", procedure_name);
-  }
-  return ValidatedNoGraphReadProcedure{std::move(module), proc, std::string{procedure_name}};
-}
-
-std::vector<std::vector<TypedValue>> ExecuteNoGraphReadProcedure(const ValidatedNoGraphReadProcedure &validated,
-                                                                 const std::vector<std::string> &result_fields,
-                                                                 utils::MemoryResource *memory) {
-  const auto *proc = validated.proc;
-  const std::string_view procedure_name = validated.procedure_name;
-
-  // Precondition (guaranteed by FindAndValidateNoGraphReadProcedure): the callback runs against a
-  // graph-less stub with a null DbAccessor, so a graph-touching proc here would null-deref. This guards
-  // a future caller that forgets to validate; it does NOT catch a proc mis-declared no_graph_access
-  // (that needs the mgp_graph no-graph variant -- see mg_procedure_impl.hpp).
-  MG_ASSERT(proc->info.no_graph_access, "ExecuteNoGraphReadProcedure requires a no_graph_access procedure");
-
-  mgp_result result{memory};
-  BuildProcedureResultSignature(result, *proc, result_fields, procedure_name);
-
-  mgp_list proc_args(memory);  // these introspection procedures take no arguments
-  mgp_memory proc_memory{memory};
-  // The builtin introspection procedures never touch the graph, so pass a graph-less stub and skip
-  // the post-call serialization check (the only accessor dereference after `cb` returns on the
-  // normal path). This is what lets the query run with no storage transaction.
-  mgp_graph graph{static_cast<memgraph::query::DbAccessor *>(nullptr),
-                  memgraph::storage::View::OLD,
-                  nullptr,
-                  memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
-  proc->cb(&proc_args, &graph, &result, &proc_memory);
-
-  if (result.error_msg) {
-    memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
-    throw QueryRuntimeException("{}: {}", procedure_name, *result.error_msg);
-  }
-
-  // Projects each row onto the yielded fields (indices 0..k-1). Unlike CallProcedureCursor this never
-  // filters deleted-value rows: with no_graph_access enforced above, a result value can never be a
-  // deleted vertex/edge, so `has_deleted_values` is never set.
-  std::vector<std::vector<TypedValue>> rows;
-  rows.reserve(result.rows.size());
-  for (auto &record : result.rows) {
-    std::vector<TypedValue> row;
-    row.reserve(result_fields.size());
-    for (size_t i = 0UZ; i < result_fields.size(); ++i) {
-      row.emplace_back(std::move(record.values[i]));
-    }
-    rows.push_back(std::move(row));
-  }
-  return rows;
-}
 
 class CallProcedureCursor : public Cursor {
   const CallProcedure *self_;
@@ -8708,10 +8638,22 @@ class CallProcedureCursor : public Cursor {
       ExpressionEvaluator evaluator =
           ExpressionEvaluator{&frame, context, graph_view, nullptr, &context.number_of_hops};
 
-      result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
+      // Accessor-free path (NO_ACCESS): no storage transaction, so run against a graph-less stub. The classifier
+      // guarantees only no_graph_access procs reach here, but re-check -- the module could have been reloaded.
+      const bool no_storage_access = context.db_accessor == nullptr;
+      if (no_storage_access && !proc_->info.no_graph_access) {
+        throw QueryRuntimeException("The procedure named '{}' requires graph access.", self_->procedure_name_);
+      }
+      const auto storage_mode =
+          no_storage_access ? storage::StorageMode::IN_MEMORY_TRANSACTIONAL : context.db_accessor->GetStorageMode();
+      result_.is_transactional = storage::IsTransactional(storage_mode);
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
-      auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
+      auto graph = no_storage_access ? mgp_graph{.impl = static_cast<memgraph::query::DbAccessor *>(nullptr),
+                                                 .view = graph_view,
+                                                 .ctx = &context,
+                                                 .storage_mode = storage_mode}
+                                     : mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       CallCustomProcedure(self_->procedure_name_,
                           *proc_,
                           self_->arguments_,
