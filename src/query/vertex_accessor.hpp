@@ -58,6 +58,14 @@ class VertexAccessor final {
     return impl_.ReadPropertyValues(properties, view, out);
   }
 
+  /// As above, but building each value into whatever `out` holds. The caller includes
+  /// `storage/v2/vertex_accessor_materialise.hpp` for the definition.
+  template <typename Materialiser>
+  storage::Result<void> ReadPropertyValuesInto(std::span<storage::PropertyId const> properties, storage::View view,
+                                               std::span<storage::PropertyValue> scratch, Materialiser &out) const {
+    return impl_.ReadPropertyValuesInto(properties, view, scratch, out);
+  }
+
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
     return impl_.GetPropertySize(key, view);
   }

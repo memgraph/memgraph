@@ -111,6 +111,19 @@ class VertexAccessor final {
   Result<void> ReadPropertyValues(std::span<PropertyId const> properties, View view,
                                   std::span<PropertyValue> out) const;
 
+  /// As above, but building each value into whatever `out` holds rather than into a
+  /// `PropertyValue` the caller then converts. See `ExtractPropertiesInto`.
+  ///
+  /// Only a vertex with no deltas to apply can be read straight into the caller's value: a
+  /// delta chain replays `PropertyValue`s, so a row reading its own transaction's writes must
+  /// still go through them. That is what `scratch` is for, and why it must be as long as
+  /// `properties`; on the delta path the values land there first and are handed on afterwards.
+  ///
+  /// Defined in `vertex_accessor_materialise.hpp`, which a caller includes.
+  template <typename Materialiser>
+  Result<void> ReadPropertyValuesInto(std::span<PropertyId const> properties, View view,
+                                      std::span<PropertyValue> scratch, Materialiser &out) const;
+
   auto BuildResultOutEdges(edge_store const &out_edges) const;
 
   auto BuildResultInEdges(edge_store const &out_edges) const;

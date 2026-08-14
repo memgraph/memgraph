@@ -1451,7 +1451,13 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
     // Built once and reused for every row: the read is positional, so nothing here is
     // per-row state and no row allocates a container to receive its values.
     std::vector<storage::PropertyId> property_ids_;
+    /// Scratch for the delta path, which has to replay `PropertyValue`s before the row's values
+    /// can be handed on. Empty of meaning between rows; held so no row allocates it.
     std::vector<storage::PropertyValue> values_;
+    /// Which properties this caller may not read, refilled per row and empty when nothing is
+    /// restricted. Not `vector<bool>`, whose bitset specialisation has no contiguous bytes to
+    /// hand out as a span.
+    std::vector<uint8_t> denied_;
   };
 };
 

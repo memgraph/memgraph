@@ -266,6 +266,18 @@ TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
       EXPECT_EQ(results[0][0].ValueInt(), 0);                                                                  \
       EXPECT_EQ(results[0][1].ValueInt(), 0);                                                                  \
     }                                                                                                          \
+    {                                                                                                          \
+      /* A row reading what this same transaction just wrote. The values live in the delta chain rather        \
+       * than in the record, which is the one case a read cannot build straight into the frame and must        \
+       * replay storage values first. Getting that boundary wrong returns the pre-write value.                 \
+       * Idempotent, so running this macro once per flag setting asserts the same thing twice. */              \
+      auto results = this->Execute("MATCH (n:P) SET n.w = n.id * 100 RETURN n.w AS w, n.id AS i ORDER BY i");  \
+      ASSERT_EQ(results.size(), 2);                                                                            \
+      EXPECT_EQ(results[0][0].ValueInt(), 100);                                                                \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                  \
+      EXPECT_EQ(results[1][0].ValueInt(), 200);                                                                \
+      EXPECT_EQ(results[1][1].ValueInt(), 2);                                                                  \
+    }                                                                                                          \
   } while (false)
 
 TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOff) {

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/vertex_accessor.hpp"
+
 #include <range/v3/all.hpp>
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
@@ -29,6 +30,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
+#include "storage/v2/vertex_read_lock.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/logging.hpp"
@@ -66,45 +68,6 @@ std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, V
 // whilst we walk the delta chain. For vertices with no uncommitted non-sequential
 // deltas, this uses the shorter lock duration of just reading `vertex.delta`
 // under lock.
-class VertexReadLock {
- public:
-  explicit VertexReadLock(memgraph::storage::Vertex const *vertex)
-      : vertex_{vertex}, lock_{vertex->lock, std::defer_lock} {}
-
-  class SnapshotGuard {
-   public:
-    explicit SnapshotGuard(VertexReadLock *manager, bool has_uncommitted_non_sequential_deltas)
-        : manager_{manager}, has_uncommitted_non_sequential_deltas_{has_uncommitted_non_sequential_deltas} {}
-
-    ~SnapshotGuard() {
-      if (!has_uncommitted_non_sequential_deltas_) {
-        manager_->lock_.unlock();
-      }
-    }
-
-    SnapshotGuard(SnapshotGuard const &) = delete;
-    SnapshotGuard(SnapshotGuard &&) = delete;
-    SnapshotGuard &operator=(SnapshotGuard const &) = delete;
-    SnapshotGuard &operator=(SnapshotGuard &&) = delete;
-
-   private:
-    VertexReadLock *manager_;
-    bool has_uncommitted_non_sequential_deltas_;
-  };
-
-  // `AcquireLock` can be called at most once per `VertexReadLock` instance.
-  // Calling it again on a `VertexReadLock` for which you've already acquired
-  // the lock could result in deadlock.
-  SnapshotGuard AcquireLock() {
-    lock_.lock();
-    return SnapshotGuard{this, vertex_->has_uncommitted_non_sequential_deltas()};
-  }
-
- private:
-  memgraph::storage::Vertex const *vertex_;
-  std::shared_lock<memgraph::utils::RWSpinLock> lock_;
-};
-
 }  // namespace
 
 namespace detail {

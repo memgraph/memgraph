@@ -62,6 +62,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/storage_error.hpp"
+#include "storage/v2/vertex_accessor_materialise.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
@@ -4777,6 +4778,79 @@ std::string CacheProperties::ToString(const DbAccessor *dba) const {
       }));
 }
 
+namespace {
+
+/// Builds each cached property straight into its frame slot.
+///
+/// The read used to produce a `storage::PropertyValue` per property per row, which was then
+/// rebuilt as the `TypedValue` the frame holds. Both are a switch over a wide tagged union, and
+/// on a grouped aggregation the pair of them is the largest thing in the profile that is not
+/// the allocator. Handing this to the read instead builds each value once.
+class FrameSlotMaterialiser {
+ public:
+  FrameSlotMaterialiser(FrameWriter &writer, std::span<CachedProperty const> cached, std::span<uint8_t const> denied,
+                        storage::NameIdMapper *name_id_mapper, utils::MemoryResource *memory)
+      : writer_{&writer}, cached_{cached}, denied_{denied}, name_id_mapper_{name_id_mapper}, memory_{memory} {}
+
+  void EmitNull(std::size_t index) { Write(index, TypedValue{memory_}); }
+
+  void Emit(std::size_t index, bool value) { Write(index, TypedValue{value, memory_}); }
+
+  void Emit(std::size_t index, int64_t value) { Write(index, TypedValue{value, memory_}); }
+
+  void Emit(std::size_t index, double value) { Write(index, TypedValue{value, memory_}); }
+
+  void Emit(std::size_t index, std::string_view value) { Write(index, TypedValue{value, memory_}); }
+
+  void Emit(std::size_t index, storage::Enum value) { Write(index, TypedValue{value, memory_}); }
+
+  void Emit(std::size_t index, storage::Point2d value) { Write(index, TypedValue{value, memory_}); }
+
+  void Emit(std::size_t index, storage::Point3d value) { Write(index, TypedValue{value, memory_}); }
+
+  void Emit(std::size_t index, storage::TemporalData value) {
+    switch (value.type) {
+      case storage::TemporalType::Date:
+        return Write(index, TypedValue{utils::Date{std::chrono::microseconds{value.microseconds}}, memory_});
+      case storage::TemporalType::LocalTime:
+        return Write(index, TypedValue{utils::LocalTime{value.microseconds}, memory_});
+      case storage::TemporalType::LocalDateTime:
+        return Write(index, TypedValue{utils::LocalDateTime{value.microseconds}, memory_});
+      case storage::TemporalType::Duration:
+        return Write(index, TypedValue{utils::Duration{value.microseconds}, memory_});
+    }
+  }
+
+  void Emit(std::size_t index, storage::ZonedTemporalData value) {
+    Write(index, TypedValue{utils::ZonedDateTime{value.microseconds, value.timezone}, memory_});
+  }
+
+  /// The fallback: a list, a map or a vector-index handle still arrives as a storage value.
+  void Emit(std::size_t index, storage::PropertyValue &&value) {
+    Write(index, TypedValue{std::move(value), name_id_mapper_, memory_});
+  }
+
+ private:
+  /// A property the caller may not read has to read back as Null here exactly as it would from
+  /// an expression, or moving a lookup into the cache would hand out a value the query could
+  /// not otherwise have got.
+  void Write(std::size_t index, TypedValue &&value) {
+    if (!denied_.empty() && denied_[index]) {
+      writer_->Write(cached_[index].output_symbol, TypedValue{memory_});
+      return;
+    }
+    writer_->Write(cached_[index].output_symbol, std::move(value));
+  }
+
+  FrameWriter *writer_;
+  std::span<CachedProperty const> cached_;
+  std::span<uint8_t const> denied_;
+  storage::NameIdMapper *name_id_mapper_;
+  utils::MemoryResource *memory_;
+};
+
+}  // namespace
+
 CacheProperties::CachePropertiesCursor::CachePropertiesCursor(const CacheProperties &self, utils::MemoryResource *mem,
                                                               metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
@@ -4805,9 +4879,34 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     return true;
   }
 
+  // Which properties this caller may not read, worked out before the values are, because it
+  // depends on the vertex rather than on what it holds. Left empty when nothing is restricted,
+  // which is the case that must cost nothing.
+  denied_.clear();
+#ifdef MG_ENTERPRISE
+  if (context.auth_checker != nullptr && context.auth_checker->HasPropertyRestrictions()) {
+    denied_.resize(self_.cached_properties_.size());
+    for (std::size_t i = 0; i != self_.cached_properties_.size(); ++i) {
+      denied_[i] = static_cast<uint8_t>(!PropertyReadAllowed(context.auth_checker,
+                                                             input_value.ValueVertex(),
+                                                             storage::View::NEW,
+                                                             self_.cached_properties_[i].property_id));
+    }
+  }
+#endif
+
+  // The read is positional: slot i is the value of `property_ids_[i]`, which is the property of
+  // `cached_properties_[i]`. No lookup, and no assumption about id ordering.
+  auto materialiser = FrameSlotMaterialiser{frame_writer,
+                                            self_.cached_properties_,
+                                            denied_,
+                                            context.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
+                                            context.evaluation_context.memory};
+
   // NEW so that the row sees writes made earlier in this same transaction, as a
   // property lookup evaluated at this point would.
-  auto const read = input_value.ValueVertex().ReadPropertyValues(property_ids_, storage::View::NEW, values_);
+  auto const read =
+      input_value.ValueVertex().ReadPropertyValuesInto(property_ids_, storage::View::NEW, values_, materialiser);
   if (!read) {
     switch (read.error()) {
       case storage::Error::DELETED_OBJECT:
@@ -4821,28 +4920,6 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     }
   }
 
-#ifdef MG_ENTERPRISE
-  // A property the caller may not read reads back as Null from an expression, so it has to read back as Null from
-  // the cache too; otherwise moving a lookup into the cache would hand out a value the query could not have got.
-  if (context.auth_checker != nullptr && context.auth_checker->HasPropertyRestrictions()) {
-    for (std::size_t i = 0; i != self_.cached_properties_.size(); ++i) {
-      if (!PropertyReadAllowed(context.auth_checker,
-                               input_value.ValueVertex(),
-                               storage::View::NEW,
-                               self_.cached_properties_[i].property_id)) {
-        values_[i] = storage::PropertyValue{};
-      }
-    }
-  }
-#endif
-
-  // `values_` is positional: slot i holds the value of `property_ids_[i]`, which is the
-  // property of `cached_properties_[i]`. No lookup, and no assumption about id ordering.
-  auto *name_id_mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
-  for (std::size_t i = 0; i != self_.cached_properties_.size(); ++i) {
-    frame_writer.Write(self_.cached_properties_[i].output_symbol,
-                       TypedValue(std::move(values_[i]), name_id_mapper, context.evaluation_context.memory));
-  }
   return true;
 }
 
