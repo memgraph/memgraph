@@ -1024,9 +1024,9 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
     // Use empty pending_comprehensions and null planner since we're only analyzing bound symbols here,
     // not actually building the query plan. Pattern comprehensions will be handled
     // when the subquery is fully planned later.
-    std::unordered_map<Symbol, PatternComprehensionMatching> empty_pending;
+    std::unordered_map<Symbol, PatternComprehensionMatching> empty_pending_pc;
     std::unordered_map<Symbol, ExistsMatching> empty_pending_exists;
-    SubqueryContext subquery_ctx{.pending_comprehensions = empty_pending,
+    SubqueryContext subquery_ctx{.pending_comprehensions = empty_pending_pc,
                                  .pending_exists = empty_pending_exists,
                                  .planner = nullptr,
                                  .write_occurred = false};
