@@ -1484,6 +1484,40 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
   }
 }
 
+TYPED_TEST(TestPlanner, MatchFilterDoubleNegatedPropertyUsesIndex) {
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto prop = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, prop.second, 1);
+  {
+    // Test MATCH (n :label) -[r]- (m) WHERE NOT NOT n.prop = 42 RETURN n
+    // Negating a predicate twice leaves it unchanged, so the equality is still
+    // a property comparison the index can answer.
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
+                                     WHERE(NOT(NOT(EQ(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(42))))),
+                                     RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanAllByLabelProperties(
+                  label, std::vector{ms::PropertyPath{prop.second}}, std::vector{ExpressionRange::Equal(LITERAL(42))}),
+              ExpectExpand(),
+              ExpectProduce());
+  }
+
+  {
+    // A single negation is not an equality, so it stays a scan and a filter.
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
+                                     WHERE(NOT(EQ(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(42)))),
+                                     RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectExpand(), ExpectProduce());
+  }
+}
+
 TYPED_TEST(TestPlanner, MatchFilterWhere) {
   // Test MATCH (n)-[r]-(m) WHERE exists((n)-[]-()) and n!=n and 7!=8 RETURN n
   auto *query =

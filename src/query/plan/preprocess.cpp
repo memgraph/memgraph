@@ -988,6 +988,14 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *is_not = utils::Downcast<NotOperator>(expr)) {
+    // Negating twice leaves a predicate unchanged, `null` included, so analyse
+    // what the pair wraps. Left as it is, the outer negation would only ever
+    // yield a generic filter and hide a comparison an index could answer.
+    // Going back through the splitter also breaks up any conjunction inside.
+    if (auto *inner_not = utils::Downcast<NotOperator>(is_not->expression_)) {
+      CollectFilterExpression(inner_not->expression_, symbol_table);
+      return;
+    }
     // WHERE NOT point.withinbbox()
     if (!add_point_withinbbox_filter_unary(is_not->expression_, WithinBBoxCondition::OUTSIDE) &&
         !add_prop_is_not_null_check(is_not)) {
