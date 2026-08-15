@@ -3688,8 +3688,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
   ctx_.evaluation_context.parameters = parameters;
-  // Accessor-free plans (null dba) never resolve a property/label/edge-type by id at runtime -- the only
-  // names they register are string-keyed map literals -- so leave the id maps empty instead of dereferencing.
+  // A plan that runs without an accessor never resolves a property, label or edge type by id: every
+  // expression that would is rejected before such a plan is built. Leave the id maps empty.
   if (dba != nullptr) {
     ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
     ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
@@ -4132,8 +4132,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (memgraph::logging::IsSessionTraceEnabled()) {
     is_profile_query = true;
   }
-  // Only reads the accessor for write plans; accessor-free plans are read-only (RWType::NONE/R), so skip it
-  // rather than dereference a null dba.
+  // Only reads the accessor for write plans, and a plan running without one writes nothing.
   if (dba != nullptr) AccessorCompliance(*plan, *dba);
   const auto rw_type = plan->rw_type();
 
@@ -4180,15 +4179,15 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               user_resource
 #endif
   );
-  // Surface the fact that no storage transaction was opened: this, not the presence of a plan, is the
-  // observable NO_ACCESS contract (a planned Lab ping still reports plan_execution_time like any query).
+  // No storage transaction was opened. This is the observable half of the fast path: such a query is
+  // otherwise reported like any other, with a plan, a planning time and an execution time.
   if (no_storage_access) summary->insert_or_assign("no_storage_access", true);
 
   return PreparedQuery{
       .header = std::move(header),
       .privileges = std::move(parsed_query.required_privileges),
-      // Accessor-free queries opened no transaction: return NOTHING (not COMMIT) so the interpreter disposes
-      // the ACTIVE tracking state via FinishAutocommitNothing instead of leaving the session mid-transaction.
+      // With no transaction there is nothing to commit, and NOTHING is what makes the interpreter dispose
+      // its transaction tracking rather than leave the session looking mid-transaction.
       .query_handler =
           [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary, no_storage_access](
               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -4199,8 +4198,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       },
       .rw_type = rw_type,
       .db = current_db.db_acc_->get()->name(),
-      // Accessor-free Lab pings are latency-sensitive connect-time probes: keep them at HIGH priority;
-      // other Cypher queries default to LOW.
+      // A query that reaches no graph is short and usually a client's health check, so it does not queue
+      // behind data queries; the rest of Cypher stays LOW.
       .priority = no_storage_access ? utils::Priority::HIGH : utils::Priority::LOW,
       .slow_query_plan_renderer = std::move(slow_query_plan_renderer)};
 }
@@ -4276,10 +4275,9 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
       .rw_type = RWType::NONE};
 }
 
-// A query is eligible for the accessor-free path when it reaches no graph and carries no privilege of
-// its own. The privilege condition is policy rather than safety: CheckAuthorized validates a query's
-// privileges before any Pull whichever path it takes, but keeping privileged queries on the single
-// transaction-backed path means their auditing has one shape.
+// A query may skip its storage transaction when it reaches no graph and carries no privilege of its own.
+// The privilege condition is policy rather than safety: privileges are validated before any Pull whichever
+// path a query takes, but keeping privileged queries on one path means their auditing has one shape.
 bool IsGraphFreeCandidate(const CypherQuery &query, const std::vector<AuthQuery::Privilege> &privileges) {
   return privileges.empty() && !RequiresGraphAccess(query);
 }
@@ -10477,7 +10475,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   // Write access required
   void Visit(CypherQuery & /*unused*/) override {
     // Leaving accessor_type_ unset means NO_ACCESS, so Prepare opens no storage transaction. The plan is
-    // still checked before it runs: see the accessor-free handling in PrepareCypherQuery.
+    // still checked before it runs, in PrepareCypherQuery.
     if (is_graph_free_cypher_) {
       return;
     }
@@ -10864,8 +10862,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #endif
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      // Accessor-free (NO_ACCESS) queries plan and execute like any Cypher query, except no storage
-      // transaction was opened: execution_db_accessor_ is null and PrepareCypherQuery threads a null dba through.
+      // A graph-free query plans and executes like any other, except that no storage transaction was
+      // opened, so execution_db_accessor_ is null and a null accessor is threaded through.
       prepared_query = PrepareCypherQuery(std::move(parsed_query),
                                           &query_execution->summary,
                                           interpreter_context_,
