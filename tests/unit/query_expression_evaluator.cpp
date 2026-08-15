@@ -1971,6 +1971,26 @@ TYPED_TEST(FunctionTest, SizeCountsCodePoints) {
   EXPECT_EQ(this->EvaluateFunction("SIZE", "john").ValueInt(), 4);
 }
 
+TYPED_TEST(FunctionTest, SubstringLeftRightCountCodePoints) {
+  // Positions and lengths follow size(): a multi-byte character is one unit and
+  // is never cut in half, which byte offsets would do and produce invalid UTF-8.
+  EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "a\u4E2Db", 1, 1).ValueString(), "\u4E2D");
+  EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "\U0001F600\U0001F600", 0, 1).ValueString(), "\U0001F600");
+  EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "\u00E9\u4E2D", 1).ValueString(), "\u4E2D");
+  EXPECT_EQ(this->EvaluateFunction("LEFT", "\U0001F600\U0001F600", 1).ValueString(), "\U0001F600");
+  EXPECT_EQ(this->EvaluateFunction("RIGHT", "\U0001F600\U0001F600", 1).ValueString(), "\U0001F600");
+  EXPECT_EQ(this->EvaluateFunction("RIGHT", "a\u4E2Db", 2).ValueString(), "\u4E2Db");
+  EXPECT_EQ(this->EvaluateFunction("LEFT", "a\u4E2Db", 2).ValueString(), "a\u4E2D");
+
+  // Asking for more than there is yields the whole string, not a broken one.
+  EXPECT_EQ(this->EvaluateFunction("RIGHT", "\u4E2D", 5).ValueString(), "\u4E2D");
+  EXPECT_EQ(this->EvaluateFunction("LEFT", "\u4E2D", 5).ValueString(), "\u4E2D");
+  EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "\u4E2D", 5).ValueString(), "");
+
+  // Every result is a whole number of characters.
+  EXPECT_EQ(this->EvaluateFunction("SIZE", this->EvaluateFunction("LEFT", "\U0001F600\U0001F600", 1)).ValueInt(), 1);
+}
+
 TYPED_TEST(FunctionTest, Size) {
   ASSERT_THROW(this->EvaluateFunction("SIZE"), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("SIZE", TypedValue()).IsNull());

@@ -86,6 +86,7 @@ TEST(String, ReverseUtf8CountsCodePointsNotBytes) {
   EXPECT_EQ(lead_bytes(reversed), 3);
   EXPECT_EQ(lead_bytes(reversed), lead_bytes(input));
   EXPECT_EQ(reversed, "\u4E2D\u00E9a");
+}
 
 TEST(String, CountUtf8CodePoints) {
   // Code points are written as escapes: a directly typed accented character
@@ -107,6 +108,51 @@ TEST(String, CountUtf8CodePoints) {
   // A combining mark is a code point of its own, so a decomposed character
   // counts as two. This is code points, not grapheme clusters.
   EXPECT_EQ(CountUtf8CodePoints("e\u0301"), 2);
+}
+
+TEST(String, SubstrUtf8) {
+  // Positions and lengths are in code points, so a multi-byte character is
+  // never split. Escapes keep the input bytes unambiguous.
+  EXPECT_EQ(SubstrUtf8("abc", 1), "bc");
+  EXPECT_EQ(SubstrUtf8("abc", 1, 1), "b");
+
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 1, 1), "\u4E2D");
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 1), "\u4E2Db");
+  EXPECT_EQ(SubstrUtf8("\u00E9\u4E2D\U0001F600", 1, 1), "\u4E2D");
+  EXPECT_EQ(SubstrUtf8("\U0001F600\U0001F600", 0, 1), "\U0001F600");
+  EXPECT_EQ(SubstrUtf8("\U0001F600\U0001F600", 1, 1), "\U0001F600");
+
+  // Out of range clamps rather than throwing, as the byte-wise Substr does.
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 9), "");
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 1, 99), "\u4E2Db");
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 0, 0), "");
+  EXPECT_EQ(SubstrUtf8("", 0, 3), "");
+}
+
+TEST(String, Utf8OffsetOfCodePoint) {
+  // Offsets are in bytes, indices in code points; the two only coincide while
+  // the text stays in ASCII.
+  EXPECT_EQ(Utf8OffsetOfCodePoint("abc", 0), 0);
+  EXPECT_EQ(Utf8OffsetOfCodePoint("abc", 2), 2);
+  EXPECT_EQ(Utf8OffsetOfCodePoint("a\u4E2Db", 1), 1);
+  EXPECT_EQ(Utf8OffsetOfCodePoint("a\u4E2Db", 2), 4);
+  // Past the end yields the size, which makes a clamped substring empty.
+  EXPECT_EQ(Utf8OffsetOfCodePoint("a\u4E2Db", 3), 5);
+  EXPECT_EQ(Utf8OffsetOfCodePoint("a\u4E2Db", 99), 5);
+}
+
+TEST(String, Utf8OffsetOfLastCodePoints) {
+  // The tail is found by walking back, so asking for a few characters of a long
+  // string reads only those characters rather than all of it.
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("abc", 1), 2);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("a\u4E2Db", 2), 1);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("\U0001F600\U0001F600", 1), 4);
+
+  // Nothing requested is the empty tail; more than there is, is all of it.
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("a\u4E2Db", 0), 5);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("a\u4E2Db", 3), 0);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("a\u4E2Db", 99), 0);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("", 3), 0);
 }
 
 TEST(String, Join) {
