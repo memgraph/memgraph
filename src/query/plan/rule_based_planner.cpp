@@ -69,11 +69,11 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
 
 /// Visitor to collect correlated-subquery result symbols from expressions.
 /// Used to track which subqueries appear inside aggregate expressions, and which ones a MERGE branch reads.
-class PCSymbolCollector : public HierarchicalTreeVisitor {
+class SubquerySymbolCollector : public HierarchicalTreeVisitor {
  public:
   /// @param exists_symbols Collected in visit order, so a caller that plans from them splices a deterministic chain.
-  PCSymbolCollector(const SymbolTable &symbol_table, std::unordered_set<Symbol> &pc_symbols,
-                    std::vector<Symbol> *exists_symbols = nullptr)
+  SubquerySymbolCollector(const SymbolTable &symbol_table, std::unordered_set<Symbol> &pc_symbols,
+                          std::vector<Symbol> *exists_symbols = nullptr)
       : symbol_table_(symbol_table), pc_symbols_(pc_symbols), exists_symbols_(exists_symbols) {}
 
   using HierarchicalTreeVisitor::PostVisit;
@@ -181,7 +181,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       auto plan_subqueries_in = [&](Expression &expr, BodyPosition position) {
         std::unordered_set<Symbol> pc_symbols;
         std::vector<Symbol> exists_symbols;
-        PCSymbolCollector collector(symbol_table_, pc_symbols, &exists_symbols);
+        SubquerySymbolCollector collector(symbol_table_, pc_symbols, &exists_symbols);
         expr.Accept(collector);
         position_ = position;
         for (const auto &sym : pc_symbols) {
@@ -528,7 +528,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
     // Collect subquery result symbols used in this aggregation's expressions.
     // These must be planned BEFORE the Aggregate operator.
-    PCSymbolCollector collector(symbol_table_, pattern_comprehensions_in_aggregations_, &exists_in_aggregations_);
+    SubquerySymbolCollector collector(symbol_table_, pattern_comprehensions_in_aggregations_, &exists_in_aggregations_);
     if (aggr.expression1_) {
       aggr.expression1_->Accept(collector);
     }
@@ -1001,7 +1001,7 @@ std::unordered_set<Symbol> MergeBranchComprehensions(query::Clause *clause, cons
 std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<Clause *> &clauses,
                                                               const SymbolTable &symbol_table) {
   std::unordered_set<Symbol> symbols;
-  PCSymbolCollector collector(symbol_table, symbols);
+  SubquerySymbolCollector collector(symbol_table, symbols);
   for (auto *clause : clauses) {
     clause->Accept(collector);
   }
