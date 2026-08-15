@@ -8642,8 +8642,8 @@ class CallProcedureCursor : public Cursor {
       ExpressionEvaluator evaluator =
           ExpressionEvaluator{&frame, context, graph_view, nullptr, &context.number_of_hops};
 
-      // Accessor-free path (NO_ACCESS): no storage transaction, so run against a graph-less stub. The classifier
-      // guarantees only no_graph_access procs reach here, but re-check -- the module could have been reloaded.
+      // No storage transaction, so run against a graph-less stub. Only a procedure that declared it needs
+      // no graph should reach here; re-check, because a module reload can change what a name resolves to.
       const bool no_storage_access = context.db_accessor == nullptr;
       if (no_storage_access && !proc_->info.no_graph_access) {
         throw QueryRuntimeException("The procedure named '{}' requires graph access.", self_->procedure_name_);
