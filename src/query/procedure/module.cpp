@@ -1577,17 +1577,6 @@ auto FindProcedure(const ModuleRegistry &module_registry, std::string_view fully
   return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name);
 }
 
-bool ProcedureIsAccessorFreeEligible(const ModuleRegistry &module_registry,
-                                     std::string_view fully_qualified_procedure_name) {
-  auto maybe_found = FindProcedure(module_registry, fully_qualified_procedure_name);
-  if (!maybe_found) return false;
-  auto const *proc = maybe_found->second;
-  // required_privilege excluded as defense-in-depth: CheckAuthorized already covers a CALL's proc
-  // privilege before Pull, so this just keeps privileged procs on the uniformly-audited normal path
-  // (see the declaration doc above for the full contract).
-  return !proc->info.is_write && proc->info.no_graph_access && !proc->info.required_privilege.has_value();
-}
-
 auto FindTransformation(const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name)
     -> find_result<mgp_trans> {
   return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name);

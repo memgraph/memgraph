@@ -128,6 +128,21 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   void UpdateType(RWType op_type);
 };
 
+/// Answers whether a plan reaches storage, which is a different question from whether it reads or writes
+/// the graph: a call to a procedure that declared it never touches its graph argument is a read, and is
+/// reported as one everywhere a query's type is observable, but it reaches no storage. Derives from
+/// ReadWriteTypeChecker so that every other operator keeps a single classification, and so that an
+/// operator added later is covered here by whatever type it declares there.
+struct StorageAccessChecker : ReadWriteTypeChecker {
+  using ReadWriteTypeChecker::PreVisit;
+
+  bool PreVisit(CallProcedure &op) override;
+};
+
+/// True if executing `plan` needs a storage transaction. False only if no operator in it reaches storage,
+/// in which case the plan can run with no accessor.
+bool PlanRequiresStorageAccess(const LogicalOperator &plan);
+
 inline std::ostream &operator<<(std::ostream &os, ReadWriteTypeChecker::RWType type) {
   switch (type) {
     using enum ReadWriteTypeChecker::RWType;
