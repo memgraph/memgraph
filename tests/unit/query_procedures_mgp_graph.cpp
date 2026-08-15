@@ -629,7 +629,9 @@ TYPED_TEST(MgpGraphTest, EdgeSetProperty) {
   memgraph::storage::Gid from_vertex_id{};
   auto get_edge = [&from_vertex_id](memgraph::storage::Storage::Accessor *accessor) -> memgraph::storage::EdgeAccessor {
     auto from = accessor->FindVertex(from_vertex_id, memgraph::storage::View::NEW);
-    return std::move(from->OutEdges(memgraph::storage::View::NEW).value().edges.front());
+    // An expansion hands back the vertex's own triples and builds an accessor when one is looked
+    // at, so there is nothing to take a reference to the front of.
+    return from->OutEdges(memgraph::storage::View::NEW).value().edges.At(0);
   };
   {
     const auto vertex_ids = this->CreateEdge();

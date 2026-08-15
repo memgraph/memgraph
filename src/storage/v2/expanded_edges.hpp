@@ -108,6 +108,18 @@ class ExpandedEdges {
                                             : EdgeAccessor{edge, edge_type, other, from_, storage_, transaction_};
   }
 
+  /// The sequence accessors, so a caller that only wants one edge reads like it is holding a
+  /// sequence of them. Each returns the edge by value, because there is no edge to refer to until
+  /// it is asked for - which is the point of this type, and the one way it does not substitute for
+  /// the vector it replaced: `auto &edge = edges[0]` has nothing to bind to and must be `auto`.
+  auto operator[](std::size_t index) const -> EdgeAccessor { return At(index); }
+
+  auto at(std::size_t index) const -> EdgeAccessor { return At(index); }
+
+  auto front() const -> EdgeAccessor { return At(0); }
+
+  auto back() const -> EdgeAccessor { return At(size() - 1); }
+
   /// For a caller that needs the array after all. Nothing on a hot path should want this.
   auto Materialise() const -> std::vector<EdgeAccessor> {
     if (!from_triples_) return materialised_;

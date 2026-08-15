@@ -507,7 +507,7 @@ TEST_F(CreateSnapshotTest, LightEdgeWalReplayRoundTrip) {
       ASSERT_TRUE(v2);
       auto out = v2->OutEdges(s::View::NEW);
       ASSERT_TRUE(out.has_value());
-      for (auto &ea : out->edges) {
+      for (auto ea : out->edges) {
         if (ea.EdgeType() == acc->NameToEdgeType("TEMP")) {
           ASSERT_TRUE(acc->DeleteEdge(&ea).has_value());
         }
@@ -527,7 +527,7 @@ TEST_F(CreateSnapshotTest, LightEdgeWalReplayRoundTrip) {
     ASSERT_TRUE(v2);
     auto out = v2->OutEdges(s::View::OLD);
     ASSERT_TRUE(out.has_value());
-    for (auto &ea : out->edges) {
+    for (auto ea : out->edges) {
       ASSERT_NE(ea.EdgeType(), acc->NameToEdgeType("TEMP")) << "Deleted TEMP edge must not survive WAL replay";
     }
   }

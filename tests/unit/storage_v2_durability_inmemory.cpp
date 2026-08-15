@@ -1005,7 +1005,7 @@ class DurabilityTest : public ::testing::TestWithParam<DurabilityParam> {
 
       auto find_edge = [&](auto &edges,
                            memgraph::storage::Gid edge_gid) -> std::optional<memgraph::storage::EdgeAccessor> {
-        for (auto &edge : edges) {
+        for (auto edge : edges) {
           if (edge.Gid() == edge_gid) {
             return edge;
           }
@@ -1158,7 +1158,7 @@ class DurabilityTest : public ::testing::TestWithParam<DurabilityParam> {
       // Verify edges.
       for (uint64_t i = 0; i < kNumExtendedEdges; ++i) {
         auto find_edge = [&](auto &edges) -> std::optional<memgraph::storage::EdgeAccessor> {
-          for (auto &edge : edges) {
+          for (auto edge : edges) {
             if (edge.Gid() == extended_edge_gids_[i]) {
               return edge;
             }
@@ -2457,7 +2457,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
       for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
         auto in_edges = vertex.InEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(in_edges.has_value());
-        for (auto &edge : in_edges->edges) {
+        for (auto edge : in_edges->edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
           auto props = edge.Properties(memgraph::storage::View::NEW);
           ASSERT_TRUE(props.has_value());
@@ -2467,7 +2467,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
         }
         auto out_edges = vertex.InEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(out_edges.has_value());
-        for (auto &edge : out_edges->edges) {
+        for (auto edge : out_edges->edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
           auto props = edge.Properties(memgraph::storage::View::NEW);
           ASSERT_TRUE(props.has_value());
@@ -5779,7 +5779,9 @@ TEST_F(DurabilityTest, EdgeMetadataConsistentAfterSnapshotThenWalDelete) {
       auto to_delete =
           std::ranges::find_if(out_edges->edges, [&](auto const &e) { return e.Gid() == deleted_edge_gid; });
       ASSERT_NE(to_delete, out_edges->edges.end());
-      ASSERT_TRUE(acc->DeleteEdge(&*to_delete).has_value());
+      // Dereferencing builds the edge, so it has to be held before its address can be taken.
+      auto edge = *to_delete;
+      ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
