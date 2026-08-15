@@ -4059,9 +4059,13 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
   }
 
-  // Accessor-free (NO_ACCESS) queries reach here with no storage transaction and are planned/executed with a
-  // null dba; everything the planner and cursor need comes from db_acc_ (plan cache, metrics, arena).
-  MG_ASSERT(current_db.db_acc_, "Cypher query expects a current database");
+  // A graph-free query opens no storage transaction, so it never passes through the database check that
+  // opening one performs. It still needs the database itself for the plan cache, metrics and arena, and a
+  // session can lose its database at any point: it is dropped from under the session while marked for
+  // deletion. Report that rather than dereferencing nothing.
+  if (!current_db.db_acc_) {
+    throw DatabaseContextRequiredException("Database required for query execution.");
+  }
   auto *dba = current_db.execution_db_accessor_ ? &*current_db.execution_db_accessor_ : nullptr;
   const bool no_storage_access = dba == nullptr;
 

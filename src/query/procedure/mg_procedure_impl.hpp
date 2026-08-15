@@ -836,12 +836,21 @@ struct mgp_graph {
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
 
+  /// False for a graph handed to a procedure that declared it never touches one, which runs with no
+  /// storage transaction open. Ask before reaching for the accessor; `getImpl` throws without one.
+  [[nodiscard]] bool HasAccessor() const { return RawImpl() != nullptr; }
+
   [[nodiscard]] memgraph::query::DbAccessor *getImpl() const {
-    return std::visit(
-        memgraph::utils::Overloaded{[](memgraph::query::DbAccessor *impl) { return impl; },
-                                    [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor(); },
-                                    [](memgraph::query::VirtualGraphDbAccessor *impl) { return impl->GetAccessor(); }},
-        this->impl);
+    auto *impl = RawImpl();
+    if (impl == nullptr) [[unlikely]] {
+      throw std::logic_error{"Procedure reached for the graph, but it declared that it needs no graph access."};
+    }
+    return impl;
+  }
+
+  static mgp_graph GraphlessGraph(memgraph::storage::View view, memgraph::query::ExecutionContext &ctx,
+                                  memgraph::storage::StorageMode storage_mode) {
+    return mgp_graph{static_cast<memgraph::query::DbAccessor *>(nullptr), view, &ctx, storage_mode};
   }
 
   static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
@@ -860,6 +869,15 @@ struct mgp_graph {
 
   static mgp_graph NonWritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view) {
     return mgp_graph{&acc, view, nullptr, acc.GetStorageMode()};
+  }
+
+ private:
+  [[nodiscard]] memgraph::query::DbAccessor *RawImpl() const {
+    return std::visit(
+        memgraph::utils::Overloaded{[](memgraph::query::DbAccessor *impl) { return impl; },
+                                    [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor(); },
+                                    [](memgraph::query::VirtualGraphDbAccessor *impl) { return impl->GetAccessor(); }},
+        this->impl);
   }
 };
 

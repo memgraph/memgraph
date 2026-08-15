@@ -887,6 +887,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
+    // Function implementations receive the accessor and are free to use it, so none of them may run
+    // without one. A query that opened no storage transaction reaches here only if it was admitted by
+    // a graph-access analysis that let a function through.
+    if (dba_ == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("Function '{}' cannot be evaluated without a database accessor.",
+                                  function.function_name_);
+    }
     FunctionContext function_ctx{dba_,
                                  ctx_->memory,
                                  ctx_->timestamp,
@@ -1222,6 +1229,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(EnumValueAccess &enum_value_access) override {
+    // Enums are storage state, so there is nothing to resolve against without an accessor.
+    if (dba_ == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("Enum '{}' cannot be resolved without a database accessor.",
+                                  enum_value_access.enum_name_);
+    }
     auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
     if (!maybe_enum) [[unlikely]] {
       throw QueryRuntimeException(

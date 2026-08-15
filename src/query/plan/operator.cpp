@@ -8527,8 +8527,8 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: What about cross library boundary exceptions? OMG C++?! <- should be fine since moving to shared libstd
     proc.cb(&proc_args, &graph, result, &proc_memory);
 
-    // getImpl() is the null DbAccessor on the accessor-free path (no transaction) -> nothing to serialize.
-    if (graph.getImpl() != nullptr && graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
+    // No accessor means no transaction, hence nothing that could have failed to serialize.
+    if (graph.HasAccessor() && graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
       static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
     }
 
@@ -8543,8 +8543,8 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
 
-    // getImpl() is the null DbAccessor on the accessor-free path (no transaction) -> nothing to serialize.
-    if (graph.getImpl() != nullptr && graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
+    // No accessor means no transaction, hence nothing that could have failed to serialize.
+    if (graph.HasAccessor() && graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
       static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
     }
   }
@@ -8651,10 +8651,7 @@ class CallProcedureCursor : public Cursor {
       result_.is_transactional = storage::IsTransactional(storage_mode);
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
-      auto graph = no_storage_access ? mgp_graph{.impl = static_cast<memgraph::query::DbAccessor *>(nullptr),
-                                                 .view = graph_view,
-                                                 .ctx = &context,
-                                                 .storage_mode = storage_mode}
+      auto graph = no_storage_access ? mgp_graph::GraphlessGraph(graph_view, context, storage_mode)
                                      : mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       CallCustomProcedure(self_->procedure_name_,
                           *proc_,
