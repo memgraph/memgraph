@@ -86,6 +86,27 @@ TEST(String, ReverseUtf8CountsCodePointsNotBytes) {
   EXPECT_EQ(lead_bytes(reversed), 3);
   EXPECT_EQ(lead_bytes(reversed), lead_bytes(input));
   EXPECT_EQ(reversed, "\u4E2D\u00E9a");
+
+TEST(String, CountUtf8CodePoints) {
+  // Code points are written as escapes: a directly typed accented character
+  // may arrive precomposed or decomposed, and those have different counts.
+  EXPECT_EQ(CountUtf8CodePoints(""), 0);
+  EXPECT_EQ(CountUtf8CodePoints("abc"), 3);
+
+  // One code point however many bytes encode it.
+  EXPECT_EQ(CountUtf8CodePoints("\u00E9"), 1);
+  EXPECT_EQ(CountUtf8CodePoints("\u4E2D"), 1);
+  EXPECT_EQ(CountUtf8CodePoints("\U0001F600"), 1);
+  EXPECT_EQ(CountUtf8CodePoints("a\u00E9b"), 3);
+
+  // The count is not the buffer size: these differ precisely because the
+  // characters are multi-byte.
+  EXPECT_EQ(std::string_view("a\u00E9b").size(), 4);
+  EXPECT_EQ(CountUtf8CodePoints("a\u00E9b"), 3);
+
+  // A combining mark is a code point of its own, so a decomposed character
+  // counts as two. This is code points, not grapheme clusters.
+  EXPECT_EQ(CountUtf8CodePoints("e\u0301"), 2);
 }
 
 TEST(String, Join) {

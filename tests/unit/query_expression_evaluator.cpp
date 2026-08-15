@@ -1955,6 +1955,22 @@ TYPED_TEST(FunctionTest, Last) {
   ASSERT_THROW(this->EvaluateFunction("LAST", 5), QueryRuntimeException);
 }
 
+TYPED_TEST(FunctionTest, SizeCountsCodePoints) {
+  // size() of a string is its length in characters, not the size of its UTF-8
+  // buffer. Escapes are used so the normalisation of the input is explicit.
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "\u00E9").ValueInt(), 1);
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "\u4E2D").ValueInt(), 1);
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "a\u00E9b").ValueInt(), 3);
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "\U0001F600").ValueInt(), 1);
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "").ValueInt(), 0);
+
+  // A decomposed character is two code points, so it counts as two.
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "e\u0301").ValueInt(), 2);
+
+  // ASCII is unaffected, and lists and maps still count their elements.
+  EXPECT_EQ(this->EvaluateFunction("SIZE", "john").ValueInt(), 4);
+}
+
 TYPED_TEST(FunctionTest, Size) {
   ASSERT_THROW(this->EvaluateFunction("SIZE"), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("SIZE", TypedValue()).IsNull());

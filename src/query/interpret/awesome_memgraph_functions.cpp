@@ -536,7 +536,7 @@ TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   } else if (value.IsList()) {
     return TypedValue(static_cast<int64_t>(value.ValueList().size()), ctx.memory);
   } else if (value.IsString()) {
-    return TypedValue(static_cast<int64_t>(value.ValueString().size()), ctx.memory);
+    return TypedValue(static_cast<int64_t>(utils::CountUtf8CodePoints(value.ValueString())), ctx.memory);
   } else if (value.IsMap()) {
     // neo4j doesn't implement size for map, but I don't see a good reason not
     // to do it.

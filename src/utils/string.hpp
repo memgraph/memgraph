@@ -166,6 +166,21 @@ inline std::string ReverseUtf8(const std::string_view s) {
 }
 
 /**
+ * Count the UTF-8 code points of `s`.
+ *
+ * A code point counts once however many bytes encode it, so this is the length
+ * a reader would give the text rather than the size of its buffer. Note that a
+ * combining mark is a code point of its own, so a decomposed character counts
+ * as more than one.
+ *
+ * Bytes that do not introduce a well-formed sequence each count once, so a
+ * malformed string still yields a length rather than an error.
+ */
+inline size_t CountUtf8CodePoints(const std::string_view s) {
+  return static_cast<size_t>(std::ranges::count_if(s, std::not_fn(IsUtf8Continuation)));
+}
+
+/**
  * Uppercase all characters of a string and store the result in `out`.
  * Transformation is locale independent.
  * @return pointer to `out`.
