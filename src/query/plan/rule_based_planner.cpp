@@ -1064,13 +1064,7 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           SubqueryContext &subquery_ctx, Expression *commit_frequency,
-                                           bool in_exists_subquery) {
-  // In existential subqueries, we should omit any return clauses as per Neo4j documentation
-  if (in_exists_subquery) {
-    return input_op;
-  }
-
+                                           SubqueryContext &subquery_ctx, Expression *commit_frequency) {
   // Similar to WITH clause, but we want to accumulate when the query writes to
   // the database. This way we handle the case when we want to return
   // expressions with the latest updated results. For example, `MATCH (n) -- ()

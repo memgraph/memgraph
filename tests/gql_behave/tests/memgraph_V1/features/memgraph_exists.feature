@@ -1699,3 +1699,144 @@ Feature: WHERE exists
           MATCH (a:P) RETURN exists((a)-[:R]->({p: exists((a)-[:R]->())})) AS h;
           """
       Then an error should be raised
+
+  # The body's RETURN decides how many rows reach the fold, so every clause on it - DISTINCT, SKIP, LIMIT,
+  # aggregation - changes the answer. The fixture discriminates: Alice has 3 KNOWS rows to only 2 distinct
+  # friends, Bob has 1, Carol has 0.
+
+  Scenario: Test EXISTS subquery whose body RETURN aggregates
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN count(f) } AS h
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | h    |
+          | 'Alice' | true |
+          | 'Bob'   | true |
+          | 'Carol' | true |
+
+  Scenario: Test EXISTS subquery whose body RETURN aggregates agrees with the WITH spelling
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, EXISTS { MATCH (p)-[:KNOWS]->(f) WITH count(f) AS c RETURN c } AS h
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | h    |
+          | 'Alice' | true |
+          | 'Bob'   | true |
+          | 'Carol' | true |
+
+  Scenario: Test EXISTS subquery whose body RETURN has a LIMIT
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN f LIMIT 0 } AS h
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | h     |
+          | 'Alice' | false |
+          | 'Bob'   | false |
+          | 'Carol' | false |
+
+  Scenario: Test EXISTS subquery whose body RETURN has a SKIP
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN f SKIP 1 } AS h
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | h     |
+          | 'Alice' | true  |
+          | 'Bob'   | false |
+          | 'Carol' | false |
+
+  Scenario: Test EXISTS subquery whose body RETURN is DISTINCT
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN DISTINCT f } AS h
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | h     |
+          | 'Alice' | true  |
+          | 'Bob'   | true  |
+          | 'Carol' | false |
+
+  Scenario: Test EXISTS subquery in a WHERE whose body RETURN has a SKIP
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WHERE EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN f SKIP 1 }
+          RETURN p.name AS name
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    |
+          | 'Alice' |

@@ -205,8 +205,7 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           SubqueryContext &subquery_ctx, Expression *commit_frequency,
-                                           bool in_exists_subquery);
+                                           SubqueryContext &subquery_ctx, Expression *commit_frequency);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
@@ -428,8 +427,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        context.bound_symbols,
                                        *context.ast_storage,
                                        subquery_ctx,
-                                       query_parts.commit_frequency,
-                                       context.in_exists_subquery);
+                                       query_parts.commit_frequency);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             // ON CREATE / ON MATCH comprehensions originate here too; GenMerge splices each onto the branch that
             // reads it, so this chain must not take them first.
@@ -598,9 +596,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       }
 
       // Is this the only situation that should be covered
-      // An exists body whose every clause is dropped (`EXISTS { RETURN 1 }`) leaves input_op null, so short-circuit
-      // on `in_exists_subquery` before dereferencing it. The null check after it is belt-and-braces: no other clause
-      // sequence is known to plan to nothing.
+      // An EXISTS branch must keep emitting its rows for the fold to read, so it never gets the EmptyResult wrapper.
+      // The null check is belt-and-braces: no clause sequence is known to plan to nothing.
       if (!context.in_exists_subquery && input_op && input_op->OutputSymbols(*context.symbol_table).empty()) {
         if (has_periodic_commit && is_root_query) {
           // this periodic commit is from USING PERIODIC COMMIT
@@ -609,10 +606,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         input_op = std::make_unique<EmptyResult>(std::move(input_op));
       }
 
-      // A body whose clauses all dropped plans to nothing, yet still matches one (empty) row. Substituted per query
-      // part, not once on the branch root: each UNION branch is its own part, and the combinator below dereferences
-      // both operands. `in_exists_subquery` stays set across the recursive `Plan` calls this one makes, so this also
-      // catches a nested `CALL {}` body that plans to nothing - `HandleSubquery` dereferences that one too.
+      // A body that plans to nothing still matches one (empty) row. Planning the body's RETURN removed the last
+      // clause that dropped one, so a branch's own part no longer reaches this; it stays as defence, and
+      // `in_exists_subquery` survives the recursive `Plan` calls this one makes, so it still covers a nested
+      // `CALL {}` body - `HandleSubquery` dereferences that plan too. Substituted per query part, because each
+      // UNION branch is its own and the combinator below dereferences both operands.
       if (context.in_exists_subquery && !input_op) {
         input_op = std::make_unique<Once>();
       }
@@ -1686,8 +1684,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
       // the branch has to correlate against.
       auto branch_bound_symbols = bound_symbols;
-      // in_exists_subquery drives three behaviours of the recursive plan: the body's RETURN is dropped, the
-      // EmptyResult wrapper is suppressed, and GenWith keeps outer-scope vertex/edge symbols across a body WITH.
+      // in_exists_subquery drives two behaviours of the recursive plan: the EmptyResult wrapper is suppressed, and
+      // GenWith keeps outer-scope vertex/edge symbols across a body WITH.
       auto const restore = utils::OnScopeExit{[this,
                                                old_exists_subquery = context_->in_exists_subquery,
                                                old_after_write = exists_branch_after_write_,
