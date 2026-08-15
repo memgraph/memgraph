@@ -713,7 +713,9 @@ std::pair<StringToInteger, int64_t> ParseInteger(std::string_view text) {
   const auto *const end = begin + trimmed.size();
   if (const auto [stopped_at, ec] = std::from_chars(begin, end, parsed); stopped_at == end) {
     if (ec == std::errc{}) return {StringToInteger::kOk, parsed};
-    return {StringToInteger::kOutOfRange, 0};
+    if (ec == std::errc::result_out_of_range) return {StringToInteger::kOutOfRange, 0};
+    // Empty text consumes nothing, which leaves the cursor at the end as well,
+    // so reaching it is not on its own a sign that a number was read.
   }
 
   // Anything else is only meaningful as a floating point number, and is

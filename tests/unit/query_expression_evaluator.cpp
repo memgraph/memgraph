@@ -2125,6 +2125,13 @@ TYPED_TEST(FunctionTest, ToIntegerPreservesFullInt64Range) {
   ASSERT_THROW(this->EvaluateFunction("TOINTEGER", "99999999999999999999"), QueryRuntimeException);
   ASSERT_THROW(this->EvaluateFunction("TOINTEGER", "1e30"), QueryRuntimeException);
   ASSERT_THROW(this->EvaluateFunction("TOINTEGER", "-99999999999999999999"), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGER", "9223372036854775808.5"), QueryRuntimeException);
+
+  // Text naming no number at all is null rather than an error: nothing was
+  // asked for that could not be given.
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "banana").IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "").IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "   ").IsNull());
 
   // A floating point argument saturates instead, and NaN converts to zero.
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", 1.0e30).ValueInt(), std::numeric_limits<int64_t>::max());
