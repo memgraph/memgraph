@@ -335,6 +335,11 @@ add_unit_test(query_profile
     LINK_TARGETS mg-query
 )
 
+add_unit_test(query_graph_access
+    SOURCES query_graph_access.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(query_required_privileges
     SOURCES query_required_privileges.cpp
     LINK_TARGETS mg-query
