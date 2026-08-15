@@ -1719,8 +1719,10 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
                                            std::pair{"month"sv, &date_parameters.month},
                                            std::pair{"day"sv, &date_parameters.day}};
 
-  EnsureNoOmittedSignificantComponent({"year", "month", "day"}, args[0].ValueMap());
+  // After the mapping, so an unrecognised key is reported as such rather than
+  // as a gap between the components that were understood.
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
+  EnsureNoOmittedSignificantComponent({"year", "month", "day"}, args[0].ValueMap());
   return TypedValue(utils::Date(date_parameters), ctx.memory);
 }
 
@@ -1769,8 +1771,8 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
       std::pair{"microsecond"sv, &local_time_parameters.microsecond},
   };
 
-  EnsureNoOmittedSignificantComponent({"hour", "minute", "second", "millisecond", "microsecond"}, args[0].ValueMap());
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
+  EnsureNoOmittedSignificantComponent({"hour", "minute", "second", "millisecond", "microsecond"}, args[0].ValueMap());
   return TypedValue(utils::LocalTime(local_time_parameters), ctx.memory);
 }
 
