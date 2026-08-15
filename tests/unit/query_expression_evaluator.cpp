@@ -2118,15 +2118,37 @@ TYPED_TEST(FunctionTest, ToIntegerPreservesFullInt64Range) {
   ASSERT_NE(this->EvaluateFunction("TOINTEGER", "9223372036854775807").ValueInt(),
             this->EvaluateFunction("TOINTEGER", "9223372036854775806").ValueInt());
 
-  // Outside the range there is no integer to return.
-  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "9223372036854775808").IsNull());
-  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "99999999999999999999").IsNull());
-  ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", 1.0e30).IsNull());
+  // A string naming a value with no integer counterpart is an error: it named
+  // a number exactly, and silently returning some other one would be worse
+  // than saying so. This holds however the number is written.
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGER", "9223372036854775808"), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGER", "99999999999999999999"), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGER", "1e30"), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGER", "-99999999999999999999"), QueryRuntimeException);
+
+  // A floating point argument saturates instead, and NaN converts to zero.
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", 1.0e30).ValueInt(), std::numeric_limits<int64_t>::max());
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", -1.0e30).ValueInt(), std::numeric_limits<int64_t>::min());
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", std::nan("")).ValueInt(), 0);
 
   // Forms that only a floating-point parse accepts keep working.
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", " -3.5 \n\t").ValueInt(), -3);
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "1e3").ValueInt(), 1000);
   ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "\n\t3X ").IsNull());
+}
+
+TYPED_TEST(FunctionTest, ToIntegerOrNullOnOutOfRange) {
+  // The OrNull form reports every failure the same way, so a value out of
+  // range is null here rather than the error the strict form raises.
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGERORNULL", "99999999999999999999").IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGERORNULL", "9223372036854775808").IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGERORNULL", "1e30").IsNull());
+  ASSERT_TRUE(this->EvaluateFunction("TOINTEGERORNULL", "not a number").IsNull());
+
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGERORNULL", "9223372036854775807").ValueInt(),
+            std::numeric_limits<int64_t>::max());
+  // A floating point argument still saturates rather than going null.
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGERORNULL", 1.0e30).ValueInt(), std::numeric_limits<int64_t>::max());
 }
 
 TYPED_TEST(FunctionTest, ToBooleanOrNull) {

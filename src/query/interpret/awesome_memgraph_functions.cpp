@@ -684,16 +684,53 @@ TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext 
   }
 }
 
-// Truncates toward zero, or reports that no int64 corresponds to the value.
-// Converting out-of-range doubles is undefined behaviour, so the range has to
-// be checked before the cast rather than after.
-std::optional<int64_t> TruncateToInteger(double value) {
+// Truncates toward zero, saturating at either end of the range and taking NaN
+// to zero. This is how a floating point argument converts: the C++ cast is
+// undefined outside the range, so the bounds are applied before it.
+int64_t TruncateToInteger(double value) {
   // int64's maximum is not representable as a double; the smallest double at or
   // above the range is 2^63, which is.
   constexpr double kExclusiveUpperBound = 9223372036854775808.0;
   constexpr auto kInclusiveLowerBound = static_cast<double>(std::numeric_limits<int64_t>::min());
-  if (std::isnan(value) || value < kInclusiveLowerBound || value >= kExclusiveUpperBound) return std::nullopt;
+  if (std::isnan(value)) return 0;
+  if (value >= kExclusiveUpperBound) return std::numeric_limits<int64_t>::max();
+  if (value < kInclusiveLowerBound) return std::numeric_limits<int64_t>::min();
   return static_cast<int64_t>(value);
+}
+
+// A string can fail to yield an integer in two ways that are reported
+// differently: one naming no number at all is null, while one naming a number
+// too large for the type is an error in toInteger and null in toIntegerOrNull.
+enum class StringToInteger : std::uint8_t { kOk, kNotANumber, kOutOfRange };
+
+std::pair<StringToInteger, int64_t> ParseInteger(std::string_view text) {
+  const auto trimmed = utils::Trim(text);
+  // A whole-number string is parsed as an integer directly. A double holds
+  // fewer significant digits than int64, so going through one would round large
+  // values onto a neighbouring integer or off the end of the range.
+  int64_t parsed{};
+  const auto *const begin = trimmed.data();
+  const auto *const end = begin + trimmed.size();
+  if (const auto [stopped_at, ec] = std::from_chars(begin, end, parsed); stopped_at == end) {
+    if (ec == std::errc{}) return {StringToInteger::kOk, parsed};
+    return {StringToInteger::kOutOfRange, 0};
+  }
+
+  // Anything else is only meaningful as a floating point number, and is
+  // truncated toward zero. Unlike a floating point argument it does not
+  // saturate: the text named an exact value, and no integer stands for it.
+  double as_double{};
+  try {
+    as_double = utils::ParseDouble(trimmed);
+  } catch (const utils::BasicException &) {
+    return {StringToInteger::kNotANumber, 0};
+  }
+  constexpr double kExclusiveUpperBound = 9223372036854775808.0;
+  constexpr auto kInclusiveLowerBound = static_cast<double>(std::numeric_limits<int64_t>::min());
+  if (std::isnan(as_double) || as_double >= kExclusiveUpperBound || as_double < kInclusiveLowerBound) {
+    return {StringToInteger::kOutOfRange, 0};
+  }
+  return {StringToInteger::kOk, static_cast<int64_t>(as_double)};
 }
 
 TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -706,28 +743,16 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContex
   } else if (value.IsInt()) {
     return TypedValue(value, ctx.memory);
   } else if (value.IsDouble()) {
-    const auto truncated = TruncateToInteger(value.ValueDouble());
-    return truncated ? TypedValue(*truncated, ctx.memory) : TypedValue(ctx.memory);
+    return TypedValue(TruncateToInteger(value.ValueDouble()), ctx.memory);
   } else {
-    const auto trimmed = utils::Trim(value.ValueString());
-    // A whole-number string is parsed as an integer directly. A double holds
-    // fewer significant digits than int64, so going through one would round
-    // large values onto a neighbouring integer or off the end of the range.
-    int64_t parsed{};
-    const auto *const begin = trimmed.data();
-    const auto *const end = begin + trimmed.size();
-    if (const auto [stopped_at, ec] = std::from_chars(begin, end, parsed); stopped_at == end) {
-      if (ec == std::errc{}) return TypedValue(parsed, ctx.memory);
-      // The whole string was digits but named a value outside int64.
-      return TypedValue(ctx.memory);
-    }
-    // Anything else is only meaningful as a floating point number, and is
-    // truncated toward zero once parsed.
-    try {
-      const auto truncated = TruncateToInteger(utils::ParseDouble(trimmed));
-      return truncated ? TypedValue(*truncated, ctx.memory) : TypedValue(ctx.memory);
-    } catch (const utils::BasicException &) {
-      return TypedValue(ctx.memory);
+    const auto [status, parsed] = ParseInteger(value.ValueString());
+    switch (status) {
+      case StringToInteger::kOk:
+        return TypedValue(parsed, ctx.memory);
+      case StringToInteger::kNotANumber:
+        return TypedValue(ctx.memory);
+      case StringToInteger::kOutOfRange:
+        throw QueryRuntimeException("'{}' is outside the range of an integer.", value.ValueString());
     }
   }
 }
@@ -749,7 +774,15 @@ TypedValue ToFloatOrNull(const TypedValue *args, int64_t nargs, const FunctionCo
 }
 
 TypedValue ToIntegerOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return ConvertOrNull<ToNumericTypes, ToInteger>("toIntegerOrNull", args, nargs, ctx);
+  if (nargs != 1) throw QueryRuntimeException("'{}' requires exactly 1 argument.", "toIntegerOrNull");
+  if (!ToNumericTypes::Check(args[0])) return TypedValue(ctx.memory);
+  // A string naming a value out of range is an error in the strict form but
+  // null here, so the string case cannot delegate the way the rest can.
+  if (args[0].IsString()) {
+    const auto [status, parsed] = ParseInteger(args[0].ValueString());
+    return status == StringToInteger::kOk ? TypedValue(parsed, ctx.memory) : TypedValue(ctx.memory);
+  }
+  return ToInteger(args, nargs, ctx);
 }
 
 TypedValue ToBooleanList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
