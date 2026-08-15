@@ -466,27 +466,9 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
     case TypedValue::Type::Null:
       return TypedValue(ctx_->memory);
     case TypedValue::Type::Vertex:
-      if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
-        auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-        auto property_id = ctx_->properties[property_lookup.property_.ix];
-        auto &cached = property_lookup_cache_[symbol_pos];
-        auto [it, inserted] = cached.try_emplace(property_id);
-        if (inserted) it->second = GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_);
-        return {it->second, GetNameIdMapper(), ctx_->memory};
-      } else {
-        return GetPropertyValue(expression_result_ptr->ValueVertex(), property_lookup.property_);
-      }
+      return GetPropertyValue(expression_result_ptr->ValueVertex(), property_lookup.property_);
     case TypedValue::Type::Edge:
-      if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
-        auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-        auto property_id = ctx_->properties[property_lookup.property_.ix];
-        auto &cached = property_lookup_cache_[symbol_pos];
-        auto [it, inserted] = cached.try_emplace(property_id);
-        if (inserted) it->second = GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_);
-        return {it->second, GetNameIdMapper(), ctx_->memory};
-      } else {
-        return GetPropertyValue(expression_result_ptr->ValueEdge(), property_lookup.property_);
-      }
+      return GetPropertyValue(expression_result_ptr->ValueEdge(), property_lookup.property_);
     case TypedValue::Type::VirtualEdge: {
       auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
       auto prop_value = expression_result_ptr->ValueVirtualEdge().GetProperty(prop_id);

@@ -304,8 +304,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   storage::NameIdMapper *GetNameIdMapper() const { return dba_->GetStorageAccessor()->GetNameIdMapper(); }
 
-  void ResetPropertyLookupCache() { property_lookup_cache_.clear(); }
-
   int64_t GetHopsCounter() { return hops_counter_ != nullptr ? *hops_counter_ : 0; }
 
   TypedValue Visit(NamedExpression &named_expression) override {
@@ -1248,12 +1246,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::View view_;
   FrameChangeCollector *frame_change_collector_;
   FrameWriter frame_writer_{*frame_, frame_change_collector_, ctx_->memory};
-  /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
-  mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
-  /// Where the properties this evaluator reads sat in the shapes it last read them from. Unlike
-  /// the value cache above this is NOT cleared per row, so it pays off for as long as this
-  /// evaluator lives: across the whole input in an operator that pulls it under one evaluator,
-  /// and not at all in one that builds an evaluator per row.
+  /// Where the properties this evaluator reads sat in the shapes it last read them from. Not
+  /// cleared per row, so it pays off for as long as this evaluator lives: across the whole input
+  /// in an operator that pulls it under one evaluator, and not at all in one that builds an
+  /// evaluator per row.
   mutable storage::PropertyLocationMemo property_location_memo_{};
   /// Memo owned by whoever built this evaluator, so an operator that builds one evaluator per row
   /// can still keep what it learned for as long as its cursor lives. Null means use our own.

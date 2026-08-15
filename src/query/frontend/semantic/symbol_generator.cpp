@@ -87,8 +87,6 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   // invalidate references. Indices remain valid across reallocation.
   auto const scope_idx = scopes_.size() - 1;
 
-  SetEvaluationModeOnPropertyLookups(body);
-
   std::vector<Symbol> user_symbols;
   if (body.all_identifiers) {
     // Carry over user symbols because '*' appeared.
@@ -571,11 +569,6 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   }
 
   ident.MapTo(symbol);
-  return true;
-}
-
-bool SymbolGenerator::PreVisit(MapLiteral &map_literal) {
-  SetEvaluationModeOnPropertyLookups(map_literal);
   return true;
 }
 
@@ -1128,29 +1121,6 @@ bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {
   identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
   predefined_identifiers_.erase(it);
   return true;
-}
-
-void PropertyLookupEvaluationModeVisitor::Visit(PropertyLookup &property_lookup) {
-  if (property_lookup.expression_->GetTypeInfo() != Identifier::kType) {
-    return;
-  }
-
-  auto key = std::pair{static_cast<Identifier *>(property_lookup.expression_)->name_, property_lookup.property_.ix};
-
-  switch (phase_) {
-    case Phase::GATHER: {
-      property_lookup_counts_by_symbol[key]++;
-      return;
-    }
-    case Phase::ASSIGN: {
-      // Caching only pays off for a property read more than once per row: the cache lookup itself costs a
-      // hash probe plus a value copy, which is more than one decode of a property that is read once.
-      if (property_lookup_counts_by_symbol[key] > 1) {
-        property_lookup.evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
-      }
-      return;
-    }
-  }
 }
 
 void PropertyLookupBaseIdentifierVisitor::Visit(PropertyLookup &property_lookup) {

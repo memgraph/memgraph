@@ -1062,8 +1062,6 @@ class PropertyLookup : public Expression {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class EvaluationMode { GET_OWN_PROPERTY, GET_ALL_PROPERTIES };
-
   enum class LookupMode { REPLACE, APPEND };
 
   PropertyLookup() = default;
@@ -1091,7 +1089,6 @@ class PropertyLookup : public Expression {
   memgraph::query::Expression *expression_{nullptr};
   PropertyIx property_;
   std::vector<PropertyIx> property_path_;
-  memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_{EvaluationMode::GET_OWN_PROPERTY};
   memgraph::query::PropertyLookup::LookupMode lookup_mode_{LookupMode::REPLACE};
   bool use_nested_property_update_{false};
 
@@ -1103,7 +1100,6 @@ class PropertyLookup : public Expression {
     for (size_t i = 0; i < property_path_.size(); ++i) {
       object->property_path_[i] = storage->GetPropertyIx(property_path_[i].name);
     }
-    object->evaluation_mode_ = evaluation_mode_;
     object->lookup_mode_ = lookup_mode_;
     object->use_nested_property_update_ = use_nested_property_update_;
     return object;
