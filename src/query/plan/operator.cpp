@@ -8425,31 +8425,6 @@ std::unordered_map<std::string, int64_t> CallProcedure::GetAndResetCounters() {
 
 namespace {
 
-// Populates `result.signature`: yielded `result_fields` first (in YIELD order), then any remaining
-// proc fields at higher indices.
-void BuildProcedureResultSignature(mgp_result &result, const mgp_proc &proc,
-                                   const std::vector<std::string> &result_fields, std::string_view procedure_name) {
-  for (size_t i = 0UZ; i < result_fields.size(); ++i) {
-    auto signature_it = proc.results.find(memgraph::utils::pmr::string{result_fields[i], proc.results.get_allocator()});
-    if (signature_it == proc.results.end()) {
-      throw QueryRuntimeException(
-          "The procedure named '{}' has no result field named '{}'.", procedure_name, result_fields[i]);
-    }
-    result.signature.emplace(result_fields[i],
-                             ResultsMetadata{.type = signature_it->second.first,
-                                             .is_deprecated = signature_it->second.second,
-                                             .field_id = static_cast<uint32_t>(i)});
-  }
-  if (proc.results.size() == result_fields.size()) return;
-  uint32_t index = result_fields.size();
-  for (auto const &[name, signature] : proc.results) {
-    if (!result.signature.contains(name)) {
-      result.signature.emplace(
-          name, ResultsMetadata{.type = signature.first, .is_deprecated = signature.second, .field_id = index++});
-    }
-  }
-}
-
 void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result,
@@ -8599,7 +8574,26 @@ class CallProcedureCursor : public Cursor {
                                   get_proc_type_str(proc_->info.is_write));
     }
 
-    BuildProcedureResultSignature(result_, *proc_, self_->result_fields_, self_->procedure_name_);
+    for (size_t i = 0UZ; i < self_->result_fields_.size(); ++i) {
+      auto signature_it =
+          proc_->results.find(memgraph::utils::pmr::string{self_->result_fields_[i], proc_->results.get_allocator()});
+      if (signature_it == proc_->results.end()) {
+        throw QueryRuntimeException("The procedure named '{}' has no result field named '{}'.",
+                                    self_->procedure_name_,
+                                    self_->result_fields_[i]);
+      }
+      result_.signature.emplace(
+          self_->result_fields_[i],
+          ResultsMetadata{signature_it->second.first, signature_it->second.second, static_cast<uint32_t>(i)});
+    }
+    if (proc_->results.size() == self_->result_fields_.size()) return;
+    // Not all results were yielded but they still need to be inserted inside the signature
+    uint32_t index = self_->result_fields_.size();
+    for (auto const &[name, signature] : proc_->results) {
+      if (!result_.signature.contains(name)) {
+        result_.signature.emplace(name, ResultsMetadata{signature.first, signature.second, index++});
+      }
+    }
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
