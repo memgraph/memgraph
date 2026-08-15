@@ -6922,10 +6922,18 @@ class AggregateCursor : public Cursor {
   DbAccessor *db_accessor_{nullptr};
   FineGrainedAuthChecker const *auth_checker_{nullptr};
 
+  static bool ProjectsGraphValues(const Aggregate::Element &element) {
+    using Op = Aggregation::Op;
+    return element.op == Op::PROJECT_PATH || element.op == Op::PROJECT_LISTS || element.op == Op::DERIVE;
+  }
+
   bool ProcessAll(Frame *frame, ExecutionContext *context) {
     db_accessor_ = context->db_accessor;
     auth_checker_ = context->auth_checker;
-    MG_ASSERT(db_accessor_, "Aggregation expects a current DB transaction");
+    // Only the projecting aggregations build graph values and reach for the accessor. The scalar ones
+    // fold the values they are given, which a query that opened no transaction can still do.
+    MG_ASSERT(db_accessor_ != nullptr || std::ranges::none_of(self_.aggregations_, ProjectsGraphValues),
+              "Aggregation expects a current DB transaction");
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{frame, *context, storage::View::NEW, nullptr, &context->number_of_hops};
 
@@ -11994,36 +12002,6 @@ void Limit::LimitCursor::Reset() {
   input_cursor_->Reset();
   limit_ = -1;
   shared_quota_.reset();
-}
-
-namespace {
-// Walks a plan and rejects it unless every operator is storage-free. The allowlist is exactly the
-// operators the accessor-free classifier can produce: Produce (a constant RETURN projection),
-// CallProcedure (a no_graph_access introspection call -- its cursor re-checks the flag), and the Once leaf.
-// Every other operator (scans, expands, writes, Unwind, Aggregate, Filter, ...) reaches DefaultPreVisit
-// and throws, so a future operator is rejected by default rather than silently reaching a null accessor.
-class NoStorageAccessPlanChecker final : public HierarchicalLogicalOperatorVisitor {
- public:
-  using HierarchicalLogicalOperatorVisitor::PostVisit;
-  using HierarchicalLogicalOperatorVisitor::PreVisit;
-  using HierarchicalLogicalOperatorVisitor::Visit;
-
-  bool DefaultPreVisit() override {
-    throw QueryRuntimeException("Internal error: an accessor-free query produced a plan that requires storage access.");
-  }
-
-  bool PreVisit(Produce & /*unused*/) override { return true; }
-
-  bool PreVisit(CallProcedure & /*unused*/) override { return true; }
-
-  bool Visit(Once & /*unused*/) override { return true; }
-};
-}  // namespace
-
-void ValidateNoStorageAccessPlan(const LogicalOperator &plan) {
-  NoStorageAccessPlanChecker checker;
-  // Accept is non-const only because the visitor framework lacks const visiting; the checker never mutates.
-  const_cast<LogicalOperator &>(plan).Accept(checker);
 }
 
 }  // namespace memgraph::query::plan

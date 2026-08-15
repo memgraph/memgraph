@@ -89,8 +89,25 @@ bool ReadWriteTypeChecker::PreVisit(CallProcedure &op) {
     UpdateType(RWType::RW);
     return false;
   }
-  UpdateType(op.no_graph_access_ ? RWType::NONE : RWType::R);
+  UpdateType(RWType::R);
   return true;
+}
+
+bool StorageAccessChecker::PreVisit(CallProcedure &op) {
+  // A read that reaches no graph is still reported as a read by RWType, which drives the query type sent
+  // to clients and the read/write counters. Only the storage question is answered differently here.
+  if (!op.is_write_ && op.no_graph_access_) {
+    UpdateType(RWType::NONE);
+    return true;
+  }
+  return ReadWriteTypeChecker::PreVisit(op);
+}
+
+bool PlanRequiresStorageAccess(const LogicalOperator &plan) {
+  StorageAccessChecker checker;
+  // Const only because the visitor framework has no const traversal; the checker mutates nothing.
+  checker.InferRWType(const_cast<LogicalOperator &>(plan));
+  return checker.type != ReadWriteTypeChecker::RWType::NONE;
 }
 
 bool ReadWriteTypeChecker::PreVisit([[maybe_unused]] Foreach &op) {
