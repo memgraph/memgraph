@@ -11,6 +11,8 @@
 
 #include "storage/v2/manifest_property_store.hpp"
 
+#include "memory/db_arena_fwd.hpp"
+
 #include <fp16.h>  // Taken via usearch (seems like _Float16 is broken on some platforms)
 #include <algorithm>
 #include <cstring>
@@ -1059,7 +1061,11 @@ auto ManifestPropertyStore::operator=(ManifestPropertyStore &&other) noexcept ->
 ManifestPropertyStore::~ManifestPropertyStore() { Release(); }
 
 void ManifestPropertyStore::Release() {
-  if (!empty() && !is_inline()) delete[] heap_data();
+  // Allocated through the database-aware allocator, so that a record's bytes are charged to the
+  // database holding it rather than to no one.
+  if (!empty() && !is_inline()) {
+    memory::DbAwareAllocator<uint8_t>{}.deallocate(heap_data(), encoded_size());
+  }
 }
 
 auto ManifestPropertyStore::Reset(ManifestId manifest, uint32_t size) -> uint8_t * {
@@ -1073,7 +1079,8 @@ auto ManifestPropertyStore::Reset(ManifestId manifest, uint32_t size) -> uint8_t
       return buffer_.data() + 1;
     }
     auto const allocated = ToMultipleOf8(total);
-    auto *heap = new uint8_t[allocated]{};
+    auto *heap = memory::DbAwareAllocator<uint8_t>{}.allocate(allocated);
+    std::memset(heap, 0, allocated);
     SetHeap(allocated, heap);
     return heap;
   }();
