@@ -47,9 +47,10 @@ class FineGrainedAuthChecker;
 struct CachedFineGrainedAuth;
 class CypherQuery;
 
-/// True if `query` is an accessor-free fast-path shape (constant RETURN or builtin mg.* introspection).
-/// Used to prioritize Lab's health-check pings; mirrors the classification the Prepare dispatch uses.
-bool IsAccessorFreeQuery(const CypherQuery &query);
+/// True if `query` reaches no graph, and so is a candidate for running without a storage transaction.
+/// Used for scheduling, where an approximation is enough; the Prepare dispatch decides for real, and
+/// applies a privilege condition this does not.
+bool IsGraphFreeQuery(const CypherQuery &query);
 
 struct QueryAllocator {
   explicit QueryAllocator(utils::MemoryTracker *db_query_tracker = nullptr)
