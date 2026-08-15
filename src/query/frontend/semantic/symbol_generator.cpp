@@ -725,10 +725,8 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
     throw utils::NotYetImplemented("Exists cannot be used within REDUCE!");
   }
 
-  if (scope.num_if_operators) {
-    throw utils::NotYetImplemented("IF operator cannot be used with exists, but only during matching!");
-  }
-
+  // A CASE is not a position of its own: whichever position holds the CASE decides, so num_if_operators is not
+  // consulted here. It still gates aggregations in PreVisit(Aggregation&).
   if (!IsSupportedExistsPosition(scope)) {
     throw utils::NotYetImplemented("Exists is not supported in this position yet!");
   }
