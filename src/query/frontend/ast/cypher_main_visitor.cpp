@@ -2195,6 +2195,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   storage_->FindOrAddCallProcedure(call_proc->procedure_name_);
 
   call_proc->is_write_ = maybe_found->second->info.is_write;
+  call_proc->no_graph_access_ = maybe_found->second->info.no_graph_access;
   if (maybe_found->second->results.empty()) {
     call_proc->void_procedure_ = true;
   }

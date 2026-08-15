@@ -89,7 +89,7 @@ bool ReadWriteTypeChecker::PreVisit(CallProcedure &op) {
     UpdateType(RWType::RW);
     return false;
   }
-  UpdateType(RWType::R);
+  UpdateType(op.no_graph_access_ ? RWType::NONE : RWType::R);
   return true;
 }
 

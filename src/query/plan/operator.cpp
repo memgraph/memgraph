@@ -8380,7 +8380,8 @@ std::unique_ptr<LogicalOperator> OutputTableStream::Clone(AstStorage *storage) c
 
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                             size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure)
+                             size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure,
+                             bool no_graph_access)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(std::move(name)),
       arguments_(std::move(args)),
@@ -8390,7 +8391,8 @@ CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string
       memory_scale_(memory_scale),
       is_write_(is_write),
       procedure_id_(procedure_id),
-      void_procedure_(void_procedure) {}
+      void_procedure_(void_procedure),
+      no_graph_access_(no_graph_access) {}
 
 ACCEPT_WITH_INPUT(CallProcedure);
 
@@ -8742,6 +8744,7 @@ std::unique_ptr<LogicalOperator> CallProcedure::Clone(AstStorage *storage) const
   object->is_write_ = is_write_;
   object->procedure_id_ = procedure_id_;
   object->void_procedure_ = void_procedure_;
+  object->no_graph_access_ = no_graph_access_;
   return object;
 }
 
