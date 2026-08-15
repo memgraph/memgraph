@@ -1322,3 +1322,167 @@ Feature: WHERE exists
       Then the result should be:
           | id    |
           | 1     |
+
+  # CASE holds no position of its own - it carries whichever position it sits in - so the shapes below are really a
+  # check on the bookkeeping: PostVisit(Exists) pushes one has_aggregation entry and IfOperator pops one per arm. The
+  # fixture keeps one P with an outgoing edge and one without, so an all-true or all-false answer is visible.
+
+  Scenario: Test EXISTS subquery in a CASE condition
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN a.id AS id, CASE WHEN EXISTS { MATCH (a)-[:R]->() } THEN 'yes' ELSE 'no' END AS h
+          ORDER BY id;
+          """
+      Then the result should be, in order:
+          | id | h     |
+          | 1  | 'yes' |
+          | 2  | 'no'  |
+
+  Scenario: Test EXISTS subquery in a CASE inside a WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P) WHERE CASE WHEN TRUE THEN EXISTS { MATCH (a)-[:R]->() } ELSE false END
+          RETURN a.id AS id;
+          """
+      Then the result should be:
+          | id |
+          | 1  |
+
+  Scenario: Test EXISTS subquery in both arms of a CASE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN a.id AS id,
+                 CASE WHEN a.id = 1 THEN EXISTS { MATCH (a)-[:R]->() } ELSE EXISTS { MATCH (:Nope) } END AS h
+          ORDER BY id;
+          """
+      Then the result should be, in order:
+          | id | h     |
+          | 1  | true  |
+          | 2  | false |
+
+  Scenario: Test EXISTS subquery inside a nested CASE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN a.id AS id,
+                 CASE WHEN a.id = 1
+                      THEN CASE WHEN EXISTS { MATCH (a)-[:R]->() } THEN 'yes' ELSE 'no' END
+                      ELSE 'skip' END AS h
+          ORDER BY id;
+          """
+      Then the result should be, in order:
+          | id | h      |
+          | 1  | 'yes'  |
+          | 2  | 'skip' |
+
+  Scenario: Test EXISTS subquery in a simple CASE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN a.id AS id, CASE a.id WHEN 1 THEN EXISTS { MATCH (a)-[:R]->() } ELSE false END AS h
+          ORDER BY id;
+          """
+      Then the result should be, in order:
+          | id | h     |
+          | 1  | true  |
+          | 2  | false |
+
+  Scenario: Test EXISTS subquery in a CASE inside an aggregate argument
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN sum(CASE WHEN EXISTS { MATCH (a)-[:R]->() } THEN 1 ELSE 0 END) AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |
+
+  Scenario: Test EXISTS subquery in a CASE beside an aggregation
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN count(*) AS c, CASE WHEN EXISTS { MATCH (:X) } THEN 'any' ELSE 'none' END AS h;
+          """
+      Then the result should be:
+          | c | h     |
+          | 2 | 'any' |
+
+  Scenario: Test EXISTS subquery in a CASE inside ORDER BY
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN a.id AS id
+          ORDER BY CASE WHEN EXISTS { MATCH (a)-[:R]->() } THEN 1 ELSE 0 END;
+          """
+      Then the result should be, in order:
+          | id |
+          | 2  |
+          | 1  |
+
+  Scenario: Test EXISTS subquery with a body with no operators inside a CASE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN a.id AS id, CASE WHEN a.id = 1 THEN EXISTS { RETURN 1 } ELSE false END AS h
+          ORDER BY id;
+          """
+      Then the result should be, in order:
+          | id | h     |
+          | 1  | true  |
+          | 2  | false |
