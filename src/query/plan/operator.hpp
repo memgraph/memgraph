@@ -2916,7 +2916,8 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   CallProcedure() = default;
   CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> arguments,
                 std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure = false);
+                size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure = false,
+                bool no_graph_access = false);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
@@ -2942,6 +2943,9 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   bool is_write_;
   int64_t procedure_id_;
   bool void_procedure_;
+  /// The procedure never touches its `mgp_graph *`, so a `CALL` of it neither reads nor writes the
+  /// graph. Stamped from the procedure registry when the clause is parsed.
+  bool no_graph_access_{false};
 
   std::string ToString(const DbAccessor *dba) const override;
 
