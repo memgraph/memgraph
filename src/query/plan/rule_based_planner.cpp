@@ -12,6 +12,7 @@
 #include "query/plan/rule_based_planner.hpp"
 
 #include <algorithm>
+#include <array>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -123,7 +124,19 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
  public:
   // Where in the return body an expression sits, hence where a comprehension in it is spliced: the projection below
   // the Produce, ORDER BY below the OrderBy, WHERE above it.
-  enum class BodyPosition : uint8_t { kProjection, kOrderBy, kWhere };
+  /// The values are the indices into @c branches_, so they are spelled out rather than implied.
+  enum class BodyPosition : uint8_t { kProjection = 0, kOrderBy = 1, kWhere = 2 };
+  /// How many @c BodyPosition values there are; it sizes @c branches_.
+  static constexpr size_t kBodyPositionCount = 3;
+  static_assert(static_cast<size_t>(BodyPosition::kWhere) + 1 == kBodyPositionCount,
+                "kBodyPositionCount must cover every BodyPosition - it sizes the branches_ array");
+
+  /// The correlated-subquery branches spliced at one body position. Both are kept in visit order, so the spliced
+  /// chain is deterministic rather than ordered by symbol hash.
+  struct BranchesAt {
+    std::vector<PatternComprehensionData> comprehensions;
+    std::vector<std::pair<Symbol, std::shared_ptr<LogicalOperator>>> exists;
+  };
 
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols,
                     AstStorage &storage, SubqueryContext *subquery_ctx, Where *where = nullptr)
@@ -678,20 +691,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // named_expressions.
   const auto &output_symbols() const { return output_symbols_; }
 
-  // Pattern comprehensions from the named expressions, planned before the Produce.
-  std::unordered_map<Symbol, PatternComprehensionData> pattern_comprehension_data() const {
-    return pattern_comprehension_datas_;
-  }
-
-  // From ORDER BY: planned after the Produce whose symbols they read, below the OrderBy that consumes them.
-  std::unordered_map<Symbol, PatternComprehensionData> order_by_pattern_comprehension_data() const {
-    return order_by_pattern_comprehension_datas_;
-  }
-
-  // From WHERE: above the OrderBy, which restores only its own output symbols, and below the Filter.
-  std::unordered_map<Symbol, PatternComprehensionData> where_pattern_comprehension_data() const {
-    return where_pattern_comprehension_datas_;
-  }
+  /// The branches to splice at @p position. A copy, because @c GenReturnBody moves the operators out of it.
+  ///
+  /// kProjection: below the Produce. kOrderBy: after the Produce whose symbols they read, below the OrderBy that
+  /// consumes them. kWhere: above the OrderBy, which restores only its own output symbols, and below the Filter.
+  BranchesAt branches_at(BodyPosition position) const { return branches_[static_cast<size_t>(position)]; }
 
   // Symbols that were bound before this RETURN/WITH clause (from MATCH, CREATE, etc.)
   const auto &bound_symbols() const { return bound_symbols_; }
@@ -701,17 +705,6 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // Pattern comprehension symbols that appear inside aggregate expressions.
   // These must be planned BEFORE the Aggregate operator so their values are available.
   const auto &pattern_comprehensions_in_aggregations() const { return pattern_comprehensions_in_aggregations_; }
-
-  // EXISTS branches from the named expressions, folded to a bool before the Produce.
-  auto exists_data() const { return exists_datas_; }
-
-  // EXISTS branches from ORDER BY, which read the named expression symbols and so belong below the OrderBy that
-  // consumes them, but above the Produce.
-  auto order_by_exists_data() const { return order_by_exists_datas_; }
-
-  // EXISTS branches from WHERE. OrderBy restores only its own output symbols, so these must be spliced above it -
-  // directly below the Filter that consumes them.
-  auto where_exists_data() const { return where_exists_datas_; }
 
   // EXISTS result symbols that appear inside aggregate expressions.
   const auto &exists_in_aggregations() const { return exists_in_aggregations_; }
@@ -736,8 +729,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     }
     auto op = subquery_ctx_->planner->Plan(
         it->second, SubqueryView(it->second, subquery_ctx_->write_occurred), BranchBoundSymbols());
-    auto &datas = Bucket(position_);
-    datas[result_sym] = PatternComprehensionData(std::move(op), result_sym, it->second.expansion_symbols);
+    Bucket(position_).comprehensions.emplace_back(std::move(op), result_sym, it->second.expansion_symbols);
     pending.erase(it);
   }
 
@@ -755,32 +747,10 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     }
     auto op = subquery_ctx_->planner->PlanExistsBranch(it->second, subquery_ctx_->write_occurred, BranchBoundSymbols());
     subquery_ctx_->pending_exists.erase(it);
-    ExistsBucket(position_).emplace_back(result_sym, std::move(op));
+    Bucket(position_).exists.emplace_back(result_sym, std::move(op));
   }
 
-  std::unordered_map<Symbol, PatternComprehensionData> &Bucket(BodyPosition position) {
-    switch (position) {
-      case BodyPosition::kProjection:
-        return pattern_comprehension_datas_;
-      case BodyPosition::kOrderBy:
-        return order_by_pattern_comprehension_datas_;
-      case BodyPosition::kWhere:
-        return where_pattern_comprehension_datas_;
-    }
-    std::unreachable();
-  }
-
-  std::vector<std::pair<Symbol, std::shared_ptr<LogicalOperator>>> &ExistsBucket(BodyPosition position) {
-    switch (position) {
-      case BodyPosition::kProjection:
-        return exists_datas_;
-      case BodyPosition::kOrderBy:
-        return order_by_exists_datas_;
-      case BodyPosition::kWhere:
-        return where_exists_datas_;
-    }
-    std::unreachable();
-  }
+  BranchesAt &Bucket(BodyPosition position) { return branches_[static_cast<size_t>(position)]; }
 
   const ReturnBody &body_;
   SymbolTable &symbol_table_;
@@ -802,13 +772,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   //                      group by it.
   std::list<bool> has_aggregation_;
   std::vector<NamedExpression *> named_expressions_;
-  std::unordered_map<Symbol, PatternComprehensionData> pattern_comprehension_datas_;
-  std::unordered_map<Symbol, PatternComprehensionData> order_by_pattern_comprehension_datas_;
-  std::unordered_map<Symbol, PatternComprehensionData> where_pattern_comprehension_datas_;
-  // The EXISTS branches per bucket, in visit order so the spliced chain is deterministic.
-  std::vector<std::pair<Symbol, std::shared_ptr<LogicalOperator>>> exists_datas_;
-  std::vector<std::pair<Symbol, std::shared_ptr<LogicalOperator>>> order_by_exists_datas_;
-  std::vector<std::pair<Symbol, std::shared_ptr<LogicalOperator>>> where_exists_datas_;
+  // Indexed by BodyPosition: everything spliced at one point in the chain lives together.
+  std::array<BranchesAt, kBodyPositionCount> branches_;
   // Which part of the return body is currently being visited. ORDER BY and WHERE are both evaluated after the
   // Produce, but at different points in the operator chain, so their comprehensions need separate splice points.
   BodyPosition position_ = BodyPosition::kProjection;
@@ -842,15 +807,15 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   // When there are aggregations, ALL pattern comprehensions are planned BEFORE the
   // Aggregate operator. This ensures correct evaluation per input row rather than per group.
   const bool has_aggregations = !body.aggregations().empty();
-  auto pc_data = body.pattern_comprehension_data();
-  auto exists_data = body.exists_data();
+  using BodyPosition = ReturnBodyContext::BodyPosition;
+  auto projection = body.branches_at(BodyPosition::kProjection);
 
   if (has_aggregations) {
     // Build remember set: symbols used in GROUP BY that should be preserved through aggregation.
     // IMPORTANT: Exclude symbols that are internal to pattern comprehensions (declared in PC patterns),
     // as these are not available after RollUpApply - only the PC result symbol is.
     std::unordered_set<Symbol> pc_internal_symbols;
-    for (const auto &[sym, pc_dat] : pc_data) {
+    for (const auto &pc_dat : projection.comprehensions) {
       // expansion_symbols contains all symbols from the PC pattern.
       // Internal symbols are those that are NOT in pre_return_symbols (not bound before RETURN).
       for (const auto &exp_sym : pc_dat.expansion_symbols) {
@@ -870,18 +835,18 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     // Every correlated branch is per input row, so it must run before the Aggregate collapses rows into groups.
     // A result the aggregate itself consumes is read below the Aggregate, so only the others have to survive it.
     const auto &pcs_in_aggregations = body.pattern_comprehensions_in_aggregations();
-    for (auto &[result_symbol, list_collection_data] : pc_data) {
-      if (!list_collection_data.op) continue;
-      auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
+    for (auto &data : projection.comprehensions) {
+      if (!data.op) continue;
+      auto list_collection_symbols = data.op->ModifiedSymbols(body.symbol_table());
       last_op = std::make_unique<RollUpApply>(
-          std::move(last_op), std::move(list_collection_data.op), list_collection_symbols, result_symbol);
-      if (!pcs_in_aggregations.contains(result_symbol)) {
-        remember.push_back(result_symbol);
+          std::move(last_op), std::move(data.op), list_collection_symbols, data.result_symbol);
+      if (!pcs_in_aggregations.contains(data.result_symbol)) {
+        remember.push_back(data.result_symbol);
       }
     }
 
     const auto &exists_in_aggregations = body.exists_in_aggregations();
-    for (auto &[result_symbol, op] : exists_data) {
+    for (auto &[result_symbol, op] : projection.exists) {
       if (!op) continue;
       last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(op), result_symbol);
       if (!std::ranges::contains(exists_in_aggregations, result_symbol)) {
@@ -892,28 +857,23 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
   }
 
-  auto splice_comprehensions = [&](auto &&pc_data) {
-    for (auto &[result_symbol, list_collection_data] : pc_data) {
-      if (list_collection_data.op) {
-        auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
-        last_op = std::make_unique<RollUpApply>(
-            std::move(last_op), std::move(list_collection_data.op), list_collection_symbols, result_symbol);
-      }
+  // Splices a list-fold RollUpApply for each planned comprehension onto last_op, then a bool-fold one for each
+  // planned EXISTS. Anything already spliced above has had its operator moved out and is skipped.
+  auto splice_branches = [&](auto &&branches) {
+    for (auto &data : branches.comprehensions) {
+      if (!data.op) continue;
+      auto list_collection_symbols = data.op->ModifiedSymbols(body.symbol_table());
+      last_op = std::make_unique<RollUpApply>(
+          std::move(last_op), std::move(data.op), list_collection_symbols, data.result_symbol);
+    }
+    for (auto &[result_symbol, op] : branches.exists) {
+      if (!op) continue;
+      last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(op), result_symbol);
     }
   };
 
-  // Plan remaining pattern comprehensions AFTER Aggregate (or when no aggregations)
-  splice_comprehensions(pc_data);
-
-  // Splices a bool-fold RollUpApply for each planned EXISTS in @p exists_data onto last_op.
-  auto splice_exists = [&](auto &&data) {
-    for (auto &[result_symbol, op] : data) {
-      if (op) {
-        last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(op), result_symbol);
-      }
-    }
-  };
-  splice_exists(exists_data);
+  // Plan remaining branches AFTER Aggregate (or when no aggregations)
+  splice_branches(projection);
 
   bool const has_periodic_commit = commit_frequency != nullptr;
   if (has_periodic_commit) {
@@ -926,8 +886,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<Distinct>(std::move(last_op), body.output_symbols());
   }
   // They read the named expression symbols, and OrderBy reads them in its collection sweep - so directly below it.
-  splice_comprehensions(body.order_by_pattern_comprehension_data());
-  splice_exists(body.order_by_exists_data());
+  splice_branches(body.branches_at(BodyPosition::kOrderBy));
   // Like Where, OrderBy can read from symbols established by named expressions
   // in Produce, so it must come after it.
   if (!body.order_by().empty()) {
@@ -957,8 +916,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   // general, comes after any OrderBy, Skip or Limit.
   if (body.where()) {
     // Below the Filter, not the OrderBy: spliced lower, it would hand the Filter one frozen value per replayed row.
-    splice_comprehensions(body.where_pattern_comprehension_data());
-    splice_exists(body.where_exists_data());
+    splice_branches(body.branches_at(BodyPosition::kWhere));
     last_op = std::make_unique<Filter>(
         std::move(last_op), std::vector<std::shared_ptr<LogicalOperator>>{}, body.where()->expression_);
   }
