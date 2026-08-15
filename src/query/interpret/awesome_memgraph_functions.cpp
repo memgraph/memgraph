@@ -1829,7 +1829,7 @@ utils::Timezone GetTimezone(const memgraph::query::TypedValue::TMap &input_param
   }
   const auto &value = input_parameters.at(timezone);
   if (value.IsString()) {
-    return utils::Timezone(value.ValueString());
+    return utils::ParseTimezoneFromUserString(value.ValueString());
   }
   if (value.IsInt()) {
     return utils::Timezone(std::chrono::minutes{value.ValueInt()});

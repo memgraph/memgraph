@@ -756,6 +756,31 @@ std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_
   return {Timezone(compute_offset(sign, maybe_hours.value(), maybe_minutes.value())), timezone_offset_string.length()};
 }
 
+Timezone ParseTimezoneFromUserString(std::string_view timezone) {
+  if (timezone.empty()) {
+    throw temporal::InvalidArgumentException("The timezone must not be empty.");
+  }
+
+  if (timezone == "Z" || timezone == "z") {
+    return Timezone{std::chrono::minutes{0}};
+  }
+
+  if (timezone.front() == '+' || timezone.front() == '-') {
+    const auto [parsed, unconsumed_length] = ParseTimezoneFromOffset(timezone);
+    if (unconsumed_length != 0) {
+      throw temporal::InvalidArgumentException("Extra characters after the timezone offset. {}",
+                                               kSupportedZonedDateTimeFormatsHelpMessage);
+    }
+    return parsed;
+  }
+
+  try {
+    return Timezone{std::chrono::locate_zone(timezone)};
+  } catch (...) {
+    throw temporal::InvalidArgumentException("Timezone name is not in the IANA time zone database.");
+  }
+}
+
 ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
   // https://en.wikipedia.org/wiki/ISO_8601#Time_zone_designators
 
