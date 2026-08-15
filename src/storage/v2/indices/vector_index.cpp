@@ -54,7 +54,7 @@ bool VectorIndex::CreateIndex(ManifestRegistry &registry, VectorIndexSpec &spec,
     });
     return true;
   } catch (const std::exception &) {
-    DropIndex(spec.index_name, name_id_mapper);
+    DropIndex(registry, spec.index_name, name_id_mapper);
     throw;
   }
 }
@@ -140,7 +140,7 @@ void VectorIndex::RecoverIndex(ManifestRegistry &registry, VectorIndexRecoveryIn
       PopulateVectorIndexSingleThreaded(vertices, process_vertex_for_recovery);
     }
   } catch (const std::exception &) {
-    DropIndex(spec.index_name, name_id_mapper);
+    DropIndex(registry, spec.index_name, name_id_mapper);
     throw;
   }
 
@@ -167,7 +167,8 @@ void VectorIndex::AddVertexToIndex(ManifestRegistry &registry, uint64_t index_id
   UpdateVectorIndex(item_ptr->mg_index, spec, &vertex, vector, thread_id);
 }
 
-std::optional<VectorIndex::DroppedIndexCapture> VectorIndex::DropIndex(std::string_view index_name,
+std::optional<VectorIndex::DroppedIndexCapture> VectorIndex::DropIndex(ManifestRegistry &registry,
+                                                                       std::string_view index_name,
                                                                        NameIdMapper *name_id_mapper) {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) return std::nullopt;
@@ -194,7 +195,6 @@ std::optional<VectorIndex::DroppedIndexCapture> VectorIndex::DropIndex(std::stri
     rewritten_vertices.reserve(indexed_vertices.size());
     try {
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
-      auto &registry = ThrowNoManifestRegistry();
       std::vector<double> vector(dimension);
       for (auto *vertex : indexed_vertices) {
         auto vector_property = vertex->properties.GetProperty(registry, spec.property);
@@ -208,7 +208,7 @@ std::optional<VectorIndex::DroppedIndexCapture> VectorIndex::DropIndex(std::stri
       }
     } catch (const utils::OutOfMemoryException &) {
       const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
-      for (auto *vertex : rewritten_vertices) ReinstallIndexIdInProperty(vertex, spec.property, index_id);
+      for (auto *vertex : rewritten_vertices) ReinstallIndexIdInProperty(registry, vertex, spec.property, index_id);
       throw;
     }
   }
@@ -220,11 +220,11 @@ std::optional<VectorIndex::DroppedIndexCapture> VectorIndex::DropIndex(std::stri
                              .rewritten_vertices = std::move(rewritten_vertices)};
 }
 
-void VectorIndex::RestoreIndex(DroppedIndexCapture &&capture) {
+void VectorIndex::RestoreIndex(ManifestRegistry &registry, DroppedIndexCapture &&capture) {
   // Abort path: must not propagate OOM (called from a noexcept abort callback).
   const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
   for (auto *vertex : capture.rewritten_vertices) {
-    ReinstallIndexIdInProperty(vertex, capture.evicted_item->spec.property, capture.index_id);
+    ReinstallIndexIdInProperty(registry, vertex, capture.evicted_item->spec.property, capture.index_id);
   }
   auto new_map = std::make_shared<VectorIndexContainer>(*index_);
   new_map->try_emplace(capture.index_id, std::move(capture.evicted_item));
@@ -652,10 +652,10 @@ utils::small_vector<float> VectorIndexRecovery::ExtractVectorForRecovery(
   throw query::VectorSearchException(fmt::format("Vector index {} not found in recovery info.", index_name));
 }
 
-void VectorIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
+void VectorIndexRecovery::UpdateOnIndexDrop(ManifestRegistry &registry, std::string_view index_name,
+                                            NameIdMapper *name_id_mapper,
                                             std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
                                             utils::SkipListDb<Vertex>::Accessor &vertices) {
-  auto &registry = ThrowNoManifestRegistry();
   for (auto &recovery_info : recovery_info_vec) {
     if (recovery_info.spec.index_name == index_name) {
       for (auto &[gid, vector] : recovery_info.index_entries) {
@@ -682,14 +682,14 @@ void VectorIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdM
       recovery_info_vec.end());
 }
 
-void VectorIndexRecovery::UpdateOnLabelAddition(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
+void VectorIndexRecovery::UpdateOnLabelAddition(ManifestRegistry &registry, LabelId label, Vertex *vertex,
+                                                NameIdMapper *name_id_mapper,
                                                 std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
   auto matching_indices = FindMatchingIndices(label, recovery_info_vec);
   if (matching_indices.empty()) {
     return;
   }
 
-  auto &registry = ThrowNoManifestRegistry();
   auto vertex_properties = vertex->properties.ExtractPropertyIds(registry);
   for (auto *recovery_info : matching_indices) {
     if (!recovery_info->spec.label_filter.Matches(vertex->labels)) continue;
@@ -718,14 +718,14 @@ void VectorIndexRecovery::UpdateOnLabelAddition(LabelId label, Vertex *vertex, N
   }
 }
 
-void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
+void VectorIndexRecovery::UpdateOnLabelRemoval(ManifestRegistry &registry, LabelId label, Vertex *vertex,
+                                               NameIdMapper *name_id_mapper,
                                                std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
   auto matching_indices = FindMatchingIndices(label, recovery_info_vec);
   if (matching_indices.empty()) {
     return;
   }
 
-  auto &registry = ThrowNoManifestRegistry();
   auto vertex_properties = vertex->properties.ExtractPropertyIds(registry);
   for (auto *recovery_info : matching_indices) {
     if (recovery_info->spec.label_filter.Matches(vertex->labels)) continue;

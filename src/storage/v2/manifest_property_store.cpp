@@ -97,6 +97,9 @@ enum class BlobTag : uint8_t {
   Enum,
   Point2d,
   Point3d,
+  /// The ids a list was given when it moved into the vector index. The vector itself lives in
+  /// the index, so only the ids are written here.
+  VectorIndexId,
 };
 
 /// Writes a blob, or measures one: given no destination it counts the bytes instead of
@@ -213,6 +216,8 @@ auto StoredTypeOf(PropertyValue const &value) -> StoredType {
     case PropertyValueType::Point3d:
       return StoredType::Fixed(
           PropertyStoreType::POINT, kPoint3dWidth, static_cast<uint32_t>(value.ValuePoint3d().crs()));
+    case PropertyValueType::VectorIndexId:
+      return StoredType::Variable(PropertyStoreType::VECTOR);
     default:
       ThrowUnsupported(value);
   }
@@ -500,6 +505,15 @@ void EncodeBlobValue(PropertyValue const &value, BlobWriter &out) {
       }
       return;
     }
+    case PropertyValueType::VectorIndexId: {
+      // Only the ids: the vector they index lives in the vector index, and reading the property
+      // back gives it as empty, which is what the store this replaced did.
+      auto const &ids = value.ValueVectorIndexIds();
+      out.Tag(BlobTag::VectorIndexId);
+      out.Count(ids.size());
+      for (auto const id : ids) out.Raw(id);
+      return;
+    }
     case PropertyValueType::Map: {
       auto const &map = value.ValueMap();
       out.Tag(BlobTag::Map);
@@ -659,6 +673,13 @@ auto DecodeBlobValue(BlobReader &in) -> PropertyValue {
       }
       return PropertyValue{std::move(map)};
     }
+    case BlobTag::VectorIndexId: {
+      auto const count = in.Count();
+      auto ids = PropertyValue::vector_index_id_t{};
+      ids.reserve(count);
+      for (uint32_t i = 0; i != count; ++i) ids.push_back(in.Raw<uint64_t>());
+      return PropertyValue{PropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = {}}};
+    }
     case BlobTag::TemporalData: {
       auto const type = static_cast<TemporalType>(in.Raw<uint8_t>());
       return PropertyValue{TemporalData{type, in.Raw<int64_t>()}};
@@ -789,6 +810,17 @@ auto BlobEquals(BlobReader &in, PropertyValue const &value) -> bool {
         if (!BlobEquals(in, element)) return false;
       }
       return true;
+    }
+    case BlobTag::VectorIndexId: {
+      auto const count = in.Count();
+      // The ids are read whether or not they are wanted, so the reader is left where the next
+      // value begins - a nested value compares in the middle of a blob.
+      auto matches = value.IsVectorIndexId() && value.ValueVectorIndexIds().size() == count;
+      for (uint32_t i = 0; i != count; ++i) {
+        auto const id = in.Raw<uint64_t>();
+        if (matches && value.ValueVectorIndexIds()[i] != id) matches = false;
+      }
+      return matches;
     }
     case BlobTag::TemporalData: {
       auto const type = static_cast<TemporalType>(in.Raw<uint8_t>());
@@ -957,6 +989,8 @@ auto ExtendedTypeOf(StoredType stored_type) -> ExtendedPropertyType {
       // what tells the two apart.
       return ExtendedPropertyType{stored_type.width == kPoint2dWidth ? PropertyValueType::Point2d
                                                                      : PropertyValueType::Point3d};
+    case PropertyStoreType::VECTOR:
+      return ExtendedPropertyType{PropertyValueType::VectorIndexId};
     default:
       LOG_FATAL("Not a stored property type");
   }

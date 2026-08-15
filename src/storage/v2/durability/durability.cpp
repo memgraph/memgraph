@@ -463,7 +463,8 @@ void RecoverIndicesAndStats(ManifestRegistry &registry,
     spdlog::info("Recreating {} vector edge indices from metadata.", indices_metadata.vector_edge_indices.size());
     auto vertices_acc = vertices->access();
     for (auto &recovery_info : indices_metadata.vector_edge_indices) {
-      indices->vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, updater, snapshot_info);
+      indices->vector_edge_index_.RecoverIndex(
+          registry, recovery_info, vertices_acc, name_id_mapper, updater, snapshot_info);
       spdlog::info("Vector edge index {} is recreated from metadata", recovery_info.spec.index_name);
     }
     spdlog::info("Vector edge indices are recreated.");

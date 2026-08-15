@@ -80,8 +80,8 @@ std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &s
   return inserted ? std::optional<uint64_t>{index_id} : std::nullopt;
 }
 
-void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId edge_type, Vertex *from_vertex,
-                                     Vertex *to_vertex, NameIdMapper *name_id_mapper,
+void VectorEdgeIndex::AddEdgeToIndex(ManifestRegistry &registry, uint64_t index_id, Edge *edge, EdgeTypeId edge_type,
+                                     Vertex *from_vertex, Vertex *to_vertex, NameIdMapper *name_id_mapper,
                                      std::optional<std::size_t> thread_id) {
   auto it = index_->find(index_id);
   if (it == index_->end()) {
@@ -89,7 +89,6 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
   }
   auto &item_ptr = it->second;
   auto &spec = item_ptr->spec;
-  auto &registry = ThrowNoManifestRegistry();
   auto property = edge->properties.GetProperty(registry, spec.property);
   if (property.IsNull()) return;
   // an edge already indexed by another vector-edge index stores no inline vector; recover it from that
@@ -111,8 +110,8 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
   }
 }
 
-bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices,
-                                  NameIdMapper *name_id_mapper,
+bool VectorEdgeIndex::CreateIndex(ManifestRegistry &registry, const VectorEdgeIndexSpec &spec,
+                                  utils::SkipListDb<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
   try {
     const auto index_id = SetupIndex(spec, name_id_mapper);
@@ -127,7 +126,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
         auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
         if (edge->deleted() || to_vertex->deleted()) continue;
 
-        AddEdgeToIndex(*index_id, edge, edge_type, &vertex, to_vertex, name_id_mapper, thread_id);
+        AddEdgeToIndex(registry, *index_id, edge, edge_type, &vertex, to_vertex, name_id_mapper, thread_id);
         if (snapshot_info) {
           snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
         }
@@ -135,12 +134,12 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
     });
     return true;
   } catch (const std::exception &) {
-    DropIndex(spec.index_name, name_id_mapper);
+    DropIndex(registry, spec.index_name, name_id_mapper);
     throw;
   }
 }
 
-void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
+void VectorEdgeIndex::RecoverIndex(ManifestRegistry &registry, VectorEdgeIndexRecoveryInfo &recovery_info,
                                    utils::SkipListDb<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
                                    ActiveIndicesUpdater const &updater,
                                    std::optional<SnapshotObserverInfo> const &snapshot_info) {
@@ -177,7 +176,7 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
           vector.clear();
           vector.shrink_to_fit();
         } else {
-          AddEdgeToIndex(*index_id, edge, edge_type, &vertex, to_vertex, name_id_mapper, thread_id);
+          AddEdgeToIndex(registry, *index_id, edge, edge_type, &vertex, to_vertex, name_id_mapper, thread_id);
         }
       }
       if (snapshot_info) {
@@ -191,14 +190,15 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
       PopulateVectorIndexSingleThreaded(vertices, process_vertex_for_recovery);
     }
   } catch (const std::exception &) {
-    DropIndex(spec.index_name, name_id_mapper);
+    DropIndex(registry, spec.index_name, name_id_mapper);
     throw;
   }
 
   updater(GetActiveIndices());
 }
 
-std::optional<VectorEdgeIndex::DroppedIndexCapture> VectorEdgeIndex::DropIndex(std::string_view index_name,
+std::optional<VectorEdgeIndex::DroppedIndexCapture> VectorEdgeIndex::DropIndex(ManifestRegistry &registry,
+                                                                               std::string_view index_name,
                                                                                NameIdMapper *name_id_mapper) {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) return std::nullopt;
@@ -225,7 +225,6 @@ std::optional<VectorEdgeIndex::DroppedIndexCapture> VectorEdgeIndex::DropIndex(s
     std::size_t processed = 0;
     try {
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
-      auto &registry = ThrowNoManifestRegistry();
       std::vector<double> vector(dimension);
       for (auto *edge : dropped_edges) {
         auto vector_property = edge->properties.GetProperty(registry, spec.property);
@@ -239,7 +238,8 @@ std::optional<VectorEdgeIndex::DroppedIndexCapture> VectorEdgeIndex::DropIndex(s
       }
     } catch (const utils::OutOfMemoryException &) {
       const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
-      for (std::size_t i = 0; i < processed; ++i) ReinstallIndexIdInProperty(dropped_edges[i], spec.property, index_id);
+      for (std::size_t i = 0; i < processed; ++i)
+        ReinstallIndexIdInProperty(registry, dropped_edges[i], spec.property, index_id);
       throw;
     }
   }
@@ -274,11 +274,11 @@ std::optional<VectorEdgeIndex::DroppedIndexCapture> VectorEdgeIndex::DropIndex(s
                              .evicted_endpoints = std::move(evicted_endpoints)};
 }
 
-void VectorEdgeIndex::RestoreIndex(DroppedIndexCapture &&capture) {
+void VectorEdgeIndex::RestoreIndex(ManifestRegistry &registry, DroppedIndexCapture &&capture) {
   // Abort path: must not propagate OOM (called from a noexcept abort callback).
   const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
   for (auto *edge : capture.rewritten_edges) {
-    ReinstallIndexIdInProperty(edge, capture.evicted_item->spec.property, capture.index_id);
+    ReinstallIndexIdInProperty(registry, edge, capture.evicted_item->spec.property, capture.index_id);
   }
   auto new_map = std::make_shared<VectorEdgeIndexContainer>(*index_);
   new_map->try_emplace(capture.index_id, std::move(capture.evicted_item));
@@ -598,10 +598,10 @@ void VectorEdgeIndex::SerializeAllVectorEdgeIndices(durability::BaseEncoder *enc
 }
 
 // VectorEdgeIndexRecovery implementation
-void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
+void VectorEdgeIndexRecovery::UpdateOnIndexDrop(ManifestRegistry &registry, std::string_view index_name,
+                                                NameIdMapper *name_id_mapper,
                                                 std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
                                                 utils::SkipListDb<Vertex>::Accessor &vertices) {
-  auto &registry = ThrowNoManifestRegistry();
   for (auto &recovery_info : recovery_info_vec) {
     if (recovery_info.spec.index_name == index_name) {
       auto maybe_index_id = name_id_mapper->NameToIdIfExists(index_name);

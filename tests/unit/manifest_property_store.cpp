@@ -589,6 +589,46 @@ TEST_F(ManifestPropertyStoreTest, ReservingLeavesTheRecordEmptyNotAbsent) {
   EXPECT_EQ(Get(1), PropertyValue(std::string{"late"}));
 }
 
+// A list moved into the vector index leaves a value behind holding the ids it was given. The
+// float vector itself lives in the index, and reading the property back gives the ids and an
+// empty vector, which is what the store it replaced did.
+TEST_F(ManifestPropertyStoreTest, VectorIndexIdsRoundTrip) {
+  using memgraph::storage::PropertyValue;
+
+  auto const ids = PropertyValue::vector_index_id_t{7, 11, 13};
+  Set(1, PropertyValue(PropertyValue::VectorIndexIdData{.ids = ids, .vector = {}}));
+
+  auto const read = Get(1);
+  ASSERT_TRUE(read.IsVectorIndexId());
+  EXPECT_EQ(read.ValueVectorIndexIds(), ids);
+  EXPECT_TRUE(read.ValueVectorIndexList().empty());
+
+  // The type is answered from the shape, so it has to name this as what it is.
+  EXPECT_EQ(store_.GetExtendedPropertyType(registry_, Prop(1)).type,
+            memgraph::storage::PropertyValueType::VectorIndexId);
+
+  // And a value comparison works on the encoded bytes, so it has to agree with the round trip.
+  EXPECT_TRUE(store_.IsPropertyEqual(
+      registry_, Prop(1), PropertyValue(PropertyValue::VectorIndexIdData{.ids = ids, .vector = {}})));
+  EXPECT_FALSE(store_.IsPropertyEqual(
+      registry_,
+      Prop(1),
+      PropertyValue(PropertyValue::VectorIndexIdData{.ids = PropertyValue::vector_index_id_t{7, 11}, .vector = {}})));
+}
+
+TEST_F(ManifestPropertyStoreTest, VectorIndexIdsSurviveNeighbouringWrites) {
+  using memgraph::storage::PropertyValue;
+
+  auto const ids = PropertyValue::vector_index_id_t{1, 2, 3, 4};
+  Set(1, PropertyValue(PropertyValue::VectorIndexIdData{.ids = ids, .vector = {}}));
+  Set(2, PropertyValue(std::string{"neighbour"}));
+  Set(2, PropertyValue(std::string{"a much longer neighbour that moves the variable region"}));
+
+  auto const read = Get(1);
+  ASSERT_TRUE(read.IsVectorIndexId());
+  EXPECT_EQ(read.ValueVectorIndexIds(), ids);
+}
+
 TEST_F(ManifestPropertyStoreTest, ClearRemovesEverything) {
   Set(1, PropertyValue(int64_t{1}));
   Set(2, PropertyValue(std::string{"x"}));

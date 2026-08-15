@@ -2439,8 +2439,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   // rewrite (Vector -> VectorIndexId) CreateIndex did.
   auto *name_mapper = in_memory->name_id_mapper_.get();
   auto const name = spec.index_name;
+  auto &registry = in_memory->manifest_registry();
   transaction_.abort_callbacks_.Add(
-      [&vector_index, name_mapper, name]() { vector_index.DropIndex(name, name_mapper); });
+      [&vector_index, &registry, name_mapper, name]() { vector_index.DropIndex(registry, name, name_mapper); });
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
   return {};
 }
@@ -2453,23 +2454,24 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto updater = in_memory->indices_.MakeUpdater();
   auto &metric_handles = in_memory->metric_handles_;
-  if (auto vec_capture = vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
+  auto &registry = in_memory->manifest_registry();
+  if (auto vec_capture = vector_index.DropIndex(registry, index_name, in_memory->name_id_mapper_.get())) {
     transaction_.commit_callbacks_.Add([&vector_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
       vector_index.PublishActiveIndices(updater);
       metric_handles.active_vector_indices.Decrement();
     });
     // RestoreIndex puts the IndexItem back (usearch state survives via the captured
     // shared_ptr) and re-rewrites the touched vertex properties.
-    transaction_.abort_callbacks_.Add([&vector_index, capture = std::move(*vec_capture)]() mutable {
-      vector_index.RestoreIndex(std::move(capture));
+    transaction_.abort_callbacks_.Add([&vector_index, &registry, capture = std::move(*vec_capture)]() mutable {
+      vector_index.RestoreIndex(registry, std::move(capture));
     });
-  } else if (auto edge_capture = vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
+  } else if (auto edge_capture = vector_edge_index.DropIndex(registry, index_name, in_memory->name_id_mapper_.get())) {
     transaction_.commit_callbacks_.Add([&vector_edge_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
       vector_edge_index.PublishActiveIndices(updater);
       metric_handles.active_vector_edge_indices.Decrement();
     });
-    transaction_.abort_callbacks_.Add([&vector_edge_index, capture = std::move(*edge_capture)]() mutable {
-      vector_edge_index.RestoreIndex(std::move(capture));
+    transaction_.abort_callbacks_.Add([&vector_edge_index, &registry, capture = std::move(*edge_capture)]() mutable {
+      vector_edge_index.RestoreIndex(registry, std::move(capture));
     });
   } else {
     return std::unexpected{IndexDefinitionError{}};
@@ -2500,7 +2502,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector edge index with the same name as vector index on nodes
   if (vector_index.IndexExists(spec.index_name, in_memory->name_id_mapper_.get()) ||
-      !vector_edge_index.CreateIndex(spec, vertices_acc, in_memory->name_id_mapper_.get())) {
+      !vector_edge_index.CreateIndex(
+          in_memory->manifest_registry(), spec, vertices_acc, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
   // Defer publication to commit time. See CreateVectorIndex above.
@@ -2508,8 +2511,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto &metric_handles = in_memory->metric_handles_;
   auto *name_mapper = in_memory->name_id_mapper_.get();
   auto const edge_index_name = spec.index_name;
-  transaction_.abort_callbacks_.Add([&vector_edge_index, name_mapper, edge_index_name]() {
-    vector_edge_index.DropIndex(edge_index_name, name_mapper);
+  auto &edge_registry = in_memory->manifest_registry();
+  transaction_.abort_callbacks_.Add([&vector_edge_index, &edge_registry, name_mapper, edge_index_name]() {
+    vector_edge_index.DropIndex(edge_registry, edge_index_name, name_mapper);
   });
   transaction_.commit_callbacks_.Add([&vector_edge_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
     vector_edge_index.PublishActiveIndices(updater);

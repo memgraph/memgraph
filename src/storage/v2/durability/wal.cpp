@@ -1471,7 +1471,7 @@ std::optional<RecoveryInfo> LoadWal(
         vertex->labels.push_back(label_id);
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
         VectorIndexRecovery::UpdateOnLabelAddition(
-            label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
+            registry, label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
       },
       [&](WalVertexRemoveLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -1487,7 +1487,7 @@ std::optional<RecoveryInfo> LoadWal(
         vertex->labels.pop_back();
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
         VectorIndexRecovery::UpdateOnLabelRemoval(
-            label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
+            registry, label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
       },
       [&](WalVertexSetProperty const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -2093,9 +2093,9 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalVectorIndexDrop const &data) {
         VectorIndexRecovery::UpdateOnIndexDrop(
-            data.index_name, name_id_mapper, indices_constraints->indices.vector_indices, vertex_acc);
+            registry, data.index_name, name_id_mapper, indices_constraints->indices.vector_indices, vertex_acc);
         VectorEdgeIndexRecovery::UpdateOnIndexDrop(
-            data.index_name, name_id_mapper, indices_constraints->indices.vector_edge_indices, vertex_acc);
+            registry, data.index_name, name_id_mapper, indices_constraints->indices.vector_edge_indices, vertex_acc);
       },
       [&](WalTtlOperation const &data) {
         switch (data.operation_type) {

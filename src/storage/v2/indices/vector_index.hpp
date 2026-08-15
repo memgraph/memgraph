@@ -148,7 +148,7 @@ struct VectorIndexRecovery {
   /// @param name_id_mapper Mapper for name/ID conversions.
   /// @param recovery_info_vec The vector of recovery info to update.
   /// @param vertices Accessor to the vertices skip list.
-  static void UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
+  static void UpdateOnIndexDrop(ManifestRegistry &registry, std::string_view index_name, NameIdMapper *name_id_mapper,
                                 std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
                                 utils::SkipListDb<Vertex>::Accessor &vertices);
 
@@ -157,7 +157,8 @@ struct VectorIndexRecovery {
   /// @param vertex The vertex receiving the label.
   /// @param name_id_mapper Mapper for name/ID conversions.
   /// @param recovery_info_vec The vector of recovery info to update.
-  static void UpdateOnLabelAddition(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
+  static void UpdateOnLabelAddition(ManifestRegistry &registry, LabelId label, Vertex *vertex,
+                                    NameIdMapper *name_id_mapper,
                                     std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
 
   /// @brief Updates recovery info when a label is removed from a vertex.
@@ -165,7 +166,8 @@ struct VectorIndexRecovery {
   /// @param vertex The vertex losing the label.
   /// @param name_id_mapper Mapper for name/ID conversions.
   /// @param recovery_info_vec The vector of recovery info to update.
-  static void UpdateOnLabelRemoval(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
+  static void UpdateOnLabelRemoval(ManifestRegistry &registry, LabelId label, Vertex *vertex,
+                                   NameIdMapper *name_id_mapper,
                                    std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
 
   /// @brief Updates recovery info when a property changes on a vertex.
@@ -309,12 +311,13 @@ class VectorIndex {
   /// transaction abort, or std::nullopt if the index doesn't exist. Callers that
   /// only need a fire-and-forget drop (e.g. CreateIndex's exception rollback)
   /// can discard the return value.
-  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+  std::optional<DroppedIndexCapture> DropIndex(ManifestRegistry &registry, std::string_view index_name,
+                                               NameIdMapper *name_id_mapper);
 
   /// @brief Reinstalls an index previously evicted by DropIndex. Re-adds the
   /// captured index_id to each rewritten vertex's property and re-inserts the
   /// IndexItem into the container.
-  void RestoreIndex(DroppedIndexCapture &&capture);
+  void RestoreIndex(ManifestRegistry &registry, DroppedIndexCapture &&capture);
 
   /// @brief Drops all existing indexes.
   void Clear();

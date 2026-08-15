@@ -71,7 +71,7 @@ struct VectorEdgeIndexRecoveryInfo {
 /// @struct VectorEdgeIndexRecovery
 /// @brief Handles recovery operations for vector edge indices during WAL replay and snapshot recovery.
 struct VectorEdgeIndexRecovery {
-  static void UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
+  static void UpdateOnIndexDrop(ManifestRegistry &registry, std::string_view index_name, NameIdMapper *name_id_mapper,
                                 std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
                                 utils::SkipListDb<Vertex>::Accessor &vertices);
 
@@ -201,13 +201,14 @@ class VectorEdgeIndex {
   void PublishActiveIndices(ActiveIndicesUpdater const &updater) const;
 
   /// @brief Creates a new index based on the provided specification.
-  bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices,
-                   NameIdMapper *name_id_mapper,
+  bool CreateIndex(ManifestRegistry &registry, const VectorEdgeIndexSpec &spec,
+                   utils::SkipListDb<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Recovers a vector edge index based on recovery info.
-  void RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
-                    NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
+  void RecoverIndex(ManifestRegistry &registry, VectorEdgeIndexRecoveryInfo &recovery_info,
+                    utils::SkipListDb<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
+                    ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// Mirror of VectorIndex::DroppedIndexCapture, plus evicted_endpoints — endpoint
@@ -223,10 +224,11 @@ class VectorEdgeIndex {
   /// transaction abort, or std::nullopt if the index doesn't exist. Callers that
   /// only need a fire-and-forget drop (e.g. CreateIndex's exception rollback)
   /// can discard the return value.
-  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+  std::optional<DroppedIndexCapture> DropIndex(ManifestRegistry &registry, std::string_view index_name,
+                                               NameIdMapper *name_id_mapper);
 
   /// @brief Reinstalls an edge index previously evicted by DropIndex.
-  void RestoreIndex(DroppedIndexCapture &&capture);
+  void RestoreIndex(ManifestRegistry &registry, DroppedIndexCapture &&capture);
 
   /// @brief Drops all existing indexes.
   void Clear();
@@ -282,8 +284,9 @@ class VectorEdgeIndex {
   std::optional<uint64_t> SetupIndex(const VectorEdgeIndexSpec &spec, NameIdMapper *name_id_mapper);
 
   /// @brief Adds a single edge to the index, converting its property to VectorIndexId.
-  void AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
-                      NameIdMapper *name_id_mapper, std::optional<std::size_t> thread_id = std::nullopt);
+  void AddEdgeToIndex(ManifestRegistry &registry, uint64_t index_id, Edge *edge, EdgeTypeId edge_type,
+                      Vertex *from_vertex, Vertex *to_vertex, NameIdMapper *name_id_mapper,
+                      std::optional<std::size_t> thread_id = std::nullopt);
 
   /// @brief Removes an edge from a vector index.
   void RemoveEdgeFromIndex(Edge *edge, uint64_t index_id);
