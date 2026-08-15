@@ -1171,3 +1171,61 @@ Feature: WHERE exists
       Then the result should be:
           | id    |
           | 1     |
+
+  Scenario: EXISTS subquery body that is a UNION of bodies with no operators
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 1})
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          WHERE EXISTS {
+              RETURN 1 AS c
+              UNION
+              RETURN 2 AS c
+          }
+          RETURN n.id as id;
+          """
+      Then the result should be:
+          | id    |
+          | 1     |
+
+  Scenario: EXISTS subquery in a projection whose body is a UNION with no operators
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 1})
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          RETURN EXISTS {
+              RETURN 1 AS c
+              UNION ALL
+              RETURN 2 AS c
+          } AS h;
+          """
+      Then the result should be:
+          | h    |
+          | true |
+
+  Scenario: EXISTS subquery body that is a UNION of one matching and one empty branch
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 1})
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          RETURN EXISTS {
+              MATCH (x:Missing) RETURN x AS c
+              UNION
+              RETURN 2 AS c
+          } AS h;
+          """
+      Then the result should be:
+          | h    |
+          | true |
