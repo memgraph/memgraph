@@ -46,6 +46,7 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
 
 import memgraph.csv.parsing;
@@ -533,6 +534,56 @@ TYPED_TEST(InterpreterTest, PlanThatReachesStorageOpensTheSkippedTransaction) {
   // The transaction was opened after the fact, so this is no longer an accessor-free execution.
   EXPECT_EQ(stream.GetSummary().count("no_storage_access"), 0U);
 }
+
+#ifdef MG_ENTERPRISE
+// A user's memory quota is charged through the transaction's memory tracker. A query that opened no
+// transaction is never charged, so a user who has a quota keeps every query on the transaction path.
+TYPED_TEST(InterpreterTest, UserWithAMemoryQuotaTakesNormalPath) {
+  // A user resource is only attached to a session under an enterprise license. The checker is process
+  // state shared with every other test in this binary, so put it back.
+  memgraph::license::global_license_checker.EnableTesting();
+  const memgraph::utils::OnScopeExit restore_license{
+      []() { memgraph::license::global_license_checker.DisableTesting(); }};
+  auto &interpreter = this->default_interpreter.interpreter;
+  auto quota = std::make_shared<memgraph::utils::UserResources>();
+  quota->SetTransactionsMemoryLimit(1024UL * 1024UL * 1024UL);
+  interpreter.SetUser(this->default_interpreter.auth_checker.GenQueryUser("alice", {}), quota);
+
+  for (auto const *query : {"RETURN 1", "CALL mg.procedures() YIELD name"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    EXPECT_EQ(stream.GetSummary().count("no_storage_access"), 0U);
+  }
+
+  // Without a quota the same queries skip the transaction.
+  interpreter.SetUser(this->default_interpreter.auth_checker.GenQueryUser("bob", {}));
+  auto stream = this->Interpret("RETURN 1");
+  EXPECT_EQ(stream.GetSummary().count("no_storage_access"), 1U);
+}
+#endif
+
+#ifdef MG_ENTERPRISE
+// A query that skips its transaction must not disturb what the session has cached. The fine-grained
+// auth cache is keyed on the database and rebuilt from the accessor, so dropping it on every graph-free
+// query would make the next real query pay to rebuild it.
+TYPED_TEST(InterpreterTest, GraphFreeQueryLeavesTheAuthCacheWarm) {
+  using State = memgraph::query::CachedFineGrainedAuth::State;
+  auto &interpreter = this->default_interpreter.interpreter;
+  // The cache is only populated for a named user; the fixture's default user has no name.
+  interpreter.SetUser(this->default_interpreter.auth_checker.GenQueryUser("alice", {}));
+
+  this->Interpret("MATCH (n) RETURN n");
+  const auto warmed = interpreter.cached_fga_->state;
+  ASSERT_NE(warmed, State::EMPTY);
+
+  for (auto const *query : {"RETURN 1", "CALL mg.procedures() YIELD name", "UNWIND [1] AS x RETURN x"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    ASSERT_EQ(stream.GetSummary().count("no_storage_access"), 1U);
+    EXPECT_EQ(interpreter.cached_fga_->state, warmed);
+  }
+}
+#endif
 
 // A session whose current database was dropped out from under it has no database to run against. Both a
 // graph-free query and a graph-touching one must report that, not abort the process.

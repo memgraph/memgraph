@@ -280,6 +280,15 @@ auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameter
   return LogicalPlanResult{.plan = std::move(plan), .is_cacheable = is_cacheable};
 }
 
+namespace {
+
+bool RequiresNoIndices(storage::IndicesCollection const &indices) {
+  return indices.label_.empty() && indices.label_properties_.empty() && indices.edge_type_.empty() &&
+         indices.edge_type_properties_.empty() && indices.edge_property_.empty() && indices.vertex_property_.empty();
+}
+
+}  // namespace
+
 std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
                                                CypherQuery *query, const Parameters &parameters,
                                                PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
@@ -302,12 +311,11 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
       // validate the index usage
       auto &ptr = existing_plan.value();
 
-      // Accessor-free plans (constant RETURN / no_graph_access CALL) are planned with a null accessor and,
-      // being scan-free, require no indices -- so index readiness is vacuously satisfied. This lets these
-      // queries hit the plan cache instead of re-planning on every Lab ping (CheckIndicesAreReady would
-      // otherwise dereference the storage transaction).
-      auto const all_satisfied =
-          db_accessor != nullptr ? db_accessor->CheckIndicesAreReady(ptr->required_indices()) : true;
+      // Without an accessor there is no way to check that an index is ready, so a cached plan is only
+      // reusable if it needs none. A query planned with no accessor is scan-free and needs none, which is
+      // what lets these queries hit the plan cache rather than re-plan on every ping.
+      auto const all_satisfied = db_accessor != nullptr ? db_accessor->CheckIndicesAreReady(ptr->required_indices())
+                                                        : RequiresNoIndices(ptr->required_indices());
       if (all_satisfied && IsFresh(ptr->ast_storage(), ptr->module_generation(), module_generation)) {
         return ptr;
       } else {

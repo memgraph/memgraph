@@ -3717,8 +3717,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
-  // Accessor-free plans have no storage transaction, hence no transaction memory tracker to arm; a
-  // query-level MEMORY LIMIT is rejected in classification and PROCEDURE MEMORY LIMIT runs in the cursor.
+  // A plan running without a storage transaction has no transaction memory tracker to arm. Nothing that
+  // needs one reaches here: a query-level MEMORY LIMIT and a user memory quota both keep a query on the
+  // transaction path, and a per-call PROCEDURE MEMORY LIMIT is installed by the cursor instead.
   auto *memory_tracker = ctx_.db_accessor != nullptr ? &ctx_.db_accessor->GetTransactionMemoryTracker() : nullptr;
   if (memory_tracker != nullptr) {
     // Single query memory limit
@@ -10743,6 +10744,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         accessor_free_candidate = IsAccessorFreeCandidate(*cypher_query, parsed_query.required_privileges);
       }
     }
+#ifdef MG_ENTERPRISE
+    // A user's memory quota is charged through the transaction's memory tracker, and the allocation hook
+    // only charges a user when that tracker is set. Skipping the transaction would therefore let a query
+    // allocate outside the quota, so a user who has one keeps every query on the transaction path.
+    if (accessor_free_candidate && user_resource_ &&
+        user_resource_->GetTransactionsMemory().second != utils::TransactionsMemoryResource::kUnlimited) {
+      accessor_free_candidate = false;
+    }
+#endif
 
     if (!in_explicit_transaction_) {
       auto storage_mode = current_db_.db_acc_
@@ -10848,7 +10858,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (current_db_.execution_db_accessor_ && interpreter_context_->auth_checker && user_or_role_ && *user_or_role_) {
       auto *dba = &*current_db_.execution_db_accessor_;
       cached_fga_->Refresh(*interpreter_context_->auth_checker, *user_or_role_, dba, dba->DatabaseName());
-    } else {
+    } else if (!accessor_free_candidate) {
+      // A query that opened no transaction has no accessor to rebuild the cache from, and reads nothing
+      // the cache protects. Dropping it would make the session's next real query pay to rebuild it.
       cached_fga_->Reset();
     }
 #endif
