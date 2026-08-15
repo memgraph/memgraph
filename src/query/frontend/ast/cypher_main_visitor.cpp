@@ -3954,8 +3954,11 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
     // Curly-brace subquery form: { cypherQuery }
     // Set the flag to indicate we are parsing an EXISTS subquery
     auto old_flag = parsing_exists_subquery_;
+    // The body's clauses are its own, so the enclosing WITH's "everything must be aliased" rule does not reach them.
+    auto old_in_with = std::exchange(in_with_, false);
     parsing_exists_subquery_ = true;
     auto *cypher_query = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+    in_with_ = old_in_with;
     parsing_exists_subquery_ = old_flag;
     exists->content_ = cypher_query;
 
@@ -4248,9 +4251,10 @@ antlrcpp::Any CypherMainVisitor::visitCaseAlternatives(MemgraphCypher::CaseAlter
 
 antlrcpp::Any CypherMainVisitor::visitWith(MemgraphCypher::WithContext *ctx) {
   auto *with = storage_->Create<With>();
-  in_with_ = true;
+  // Restored, not cleared: a WITH inside an EXISTS body inside a WITH's own body would otherwise release the outer one.
+  auto old_in_with = std::exchange(in_with_, true);
   with->body_ = std::any_cast<ReturnBody>(ctx->returnBody()->accept(this));
-  in_with_ = false;
+  in_with_ = old_in_with;
   if (ctx->DISTINCT()) {
     with->body_.distinct = true;
   }

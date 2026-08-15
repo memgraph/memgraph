@@ -8007,6 +8007,31 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
                                                "EXISTS supports only a single relation or a subquery as its input.");
 }
 
+TEST_P(CypherMainVisitorTest, ExistsBodyIsNotJudgedByTheEnclosingWith) {
+  auto &ast_generator = *GetParam();
+
+  // `in_with_` gates "only variables can be non-aliased" for a WITH's own return items. An EXISTS body's clauses are
+  // not those items, so the flag must not still be set while they are visited - the body's `RETURN 1` is legal.
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WITH n, EXISTS { RETURN 1 } AS e RETURN e;"));
+    ASSERT_TRUE(query);
+    const auto *with = dynamic_cast<With *>(query->single_query_->clauses_[1]);
+    ASSERT_TRUE(with);
+    ASSERT_EQ(with->body_.named_expressions.size(), 2U);
+    EXPECT_TRUE(dynamic_cast<Exists *>(with->body_.named_expressions[1]->expression_));
+  }
+  // A body WITH restores the flag rather than clearing it, so the outer WITH's own items are still checked.
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) WITH n, EXISTS { MATCH (m) WITH m AS m RETURN 1 } AS e RETURN e;"));
+    ASSERT_TRUE(query);
+  }
+  TestInvalidQueryWithMessage<SemanticException>("MATCH (n) WITH n, EXISTS { RETURN 1 } AS e, n.prop RETURN e;",
+                                                 ast_generator,
+                                                 "Only variables can be non-aliased in WITH.");
+}
+
 TEST_P(CypherMainVisitorTest, Exists) {
   auto &ast_generator = *GetParam();
   {
