@@ -9,16 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Measures the cost of the accessor-free classification that Interpreter::Prepare runs for every
-// implicit-transaction CypherQuery (interpreter.cpp:10523-10530; explicit-transaction queries skip it).
+// Measures both halves of the graph-free fast path: what a query saves by skipping its storage
+// transaction, and what every other query pays for the analysis that decides it.
 //
-// The interesting number is NOT how fast the accessor-free queries are -- those skip a whole storage
-// transaction and are obviously cheaper. It is whether the added classification slows down the
-// queries that do NOT participate: every normal Cypher query now runs the recognizers and is rejected
-// by them. `NormalMatch`, `NormalArithmeticReturn`, and `NormalCallProcedure` are the regression
-// guards. `NormalCallProcedure` is the worst case for rejection depth: it is a CallProcedure that
-// passes every cheap AST check and is only rejected by the trailing-clause count, so it probes how
-// far a non-participating query gets.
+// The second half is the one that needs watching. Every implicit-transaction Cypher query is now walked
+// by the graph-access analysis and, for most queries, rejected by it. `Match` is the common case, where
+// the walk stops at the first pattern. `MatchWithLongProjection` is the expensive case: the analysis
+// has to walk a wide projection of expressions before the pattern rejects the query anyway.
 
 #include <benchmark/benchmark.h>
 
@@ -28,6 +25,9 @@
 #include "dbms/database.hpp"
 #include "interpreter_faker.hpp"
 #include "license/license.hpp"
+#include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/opencypher/parser.hpp"
+#include "query/frontend/semantic/graph_access.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/state.hpp"
@@ -103,23 +103,72 @@ void RunQuery(benchmark::State &state, const std::string &query) {
   }
 }
 
+// Graph-free: skips the storage transaction.
 void ConstantReturn(benchmark::State &state) { RunQuery(state, "RETURN 1"); }
+
+void ArithmeticReturn(benchmark::State &state) { RunQuery(state, "RETURN 1 + 1 AS x"); }
 
 void BuiltinIntrospection(benchmark::State &state) { RunQuery(state, "CALL mg.procedures() YIELD name"); }
 
-void NormalMatch(benchmark::State &state) { RunQuery(state, "MATCH (n) RETURN n"); }
+void BuiltinIntrospectionWithProjection(benchmark::State &state) {
+  RunQuery(state, "CALL mg.procedures() YIELD name RETURN count(name) AS c");
+}
 
-void NormalArithmeticReturn(benchmark::State &state) { RunQuery(state, "RETURN 1 + 1 AS x"); }
+void Unwind(benchmark::State &state) { RunQuery(state, "UNWIND [1, 2, 3, 4, 5] AS x RETURN x"); }
 
-void NormalCallProcedure(benchmark::State &state) { RunQuery(state, "CALL mg.procedures() YIELD name RETURN name"); }
+// The same projections, forced onto the transaction path by a query-level memory limit, which the
+// analysis rejects. The difference against the pair above is what skipping the transaction buys.
+void ConstantReturnWithTransaction(benchmark::State &state) { RunQuery(state, "RETURN 1 QUERY MEMORY LIMIT 1024 MB"); }
+
+void UnwindWithTransaction(benchmark::State &state) {
+  RunQuery(state, "UNWIND [1, 2, 3, 4, 5] AS x RETURN x QUERY MEMORY LIMIT 1024 MB");
+}
+
+// Needs the graph: pays for the analysis and is rejected by it.
+void Match(benchmark::State &state) { RunQuery(state, "MATCH (n) RETURN n"); }
+
+void MatchWithLongProjection(benchmark::State &state) {
+  RunQuery(state, "MATCH (n) RETURN 1 + 1, 2 * 2, 3 - 3, 4 / 4, 5 % 5, 'a', true, null, [1, 2], {k: 1}");
+}
+
+// The analysis on its own, against an already-parsed query, so its cost can be read without the rest of
+// query execution around it. This is what every query that does not take the fast path pays.
+void RunAnalysis(benchmark::State &state, const std::string &query_string) {
+  memgraph::query::AstStorage storage;
+  memgraph::query::frontend::opencypher::Parser parser{query_string};
+  memgraph::query::Parameters parameters;
+  memgraph::query::frontend::ParsingContext context{.is_query_cached = true};
+  memgraph::query::frontend::CypherMainVisitor visitor{context, &storage, &parameters};
+  visitor.visit(parser.tree());
+  auto *query = memgraph::utils::Downcast<memgraph::query::CypherQuery>(visitor.query());
+  MG_ASSERT(query, "Expected a Cypher query");
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(memgraph::query::RequiresGraphAccess(*query));
+  }
+}
+
+void AnalysisOfMatch(benchmark::State &state) { RunAnalysis(state, "MATCH (n) RETURN n"); }
+
+void AnalysisOfMatchWithLongProjection(benchmark::State &state) {
+  RunAnalysis(state, "MATCH (n) RETURN 1 + 1, 2 * 2, 3 - 3, 4 / 4, 5 % 5, 'a', true, null, [1, 2], {k: 1}");
+}
+
+void AnalysisOfConstantReturn(benchmark::State &state) { RunAnalysis(state, "RETURN 1"); }
 
 }  // namespace
 
 BENCHMARK(ConstantReturn)->Unit(benchmark::kMicrosecond);
+BENCHMARK(ArithmeticReturn)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BuiltinIntrospection)->Unit(benchmark::kMicrosecond);
-BENCHMARK(NormalMatch)->Unit(benchmark::kMicrosecond);
-BENCHMARK(NormalArithmeticReturn)->Unit(benchmark::kMicrosecond);
-BENCHMARK(NormalCallProcedure)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BuiltinIntrospectionWithProjection)->Unit(benchmark::kMicrosecond);
+BENCHMARK(Unwind)->Unit(benchmark::kMicrosecond);
+BENCHMARK(ConstantReturnWithTransaction)->Unit(benchmark::kMicrosecond);
+BENCHMARK(UnwindWithTransaction)->Unit(benchmark::kMicrosecond);
+BENCHMARK(Match)->Unit(benchmark::kMicrosecond);
+BENCHMARK(MatchWithLongProjection)->Unit(benchmark::kMicrosecond);
+BENCHMARK(AnalysisOfMatch)->Unit(benchmark::kNanosecond);
+BENCHMARK(AnalysisOfMatchWithLongProjection)->Unit(benchmark::kNanosecond);
+BENCHMARK(AnalysisOfConstantReturn)->Unit(benchmark::kNanosecond);
 
 int main(int argc, char **argv) {
   memgraph::license::global_license_checker.EnableTesting();
