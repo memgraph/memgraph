@@ -1662,6 +1662,26 @@ bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
   return has_mapped_any_field;
 }
 
+// Instant components are named from most to least significant, and an omitted
+// one takes its lowest value. That default is only meaningful for a trailing
+// run: naming a component while a more significant one is missing would leave
+// part of the instant to a default the caller was in the middle of replacing.
+void EnsureNoOmittedSignificantComponent(std::initializer_list<std::string_view> components_by_significance,
+                                         const auto &input_parameters) {
+  std::string_view first_omitted;
+  for (const auto component : components_by_significance) {
+    const auto supplied = std::ranges::any_of(
+        input_parameters, [component](const auto &entry) { return std::string_view{entry.first} == component; });
+    if (!supplied) {
+      if (first_omitted.empty()) first_omitted = component;
+      continue;
+    }
+    if (!first_omitted.empty()) {
+      throw QueryRuntimeException("'{}' cannot be specified without '{}'.", component, first_omitted);
+    }
+  }
+}
+
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Optional<Or<Null, String, Map, struct Date, LocalDateTime, ZonedDateTime>>>("date", args, nargs);
   if (nargs == 0) {
@@ -1699,6 +1719,7 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
                                            std::pair{"month"sv, &date_parameters.month},
                                            std::pair{"day"sv, &date_parameters.day}};
 
+  EnsureNoOmittedSignificantComponent({"year", "month", "day"}, args[0].ValueMap());
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
   return TypedValue(utils::Date(date_parameters), ctx.memory);
 }
@@ -1748,6 +1769,7 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
       std::pair{"microsecond"sv, &local_time_parameters.microsecond},
   };
 
+  EnsureNoOmittedSignificantComponent({"hour", "minute", "second", "millisecond", "microsecond"}, args[0].ValueMap());
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
   return TypedValue(utils::LocalTime(local_time_parameters), ctx.memory);
 }

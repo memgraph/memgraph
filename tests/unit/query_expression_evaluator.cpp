@@ -3106,6 +3106,52 @@ TYPED_TEST(FunctionTest, Date) {
   EXPECT_TRUE(this->EvaluateFunction("DATE", TypedValue()).IsNull());
 }
 
+TYPED_TEST(FunctionTest, DateRejectsOmittedSignificantComponent) {
+  // Components are given from most to least significant, so naming one fixes
+  // every component above it. Leaving one of those out would let a default
+  // decide part of the value the caller was in the middle of spelling out.
+  EXPECT_THROW(
+      this->EvaluateFunction(
+          "DATE", TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1984)}, {"day", TypedValue(5)}})),
+      QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction("DATE", TypedValue(std::map<std::string, TypedValue>{{"month", TypedValue(10)}})),
+               QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction("DATE", TypedValue(std::map<std::string, TypedValue>{{"day", TypedValue(5)}})),
+               QueryRuntimeException);
+
+  // A trailing run may still be omitted, and takes its lowest value.
+  EXPECT_EQ(this->EvaluateFunction("DATE", TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1984)}}))
+                .ValueDate(),
+            memgraph::utils::Date({1984, 1, 1}));
+  EXPECT_EQ(this->EvaluateFunction("DATE",
+                                   TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1984)},
+                                                                                {"month", TypedValue(10)}}))
+                .ValueDate(),
+            memgraph::utils::Date({1984, 10, 1}));
+}
+
+TYPED_TEST(FunctionTest, LocalTimeRejectsOmittedSignificantComponent) {
+  EXPECT_THROW(
+      this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"minute", TypedValue(30)}})),
+      QueryRuntimeException);
+  EXPECT_THROW(
+      this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"second", TypedValue(30)}})),
+      QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction(
+                   "LOCALTIME",
+                   TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)}, {"second", TypedValue(3)}})),
+               QueryRuntimeException);
+
+  EXPECT_EQ(this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(10)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({10, 0, 0, 0, 0}));
+  EXPECT_EQ(this->EvaluateFunction(
+                    "LOCALTIME",
+                    TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(10)}, {"minute", TypedValue(5)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({10, 5, 0, 0, 0}));
+}
+
 TYPED_TEST(FunctionTest, LocalTime) {
   const auto local_time = memgraph::utils::LocalTime({13, 3, 2, 0, 0});
   EXPECT_EQ(this->EvaluateFunction("LOCALTIME", "130302").ValueLocalTime(), local_time);
