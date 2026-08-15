@@ -4280,7 +4280,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
 // its own. The privilege condition is policy rather than safety: CheckAuthorized validates a query's
 // privileges before any Pull whichever path it takes, but keeping privileged queries on the single
 // transaction-backed path means their auditing has one shape.
-bool IsAccessorFreeCandidate(const CypherQuery &query, const std::vector<AuthQuery::Privilege> &privileges) {
+bool IsGraphFreeCandidate(const CypherQuery &query, const std::vector<AuthQuery::Privilege> &privileges) {
   return privileges.empty() && !RequiresGraphAccess(query);
 }
 
@@ -4479,7 +4479,7 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
 
 }  // namespace
 
-bool IsAccessorFreeQuery(const CypherQuery &query) {
+bool IsGraphFreeQuery(const CypherQuery &query) {
   // Approximates the Prepare dispatch for scheduling purposes only: the privileges are not extracted
   // here, so a privileged graph-free query is prioritized as if it took the fast path even though it
   // will not. Priority is a hint, and paying for privilege extraction on the dispatch path is not worth
@@ -10342,11 +10342,11 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   using QueryVisitor<void>::Visit;
 
   QueryTransactionRequirements(bool is_schema_assert_query, bool is_cypher_read,
-                               std::optional<storage::StorageMode> storage_mode, bool is_accessor_free_cypher)
+                               std::optional<storage::StorageMode> storage_mode, bool is_graph_free_cypher)
       : is_schema_assert_query_(is_schema_assert_query),
         is_cypher_read_(is_cypher_read),
         storage_mode_(storage_mode),
-        is_accessor_free_cypher_(is_accessor_free_cypher) {}
+        is_graph_free_cypher_(is_graph_free_cypher) {}
 
   // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
   // case for use database which overwrites the current database)
@@ -10478,7 +10478,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(CypherQuery & /*unused*/) override {
     // Leaving accessor_type_ unset means NO_ACCESS, so Prepare opens no storage transaction. The plan is
     // still checked before it runs: see the accessor-free handling in PrepareCypherQuery.
-    if (is_accessor_free_cypher_) {
+    if (is_graph_free_cypher_) {
       return;
     }
     could_commit_ = true;
@@ -10565,7 +10565,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   bool const is_cypher_read_;
   std::optional<storage::StorageMode> storage_mode_;
   // Precomputed by the caller: this CypherQuery can run with no storage accessor at all.
-  bool const is_accessor_free_cypher_;
+  bool const is_graph_free_cypher_;
 
   bool could_commit_ = false;
   // Whether storage_mode_ fed accessor_type_ or isolation_level_override_. Only then does the
@@ -10738,19 +10738,19 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     // Classified once here and reused by the dispatch below. Only implicit transactions are eligible:
     // inside BEGIN...COMMIT the accessor is already open, so the query must take the normal path.
-    bool accessor_free_candidate = false;
+    bool graph_free_candidate = false;
     if (!in_explicit_transaction_) {
       if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
-        accessor_free_candidate = IsAccessorFreeCandidate(*cypher_query, parsed_query.required_privileges);
+        graph_free_candidate = IsGraphFreeCandidate(*cypher_query, parsed_query.required_privileges);
       }
     }
 #ifdef MG_ENTERPRISE
     // A user's memory quota is charged through the transaction's memory tracker, and the allocation hook
     // only charges a user when that tracker is set. Skipping the transaction would therefore let a query
     // allocate outside the quota, so a user who has one keeps every query on the transaction path.
-    if (accessor_free_candidate && user_resource_ &&
+    if (graph_free_candidate && user_resource_ &&
         user_resource_->GetTransactionsMemory().second != utils::TransactionsMemoryResource::kUnlimited) {
-      accessor_free_candidate = false;
+      graph_free_candidate = false;
     }
 #endif
 
@@ -10758,10 +10758,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto storage_mode = current_db_.db_acc_
                               ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
                               : std::nullopt;
-      auto transaction_requirements = QueryTransactionRequirements{parse_info.parsed_query.using_schema_assert,
-                                                                   parsed_query.is_cypher_read,
-                                                                   storage_mode,
-                                                                   accessor_free_candidate};
+      auto transaction_requirements = QueryTransactionRequirements{
+          parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode, graph_free_candidate};
       parsed_query.query->Accept(transaction_requirements);
 
       // Fail-closed gate for broken databases (those that failed durability recovery and
@@ -10858,7 +10856,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (current_db_.execution_db_accessor_ && interpreter_context_->auth_checker && user_or_role_ && *user_or_role_) {
       auto *dba = &*current_db_.execution_db_accessor_;
       cached_fga_->Refresh(*interpreter_context_->auth_checker, *user_or_role_, dba, dba->DatabaseName());
-    } else if (!accessor_free_candidate) {
+    } else if (!graph_free_candidate) {
       // A query that opened no transaction has no accessor to rebuild the cache from, and reads nothing
       // the cache protects. Dropping it would make the session's next real query pay to rebuild it.
       cached_fga_->Reset();

@@ -71,6 +71,11 @@ ModuleRegistry gModuleRegistry;
 
 Module::~Module() {}
 
+// Every procedure registered here ignores its `mgp_graph *` argument: each callback names the parameter
+// `/*graph*/` and answers from the module registry or the filesystem. Declaring `no_graph_access` says so,
+// which lets a `CALL` of one run with no storage transaction open. It is declared per procedure rather
+// than for the module as a whole because the declaration is also what opts a procedure into that path,
+// and a procedure is only worth putting there if callers actually issue it that way.
 class BuiltinModule final : public Module {
  public:
   BuiltinModule();
@@ -259,8 +264,6 @@ void RegisterMgProcedures(std::map<std::string, std::shared_ptr<Module>, std::le
       }
     }
   };
-  // procedures_cb reads only the module registry; its `mgp_graph *` parameter is unused, so this may
-  // run with no storage accessor open.
   mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource(), {.no_graph_access = true});
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
@@ -330,7 +333,6 @@ void RegisterMgTransformations(std::map<std::string, std::shared_ptr<Module>, st
       }
     }
   };
-  // transformations_cb reads only the module registry; its `mgp_graph *` parameter is unused.
   mgp_proc procedures("transformations", transformations_cb, utils::NewDeleteResource(), {.no_graph_access = true});
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
@@ -408,7 +410,6 @@ void RegisterMgFunctions(std::map<std::string, std::shared_ptr<Module>, std::les
       }
     }
   };
-  // functions_cb reads only the module registry; its `mgp_graph *` parameter is unused.
   mgp_proc functions("functions", functions_cb, utils::NewDeleteResource(), {.no_graph_access = true});
   MG_ASSERT(mgp_proc_add_result(&functions, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
@@ -508,8 +509,6 @@ void RegisterMgGetModuleFiles(ModuleRegistry *module_registry, BuiltinModule *mo
     }
   };
 
-  // get_module_files_cb reads the module registry and the filesystem; its `mgp_graph *` parameter is
-  // unused.
   mgp_proc get_module_files("get_module_files",
                             get_module_files_cb,
                             utils::NewDeleteResource(),

@@ -91,11 +91,19 @@ TEST_F(GraphAccessTest, GraphFreeProcedureCalls) {
   ExpectGraphFree("CALL mg.transformations() YIELD name");
 }
 
-TEST_F(GraphAccessTest, ProceduresThatDoNotDeclareGraphFreedom) {
-  // Both read the module registry rather than the graph, but only the one that says so is taken at its
-  // word: the declaration, not the behaviour, is what this analysis can see.
+// Which builtins declare that they reach no graph. Every mg.* callback ignores its graph argument, so
+// this set is a choice about which are worth running without a transaction, not a statement about which
+// could be. Pinned here so that adding to it is deliberate.
+TEST_F(GraphAccessTest, BuiltinsThatDeclareGraphFreedom) {
+  ExpectGraphFree("CALL mg.procedures() YIELD name");
+  ExpectGraphFree("CALL mg.functions() YIELD name");
+  ExpectGraphFree("CALL mg.transformations() YIELD name");
   ExpectGraphFree("CALL mg.get_module_files() YIELD path");
+
+  // Undeclared, so assumed to reach the graph even though it does not.
   ExpectNeedsGraph("CALL mg.get_module_file('example.py') YIELD content");
+  ExpectNeedsGraph("CALL mg.load('example')");
+  ExpectNeedsGraph("CALL mg.load_all()");
 }
 
 TEST_F(GraphAccessTest, PatternsNeedTheGraph) {

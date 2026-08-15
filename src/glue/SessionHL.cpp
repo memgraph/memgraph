@@ -238,13 +238,13 @@ utils::Priority SessionHL::ApproximateQueryPriority() const {
                           },
                           [](const query::Interpreter::ParseInfo &parse_info) {
                             // Many variants of queries
-                            // Cypher -> low, except accessor-free ping shapes -> high
+                            // Cypher -> low, except graph-free shapes (health-check pings) -> high
                             // all others -> high
                             const auto &query = parse_info.parsed_query.query;
                             // Most often query type
                             if (auto *cypher_query = utils::Downcast<query::CypherQuery>(query)) [[likely]]
-                              return query::IsAccessorFreeQuery(*cypher_query) ? utils::Priority::HIGH
-                                                                               : utils::Priority::LOW;
+                              return query::IsGraphFreeQuery(*cypher_query) ? utils::Priority::HIGH
+                                                                            : utils::Priority::LOW;
                             // For now return HIGH only for hand-picked queries (non-system and non-db queries)
                             auto high_priority = utils::Downcast<query::ShowConfigQuery>(query) ||
                                                  utils::Downcast<query::ShowQueryCallableMappingsQuery>(query) ||

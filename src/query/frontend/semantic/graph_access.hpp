@@ -24,6 +24,10 @@ class CypherQuery;
 /// false result to skip opening a storage transaction, but must treat a true result as "no opinion" rather
 /// than proof that storage is reached.
 ///
+/// This reads the query. The plan built from it is checked separately by `PlanRequiresStorageAccess`,
+/// which is exact where this is conservative, and which is what the interpreter acts on: a query this
+/// admits still opens a transaction if its plan turns out to need one.
+///
 /// The widest source of that conservatism is functions. A function implementation receives the accessor
 /// and is free to use it, and nothing records which ones do, so calling any function is reported as
 /// needing the graph. This also covers the string predicates, which parse as functions, so a `WHERE`
