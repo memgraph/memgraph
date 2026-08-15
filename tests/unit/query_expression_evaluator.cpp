@@ -2138,6 +2138,15 @@ TYPED_TEST(FunctionTest, ToIntegerPreservesFullInt64Range) {
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", -1.0e30).ValueInt(), std::numeric_limits<int64_t>::min());
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", std::nan("")).ValueInt(), 0);
 
+  // The bottom of the range is exactly representable as a double and belongs
+  // to it, so it converts rather than saturating into place by luck, and the
+  // string naming it is a value rather than an error. The top is not
+  // representable, which is why the bound above it is the one tested.
+  const auto lowest = static_cast<double>(std::numeric_limits<int64_t>::min());
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", lowest).ValueInt(), std::numeric_limits<int64_t>::min());
+  ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "-9223372036854775808.0").ValueInt(),
+            std::numeric_limits<int64_t>::min());
+
   // Forms that only a floating-point parse accepts keep working.
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", " -3.5 \n\t").ValueInt(), -3);
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "1e3").ValueInt(), 1000);

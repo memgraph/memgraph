@@ -687,6 +687,11 @@ TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext 
 // Truncates toward zero, saturating at either end of the range and taking NaN
 // to zero. This is how a floating point argument converts: the C++ cast is
 // undefined outside the range, so the bounds are applied before it.
+//
+// The bounds are spelled out rather than taken from boost's range checker,
+// which reports the exact lowest value as an underflow even though it converts,
+// and reports NaN as in range. Both would need working around here, where every
+// input has to yield a number.
 int64_t TruncateToInteger(double value) {
   // int64's maximum is not representable as a double; the smallest double at or
   // above the range is 2^63, which is.
