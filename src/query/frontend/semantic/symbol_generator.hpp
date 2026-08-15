@@ -393,7 +393,13 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
  private:
   // Keyed by (symbol position, interned property index): both are stable ints, and the symbol position
   // distinguishes identifiers that share a name across scopes.
-  std::map<std::pair<int32_t, int64_t>, uint64_t> property_lookup_counts_by_symbol{};
+  /// How many times each (identifier, property) pair is read, keyed by the identifier's name.
+  ///
+  /// The name rather than its symbol, because this runs while the query is still being walked to
+  /// build the symbol table: the identifiers below have not been mapped yet, so their positions are
+  /// still unset. Two scopes reusing a name therefore share a count, which can only select the
+  /// cache for a read that would not otherwise have had it - never the other way round.
+  std::map<std::pair<std::string, int64_t>, uint64_t> property_lookup_counts_by_symbol{};
 };
 
 class PropertyLookupBaseIdentifierVisitor : public ExpressionVisitor<void> {

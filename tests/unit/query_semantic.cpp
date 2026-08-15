@@ -1403,8 +1403,10 @@ TYPED_TEST(TestSymbolGenerator, PropertyCachingMultipleLookup) {
   auto prop1_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[prop1_key])->evaluation_mode_;
   auto prop2_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[prop2_key])->evaluation_mode_;
 
-  ASSERT_TRUE(prop1_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
-  ASSERT_TRUE(prop2_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+  // Two different properties of one symbol, read once each. There is no repeat to save, and
+  // serving a read from the cache costs about what a decode costs, so neither is cached.
+  ASSERT_TRUE(prop1_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
+  ASSERT_TRUE(prop2_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
 }
 
 TYPED_TEST(TestSymbolGenerator, PropertyCachingTwoMultipleLookups) {
@@ -1439,10 +1441,11 @@ TYPED_TEST(TestSymbolGenerator, PropertyCachingTwoMultipleLookups) {
   auto prop3_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop3_key])->evaluation_mode_;
   auto prop4_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop4_key])->evaluation_mode_;
 
-  ASSERT_TRUE(prop1_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
-  ASSERT_TRUE(prop2_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
-  ASSERT_TRUE(prop3_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
-  ASSERT_TRUE(prop4_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+  // Four distinct (symbol, property) pairs, one read each.
+  ASSERT_TRUE(prop1_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
+  ASSERT_TRUE(prop2_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
+  ASSERT_TRUE(prop3_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
+  ASSERT_TRUE(prop4_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
 }
 
 TYPED_TEST(TestSymbolGenerator, PropertyCachingMixedLookups1) {
@@ -1471,8 +1474,8 @@ TYPED_TEST(TestSymbolGenerator, PropertyCachingMixedLookups1) {
   auto prop2_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop2_key])->evaluation_mode_;
   auto prop3_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop3_key])->evaluation_mode_;
 
-  ASSERT_TRUE(prop1_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
-  ASSERT_TRUE(prop2_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+  ASSERT_TRUE(prop1_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
+  ASSERT_TRUE(prop2_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
   ASSERT_TRUE(prop3_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
 }
 
@@ -1503,8 +1506,35 @@ TYPED_TEST(TestSymbolGenerator, PropertyCachingMixedLookups2) {
   auto prop4_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_prop4_key])->evaluation_mode_;
 
   ASSERT_TRUE(prop1_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
-  ASSERT_TRUE(prop3_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
-  ASSERT_TRUE(prop4_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+  ASSERT_TRUE(prop3_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
+  ASSERT_TRUE(prop4_eval_mode == PropertyLookup::EvaluationMode::GET_OWN_PROPERTY);
+}
+
+TYPED_TEST(TestSymbolGenerator, PropertyCachingRepeatedLookupIsCached) {
+  // WITH {icode: 0000, price: 10} AS item
+  // RETURN {first: item.icode, second: item.icode} AS new_map;
+  //
+  // The one shape the cache exists for: the same property of the same symbol, read twice on a row.
+
+  auto in_prop1_key = this->storage.GetPropertyIx("icode");
+  auto in_prop2_key = this->storage.GetPropertyIx("price");
+
+  auto out_first_key = this->storage.GetPropertyIx("first");
+  auto out_first_val = PROPERTY_LOOKUP(this->dba, "item", this->dba.NameToProperty("icode"));
+  auto out_second_key = this->storage.GetPropertyIx("second");
+  auto out_second_val = PROPERTY_LOOKUP(this->dba, "item", this->dba.NameToProperty("icode"));
+
+  auto has_properties = MAP({in_prop1_key, LITERAL(0000)}, {in_prop2_key, LITERAL(10)});
+  auto new_map = MAP({out_first_key, out_first_val}, {out_second_key, out_second_val});
+  auto query = QUERY(SINGLE_QUERY(WITH(has_properties, AS("item")), RETURN(new_map, AS("new_map"))));
+
+  memgraph::query::MakeSymbolTable(query);
+
+  auto first_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_first_key])->evaluation_mode_;
+  auto second_eval_mode = dynamic_cast<PropertyLookup *>(new_map->elements_[out_second_key])->evaluation_mode_;
+
+  ASSERT_TRUE(first_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
+  ASSERT_TRUE(second_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
 }
 
 TYPED_TEST(TestSymbolGenerator, PatternComprehensionInReturn) {

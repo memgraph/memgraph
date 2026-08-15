@@ -1135,9 +1135,7 @@ void PropertyLookupEvaluationModeVisitor::Visit(PropertyLookup &property_lookup)
     return;
   }
 
-  auto const symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-  if (symbol_pos < 0) return;
-  auto key = std::pair{symbol_pos, property_lookup.property_.ix};
+  auto key = std::pair{static_cast<Identifier *>(property_lookup.expression_)->name_, property_lookup.property_.ix};
 
   switch (phase_) {
     case Phase::GATHER: {
