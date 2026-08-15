@@ -192,6 +192,30 @@ TYPED_TEST(InterpreterTest, ExistsSubqueryWithoutReadingClause) {
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
   }
+  {
+    // Negated, so the predicate holding for every row means no rows survive.
+    auto stream = this->Interpret("MATCH (n) WHERE NOT exists { RETURN 1 } RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U);
+  }
+  {
+    // Nested: the inner body is the one with nothing to read.
+    auto stream =
+        this->Interpret("MATCH (n) WHERE exists { MATCH (m) WHERE exists { RETURN 1 } RETURN m } RETURN count(n) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+  {
+    // Each branch of a union in the body needs its own row source.
+    auto stream = this->Interpret("MATCH (n) WHERE exists { RETURN 1 UNION RETURN 2 } RETURN count(n) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+  {
+    // A body that does read something was never affected, and still is not.
+    auto stream = this->Interpret("MATCH (n) WHERE exists { WITH 1 AS x RETURN x } RETURN count(n) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
 }
 
 // Run query with different ast twice to see if query executes correctly when
