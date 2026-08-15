@@ -96,6 +96,11 @@ class SnapshotRpcProgressTest : public ::testing::Test {
   std::filesystem::path main_directory{std::filesystem::temp_directory_path() /
                                        "MG_test_unit_snapshot_rpc_progress_main"};
 
+  /// The records here are built by hand rather than through a storage, so they need a registry of
+  /// their own - and the same one the index build reads them back with, since a record names a
+  /// shape only the registry that issued it can resolve.
+  memgraph::storage::ManifestRegistry registry_;
+
   void SetUp() override {
     Clear();
     InitActiveIndicesStore();
@@ -226,7 +231,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedNoVertices) 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(label_prop_idx.CreateIndexOnePass(
-      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, snapshot_info));
+      registry_, label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
@@ -251,7 +256,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(label_prop_idx.CreateIndexOnePass(
-      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, snapshot_info));
+      registry_, label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) {
@@ -278,7 +283,8 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) 
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(
-      label_prop_idx.CreateIndexOnePass(label,
+      label_prop_idx.CreateIndexOnePass(registry_,
+                                        label,
                                         std::vector{PropertyPath{prop_c}, PropertyPath{prop_a}, PropertyPath{prop_b}},
                                         vertices.access(),
                                         par_schema_info,
@@ -310,7 +316,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexMultiThreadedVertices) {
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(label_prop_idx.CreateIndexOnePass(
-      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, snapshot_info));
+      registry_, label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
@@ -339,7 +345,8 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(
-      label_prop_idx.CreateIndexOnePass(label,
+      label_prop_idx.CreateIndexOnePass(registry_,
+                                        label,
                                         std::vector{PropertyPath{prop_c}, PropertyPath{prop_a}, PropertyPath{prop_b}},
                                         vertices.access(),
                                         par_schema_info,
@@ -501,7 +508,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedNoVertice
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
-  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), updater, snapshot_info));
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(registry_, etype, prop, vertices.access(), updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesEdges) {
@@ -522,7 +529,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesE
       auto [it, ver_inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(ver_inserted);
       it->out_edges.emplace_back(etype, &*it, edge_ref);
-      edge->properties.SetProperty(prop, PropertyValue{1});
+      edge->properties.SetProperty(registry_, prop, PropertyValue{1});
     }
   }
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
@@ -531,7 +538,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesE
 
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
-  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), updater, snapshot_info));
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(registry_, etype, prop, vertices.access(), updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedNoVertices) {
@@ -546,7 +553,7 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedNoVertices) {
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   InitActiveIndicesStore();
-  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
+  ASSERT_TRUE(point_idx.CreatePointIndex(registry_, label, prop, vertices.access(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
@@ -562,7 +569,7 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 8; i++) {
       auto vertex = Vertex{Gid::FromUint(i), nullptr};
-      vertex.properties.InitProperties(prop_data);
+      vertex.properties.InitProperties(registry_, prop_data);
       vertex.labels.emplace_back(label);
       auto [_, inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(inserted);
@@ -574,7 +581,7 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
   snapshot_info.emplace(mocked_observer, 40);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   InitActiveIndicesStore();
-  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
+  ASSERT_TRUE(point_idx.CreatePointIndex(registry_, label, prop, vertices.access(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
@@ -599,8 +606,8 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(
-      vector_idx.CreateIndex(spec, vertices_acc, &storage.indices_, storage.name_id_mapper_.get(), snapshot_info));
+  ASSERT_TRUE(vector_idx.CreateIndex(
+      registry_, spec, vertices_acc, &storage.indices_, storage.name_id_mapper_.get(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
@@ -629,7 +636,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
     for (uint32_t i = 1; i <= 8; i++) {
       auto vertex = Vertex{Gid::FromUint(i), nullptr};
       vertex.labels.emplace_back(label);
-      vertex.properties.InitProperties(prop_data);
+      vertex.properties.InitProperties(registry_, prop_data);
       auto [_, inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(inserted);
     }
@@ -639,8 +646,8 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 4000);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(
-      vector_idx.CreateIndex(spec, vertices_acc, &storage.indices_, storage.name_id_mapper_.get(), snapshot_info));
+  ASSERT_TRUE(vector_idx.CreateIndex(
+      registry_, spec, vertices_acc, &storage.indices_, storage.name_id_mapper_.get(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices) {
@@ -653,8 +660,8 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
 
-  auto validation_result =
-      ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, snapshot_info);
+  auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(
+      registry_, vertices.access(), label, prop, std::nullopt, snapshot_info);
   ASSERT_TRUE(validation_result.has_value());
 }
 
@@ -671,7 +678,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) 
     for (uint32_t i = 1; i <= 9; i++) {
       auto vertex = Vertex{Gid::FromUint(i), nullptr};
       vertex.labels.emplace_back(label);
-      vertex.properties.InitProperties(prop_data);
+      vertex.properties.InitProperties(registry_, prop_data);
       auto [_, inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(inserted);
     }
@@ -682,8 +689,8 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) 
   snapshot_info.emplace(mocked_observer, 4);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
 
-  auto validation_result =
-      ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, snapshot_info);
+  auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(
+      registry_, vertices.access(), label, prop, std::nullopt, snapshot_info);
   ASSERT_TRUE(validation_result.has_value());
 }
 
@@ -700,7 +707,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
     for (uint32_t i = 1; i <= 6; i++) {
       auto vertex = Vertex{Gid::FromUint(i), nullptr};
       vertex.labels.emplace_back(label);
-      vertex.properties.InitProperties(prop_data);
+      vertex.properties.InitProperties(registry_, prop_data);
       auto [_, inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(inserted);
     }
@@ -716,7 +723,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
       .thread_count = 2};
 
   auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(
-      vertices.access(), label, prop, par_schema_info, snapshot_info);
+      registry_, vertices.access(), label, prop, par_schema_info, snapshot_info);
   ASSERT_TRUE(validation_result.has_value());
 }
 
@@ -733,7 +740,8 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedNoVertices) {
 
   InMemoryUniqueConstraints unique_constraints;
   ASSERT_EQ(
-      unique_constraints.CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, snapshot_info)
+      unique_constraints
+          .CreateConstraint(registry_, label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, snapshot_info)
           .value(),
       InMemoryUniqueConstraints::CreationStatus::SUCCESS);
 }
@@ -752,7 +760,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedVertices) {
       const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
           {prop, PropertyValue{static_cast<int>(i)}},
       };
-      vertex.properties.InitProperties(prop_data);
+      vertex.properties.InitProperties(registry_, prop_data);
       auto [_, inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(inserted);
     }
@@ -765,7 +773,8 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedVertices) {
 
   InMemoryUniqueConstraints unique_constraints;
   ASSERT_EQ(
-      unique_constraints.CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, snapshot_info)
+      unique_constraints
+          .CreateConstraint(registry_, label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, snapshot_info)
           .value(),
       InMemoryUniqueConstraints::CreationStatus::SUCCESS);
 }
@@ -784,7 +793,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsMultiThreadedVertices) {
       const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
           {prop, PropertyValue{static_cast<int>(i)}},
       };
-      vertex.properties.InitProperties(prop_data);
+      vertex.properties.InitProperties(registry_, prop_data);
       auto [_, inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(inserted);
     }
@@ -800,10 +809,11 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsMultiThreadedVertices) {
       .thread_count = 2};
 
   InMemoryUniqueConstraints unique_constraints;
-  ASSERT_EQ(unique_constraints
-                .CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, par_schema_info, snapshot_info)
-                .value(),
-            InMemoryUniqueConstraints::CreationStatus::SUCCESS);
+  ASSERT_EQ(
+      unique_constraints
+          .CreateConstraint(registry_, label, std::set<PropertyId>{prop}, vertices_acc, par_schema_info, snapshot_info)
+          .value(),
+      InMemoryUniqueConstraints::CreationStatus::SUCCESS);
 }
 
 TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedNoVertices) {
@@ -820,7 +830,7 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedNoVertices) {
   TypeConstraints type_constraints;
   ASSERT_TRUE(type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER));
   type_constraints.PublishConstraint(label, prop, TypeConstraintKind::INTEGER, 1);
-  ASSERT_TRUE(type_constraints.ValidateAllVertices(vertices.access(), snapshot_info).has_value());
+  ASSERT_TRUE(type_constraints.ValidateAllVertices(registry_, vertices.access(), snapshot_info).has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
@@ -837,7 +847,7 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
       const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
           {prop, PropertyValue{static_cast<int>(i)}},
       };
-      vertex.properties.InitProperties(prop_data);
+      vertex.properties.InitProperties(registry_, prop_data);
       auto [_, inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(inserted);
     }
@@ -851,5 +861,5 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
   TypeConstraints type_constraints;
   ASSERT_TRUE(type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER));
   type_constraints.PublishConstraint(label, prop, TypeConstraintKind::INTEGER, 1);
-  ASSERT_TRUE(type_constraints.ValidateAllVertices(vertices.access(), snapshot_info).has_value());
+  ASSERT_TRUE(type_constraints.ValidateAllVertices(registry_, vertices.access(), snapshot_info).has_value());
 }
