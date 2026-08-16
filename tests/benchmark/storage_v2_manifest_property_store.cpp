@@ -238,8 +238,33 @@ void ManifestSetInPlace(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations());
 }
 
+// The same overwrite, but into a field whose shape is wider than the arriving value needs.
+// A shape holds the widest integer its class has been asked for, so a field that ever held a
+// large number stays wide for every record of that shape - and then most updates to it arrive
+// narrower than the field they are going into.
+void CurrentSetInPlaceNarrower(benchmark::State &state) {
+  auto store = MakeCurrent();
+  int64_t counter = 0;
+  for (auto _ : state) {
+    store.SetProperty(PropertyId::FromUint(0), PropertyValue(++counter % 100));
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+void ManifestSetInPlaceNarrower(benchmark::State &state) {
+  ManifestRegistry registry;
+  auto store = MakeManifest(registry);
+  int64_t counter = 0;
+  for (auto _ : state) {
+    store.SetProperty(registry, PropertyId::FromUint(0), PropertyValue(++counter % 100));
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
 BENCHMARK(CurrentSetInPlace)->Unit(benchmark::kNanosecond);
 BENCHMARK(ManifestSetInPlace)->Unit(benchmark::kNanosecond);
+BENCHMARK(CurrentSetInPlaceNarrower)->Unit(benchmark::kNanosecond);
+BENCHMARK(ManifestSetInPlaceNarrower)->Unit(benchmark::kNanosecond);
 
 // Building a whole record, which is what an import does.
 void CurrentBuildRecord(benchmark::State &state) {

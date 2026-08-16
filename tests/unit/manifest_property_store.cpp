@@ -336,6 +336,33 @@ TEST_F(ManifestPropertyStoreTest, MemoDoesNotServeAnotherRegistry) {
   EXPECT_EQ(here.GetProperty(registry_, Prop(1), memo).ValueInt(), 11);
 }
 
+// An integer occupies the width its field was laid out for, so one that needs fewer bytes than
+// the field has is written where it stands rather than laying the record out again. It reads
+// back as itself either way, negatives included, and the shape does not move.
+TEST_F(ManifestPropertyStoreTest, AnIntegerNarrowerThanItsFieldKeepsTheShape) {
+  Set(1, PropertyValue(int64_t{7'000'000}));  // four bytes wide
+  Set(2, PropertyValue(std::string{"other"}));
+  auto const wide_shape = store_.manifest();
+
+  for (auto const narrow : {int64_t{5}, int64_t{-5}, int64_t{0}, int64_t{-32'000}, int64_t{127}, int64_t{-128}}) {
+    Set(1, PropertyValue(narrow));
+    EXPECT_EQ(Get(1).ValueInt(), narrow);
+    EXPECT_EQ(store_.manifest(), wide_shape) << "a narrower value must not move the shape";
+    EXPECT_EQ(Get(2).ValueString(), "other") << "and must not disturb what sits after it";
+  }
+
+  // Going back up to what the field was laid out for still works, and still needs no new shape.
+  Set(1, PropertyValue(int64_t{2'000'000'000}));
+  EXPECT_EQ(Get(1).ValueInt(), 2'000'000'000);
+  EXPECT_EQ(store_.manifest(), wide_shape);
+
+  // Past it, the shape has to widen.
+  Set(1, PropertyValue(int64_t{5'000'000'000}));
+  EXPECT_EQ(Get(1).ValueInt(), 5'000'000'000);
+  EXPECT_NE(store_.manifest(), wide_shape);
+  EXPECT_EQ(Get(2).ValueString(), "other");
+}
+
 // Removing a property leaves the field in the shape and clears the record's claim to it. Every
 // way of reading it has to answer Null, not the bytes the value left behind.
 TEST_F(ManifestPropertyStoreTest, ReadingARemovedPropertyIsNull) {

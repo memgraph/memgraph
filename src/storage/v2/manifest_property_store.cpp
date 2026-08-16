@@ -225,6 +225,26 @@ auto StoredTypeOf(PropertyValue const &value) -> StoredType {
   }
 }
 
+/// Whether `value` can be written into a field the shape already lays out, leaving the shape
+/// alone.
+///
+/// An integer occupies the width its field was laid out for rather than the width the value
+/// itself needs, and is read back at that same width, so one narrower than its field goes
+/// straight in. This is worth spelling out because a shape carries the widest integer its class
+/// has been asked for: once any record of a shape has held a large number, every record of that
+/// shape has a wide field, and most values arriving at it are narrower than it. Requiring the
+/// widths to match would send those to a rebuild that lays the record out again exactly as it
+/// already was.
+///
+/// Integers only. A double narrower than its field is a different number, not the same one in
+/// fewer bytes.
+auto FitsFixedField(StoredType field, PropertyValue const &value) -> bool {
+  auto const arriving = StoredTypeOf(value);
+  if (arriving == field) return true;
+  if (field.type != PropertyStoreType::INT || arriving.type != PropertyStoreType::INT) return false;
+  return arriving.width <= field.width;
+}
+
 /// Offset-table entry width for a variable region of `size` bytes.
 auto OffsetWidth(uint32_t size) -> uint8_t {
   if (size <= std::numeric_limits<uint8_t>::max()) return 1;
@@ -1379,9 +1399,9 @@ auto ManifestPropertyStore::SetProperty(ManifestRegistry &registry, PropertyId p
     return !present;
   }
 
-  // The common update keeps the shape: the field is already there, at the same type and
-  // width, so the value goes straight into the slot the shape points at.
-  if (found && found->is_fixed && found->stored_type == StoredTypeOf(value)) {
+  // The common update keeps the shape: the field is already there and has room for the value,
+  // so it goes straight into the slot the shape points at.
+  if (found && found->is_fixed && FitsFixedField(found->stored_type, value)) {
     auto const &manifest = registry.Resolve(this->manifest());
     auto *record = data();
     auto const regions = RegionsOf(manifest, record);
