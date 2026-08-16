@@ -8021,13 +8021,29 @@ TEST_P(CypherMainVisitorTest, ExistsBodyIsNotJudgedByTheEnclosingWith) {
     ASSERT_EQ(with->body_.named_expressions.size(), 2U);
     EXPECT_TRUE(dynamic_cast<Exists *>(with->body_.named_expressions[1]->expression_));
   }
-  // A body WITH restores the flag rather than clearing it, so the outer WITH's own items are still checked.
+  // `visitReturnBody` visits ORDER BY before the return items, both while the flag is set, so the body of an EXISTS
+  // sorted on is judged by the same rule and was refused for the same reason.
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) WITH n ORDER BY EXISTS { RETURN 1 } RETURN n;"));
+    ASSERT_TRUE(query);
+    const auto *with = dynamic_cast<With *>(query->single_query_->clauses_[1]);
+    ASSERT_TRUE(with);
+    ASSERT_EQ(with->body_.order_by.size(), 1U);
+    EXPECT_TRUE(dynamic_cast<Exists *>(with->body_.order_by[0].expression));
+  }
+  // Clearing the flag for the body does not disarm it for the body's own WITH, which has return items of its own.
   {
     const auto *query = dynamic_cast<CypherQuery *>(
         ast_generator.ParseQuery("MATCH (n) WITH n, EXISTS { MATCH (m) WITH m AS m RETURN 1 } AS e RETURN e;"));
     ASSERT_TRUE(query);
   }
-  TestInvalidQueryWithMessage<SemanticException>("MATCH (n) WITH n, EXISTS { RETURN 1 } AS e, n.prop RETURN e;",
+  TestInvalidQueryWithMessage<SemanticException>(
+      "MATCH (n) WITH n, EXISTS { MATCH (m) WITH m, m.prop RETURN 1 } AS e RETURN e;",
+      ast_generator,
+      "Only variables can be non-aliased in WITH.");
+  // The outer WITH's own items are still checked. The body is aliased, so this can only be the `n.prop`.
+  TestInvalidQueryWithMessage<SemanticException>("MATCH (n) WITH n, EXISTS { RETURN 1 AS c } AS e, n.prop RETURN e;",
                                                  ast_generator,
                                                  "Only variables can be non-aliased in WITH.");
 }
