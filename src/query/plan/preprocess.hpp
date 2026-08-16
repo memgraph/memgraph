@@ -222,14 +222,14 @@ enum class ExistsKind : uint8_t { kPattern, kSubquery };
 
 /// Collects pattern comprehensions and EXISTS patterns from any AST node.
 /// Uses HierarchicalTreeVisitor for automatic traversal of all expressions in all clause types.
-class PatternComprehensionCollector : public HierarchicalTreeVisitor {
+class SubqueryMatchingCollector : public HierarchicalTreeVisitor {
  public:
-  explicit PatternComprehensionCollector(SymbolTable &symbol_table, AstStorage &storage);
-  PatternComprehensionCollector(const PatternComprehensionCollector &) = delete;
-  PatternComprehensionCollector &operator=(const PatternComprehensionCollector &) = delete;
-  PatternComprehensionCollector(PatternComprehensionCollector &&) = delete;
-  PatternComprehensionCollector &operator=(PatternComprehensionCollector &&) = delete;
-  ~PatternComprehensionCollector() override;
+  explicit SubqueryMatchingCollector(SymbolTable &symbol_table, AstStorage &storage);
+  SubqueryMatchingCollector(const SubqueryMatchingCollector &) = delete;
+  SubqueryMatchingCollector &operator=(const SubqueryMatchingCollector &) = delete;
+  SubqueryMatchingCollector(SubqueryMatchingCollector &&) = delete;
+  SubqueryMatchingCollector &operator=(SubqueryMatchingCollector &&) = delete;
+  ~SubqueryMatchingCollector() override;
 
   using HierarchicalTreeVisitor::PostVisit;
   using HierarchicalTreeVisitor::PreVisit;

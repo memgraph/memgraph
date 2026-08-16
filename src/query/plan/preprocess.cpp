@@ -1121,20 +1121,20 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
 
   // If there are any pattern filters, we add those as well
   for (auto &filter : matching.filters) {
-    PatternComprehensionCollector collector(symbol_table, storage);
+    SubqueryMatchingCollector collector(symbol_table, storage);
     filter.expression->Accept(collector);
     filter.exists_matchings = collector.getExistsMatchings();
     filter.pattern_comprehension_matchings = collector.getPatternComprehensionMatchings();
   }
 }
 
-// PatternComprehensionCollector implementation
-PatternComprehensionCollector::PatternComprehensionCollector(SymbolTable &symbol_table, AstStorage &storage)
+// SubqueryMatchingCollector implementation
+SubqueryMatchingCollector::SubqueryMatchingCollector(SymbolTable &symbol_table, AstStorage &storage)
     : symbol_table_(symbol_table), storage_(storage) {}
 
-PatternComprehensionCollector::~PatternComprehensionCollector() = default;
+SubqueryMatchingCollector::~SubqueryMatchingCollector() = default;
 
-bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
+bool SubqueryMatchingCollector::PreVisit(PatternComprehension &op) {
   PatternComprehensionMatching matching;
   AddMatching({op.pattern_}, op.filter_, symbol_table_, storage_, matching);
 
@@ -1154,14 +1154,14 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
 
   // Process nested pattern comprehensions in filters
   for (auto &filter : matching.filters) {
-    PatternComprehensionCollector nested_collector(symbol_table_, storage_);
+    SubqueryMatchingCollector nested_collector(symbol_table_, storage_);
     filter.expression->Accept(nested_collector);
     filter.exists_matchings = nested_collector.getExistsMatchings();
     filter.pattern_comprehension_matchings = nested_collector.getPatternComprehensionMatchings();
   }
 
   // Process nested pattern comprehensions in result expression
-  PatternComprehensionCollector result_collector(symbol_table_, storage_);
+  SubqueryMatchingCollector result_collector(symbol_table_, storage_);
   op.resultExpr_->Accept(result_collector);
   matching.nested_pattern_comprehensions = result_collector.getPatternComprehensionMatchings();
 
@@ -1225,7 +1225,7 @@ bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
   return false;  // Don't auto-traverse, we handled it manually
 }
 
-bool PatternComprehensionCollector::PreVisit(Exists &op) {
+bool SubqueryMatchingCollector::PreVisit(Exists &op) {
   ExistsMatching exists_matching;
   exists_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
 
@@ -1249,16 +1249,16 @@ bool PatternComprehensionCollector::PreVisit(Exists &op) {
   return false;  // Don't auto-traverse, we handled it manually
 }
 
-std::vector<ExistsMatching> PatternComprehensionCollector::getExistsMatchings() { return exists_matchings_; }
+std::vector<ExistsMatching> SubqueryMatchingCollector::getExistsMatchings() { return exists_matchings_; }
 
-PatternComprehensionMatchings PatternComprehensionCollector::getPatternComprehensionMatchings() {
+PatternComprehensionMatchings SubqueryMatchingCollector::getPatternComprehensionMatchings() {
   return pattern_comprehension_matchings_;
 }
 
 namespace {
 
 // Collect MERGE matchings from FOREACH and its nested FOREACH clauses
-// Note: Pattern comprehensions are now collected via PatternComprehensionCollector
+// Note: Pattern comprehensions are now collected via SubqueryMatchingCollector
 void CollectForeachMergeMatchings(Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
                                   SymbolTable &symbol_table) {
   for (auto *clause : foreach.clauses_) {
@@ -1318,7 +1318,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       // - EdgeAtom lower_bound, upper_bound, total_weight, limit
       // Not traversed, so a comprehension there is collected by nobody and fails loudly at evaluation: EdgeAtom's
       // filter/weight lambdas, dynamic label expressions, and LOAD CSV/PARQUET/JSONL file and config expressions.
-      PatternComprehensionCollector collector(symbol_table, storage);
+      SubqueryMatchingCollector collector(symbol_table, storage);
       clause->Accept(collector);
       // Record the originating clause, so a drain can tell "can this be planned yet?" from "should it be?".
       auto matchings = collector.getPatternComprehensionMatchings();
