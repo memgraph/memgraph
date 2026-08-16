@@ -32,6 +32,7 @@
 #include "coordination/data_instance_management_server_handlers.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
 #include "flags/bolt.hpp"
 #include "flags/coord_flag_env_handler.hpp"
@@ -1128,6 +1129,15 @@ int main(int argc, char **argv) {
         locked_repl_state->Shutdown();
       }
     }
+
+    // Defense-in-depth, not a UAF fix: the 2PC commit-accessor slot is a deliberately-leaked heap
+    // singleton with no static destructor (TwoPCCommitCache::Slot()), so skipping this would
+    // just defer the abort to ~Database during ~DbmsHandler teardown instead of crashing. Doing it here
+    // aborts the in-flight prepared txn now, while storages are alive, and TakeAny() (not uuid-scoped) is
+    // safe because Shutdown() above already joined the replica's RPC worker threads, so nothing can
+    // repopulate the slot afterwards. Left unconditional: a coordinator never populates this replica-only
+    // slot, so it's a no-op there.
+    memgraph::dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
 
     if (dbms_handler.has_value()) {
       dbms_handler->ForEach([](memgraph::dbms::DatabaseAccess acc) {
