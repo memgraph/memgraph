@@ -16,6 +16,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <fstream>
 #include <system_error>
 
 #include <nlohmann/json.hpp>
@@ -23,11 +24,13 @@
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
+#include "dbms/tenant_profiles.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
+#include "system/system.hpp"
 #include "utils/uuid.hpp"
 
 namespace {
@@ -41,6 +44,104 @@ std::set<std::string> GetDirs(auto path) {
     }
   }
   return dirs;
+}
+
+// Seeding helpers for the startup-reconciliation tests. Each test seeds its kvstore inside a scope and
+// releases it before constructing the handler: a second live KVStore on one dir throws (kvstore.cpp:38).
+
+// Mirrors kDBPrefix (dbms_handler.cpp:46), which is in an anonymous namespace and cannot be named here.
+constexpr std::string_view kDBPrefixLiteral = "database:";
+
+struct SeededRoot {
+  std::filesystem::path root;
+  std::filesystem::path db_dir;          // <root>/databases
+  std::filesystem::path durability_dir;  // <root>/databases/.durability
+};
+
+// Layout must match the one the DbmsHandler ctor builds for itself (dbms_handler.cpp:215-219). `tag` must
+// be unique per test: the root is remove_all'd below, so a shared tag would delete a sibling test's data.
+SeededRoot MakeSeededRoot(std::string_view tag) {
+  namespace fs = std::filesystem;
+  SeededRoot sr;
+  sr.root = fs::temp_directory_path() / (std::string{"MG_test_unit_dbms_handler_"} + std::string{tag});
+  fs::remove_all(sr.root);
+  sr.db_dir = sr.root / std::string{memgraph::dbms::kMultiTenantDir};
+  sr.durability_dir = sr.db_dir / ".durability";
+  fs::create_directories(sr.durability_dir);
+  return sr;
+}
+
+// Exact shape of Durability::GenVal (dbms_handler.cpp:114): {"uuid": <uuid>, "rel_dir": <path>}, with
+// rel_dir rooted at kMultiTenantDir/<uuid> as New_/UpdateDurability recompute it (dbms_handler.cpp:860).
+struct SeededHotEntry {
+  memgraph::utils::UUID uuid;
+  // Bytes written for this entry; read back verbatim by RenameMovesTenantDurabilityRecordVerbatim to catch
+  // a rename that parses/mutates/re-dumps the record. Do not delete this field as write-only.
+  std::string json_str;
+};
+
+SeededHotEntry SeedHotEntry(memgraph::kvstore::KVStore &kv, std::string_view name) {
+  const memgraph::utils::UUID uuid;
+  nlohmann::json j;
+  j["uuid"] = uuid;
+  j["rel_dir"] = std::filesystem::path(std::string{memgraph::dbms::kMultiTenantDir}) / std::string{uuid};
+  auto json_str = j.dump();
+  kv.Put(std::string{kDBPrefixLiteral} + std::string{name}, json_str);
+  return {uuid, std::move(json_str)};
+}
+
+// Counts actions applied via Transaction::Commit: Commit's early-return path (empty actions_) calls Abort(),
+// never ApplyAction, so applied==1 vs 0 discriminates "AddAction<RenameDatabase> ran" from "skipped" -- a
+// distinction CanReplicateInCommunity() can't make (false for both zero actions and one dbms action).
+struct CountingReplicationPolicy {
+  int *applied;
+
+  auto ApplyAction(const memgraph::system::ISystemAction & /*action*/, const memgraph::system::Transaction & /*txn*/)
+      -> memgraph::system::AllSyncReplicaStatus {
+    ++*applied;
+    return memgraph::system::AllSyncReplicaStatus::AllCommitsConfirmed;
+  }
+
+  auto FinalizeTransaction(const memgraph::system::Transaction & /*txn*/) -> memgraph::system::AllSyncReplicaStatus {
+    return memgraph::system::AllSyncReplicaStatus::AllCommitsConfirmed;
+  }
+};
+
+// Exact shape of Durability::GenColdVal (dbms_handler.cpp:150) minus `cold_stats`, which the restore loop
+// reads under `json.contains("cold_stats")` (dbms_handler.cpp:239) -- omitting it is still faithful.
+memgraph::utils::UUID SeedColdEntry(memgraph::kvstore::KVStore &kv, std::string_view name) {
+  const memgraph::utils::UUID uuid;
+  nlohmann::json j;
+  j["uuid"] = uuid;
+  j["rel_dir"] = std::filesystem::path(std::string{memgraph::dbms::kMultiTenantDir}) / std::string{uuid};
+  j["cold"] = true;
+  kv.Put(std::string{kDBPrefixLiteral} + std::string{name}, j.dump());
+  return uuid;
+}
+
+// Exact shape of TenantProfiles::ProfileToJson (tenant_profiles.cpp:46): {"memory_limit": <int64>,
+// "databases": [...]}, plus the kDbMappingPrefix rows AttachToDatabase writes (tenant_profiles.cpp:142).
+void SeedProfile(memgraph::kvstore::KVStore &kv, std::string_view profile_name, int64_t memory_limit,
+                 const std::set<std::string> &databases) {
+  nlohmann::json j;
+  j["memory_limit"] = memory_limit;
+  j["databases"] = databases;
+  kv.Put(std::string{memgraph::dbms::TenantProfiles::kPrefix} + std::string{profile_name}, j.dump());
+  for (const auto &db : databases) {
+    kv.Put(std::string{memgraph::dbms::TenantProfiles::kDbMappingPrefix} + db, std::string{profile_name});
+  }
+}
+
+std::filesystem::path TenantDataDir(const SeededRoot &sr, const memgraph::utils::UUID &uuid) {
+  return sr.db_dir / std::string{uuid};
+}
+
+memgraph::storage::Config MakeSeededConfig(const std::filesystem::path &root) {
+  memgraph::storage::Config conf;
+  memgraph::storage::UpdatePaths(conf, root);
+  conf.durability.snapshot_wal_mode =
+      memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  return conf;
 }
 }  // namespace
 
@@ -401,6 +502,389 @@ TEST(DBMS_Handler, MigratesV0DefaultDbDurabilityAndRestoresTenant) {
   }
 
   fs::remove_all(root);
+}
+
+// Pins PRE-EXISTING behavior: the ctor's post-restore "DATABASES CLEAN UP" pass (dbms_handler.cpp:345)
+// keeps only dirs a surviving `database:` key names, so a lost physical delete is not a permanent leak.
+TEST(DBMS_Handler, SweepReclaimsOrphanedTenantDirectoryButKeepsLiveOne) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+
+  auto sr = MakeSeededRoot("sweep");
+
+  memgraph::utils::UUID live_uuid;
+  {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    ASSERT_TRUE(seed_kv.Put("version", "V2"));
+    live_uuid = SeedHotEntry(seed_kv, "live").uuid;
+  }
+
+  const auto live_dir = TenantDataDir(sr, live_uuid);
+  const memgraph::utils::UUID orphan_uuid;  // deliberately has NO matching `database:` durability key
+  const auto orphan_dir = TenantDataDir(sr, orphan_uuid);
+  fs::create_directories(live_dir);
+  fs::create_directories(orphan_dir);
+  {
+    std::ofstream marker{orphan_dir / "leftover.txt"};
+    marker << "orphaned tenant data";
+  }
+  ASSERT_TRUE(fs::exists(orphan_dir / "leftover.txt")) << "sanity check: the orphan dir must be non-empty";
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::unique_ptr<DbmsHandler> handler;
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf));
+
+  EXPECT_FALSE(fs::exists(orphan_dir))
+      << "a directory whose durability key is already gone must be swept on boot, non-empty or not";
+  EXPECT_TRUE(fs::exists(live_dir))
+      << "a directory still referenced by a live durability key must survive the sweep untouched";
+  const auto all = handler->All();
+  EXPECT_TRUE(std::find(all.begin(), all.end(), "live") != all.end()) << "the live tenant must still restore HOT";
+
+  handler.reset();
+  fs::remove_all(sr.root);
+}
+
+// Positive case for the new startup reconciliation: the ctor runs PruneDatabases between constructing
+// TenantProfiles and RestoreTenantProfiles_ (dbms_handler.cpp:368-385); rationale at its declaration.
+TEST(DBMS_Handler, StaleTenantProfileMappingIsPrunedOnStartup) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+  using memgraph::dbms::TenantProfiles;
+
+  auto sr = MakeSeededRoot("prune_stale");
+
+  memgraph::utils::UUID live_uuid;
+  {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    ASSERT_TRUE(seed_kv.Put("version", "V2"));
+    live_uuid = SeedHotEntry(seed_kv, "live").uuid;
+    // "gone" has NO `database:gone` durability key -- exactly the state a lost DetachFromDatabase leaves.
+    SeedProfile(seed_kv, "p", /*memory_limit=*/1000, {"live", "gone"});
+  }
+  fs::create_directories(TenantDataDir(sr, live_uuid));
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::unique_ptr<DbmsHandler> handler;
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf));
+  handler.reset();
+
+  memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+  EXPECT_FALSE(verify_kv.Get(std::string{TenantProfiles::kDbMappingPrefix} + "gone").has_value())
+      << "a db_tenant_profile mapping for a database with no durability key must be pruned on startup";
+  auto live_mapping = verify_kv.Get(std::string{TenantProfiles::kDbMappingPrefix} + "live");
+  ASSERT_TRUE(live_mapping.has_value()) << "the mapping for a still-live database must survive the prune";
+  EXPECT_EQ(*live_mapping, "p") << "the surviving mapping's target profile must be unchanged";
+
+  auto profile_json = verify_kv.Get(std::string{TenantProfiles::kPrefix} + "p");
+  ASSERT_TRUE(profile_json.has_value()) << "pruning a stale attachment must not delete the profile itself";
+  const auto dbs = nlohmann::json::parse(*profile_json).at("databases").get<std::set<std::string>>();
+  EXPECT_FALSE(dbs.contains("gone")) << "the stale name must be removed from the profile's databases set too";
+  EXPECT_TRUE(dbs.contains("live")) << "pruning 'gone' must not disturb the profile's still-live attachment";
+
+  fs::remove_all(sr.root);
+}
+
+// Negative control for PruneDatabases: a COLD tenant looks absent through the HOT-gated Get_/All lens, so
+// pruning its attachment would be data loss. Pins the ctor's raw-`database:`-key live-set (dbms_handler.cpp:371).
+TEST(DBMS_Handler, SuspendedTenantProfileMappingIsNotPrunedOnStartup) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+  using memgraph::dbms::TenantProfiles;
+
+  auto sr = MakeSeededRoot("prune_cold");
+
+  memgraph::utils::UUID cold_uuid;
+  {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    ASSERT_TRUE(seed_kv.Put("version", "V2"));
+    cold_uuid = SeedColdEntry(seed_kv, "cold");
+    SeedProfile(seed_kv, "p", /*memory_limit=*/1000, {"cold"});
+  }
+  const auto cold_dir = TenantDataDir(sr, cold_uuid);
+  fs::create_directories(cold_dir);
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::unique_ptr<DbmsHandler> handler;
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf));
+  EXPECT_TRUE(handler->IsSuspended("cold"))
+      << "the seeded entry must restore as a live COLD tenant -- otherwise this test would vacuously "
+         "pass by testing an already-absent database instead of a suspended one";
+  handler.reset();
+
+  memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+  auto mapping = verify_kv.Get(std::string{TenantProfiles::kDbMappingPrefix} + "cold");
+  ASSERT_TRUE(mapping.has_value())
+      << "a COLD tenant's profile attachment must survive startup -- pruning it would be unrecoverable";
+  EXPECT_EQ(*mapping, "p");
+
+  auto profile_json = verify_kv.Get(std::string{TenantProfiles::kPrefix} + "p");
+  ASSERT_TRUE(profile_json.has_value());
+  const auto dbs = nlohmann::json::parse(*profile_json).at("databases").get<std::set<std::string>>();
+  EXPECT_TRUE(dbs.contains("cold")) << "the profile's databases set must still list the suspended tenant";
+
+  EXPECT_TRUE(fs::exists(cold_dir)) << "a COLD tenant's data directory must also survive the unused-directory sweep";
+
+  fs::remove_all(sr.root);
+}
+
+// This branch adds a startup reconciliation pass and reorders the DROP paths, but touches neither
+// Durability::Migrate nor its version chain: a plain V2 store must still boot, stay V2, and keep its entry.
+TEST(DBMS_Handler, ExistingV2DurabilityStoreBootsUnchanged) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+
+  auto sr = MakeSeededRoot("v2_unchanged");
+
+  memgraph::utils::UUID live_uuid;
+  {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    ASSERT_TRUE(seed_kv.Put("version", "V2"));
+    live_uuid = SeedHotEntry(seed_kv, "live").uuid;
+  }
+  fs::create_directories(TenantDataDir(sr, live_uuid));
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::unique_ptr<DbmsHandler> handler;
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf))
+      << "a plain, already-migrated V2 store must boot cleanly";
+
+  const auto all = handler->All();
+  EXPECT_TRUE(std::find(all.begin(), all.end(), "live") != all.end()) << "the V2 HOT entry must restore HOT";
+  EXPECT_FALSE(handler->IsSuspended("live"));
+  handler.reset();
+
+  memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+  auto version = verify_kv.Get("version");
+  ASSERT_TRUE(version.has_value());
+  EXPECT_EQ(*version, "V2") << "this branch must not introduce a durability version bump";
+
+  auto entry = verify_kv.Get(std::string{"database:"} + "live");
+  ASSERT_TRUE(entry.has_value());
+  // Deliberately not a byte compare: New_ rewrites every restored HOT entry via UpdateDurability, which
+  // recomputes rel_dir through std::filesystem::relative (dbms_handler.cpp:860) -- bytes would be flaky.
+  const auto entry_json = nlohmann::json::parse(*entry);
+  const auto expected_rel_dir =
+      std::filesystem::path(std::string{memgraph::dbms::kMultiTenantDir}) / std::string{live_uuid};
+  EXPECT_EQ(entry_json.at("uuid").get<memgraph::utils::UUID>(), live_uuid)
+      << "the restored entry's uuid must be unchanged from what was seeded";
+  EXPECT_EQ(entry_json.at("rel_dir").get<std::filesystem::path>(), expected_rel_dir)
+      << "the restored entry's rel_dir must still point at the seeded tenant directory";
+  EXPECT_FALSE(entry_json.value("cold", false)) << "a HOT entry must not acquire a cold marker on restart";
+
+  fs::remove_all(sr.root);
+}
+
+// A corrupt attached profile record must not turn DROP into a half-done delete: DetachFromDatabase
+// refuses it (DURABILITY_ERROR) and TryDelete must still retire the key + dir (dbms_handler.cpp:479-488).
+TEST(DBMS_Handler, DropSucceedsDurablyWhenAttachedProfileJsonIsCorrupt) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+  using memgraph::dbms::TenantProfiles;
+
+  auto sr = MakeSeededRoot("drop_corrupt_profile");
+
+  memgraph::utils::UUID victim_uuid;
+  {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    ASSERT_TRUE(seed_kv.Put("version", "V2"));
+    victim_uuid = SeedHotEntry(seed_kv, "victim").uuid;
+    // Point "victim" at profile "p", but write "p"'s durable record as deliberately broken JSON --
+    // NOT via SeedProfile, which would also write a well-formed tenant_profile:p row.
+    ASSERT_TRUE(seed_kv.Put(std::string{TenantProfiles::kDbMappingPrefix} + "victim", "p"));
+    ASSERT_TRUE(seed_kv.Put(std::string{TenantProfiles::kPrefix} + "p", "{not json"));
+  }
+  fs::create_directories(TenantDataDir(sr, victim_uuid));
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::unique_ptr<DbmsHandler> handler;
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf));
+
+  std::optional<DbmsHandler::DeleteResult> del;
+  ASSERT_NO_THROW(del = handler->TryDelete("victim"))
+      << "a corrupt attached tenant-profile record must not be able to throw a JSON exception out of DROP";
+  ASSERT_TRUE(del.has_value());
+  ASSERT_TRUE(del->has_value()) << "DROP must succeed even though the attached profile record is corrupt";
+
+  const auto all = handler->All();
+  EXPECT_TRUE(std::find(all.begin(), all.end(), "victim") == all.end())
+      << "victim must be gone from All() immediately after a successful drop";
+  handler.reset();
+
+  {
+    memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+    EXPECT_FALSE(verify_kv.Get(std::string{kDBPrefixLiteral} + "victim").has_value())
+        << "a corrupt attached profile record must not stop the tenant's durability key from being erased: a "
+           "surviving key brings the tenant back on the next boot";
+    EXPECT_FALSE(fs::exists(TenantDataDir(sr, victim_uuid)))
+        << "the tenant's on-disk data directory must also be removed";
+
+    auto mapping = verify_kv.Get(std::string{TenantProfiles::kDbMappingPrefix} + "victim");
+    EXPECT_TRUE(mapping.has_value())
+        << "DetachFromDatabase deliberately leaves the mapping in place when the profile it points at is "
+           "corrupt -- PruneDatabases on the next boot is what collects it, not this call";
+  }
+
+  {
+    std::unique_ptr<DbmsHandler> handler2;
+    ASSERT_NO_THROW(handler2 = std::make_unique<DbmsHandler>(conf));
+    handler2.reset();
+  }
+
+  memgraph::kvstore::KVStore verify_kv2{sr.durability_dir};
+  EXPECT_FALSE(verify_kv2.Get(std::string{TenantProfiles::kDbMappingPrefix} + "victim").has_value())
+      << "boot reconciliation (PruneDatabases) must collect the leftover mapping on the very next boot, "
+         "even though the profile it names never parses";
+
+  fs::remove_all(sr.root);
+}
+
+// A corrupt attached tenant-profile record must not turn RENAME into a false failure, nor skip
+// txn->AddAction<RenameDatabase>. TenantProfiles::RenameDatabase used to parse the persisted profile record
+// with an unguarded nlohmann::json::parse, reached *after* DbmsHandler::Rename had already committed the
+// tenant rename both in memory and durably -- so the throw propagated out of Rename, telling the client the
+// RENAME had failed for an operation that had fully succeeded, and skipping AddAction<RenameDatabase>
+// (below the throw site), so the rename was never replicated. MAIN and the replica then permanently
+// disagreed on the tenant's name. Fixed by c4479c893 (catch json::exception in TenantProfiles::RenameDatabase,
+// return DURABILITY_ERROR instead) + 28b1e9046 (surface, but don't propagate, that error in Rename).
+TEST(DBMS_Handler, RenameSucceedsAndReplicatesWhenAttachedProfileJsonIsCorrupt) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+  using memgraph::dbms::TenantProfiles;
+
+  auto sr = MakeSeededRoot("rename_corrupt_profile");
+
+  memgraph::utils::UUID victim_uuid;
+  {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    ASSERT_TRUE(seed_kv.Put("version", "V2"));
+    victim_uuid = SeedHotEntry(seed_kv, "victim").uuid;
+    ASSERT_TRUE(seed_kv.Put(std::string{TenantProfiles::kDbMappingPrefix} + "victim", "p"));
+    // Deliberately broken JSON -- NOT via SeedProfile, which would write a well-formed tenant_profile:p row.
+    ASSERT_TRUE(seed_kv.Put(std::string{TenantProfiles::kPrefix} + "p", "{not json"));
+  }
+  fs::create_directories(TenantDataDir(sr, victim_uuid));
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::unique_ptr<DbmsHandler> handler;
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf));
+
+  // Drive the rename through a real system transaction so replication (AddAction<RenameDatabase>) is
+  // directly observable, rather than inferred.
+  memgraph::system::System sys;  // default ctor: no storage, no recovery
+  auto txn = sys.TryCreateTransaction();
+  ASSERT_TRUE(txn.has_value());
+
+  std::optional<DbmsHandler::RenameResult> res;
+  ASSERT_NO_THROW(res = handler->Rename("victim", "renamed", &*txn))
+      << "a corrupt attached tenant-profile record must not be able to throw a JSON exception out of RENAME";
+  ASSERT_TRUE(res.has_value());
+  ASSERT_TRUE(res->has_value())
+      << "RENAME must report SUCCESS even though the attached profile record is corrupt -- reporting failure "
+         "for an operation that fully succeeded is the exact bug";
+
+  int applied = 0;
+  txn->Commit(CountingReplicationPolicy{&applied});
+  EXPECT_EQ(applied, 1)
+      << "the RenameDatabase system action must have been recorded so the rename replicates -- pre-fix this "
+         "was 0 because the throw skipped AddAction, which is what made MAIN and the replica disagree on the "
+         "tenant name permanently";
+
+  const auto all = handler->All();
+  EXPECT_TRUE(std::find(all.begin(), all.end(), "renamed") != all.end()) << "'renamed' must be visible after RENAME";
+  EXPECT_TRUE(std::find(all.begin(), all.end(), "victim") == all.end())
+      << "'victim' must no longer be visible after RENAME";
+  handler.reset();
+
+  {
+    memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+    EXPECT_TRUE(verify_kv.Get(std::string{kDBPrefixLiteral} + "renamed").has_value())
+        << "database:renamed must exist -- the durability record must have moved to the new name";
+    EXPECT_FALSE(verify_kv.Get(std::string{kDBPrefixLiteral} + "victim").has_value())
+        << "database:victim must no longer exist";
+
+    auto mapping = verify_kv.Get(std::string{TenantProfiles::kDbMappingPrefix} + "victim");
+    EXPECT_TRUE(mapping.has_value())
+        << "the stale db_tenant_profile:victim mapping is deliberately left in place here -- the next boot's "
+           "PruneDatabases collects it, not this call";
+  }
+
+  {
+    std::unique_ptr<DbmsHandler> handler2;
+    ASSERT_NO_THROW(handler2 = std::make_unique<DbmsHandler>(conf));
+    handler2.reset();
+  }
+
+  memgraph::kvstore::KVStore verify_kv2{sr.durability_dir};
+  EXPECT_FALSE(verify_kv2.Get(std::string{TenantProfiles::kDbMappingPrefix} + "victim").has_value())
+      << "boot reconciliation (PruneDatabases) must collect the leftover db_tenant_profile:victim mapping on "
+         "the very next boot, even though the profile it names never parses";
+
+  fs::remove_all(sr.root);
+}
+
+// The tenant's own `database:` durability record must move VERBATIM on RENAME, not be parsed and rewritten.
+// Pre-fix, DbmsHandler::Rename did `json = parse(old_val); json["name"] = new_name; Put(new_key, json.dump())`.
+// Durability::GenVal never writes a "name" field, and nothing in the codebase ever reads one back -- the
+// tenant's name lives in the KEY, and the restore loop derives it via key.substr(kDBPrefix.size()) -- so that
+// write was pure litter added on every rename, and doubled as a second corrupt-record throw site (fixed
+// alongside the profile one by 28b1e9046). This test doubles as the healthy-rename negative control: it
+// proves the fix is not over-broad by checking a plain, non-corrupt rename still behaves.
+TEST(DBMS_Handler, RenameMovesTenantDurabilityRecordVerbatim) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+
+  auto sr = MakeSeededRoot("rename_verbatim");
+
+  auto seeded = [&] {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    seed_kv.Put("version", "V2");
+    return SeedHotEntry(seed_kv, "before");
+  }();
+  fs::create_directories(TenantDataDir(sr, seeded.uuid));
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::unique_ptr<DbmsHandler> handler;
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf));
+
+  auto res = handler->Rename("before", "after");
+  ASSERT_TRUE(res.has_value()) << "a plain, healthy rename must succeed";
+
+  const auto all = handler->All();
+  EXPECT_TRUE(std::find(all.begin(), all.end(), "after") != all.end());
+  EXPECT_TRUE(std::find(all.begin(), all.end(), "before") == all.end());
+  handler.reset();
+
+  {
+    memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+    auto new_val = verify_kv.Get(std::string{kDBPrefixLiteral} + "after");
+    ASSERT_TRUE(new_val.has_value()) << "database:after must exist";
+    EXPECT_EQ(*new_val, seeded.json_str)
+        << "the moved record must be byte-identical to what was seeded -- parsing and re-dumping it (the "
+           "pre-fix behavior) would not round-trip to the exact same bytes";
+    EXPECT_FALSE(verify_kv.Get(std::string{kDBPrefixLiteral} + "before").has_value())
+        << "database:before must no longer exist";
+
+    const auto entry_json = nlohmann::json::parse(*new_val);
+    EXPECT_FALSE(entry_json.contains("name"))
+        << "the pre-fix code injected a \"name\" field on every rename; Durability::GenVal never writes one "
+           "and nothing reads it back -- it was write-only litter";
+    EXPECT_TRUE(entry_json.contains("uuid"));
+    EXPECT_TRUE(entry_json.contains("rel_dir"));
+  }
+
+  {
+    std::unique_ptr<DbmsHandler> handler2;
+    ASSERT_NO_THROW(handler2 = std::make_unique<DbmsHandler>(conf));
+    const auto all2 = handler2->All();
+    EXPECT_TRUE(std::find(all2.begin(), all2.end(), "after") != all2.end())
+        << "a fresh boot must restore the tenant under its renamed name";
+    handler2.reset();
+  }
+
+  EXPECT_TRUE(fs::exists(TenantDataDir(sr, seeded.uuid))) << "the tenant's data directory must be untouched by RENAME";
+
+  fs::remove_all(sr.root);
 }
 
 int main(int argc, char *argv[]) {
