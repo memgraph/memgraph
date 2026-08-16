@@ -3472,6 +3472,32 @@ TEST_F(NoAccessorEvaluatorTest, FunctionCallThrows) {
   EXPECT_THROW(expr->Accept(eval), QueryRuntimeException);
 }
 
+// A record cannot exist without an accessor, so the paths that read a property off one are unreachable
+// on a query that opened no transaction. They refuse rather than rely on that: the value here is a real
+// vertex, put in the frame by hand, which is the state the guard exists for.
+TYPED_TEST(ExpressionEvaluatorTest, RecordPropertyWithoutAccessorThrows) {
+  auto vertex = this->dba.InsertVertex();
+  ASSERT_TRUE(vertex.SetProperty(this->dba.NameToProperty("prop"), memgraph::storage::PropertyValue(1)));
+
+  auto *identifier = this->CreateIdentifierWithValue("n", TypedValue(vertex));
+
+  ExecutionContext no_accessor_context{
+      .db_accessor = nullptr,
+      .symbol_table = this->symbol_table,
+      .evaluation_context = {.memory = &this->mem, .timestamp = memgraph::query::QueryTimestamp()}};
+  ExpressionEvaluator no_accessor_eval{&this->frame, no_accessor_context, memgraph::storage::View::OLD};
+
+  // n["prop"] resolves the property name at run time, so the name never reaches the AST's property list.
+  auto *by_string = this->storage.template Create<memgraph::query::SubscriptOperator>(
+      identifier, this->storage.template Create<memgraph::query::PrimitiveLiteral>("prop"));
+  EXPECT_THROW(by_string->Accept(no_accessor_eval), QueryRuntimeException);
+
+  // n.prop names the property at parse time and takes the other path into the same accessor.
+  auto *by_name =
+      this->storage.template Create<memgraph::query::PropertyLookup>(identifier, this->storage.GetPropertyIx("prop"));
+  EXPECT_THROW(by_name->Accept(no_accessor_eval), QueryRuntimeException);
+}
+
 TEST_F(NoAccessorEvaluatorTest, EnumValueAccessThrows) {
   auto *expr = storage.Create<memgraph::query::EnumValueAccess>("Color", "RED");
   EXPECT_THROW(expr->Accept(eval), QueryRuntimeException);
