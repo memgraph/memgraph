@@ -1142,3 +1142,58 @@ Feature: Subqueries
         Then the result should be:
             | outer_after | d1  | d2   |
             | '1'         | '2' | null |
+
+    Scenario: A MERGE after an intermediate WITH attaches to the scoped CALL import
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (m1:Movie {id: '1'})-[:relatedTo]->(m2:Movie {id: '2'})
+            """
+        # Treating `source` as unbound here makes MERGE's create branch build a fresh node for it, so
+        # the merged edge dangles off a phantom instead of off Movie '1' - a silent extra node.
+        And having executed:
+            """
+            MATCH (source:Movie {id: '1'})
+            CALL (source) {
+              MATCH (source)-[]-(des1)
+              WITH des1
+              MERGE (source)-[:mergedTo]->(des1)
+              RETURN des1
+            }
+            RETURN count(*) AS c
+            """
+        When executing query:
+            """
+            MATCH (n) WITH count(n) AS total
+            MATCH (a)-[:mergedTo]->(b)
+            RETURN total, a.id AS from_id, b.id AS to_id
+            """
+        Then the result should be:
+            | total | from_id | to_id |
+            | 2     | '1'     | '2'   |
+
+    Scenario: A scoped CALL import stays in scope in every UNION branch of the body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (m1:Movie {id: '1'})-[:relatedTo]->(m2:Movie {id: '2'})
+            """
+        When executing query:
+            """
+            MATCH (source:Movie {id: '1'})
+            CALL (source) {
+              MATCH (source)-[]-(des1)
+              WITH des1
+              MATCH (source)-[]-(des2)
+              RETURN des2.id AS d
+              UNION
+              MATCH (source)-[]-(des3)
+              WITH des3
+              MATCH (source)-[]-(des4)
+              RETURN des4.id AS d
+            }
+            RETURN d
+            """
+        Then the result should be:
+            | d   |
+            | '2' |

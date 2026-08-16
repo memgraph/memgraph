@@ -3122,7 +3122,8 @@ TYPED_TEST(TestPlanner, SubqueryScopedAllImportSurvivesIntermediateWith) {
 }
 
 // The legacy leading-WITH form imports nothing, so ordinary WITH narrowing applies and the name
-// written after it is a fresh variable that must be scanned.
+// written after it is a fresh variable that must be scanned. This plan is identical before and after
+// the fix - the test guards the intended divergence, it does not reproduce the defect.
 TYPED_TEST(TestPlanner, SubqueryLegacyImportDoesNotSurviveIntermediateWith) {
   // MATCH (m) CALL { WITH m MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
   FakeDbAccessor dba;
@@ -3228,6 +3229,8 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportRestoredAfterNestedLegacySubquery) {
 
 // A named expression may redeclare an import's name. The import must then stay suppressed rather than
 // coexist with the shadow symbol, which a later `WITH *` would project as a second column of that name.
+// The plan is identical before and after the fix; this guards the shadow check in `GenWith` itself -
+// without it, `WITH *` projects `m` twice.
 TYPED_TEST(TestPlanner, SubqueryScopedImportShadowedByNamedExpressionIsNotProjectedTwice) {
   // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a, a AS m WITH * RETURN a } RETURN a
   FakeDbAccessor dba;
@@ -3243,6 +3246,23 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportShadowedByNamedExpressionIsNotProjec
 
   std::list<BaseOpChecker *> branch{
       new ExpectExpand(), new ExpectProduce(), new ExpectProduceColumns({"a", "m"}), new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+}
+
+// An import no named expression redeclared is still in scope at a trailing `RETURN *`, so the body
+// projects it as a column. Before the fix the intermediate WITH dropped it and `*` was one column.
+TYPED_TEST(TestPlanner, SubqueryScopedImportProjectedByReturnStarAfterWith) {
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a RETURN * } RETURN a
+  FakeDbAccessor dba;
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))), WITH("a"), RETURN("*"));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"m"}), RETURN("a")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> branch{new ExpectExpand(), new ExpectProduce(), new ExpectProduceColumns({"a", "m"})};
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
   DeleteListContent(&branch);
 }
