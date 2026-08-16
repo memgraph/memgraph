@@ -568,14 +568,4 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
   }
 }
 
-#ifdef MG_ENTERPRISE
-bool ExpressionEvaluator::IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const {
-  return PropertyReadAllowed(auth_checker_, accessor, view_, prop);
-}
-
-bool ExpressionEvaluator::IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const {
-  return PropertyReadAllowed(auth_checker_, accessor, prop);
-}
-#endif
-
 }  // namespace memgraph::query

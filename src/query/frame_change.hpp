@@ -169,14 +169,20 @@ class FrameChangeCollector {
     return std::optional{std::cref(*it->second)};
   }
 
+  /// Invalidates whatever a write to `symbol` invalidates.
+  ///
+  /// Every frame write comes through here, and most queries track nothing at all, so the answer for
+  /// a query with no `IN` and no regex has to be reachable without touching a hash table.
   void ResetCache(Symbol const &symbol) {
-    ResetInListCacheInternal(symbol.position_);
-    ResetRegexCacheInternal(symbol.position_);
+    if (invalidators_.empty()) [[likely]]
+      return;
+    ResetCacheInternal(symbol.position_);
   }
 
   void ResetCache(NamedExpression const &named_expression) {
-    ResetInListCacheInternal(named_expression.symbol_pos_);
-    ResetRegexCacheInternal(named_expression.symbol_pos_);
+    if (invalidators_.empty()) [[likely]]
+      return;
+    ResetCacheInternal(named_expression.symbol_pos_);
   }
 
   void ResetInListCache(Symbol const &symbol) { ResetInListCacheInternal(symbol.position_); }
@@ -291,6 +297,22 @@ class FrameChangeCollector {
   }
 
  private:
+  /// A key is looked up in both caches because a key names an expression, and which of the two
+  /// caches holds it is not recorded anywhere.
+  void ResetCacheInternal(Symbol::Position_t const &symbol_pos) {
+    auto const it = invalidators_.find(symbol_pos);
+    if (it == invalidators_.cend()) [[likely]]
+      return;
+    for (auto const &key : it->second) {
+      if (auto const in_list = inlist_cache_.find(key); in_list != inlist_cache_.cend()) {
+        in_list->second.Reset();
+      }
+      if (auto const regex = regex_cache_.find(key); regex != regex_cache_.cend()) {
+        regex->second = std::nullopt;  // tracked but not populated
+      }
+    }
+  }
+
   void ResetInListCacheInternal(Symbol::Position_t const &symbol_pos) {
     auto const it = invalidators_.find(symbol_pos);
     if (it == invalidators_.cend()) [[likely]]
@@ -298,17 +320,6 @@ class FrameChangeCollector {
     for (auto const &key : it->second) {
       if (auto const it2 = inlist_cache_.find(key); it2 != inlist_cache_.cend()) {
         it2->second.Reset();
-      }
-    }
-  }
-
-  void ResetRegexCacheInternal(Symbol::Position_t const &symbol_pos) {
-    auto const it = invalidators_.find(symbol_pos);
-    if (it == invalidators_.cend()) [[likely]]
-      return;
-    for (auto const &key : it->second) {
-      if (auto it2 = regex_cache_.find(key); it2 != regex_cache_.cend()) {
-        it2->second = std::nullopt;  // tracked but not populated
       }
     }
   }

@@ -23,6 +23,7 @@
 #include <variant>
 #include <vector>
 
+#include "query/auth_checker.hpp"
 #include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -293,7 +294,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         triggering_user_(context.triggering_user.get())
 #ifdef MG_ENTERPRISE
         ,
-        auth_checker_(context.auth_checker)
+        auth_checker_(context.auth_checker),
+        // Whether any property is restricted is fixed for the query, so every property read can be
+        // waved through on one flag instead of asking the checker again.
+        property_restrictions_(auth_checker_ != nullptr && auth_checker_->HasPropertyRestrictions())
 #endif
   {
   }
@@ -1113,8 +1117,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
 #ifdef MG_ENTERPRISE
-  bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const;
-  bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const;
+  bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const {
+    if (!property_restrictions_) [[likely]]
+      return true;
+    return PropertyReadAllowed(auth_checker_, accessor, view_, prop);
+  }
+
+  bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const {
+    if (!property_restrictions_) [[likely]]
+      return true;
+    return PropertyReadAllowed(auth_checker_, accessor, prop);
+  }
 #else
   template <typename T>
     requires std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor>
@@ -1260,6 +1273,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   const QueryUserOrRole *triggering_user_;
 #ifdef MG_ENTERPRISE
   FineGrainedAuthChecker const *auth_checker_{nullptr};
+  bool property_restrictions_{false};
 #endif
 };  // namespace memgraph::query
 
