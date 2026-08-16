@@ -45,12 +45,63 @@ auto Join(std::span<ManifestEntry const> lhs, std::span<ManifestEntry const> rhs
   return joined;
 }
 
-/// The shape a thread interned last, and what it got. A load builds record after record of
-/// the same shape, so this answers nearly every intern without touching anything shared.
-struct InternMemo {
-  uint64_t instance{0};
-  std::vector<ManifestEntry> shape;
-  ManifestId id;
+/// The shapes a thread interned recently, and what each got, so an intern a thread has done
+/// before touches nothing shared.
+///
+/// One remembered shape answers a load that builds record after record of the same shape. It
+/// answers nothing at all for a record built a property at a time, which is how a write ahead
+/// log replays one: that walks a shape per property, then walks the same run again for the
+/// next record, so a single slot is overwritten before it can be used.
+///
+/// A slot is chosen by how many properties the shape holds, which is what tells the members of
+/// such a run apart, and costs nothing to compute. Two different shapes of the same width share
+/// a slot and evict each other; that is what a single slot already did for every shape, so it
+/// is never worse than remembering one.
+///
+/// The slot the last intern used is tried first, without computing an index at all. A load
+/// repeating one shape has to go on costing exactly one comparison against that shape, or the
+/// table would be paid for by the path that never needed it.
+class InternMemo {
+ public:
+  auto Lookup(uint64_t instance, std::span<ManifestEntry const> shape) -> std::optional<ManifestId> {
+    if (auto const &recent = slots_[last_]; recent.instance == instance && Dominates(recent.shape, shape)) {
+      return recent.id;
+    }
+
+    auto const index = SlotFor(shape);
+    auto const &slot = slots_[index];
+    if (slot.instance != instance || !Dominates(slot.shape, shape)) return std::nullopt;
+    last_ = index;
+    return slot.id;
+  }
+
+  void Remember(uint64_t instance, std::span<ManifestEntry const> shape, ManifestId id) {
+    auto const index = SlotFor(shape);
+    auto &slot = slots_[index];
+    slot.instance = instance;
+    // Assign rather than construct: a thread that keeps missing, because every record is a
+    // new shape, would otherwise pay a fresh allocation for every miss.
+    slot.shape.assign(shape.begin(), shape.end());
+    slot.id = id;
+    last_ = index;
+  }
+
+ private:
+  /// Enough for the whole run a record of ordinary width is built through, and small enough
+  /// that the slots a thread never uses cost only their empty vector. A power of two so the
+  /// mapping is a mask, which is what makes a wider record wrap rather than fail.
+  static constexpr size_t kSlots = 16;
+
+  static auto SlotFor(std::span<ManifestEntry const> shape) -> size_t { return shape.size() & (kSlots - 1); }
+
+  struct Slot {
+    uint64_t instance{0};
+    std::vector<ManifestEntry> shape;
+    ManifestId id;
+  };
+
+  std::array<Slot, kSlots> slots_{};
+  size_t last_{0};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -109,11 +160,7 @@ void ManifestRegistry::Publish(ManifestId id, PropertyManifest *manifest) {
 }
 
 void ManifestRegistry::Remember(std::span<ManifestEntry const> shape, ManifestId id) const {
-  // Assign rather than construct: a thread that keeps missing (every record a new shape)
-  // would otherwise pay a fresh allocation for every miss.
-  memo.instance = instance_;
-  memo.shape.assign(shape.begin(), shape.end());
-  memo.id = id;
+  memo.Remember(instance_, shape, id);
 }
 
 auto ManifestRegistry::NextInstanceId() -> uint64_t {
@@ -143,7 +190,7 @@ auto ManifestRegistry::Intern(std::span<ManifestEntry const> entries) -> Manifes
   // The memo answers for every shape the one it holds can stand in for, not only for that
   // shape itself. Once a class's widest shape has been seen, the narrower records a load goes
   // on to build are served without touching anything shared.
-  if (memo.instance == instance_ && Dominates(memo.shape, shape)) return memo.id;
+  if (auto const remembered = memo.Lookup(instance_, shape)) return *remembered;
 
   return Promote(shape);
 }

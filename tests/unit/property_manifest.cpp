@@ -15,6 +15,7 @@
 #include <array>
 #include <barrier>
 #include <random>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -392,6 +393,34 @@ TEST(PropertyManifest, MemoStaysCorrectWhenTwoRegistriesAreInterleaved) {
     EXPECT_EQ(right.Intern(shape), right_id);
   }
   EXPECT_NE(left_id, right_id);
+}
+
+// A record built a property at a time walks a shape per property, and the next record walks
+// the same run again. Every shape in the run keeps its own id however many times the run is
+// repeated, and no shape is answered with another's. The run is longer than the memo holds,
+// so the shapes that evict one another are covered too.
+TEST(PropertyManifest, MemoServesAWholeRunOfGrowingShapes) {
+  ManifestRegistry registry;
+
+  auto growing = std::vector<std::vector<ManifestEntry>>{};
+  auto shape = std::vector<ManifestEntry>{};
+  for (uint32_t property = 0; property != 24; ++property) {
+    shape.push_back(property % 3 == 0 ? Entry(property, String()) : Entry(property, Int(4)));
+    growing.push_back(shape);
+  }
+
+  auto ids = std::vector<memgraph::storage::ManifestId>{};
+  for (auto const &grown : growing) ids.push_back(registry.Intern(grown));
+
+  EXPECT_EQ(registry.size(), growing.size()) << "each shape of the run is its own";
+  EXPECT_EQ(std::set(ids.begin(), ids.end()).size(), ids.size()) << "and got its own id";
+
+  for (auto round = 0; round < 5; ++round) {
+    for (size_t step = 0; step != growing.size(); ++step) {
+      EXPECT_EQ(registry.Intern(growing[step]), ids[step]) << "round " << round << ", step " << step;
+    }
+  }
+  EXPECT_EQ(registry.size(), growing.size()) << "repeating the run interns nothing new";
 }
 
 TEST(PropertyManifest, ConcurrentInterningOfOneShapeYieldsOneManifest) {
