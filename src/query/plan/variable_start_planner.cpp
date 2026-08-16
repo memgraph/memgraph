@@ -391,6 +391,7 @@ void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
       new_matchings.push_back(ToExistsMatching(all_exists_matchings[all_exists_matchings_idx]));
       new_matchings[i].symbol = filter.exists_matchings[i].symbol;
       new_matchings[i].type = filter.exists_matchings[i].type;
+      new_matchings[i].fold = filter.exists_matchings[i].fold;
       new_matchings[i].subquery = filter.exists_matchings[i].subquery;
 
       all_exists_matchings_idx++;

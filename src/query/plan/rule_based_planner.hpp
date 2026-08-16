@@ -135,6 +135,10 @@ struct MatchContext {
 
 namespace impl {
 
+/// The AST spells the fold as a surface construct, the operators as a reduction; this is the one place they meet.
+/// @c Exists::Fold has no list member - `COLLECT {}` does not parse yet - so the mapping is total.
+constexpr Fold ToOperatorFold(Exists::Fold fold) { return fold == Exists::Fold::kCount ? Fold::kCount : Fold::kBool; }
+
 // These functions are an internal implementation of RuleBasedPlanner. To avoid
 // writing the whole code inline in this header file, they are declared here and
 // defined in the cpp file.
@@ -1738,15 +1742,19 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                             SubqueryView(matching, write_occurred));
   }
 
-  /// The deferred bool fold: the branch plus the tail that installs a closure into the frame. Only usable as a
+  /// The deferred fold: the branch plus the tail that installs a closure into the frame. Only usable as a
   /// `Filter` side branch, which is why a projection uses the forced fold instead.
   std::unique_ptr<LogicalOperator> MakeExistsFilter(const ExistsMatching &matching, const SymbolTable &symbol_table,
                                                     AstStorage &storage,
                                                     const std::unordered_set<Symbol> &bound_symbols) {
     // Outside an EXISTS branch the flag is false, which resolves to View::OLD.
     auto last_op = MakeExistsBranch(matching, symbol_table, storage, bound_symbols, exists_branch_after_write_);
-    last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
-    return std::make_unique<EvaluatePatternFilter>(std::move(last_op), matching.symbol.value());
+    // The count fold has to see every row, so the bool fold's one-row cap cannot sit above it.
+    if (matching.fold != Exists::Fold::kCount) {
+      last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
+    }
+    return std::make_unique<EvaluatePatternFilter>(
+        std::move(last_op), matching.symbol.value(), impl::ToOperatorFold(matching.fold));
   }
 
   std::unique_ptr<LogicalOperator> MakePatternComprehensionFilter(const PatternComprehensionMatching &matching,

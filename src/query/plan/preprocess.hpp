@@ -546,6 +546,8 @@ struct QueryParts;
 struct ExistsMatching : Matching {
   /// Which spelling this was written as.
   ExistsKind type;
+  /// What the branch's rows are reduced to - the other axis, independent of @c type.
+  Exists::Fold fold{Exists::Fold::kBool};
   /// The frame slot the fold writes, and the expression reads.
   std::optional<Symbol> symbol;
   /// For @c ExistsKind::kSubquery, the body's own query parts.

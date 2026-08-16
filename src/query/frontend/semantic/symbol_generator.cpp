@@ -482,7 +482,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
 
   if (scope.in_exists_pattern && (scope.visiting_edge || scope.in_node_atom)) {
     if (!name_in_scope && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
-      throw SemanticException("Unbounded variables are not allowed in exists!");
+      throw SemanticException("Unbounded variables are not allowed in {}!", scope.subquery_construct);
     }
   }
 
@@ -716,18 +716,20 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
 
   if (!exists.HasPattern() && !exists.HasSubquery()) {
     throw SemanticException(
-        "EXISTS semantic hold neither pattern or subquery part! Please contact Memgraph support as this scenario "
-        "should not happen!");
+        "{} semantic hold neither pattern or subquery part! Please contact Memgraph support as this scenario "
+        "should not happen!",
+        exists.FoldName());
   }
 
   // Narrowed refusals, kept ahead of the position check because they name a specific construct rather than a position.
   if (scope.in_reduce) {
-    throw utils::NotYetImplemented("Exists cannot be used within REDUCE!");
+    throw utils::NotYetImplemented("{} cannot be used within REDUCE!", exists.FoldName());
   }
 
   // A CASE holds no position of its own, so it is not consulted here. num_if_operators still gates aggregations.
+  // The fold does not change which positions work; only what is written into the frame slot differs.
   if (!IsSupportedExistsPosition(scope)) {
-    throw utils::NotYetImplemented("Exists is not supported in this position yet!");
+    throw utils::NotYetImplemented("{} is not supported in this position yet!", exists.FoldName());
   }
 
   const auto &symbol = CreateAnonymousSymbol();
@@ -735,16 +737,19 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
 
   // Each form declares only its own variables, so each gets a scope; the pattern form's are named at parse time, so
   // leaving them outside redeclared them wherever one expression is reached twice, as a simple CASE reaches its test.
-  // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name.
+  // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name. The fold name rides
+  // along so a diagnostic raised inside names the construct the user wrote.
   // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
   scopes_.emplace_back(Scope{.in_exists_pattern = exists.HasPattern(),
                              .in_exists_subquery = exists.HasSubquery(),
+                             .subquery_construct = exists.FoldName(),
                              .call_subquery_base = scope.call_subquery_base});
 
   return true;
 }
 
 bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
+  // Popping restores the outer scope's fold name too, so nothing has to be reset by hand.
   scopes_.pop_back();
   return true;
 }

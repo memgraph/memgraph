@@ -17,11 +17,18 @@
 #include "query/frontend/semantic/symbol.hpp"
 
 namespace memgraph::query {
+/// A correlated subquery expression: a body evaluated per outer row, reduced to one value. Two axes vary
+/// independently - the body (@c content_: a pattern or a full subquery) and the fold (@c fold_). `EXISTS` is the
+/// bool fold, `COUNT` the count fold; they share every other part of the machinery, which is why one node carries
+/// both rather than there being a class per spelling.
 class Exists : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  /// What the body's rows are reduced to, and hence which surface spelling this was written as.
+  enum class Fold : uint8_t { kBool, kCount };
 
   Exists() = default;
 
@@ -37,11 +44,16 @@ class Exists : public memgraph::query::Expression {
   }
 
   std::variant<std::monostate, memgraph::query::Pattern *, memgraph::query::CypherQuery *> content_;
+  Fold fold_{Fold::kBool};
   /// Symbol table position of the symbol this Aggregation is mapped to.
   int32_t symbol_pos_{-1};
 
+  /// The construct's name as written, for error messages that would otherwise say "Exists" about a COUNT.
+  const char *FoldName() const { return fold_ == Fold::kCount ? "COUNT" : "EXISTS"; }
+
   Exists *Clone(AstStorage *storage) const override {
     Exists *object = storage->Create<Exists>();
+    object->fold_ = fold_;
     if (std::holds_alternative<Pattern *>(content_)) {
       object->content_ = std::get<Pattern *>(content_)->Clone(storage);
     } else if (std::holds_alternative<CypherQuery *>(content_)) {

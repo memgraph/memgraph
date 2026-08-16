@@ -327,7 +327,19 @@ using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
-using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
+
+/// The deferred fold. @p Fold is checked, since the operator looks the same either way and a wrong one is a wrong
+/// value rather than a wrong shape.
+template <RollUpApply::Fold TFold>
+class ExpectEvaluatePatternFilterWithFold : public OpChecker<EvaluatePatternFilter> {
+ public:
+  void ExpectOp(EvaluatePatternFilter &op, const SymbolTable & /*symbol_table*/) override {
+    EXPECT_EQ(op.fold_, TFold) << "unexpected EvaluatePatternFilter fold";
+  }
+};
+
+using ExpectEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kBool>;
+using ExpectCountEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kCount>;
 using ExpectPeriodicCommit = OpChecker<PeriodicCommit>;
 using ExpectLoadCsv = OpChecker<LoadCsv>;
 using ExpectLoadParquet = OpChecker<LoadParquet>;
@@ -909,6 +921,17 @@ class ExpectExistsRollUpApply : public ExpectRollUpApply {
     requires(sizeof...(TArgs) != 1 || !(std::same_as<std::remove_cvref_t<TArgs>, ExpectExistsRollUpApply> || ...))
   explicit ExpectExistsRollUpApply(TArgs &&...args) : ExpectRollUpApply(std::forward<TArgs>(args)...) {
     expected_fold_ = RollUpApply::Fold::kBool;
+  }
+};
+
+/// A RollUpApply carrying the count fold - what a COUNT in a projection, an ORDER BY or a WITH's WHERE is planned as.
+class ExpectCountRollUpApply : public ExpectRollUpApply {
+ public:
+  /// Constrained so the pack cannot hijack this type's own copy/move construction.
+  template <typename... TArgs>
+    requires(sizeof...(TArgs) != 1 || !(std::same_as<std::remove_cvref_t<TArgs>, ExpectCountRollUpApply> || ...))
+  explicit ExpectCountRollUpApply(TArgs &&...args) : ExpectRollUpApply(std::forward<TArgs>(args)...) {
+    expected_fold_ = RollUpApply::Fold::kCount;
   }
 };
 

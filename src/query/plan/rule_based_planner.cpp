@@ -133,9 +133,16 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
   /// The correlated-subquery branches spliced at one body position. Both are kept in visit order, so the spliced
   /// chain is deterministic rather than ordered by symbol hash.
+  /// One planned EXISTS/COUNT branch, with the fold that decides which RollUpApply constructor it reaches.
+  struct ExistsBranch {
+    Symbol result_symbol;
+    std::shared_ptr<LogicalOperator> op;
+    Fold fold;
+  };
+
   struct BranchesAt {
     std::vector<PatternComprehensionData> comprehensions;
-    std::vector<std::pair<Symbol, std::shared_ptr<LogicalOperator>>> exists;
+    std::vector<ExistsBranch> exists;
   };
 
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols,
@@ -746,8 +753,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       return;
     }
     auto op = subquery_ctx_->planner->PlanExistsBranch(it->second, subquery_ctx_->write_occurred, BranchBoundSymbols());
+    auto const fold = impl::ToOperatorFold(it->second.fold);
     subquery_ctx_->pending_exists.erase(it);
-    Bucket(position_).exists.emplace_back(result_sym, std::move(op));
+    Bucket(position_).exists.emplace_back(result_sym, std::move(op), fold);
   }
 
   BranchesAt &Bucket(BodyPosition position) { return branches_[static_cast<size_t>(position)]; }
@@ -846,9 +854,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     }
 
     const auto &exists_in_aggregations = body.exists_in_aggregations();
-    for (auto &[result_symbol, op] : projection.exists) {
+    for (auto &[result_symbol, op, fold] : projection.exists) {
       if (!op) continue;
-      last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(op), result_symbol);
+      last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(op), result_symbol, fold);
       if (!std::ranges::contains(exists_in_aggregations, result_symbol)) {
         remember.push_back(result_symbol);
       }
@@ -857,8 +865,8 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
   }
 
-  // Splices a list-fold RollUpApply for each planned comprehension onto last_op, then a bool-fold one for each
-  // planned EXISTS. Anything already spliced above has had its operator moved out and is skipped.
+  // Splices a list-fold RollUpApply for each planned comprehension onto last_op, then each planned EXISTS/COUNT with
+  // its own fold. Anything already spliced above has had its operator moved out and is skipped.
   auto splice_branches = [&](auto &&branches) {
     for (auto &data : branches.comprehensions) {
       if (!data.op) continue;
@@ -866,9 +874,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
       last_op = std::make_unique<RollUpApply>(
           std::move(last_op), std::move(data.op), list_collection_symbols, data.result_symbol);
     }
-    for (auto &[result_symbol, op] : branches.exists) {
+    for (auto &[result_symbol, op, fold] : branches.exists) {
       if (!op) continue;
-      last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(op), result_symbol);
+      last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(op), result_symbol, fold);
     }
   };
 

@@ -236,6 +236,15 @@ class NamedLogicalOperator {
   NamedLogicalOperator &operator=(NamedLogicalOperator &&) noexcept = default;
 };
 
+/// What a correlated subquery's branch rows are reduced to. Orthogonal to *when* the reduction runs: @c RollUpApply
+/// forces it at its own Pull, @c EvaluatePatternFilter defers it into a closure the expression evaluator invokes.
+/// Declared here rather than nested, because both operators name it and @c RollUpApply is declared second.
+enum class Fold : uint8_t {
+  kList,   ///< every row's collected column, in order
+  kBool,   ///< whether the branch produced a row at all
+  kCount,  ///< how many rows the branch produced
+};
+
 /// Base class for logical operators.
 ///
 /// Each operator describes an operation, which is to be performed on the
@@ -2435,7 +2444,9 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
 
   EvaluatePatternFilter() = default;
 
-  EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol);
+  /// @param fold what the closure reduces the branch's rows to. Deferring is what buys the short-circuit: a
+  /// disjunct the evaluator never reaches costs nothing, which for @c kCount is a whole drain rather than one pull.
+  EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Fold fold = Fold::kBool);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -2448,6 +2459,7 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Symbol output_symbol_;
+  Fold fold_{Fold::kBool};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -3191,18 +3203,16 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  /// What the branch's rows are folded into.
-  enum class Fold : uint8_t {
-    kList,  ///< every row's collected column, in order
-    kBool,  ///< whether the branch produced a row at all
-  };
+  /// What the branch's rows are folded into. Spelled `RollUpApply::Fold::…` at most call sites.
+  using Fold = memgraph::query::plan::Fold;
 
   RollUpApply() = default;
   RollUpApply(std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&list_collection_branch,
               const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol, bool pass_input = false);
-  /// The bool fold. It collects no column, so it takes no @p list_collection_symbols.
-  RollUpApply(std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&branch,
-              Symbol result_symbol);
+  /// The column-less folds, @c kBool and @c kCount. They read no column off the branch's rows, only how many there
+  /// are, so they take no @p list_collection_symbols.
+  RollUpApply(std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&branch, Symbol result_symbol,
+              Fold fold);
 
   bool HasSingleInput() const override { return false; }
 
@@ -3221,7 +3231,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> list_collection_branch_;
   Symbol result_symbol_;
-  /// Unused by the kBool fold, whose ctor leaves it default-constructed for Clone to copy.
+  /// Unused by the column-less folds, whose ctor leaves it default-constructed for Clone to copy.
   Symbol list_collection_symbol_{};
   bool pass_input_{false};
   Fold fold_{Fold::kList};

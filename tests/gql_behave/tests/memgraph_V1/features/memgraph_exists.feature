@@ -2119,3 +2119,504 @@ Feature: WHERE exists
           | 'Alice' | false |
           | 'Bob'   | false |
           | 'Carol' | false |
+
+  # COUNT { ... } counts the rows of the body's result table - not matches, not distinct values. The fixture
+  # discriminates all three: Alice has 3 KNOWS rows to only 2 distinct friends, Bob has 1, Carol has 0.
+  Scenario: Test COUNT subquery over a plain MATCH body
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH (p)-[:KNOWS]->(f) } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 3 |
+          | 'Bob'   | 1 |
+          | 'Carol' | 0 |
+  # Columns are irrelevant to COUNT - only the row count is.
+  Scenario: Test COUNT subquery whose body RETURNs a column
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH (p)-[:KNOWS]->(f) RETURN f } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 3 |
+          | 'Bob'   | 1 |
+          | 'Carol' | 0 |
+  Scenario: Test COUNT subquery whose body RETURNs two columns
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH (p)-[:KNOWS]->(f) RETURN f, p } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 3 |
+          | 'Bob'   | 1 |
+          | 'Carol' | 0 |
+  # Alice's 3 rows collapse to her 2 distinct friends.
+  Scenario: Test COUNT subquery whose body RETURN is DISTINCT
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH (p)-[:KNOWS]->(f) RETURN DISTINCT f } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 2 |
+          | 'Bob'   | 1 |
+          | 'Carol' | 0 |
+  # An ungrouped aggregate emits exactly one row even on empty input, so Carol counts 1 too.
+  Scenario: Test COUNT subquery whose body RETURN aggregates
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH (p)-[:KNOWS]->(f) RETURN count(f) } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 1 |
+          | 'Bob'   | 1 |
+          | 'Carol' | 1 |
+  Scenario: Test COUNT subquery whose body RETURN has a LIMIT
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH (p)-[:KNOWS]->(f) RETURN f LIMIT 1 } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 1 |
+          | 'Bob'   | 1 |
+          | 'Carol' | 0 |
+  Scenario: Test COUNT subquery whose body RETURN has a SKIP
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH (p)-[:KNOWS]->(f) RETURN f SKIP 1 } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 2 |
+          | 'Bob'   | 0 |
+          | 'Carol' | 0 |
+  Scenario: Test COUNT subquery whose body has a WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH (p)-[:KNOWS]->(f) WHERE f.name = 'F1' } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 2 |
+          | 'Bob'   | 1 |
+          | 'Carol' | 0 |
+  Scenario: Test COUNT subquery whose body has a WITH with a LIMIT
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH (p)-[:KNOWS]->(f) WITH f LIMIT 1 RETURN f } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 1 |
+          | 'Bob'   | 1 |
+          | 'Carol' | 0 |
+  # Nothing correlates, so every outer row gets the same count.
+  Scenario: Test COUNT subquery with an uncorrelated body
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH (f:Friend) } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 2 |
+          | 'Bob'   | 2 |
+          | 'Carol' | 2 |
+  # UNION ALL keeps both branches' rows, so the count doubles.
+  Scenario: Test COUNT subquery whose body is a UNION ALL
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH (p)-[:KNOWS]->(f) RETURN f AS x UNION ALL MATCH (p)-[:KNOWS]->(g) RETURN g AS x } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 6 |
+          | 'Bob'   | 2 |
+          | 'Carol' | 0 |
+  # The pattern form, which takes the same splice point as the subquery form.
+  Scenario: Test COUNT subquery with a bare anonymous pattern body
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { (p)-[:KNOWS]->() } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 3 |
+          | 'Bob'   | 1 |
+          | 'Carol' | 0 |
+
+  # COUNT takes the same positions as EXISTS, through the same gate. A MATCH's WHERE is the deferred fold, so a
+  # disjunct the evaluator never reaches skips the branch's whole drain; everything else is the forced fold.
+
+  Scenario: Test COUNT subquery in a WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WHERE COUNT { MATCH (p)-[:KNOWS]->(f) } > 1
+          RETURN p.name AS name
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    |
+          | 'Alice' |
+
+  Scenario: Test COUNT subquery inside a per-element lambda in a WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WHERE any(x IN [1, 2] WHERE COUNT { MATCH (p)-[:KNOWS]->(f) } > x)
+          RETURN p.name AS name
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    |
+          | 'Alice' |
+
+  Scenario: Test COUNT subquery in a CASE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, CASE WHEN COUNT { MATCH (p)-[:KNOWS]->(f) } > 1 THEN 'many' ELSE 'few' END AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c      |
+          | 'Alice' | 'many' |
+          | 'Bob'   | 'few'  |
+          | 'Carol' | 'few'  |
+
+  Scenario: Test COUNT subquery inside an aggregate argument
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN sum(COUNT { MATCH (p)-[:KNOWS]->(f) }) AS s;
+          """
+      Then the result should be:
+          | s |
+          | 4 |
+
+  Scenario: Test COUNT subquery in an ORDER BY
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name
+          ORDER BY COUNT { MATCH (p)-[:KNOWS]->(f) } ASC, name;
+          """
+      Then the result should be, in order:
+          | name    |
+          | 'Carol' |
+          | 'Bob'   |
+          | 'Alice' |
+
+  Scenario: Test COUNT subquery in a WITH projection read by a later WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WITH p, COUNT { MATCH (p)-[:KNOWS]->(f) } AS c
+          WHERE c > 1
+          RETURN p.name AS name, c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 3 |
+
+  Scenario: Test COUNT subquery nested in another COUNT subquery
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, COUNT { MATCH (p)-[:KNOWS]->(f) WHERE COUNT { MATCH (f)<-[:KNOWS]-() } > 1 } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | c |
+          | 'Alice' | 2 |
+          | 'Bob'   | 1 |
+          | 'Carol' | 0 |
+
+  Scenario: Test COUNT subquery beside an EXISTS subquery
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, EXISTS { MATCH (p)-[:KNOWS]->(f) } AS e, COUNT { MATCH (p)-[:KNOWS]->(f) } AS c
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | e     | c |
+          | 'Alice' | true  | 3 |
+          | 'Bob'   | true  | 1 |
+          | 'Carol' | false | 0 |
+
+  Scenario: Test COUNT subquery on a null variable
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Alice'})
+          """
+      When executing query:
+          """
+          OPTIONAL MATCH (z:Nope)
+          RETURN COUNT { MATCH (z)-[:KNOWS]->(f) } AS c;
+          """
+      Then the result should be:
+          | c |
+          | 0 |
+
+  Scenario: Test COUNT subquery refuses a write in its body
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'Alice'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN COUNT { CREATE (x:Tmp) } AS c;
+          """
+      Then an error should be raised
+
+  Scenario: Test COUNT subquery does not disturb the count aggregation
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+          CREATE (a)-[:KNOWS]->(:Friend {name: 'F1'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN count(*) AS star, count(p.name) AS named, COUNT { MATCH (p)-[:KNOWS]->(f) } AS sub
+          ORDER BY sub;
+          """
+      Then the result should be, in order:
+          | star | named | sub |
+          | 1    | 1     | 0   |
+          | 1    | 1     | 1   |

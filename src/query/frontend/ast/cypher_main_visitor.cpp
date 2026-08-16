@@ -3777,6 +3777,9 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return std::any_cast<Expression *>(ctx->existsExpression()->accept(this));
   } else if (ctx->existsSubquery()) {
     return std::any_cast<Expression *>(ctx->existsSubquery()->accept(this));
+  } else if (ctx->countSubquery()) {
+    // Ahead of the ctx->COUNT() arm below, which COUNT { ... } also satisfies - that arm is COUNT(*).
+    return std::any_cast<Expression *>(ctx->countSubquery()->accept(this));
   } else if (ctx->functionInvocation()) {
     return std::any_cast<Expression *>(ctx->functionInvocation()->accept(this));
   } else if (ctx->COALESCE()) {
@@ -3943,8 +3946,10 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   return static_cast<Expression *>(exists);
 }
 
-antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) {
+template <typename TContext>
+Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, Exists::Fold fold, std::string_view construct) {
   auto *exists = storage_->Create<Exists>();
+  exists->fold_ = fold;
   // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
     exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
@@ -3953,7 +3958,7 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
     }
   } else if (ctx->cypherQuery()) {
     // Curly-brace subquery form: { cypherQuery }
-    // Set the flag to indicate we are parsing an EXISTS subquery
+    // Set the flag to indicate we are parsing a subquery body
     auto old_flag = parsing_exists_subquery_;
     // The body's clauses are its own, so the enclosing WITH's "everything must be aliased" rule does not reach them.
     auto old_in_with = std::exchange(in_with_, false);
@@ -3965,15 +3970,15 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
 
     // 1. There must be at least one clause, and 2. only MATCH, WHERE, WITH, RETURN. Per branch: a UNION's
     // further branches are each their own SingleQuery, and a clause forbidden in the first is not legal in them.
-    auto validate_branch = [](const SingleQuery *single_query) {
+    auto validate_branch = [construct](const SingleQuery *single_query) {
       if (!single_query || single_query->clauses_.empty()) {
-        throw SyntaxException("EXISTS subquery must contain at least one clause.");
+        throw SyntaxException("{} subquery must contain at least one clause.", construct);
       }
       for (const auto *clause : single_query->clauses_) {
         const auto &type = clause->GetTypeInfo();
         if (!(utils::IsSubtype(type, Match::kType) || utils::IsSubtype(type, Where::kType) ||
               utils::IsSubtype(type, With::kType) || utils::IsSubtype(type, Return::kType))) {
-          throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+          throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.", construct);
         }
       }
     };
@@ -3984,7 +3989,7 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
 
     // 3. No query memory limit
     if (cypher_query->memory_limit_ != nullptr) {
-      throw SyntaxException("EXISTS subqueries cannot have a query memory limit.");
+      throw SyntaxException("{} subqueries cannot have a query memory limit.", construct);
     }
 
     // 4. No periodic commit. The body's rows are only counted, so a commit point inside it has nothing to commit -
@@ -3999,7 +4004,7 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
       throw SyntaxException("EXISTS subqueries cannot use parallel execution.");
     }
   } else {
-    throw SyntaxException("EXISTS supports only a single relation or a subquery as its input.");
+    throw SyntaxException("{} supports only a single relation or a subquery as its input.", construct);
   }
 
   // Ensure only one of pattern_ or subquery_ is set
@@ -4007,11 +4012,20 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
   const bool has_subquery = exists->HasSubquery();
   if ((has_pattern && has_subquery) || (!has_pattern && !has_subquery)) {
     throw SyntaxException(
-        "EXISTS must have exactly one of pattern or subquery set! Please contact Memgraph support as this scenario "
-        "should not happen!");
+        "{} must have exactly one of pattern or subquery set! Please contact Memgraph support as this scenario "
+        "should not happen!",
+        construct);
   }
 
   return static_cast<Expression *>(exists);
+}
+
+antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) {
+  return BuildSubqueryFold(ctx, Exists::Fold::kBool, "EXISTS");
+}
+
+antlrcpp::Any CypherMainVisitor::visitCountSubquery(MemgraphCypher::CountSubqueryContext *ctx) {
+  return BuildSubqueryFold(ctx, Exists::Fold::kCount, "COUNT");
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::PatternComprehensionContext *ctx) {

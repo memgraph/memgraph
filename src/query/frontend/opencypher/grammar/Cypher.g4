@@ -270,6 +270,7 @@ atom : listComprehension
      | ( SINGLE '(' filterExpression ')' )
      | ( EXISTS '(' existsExpression ')' )
      | ( EXISTS '{' existsSubquery '}' )
+     | ( COUNT '{' countSubquery '}' )
      | patternExpression
      | parenthesizedExpression
      | functionInvocation
@@ -316,6 +317,10 @@ existsExpression : forcePatternPart | .* ;
 existsSubquery : forcePatternPart
                | cypherQuery
                ;
+
+countSubquery : forcePatternPart
+              | cypherQuery
+              ;
 
 forcePatternPart : ( variable '=' relationshipsPattern )
                  | relationshipsPattern

@@ -915,13 +915,18 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(Exists &exists) override {
     TypedValue const &frame_exists_value = frame_->at(symbol_table_->at(exists));
-    // A forced bool fold already wrote the answer; a deferred one wrote the closure that computes it.
+    // A forced fold already wrote the answer - a bool for EXISTS, an integer for COUNT; a deferred one wrote the
+    // closure that computes it.
     if (frame_exists_value.IsBool()) {
       return TypedValue(frame_exists_value.ValueBool(), ctx_->memory);
     }
+    if (frame_exists_value.IsInt()) {
+      return TypedValue(frame_exists_value.ValueInt(), ctx_->memory);
+    }
     if (!frame_exists_value.IsFunction()) [[unlikely]] {
       throw QueryRuntimeException(
-          "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
+          "Unexpected behavior: {} expected a function, got {}. Please report the problem on GitHub issues",
+          exists.FoldName(),
           frame_exists_value.type());
     }
     TypedValue result(ctx_->memory);

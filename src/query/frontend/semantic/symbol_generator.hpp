@@ -149,6 +149,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_foreach{false};
     bool in_exists_pattern{false};
     bool in_exists_subquery{false};
+    /// Which construct opened the surrounding subquery, so its refusals name the spelling the user wrote.
+    const char *subquery_construct{"EXISTS"};
     bool in_reduce{false};
     bool in_call_subquery{false};
     bool has_return{false};

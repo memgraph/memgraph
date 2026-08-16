@@ -18,6 +18,7 @@
 #pragma pop_macro("EOF")  // bring EOF back
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/exists.hpp"  // BuildSubqueryFold names Exists::Fold
 #include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -1119,6 +1120,20 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return Exists* (Expression)
    */
   antlrcpp::Any visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) override;
+
+  /**
+   * @return Exists* (Expression), carrying the count fold
+   */
+  antlrcpp::Any visitCountSubquery(MemgraphCypher::CountSubqueryContext *ctx) override;
+
+  /**
+   * The body shared by the two brace forms. `EXISTS { ... }` and `COUNT { ... }` differ only in the fold they
+   * carry and the construct their errors name; the grammar rules have the same shape, hence the template.
+   *
+   * @return Exists* (Expression)
+   */
+  template <typename TContext>
+  Expression *BuildSubqueryFold(TContext *ctx, Exists::Fold fold, std::string_view construct);
 
   /**
    * @return pattern comprehension (Expression)

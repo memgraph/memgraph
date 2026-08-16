@@ -1236,6 +1236,7 @@ bool SubqueryMatchingCollector::PreVisit(PatternComprehension &op) {
 bool SubqueryMatchingCollector::PreVisit(Exists &op) {
   ExistsMatching exists_matching;
   exists_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
+  exists_matching.fold = op.fold_;
 
   if (op.HasPattern()) {
     std::vector<Pattern *> patterns;

@@ -5365,6 +5365,79 @@ TYPED_TEST(TestPlanner, ExistsSubqueryInReturnProjection) {
       query, this->storage, ExpectExistsRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
 }
 
+// COUNT { ... } reaches the same branch and the same splice points as EXISTS; only the fold differs. The plan-shape
+// discriminator is therefore the fold on the RollUpApply, not the presence of one.
+
+TYPED_TEST(TestPlanner, CountSubqueryInReturnProjection) {
+  // MATCH (n) RETURN COUNT { MATCH (n)-[r]->(m) } AS c
+  auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COUNT_SUBQUERY(count_subquery), AS("c"))));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  // Once, not ScanAll, below the Expand: the branch expands from the bound `n` instead of re-scanning it.
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectCountRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CountSubqueryInOrderBy) {
+  // MATCH (n) RETURN n ORDER BY COUNT { MATCH (n)-[r]->(m) } - below the OrderBy, like the bool fold.
+  auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", ORDER_BY(COUNT_SUBQUERY(count_subquery)))));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}, ExpectProduce{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectCountRollUpApply{std::move(input), std::move(branch)}, ExpectOrderBy());
+}
+
+TYPED_TEST(TestPlanner, CountSubqueryInMatchWhereUsesTheDeferredFold) {
+  // MATCH (n) WHERE COUNT { MATCH (n)-[r]->(m) } > 1 RETURN n
+  //
+  // The deferred fold, as for EXISTS - so an untaken disjunct skips the branch entirely, which for a count is a whole
+  // drain rather than a single pull. No Limit above the branch: the bool fold's one-row cap would truncate the count.
+  FakeDbAccessor dba;
+
+  auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(GREATER(COUNT_SUBQUERY(count_subquery), LITERAL(1))), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> filter_tree{new ExpectExpand(), new ExpectCountEvaluatePatternFilter()};
+
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{filter_tree}),
+            ExpectProduce());
+
+  DeleteListContent(&filter_tree);
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryInMatchWhereKeepsItsLimit) {
+  // The sibling of the test above, so the Limit's absence there reads as a decision rather than an omission: the bool
+  // fold still gets one, because a single row is all it looks at.
+  FakeDbAccessor dba;
+
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> filter_tree{new ExpectExpand(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{filter_tree}),
+            ExpectProduce());
+
+  DeleteListContent(&filter_tree);
+}
+
 TYPED_TEST(TestPlanner, ExistsPatternInReturnProjection) {
   // MATCH (n) RETURN EXISTS((n)-[r]->(m)) AS h - the pattern form takes the same splice point.
   auto *query = QUERY(SINGLE_QUERY(
