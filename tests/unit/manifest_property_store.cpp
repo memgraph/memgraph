@@ -29,6 +29,25 @@ namespace {
 
 PropertyId Prop(uint32_t id) { return PropertyId::FromUint(id); }
 
+/// Keeps what a materialising read hands over, so it can be compared against reading the same
+/// property as a value. Every value arrives at the index of the property that produced it.
+struct CollectingMaterialiser {
+  std::vector<PropertyValue> values;
+
+  explicit CollectingMaterialiser(std::size_t count) : values(count) {}
+
+  void EmitNull(std::size_t index) { values[index] = PropertyValue{}; }
+
+  void Emit(std::size_t index, std::string_view value) { values[index] = PropertyValue{std::string{value}}; }
+
+  void Emit(std::size_t index, PropertyValue &&value) { values[index] = std::move(value); }
+
+  template <typename T>
+  void Emit(std::size_t index, T value) {
+    values[index] = PropertyValue{value};
+  }
+};
+
 /// The reference store answers with a map; compare like with like.
 auto AsMap(memgraph::utils::small_vector<ManifestPropertyStore::PropertyPair> const &properties)
     -> std::map<PropertyId, PropertyValue> {
@@ -315,6 +334,29 @@ TEST_F(ManifestPropertyStoreTest, MemoDoesNotServeAnotherRegistry) {
   EXPECT_EQ(here.GetProperty(registry_, Prop(1), memo).ValueInt(), 11);
   EXPECT_EQ(there.GetProperty(other_registry, Prop(1), memo).ValueInt(), 22);
   EXPECT_EQ(here.GetProperty(registry_, Prop(1), memo).ValueInt(), 11);
+}
+
+// Removing a property leaves the field in the shape and clears the record's claim to it. Every
+// way of reading it has to answer Null, not the bytes the value left behind.
+TEST_F(ManifestPropertyStoreTest, ReadingARemovedPropertyIsNull) {
+  store_.InitProperties(registry_, {{Prop(1), PropertyValue(int64_t{42})}, {Prop(2), PropertyValue(int64_t{7})}});
+  auto const shape = store_.manifest();
+  store_.SetProperty(registry_, Prop(1), PropertyValue());
+  ASSERT_EQ(store_.manifest(), shape) << "this test needs the field to stay in the shape";
+
+  EXPECT_TRUE(store_.GetProperty(registry_, Prop(1)).IsNull());
+
+  memgraph::storage::PropertyLocationMemo memo;
+  {
+    CollectingMaterialiser out{1};
+    store_.ExtractPropertyInto(registry_, Prop(1), memo, out);
+    EXPECT_TRUE(out.values[0].IsNull()) << "resolved for the first time";
+  }
+  {
+    CollectingMaterialiser out{1};
+    store_.ExtractPropertyInto(registry_, Prop(1), memo, out);
+    EXPECT_TRUE(out.values[0].IsNull()) << "answered from the memo";
+  }
 }
 
 TEST_F(ManifestPropertyStoreTest, AbsentPropertiesReadAsNull) {

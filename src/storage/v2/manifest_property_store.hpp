@@ -236,14 +236,14 @@ class ManifestPropertyStore {
     auto const shape = this->manifest();
     if (auto const remembered = memo.Lookup(registry.instance(), shape, property)) {
       if (!remembered->location) return out.EmitNull(0);
-      return RecordReader{*remembered->manifest, data()}.ReadInto(*remembered->location, 0, out);
+      return ReadAt(RecordReader{*remembered->manifest, data()}, *remembered->location, 0, out);
     }
 
     auto const &manifest = registry.Resolve(shape);
     auto const found = manifest.Find(property);
     memo.Remember(registry.instance(), shape, &manifest, property, found);
     if (!found) return out.EmitNull(0);
-    return RecordReader{manifest, data()}.ReadInto(*found, 0, out);
+    return ReadAt(RecordReader{manifest, data()}, *found, 0, out);
   }
 
   /// Whether each of `ordered_properties` holds the value it is paired with, the value for
@@ -311,6 +311,19 @@ class ManifestPropertyStore {
   }
 
  private:
+  /// Hands `out` what the record holds at a location its shape gave, or Null.
+  ///
+  /// A location says where a property sits in a shape, which every record of that shape shares.
+  /// Whether this record has a value there is its own to answer, and a record that has had the
+  /// property removed keeps both the field and the bytes the value left in it, so reading without
+  /// asking hands back a value the record no longer has.
+  template <typename Materialiser>
+  static void ReadAt(RecordReader const &record, PropertyManifest::Location const &location, size_t index,
+                     Materialiser &out) {
+    if (!record.Carries(location.position)) return out.EmitNull(index);
+    record.ReadInto(location, index, out);
+  }
+
   /// Bytes a record spends on its manifest id, which its bytes start with. Three of them cap
   /// the number of distinct shapes at sixteen million, far above the cap the registry already
   /// imposes on itself (`kMaxChunks` manifests), and leave one more byte of payload inline
