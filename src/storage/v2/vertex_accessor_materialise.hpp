@@ -129,6 +129,12 @@ Result<void> VertexAccessor::ReadPropertyValueInto(PropertyId property, View vie
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
+      // A chain long enough to have been cached is long enough that replaying it again would cost
+      // more than the copy handing the cached value over costs.
+      if (auto resProperty = cache.GetProperty(view, vertex_, property); resProperty) {
+        out.Emit(0, PropertyValue{*resProperty});
+        return {};
+      }
     }
 
     auto const properties = std::span{&property, 1};
@@ -148,6 +154,7 @@ Result<void> VertexAccessor::ReadPropertyValueInto(PropertyId property, View vie
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
+      cache.StoreProperty(view, vertex_, property, scratch);
     }
 
     out.Emit(0, std::move(scratch));
