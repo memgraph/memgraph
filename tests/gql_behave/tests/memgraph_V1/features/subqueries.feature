@@ -1075,7 +1075,9 @@ Feature: Subqueries
             CREATE (m4:Movie {id: '4'}), (m5:Movie {id: '5'}), (m6:Movie {id: '6'})
             CREATE (m1)-[:relatedTo]->(m2), (m3)-[:relatedTo]->(m4), (m5)-[:relatedTo]->(m6)
             """
-        # `source35` after `WITH des1` is a fresh variable, so the whole graph is scanned.
+        # `source35` after `WITH des1` really is a new variable here, so the whole graph is scanned.
+        # Behaves the same before and after the scoped-import fix: this guards the legacy form, it does
+        # not reproduce the defect.
         When executing query:
             """
             MATCH (source1:Movie {id: '1'})
@@ -1126,7 +1128,8 @@ Feature: Subqueries
             """
             CREATE (m1:Movie {id: '1'})-[:relatedTo]->(m2:Movie {id: '2'})
             """
-        # The subquery shares the outer frame, so a miss on a fresh `source` would null `outer_after`.
+        # `source` keeps its outer symbol here, so if the planner re-scans it the OPTIONAL MATCH miss
+        # null-fills the outer slot itself - visible as `outer_after`. A genuinely new variable would not.
         When executing query:
             """
             MATCH (source:Movie {id: '1'})

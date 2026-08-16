@@ -3167,7 +3167,8 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportReachesNestedScopedAllAfterWith) {
   DeleteListContent(&nested_branch);
 }
 
-// `Apply` shares the frame, so treating the import as a new symbol would null the outer slot on a miss.
+// The import keeps its outer symbol, so listing it in `optional_symbols_` would null the outer slot on a
+// miss - `Apply` shares the frame. Hence the assertion that only the edge and far node are listed.
 TYPED_TEST(TestPlanner, SubqueryScopedImportNotNulledByOptionalMatchAfterWith) {
   // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a OPTIONAL MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
   FakeDbAccessor dba;
