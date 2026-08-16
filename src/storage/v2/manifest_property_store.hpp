@@ -216,6 +216,37 @@ class ManifestPropertyStore {
     }
   }
 
+  /// As above, remembering where the properties sat in the shape they were last read from.
+  ///
+  /// A reader handed the same properties for record after record otherwise resolves the shape and
+  /// searches it for each property on every record, and a scan sees one shape over and over.
+  /// `memo` must belong to that reader and be used for these properties alone.
+  template <typename Materialiser>
+  void ExtractPropertiesInto(ManifestRegistry const &registry, std::span<PropertyId const> properties,
+                             PropertyPlanMemo &memo, Materialiser &out) const {
+    if (empty()) {
+      for (size_t index = 0; index != properties.size(); ++index) out.EmitNull(index);
+      return;
+    }
+
+    auto const shape = this->manifest();
+    if (auto const remembered = memo.Lookup(registry.instance(), shape)) {
+      auto const &[resolved, locations] = *remembered;
+      ReadAt(RecordReader{*resolved, data()}, locations, out);
+      return;
+    }
+
+    auto const &resolved = registry.Resolve(shape);
+    auto locations = std::vector<std::optional<PropertyManifest::Location>>{};
+    locations.reserve(properties.size());
+    // Where the shape puts each property, which is what every record of this shape shares. Whether
+    // a record has a value there is the record's own answer, given below.
+    for (auto const property : properties) locations.push_back(resolved.Find(property));
+
+    ReadAt(RecordReader{resolved, data()}, locations, out);
+    memo.Remember(registry.instance(), shape, &resolved, std::move(locations));
+  }
+
   /// One property, materialised the same way, and remembering where it sat in the shape it was
   /// last read from.
   ///
@@ -322,6 +353,20 @@ class ManifestPropertyStore {
                      Materialiser &out) {
     if (!record.Carries(location.position)) return out.EmitNull(index);
     record.ReadInto(location, index, out);
+  }
+
+  /// The same for a whole batch, `locations[i]` being where the shape puts the caller's property
+  /// `i`, and nothing where the shape has no such field at all.
+  template <typename Materialiser>
+  static void ReadAt(RecordReader const &record, std::span<std::optional<PropertyManifest::Location> const> locations,
+                     Materialiser &out) {
+    for (size_t index = 0; index != locations.size(); ++index) {
+      if (!locations[index]) {
+        out.EmitNull(index);
+        continue;
+      }
+      ReadAt(record, *locations[index], index, out);
+    }
   }
 
   /// Bytes a record spends on its manifest id, which its bytes start with. Three of them cap

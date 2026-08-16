@@ -120,10 +120,14 @@ class VertexAccessor final {
   /// still go through them. That is what `scratch` is for, and why it must be as long as
   /// `properties`; on the delta path the values land there first and are handed on afterwards.
   ///
+  /// `memo` remembers where `properties` sat in the shape they were last read from, so a caller
+  /// reading the same properties from vertex after vertex resolves that shape once.
+  ///
   /// Defined in `vertex_accessor_materialise.hpp`, which a caller includes.
   template <typename Materialiser>
   Result<void> ReadPropertyValuesInto(std::span<PropertyId const> properties, View view,
-                                      std::span<PropertyValue> scratch, Materialiser &out) const;
+                                      std::span<PropertyValue> scratch, PropertyPlanMemo &memo,
+                                      Materialiser &out) const;
 
   /// One property, built into whatever `out` holds, remembering through `memo` where it sat in the
   /// shape it was last read from.

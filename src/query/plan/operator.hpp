@@ -1461,6 +1461,9 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
     /// restricted. Not `vector<bool>`, whose bitset specialisation has no contiguous bytes to
     /// hand out as a span.
     std::vector<uint8_t> denied_;
+    /// Where these properties sat in the shape the last row was read from. A scan hands this
+    /// cursor row after row of one shape, so it is resolved once rather than per row.
+    storage::PropertyPlanMemo location_memo_;
   };
 };
 

@@ -229,6 +229,40 @@ class PropertyLocationMemo {
   std::array<Slot, kSlots> slots_{};
 };
 
+/// Where a fixed set of properties sits in the shape a batch of them was last read from.
+///
+/// The batched read is handed the same properties for record after record, so resolving the shape
+/// and searching it for each property is the same work repeated per row. This remembers the answer
+/// for one shape: a record of that shape reads straight from it, and a record of any other shape
+/// resolves once and replaces it, which is what a scan over records of one shape wants.
+///
+/// The properties are not stored: a memo belongs to the reader that fixed them, and reading a
+/// different set through the same memo would be a bug in that reader rather than something to
+/// check per row.
+class PropertyPlanMemo {
+ public:
+  /// Where each property sits in `manifest`, or nothing if the shape is not the one remembered.
+  auto Lookup(uint64_t instance, ManifestId manifest) const -> std::optional<
+      std::pair<PropertyManifest const *, std::span<std::optional<PropertyManifest::Location> const>>> {
+    if (shape_ == nullptr || instance_ != instance || manifest_ != manifest) return std::nullopt;
+    return std::pair{shape_, std::span{locations_}};
+  }
+
+  void Remember(uint64_t instance, ManifestId manifest, PropertyManifest const *shape,
+                std::vector<std::optional<PropertyManifest::Location>> locations) {
+    instance_ = instance;
+    manifest_ = manifest;
+    shape_ = shape;
+    locations_ = std::move(locations);
+  }
+
+ private:
+  uint64_t instance_{0};
+  ManifestId manifest_{};
+  PropertyManifest const *shape_{nullptr};
+  std::vector<std::optional<PropertyManifest::Location>> locations_;
+};
+
 /// Interns record shapes. Manifests are never removed and never move, so a resolved
 /// reference stays valid for the lifetime of the registry.
 ///

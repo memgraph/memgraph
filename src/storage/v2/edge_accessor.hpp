@@ -106,7 +106,8 @@ class EdgeAccessor final {
   /// `VertexAccessor::ReadPropertyValuesInto`; defined in `edge_accessor_materialise.hpp`.
   template <typename Materialiser>
   Result<void> ReadPropertyValuesInto(std::span<PropertyId const> properties, View view,
-                                      std::span<PropertyValue> scratch, Materialiser &out) const;
+                                      std::span<PropertyValue> scratch, PropertyPlanMemo &memo,
+                                      Materialiser &out) const;
 
   /// The vertex accessor's twin again. See `VertexAccessor::ReadPropertyValueInto`; defined in
   /// `edge_accessor_materialise.hpp`.

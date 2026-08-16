@@ -44,8 +44,9 @@ class EdgeAccessor final {
   /// includes `storage/v2/edge_accessor_materialise.hpp` for the definition.
   template <typename Materialiser>
   storage::Result<void> ReadPropertyValuesInto(std::span<storage::PropertyId const> properties, storage::View view,
-                                               std::span<storage::PropertyValue> scratch, Materialiser &out) const {
-    return impl_.ReadPropertyValuesInto(properties, view, scratch, out);
+                                               std::span<storage::PropertyValue> scratch,
+                                               storage::PropertyPlanMemo &memo, Materialiser &out) const {
+    return impl_.ReadPropertyValuesInto(properties, view, scratch, memo, out);
   }
 
   /// One property, built into whatever `out` holds. What an expression's `r.prop` reads through.

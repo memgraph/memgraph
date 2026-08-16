@@ -4871,10 +4871,11 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
 
   // NEW so that the row sees writes made earlier in this same transaction, as a
   // property lookup evaluated at this point would.
-  auto const read =
-      type == TypedValue::Type::Vertex
-          ? input_value.ValueVertex().ReadPropertyValuesInto(property_ids_, storage::View::NEW, values_, materialiser)
-          : input_value.ValueEdge().ReadPropertyValuesInto(property_ids_, storage::View::NEW, values_, materialiser);
+  auto const read = type == TypedValue::Type::Vertex
+                        ? input_value.ValueVertex().ReadPropertyValuesInto(
+                              property_ids_, storage::View::NEW, values_, location_memo_, materialiser)
+                        : input_value.ValueEdge().ReadPropertyValuesInto(
+                              property_ids_, storage::View::NEW, values_, location_memo_, materialiser);
   if (!read) {
     switch (read.error()) {
       case storage::Error::DELETED_OBJECT:

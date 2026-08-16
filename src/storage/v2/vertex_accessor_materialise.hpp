@@ -26,7 +26,8 @@ namespace memgraph::storage {
 
 template <typename Materialiser>
 Result<void> VertexAccessor::ReadPropertyValuesInto(std::span<PropertyId const> properties, View view,
-                                                    std::span<PropertyValue> scratch, Materialiser &out) const {
+                                                    std::span<PropertyValue> scratch, PropertyPlanMemo &memo,
+                                                    Materialiser &out) const {
   DMG_ASSERT(scratch.size() == properties.size(), "Scratch buffer size must match the number of properties");
 
   bool exists = true;
@@ -48,7 +49,7 @@ Result<void> VertexAccessor::ReadPropertyValuesInto(std::span<PropertyId const> 
     auto const no_deltas_to_apply =
         delta == nullptr || transaction_->isolation_level == IsolationLevel::READ_UNCOMMITTED;
     if (no_deltas_to_apply) {
-      vertex_->properties.ExtractPropertiesInto(storage_->manifest_registry(), properties, out);
+      vertex_->properties.ExtractPropertiesInto(storage_->manifest_registry(), properties, memo, out);
       materialised = true;
     } else {
       vertex_->properties.ExtractPropertyValuesMissingAsNull(storage_->manifest_registry(), properties, scratch);

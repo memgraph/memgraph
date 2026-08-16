@@ -26,7 +26,8 @@ namespace memgraph::storage {
 
 template <typename Materialiser>
 Result<void> EdgeAccessor::ReadPropertyValuesInto(std::span<PropertyId const> properties, View view,
-                                                  std::span<PropertyValue> scratch, Materialiser &out) const {
+                                                  std::span<PropertyValue> scratch, PropertyPlanMemo &memo,
+                                                  Materialiser &out) const {
   DMG_ASSERT(scratch.size() == properties.size(), "Scratch buffer size must match the number of properties");
 
   // Without properties on edges there is no record to read: `edge_` holds a gid rather than a
@@ -49,7 +50,7 @@ Result<void> EdgeAccessor::ReadPropertyValuesInto(std::span<PropertyId const> pr
     delta = edge_.ptr->delta();
 
     if (delta == nullptr) {
-      edge_.ptr->properties.ExtractPropertiesInto(storage_->manifest_registry(), properties, out);
+      edge_.ptr->properties.ExtractPropertiesInto(storage_->manifest_registry(), properties, memo, out);
       materialised = true;
     } else {
       edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(storage_->manifest_registry(), properties, scratch);

@@ -29,8 +29,8 @@ namespace {
 
 PropertyId Prop(uint32_t id) { return PropertyId::FromUint(id); }
 
-/// Keeps what a materialising read hands over, so it can be compared against reading the same
-/// property as a value. Every value arrives at the index of the property that produced it.
+/// Keeps what a batched read hands over, so it can be compared against reading each property on
+/// its own. Every value arrives at the index of the property that produced it.
 struct CollectingMaterialiser {
   std::vector<PropertyValue> values;
 
@@ -47,6 +47,23 @@ struct CollectingMaterialiser {
     values[index] = PropertyValue{value};
   }
 };
+
+/// What a batched read produces for `properties`, through `memo`.
+auto ReadAll(ManifestPropertyStore const &store, ManifestRegistry const &registry,
+             std::vector<PropertyId> const &properties, memgraph::storage::PropertyPlanMemo &memo)
+    -> std::vector<PropertyValue> {
+  CollectingMaterialiser out{properties.size()};
+  store.ExtractPropertiesInto(registry, properties, memo, out);
+  return std::move(out.values);
+}
+
+/// The same, resolving from scratch.
+auto ReadAll(ManifestPropertyStore const &store, ManifestRegistry const &registry,
+             std::vector<PropertyId> const &properties) -> std::vector<PropertyValue> {
+  CollectingMaterialiser out{properties.size()};
+  store.ExtractPropertiesInto(registry, properties, out);
+  return std::move(out.values);
+}
 
 /// The reference store answers with a map; compare like with like.
 auto AsMap(memgraph::utils::small_vector<ManifestPropertyStore::PropertyPair> const &properties)
@@ -357,6 +374,94 @@ TEST_F(ManifestPropertyStoreTest, ReadingARemovedPropertyIsNull) {
     store_.ExtractPropertyInto(registry_, Prop(1), memo, out);
     EXPECT_TRUE(out.values[0].IsNull()) << "answered from the memo";
   }
+
+  std::vector<PropertyId> const properties{Prop(1), Prop(2)};
+  EXPECT_TRUE(ReadAll(store_, registry_, properties)[0].IsNull());
+}
+
+// A batch of properties read from record after record of one shape must answer exactly as
+// resolving that shape for every record does, including for a property the shape does not hold.
+TEST_F(ManifestPropertyStoreTest, MemoisedBatchedReadsMatchResolvingEveryTime) {
+  std::vector<ManifestPropertyStore> records(4);
+  for (auto i = 0; i < 4; ++i) {
+    records[i].InitProperties(
+        registry_,
+        {{Prop(1), PropertyValue(static_cast<int64_t>(i))}, {Prop(2), PropertyValue(std::string{"shared"})}});
+  }
+  records[2].SetProperty(registry_, Prop(1), PropertyValue());  // one record stops carrying it
+
+  std::vector<PropertyId> const properties{Prop(1), Prop(2), Prop(9)};
+  memgraph::storage::PropertyPlanMemo memo;
+  for (auto i = 0; i < 4; ++i) {
+    EXPECT_EQ(ReadAll(records[i], registry_, properties, memo), ReadAll(records[i], registry_, properties))
+        << "record " << i;
+  }
+}
+
+// The remembered positions belong to one shape, so a record of any other shape has to be resolved
+// afresh rather than read at them.
+TEST_F(ManifestPropertyStoreTest, MemoisedBatchDoesNotServeARecordOfAnotherShape) {
+  ManifestPropertyStore narrow;
+  narrow.InitProperties(registry_, {{Prop(1), PropertyValue(int64_t{7})}});
+
+  ManifestPropertyStore wide;
+  wide.InitProperties(registry_,
+                      {{Prop(0), PropertyValue(std::string{"first"})}, {Prop(1), PropertyValue(int64_t{9})}});
+  ASSERT_NE(narrow.manifest(), wide.manifest()) << "the two records must be differently shaped";
+
+  std::vector<PropertyId> const properties{Prop(0), Prop(1)};
+  memgraph::storage::PropertyPlanMemo memo;
+  EXPECT_EQ(ReadAll(narrow, registry_, properties, memo), ReadAll(narrow, registry_, properties));
+  EXPECT_EQ(ReadAll(wide, registry_, properties, memo), ReadAll(wide, registry_, properties));
+  EXPECT_EQ(ReadAll(narrow, registry_, properties, memo), ReadAll(narrow, registry_, properties));
+}
+
+// An empty record carries nothing, and the shape id it reports is one a real shape can be given.
+TEST_F(ManifestPropertyStoreTest, MemoisedBatchIsNotConfusedByAnEmptyRecord) {
+  ManifestPropertyStore first;
+  first.InitProperties(registry_, {{Prop(1), PropertyValue(int64_t{5})}});
+  ASSERT_EQ(first.manifest().value, memgraph::storage::ManifestId{}.value)
+      << "this test needs the first shape interned";
+
+  std::vector<PropertyId> const properties{Prop(1)};
+  ManifestPropertyStore empty;
+  memgraph::storage::PropertyPlanMemo memo;
+  EXPECT_EQ(ReadAll(first, registry_, properties, memo)[0].ValueInt(), 5);
+  EXPECT_TRUE(ReadAll(empty, registry_, properties, memo)[0].IsNull());
+  EXPECT_EQ(ReadAll(first, registry_, properties, memo)[0].ValueInt(), 5);
+}
+
+// Two databases in one process each hand out the same shape ids from their own registry.
+TEST_F(ManifestPropertyStoreTest, MemoisedBatchDoesNotServeAnotherRegistry) {
+  ManifestRegistry other_registry;
+
+  ManifestPropertyStore here;
+  here.InitProperties(registry_, {{Prop(1), PropertyValue(int64_t{11})}});
+
+  ManifestPropertyStore there;
+  there.InitProperties(other_registry, {{Prop(0), PropertyValue(int64_t{0})}, {Prop(1), PropertyValue(int64_t{22})}});
+  ASSERT_EQ(here.manifest(), there.manifest()) << "both registries must have issued the same id";
+
+  std::vector<PropertyId> const properties{Prop(1)};
+  memgraph::storage::PropertyPlanMemo memo;
+  EXPECT_EQ(ReadAll(here, registry_, properties, memo)[0].ValueInt(), 11);
+  EXPECT_EQ(ReadAll(there, other_registry, properties, memo)[0].ValueInt(), 22);
+  EXPECT_EQ(ReadAll(here, registry_, properties, memo)[0].ValueInt(), 11);
+}
+
+// Reshaping a record moves where its properties sit, so what was remembered before the reshape
+// must not be read after it.
+TEST_F(ManifestPropertyStoreTest, MemoisedBatchFollowsARecordThatChangesShape) {
+  store_.InitProperties(registry_, {{Prop(1), PropertyValue(int64_t{42})}});
+
+  std::vector<PropertyId> const properties{Prop(0), Prop(1)};
+  memgraph::storage::PropertyPlanMemo memo;
+  ASSERT_EQ(ReadAll(store_, registry_, properties, memo)[1].ValueInt(), 42);
+
+  store_.SetProperty(registry_, Prop(0), PropertyValue(std::string{"pushes the layout"}));
+  auto const after = ReadAll(store_, registry_, properties, memo);
+  EXPECT_EQ(after[0].ValueString(), "pushes the layout");
+  EXPECT_EQ(after[1].ValueInt(), 42);
 }
 
 TEST_F(ManifestPropertyStoreTest, AbsentPropertiesReadAsNull) {
