@@ -300,7 +300,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
-  storage::NameIdMapper *GetNameIdMapper() const { return dba_->GetStorageAccessor()->GetNameIdMapper(); }
+  /// A query that opened no storage transaction evaluates with no accessor. Everything it can evaluate
+  /// is reachable without one, which holds because no vertex, edge or path value can exist here: those
+  /// come out of a scan or an expand, or out of a procedure holding a graph, and such a query has
+  /// neither. The sites below assume that rather than prove it, so they say so instead of trusting it.
+  void RequireAccessor(std::string_view what) const {
+    if (dba_ == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("{} requires a database accessor.", what);
+    }
+  }
+
+  storage::NameIdMapper *GetNameIdMapper() const {
+    RequireAccessor("Reading a property");
+    return dba_->GetStorageAccessor()->GetNameIdMapper();
+  }
 
   void ResetPropertyLookupCache() { property_lookup_cache_.clear(); }
 
@@ -1147,6 +1160,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
+    RequireAccessor("Reading a property");
     if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
@@ -1175,6 +1189,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
+    RequireAccessor("Reading a property");
     auto prop_id = dba_->NameToProperty(name);
     if (!IsPropertyAllowed(record_accessor, prop_id)) return storage::PropertyValue{};
     auto maybe_prop = record_accessor.GetProperty(view_, prop_id);
