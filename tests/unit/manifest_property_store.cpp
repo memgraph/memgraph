@@ -18,35 +18,18 @@
 
 #include "storage/v2/manifest_property_store.hpp"
 #include "storage/v2/property_store.hpp"
+#include "tests/unit/collecting_materialiser.hpp"
 
 using memgraph::storage::ManifestPropertyStore;
 using memgraph::storage::ManifestRegistry;
 using memgraph::storage::PropertyId;
 using memgraph::storage::PropertyStore;
 using memgraph::storage::PropertyValue;
+using memgraph::storage::test::CollectingMaterialiser;
 
 namespace {
 
 PropertyId Prop(uint32_t id) { return PropertyId::FromUint(id); }
-
-/// Keeps what a batched read hands over, so it can be compared against reading each property on
-/// its own. Every value arrives at the index of the property that produced it.
-struct CollectingMaterialiser {
-  std::vector<PropertyValue> values;
-
-  explicit CollectingMaterialiser(std::size_t count) : values(count) {}
-
-  void EmitNull(std::size_t index) { values[index] = PropertyValue{}; }
-
-  void Emit(std::size_t index, std::string_view value) { values[index] = PropertyValue{std::string{value}}; }
-
-  void Emit(std::size_t index, PropertyValue &&value) { values[index] = std::move(value); }
-
-  template <typename T>
-  void Emit(std::size_t index, T value) {
-    values[index] = PropertyValue{value};
-  }
-};
 
 /// What a batched read produces for `properties`, through `memo`.
 auto ReadAll(ManifestPropertyStore const &store, ManifestRegistry const &registry,

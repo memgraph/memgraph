@@ -17,6 +17,7 @@
 
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
+#include "storage/v2/edge_accessor_materialise.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/text_edge_index.hpp"
@@ -34,10 +35,12 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/unit/collecting_materialiser.hpp"
 #include "tests/unit/ddl_abort_helpers.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
+using memgraph::storage::test::CollectingMaterialiser;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
@@ -159,6 +162,23 @@ TEST_F(VectorEdgeIndexTest, BuildingOverAnExistingEdgeIndexesIt) {
   // job, so what is checked here is that the numbers came back from the index at all.
   ASSERT_TRUE(prop->IsVectorIndexId()) << "property type is " << static_cast<int>(prop->type());
   EXPECT_EQ(prop->ValueVectorIndexList(), (memgraph::utils::small_vector<float>{1.0F, 0.0F}));
+
+  // A read that builds the value into the caller's own type owes the same resolution, or a query
+  // reading the property sees an empty list where its vector should be.
+  {
+    PropertyLocationMemo memo;
+    CollectingMaterialiser out{1};
+    ASSERT_TRUE(edge.ReadPropertyValueInto(acc->NameToProperty(test_property), View::OLD, memo, out).has_value());
+    EXPECT_EQ(out.values[0], *prop);
+  }
+  {
+    PropertyPlanMemo memo;
+    CollectingMaterialiser out{1};
+    auto scratch = std::vector<PropertyValue>(1);
+    auto const properties = std::array{acc->NameToProperty(test_property)};
+    ASSERT_TRUE(edge.ReadPropertyValuesInto(properties, View::OLD, scratch, memo, out).has_value());
+    EXPECT_EQ(out.values[0], *prop);
+  }
 }
 
 TEST_F(VectorEdgeIndexTest, SecondIndexBackfillsAlreadyIndexedEdge) {

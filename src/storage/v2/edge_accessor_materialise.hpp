@@ -15,7 +15,9 @@
 #include <span>
 
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/logging.hpp"
@@ -49,11 +51,16 @@ Result<void> EdgeAccessor::ReadPropertyValuesInto(std::span<PropertyId const> pr
     deleted = edge_.ptr->deleted();
     delta = edge_.ptr->delta();
 
+    auto const decoder = IndexedPropertyDecoder<Edge>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr};
+
     if (delta == nullptr) {
-      edge_.ptr->properties.ExtractPropertiesInto(storage_->manifest_registry(), properties, memo, out);
+      auto decoding = DecodingMaterialiser{decoder, out};
+      edge_.ptr->properties.ExtractPropertiesInto(storage_->manifest_registry(), properties, memo, decoding);
       materialised = true;
     } else {
       edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(storage_->manifest_registry(), properties, scratch);
+      for (auto &value : scratch) decoder.DecodeProperty(value);
     }
   }
 
@@ -97,11 +104,15 @@ Result<void> EdgeAccessor::ReadPropertyValueInto(PropertyId property, View view,
     deleted = edge_.ptr->deleted();
     delta = edge_.ptr->delta();
 
+    auto const decoder = IndexedPropertyDecoder<Edge>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr};
+
     if (delta == nullptr) {
-      edge_.ptr->properties.ExtractPropertyInto(storage_->manifest_registry(), property, memo, out);
+      auto decoding = DecodingMaterialiser{decoder, out};
+      edge_.ptr->properties.ExtractPropertyInto(storage_->manifest_registry(), property, memo, decoding);
       materialised = true;
     } else {
-      scratch = edge_.ptr->properties.GetProperty(storage_->manifest_registry(), property, memo);
+      scratch = edge_.ptr->properties.GetProperty(storage_->manifest_registry(), property, decoder, &memo);
     }
   }
 

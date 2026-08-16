@@ -13,6 +13,7 @@
 
 #include <span>
 
+#include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -46,13 +47,18 @@ Result<void> VertexAccessor::ReadPropertyValuesInto(std::span<PropertyId const> 
     // order the existing read has, just observed earlier.
     delta = vertex_->delta();
 
+    auto const decoder = IndexedPropertyDecoder<Vertex>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_};
+
     auto const no_deltas_to_apply =
         delta == nullptr || transaction_->isolation_level == IsolationLevel::READ_UNCOMMITTED;
     if (no_deltas_to_apply) {
-      vertex_->properties.ExtractPropertiesInto(storage_->manifest_registry(), properties, memo, out);
+      auto decoding = DecodingMaterialiser{decoder, out};
+      vertex_->properties.ExtractPropertiesInto(storage_->manifest_registry(), properties, memo, decoding);
       materialised = true;
     } else {
       vertex_->properties.ExtractPropertyValuesMissingAsNull(storage_->manifest_registry(), properties, scratch);
+      for (auto &value : scratch) decoder.DecodeProperty(value);
     }
   }
 
@@ -104,13 +110,17 @@ Result<void> VertexAccessor::ReadPropertyValueInto(PropertyId property, View vie
     deleted = vertex_->deleted();
     delta = vertex_->delta();
 
+    auto const decoder = IndexedPropertyDecoder<Vertex>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_};
+
     auto const no_deltas_to_apply =
         delta == nullptr || transaction_->isolation_level == IsolationLevel::READ_UNCOMMITTED;
     if (no_deltas_to_apply) {
-      vertex_->properties.ExtractPropertyInto(storage_->manifest_registry(), property, memo, out);
+      auto decoding = DecodingMaterialiser{decoder, out};
+      vertex_->properties.ExtractPropertyInto(storage_->manifest_registry(), property, memo, decoding);
       materialised = true;
     } else {
-      scratch = vertex_->properties.GetProperty(storage_->manifest_registry(), property, memo);
+      scratch = vertex_->properties.GetProperty(storage_->manifest_registry(), property, decoder, &memo);
     }
   }
 

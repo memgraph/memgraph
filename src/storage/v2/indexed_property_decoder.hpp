@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <concepts>
+#include <cstddef>
+#include <utility>
+
 #include "edge.hpp"
 #include "indices/indices.hpp"
 #include "name_id_mapper.hpp"
@@ -42,6 +46,39 @@ struct IndexedPropertyDecoder {
         break;
     }
   }
+};
+
+/// A materialiser that resolves what a record only holds a handle to, and hands everything else
+/// on untouched.
+///
+/// A read that builds values into the caller's own type has the same obligation as one that
+/// produces a storage value: a property living in an index is a handle in the record, and the
+/// caller must be given the value, not the handle. Only a value arriving as a `PropertyValue`
+/// can be one, so every type the shape describes outright is forwarded without a test.
+///
+/// Wraps the record's values alone. A value replayed from a delta chain is already what it was
+/// when it was written, and resolving it would answer with what the index holds now.
+template <typename T, typename Materialiser>
+class DecodingMaterialiser {
+ public:
+  DecodingMaterialiser(IndexedPropertyDecoder<T> decoder, Materialiser &out) : decoder_{decoder}, out_{&out} {}
+
+  void EmitNull(std::size_t index) { out_->EmitNull(index); }
+
+  template <typename Value>
+    requires(!std::same_as<std::remove_cvref_t<Value>, PropertyValue>)
+  void Emit(std::size_t index, Value &&value) {
+    out_->Emit(index, std::forward<Value>(value));
+  }
+
+  void Emit(std::size_t index, PropertyValue &&value) {
+    decoder_.DecodeProperty(value);
+    out_->Emit(index, std::move(value));
+  }
+
+ private:
+  IndexedPropertyDecoder<T> decoder_;
+  Materialiser *out_;
 };
 
 }  // namespace memgraph::storage

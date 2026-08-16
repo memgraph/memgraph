@@ -21,12 +21,15 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex_accessor_materialise.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/unit/collecting_materialiser.hpp"
 #include "tests/unit/ddl_abort_helpers.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
+using memgraph::storage::test::CollectingMaterialiser;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
@@ -530,6 +533,44 @@ TEST_F(VectorIndexTest, CreateIndexWithWrongDimensionRollsBack) {
     auto prop = v1.GetProperty(acc->NameToProperty(test_property), View::OLD);
     EXPECT_TRUE(prop->IsDoubleList());
     EXPECT_EQ(prop->ValueDoubleList().size(), 2);
+  }
+}
+
+// A property that has moved into the vector index is a handle in the record, and the vector it
+// names lives in the index. Every way of reading the property has to resolve that handle, or the
+// query sees an empty list where its vector should be.
+TEST_F(VectorIndexTest, MaterialisingReadsResolveTheIndexedVector) {
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+    vertex_gid = this->CreateVertex(acc.get(), test_property, properties, test_label).Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateIndex(2, 10);
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+  auto const property = acc->NameToProperty(test_property);
+
+  auto const as_value = vertex.GetProperty(property, View::OLD);
+  ASSERT_TRUE(as_value.has_value());
+  ASSERT_TRUE(as_value->IsVectorIndexId());
+  ASSERT_EQ(as_value->ValueVectorIndexList().size(), 2);
+
+  {
+    PropertyLocationMemo memo;
+    CollectingMaterialiser out{1};
+    ASSERT_TRUE(vertex.ReadPropertyValueInto(property, View::OLD, memo, out).has_value());
+    EXPECT_EQ(out.values[0], *as_value) << "one property, built into the caller's own type";
+  }
+  {
+    PropertyPlanMemo memo;
+    CollectingMaterialiser out{1};
+    auto scratch = std::vector<PropertyValue>(1);
+    auto const properties = std::array{property};
+    ASSERT_TRUE(vertex.ReadPropertyValuesInto(properties, View::OLD, scratch, memo, out).has_value());
+    EXPECT_EQ(out.values[0], *as_value) << "a batch of properties, built into the caller's own type";
   }
 }
 
