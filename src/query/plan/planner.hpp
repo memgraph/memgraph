@@ -122,6 +122,9 @@ class PostProcessor final {
 template <template <class> class TPlanner, class TDbAccessor>
 auto MakeLogicalPlanForSingleQuery(QueryParts query_parts, PlanningContext<TDbAccessor> *context) {
   context->bound_symbols.clear();
+  // Only a subquery body has imports, and `HandleSubquery` restores them; clear anyway so the
+  // invariant holds locally rather than by induction over every planner entry point.
+  context->scoped_call_imports.clear();
   return TPlanner<PlanningContext<TDbAccessor>>(context).Plan(query_parts);
 }
 
