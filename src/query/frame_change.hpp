@@ -22,9 +22,36 @@
 #include "utils/pmr/vector.hpp"
 
 #include "absl/container/flat_hash_set.h"
+#include "absl/hash/hash.h"
 #include "utils/frame_change_id.hpp"
 
 namespace memgraph::query {
+
+/// Hashes a query value, and hashes a string exactly as the query value holding it hashes, so a
+/// string can be looked up among them without first being built into one.
+struct CachedSetHash {
+  using is_transparent = void;
+
+  size_t operator()(TypedValue const &value) const { return absl::HashOf(TypedValue::Hash{}(value)); }
+
+  size_t operator()(std::string_view value) const { return absl::HashOf(std::hash<std::string_view>{}(value)); }
+};
+
+/// Equality to match, with a string equal only to a string.
+struct CachedSetEqual {
+  using is_transparent = void;
+
+  bool operator()(TypedValue const &left, TypedValue const &right) const {
+    return TypedValue::BoolEqual{}(left, right);
+  }
+
+  bool operator()(TypedValue const &left, std::string_view right) const {
+    return left.type() == TypedValue::Type::String && left.ValueString() == right;
+  }
+
+  bool operator()(std::string_view left, TypedValue const &right) const { return (*this)(right, left); }
+};
+
 /// The values an `IN` tests against, held once per query rather than rebuilt per row.
 ///
 /// Whether the list holds a Null is answered from a flag rather than by looking. `IN` reports Null
@@ -36,8 +63,7 @@ struct CachedSet {
   using alloc_traits = std::allocator_traits<allocator_type>;
 
   // Cached value, this can be probably templateized
-  absl::flat_hash_set<TypedValue, absl::DefaultHashContainerHash<TypedValue>, TypedValue::BoolEqual, allocator_type>
-      cache_;
+  absl::flat_hash_set<TypedValue, CachedSetHash, CachedSetEqual, allocator_type> cache_;
 
   explicit CachedSet(allocator_type alloc) : cache_{alloc} {}
 
@@ -91,6 +117,9 @@ struct CachedSet {
 
   // Func to check if cache_ contains value
   bool Contains(const TypedValue &value) const { return cache_.contains(value); }
+
+  /// Whether a string is among these values, without building it into a query value first.
+  bool Contains(std::string_view value) const { return cache_.contains(value); }
 
   /// Whether one of these is Null, which makes `IN` answer Null rather than false for a value that
   /// is not among them.

@@ -170,6 +170,68 @@ TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
             3);
 }
 
+TYPED_TEST(QueryExecution, PropertyInList) {
+  using BoltValue = memgraph::communication::bolt::Value;
+
+  // A property tested for membership is answered from the record rather than from a value built
+  // out of it, and only after the list has been cached, so each of these must hold on the second
+  // row as well as the first.
+  this->Execute(
+      "CREATE (:R {id: 1, region: 'north', size: 10}), (:R {id: 2, region: 'south', size: 20}), "
+      "(:R {id: 3, size: 30})");
+
+  {
+    auto results = this->Execute("MATCH (n:R) WHERE n.region IN ['north', 'south'] RETURN n.id AS i ORDER BY i");
+    ASSERT_EQ(results.size(), 2);
+    EXPECT_EQ(results[0][0].ValueInt(), 1);
+    EXPECT_EQ(results[1][0].ValueInt(), 2);
+  }
+  {
+    auto results = this->Execute("MATCH (n:R) WHERE n.region IN ['south'] RETURN n.id AS i");
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].ValueInt(), 2);
+  }
+  {
+    // A property the node does not carry is Null, which is never among anything.
+    auto results = this->Execute("MATCH (n:R) WHERE n.region IN ['north', 'south'] RETURN count(*) AS c");
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].ValueInt(), 2);
+  }
+  {
+    // A list holding a Null answers Null for a value not otherwise in it, which a filter drops.
+    auto results = this->Execute("MATCH (n:R) WHERE n.region IN ['north', null] RETURN n.id AS i");
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].ValueInt(), 1);
+  }
+  {
+    // The answer for each row, rather than only the rows a filter keeps.
+    auto results = this->Execute("MATCH (n:R) RETURN n.id AS i, n.region IN ['north', null] AS m ORDER BY i");
+    ASSERT_EQ(results.size(), 3);
+    EXPECT_TRUE(results[0][1].ValueBool());
+    EXPECT_EQ(results[1][1].type(), BoltValue::Type::Null);
+    EXPECT_EQ(results[2][1].type(), BoltValue::Type::Null);
+  }
+  {
+    // Not every property is a string.
+    auto results = this->Execute("MATCH (n:R) WHERE n.size IN [20, 30] RETURN n.id AS i ORDER BY i");
+    ASSERT_EQ(results.size(), 2);
+    EXPECT_EQ(results[0][0].ValueInt(), 2);
+    EXPECT_EQ(results[1][0].ValueInt(), 3);
+  }
+  {
+    // A string is equal only to a string.
+    auto results = this->Execute("MATCH (n:R) WHERE n.region IN [1, true] RETURN n.id AS i");
+    EXPECT_EQ(results.size(), 0);
+  }
+  {
+    // A property of a relationship reads the same way.
+    this->Execute("MATCH (a:R {id: 1}), (b:R {id: 2}) CREATE (a)-[:E {kind: 'direct'}]->(b)");
+    auto results = this->Execute("MATCH (:R)-[e:E]->(:R) WHERE e.kind IN ['direct', 'indirect'] RETURN e.kind AS k");
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].ValueString(), "direct");
+  }
+}
+
 /// The queries the property cache is allowed to change the plan of, plus the ones it must leave alone. Each fixture
 /// gets a fresh plan cache, so the flag has to be compared across two tests rather than toggled inside one.
 #define CHECK_CACHE_PROPERTIES_RESULTS()                                                                       \

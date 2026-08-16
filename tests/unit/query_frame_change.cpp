@@ -284,6 +284,29 @@ TEST_F(FrameChangeCollectorTest, MergeCarriesNullAcross) {
   EXPECT_TRUE(merged->get().Contains(TypedValue{int64_t{0}}));
 }
 
+TEST_F(FrameChangeCollectorTest, CachedSetAnswersForAStringWithoutBuildingOne) {
+  CachedSet cache{NewDeleteResource()};
+  ASSERT_TRUE(cache.SetValue(TypedValue{std::vector<TypedValue>{TypedValue{"region_1"},
+                                                                TypedValue{"region_2"},
+                                                                TypedValue{int64_t{7}},
+                                                                TypedValue{"a string too long for the "
+                                                                           "small buffer any "
+                                                                           "implementation gives it"}}}));
+
+  EXPECT_TRUE(cache.Contains(std::string_view{"region_1"}));
+  EXPECT_TRUE(cache.Contains(std::string_view{"a string too long for the small buffer any implementation gives it"}));
+  EXPECT_FALSE(cache.Contains(std::string_view{"region_3"}));
+  // A string is equal only to a string, whatever the set also holds.
+  EXPECT_FALSE(cache.Contains(std::string_view{"7"}));
+  EXPECT_FALSE(cache.Contains(std::string_view{""}));
+
+  // Both ways of asking agree, which is what makes the string one a shortcut rather than a second
+  // answer.
+  for (auto const *probe : {"region_1", "region_2", "region_3", "7", ""}) {
+    EXPECT_EQ(cache.Contains(std::string_view{probe}), cache.Contains(TypedValue{probe})) << probe;
+  }
+}
+
 TEST_F(FrameChangeCollectorTest, CachedSetRejectsWhatIsNotAList) {
   CachedSet cache{NewDeleteResource()};
   EXPECT_FALSE(cache.SetValue(TypedValue{int64_t{1}}));

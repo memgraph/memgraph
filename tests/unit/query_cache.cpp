@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -81,6 +81,24 @@ TEST_F(CacheTest, InListCacheInvalidation) {
 
   evaluator.ExpectInListCacheNotPopulated(in_list, "Cache should be cleared after invalidation");
   evaluator.ExpectTrackedForCaching(in_list);
+}
+
+TEST_F(CacheTest, NullIsNeverAmongCachedValues) {
+  // Nothing compares equal to Null, so membership is unknown - and stays unknown once the values
+  // are cached, where a Null could otherwise be answered from what the list holds.
+  auto [mylist_id, mylist_symbol] = builder.CreateIdentifier("mylist");
+  auto [x_id, x_symbol] = builder.CreateIdentifier("x");
+  auto *in_list = builder.CreateInListOperator(x_id, mylist_id);
+
+  evaluator.PrepareCaching();
+  evaluator.ExpectTrackedForCaching(in_list);
+
+  ASSERT_TRUE(evaluator.Eval(in_list, {{mylist_symbol, CreateIntList(1, 5)}, {x_symbol, 3_tv}}).ValueBool());
+  evaluator.ExpectInListCachePopulated(in_list);
+
+  // Only `x` is written, so the cached values survive into these rows.
+  EXPECT_TRUE(evaluator.Eval(in_list, {{x_symbol, TypedValue{}}}).IsNull());
+  EXPECT_FALSE(evaluator.Eval(in_list, {{x_symbol, 99_tv}}).ValueBool());
 }
 
 TEST_F(CacheTest, NonListExpressionThrows) {

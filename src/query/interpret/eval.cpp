@@ -34,6 +34,44 @@ TypedValue RangeToTypedValueList(R &&range, utils::MemoryResource *memory) {
   for (const auto &item : range) out.emplace_back(TypedValue(item, memory));
   return {std::move(out), memory};
 }
+
+/// Answers whether a property's value is among a set of values, rather than handing the value out.
+///
+/// A string is tested as the bytes the record holds, which is what makes this worth doing: the
+/// test costs no query value at all. Anything else is built and tested as it always was.
+class MembershipMaterialiser : public TypedValueMaterialiser<MembershipMaterialiser> {
+ public:
+  MembershipMaterialiser(CachedSet const &values, storage::NameIdMapper *name_id_mapper, utils::MemoryResource *memory)
+      : TypedValueMaterialiser{name_id_mapper, memory}, values_{&values} {}
+
+  using TypedValueMaterialiser<MembershipMaterialiser>::Emit;
+
+  void Emit(std::size_t /*index*/, std::string_view value) {
+    is_null_ = false;
+    found_ = values_->Contains(value);
+  }
+
+  /// The read may hand over a value more than once - the retry below a missing object reads
+  /// again - so the last one is the answer.
+  void Write(std::size_t /*index*/, TypedValue &&value) {
+    is_null_ = value.IsNull();
+    found_ = !is_null_ && values_->Contains(value);
+  }
+
+  /// Cypher's answer: Null for a value that is itself Null, and for one that is not among values
+  /// one of which is Null, since it might have been that one.
+  auto Answer(utils::MemoryResource *memory) const -> TypedValue {
+    if (is_null_) return TypedValue{memory};
+    if (found_) return TypedValue{true, memory};
+    if (values_->HasNull()) return TypedValue{memory};
+    return TypedValue{false, memory};
+  }
+
+ private:
+  CachedSet const *values_;
+  bool found_{false};
+  bool is_null_{false};
+};
 }  // namespace
 
 int64_t EvaluateInt(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what) {
@@ -297,6 +335,56 @@ TypedValue ExpressionEvaluator::GetPropertyValue(TRecordAccessor const &record_a
     }
   }
   return materialiser.Take();
+}
+
+template <class TRecordAccessor>
+std::optional<TypedValue> ExpressionEvaluator::ProbePropertyInList(TRecordAccessor const &record_accessor,
+                                                                   PropertyIx const &prop, CachedSet const &values) {
+  auto const property_id = ctx_->properties[prop.ix];
+  // A property this caller may not read reads as Null, exactly as a lookup of it would.
+  if (!IsPropertyAllowed(record_accessor, property_id)) return TypedValue{ctx_->memory};
+
+  auto materialiser = MembershipMaterialiser{values, GetNameIdMapper(), ctx_->memory};
+  auto *const location_memo = LocationMemo();
+  auto result = record_accessor.ReadPropertyValueInto(property_id, view_, *location_memo, materialiser);
+  if (result == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
+    // The same hack the other reads carry, for the same reason.
+    // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
+    result = record_accessor.ReadPropertyValueInto(property_id, storage::View::NEW, *location_memo, materialiser);
+  }
+  if (!result) {
+    switch (result.error()) {
+      case storage::Error::DELETED_OBJECT:
+        throw QueryRuntimeException("Trying to get a property from a deleted object.");
+      case storage::Error::NONEXISTENT_OBJECT:
+        throw QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
+      case storage::Error::SERIALIZATION_ERROR:
+      case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::PROPERTIES_DISABLED:
+        throw QueryRuntimeException("Unexpected error when getting a property.");
+    }
+  }
+  return materialiser.Answer(ctx_->memory);
+}
+
+std::optional<TypedValue> ExpressionEvaluator::ProbeInList(Expression *expression, CachedSet const &values) {
+  auto *const property_lookup = utils::Downcast<PropertyLookup>(expression);
+  if (property_lookup == nullptr) return std::nullopt;
+
+  // Only a graph element the frame already holds. Evaluating one that has to be computed here and
+  // again on the general path would run whatever it does twice.
+  ReferenceExpressionEvaluator reference_evaluator{frame_, ctx_};
+  auto const *const record = property_lookup->expression_->Accept(reference_evaluator);
+  if (record == nullptr) return std::nullopt;
+
+  switch (record->type()) {
+    case TypedValue::Type::Vertex:
+      return ProbePropertyInList(record->ValueVertex(), property_lookup->property_, values);
+    case TypedValue::Type::Edge:
+      return ProbePropertyInList(record->ValueEdge(), property_lookup->property_, values);
+    default:
+      return std::nullopt;
+  }
 }
 
 TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {

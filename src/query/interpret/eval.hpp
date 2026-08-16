@@ -421,8 +421,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(InListOperator &in_list) override {
-    auto literal = in_list.expression1_->Accept(*this);
-
     auto get_list_literal = [this, &in_list]() -> TypedValue {
       ReferenceExpressionEvaluator reference_expression_evaluator{frame_, ctx_};
       auto *list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
@@ -432,7 +430,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return *list_ptr;
     };
 
-    auto do_list_literal_checks = [this, &literal](const TypedValue &list) -> std::optional<TypedValue> {
+    auto do_list_literal_checks = [this](const TypedValue &literal,
+                                         const TypedValue &list) -> std::optional<TypedValue> {
       if (list.IsNull()) {
         return TypedValue(ctx_->memory);
       }
@@ -456,11 +455,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       const auto cached_id = memgraph::utils::GetFrameChangeId(in_list);
       if (frame_change_collector_->IsInlistKeyTracked(cached_id)) {
         auto cached_value_ref = frame_change_collector_->TryGetInlistCachedValue(cached_id);
+        if (cached_value_ref) {
+          // Asked of the property directly, the answer costs no query value at all. Only once the
+          // values are cached, since the answer needs them.
+          if (auto answer = ProbeInList(in_list.expression1_, cached_value_ref->get())) {
+            return std::move(*answer);
+          }
+        }
+        auto literal = in_list.expression1_->Accept(*this);
         if (!cached_value_ref) {
           // Check only first time if everything is okay, later when we use
           // cache there is no need to check again as we did check first time
           const auto list = get_list_literal();
-          if (auto preoperational_checks = do_list_literal_checks(list)) {
+          if (auto preoperational_checks = do_list_literal_checks(literal, list)) {
             return std::move(*preoperational_checks);
           }
           auto &cached_value = frame_change_collector_->GetInlistCachedValue(cached_id);
@@ -470,6 +477,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         const auto &cached_value = cached_value_ref->get();
 
+        // Nothing compares equal to Null, so membership is unknown whatever the list holds.
+        if (literal.IsNull()) {
+          return TypedValue(ctx_->memory);
+        }
         if (cached_value.Contains(literal)) {
           return TypedValue(true, ctx_->memory);
         }
@@ -484,8 +495,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     // When caching is not an option, we need to evaluate list literal every time
     // and do the checks
+    auto literal = in_list.expression1_->Accept(*this);
     const auto list = get_list_literal();
-    auto preoperational_checks = do_list_literal_checks(list);
+    auto preoperational_checks = do_list_literal_checks(literal, list);
     if (preoperational_checks) {
       return std::move(*preoperational_checks);
     }
@@ -1135,6 +1147,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return true;
   }
 #endif
+
+  /// Whether `expression` names a value among `values`, answered without building that value.
+  ///
+  /// `x.prop IN [...]` is the shape a filter is usually written in, and building `x.prop` as a
+  /// query value only to hash it and throw it away is most of what the test costs. A string is
+  /// tested as the bytes the record holds. Answers nothing when the left side is not a property of
+  /// a graph element already on the frame, leaving the caller to test it the general way.
+  ///
+  /// Defined in `eval.cpp` along with the other reads that materialise.
+  std::optional<TypedValue> ProbeInList(Expression *expression, CachedSet const &values);
+
+  template <class TRecordAccessor>
+  std::optional<TypedValue> ProbePropertyInList(TRecordAccessor const &record_accessor, PropertyIx const &prop,
+                                                CachedSet const &values);
 
   /// One property, built once.
   ///
