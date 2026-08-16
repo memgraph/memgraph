@@ -1007,13 +1007,16 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
       filters_it++;
     }
   }
-  // Idea here is to join filters in a way
-  // that pattern filter ( exists() ) is at the end
-  // so if any of the AND filters before
-  // evaluate to false we don't need to
-  // evaluate pattern ( exists() ) filter
-  std::ranges::partition(and_joinable_filters,
-                         [](const FilterInfo &filter_info) { return filter_info.type != FilterInfo::Type::Pattern; });
+  // Join the filters so that any conjunct carrying a subquery branch goes last: the conjuncts before it
+  // get to decide the row first, and a deferred fold whose value is never read never runs its branch.
+  //
+  // Type::Pattern alone does not answer this. It is set only when the conjunct *is* an Exists, so a
+  // COUNT { ... } > 1 - an Exists wrapped in a comparison - is tagged Generic and would keep whatever
+  // position collection order gave it. exists_matchings is collected by walking the whole filter
+  // expression, so it sees the wrapped case too.
+  std::ranges::partition(and_joinable_filters, [](const FilterInfo &filter_info) {
+    return filter_info.type != FilterInfo::Type::Pattern && filter_info.exists_matchings.empty();
+  });
   for (auto &and_joinable_filter : and_joinable_filters) {
     filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, and_joinable_filter.expression);
   }

@@ -5438,6 +5438,49 @@ TYPED_TEST(TestPlanner, ExistsSubqueryInMatchWhereKeepsItsLimit) {
   DeleteListContent(&filter_tree);
 }
 
+namespace {
+// Walks the main chain down to the first Filter. The plans below are linear above the branch.
+memgraph::query::plan::Filter *FindFirstFilter(memgraph::query::plan::LogicalOperator &root) {
+  auto *op = &root;
+  while (op != nullptr) {
+    if (auto *filter = dynamic_cast<memgraph::query::plan::Filter *>(op)) return filter;
+    if (!op->HasSingleInput()) return nullptr;
+    op = op->input().get();
+  }
+  return nullptr;
+}
+}  // namespace
+
+TYPED_TEST(TestPlanner, SubqueryConjunctIsJoinedLast) {
+  // ExtractFilters sorts the conjunct carrying a subquery branch last, so a cheaper conjunct decides the row
+  // first and a deferred fold whose value is never read never runs its branch. FilterInfo::Type::Pattern does
+  // not answer this on its own - it is set only when the conjunct *is* an Exists, so COUNT { ... } > 1, an
+  // Exists wrapped in a comparison, is tagged Generic. BoolJoin is left-associative, so the conjunct joined
+  // last is the outermost AND's right operand. The COUNT is written *second* here on purpose: collection order
+  // reverses, so without the fix this is the spelling that lands it first and it is the only one that fails.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WHERE(AND(EQ(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(1)), GREATER(COUNT_SUBQUERY(count_subquery), LITERAL(1)))),
+      RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *filter = FindFirstFilter(planner.plan());
+  ASSERT_NE(filter, nullptr);
+  auto *outer_and = memgraph::utils::Downcast<memgraph::query::AndOperator>(filter->expression_);
+  ASSERT_NE(outer_and, nullptr) << "expected the two conjuncts joined by an AND";
+
+  auto *count_conjunct = memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression2_);
+  ASSERT_NE(count_conjunct, nullptr) << "the COUNT conjunct was not joined last";
+  EXPECT_NE(memgraph::utils::Downcast<memgraph::query::Exists>(count_conjunct->expression1_), nullptr);
+  EXPECT_EQ(memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression1_), nullptr)
+      << "the cheap conjunct should be the one evaluated first";
+}
+
 TYPED_TEST(TestPlanner, ExistsPatternInReturnProjection) {
   // MATCH (n) RETURN EXISTS((n)-[r]->(m)) AS h - the pattern form takes the same splice point.
   auto *query = QUERY(SINGLE_QUERY(
