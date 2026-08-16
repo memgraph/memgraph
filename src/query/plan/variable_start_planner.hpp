@@ -401,7 +401,6 @@ class VariableStartPlanner {
 
           RuleBasedPlanner<TPlanningContext> rule_planner(context);
           context->bound_symbols.clear();
-          // Same reason as in `MakeLogicalPlanForSingleQuery`: keep each alternative's start state local.
           context->scoped_call_imports.clear();
           return rule_planner.Plan(reconstructed_query_parts);
         },

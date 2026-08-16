@@ -1126,8 +1126,7 @@ Feature: Subqueries
             """
             CREATE (m1:Movie {id: '1'})-[:relatedTo]->(m2:Movie {id: '2'})
             """
-        # The subquery shares the outer frame, so treating `source` as a fresh variable here would
-        # null its slot on the OPTIONAL MATCH miss - visible after the CALL as `outer_after`.
+        # The subquery shares the outer frame, so a miss on a fresh `source` would null `outer_after`.
         When executing query:
             """
             MATCH (source:Movie {id: '1'})
@@ -1149,8 +1148,7 @@ Feature: Subqueries
             """
             CREATE (m1:Movie {id: '1'})-[:relatedTo]->(m2:Movie {id: '2'})
             """
-        # Treating `source` as unbound here makes MERGE's create branch build a fresh node for it, so
-        # the merged edge dangles off a phantom instead of off Movie '1' - a silent extra node.
+        # An unbound `source` makes MERGE create a fresh node, so the edge dangles off a phantom.
         And having executed:
             """
             MATCH (source:Movie {id: '1'})

@@ -1720,8 +1720,8 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryCorrelatesItsOwnSc
       << "a name declared inside the subquery is in scope there, so shadowing must not fire";
 }
 
-// The planner keeps scoped `CALL` imports bound across an intermediate WITH because the symbol generator
-// re-injects them (VisitReturnBody). Pin that premise: narrowing the scope must not mint a new symbol.
+// Pins the premise the planner fix rests on: `VisitReturnBody` re-injects the import rather than
+// minting a new symbol for it.
 TYPED_TEST(TestSymbolGenerator, ScopedCallImportKeepsItsSymbolAcrossIntermediateWith) {
   // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
   auto *outer_m = NODE("m");
@@ -1741,8 +1741,7 @@ TYPED_TEST(TestSymbolGenerator, ScopedCallImportKeepsItsSymbolAcrossIntermediate
       << "the import survives the WITH as the same symbol, so it names the outer frame slot";
 }
 
-// The same narrowing with no import: the legacy form declares a fresh symbol, which is why the planner
-// must clear its import set there rather than inherit one.
+// The legacy form declares a fresh symbol instead, which is why the planner clears its import set there.
 TYPED_TEST(TestSymbolGenerator, LegacyCallImportDoesNotKeepItsSymbolAcrossIntermediateWith) {
   // MATCH (m) CALL { WITH m MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
   auto *outer_m = NODE("m");

@@ -297,7 +297,7 @@ using ExpectExpand = OpChecker<Expand>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;
 
-// Asserts which columns a Produce projects, for cases where the plan shape alone does not discriminate.
+// Asserts which columns a Produce projects, where plan shape alone does not discriminate.
 class ExpectProduceColumns : public OpChecker<Produce> {
  public:
   explicit ExpectProduceColumns(std::vector<std::string> names) : names_(std::move(names)) {}

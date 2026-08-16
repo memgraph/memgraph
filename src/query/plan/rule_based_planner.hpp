@@ -86,9 +86,8 @@ struct PlanningContext {
   /// written information.
   std::unordered_set<Symbol> bound_symbols{};
   /// @brief Symbols imported by an enclosing `CALL (v1, v2, ...) { ... }` / `CALL (*) { ... }`.
-  /// Unlike ordinary bindings these remain in scope for the whole subquery body, so a later pattern
-  /// must not re-scan them. `GenWith` re-adds them after a WITH narrows, on the non-EXISTS path only
-  /// - the EXISTS branch already keeps every symbol type a pattern could re-scan.
+  /// These outlive a WITH inside the body, so a later pattern must not re-scan them. `GenWith`
+  /// re-adds them on the non-EXISTS path; the EXISTS branch already keeps every re-scannable type.
   std::unordered_set<Symbol> scoped_call_imports{};
   bool is_write_query{false};
   bool in_exists_subquery{false};

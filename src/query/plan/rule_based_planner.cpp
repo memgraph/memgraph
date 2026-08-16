@@ -1059,9 +1059,8 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
     for (const auto &symbol : body.output_symbols()) {
       bound_symbols.insert(symbol);
     }
-    // Scoped `CALL` imports stay in scope for the whole subquery body, unless a named expression
-    // redeclared the name and shadowed the import. Comparing names mirrors SymbolGenerator's own
-    // `new_names` check, and is only equivalent because `scopeClause` has no aliasing form.
+    // Imports outlive the narrowing unless a named expression redeclared the name. Comparing names
+    // mirrors SymbolGenerator's `new_names`, and is equivalent only because `scopeClause` has no alias form.
     for (const auto &import : scoped_call_imports) {
       if (std::ranges::none_of(body.output_symbols(),
                                [&import](const Symbol &out) { return out.name() == import.name(); })) {

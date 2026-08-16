@@ -3082,8 +3082,7 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportSelfReferentialFilterNoIndex) {
   DeleteListContent(&branch);
 }
 
-// An import stays in scope for the whole subquery body, so a pattern written after an intermediate
-// WITH that drops the name must still expand from the imported vertex instead of re-scanning it.
+// An import outlives a WITH that drops its name, so the next pattern expands from it, never re-scans.
 TYPED_TEST(TestPlanner, SubqueryScopedImportSurvivesIntermediateWith) {
   // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
   FakeDbAccessor dba;
@@ -3121,9 +3120,8 @@ TYPED_TEST(TestPlanner, SubqueryScopedAllImportSurvivesIntermediateWith) {
   DeleteListContent(&branch);
 }
 
-// The legacy leading-WITH form imports nothing, so ordinary WITH narrowing applies and the name
-// written after it is a fresh variable that must be scanned. This plan is identical before and after
-// the fix - the test guards the intended divergence, it does not reproduce the defect.
+// The legacy leading-WITH form imports nothing, so the name after the WITH is fresh and gets scanned.
+// Plans identically before and after the fix: this guards the intended divergence, not the defect.
 TYPED_TEST(TestPlanner, SubqueryLegacyImportDoesNotSurviveIntermediateWith) {
   // MATCH (m) CALL { WITH m MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
   FakeDbAccessor dba;
@@ -3147,8 +3145,7 @@ TYPED_TEST(TestPlanner, SubqueryLegacyImportDoesNotSurviveIntermediateWith) {
   DeleteListContent(&branch);
 }
 
-// A nested `CALL (*) { ... }` after the WITH collects its imports from the bound set, so the
-// preserved import has to reach it.
+// A nested `CALL (*) { ... }` builds its imports from the bound set, so the preserved one must reach it.
 TYPED_TEST(TestPlanner, SubqueryScopedImportReachesNestedScopedAllAfterWith) {
   // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a CALL (*) { MATCH (m)-[r2]-(b) RETURN b }
   //                      RETURN a, b } RETURN a, b
@@ -3170,8 +3167,7 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportReachesNestedScopedAllAfterWith) {
   DeleteListContent(&nested_branch);
 }
 
-// An OPTIONAL MATCH on the import after the WITH must not treat it as a new symbol: `Apply` shares the
-// frame, so a miss would null-fill the outer query's slot.
+// `Apply` shares the frame, so treating the import as a new symbol would null the outer slot on a miss.
 TYPED_TEST(TestPlanner, SubqueryScopedImportNotNulledByOptionalMatchAfterWith) {
   // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a OPTIONAL MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
   FakeDbAccessor dba;
@@ -3200,8 +3196,7 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportNotNulledByOptionalMatchAfterWith) {
   DeleteListContent(&optional_branch);
 }
 
-// A nested legacy `CALL { WITH ... }` clears the active import set; it has to be restored for the rest
-// of the enclosing body, or the WITH after it drops the import again.
+// A nested legacy `CALL { WITH ... }` clears the import set; without the restore the next WITH drops it.
 TYPED_TEST(TestPlanner, SubqueryScopedImportRestoredAfterNestedLegacySubquery) {
   // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) CALL { WITH a MATCH (a)-[r3]-(c) RETURN c }
   //                      WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
@@ -3227,10 +3222,9 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportRestoredAfterNestedLegacySubquery) {
   DeleteListContent(&nested_branch);
 }
 
-// A named expression may redeclare an import's name. The import must then stay suppressed rather than
-// coexist with the shadow symbol, which a later `WITH *` would project as a second column of that name.
-// The plan is identical before and after the fix; this guards the shadow check in `GenWith` itself -
-// without it, `WITH *` projects `m` twice.
+// A named expression may redeclare an import's name; the import must stay suppressed, not coexist with
+// the shadow. Plans identically before and after the fix - it guards `GenWith`'s shadow check, without
+// which `WITH *` projects `m` twice.
 TYPED_TEST(TestPlanner, SubqueryScopedImportShadowedByNamedExpressionIsNotProjectedTwice) {
   // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a, a AS m WITH * RETURN a } RETURN a
   FakeDbAccessor dba;
@@ -3250,8 +3244,7 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportShadowedByNamedExpressionIsNotProjec
   DeleteListContent(&branch);
 }
 
-// An import no named expression redeclared is still in scope at a trailing `RETURN *`, so the body
-// projects it as a column. Before the fix the intermediate WITH dropped it and `*` was one column.
+// An unshadowed import is still in scope at a trailing `RETURN *`, so `*` projects it as a column.
 TYPED_TEST(TestPlanner, SubqueryScopedImportProjectedByReturnStarAfterWith) {
   // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a RETURN * } RETURN a
   FakeDbAccessor dba;
@@ -3267,8 +3260,7 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportProjectedByReturnStarAfterWith) {
   DeleteListContent(&branch);
 }
 
-// The active import set is not reset per query part, so every UNION branch of the body keeps it -
-// mirroring SymbolGenerator, which carries the imports into each branch's scope.
+// The import set is not reset per query part, so every UNION branch keeps it, as SymbolGenerator does.
 TYPED_TEST(TestPlanner, SubqueryScopedImportSurvivesIntermediateWithInEveryUnionBranch) {
   // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN b
   //                      UNION ALL
