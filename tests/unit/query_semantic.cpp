@@ -1491,10 +1491,8 @@ TYPED_TEST(TestSymbolGenerator, ExistsRefusedPositions) {
                  generic);
 }
 
-// CASE used to be refused outright. It is not a position of its own - it carries whatever position holds it - so
-// these belong with the allowed shapes. The interesting axis is bookkeeping, not planning: PostVisit(Exists&) pushes
-// one has_aggregation_ entry per EXISTS and IfOperator pops one per arm, so the shapes below (condition, both arms,
-// nesting, inside and beside an aggregate) are the ones that would leave the stack unbalanced if the two disagreed.
+// A CASE carries whichever position holds it, so these belong with the allowed shapes. They pin what the symbol
+// generator accepts and nothing more - the planner side is the behave suite's.
 TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
   auto exists_subquery = [this] {
     return EXISTS_SUBQUERY(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))))));
@@ -1520,25 +1518,23 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
                                      WHERE(case_expr(exists_subquery(), LITERAL(true), LITERAL(false))),
                                      RETURN("n"))));
 
-  // Both arms hold an EXISTS: two folds are spliced, one per arm, and only the taken one is read.
+  // An EXISTS in both arms.
   MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                                      RETURN(case_expr(LITERAL(true), exists_subquery(), exists_subquery()), AS("h")))));
 
-  // A CASE nested inside a CASE arm - num_if_operators reaches two.
+  // Nested CASE, so num_if_operators reaches two.
   MakeSymbolTable(QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       RETURN(case_expr(LITERAL(true), case_expr(exists_subquery(), LITERAL(true), LITERAL(false)), LITERAL(false)),
              AS("h")))));
 
-  // RETURN collect(CASE WHEN EXISTS { ... } THEN 1 ELSE 0 END) AS c - inside an aggregate's argument. The CASE gate on
-  // aggregations is the other consumer of num_if_operators and stays: it refuses an aggregation *inside* a CASE, not a
-  // CASE inside an aggregation.
+  // Inside an aggregate's argument. The other consumer of num_if_operators stays: it refuses an aggregation inside a
+  // CASE, not a CASE inside an aggregation.
   MakeSymbolTable(
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                          RETURN(COLLECT_LIST(case_expr(exists_subquery(), LITERAL(1), LITERAL(0)), false), AS("c")))));
 
-  // RETURN count(n) AS c, CASE WHEN EXISTS { ... } ... AS h - beside an aggregation, so the EXISTS column must not
-  // inherit the aggregating column's flag.
+  // Beside an aggregation.
   MakeSymbolTable(QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       RETURN(COUNT(IDENT("n"), false), AS("c"), case_expr(exists_subquery(), LITERAL(1), LITERAL(0)), AS("h")))));
@@ -1547,7 +1543,7 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
   MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                                      RETURN("n", ORDER_BY(case_expr(exists_subquery(), LITERAL(1), LITERAL(0)))))));
 
-  // The pattern form is gated identically, and it is the form the behave scenario for #1382 pins.
+  // The pattern form is gated identically.
   MakeSymbolTable(QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       WHERE(case_expr(
@@ -1556,14 +1552,13 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
           LITERAL(false))),
       RETURN("n"))));
 
-  // MATCH (n) WHERE all(x IN [1] WHERE CASE WHEN EXISTS { ... } ... END) RETURN n
-  // A MATCH's WHERE is rung one, so the deferred closure survives the lambda; the CASE inside it changes nothing.
+  // A MATCH's WHERE defers, so the lambda is fine there.
   MakeSymbolTable(QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       WHERE(ALL("x", LIST(LITERAL(1)), WHERE(case_expr(exists_subquery(), LITERAL(true), LITERAL(false))))),
       RETURN("n"))));
 
-  // The same lambda in a RETURN is still refused: the CASE does not give the branch a splice point the lambda lacks.
+  // The same lambda in a RETURN is still refused: a CASE gives the branch no splice point the lambda lacks.
   EXPECT_THROW(
       MakeSymbolTable(QUERY(SINGLE_QUERY(
           MATCH(PATTERN(NODE("n"))),
@@ -1571,12 +1566,53 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
                  AS("h"))))),
       memgraph::utils::NotYetImplemented);
 
-  // An aggregation inside a CASE is still refused - that gate is untouched, and it fires before the EXISTS in the
-  // other arm is ever reached.
+  // An aggregation inside a CASE is still refused; that gate is untouched.
   EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(
                    MATCH(PATTERN(NODE("n"))),
                    RETURN(case_expr(LITERAL(true), COUNT(IDENT("n"), false), exists_subquery()), AS("h"))))),
                SemanticException);
+}
+
+// A simple CASE compares one test expression against every alternative, so the generator reaches it once per arm.
+// An EXISTS names its pattern variables at parse time, so each arm past the first redeclares them unless the EXISTS
+// scopes them. The searched form above cannot reach this: an IfOperator built directly holds a distinct condition.
+TYPED_TEST(TestSymbolGenerator, ExistsAsSimpleCaseTest) {
+  auto case_expr = [this](Expression *condition, Expression *then_expr, Expression *else_expr) -> Expression * {
+    return this->storage.template Create<memgraph::query::IfOperator>(condition, then_expr, else_expr);
+  };
+  // `CASE <test> WHEN true THEN 1 WHEN false THEN 2 ELSE 3 END`, desugared as the parser desugars it.
+  auto simple_case = [&](Expression *test) {
+    return case_expr(EQ(test, LITERAL(true)), LITERAL(1), case_expr(EQ(test, LITERAL(false)), LITERAL(2), LITERAL(3)));
+  };
+
+  auto pattern_form = [this] {
+    return EXISTS(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {}, false), NODE("m", std::nullopt, false)));
+  };
+  auto subquery_form = [this] {
+    return EXISTS_SUBQUERY(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))))));
+  };
+
+  // The pattern form is the one that broke: its anonymous edge kept its parse-time name.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(simple_case(pattern_form()), AS("h")))));
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(simple_case(pattern_form())), RETURN("n"))));
+
+  // The subquery form always had a scope; pinned so the two cannot drift apart again.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(simple_case(subquery_form()), AS("h")))));
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(simple_case(subquery_form())), RETURN("n"))));
+
+  // Four arms, so the test is reached four times.
+  auto *test = pattern_form();
+  auto *four_arms = case_expr(
+      EQ(test, LITERAL(1)),
+      LITERAL(1),
+      case_expr(EQ(test, LITERAL(2)),
+                LITERAL(2),
+                case_expr(EQ(test, LITERAL(3)), LITERAL(3), case_expr(EQ(test, LITERAL(4)), LITERAL(4), LITERAL(0)))));
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(four_arms, AS("h")))));
+
+  // Two side by side, each reached twice: the first's variables must be gone before the second declares its own.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     RETURN(AND(simple_case(pattern_form()), simple_case(pattern_form())), AS("h")))));
 }
 
 TYPED_TEST(TestSymbolGenerator, Subqueries) {

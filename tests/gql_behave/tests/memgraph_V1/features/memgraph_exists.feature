@@ -1323,9 +1323,8 @@ Feature: WHERE exists
           | id    |
           | 1     |
 
-  # CASE holds no position of its own - it carries whichever position it sits in - so the shapes below are really a
-  # check on the bookkeeping: PostVisit(Exists) pushes one has_aggregation entry and IfOperator pops one per arm. The
-  # fixture keeps one P with an outgoing edge and one without, so an all-true or all-false answer is visible.
+  # CASE holds no position of its own; it carries whichever position it sits in. The fixture keeps one P with an
+  # outgoing edge and one without, so an all-true or all-false answer would be visible.
 
   Scenario: Test EXISTS subquery in a CASE condition
       Given an empty graph
@@ -1486,3 +1485,96 @@ Feature: WHERE exists
           | id | h     |
           | 1  | true  |
           | 2  | false |
+
+  # A simple CASE compares one test expression against each alternative, so an EXISTS in the test position is reached
+  # once per arm. The pattern form names its variables at parse time, so an arm past the first used to redeclare them.
+
+  Scenario: Test EXISTS subquery as the test of a simple CASE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN a.id AS id, CASE EXISTS { MATCH (a)-[:R]->() } WHEN true THEN 'yes' WHEN false THEN 'no' ELSE '?' END AS h
+          ORDER BY id;
+          """
+      Then the result should be, in order:
+          | id | h     |
+          | 1  | 'yes' |
+          | 2  | 'no'  |
+
+  Scenario: Test pattern EXISTS as the test of a simple CASE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN a.id AS id, CASE exists((a)-[:R]->()) WHEN true THEN 'yes' WHEN false THEN 'no' ELSE '?' END AS h
+          ORDER BY id;
+          """
+      Then the result should be, in order:
+          | id | h     |
+          | 1  | 'yes' |
+          | 2  | 'no'  |
+
+  Scenario: Test pattern EXISTS as the test of a simple CASE in a WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          WHERE CASE exists((a)-[:R]->()) WHEN true THEN true WHEN false THEN false END
+          RETURN a.id AS id;
+          """
+      Then the result should be:
+          | id |
+          | 1  |
+
+  Scenario: Test pattern EXISTS as the test of a simple CASE with four alternatives
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN a.id AS id,
+                 CASE exists((a)-[:R]->()) WHEN 1 THEN 'one' WHEN 2 THEN 'two' WHEN true THEN 'yes' WHEN false THEN 'no' ELSE '?' END AS h
+          ORDER BY id;
+          """
+      Then the result should be, in order:
+          | id | h     |
+          | 1  | 'yes' |
+          | 2  | 'no'  |
+
+  Scenario: Test a simple CASE EXISTS test does not leak its pattern variables
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          WHERE CASE exists((a)-[:R]->()) WHEN true THEN true WHEN false THEN false END
+          MATCH (a)-[r]->(m)
+          RETURN a.id AS id, type(r) AS t;
+          """
+      Then the result should be:
+          | id | t   |
+          | 1  | 'R' |
