@@ -47,6 +47,12 @@ auto ItemProperties() -> std::vector<std::pair<PropertyId, PropertyValue>> {
   };
 }
 
+/// The same record, for the callers that hand a load its properties as a map.
+auto ItemPropertyMap() -> std::map<PropertyId, PropertyValue> {
+  auto const properties = ItemProperties();
+  return {properties.begin(), properties.end()};
+}
+
 PropertyStore MakeCurrent() {
   PropertyStore store;
   for (auto const &[id, value] : ItemProperties()) store.SetProperty(id, value);
@@ -333,7 +339,7 @@ BENCHMARK(ManifestBuildRecordReservedFixedOnly)->Unit(benchmark::kNanosecond);
 
 // Building a record the way a load does, with every property known up front.
 void CurrentInitRecord(benchmark::State &state) {
-  auto const properties = std::map<PropertyId, PropertyValue>{ItemProperties().begin(), ItemProperties().end()};
+  auto const properties = ItemPropertyMap();
   for (auto _ : state) {
     PropertyStore store;
     store.InitProperties(properties);
@@ -344,7 +350,7 @@ void CurrentInitRecord(benchmark::State &state) {
 
 void ManifestInitRecord(benchmark::State &state) {
   ManifestRegistry registry;
-  auto const properties = std::map<PropertyId, PropertyValue>{ItemProperties().begin(), ItemProperties().end()};
+  auto const properties = ItemPropertyMap();
   for (auto _ : state) {
     ManifestPropertyStore store;
     store.InitProperties(registry, properties);
@@ -390,7 +396,7 @@ ManifestRegistry &SharedRegistry() {
 }
 
 void CurrentInitRecordThreaded(benchmark::State &state) {
-  auto const properties = std::map<PropertyId, PropertyValue>{ItemProperties().begin(), ItemProperties().end()};
+  auto const properties = ItemPropertyMap();
   for (auto _ : state) {
     PropertyStore store;
     store.InitProperties(properties);
@@ -401,7 +407,7 @@ void CurrentInitRecordThreaded(benchmark::State &state) {
 
 void ManifestInitRecordThreaded(benchmark::State &state) {
   auto &registry = SharedRegistry();
-  auto const properties = std::map<PropertyId, PropertyValue>{ItemProperties().begin(), ItemProperties().end()};
+  auto const properties = ItemPropertyMap();
   for (auto _ : state) {
     ManifestPropertyStore store;
     store.InitProperties(registry, properties);
