@@ -611,7 +611,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
       // A body whose clauses all dropped plans to nothing, yet still matches one (empty) row. Substituted per query
       // part, not once on the branch root: each UNION branch is its own part, and the combinator below dereferences
-      // both operands.
+      // both operands. `in_exists_subquery` stays set across the recursive `Plan` calls this one makes, so this also
+      // catches a nested `CALL {}` body that plans to nothing - `HandleSubquery` dereferences that one too.
       if (context.in_exists_subquery && !input_op) {
         input_op = std::make_unique<Once>();
       }
@@ -1676,7 +1677,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
   /// The EXISTS branch, without either fold's tail. The pattern form is rooted at an `Once(bound_symbols)` so the
   /// branch correlates through the shared frame; the subquery form correlates by planning recursively against those
-  /// same bound symbols, and gets a bare `Once` from an operator's null-input guard.
+  /// same bound symbols, and gets a bare `Once` from `Plan` for any query part that plans to nothing.
   std::unique_ptr<LogicalOperator> MakeExistsBranch(const ExistsMatching &matching, const SymbolTable &symbol_table,
                                                     AstStorage &storage,
                                                     const std::unordered_set<Symbol> &bound_symbols,

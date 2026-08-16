@@ -4251,7 +4251,8 @@ antlrcpp::Any CypherMainVisitor::visitCaseAlternatives(MemgraphCypher::CaseAlter
 
 antlrcpp::Any CypherMainVisitor::visitWith(MemgraphCypher::WithContext *ctx) {
   auto *with = storage_->Create<With>();
-  // Restored, not cleared: a WITH inside an EXISTS body inside a WITH's own body would otherwise release the outer one.
+  // Restored rather than cleared, so the flag is this function's own business. Defensive today: the only way to reach
+  // a nested WITH is through an EXISTS body, and that visit already clears the flag and re-arms it on the way out.
   auto old_in_with = std::exchange(in_with_, true);
   with->body_ = std::any_cast<ReturnBody>(ctx->returnBody()->accept(this));
   in_with_ = old_in_with;
