@@ -1061,10 +1061,10 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
     }
     // Imports outlive the narrowing unless a named expression redeclared the name. Comparing names
     // mirrors SymbolGenerator's `new_names`, and is equivalent only because `scopeClause` has no alias form.
-    for (const auto &import : scoped_call_imports) {
+    for (const auto &imported : scoped_call_imports) {
       if (std::ranges::none_of(body.output_symbols(),
-                               [&import](const Symbol &out) { return out.name() == import.name(); })) {
-        bound_symbols.insert(import);
+                               [&imported](const Symbol &out) { return out.name() == imported.name(); })) {
+        bound_symbols.insert(imported);
       }
     }
   }
