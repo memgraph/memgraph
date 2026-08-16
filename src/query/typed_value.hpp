@@ -143,6 +143,16 @@ class TypedValue {
     VirtualNode
   };
 
+  // The two boundaries the copy and destroy tests below compare against, and the count behind
+  // them. A type inserted anywhere but the end moves one of the three, so a type that owns an
+  // allocation cannot quietly join the run that is copied by assignment and never destroyed.
+  static_assert(static_cast<unsigned>(Type::Edge) + 1 == static_cast<unsigned>(Type::Date),
+                "Everything up to Edge is copied by assigning it; Date begins the types that are not");
+  static_assert(static_cast<unsigned>(Type::Point3d) + 1 == static_cast<unsigned>(Type::String),
+                "Everything up to Point3d owns nothing to destroy; String begins the types that do");
+  static_assert(static_cast<unsigned>(Type::VirtualNode) == 22,
+                "A type was added: put it in the run that copies and destroys the way it needs, and say so here");
+
   // TypedValue at this exact moment of compilation is an incomplete type, and
   // the standard says that instantiating a container with an incomplete type
   // invokes undefined behaviour. The libstdc++-8.3.0 we are using supports

@@ -1475,6 +1475,11 @@ auto ManifestPropertyStore::ClearProperties() -> bool {
 }
 
 void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::span<PropertyPair const> properties) {
+  // The merge with the fields the record keeps but does not carry walks both sides in step, so
+  // properties out of order would drop fields from the shape rather than fail.
+  DMG_ASSERT(std::ranges::is_sorted(properties, {}, &PropertyPair::first),
+             "A record is laid out from properties in property order");
+
   auto entries = utils::small_vector<ManifestEntry>{};
   entries.reserve(properties.size());
   auto variable_bytes = uint32_t{0};
