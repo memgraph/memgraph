@@ -1500,6 +1500,24 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
   auto case_expr = [this](Expression *condition, Expression *then_expr, Expression *else_expr) -> Expression * {
     return this->storage.template Create<memgraph::query::IfOperator>(condition, then_expr, else_expr);
   };
+  // The refusals below are pinned by message, not by type: at the base every one of these threw the CASE message
+  // instead, so a type-only assertion would pass with this change reverted.
+  auto expect_message = [](auto *query, std::string_view message) {
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const memgraph::utils::NotYetImplemented &e) {
+      EXPECT_EQ(std::string_view{e.what()}, message);
+    }
+  };
+  auto expect_semantic_message = [](auto *query, std::string_view message) {
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string_view{e.what()}, message);
+    }
+  };
 
   // MATCH (n) WHERE CASE WHEN true THEN EXISTS { ... } ELSE false END RETURN n
   MakeSymbolTable(QUERY(SINGLE_QUERY(
@@ -1559,18 +1577,18 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
       RETURN("n"))));
 
   // The same lambda in a RETURN is still refused: a CASE gives the branch no splice point the lambda lacks.
-  EXPECT_THROW(
-      MakeSymbolTable(QUERY(SINGLE_QUERY(
+  expect_message(
+      QUERY(SINGLE_QUERY(
           MATCH(PATTERN(NODE("n"))),
           RETURN(ALL("x", LIST(LITERAL(1)), WHERE(case_expr(exists_subquery(), LITERAL(true), LITERAL(false)))),
-                 AS("h"))))),
-      memgraph::utils::NotYetImplemented);
+                 AS("h")))),
+      "Not yet implemented: Exists is not supported in this position yet!");
 
   // An aggregation inside a CASE is still refused; that gate is untouched.
-  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(
-                   MATCH(PATTERN(NODE("n"))),
-                   RETURN(case_expr(LITERAL(true), COUNT(IDENT("n"), false), exists_subquery()), AS("h"))))),
-               SemanticException);
+  expect_semantic_message(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         RETURN(case_expr(LITERAL(true), COUNT(IDENT("n"), false), exists_subquery()), AS("h")))),
+      "Using aggregation functions inside of CASE is not allowed.");
 }
 
 // A simple CASE compares one test expression against every alternative, so the generator reaches it once per arm.

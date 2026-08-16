@@ -1390,17 +1390,17 @@ Feature: WHERE exists
           """
           MATCH (a:P)
           RETURN a.id AS id,
-                 CASE WHEN a.id = 1
+                 CASE WHEN a.id <= 2
                       THEN CASE WHEN EXISTS { MATCH (a)-[:R]->() } THEN 'yes' ELSE 'no' END
                       ELSE 'skip' END AS h
           ORDER BY id;
           """
       Then the result should be, in order:
-          | id | h      |
-          | 1  | 'yes'  |
-          | 2  | 'skip' |
+          | id | h     |
+          | 1  | 'yes' |
+          | 2  | 'no'  |
 
-  Scenario: Test EXISTS subquery in a simple CASE
+  Scenario: Test EXISTS subquery in an arm of a simple CASE
       Given an empty graph
       And having executed:
           """
@@ -1410,7 +1410,7 @@ Feature: WHERE exists
       When executing query:
           """
           MATCH (a:P)
-          RETURN a.id AS id, CASE a.id WHEN 1 THEN EXISTS { MATCH (a)-[:R]->() } ELSE false END AS h
+          RETURN a.id AS id, CASE a.id WHEN 1 THEN EXISTS { MATCH (a)-[:R]->() } ELSE EXISTS { MATCH (:Nope) } END AS h
           ORDER BY id;
           """
       Then the result should be, in order:
@@ -1444,11 +1444,13 @@ Feature: WHERE exists
       When executing query:
           """
           MATCH (a:P)
-          RETURN count(*) AS c, CASE WHEN EXISTS { MATCH (:X) } THEN 'any' ELSE 'none' END AS h;
+          RETURN a.id AS id, count(*) AS c, CASE WHEN EXISTS { MATCH (a)-[:R]->() } THEN 'any' ELSE 'none' END AS h
+          ORDER BY id;
           """
-      Then the result should be:
-          | c | h     |
-          | 2 | 'any' |
+      Then the result should be, in order:
+          | id | c | h      |
+          | 1  | 1 | 'any'  |
+          | 2  | 1 | 'none' |
 
   Scenario: Test EXISTS subquery in a CASE inside ORDER BY
       Given an empty graph
@@ -1478,7 +1480,7 @@ Feature: WHERE exists
       When executing query:
           """
           MATCH (a:P)
-          RETURN a.id AS id, CASE WHEN a.id = 1 THEN EXISTS { RETURN 1 } ELSE false END AS h
+          RETURN a.id AS id, CASE WHEN a.id = 1 THEN EXISTS { RETURN 1 } ELSE EXISTS { MATCH (:Nope) } END AS h
           ORDER BY id;
           """
       Then the result should be, in order:
@@ -1561,7 +1563,10 @@ Feature: WHERE exists
           | 1  | 'yes' |
           | 2  | 'no'  |
 
-  Scenario: Test a simple CASE EXISTS test does not leak its pattern variables
+  # The pattern form takes its own planner path - rooted at an Once over the bound symbols rather than planned
+  # recursively - so each position it can now reach through a CASE is pinned separately from the subquery form.
+
+  Scenario: Test pattern EXISTS in a CASE in a WITH projection
       Given an empty graph
       And having executed:
           """
@@ -1571,10 +1576,126 @@ Feature: WHERE exists
       When executing query:
           """
           MATCH (a:P)
-          WHERE CASE exists((a)-[:R]->()) WHEN true THEN true WHEN false THEN false END
-          MATCH (a)-[r]->(m)
-          RETURN a.id AS id, type(r) AS t;
+          WITH a.id AS id, CASE WHEN exists((a)-[:R]->()) THEN 'yes' ELSE 'no' END AS h
+          RETURN id, h ORDER BY id;
+          """
+      Then the result should be, in order:
+          | id | h     |
+          | 1  | 'yes' |
+          | 2  | 'no'  |
+
+  Scenario: Test pattern EXISTS in a CASE in a WITH's WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          WITH a WHERE CASE WHEN exists((a)-[:R]->()) THEN true ELSE false END
+          RETURN a.id AS id;
           """
       Then the result should be:
-          | id | t   |
-          | 1  | 'R' |
+          | id |
+          | 1  |
+
+  Scenario: Test pattern EXISTS in a CASE in an ORDER BY
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN a.id AS id
+          ORDER BY CASE WHEN exists((a)-[:R]->()) THEN 1 ELSE 0 END;
+          """
+      Then the result should be, in order:
+          | id |
+          | 2  |
+          | 1  |
+
+  Scenario: Test pattern EXISTS in a CASE inside an aggregate argument
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN sum(CASE WHEN exists((a)-[:R]->()) THEN 1 ELSE 0 END) AS c;
+          """
+      Then the result should be:
+          | c |
+          | 1 |
+
+  Scenario: Test both EXISTS forms in one CASE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN a.id AS id,
+                 CASE exists((a)-[:R]->()) WHEN true THEN EXISTS { MATCH (a)-[:R]->() } ELSE false END AS h
+          ORDER BY id;
+          """
+      Then the result should be, in order:
+          | id | h     |
+          | 1  | true  |
+          | 2  | false |
+
+  Scenario: Test an aggregation in an EXISTS body inside a CASE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          CREATE (:P {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (a:P)
+          RETURN a.id AS id,
+                 CASE WHEN EXISTS { MATCH (a)-[:R]->(x) WITH count(x) AS c WHERE c > 0 RETURN c } THEN 'yes' ELSE 'no' END AS h
+          ORDER BY id;
+          """
+      Then the result should be, in order:
+          | id | h     |
+          | 1  | 'yes' |
+          | 2  | 'no'  |
+
+  # An EXISTS inside an EXISTS pattern's property map has no splice point of its own. The refusal is the position
+  # message; before the pattern form had a scope it reached the planner and surfaced an internal error instead.
+
+  Scenario: Test EXISTS inside an EXISTS pattern's property map is refused
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          """
+      When executing query:
+          """
+          MATCH (a:P) RETURN exists((a)-[:R]->({p: EXISTS { MATCH (:X) }})) AS h;
+          """
+      Then an error should be raised
+
+  Scenario: Test a pattern EXISTS inside an EXISTS pattern's property map is refused
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:P {id: 1})-[:R]->(:X)
+          """
+      When executing query:
+          """
+          MATCH (a:P) RETURN exists((a)-[:R]->({p: exists((a)-[:R]->())})) AS h;
+          """
+      Then an error should be raised
