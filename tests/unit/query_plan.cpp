@@ -5206,6 +5206,380 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnion) {
   DeleteListContent(&exists_union_plan);
 }
 
+// The forced bool fold: an EXISTS in a WITH/RETURN body is spliced onto the main chain as a RollUpApply, because
+// EvaluatePatternFilter is only usable as a Filter side branch.
+
+TYPED_TEST(TestPlanner, ExistsSubqueryInReturnProjection) {
+  // MATCH (n) RETURN EXISTS { MATCH (n)-[r]->(m) } AS h
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(EXISTS_SUBQUERY(exists_subquery), AS("h"))));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  // Once, not ScanAll, below the Expand: the branch expands from the bound `n` instead of re-scanning it.
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectExistsRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ExistsPatternInReturnProjection) {
+  // MATCH (n) RETURN EXISTS((n)-[r]->(m)) AS h - the pattern form takes the same splice point.
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(EXISTS(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {}, false), NODE("m", std::nullopt, false))),
+             AS("h"))));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectExistsRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryInWithProjection) {
+  // MATCH (n) WITH n, EXISTS { MATCH (n)-[r]->(m) } AS h RETURN h
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WITH(NEXPR("n", IDENT("n")), NEXPR("h", EXISTS_SUBQUERY(exists_subquery))),
+                                   RETURN("h")));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(query,
+                       this->storage,
+                       ExpectExistsRollUpApply{std::move(input), std::move(branch)},
+                       ExpectProduce(),
+                       ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryInWithWhere) {
+  // MATCH (n) WITH n WHERE EXISTS { MATCH (n)-[r]->(m) } RETURN n
+  // The WHERE resolves `n` to the symbol the WITH re-declares, so the branch belongs above the WITH's Produce - and
+  // above any OrderBy, which restores only its own output symbols.
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n"), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}, ExpectProduce{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(query,
+                       this->storage,
+                       ExpectExistsRollUpApply{std::move(input), std::move(branch)},
+                       ExpectFilter(),
+                       ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryInWithWhereAboveOrderBy) {
+  // MATCH (n) WITH n ORDER BY n WHERE EXISTS { MATCH (n)-[r]->(m) } RETURN n
+  // The half ExistsSubqueryInWithWhere cannot see: with no OrderBy in the chain, "above the OrderBy" and "below it"
+  // are the same plan. An OrderBy restores only its own output symbols, so a branch spliced below it would hand the
+  // Filter one frozen value per replayed row.
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WITH("n", ORDER_BY(IDENT("n"))),
+                                   WHERE(EXISTS_SUBQUERY(exists_subquery)),
+                                   RETURN("n")));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}, ExpectProduce{}, ExpectOrderBy{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(query,
+                       this->storage,
+                       ExpectExistsRollUpApply{std::move(input), std::move(branch)},
+                       ExpectFilter(),
+                       ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryInWithOrderBy) {
+  // MATCH (n) WITH n ORDER BY EXISTS { MATCH (n)-[r]->(m) } RETURN n
+  // The sort key is read by the OrderBy's collection sweep, so this branch goes below it, not above.
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", ORDER_BY(EXISTS_SUBQUERY(exists_subquery))), RETURN("n")));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}, ExpectProduce{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(query,
+                       this->storage,
+                       ExpectExistsRollUpApply{std::move(input), std::move(branch)},
+                       ExpectOrderBy(),
+                       ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryInReturnOrderBy) {
+  // MATCH (n) RETURN n AS n ORDER BY EXISTS { MATCH (n)-[r]->(m) }
+  // A RETURN's own ORDER BY takes the same bucket as a WITH's - the branch below the OrderBy that reads it.
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", ORDER_BY(EXISTS_SUBQUERY(exists_subquery)))));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}, ExpectProduce{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectExistsRollUpApply{std::move(input), std::move(branch)}, ExpectOrderBy());
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryOnAnOptionalMatchVariable) {
+  // MATCH (n) OPTIONAL MATCH (n)-[e]->(q) RETURN EXISTS { MATCH (q)-[r]->(m) } AS h
+  // The branch correlates to a variable the Optional may leave null, so it must sit above that Optional - below it the
+  // frame slot is unwritten on the first row and stale from the previous one on every later row.
+  FakeDbAccessor dba;
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("q"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("q"))),
+                                   RETURN(EXISTS_SUBQUERY(exists_subquery), AS("h"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto *rollup = dynamic_cast<RollUpApply *>(produce->input_.get());
+  ASSERT_NE(rollup, nullptr) << "the projected EXISTS must be a RollUpApply below the Produce";
+  EXPECT_EQ(rollup->fold_, RollUpApply::Fold::kBool);
+  EXPECT_NE(dynamic_cast<Optional *>(rollup->input_.get()), nullptr)
+      << "the branch must sit above the Optional that binds what it correlates to";
+}
+
+TYPED_TEST(TestPlanner, TwoExistsInOneProjectionSpliceInVisitOrder) {
+  // MATCH (n) RETURN EXISTS { MATCH (n)-[r]->(m) } AS a, EXISTS { MATCH (x:l) } AS b
+  // Two branches at one splice point are spliced in the order they were visited, so the first named expression's sits
+  // lowest. Their bucket is a vector for exactly this reason - as a map it ordered them by symbol hash, which makes
+  // the plan shape depend on where the anonymous symbols happened to land.
+  FakeDbAccessor dba;
+  auto *expand_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *scan_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x", "l")))));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         RETURN(EXISTS_SUBQUERY(expand_subquery), AS("a"), EXISTS_SUBQUERY(scan_subquery), AS("b"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto *upper = dynamic_cast<RollUpApply *>(produce->input_.get());
+  ASSERT_NE(upper, nullptr);
+  auto *lower = dynamic_cast<RollUpApply *>(upper->input_.get());
+  ASSERT_NE(lower, nullptr) << "each EXISTS gets its own RollUpApply";
+  EXPECT_EQ(upper->fold_, RollUpApply::Fold::kBool);
+  EXPECT_EQ(lower->fold_, RollUpApply::Fold::kBool);
+
+  // `a` was visited first, so its branch - the expansion - is the one lower in the chain.
+  EXPECT_NE(dynamic_cast<Expand *>(lower->list_collection_branch_.get()), nullptr)
+      << "the first named expression's branch must be spliced first, i.e. lowest";
+  EXPECT_EQ(dynamic_cast<Expand *>(upper->list_collection_branch_.get()), nullptr);
+}
+
+TYPED_TEST(TestPlanner, ExistsInsideAPatternComprehensionWhere) {
+  // MATCH (n) RETURN [(n)-[r]->(m) WHERE EXISTS { MATCH (m)-[r2]->(k) } | m] AS l
+  // A comprehension's WHERE is a WHERE outside a return body, so the EXISTS in it stays a deferred fold on the
+  // comprehension's own Filter - the only allowed position that reaches MakeExistsFilter from inside another branch.
+  FakeDbAccessor dba;
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("k")))));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(
+          PATTERN_COMPREHENSION(
+              nullptr, PATTERN(NODE("n"), EDGE("r"), NODE("m")), WHERE(EXISTS_SUBQUERY(exists_subquery)), IDENT("m")),
+          AS("l"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto *rollup = dynamic_cast<RollUpApply *>(produce->input_.get());
+  ASSERT_NE(rollup, nullptr);
+  EXPECT_EQ(rollup->fold_, RollUpApply::Fold::kList) << "the comprehension itself still collects a list";
+
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr);
+  auto *filter = dynamic_cast<Filter *>(branch_produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "the comprehension's WHERE is a Filter inside its own branch";
+  ASSERT_EQ(filter->pattern_filters_.size(), 1U);
+  EXPECT_NE(dynamic_cast<EvaluatePatternFilter *>(filter->pattern_filters_[0].get()), nullptr)
+      << "the EXISTS there is a deferred fold, not a RollUpApply on the main chain";
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryInWithWhereWithAggregation) {
+  // MATCH (n) WITH n, count(*) AS c WHERE EXISTS { MATCH (n)-[r]->(m) } RETURN n
+  // With an aggregation present the WHERE is not visited for group-by collection; the EXISTS there must still be
+  // planned, or its frame slot stays unwritten and the expression throws.
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WITH(NEXPR("n", IDENT("n")), NEXPR("c", COUNT(LITERAL(1), false))),
+                                   WHERE(EXISTS_SUBQUERY(exists_subquery)),
+                                   RETURN("n")));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}, OpChecker<Aggregate>{}, ExpectProduce{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(query,
+                       this->storage,
+                       ExpectExistsRollUpApply{std::move(input), std::move(branch)},
+                       ExpectFilter(),
+                       ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryInWithOrderByWithAggregation) {
+  // MATCH (n) WITH n, count(*) AS c ORDER BY EXISTS { MATCH (n)-[r]->(m) } RETURN n
+  // The aggregating twin of ExistsSubqueryInWithWhereWithAggregation: with an aggregation present ORDER BY is not
+  // visited for group-by collection, so the EXISTS there needs the same dedicated planning pass or its frame slot
+  // stays unwritten and the sort key throws.
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WITH(NEXPR("n", IDENT("n")), NEXPR("c", COUNT(LITERAL(1), false)), ORDER_BY(EXISTS_SUBQUERY(exists_subquery))),
+      RETURN("n")));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}, OpChecker<Aggregate>{}, ExpectProduce{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(query,
+                       this->storage,
+                       ExpectExistsRollUpApply{std::move(input), std::move(branch)},
+                       ExpectOrderBy(),
+                       ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryInsideAggregateArgument) {
+  // MATCH (n) RETURN collect(EXISTS { MATCH (n)-[r]->(m) }) AS c
+  // The branch is correlated to the input row, so it must run before the Aggregate collapses rows into groups. Its
+  // result symbol is consumed by the aggregation itself, so it does not join the Aggregate's remember set.
+  FakeDbAccessor dba;
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *exists = EXISTS_SUBQUERY(exists_subquery);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COLLECT_LIST(exists, false), AS("c"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectExistsRollUpApply{std::move(input), std::move(branch)},
+            OpChecker<Aggregate>(),
+            ExpectProduce());
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto *aggregate = dynamic_cast<Aggregate *>(produce->input_.get());
+  ASSERT_NE(aggregate, nullptr);
+  EXPECT_FALSE(std::ranges::contains(aggregate->remember_, symbol_table.at(*exists)))
+      << "an EXISTS inside an aggregate argument must not be remembered across the Aggregate";
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryAlongsideAggregation) {
+  // MATCH (n) RETURN n, count(*) AS c, EXISTS { MATCH (n)-[r]->(m) } AS h
+  // The EXISTS is not inside the aggregate, so its value has to survive the Aggregate that sits above the branch.
+  FakeDbAccessor dba;
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *exists = EXISTS_SUBQUERY(exists_subquery);
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         RETURN(NEXPR("n", IDENT("n")), NEXPR("c", COUNT(LITERAL(1), false)), NEXPR("h", exists))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectExistsRollUpApply{std::move(input), std::move(branch)},
+            OpChecker<Aggregate>(),
+            ExpectProduce());
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto *aggregate = dynamic_cast<Aggregate *>(produce->input_.get());
+  ASSERT_NE(aggregate, nullptr);
+  EXPECT_TRUE(std::ranges::contains(aggregate->remember_, symbol_table.at(*exists)))
+      << "the EXISTS result must be in the Aggregate's remember set, or every group reads the last row's value";
+}
+
+/// The symbol of the first MATCH's first node atom - what a correlated branch has to reach.
+inline memgraph::query::Symbol FirstMatchNodeSymbol(memgraph::query::CypherQuery *query,
+                                                    const memgraph::query::SymbolTable &symbol_table) {
+  auto *match = dynamic_cast<memgraph::query::Match *>(query->single_query_->clauses_[0]);
+  EXPECT_NE(match, nullptr);
+  auto *atom = dynamic_cast<memgraph::query::NodeAtom *>(match->patterns_[0]->atoms_[0]);
+  EXPECT_NE(atom, nullptr);
+  return symbol_table.at(*atom->identifier_);
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryInWithProjectionAfterWrite) {
+  // MATCH (n) SET n.prop = 1 WITH n, EXISTS { MATCH (n)-[r]->(m) } AS e RETURN n
+  // Accumulate restores only its remember set, so it must hold `n` for the branch above it to correlate - while the
+  // anonymous EXISTS symbol must stay out of it, out of the Produce's outputs, and out of the result row.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *exists = EXISTS_SUBQUERY(exists_subquery);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   SET(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(1)),
+                                   WITH(NEXPR("n", IDENT("n")), NEXPR("e", exists)),
+                                   RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  const auto exists_symbol = symbol_table.at(*exists);
+  const auto n_symbol = FirstMatchNodeSymbol(query, symbol_table);
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto *with_produce = dynamic_cast<Produce *>(produce->input_.get());
+  ASSERT_NE(with_produce, nullptr);
+  auto *rollup = dynamic_cast<RollUpApply *>(with_produce->input_.get());
+  ASSERT_NE(rollup, nullptr) << "the projected EXISTS must be a RollUpApply above the Accumulate";
+  EXPECT_EQ(rollup->fold_, RollUpApply::Fold::kBool);
+  auto *accumulate = dynamic_cast<Accumulate *>(rollup->input_.get());
+  ASSERT_NE(accumulate, nullptr) << "the write clause's Accumulate must sit below the branch";
+  EXPECT_TRUE(std::ranges::contains(accumulate->symbols_, n_symbol))
+      << "Accumulate must remember `n`, or the branch above it correlates to a frozen row";
+  EXPECT_FALSE(std::ranges::contains(accumulate->symbols_, exists_symbol))
+      << "the anonymous EXISTS symbol must not escape into Accumulate's remember set";
+
+  // Same discriminator as the other branch tests: Once, not ScanAll.
+  auto *branch_expand = dynamic_cast<Expand *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_expand, nullptr);
+  EXPECT_NE(dynamic_cast<Once *>(branch_expand->input_.get()), nullptr)
+      << "Correlated branch must start at Once, not ScanAll";
+
+  for (const auto &symbol : with_produce->OutputSymbols(symbol_table)) {
+    EXPECT_NE(symbol, exists_symbol) << "the EXISTS symbol must not become a result column";
+  }
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryCorrelatesToANonProjectedSymbolAfterWrite) {
+  // MATCH (n) SET n.prop = 1 WITH EXISTS { MATCH (x) WHERE x.prop = n.prop } AS e RETURN e
+  // `n` is not projected, so nothing else puts it in Accumulate's remember set - only walking the EXISTS body does.
+  // And the correlation lives in the body's WHERE, which a pattern-only walk of the body would miss.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto *exists_subquery = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("x"))), WHERE(EQ(PROPERTY_LOOKUP(dba, "x", prop), PROPERTY_LOOKUP(dba, "n", prop)))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   SET(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(1)),
+                                   WITH(NEXPR("e", EXISTS_SUBQUERY(exists_subquery))),
+                                   RETURN("e")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  const auto n_symbol = FirstMatchNodeSymbol(query, symbol_table);
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto *with_produce = dynamic_cast<Produce *>(produce->input_.get());
+  ASSERT_NE(with_produce, nullptr);
+  auto *rollup = dynamic_cast<RollUpApply *>(with_produce->input_.get());
+  ASSERT_NE(rollup, nullptr);
+  auto *accumulate = dynamic_cast<Accumulate *>(rollup->input_.get());
+  ASSERT_NE(accumulate, nullptr);
+  EXPECT_TRUE(std::ranges::contains(accumulate->symbols_, n_symbol))
+      << "Accumulate must remember the outer name the EXISTS body's WHERE reads";
+}
+
 TYPED_TEST(TestPlanner, MatchKShortest) {
   // Test MATCH (n), (m) WITH n, m MATCH (n) -[r:type *kshortest..10]-> (m) RETURN r
   FakeDbAccessor dba;

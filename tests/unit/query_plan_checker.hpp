@@ -880,12 +880,16 @@ class ExpectRollUpApply : public OpChecker<RollUpApply> {
   }
 
   void ExpectOp(RollUpApply &op, const SymbolTable &symbol_table) override {
+    EXPECT_EQ(op.fold_, expected_fold_) << "unexpected RollUpApply fold";
     PlanChecker input_checker(input_ptrs_, symbol_table);
     op.input_->Accept(input_checker);
     ASSERT_TRUE(op.list_collection_branch_);
     PlanChecker list_collection_branch_checker(list_collection_branch_ptrs_, symbol_table);
     op.list_collection_branch_->Accept(list_collection_branch_checker);
   }
+
+ protected:
+  RollUpApply::Fold expected_fold_{RollUpApply::Fold::kList};
 
  private:
   // Owned storage (when using Checkers constructor)
@@ -894,6 +898,17 @@ class ExpectRollUpApply : public OpChecker<RollUpApply> {
   // Pointer views for PlanChecker
   std::list<BaseOpChecker *> input_ptrs_;
   std::list<BaseOpChecker *> list_collection_branch_ptrs_;
+};
+
+/// A RollUpApply carrying the bool fold - what an EXISTS in a projection, an ORDER BY or a WITH's WHERE is planned as.
+class ExpectExistsRollUpApply : public ExpectRollUpApply {
+ public:
+  /// Constrained so the pack cannot hijack this type's own copy/move construction.
+  template <typename... TArgs>
+    requires(sizeof...(TArgs) != 1 || !(std::same_as<std::remove_cvref_t<TArgs>, ExpectExistsRollUpApply> || ...))
+  explicit ExpectExistsRollUpApply(TArgs &&...args) : ExpectRollUpApply(std::forward<TArgs>(args)...) {
+    expected_fold_ = RollUpApply::Fold::kBool;
+  }
 };
 
 class ExpectPeriodicSubquery : public OpChecker<PeriodicSubquery> {

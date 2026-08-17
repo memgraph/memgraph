@@ -695,6 +695,22 @@ bool SymbolGenerator::PostVisit(ListComprehension & /*list_comprehension*/) {
   return true;
 }
 
+bool SymbolGenerator::IsSupportedExistsPosition(const Scope &scope) {
+  // A WHERE outside a return body: a MATCH's filter or a pattern comprehension's. It becomes a deferred closure on
+  // the owning Filter, evaluated where the expression sits, so a per-element lambda is fine here.
+  if (scope.in_where && !scope.in_with && !scope.in_return) return true;
+
+  // Everything below is a forced fold spliced onto the main chain, out of reach of a per-element lambda body: the
+  // branch would run once above the Produce and read an unbound element variable.
+  if (scope.element_lambda_depth > 0) return false;
+  // A WHERE of a WITH, consumed by a Filter above any OrderBy.
+  if (scope.in_where) return true;
+  // ORDER BY of a WITH/RETURN. The value is read by the OrderBy's collection sweep.
+  if (scope.in_order_by) return true;
+  // A WITH/RETURN named expression. SKIP and LIMIT share those flags but have no splice point of their own.
+  return (scope.in_with || scope.in_return) && !scope.in_skip && !scope.in_limit;
+}
+
 bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
 
@@ -704,28 +720,17 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
         "should not happen!");
   }
 
-  if (!scope.in_where) {
-    throw utils::NotYetImplemented("Exists can only be used inside the WHERE clause!");
-  }
-
-  if (scope.in_set_property) {
-    throw utils::NotYetImplemented("Exists cannot be used within SET clause!");
-  }
-
-  if (scope.in_with) {
-    throw utils::NotYetImplemented("Exists cannot be used within WITH!");
-  }
-
-  if (scope.in_return) {
-    throw utils::NotYetImplemented("Exists cannot be used within RETURN!");
-  }
-
+  // Narrowed refusals, kept ahead of the position check because they name a specific construct rather than a position.
   if (scope.in_reduce) {
     throw utils::NotYetImplemented("Exists cannot be used within REDUCE!");
   }
 
   if (scope.num_if_operators) {
     throw utils::NotYetImplemented("IF operator cannot be used with exists, but only during matching!");
+  }
+
+  if (!IsSupportedExistsPosition(scope)) {
+    throw utils::NotYetImplemented("Exists is not supported in this position yet!");
   }
 
   const auto &symbol = CreateAnonymousSymbol();
@@ -763,16 +768,8 @@ bool SymbolGenerator::PreVisit(NamedExpression &named_expression) {
   return true;
 }
 
-bool SymbolGenerator::PreVisit(SetProperty & /*set_property*/) {
-  auto &scope = scopes_.back();
-  scope.in_set_property = true;
-
-  return true;
-}
-
 bool SymbolGenerator::PostVisit(SetProperty &set_property) {
   auto &scope = scopes_.back();
-  scope.in_set_property = false;
 
   if (set_property.property_lookup_->property_path_.size() <= 1 &&
       set_property.property_lookup_->lookup_mode_ == PropertyLookup::LookupMode::REPLACE) {
@@ -1081,30 +1078,35 @@ bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) {
 
 void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
                                            const std::vector<Identifier *> &identifiers) {
-  auto &scope = scopes_.back();
+  // Index rather than hold a reference: the body may push a Scope, and scopes_ reallocating would dangle it.
+  const auto scope_idx = scopes_.size() - 1;
   std::vector<std::pair<std::optional<Symbol>, Identifier *>> prev_symbols;
   // Collect previous symbols if they exist.
   for (const auto &identifier : identifiers) {
     std::optional<Symbol> prev_symbol;
-    auto prev_symbol_it = scope.symbols.find(identifier->name_);
-    if (prev_symbol_it != scope.symbols.end()) {
+    auto &symbols = scopes_[scope_idx].symbols;
+    auto prev_symbol_it = symbols.find(identifier->name_);
+    if (prev_symbol_it != symbols.end()) {
       prev_symbol = prev_symbol_it->second;
     }
     identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
     prev_symbols.emplace_back(prev_symbol, identifier);
   }
-  // Visit the expressions with the new symbols bound.
+  // Visit the expressions with the new symbols bound. Every construct binding a per-element identifier funnels
+  // through here, so this is the one place that marks the body as element-scoped.
+  ++scopes_[scope_idx].element_lambda_depth;
   for (auto *expr : exprs) {
     expr->Accept(*this);
   }
+  --scopes_[scope_idx].element_lambda_depth;
   // Restore back to previous symbols.
   for (const auto &prev : prev_symbols) {
     const auto &prev_symbol = prev.first;
     const auto &identifier = prev.second;
     if (prev_symbol) {
-      scope.symbols[identifier->name_] = *prev_symbol;
+      scopes_[scope_idx].symbols[identifier->name_] = *prev_symbol;
     } else {
-      scope.symbols.erase(identifier->name_);
+      scopes_[scope_idx].symbols.erase(identifier->name_);
     }
   }
 }

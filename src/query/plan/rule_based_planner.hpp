@@ -43,23 +43,44 @@ struct PatternComprehensionData {
   std::unordered_set<Symbol> expansion_symbols;
 };
 
-/// Interface for planning pattern comprehensions, avoiding std::function overhead.
-struct PatternComprehensionPlanner {
-  virtual ~PatternComprehensionPlanner() = default;
-  /// @param bound_symbols Everything bound on the chain it will be spliced onto. The caller owns this because it
-  /// varies: a MERGE branch binds its pattern into a copy, and a WHERE/ORDER BY comprehension also sees the
+/// Interface for planning correlated-subquery branches, avoiding std::function overhead.
+struct SubqueryBranchPlanner {
+  virtual ~SubqueryBranchPlanner() = default;
+  /// @param bound_symbols Everything bound on the chain the branch will be spliced onto. The caller owns this because
+  /// it varies: a MERGE branch binds its pattern into a copy, and a WHERE/ORDER BY subquery also sees the
   /// WITH/RETURN's output symbols.
   virtual std::unique_ptr<LogicalOperator> Plan(const PatternComprehensionMatching &matching, storage::View view,
                                                 const std::unordered_set<Symbol> &bound_symbols) = 0;
+  /// Builds an EXISTS branch for a forced bool fold, i.e. without the deferred fold's
+  /// `Limit(1) -> EvaluatePatternFilter` tail. Takes @p write_occurred rather than a view, because the branch has to
+  /// pass the fact itself down to its own body, not just the view it resolves to here.
+  virtual std::unique_ptr<LogicalOperator> PlanExistsBranch(const ExistsMatching &matching, bool write_occurred,
+                                                            const std::unordered_set<Symbol> &bound_symbols) = 0;
 };
 
-/// Context for on-demand pattern comprehension planning in RETURN/WITH bodies.
-struct PatternComprehensionContext {
+/// ExpandVariable requires View::OLD, so a branch whose pattern has a variable-length edge must use it.
+inline bool HasVariableLengthExpansion(const Matching &matching) {
+  return std::ranges::any_of(matching.expansions,
+                             [](const auto &expansion) { return expansion.edge && expansion.edge->IsVariable(); });
+}
+
+/// The view rule for a correlated-subquery branch, shared by every splice point. A clause sees the effects of the
+/// clauses before it, and within one command no AdvanceCommand folds a write into View::OLD, so a branch planned
+/// after a write reads View::NEW - except where ExpandVariable cannot service it.
+inline storage::View SubqueryView(const Matching &matching, bool write_occurred) {
+  if (HasVariableLengthExpansion(matching)) return storage::View::OLD;
+  return write_occurred ? storage::View::NEW : storage::View::OLD;
+}
+
+/// Context for on-demand planning of correlated subqueries in RETURN/WITH bodies.
+struct SubqueryContext {
   std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions;
-  PatternComprehensionPlanner *planner;
-  /// The view this query part has reached: View::NEW once one of its write clauses has been planned. Only a
-  /// preference; @c impl::PatternComprehensionView filters it.
-  storage::View view;
+  /// The EXISTS matchings of this query part that a WITH/RETURN body may evaluate, keyed by result symbol. Drained
+  /// as they are planned, like @c pending_comprehensions.
+  std::unordered_map<Symbol, ExistsMatching> &pending_exists;
+  SubqueryBranchPlanner *planner;
+  /// Whether a write clause has already been planned in this query part; feeds @c SubqueryView.
+  bool write_occurred;
 };
 
 /// @brief Context which contains variables commonly used during planning.
@@ -184,13 +205,13 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           PatternComprehensionContext &pc_ctx, Expression *commit_frequency,
+                                           SubqueryContext &subquery_ctx, Expression *commit_frequency,
                                            bool in_exists_subquery);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                         PatternComprehensionContext &pc_ctx, Expression *commit_frequency,
+                                         SubqueryContext &subquery_ctx, Expression *commit_frequency,
                                          bool in_exists_subquery,
                                          const std::unordered_set<Symbol> &scoped_call_imports);
 
@@ -243,14 +264,20 @@ storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, s
 ///
 /// @sa MakeLogicalPlan
 template <class TPlanningContext>
-class RuleBasedPlanner : public PatternComprehensionPlanner {
+class RuleBasedPlanner : public SubqueryBranchPlanner {
  public:
   explicit RuleBasedPlanner(TPlanningContext *context) : context_(context) {}
 
-  /// Implements PatternComprehensionPlanner interface
+  /// Implements SubqueryBranchPlanner interface
   std::unique_ptr<LogicalOperator> Plan(const PatternComprehensionMatching &matching, storage::View view,
                                         const std::unordered_set<Symbol> &bound_symbols) override {
     return PlanPatternComprehension(matching, *context_->symbol_table, bound_symbols, view);
+  }
+
+  /// Implements SubqueryBranchPlanner interface
+  std::unique_ptr<LogicalOperator> PlanExistsBranch(const ExistsMatching &matching, bool write_occurred,
+                                                    const std::unordered_set<Symbol> &bound_symbols) override {
+    return MakeExistsBranch(matching, *context_->symbol_table, *context_->ast_storage, bound_symbols, write_occurred);
   }
 
   /// @brief The result of plan generation is the root of the generated operator
@@ -298,6 +325,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                 "support as this scenario should not happen and is very likely a bug in the query engine!");
           }
           pending_comprehensions.emplace(pc.result_symbol, pc);
+        }
+        // EXISTS is planned only from a WITH/RETURN body, the one splice point it has. A MATCH's WHERE keeps its own
+        // on the FilterInfo and never reaches this map.
+        std::unordered_map<Symbol, ExistsMatching> pending_exists;
+        for (const auto &exists : single_query_part.exists_matchings) {
+          pending_exists.emplace(exists.symbol.value(), exists);
         }
 
         // Compute all symbols that will be bound by this query part (from MATCH, CREATE, MERGE, etc.)
@@ -368,18 +401,24 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         // need to use View::NEW to see the newly created/modified data.
         bool write_occurred = false;
 
+        // What a subquery branch planned here has to see: a write earlier in this part, or - when this part *is* an
+        // EXISTS branch - the write it was spliced after. Kept apart from `write_occurred`, which the MERGE, CALL and
+        // FOREACH arms below read to ask about this part alone.
+        auto const branch_sees_write = [&] { return write_occurred || exists_branch_after_write_; };
+
         // Plan and apply the satisfiable comprehensions this clause originates, before the clause itself.
         auto plan_and_apply_comprehensions = [&](const std::unordered_set<Symbol> &eligible) {
           input_op = SpliceSatisfiedComprehensions(
-              std::move(input_op), pending_comprehensions, context.bound_symbols, write_occurred, eligible);
+              std::move(input_op), pending_comprehensions, context.bound_symbols, branch_sees_write(), eligible);
         };
 
         for (const auto &clause : single_query_part.remaining_clauses) {
           MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
 
-          // Create context with current view for RETURN/WITH
-          auto current_view = write_occurred ? storage::View::NEW : storage::View::OLD;
-          PatternComprehensionContext pc_ctx{pending_comprehensions, this, current_view};
+          SubqueryContext subquery_ctx{.pending_comprehensions = pending_comprehensions,
+                                       .pending_exists = pending_exists,
+                                       .planner = this,
+                                       .write_occurred = branch_sees_write()};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
             input_op = impl::GenReturn(*ret,
@@ -388,7 +427,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                        context.is_write_query,
                                        context.bound_symbols,
                                        *context.ast_storage,
-                                       pc_ctx,
+                                       subquery_ctx,
                                        query_parts.commit_frequency,
                                        context.in_exists_subquery);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
@@ -419,7 +458,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                      context.is_write_query,
                                      context.bound_symbols,
                                      *context.ast_storage,
-                                     pc_ctx,
+                                     subquery_ctx,
                                      nullptr,
                                      context.in_exists_subquery,
                                      context.scoped_call_imports);
@@ -559,7 +598,10 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       }
 
       // Is this the only situation that should be covered
-      if (input_op->OutputSymbols(*context.symbol_table).empty() && !context.in_exists_subquery) {
+      // An exists body whose every clause is dropped (`EXISTS { RETURN 1 }`) leaves input_op null, so short-circuit
+      // on `in_exists_subquery` before dereferencing it. The null check after it is belt-and-braces: no other clause
+      // sequence is known to plan to nothing.
+      if (!context.in_exists_subquery && input_op && input_op->OutputSymbols(*context.symbol_table).empty()) {
         if (has_periodic_commit && is_root_query) {
           // this periodic commit is from USING PERIODIC COMMIT
           input_op = std::make_unique<PeriodicCommit>(std::move(input_op), query_parts.commit_frequency);
@@ -609,6 +651,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   }
 
   TPlanningContext *context_;
+  /// Whether the EXISTS subquery branch currently being planned is spliced after a write in its enclosing query part.
+  /// The recursive plan of a subquery body starts a fresh query part with no write history, so without this its
+  /// matchings would read View::OLD and miss a write the branch is supposed to see. Every view decision inside the
+  /// branch consults it, not just the body's own MATCH: a body WITH/RETURN plans its comprehensions and nested EXISTS
+  /// on demand through `branch_sees_write`, and a body MATCH's WHERE reaches `MakeExistsFilter`.
+  bool exists_branch_after_write_{false};
 
   /// What the query part being planned binds. Scoped to one query part and saved/restored around it, because a
   /// subquery re-enters `PlanQueryPart` on this same object.
@@ -685,7 +733,11 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                                   const SingleQueryPart &single_query_part,
                                                   const SymbolTable &symbol_table,
                                                   std::unordered_set<Symbol> &bound_symbols) {
-    MatchContext match_ctx{single_query_part.matching, symbol_table, bound_symbols};
+    // Outside an EXISTS branch the flag is false and SubqueryView collapses to View::OLD.
+    MatchContext match_ctx{single_query_part.matching,
+                           symbol_table,
+                           bound_symbols,
+                           SubqueryView(single_query_part.matching, exists_branch_after_write_)};
     last_op = PlanMatching(match_ctx, std::move(last_op));
     for (const auto &matching : single_query_part.optional_matching) {
       // Ensure that we have all the symbols from the original match
@@ -706,7 +758,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         }
       }
 
-      MatchContext opt_ctx{matching, symbol_table, bound_symbols};
+      MatchContext opt_ctx{matching, symbol_table, bound_symbols, SubqueryView(matching, exists_branch_after_write_)};
       auto once_with_symbols = std::make_unique<Once>(
           std::vector<Symbol>(bound_symbols_from_original_match.begin(), bound_symbols_from_original_match.end()));
       if (auto match_op = PlanMatching(opt_ctx, std::move(once_with_symbols))) {
@@ -935,6 +987,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                             const std::vector<query::Clause *> &sets,
                                             const std::unordered_set<Symbol> &branch_bound_symbols) {
       const auto eligible = impl::CollectPatternComprehensionSymbols(sets, *context_->symbol_table);
+      // ON MATCH binds the MERGE pattern into its own copy, so a branch comprehension correlating to one plans
+      // against that copy rather than re-scanning.
       return SpliceSatisfiedComprehensions(
           std::move(branch), pending_comprehensions, branch_bound_symbols, /*write_occurred=*/true, eligible);
     };
@@ -1476,10 +1530,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         ++it;
         continue;
       }
-      // A clause sees the effects of the clauses before it, and no AdvanceCommand folds a write into View::OLD within
-      // one command, so the write history alone decides. Same rule the on-demand path uses.
-      auto const preferred = write_occurred ? storage::View::NEW : storage::View::OLD;
-      auto pc_op = Plan(pc, preferred, bound_symbols);
+      auto pc_op = Plan(pc, SubqueryView(pc, write_occurred), bound_symbols);
       auto symbols = pc_op->ModifiedSymbols(*context_->symbol_table);
       chain = std::make_unique<RollUpApply>(std::move(chain), std::move(pc_op), symbols, sym);
       it = pending_comprehensions.erase(it);
@@ -1616,9 +1667,38 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     return last_op;
   }
 
-  std::unique_ptr<LogicalOperator> MakeExistsFilter(const FilterMatching &matching, const SymbolTable &symbol_table,
+  /// The EXISTS branch, without either fold's tail. The pattern form is rooted at an `Once(bound_symbols)` so the
+  /// branch correlates through the shared frame; the subquery form correlates by planning recursively against those
+  /// same bound symbols, and gets a bare `Once` from an operator's null-input guard.
+  std::unique_ptr<LogicalOperator> MakeExistsBranch(const ExistsMatching &matching, const SymbolTable &symbol_table,
                                                     AstStorage &storage,
-                                                    const std::unordered_set<Symbol> &bound_symbols) {
+                                                    const std::unordered_set<Symbol> &bound_symbols,
+                                                    bool write_occurred) {
+    if (matching.type == ExistsKind::kSubquery) {
+      // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
+      // the branch has to correlate against.
+      auto branch_bound_symbols = bound_symbols;
+      // in_exists_subquery drives three behaviours of the recursive plan: the body's RETURN is dropped, the
+      // EmptyResult wrapper is suppressed, and GenWith keeps outer-scope vertex/edge symbols across a body WITH.
+      auto const restore = utils::OnScopeExit{[this,
+                                               old_exists_subquery = context_->in_exists_subquery,
+                                               old_after_write = exists_branch_after_write_,
+                                               outer_bound = std::move(context_->bound_symbols)]() mutable {
+        context_->in_exists_subquery = old_exists_subquery;
+        exists_branch_after_write_ = old_after_write;
+        context_->bound_symbols = std::move(outer_bound);
+      }};
+      context_->in_exists_subquery = true;
+      exists_branch_after_write_ = write_occurred;
+      context_->bound_symbols = std::move(branch_bound_symbols);
+
+      std::unique_ptr<LogicalOperator> last_op = Plan(*matching.subquery);
+      // A body whose clauses all dropped plans to nothing, yet still matches one (empty) row - so give the fold a
+      // branch to pull rather than a null it would dereference when making its cursor.
+      if (!last_op) last_op = std::make_unique<Once>();
+      return last_op;
+    }
+
     std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
     std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
 
@@ -1629,20 +1709,26 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
     std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
 
-    last_op = HandleExpansions(std::move(last_op),
-                               matching,
-                               symbol_table,
-                               storage,
-                               expand_symbols,
-                               new_symbols,
-                               named_paths,
-                               filters,
-                               storage::View::OLD);
+    return HandleExpansions(std::move(last_op),
+                            matching,
+                            symbol_table,
+                            storage,
+                            expand_symbols,
+                            new_symbols,
+                            named_paths,
+                            filters,
+                            SubqueryView(matching, write_occurred));
+  }
 
+  /// The deferred bool fold: the branch plus the tail that installs a closure into the frame. Only usable as a
+  /// `Filter` side branch, which is why a projection uses the forced fold instead.
+  std::unique_ptr<LogicalOperator> MakeExistsFilter(const ExistsMatching &matching, const SymbolTable &symbol_table,
+                                                    AstStorage &storage,
+                                                    const std::unordered_set<Symbol> &bound_symbols) {
+    // Outside an EXISTS branch the flag is false, which resolves to View::OLD.
+    auto last_op = MakeExistsBranch(matching, symbol_table, storage, bound_symbols, exists_branch_after_write_);
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
-    last_op = std::make_unique<EvaluatePatternFilter>(std::move(last_op), matching.symbol.value());
-
-    return last_op;
+    return std::make_unique<EvaluatePatternFilter>(std::move(last_op), matching.symbol.value());
   }
 
   std::unique_ptr<LogicalOperator> MakePatternComprehensionFilter(const PatternComprehensionMatching &matching,
@@ -1684,38 +1770,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         continue;
       }
 
-      for (const auto &matching : filter.matchings) {
-        switch (matching.type) {
-          case PatternFilterType::EXISTS_PATTERN: {
-            operators.push_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
-            break;
-          }
-          case PatternFilterType::EXISTS_SUBQUERY: {
-            const bool old_context_exists_subquery = context_->in_exists_subquery;
-            context_->in_exists_subquery = true;
-            std::unordered_set<Symbol> outer_scope_bound_symbols;
-            outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
-                                             std::make_move_iterator(context_->bound_symbols.end()));
-
-            context_->bound_symbols = bound_symbols;
-
-            std::unique_ptr<LogicalOperator> last_op = Plan(*matching.subquery);
-            context_->in_exists_subquery = old_context_exists_subquery;
-
-            context_->bound_symbols.clear();
-            context_->bound_symbols.insert(std::make_move_iterator(outer_scope_bound_symbols.begin()),
-                                           std::make_move_iterator(outer_scope_bound_symbols.end()));
-
-            // Add a Limit operator to ensure we only need one result
-            last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
-
-            // Add the EvaluatePatternFilter operator to evaluate the exists condition
-            last_op = std::make_unique<EvaluatePatternFilter>(std::move(last_op), matching.symbol.value());
-
-            operators.push_back(std::move(last_op));
-            break;
-          }
-        }
+      for (const auto &matching : filter.exists_matchings) {
+        operators.push_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
       }
 
       for (const auto &matching : filter.pattern_comprehension_matchings) {

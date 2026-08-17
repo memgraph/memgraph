@@ -74,7 +74,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(Match &) override;
   bool PreVisit(Foreach &) override;
   bool PostVisit(Foreach &) override;
-  bool PreVisit(SetProperty & /*set_property*/) override;
   bool PostVisit(SetProperty & /*set_property*/) override;
   bool PostVisit(RemoveProperty & /*remove_property*/) override;
   bool PreVisit(SetLabels &) override;
@@ -151,13 +150,16 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_exists_pattern{false};
     bool in_exists_subquery{false};
     bool in_reduce{false};
-    bool in_set_property{false};
     bool in_call_subquery{false};
     bool has_return{false};
     bool in_set_labels{false};
     bool in_remove_labels{false};
     bool in_pattern_comprehension{false};
     bool in_list_comprehension{false};
+    /// Nesting depth of expressions that bind a per-element identifier and evaluate a body once per element: a list
+    /// comprehension, all/any/none/single, extract, reduce, and an edge atom's filter/weight lambda. A depth so a
+    /// nested one does not clear its parent.
+    uint32_t element_lambda_depth{0};
     // True when visiting a pattern atom (node or edge) identifier, which can be
     // reused or created in the pattern itself.
     bool in_pattern_atom_identifier{false};
@@ -186,6 +188,10 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   };
 
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
+
+  /// The positions an EXISTS may appear in - the ones the planner has a splice point for. Default-deny, because an
+  /// unlisted position leaves the frame slot unwritten and the expression reads it without an error.
+  static bool IsSupportedExistsPosition(const Scope &scope);
 
   // Whether @p name resolves in any scope from @p from outwards; pass `call_subquery_base` to ask about a subquery.
   bool HasSymbol(const std::string &name, size_t from = 0) const;

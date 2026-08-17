@@ -1290,6 +1290,208 @@ TYPED_TEST(TestSymbolGenerator, Exists) {
   }
 }
 
+// The gate ladder: EXISTS is allowed only in the positions the planner has a splice point for, and the checks run in a
+// fixed order - so a refusal can change identity when an earlier rung moves. Every position gets a case, allowed or
+// refused, and the refused ones assert the message.
+TYPED_TEST(TestSymbolGenerator, ExistsAllowedPositions) {
+  auto exists_subquery = [this] {
+    return EXISTS_SUBQUERY(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))))));
+  };
+
+  // MATCH (n) WHERE EXISTS { ... } RETURN n
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(exists_subquery()), RETURN("n"))));
+
+  // MATCH (n) RETURN EXISTS { ... } AS h
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(exists_subquery(), AS("h")))));
+
+  // MATCH (n) WITH n, EXISTS { ... } AS h RETURN h
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))), WITH(NEXPR("n", IDENT("n")), NEXPR("h", exists_subquery())), RETURN("h"))));
+
+  // MATCH (n) WITH n WHERE EXISTS { ... } RETURN n  (issue #3385)
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n"), WHERE(exists_subquery()), RETURN("n"))));
+
+  // MATCH (n) WITH n ORDER BY EXISTS { ... } RETURN n
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", ORDER_BY(exists_subquery())), RETURN("n"))));
+
+  // MATCH (n) RETURN n ORDER BY EXISTS { ... }
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", ORDER_BY(exists_subquery())))));
+
+  // MATCH (n) RETURN collect(EXISTS { ... }) AS c - inside an aggregate argument.
+  MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COLLECT_LIST(exists_subquery(), false), AS("c")))));
+
+  // The pattern form takes the same positions.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(EXISTS(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {}, false), NODE("m", std::nullopt, false))),
+             AS("h")))));
+
+  // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { ... }) RETURN n
+  // A per-element lambda is refused in every forced-fold position, but a MATCH's WHERE is a deferred closure that
+  // evaluates where the expression sits, so it stays correct inside a lambda and stays allowed. Pinned because
+  // refusing it here would narrow behaviour that predates the projection work.
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))), WHERE(ALL("x", LIST(LITERAL(1)), WHERE(exists_subquery()))), RETURN("n")))));
+
+  // MATCH (n) OPTIONAL MATCH (n)-[e]->(q) WHERE EXISTS { ... } RETURN n
+  // An OPTIONAL MATCH's WHERE is a WHERE outside a return body like any other, and it predates this work.
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                                     OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("q"))),
+                                                     WHERE(exists_subquery()),
+                                                     RETURN("n")))));
+
+  // MATCH (n) RETURN [(n)-[r2]->(m2) WHERE EXISTS { ... } | m2] AS l
+  // A comprehension's WHERE is rung one as well: the comprehension pushes its own scope, so the WHERE inside it does
+  // not read as a return body's. It is planned as a deferred fold on the comprehension's own Filter.
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(PATTERN_COMPREHENSION(
+                 nullptr, PATTERN(NODE("n"), EDGE("r2"), NODE("m2")), WHERE(exists_subquery()), IDENT("m2")),
+             AS("l"))))));
+}
+
+// A lambda's element variable must not survive the lambda, even when the body pushes a scope. scopes_ is a vector
+// built with capacity 1, so the push reallocates and a Scope& held across the body would dangle - the unbind would
+// then miss the live scope and leak the variable out, and the write itself is a use-after-free.
+TYPED_TEST(TestSymbolGenerator, LambdaVariableDoesNotEscapeAScopePushingBody) {
+  // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { MATCH (n)-[r]->(m) }) AND x = 1 RETURN n
+  EXPECT_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))),
+          WHERE(AND(ALL("x",
+                        LIST(LITERAL(1)),
+                        WHERE(EXISTS_SUBQUERY(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))))))),
+                    EQ(IDENT("x"), LITERAL(1)))),
+          RETURN("n")))),
+      UnboundVariableError);
+
+  // The same shape with a pattern comprehension, which pushes a scope of its own:
+  // MATCH (n) WHERE all(x IN [1] WHERE size([(n)-[r]->(m) | m]) > 0) AND x = 1 RETURN n
+  EXPECT_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))),
+          WHERE(AND(ALL("x",
+                        LIST(LITERAL(1)),
+                        WHERE(GREATER(FN("size",
+                                         PATTERN_COMPREHENSION(
+                                             nullptr, PATTERN(NODE("n"), EDGE("r"), NODE("m")), nullptr, IDENT("m"))),
+                                      LITERAL(0)))),
+                    EQ(IDENT("x"), LITERAL(1)))),
+          RETURN("n")))),
+      UnboundVariableError);
+}
+
+TYPED_TEST(TestSymbolGenerator, ExistsRefusedPositions) {
+  auto prop = this->dba.NameToProperty("prop");
+  auto exists_subquery = [this] {
+    return EXISTS_SUBQUERY(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))))));
+  };
+  auto expect_message = [](auto *query, std::string_view message) {
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const memgraph::utils::NotYetImplemented &e) {
+      EXPECT_EQ(std::string_view{e.what()}, message);
+    }
+  };
+
+  const std::string_view generic = "Not yet implemented: Exists is not supported in this position yet!";
+
+  // SET n.prop = EXISTS { ... }. The dedicated in_set_property gate is gone: default-deny covers it, and the message
+  // identity changes to the generic one.
+  expect_message(
+      QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))), SET(PROPERTY_LOOKUP(this->dba, "n", prop), exists_subquery()), RETURN("n"))),
+      generic);
+
+  // FOREACH (i IN [1] | SET n.prop = EXISTS { ... })
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    FOREACH(NEXPR("i", LIST(LITERAL(1))),
+                                            {SET(PROPERTY_LOOKUP(this->dba, "n", prop), exists_subquery())}))),
+                 generic);
+
+  // UNWIND [EXISTS { ... }] AS h - PR 4's territory, no splice point here yet.
+  expect_message(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), UNWIND(NEXPR("h", LIST(exists_subquery()))), RETURN("h"))),
+      generic);
+
+  // RETURN n SKIP EXISTS { ... } - SKIP shares in_return with the projection but has no splice point of its own.
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", SKIP(exists_subquery())))), generic);
+
+  // RETURN n LIMIT EXISTS { ... } - the other half of the `!in_skip && !in_limit` conjunct.
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", LIMIT(exists_subquery())))), generic);
+
+  // A per-element lambda body binds its variable outside the planner's reach, so the branch would be spliced once
+  // above the Produce and read an unbound element - a silently wrong bool. Refused in every such construct.
+
+  // RETURN all(x IN [1] WHERE EXISTS { ... }) AS h
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    RETURN(ALL("x", LIST(LITERAL(1)), WHERE(exists_subquery())), AS("h")))),
+                 generic);
+
+  // RETURN single(x IN [1] WHERE EXISTS { ... }) AS h
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    RETURN(SINGLE("x", LIST(LITERAL(1)), WHERE(exists_subquery())), AS("h")))),
+                 generic);
+
+  // RETURN [x IN [1] WHERE EXISTS { ... } | x] AS h - the filter half of a list comprehension.
+  expect_message(
+      QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))),
+          RETURN(LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), WHERE(exists_subquery()), nullptr), AS("h")))),
+      generic);
+
+  // RETURN [x IN [1] | EXISTS { ... }] AS h - and its result half.
+  expect_message(QUERY(SINGLE_QUERY(
+                     MATCH(PATTERN(NODE("n"))),
+                     RETURN(LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), nullptr, exists_subquery()), AS("h")))),
+                 generic);
+
+  // RETURN extract(x IN [1] | EXISTS { ... }) AS h
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    RETURN(EXTRACT("x", LIST(LITERAL(1)), exists_subquery()), AS("h")))),
+                 generic);
+
+  // A lambda in a WITH's WHERE is refused as well: that position is a forced fold too.
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    WITH("n"),
+                                    WHERE(ALL("x", LIST(LITERAL(1)), WHERE(exists_subquery()))),
+                                    RETURN("n"))),
+                 generic);
+
+  // A lambda in ORDER BY, likewise.
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    RETURN("n", ORDER_BY(ALL("x", LIST(LITERAL(1)), WHERE(exists_subquery())))))),
+                 generic);
+
+  // The gate runs before either form is inspected, so the pattern form is refused identically. Pinned once here
+  // rather than per position.
+  expect_message(QUERY(SINGLE_QUERY(
+                     MATCH(PATTERN(NODE("n"))),
+                     UNWIND(NEXPR("h", LIST(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("m", std::nullopt, false)))))),
+                     RETURN("h"))),
+                 generic);
+
+  // reduce(...) keeps its own message, and it now fires from a RETURN too, where !in_where used to answer first.
+  expect_message(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         RETURN(REDUCE("acc", LITERAL(false), "x", LIST(LITERAL(1)), exists_subquery()), AS("h")))),
+      "Not yet implemented: Exists cannot be used within REDUCE!");
+
+  // CASE is PR 4. Its message is unchanged in a WHERE and now also fires in a RETURN.
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    WHERE(this->storage.template Create<memgraph::query::IfOperator>(
+                                        exists_subquery(), LITERAL(true), LITERAL(false))),
+                                    RETURN("n"))),
+                 "Not yet implemented: IF operator cannot be used with exists, but only during matching!");
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    RETURN(this->storage.template Create<memgraph::query::IfOperator>(
+                                               exists_subquery(), LITERAL(true), LITERAL(false)),
+                                           AS("h")))),
+                 "Not yet implemented: IF operator cannot be used with exists, but only during matching!");
+}
+
 TYPED_TEST(TestSymbolGenerator, Subqueries) {
   // MATCH (n) CALL { MATCH (n) RETURN n } RETURN n
   // Yields exception because n in subquery is referenced in outer scope
