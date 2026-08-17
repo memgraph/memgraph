@@ -4921,13 +4921,13 @@ TEST(PlanRequiresStorageAccess, PlansThatReachStorage) {
   undeclared_call->result_symbols_ = {memgraph::query::Symbol{"name", 1, /*user_declared=*/true}};
   EXPECT_TRUE(PlanRequiresStorageAccess(*undeclared_call));
 
-  // A write procedure reaches storage whatever else it claims.
+  // A write procedure reaches storage. It cannot also be graph-free: a procedure writes through the
+  // graph it is handed, and registration rejects a declaration claiming both.
   auto writing_call = std::make_shared<CallProcedure>();
   writing_call->input_ = once;
   writing_call->procedure_name_ = "example.writer";
   writing_call->result_fields_ = {"name"};
   writing_call->is_write_ = true;
-  writing_call->graph_free_ = true;
   writing_call->result_symbols_ = {memgraph::query::Symbol{"name", 1, /*user_declared=*/true}};
   EXPECT_TRUE(PlanRequiresStorageAccess(*writing_call));
 }

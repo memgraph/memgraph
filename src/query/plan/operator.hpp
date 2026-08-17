@@ -2930,9 +2930,9 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
 
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
-  /// True if calling this procedure needs a storage transaction: it writes, or it made no claim to
-  /// leave the graph alone.
-  bool ReachesStorage() const { return is_write_ || !graph_free_; }
+  /// True if calling this procedure needs a storage transaction. Writing is not a separate condition:
+  /// a procedure writes through the graph it is handed, so one declared to leave that alone cannot.
+  bool ReachesStorage() const { return !graph_free_; }
 
   static void IncrementCounter(const std::string &procedure_name);
   static std::unordered_map<std::string, int64_t> GetAndResetCounters();
