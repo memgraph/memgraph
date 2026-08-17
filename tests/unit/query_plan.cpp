@@ -1516,6 +1516,33 @@ TYPED_TEST(TestPlanner, MatchFilterDoubleNegatedPropertyUsesIndex) {
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectExpand(), ExpectProduce());
   }
+
+  {
+    // Pairs cancel however many are wrapped around the comparison, so four
+    // negations leave the equality an index can answer.
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
+                                     WHERE(NOT(NOT(NOT(NOT(EQ(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(42))))))),
+                                     RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanAllByLabelProperties(
+                  label, std::vector{ms::PropertyPath{prop.second}}, std::vector{ExpressionRange::Equal(LITERAL(42))}),
+              ExpectExpand(),
+              ExpectProduce());
+  }
+
+  {
+    // An odd count reduces to one negation, which is no comparison an index can
+    // answer, so it must not be mistaken for the bare equality.
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
+                                     WHERE(NOT(NOT(NOT(EQ(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(42)))))),
+                                     RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectExpand(), ExpectProduce());
+  }
 }
 
 TYPED_TEST(TestPlanner, MatchFilterWhere) {
