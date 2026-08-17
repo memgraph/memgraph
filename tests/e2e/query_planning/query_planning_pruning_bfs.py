@@ -145,7 +145,7 @@ def test_no_rewrite_with_multi_expand(memgraph):
 def test_no_rewrite_leaks_across_union(memgraph):
     plan = get_plan(memgraph, "MATCH (a)-[*]->(b) RETURN DISTINCT b UNION ALL MATCH (a)-[*]->(b) RETURN b")
     plan_text = "\n".join(plan)
-    assert plan_text.count("PruningBFSExpand") <= 1, f"Right branch should not be rewritten, got: {plan}"
+    assert plan_text.count("PruningBFSExpand") == 1, f"Right branch should not be rewritten, got: {plan}"
     assert "ExpandVariable" in plan_text, f"Expected ExpandVariable in right branch, got: {plan}"
 
 
