@@ -1613,10 +1613,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           in_slots.push_back(i);
           maybe_propertyvalue_ranges[i] = storage::PropertyValueRange::IsNotNull();
         }
-        if (in_slots.empty()) return db_->VerticesCount(scan_op->label_, scan_op->properties_);
+        if (in_slots.empty()) return db_->VerticesCount(scan_op->label_, scan_op->properties_) * CardParam::kFilter;
         // If non-IN slots are still unresolved, fall back.
         if (ranges::any_of(maybe_propertyvalue_ranges, [](auto const &pvr) { return pvr == std::nullopt; }))
-          return db_->VerticesCount(scan_op->label_, scan_op->properties_);
+          return db_->VerticesCount(scan_op->label_, scan_op->properties_) * CardParam::kFilter;
         auto pvrs = maybe_propertyvalue_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) |
                     ranges::to_vector;
         if (in_slots.size() == 1) {
@@ -1627,7 +1627,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                        in_slots[0],
                                        pvrs,
                                        parameters_);
-          return sum.value_or(db_->VerticesCount(scan_op->label_, scan_op->properties_));
+          return sum.value_or(db_->VerticesCount(scan_op->label_, scan_op->properties_) * CardParam::kFilter);
         }
         // Multiple IN slots: independence assumption.
         auto const total = db_->VerticesCount(scan_op->label_, scan_op->properties_, pvrs);
@@ -1641,7 +1641,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                             slot,
                                             pvrs,
                                             parameters_);
-          if (!marginal) return db_->VerticesCount(scan_op->label_, scan_op->properties_);
+          if (!marginal) return db_->VerticesCount(scan_op->label_, scan_op->properties_) * CardParam::kFilter;
           result *= *marginal;
           pvrs[slot] = storage::PropertyValueRange::IsNotNull();
         }
