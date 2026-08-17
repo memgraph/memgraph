@@ -244,6 +244,8 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Release / Core tests"
 
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
@@ -512,6 +514,8 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Release / Benchmark"
 
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
@@ -673,6 +677,8 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Release / End to end tests"
 
   stress:
     if: ${{ inputs.run_stress == 'true' }}
@@ -853,6 +859,8 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Release / Stress tests"
 
   query_modules:
     if: ${{ inputs.run_query_modules == 'true' }}
@@ -989,3 +997,5 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Release / Query modules tests"
