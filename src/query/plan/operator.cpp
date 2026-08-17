@@ -2984,8 +2984,6 @@ class PruningBFSCursor : public query::plan::Cursor {
         if (context.hops_limit.IsLimitReached()) return false;
 
         visited_.clear();
-        to_visit_current_.clear();
-        to_visit_next_.clear();
 
         auto const &vertex_value = frame[self_.input_symbol_];
         if (vertex_value.IsNull()) continue;
