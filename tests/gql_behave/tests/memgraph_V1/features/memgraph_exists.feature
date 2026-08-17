@@ -920,75 +920,105 @@ Feature: WHERE exists
           | 'Regina King'  |
           | 'Bob'          |
 
+  # The four aggregating scenarios below match on awards rather than on people, so a group holds more than one row -
+  # two for Regina King and three for Bob. A branch spliced after the Aggregate, or evaluated once per group instead
+  # of once per input row, would still answer these correctly if every group held a single row.
+
   Scenario: Test EXISTS subquery alongside an aggregation
       Given an empty graph
       And having executed:
           """
-          CREATE (:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
-          CREATE (:Person {name: 'Bob'})
+          CREATE (r:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
+          CREATE (b:Person {name: 'Bob'})
+          CREATE (r)-[:AWARDED]->(:Award {name: 'Emmy'})
+          CREATE (r)-[:AWARDED]->(:Award {name: 'Oscar'})
+          CREATE (b)-[:AWARDED]->(:Award {name: 'Golden Raspberry'})
+          CREATE (b)-[:AWARDED]->(:Award {name: 'Razzie'})
+          CREATE (b)-[:AWARDED]->(:Award {name: 'Teen Choice'})
           """
       When executing query:
           """
-          MATCH (p:Person)
-          RETURN p.name AS name, count(*) AS c, EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) } AS h
+          MATCH (p:Person)-[:AWARDED]->(a:Award)
+          RETURN p.name AS name, count(a) AS c, EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) } AS h
           ORDER BY name;
           """
       Then the result should be:
           | name           | c | h     |
-          | 'Bob'          | 1 | false |
-          | 'Regina King'  | 1 | true  |
+          | 'Bob'          | 3 | false |
+          | 'Regina King'  | 2 | true  |
 
   Scenario: Test EXISTS subquery in the WHERE of an aggregating WITH
       Given an empty graph
       And having executed:
           """
-          CREATE (:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
-          CREATE (:Person {name: 'Bob'})
+          CREATE (r:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
+          CREATE (b:Person {name: 'Bob'})
+          CREATE (r)-[:AWARDED]->(:Award {name: 'Emmy'})
+          CREATE (r)-[:AWARDED]->(:Award {name: 'Oscar'})
+          CREATE (b)-[:AWARDED]->(:Award {name: 'Golden Raspberry'})
+          CREATE (b)-[:AWARDED]->(:Award {name: 'Razzie'})
+          CREATE (b)-[:AWARDED]->(:Award {name: 'Teen Choice'})
           """
       When executing query:
           """
-          MATCH (p:Person)
-          WITH p, count(*) AS c WHERE EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) }
+          MATCH (p:Person)-[:AWARDED]->(a:Award)
+          WITH p, count(a) AS c WHERE EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) }
           RETURN p.name AS name, c;
           """
       Then the result should be:
           | name           | c |
-          | 'Regina King'  | 1 |
+          | 'Regina King'  | 2 |
 
   Scenario: Test EXISTS subquery in the ORDER BY of an aggregating WITH
       Given an empty graph
       And having executed:
           """
-          CREATE (:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
-          CREATE (:Person {name: 'Bob'})
+          CREATE (r:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
+          CREATE (b:Person {name: 'Bob'})
+          CREATE (r)-[:AWARDED]->(:Award {name: 'Emmy'})
+          CREATE (r)-[:AWARDED]->(:Award {name: 'Oscar'})
+          CREATE (b)-[:AWARDED]->(:Award {name: 'Golden Raspberry'})
+          CREATE (b)-[:AWARDED]->(:Award {name: 'Razzie'})
+          CREATE (b)-[:AWARDED]->(:Award {name: 'Teen Choice'})
           """
       When executing query:
           """
-          MATCH (p:Person)
-          WITH p, count(*) AS c ORDER BY EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) } DESC
+          MATCH (p:Person)-[:AWARDED]->(a:Award)
+          WITH p, count(a) AS c ORDER BY EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) } DESC
           RETURN p.name AS name, c;
           """
       Then the result should be, in order:
           | name           | c |
-          | 'Regina King'  | 1 |
-          | 'Bob'          | 1 |
+          | 'Regina King'  | 2 |
+          | 'Bob'          | 3 |
 
+  # Here the EXISTS correlates to the award rather than to the person, so its value varies *within* a group. That is
+  # what pins the branch to the input row: one evaluation per group would collapse each list to a single repeated
+  # value, and an evaluation after the Aggregate would have no award to correlate to at all.
   Scenario: Test EXISTS subquery inside an aggregate argument
       Given an empty graph
       And having executed:
           """
-          CREATE (:Person {name: 'Regina King'})-[:ACTED_IN]->(:Movie {title: 'Jerry Maguire'})
-          CREATE (:Person {name: 'Bob'})
+          CREATE (r:Person {name: 'Regina King'})
+          CREATE (b:Person {name: 'Bob'})
+          CREATE (o:Org {name: 'Academy'})
+          CREATE (r)-[:AWARDED]->(e:Award {name: 'Emmy'})
+          CREATE (r)-[:AWARDED]->(s:Award {name: 'Oscar'})
+          CREATE (b)-[:AWARDED]->(:Award {name: 'Golden Raspberry'})
+          CREATE (b)-[:AWARDED]->(:Award {name: 'Razzie'})
+          CREATE (s)-[:GIVEN_BY]->(o)
           """
       When executing query:
           """
-          MATCH (p:Person)
-          WITH p ORDER BY p.name
-          RETURN collect(EXISTS { MATCH (p)-[:ACTED_IN]->(:Movie) }) AS h;
+          MATCH (p:Person)-[:AWARDED]->(a:Award)
+          WITH p, a ORDER BY p.name, a.name
+          RETURN p.name AS name, collect(EXISTS { MATCH (a)-[:GIVEN_BY]->(:Org) }) AS h
+          ORDER BY name;
           """
       Then the result should be:
-          | h              |
-          | [false, true]  |
+          | name           | h              |
+          | 'Bob'          | [false, false] |
+          | 'Regina King'  | [false, true]  |
 
   Scenario: Test EXISTS subquery on a null variable
       Given an empty graph
