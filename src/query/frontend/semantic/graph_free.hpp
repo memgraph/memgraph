@@ -15,15 +15,15 @@ namespace memgraph::query {
 
 class CypherQuery;
 
-/// True if running `query` reads or writes vertices, edges or their metadata, or resolves anything else
-/// that lives in storage.
+/// True if running `query` touches no vertex, edge or metadata, and resolves nothing else that lives in
+/// storage.
 ///
-/// Conservative in one direction: a query that needs the graph is never reported as graph-free, so a
-/// false answer is safe to act on, while a true answer means only that this could not prove otherwise.
+/// Conservative in one direction: a query that reaches the graph is never called graph-free, so a true
+/// answer is safe to act on, while a false answer means only that this could not prove otherwise.
 /// `PlanRequiresStorageAccess` answers the same question exactly, once a plan exists.
 ///
-/// Every function counts as needing the graph, because implementations receive the accessor and nothing
-/// records which of them use it. That includes the string predicates, which parse as functions.
-bool RequiresGraphAccess(const CypherQuery &query);
+/// No function is graph-free, because implementations receive the accessor and nothing records which of
+/// them use it. That includes the string predicates, which parse as functions.
+bool IsGraphFree(const CypherQuery &query);
 
 }  // namespace memgraph::query
