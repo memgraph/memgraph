@@ -132,6 +132,11 @@ class KShortestBenchFixture : public benchmark::Fixture {
  protected:
   static constexpr int kLayers = 3;
 
+  // How many independent source/target components to build. One means a single input row, which
+  // measures the inner Yen search alone; more than one also exercises the per-row work - clearing
+  // the expansion memo and reusing the adjacency cache, neither of which is visible with one row.
+  virtual int PairCount() const { return 1; }
+
   std::optional<memgraph::system::System> system;
   std::optional<memgraph::query::AllowEverythingAuthChecker> auth_checker;
   std::optional<memgraph::query::InterpreterContext> interpreter_context;
@@ -173,6 +178,7 @@ class KShortestBenchFixture : public benchmark::Fixture {
       auto dba = db_acc->Access(memgraph::storage::WRITE);
       auto edge_type = dba->NameToEdgeType("edge_type");
       auto id_property = dba->NameToProperty("id");
+      auto pair_property = dba->NameToProperty("pair");
       int64_t next_id = 0;
       auto make_vertex = [&] {
         auto vertex = dba->CreateVertex();
@@ -180,22 +186,31 @@ class KShortestBenchFixture : public benchmark::Fixture {
         return vertex;
       };
 
-      auto source = make_vertex();
-      MG_ASSERT(source.AddLabel(source_label).has_value());
-      std::vector<memgraph::storage::VertexAccessor> previous_layer{source};
+      // The components are disjoint, so `pair` correlates each source with its own target.
+      for (int pair = 0; pair < PairCount(); ++pair) {
+        auto tag_pair = [&](memgraph::storage::VertexAccessor &vertex) {
+          MG_ASSERT(vertex.SetProperty(pair_property, memgraph::storage::PropertyValue(pair)).has_value());
+        };
 
-      for (int layer = 0; layer < kLayers; ++layer) {
-        std::vector<memgraph::storage::VertexAccessor> current_layer;
-        for (int i = 0; i < state.range(0); ++i) current_layer.push_back(make_vertex());
-        for (auto &from : previous_layer) {
-          for (auto &to : current_layer) MG_ASSERT(dba->CreateEdge(&from, &to, edge_type).has_value());
+        auto source = make_vertex();
+        MG_ASSERT(source.AddLabel(source_label).has_value());
+        tag_pair(source);
+        std::vector<memgraph::storage::VertexAccessor> previous_layer{source};
+
+        for (int layer = 0; layer < kLayers; ++layer) {
+          std::vector<memgraph::storage::VertexAccessor> current_layer;
+          for (int i = 0; i < state.range(0); ++i) current_layer.push_back(make_vertex());
+          for (auto &from : previous_layer) {
+            for (auto &to : current_layer) MG_ASSERT(dba->CreateEdge(&from, &to, edge_type).has_value());
+          }
+          previous_layer = std::move(current_layer);
         }
-        previous_layer = std::move(current_layer);
-      }
 
-      auto target = make_vertex();
-      MG_ASSERT(target.AddLabel(target_label).has_value());
-      for (auto &from : previous_layer) MG_ASSERT(dba->CreateEdge(&from, &target, edge_type).has_value());
+        auto target = make_vertex();
+        MG_ASSERT(target.AddLabel(target_label).has_value());
+        tag_pair(target);
+        for (auto &from : previous_layer) MG_ASSERT(dba->CreateEdge(&from, &target, edge_type).has_value());
+      }
 
       MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
@@ -245,6 +260,38 @@ BENCHMARK_DEFINE_F(KShortestBenchFixture, KShortestFiltered)(benchmark::State &s
 BENCHMARK_REGISTER_F(KShortestBenchFixture, KShortestFiltered)
     ->RangeMultiplier(2)
     ->Range(2, 8)
+    ->Unit(benchmark::kMillisecond);
+
+// Several independent source/target pairs through one cursor. KSHORTEST requires both endpoints
+// bound, so this - not the single-pair case above - is the shape a real query takes. It is also the
+// only way to price the per-row work: the expansion memo is cleared per row, while the adjacency
+// cache deliberately is not, and neither shows up with a single row.
+class KShortestMultiRowBenchFixture : public KShortestBenchFixture {
+ protected:
+  int PairCount() const override { return 6; }
+};
+
+// No path limit, so the search is identical on master and this branch and the two are comparable.
+// (`|k` is not: the limit is now per row, so this branch legitimately searches every row.)
+BENCHMARK_DEFINE_F(KShortestMultiRowBenchFixture, KShortestMultiRow)(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (s:Source), (t:Target) WHERE s.pair = t.pair WITH s, t "
+           "MATCH (s)-[*KSHORTEST]->(t) RETURN count(*)");
+}
+
+BENCHMARK_REGISTER_F(KShortestMultiRowBenchFixture, KShortestMultiRow)->Arg(2)->Arg(4)->Unit(benchmark::kMillisecond);
+
+// The same rows with an always-true lambda: the delta against `KShortestMultiRow` is the predicate
+// plus building and tearing down the memo once per input row.
+BENCHMARK_DEFINE_F(KShortestMultiRowBenchFixture, KShortestMultiRowFiltered)(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (s:Source), (t:Target) WHERE s.pair = t.pair WITH s, t "
+           "MATCH (s)-[*KSHORTEST (r, n | n.id >= 0)]->(t) RETURN count(*)");
+}
+
+BENCHMARK_REGISTER_F(KShortestMultiRowBenchFixture, KShortestMultiRowFiltered)
+    ->Arg(2)
+    ->Arg(4)
     ->Unit(benchmark::kMillisecond);
 
 int main(int argc, char **argv) {
