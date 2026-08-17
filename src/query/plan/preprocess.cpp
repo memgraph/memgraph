@@ -991,7 +991,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // Negating twice leaves a predicate unchanged, `null` included, so analyse
     // what the pair wraps. Left as it is, the outer negation would only ever
     // yield a generic filter and hide a comparison an index could answer.
-    // Going back through the splitter also breaks up any conjunction inside.
+    // Re-entering CollectFilterExpression also splits any conjunction inside.
     if (auto *inner_not = utils::Downcast<NotOperator>(is_not->expression_)) {
       CollectFilterExpression(inner_not->expression_, symbol_table);
       return;
