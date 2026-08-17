@@ -108,12 +108,6 @@ jobs:
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
 
-      # TEMPORARY (revert before merging): forces "Release / Core tests" to fail
-      # right after the build container is up, so the merge-queue fail-fast
-      # annotation can be verified in CI.
-      - name: TEMPORARY fail-fast test
-        run: exit 1
-
       - name: Check core dump support
         run: |
           ./release/package/mgbuild.sh \
@@ -248,9 +242,7 @@ jobs:
           ./tools/ci/docker_cleanup.sh
 
       - name: Cancel run on merge_group failure
-        # TEMPORARY (revert before merging): merge_group gate dropped so the
-        # fail-fast path also runs on pull_request/push events.
-        if: ${{ failure() }}
+        if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
         with:
           job-name: "Release / Core tests"
