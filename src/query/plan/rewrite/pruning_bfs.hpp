@@ -37,6 +37,11 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
 
+  bool DefaultPreVisit() override {
+    rewrite_blocked_ = true;
+    return true;
+  }
+
   bool Visit(Once &) override { return true; }
 
   bool PreVisit(Produce &op) override {
@@ -116,13 +121,53 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(Skip &op) override {
+    CollectSymbolsFromExpression(op.expression_);
+    return true;
+  }
+
+  bool PreVisit(Limit &op) override {
+    CollectSymbolsFromExpression(op.expression_);
+    return true;
+  }
+
+  bool PreVisit(Accumulate &op) override {
+    for (auto const &sym : op.symbols_) {
+      used_symbols_.insert(sym.position());
+    }
+    return true;
+  }
+
+  bool PreVisit(CallProcedure &op) override {
+    CollectSymbolsFromExpressions(op.arguments_);
+    return true;
+  }
+
+  bool PreVisit(EmptyResult &) override { return true; }
+
+  bool PreVisit(Apply &) override { return true; }
+
+  bool PreVisit(Optional &) override { return true; }
+
+  bool PreVisit(Cartesian &) override { return true; }
+
+  bool PreVisit(Union &) override { return true; }
+
+  bool PreVisit(Merge &) override { return true; }
+
+  bool PreVisit(RollUpApply &) override { return true; }
+
+  bool PreVisit(EvaluatePatternFilter &) override { return true; }
+
+  bool PreVisit(Expand &) override { return true; }
+
   bool PreVisit(ExpandVariable &op) override {
     if (op.type_ != EdgeAtom::Type::DEPTH_FIRST) return true;
     if (op.common_.existing_node) return true;
     if (op.filter_lambda_.accumulated_path_symbol) return true;
     if (op.weight_lambda_) return true;
 
-    if (deduplicates_ && !used_symbols_.contains(op.common_.edge_symbol.position())) {
+    if (deduplicates_ && !rewrite_blocked_ && !used_symbols_.contains(op.common_.edge_symbol.position())) {
       op.type_ = EdgeAtom::Type::PRUNING_BFS;
     }
     return true;
@@ -148,6 +193,7 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   SymbolTable const &symbol_table_;
   std::unordered_set<int> used_symbols_;
   bool deduplicates_{false};
+  bool rewrite_blocked_{false};
   std::vector<bool> dedup_stack_;
 };
 
