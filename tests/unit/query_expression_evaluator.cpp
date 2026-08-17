@@ -1155,8 +1155,8 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullList) {
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
-  // One definite match alongside an unknown: the total is either one or two, so
-  // whether exactly one element matches is itself unknown.
+  // One definite match alongside a null: the match count is either one or two,
+  // so the result is null rather than true.
   AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *single = SINGLE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
@@ -1168,8 +1168,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementBeforeMatch) {
-  // Same as above with the unknown first: element order must not change the
-  // result.
+  // Same as above with the null first: element order must not change the result.
   AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *single = SINGLE("x", LIST(LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(true)), WHERE(ident_x));
@@ -1181,8 +1180,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementBeforeMatch) {
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleTwoMatchesWithNullIsFalse) {
-  // Two definite matches settle the answer no matter what the unknown resolves
-  // to, so an unknown alongside them does not make the result unknown.
+  // Two definite matches settle the answer whatever the null turns out to be.
   AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *single = SINGLE(
