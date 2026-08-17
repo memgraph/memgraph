@@ -118,13 +118,7 @@ const std::map<std::string, mgp_trans, std::less<>> *BuiltinModule::Transformati
 
 const std::map<std::string, mgp_func, std::less<>> *BuiltinModule::Functions() const { return &functions_; }
 
-void BuiltinModule::AddProcedure(std::string_view name, mgp_proc proc) {
-  // A procedure writes the graph through the argument it is handed, so one that never touches that
-  // argument cannot write.
-  MG_ASSERT(
-      !(proc.info.graph_free && proc.info.is_write), "Procedure '{}' claims to write a graph it never touches", name);
-  procedures_.emplace(name, std::move(proc));
-}
+void BuiltinModule::AddProcedure(std::string_view name, mgp_proc proc) { procedures_.emplace(name, std::move(proc)); }
 
 void BuiltinModule::AddTransformation(std::string_view name, mgp_trans trans) {
   transformations_.emplace(name, std::move(trans));

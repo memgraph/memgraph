@@ -2196,6 +2196,12 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
 
   call_proc->is_write_ = maybe_found->second->info.is_write;
   call_proc->graph_free_ = maybe_found->second->info.graph_free;
+  if (call_proc->graph_free_ && call_proc->is_write_) {
+    // A procedure writes the graph through the argument it is handed, so one that declares it never
+    // touches that argument cannot write. Refuse the call rather than trust either half.
+    throw SemanticException("Procedure '{}' is declared to write a graph it never touches.",
+                            call_proc->procedure_name_);
+  }
   if (maybe_found->second->results.empty()) {
     call_proc->void_procedure_ = true;
   }
