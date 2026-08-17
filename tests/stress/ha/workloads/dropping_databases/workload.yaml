@@ -1,0 +1,5 @@
+customWorkloads:
+  tests:
+    - name: dropping-databases
+      script: "ha/workloads/dropping_databases/workload.py"
+      timeout_min: 240
