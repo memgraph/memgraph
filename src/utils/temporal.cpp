@@ -391,19 +391,29 @@ LocalTime::LocalTime(const LocalTimeParameters &local_time_parameters) {
     throw temporal::InvalidArgumentException("Creating a LocalTime with invalid seconds parameter.");
   }
 
-  if (!IsInBounds(0, 999, local_time_parameters.millisecond)) {
-    throw temporal::InvalidArgumentException("Creating a LocalTime with invalid milliseconds parameter.");
+  // The sub-second fields are scales of one fraction of a second, so a value
+  // beyond its own scale carries into the coarser field: 1500 microseconds is a
+  // millisecond and a half. Storing the fraction canonically keeps one
+  // representation per instant, which the field-wise comparison and the hash
+  // both rely on.
+  constexpr int64_t kMicrosecondsPerMillisecond = 1000;
+  constexpr int64_t kMicrosecondsPerSecond = 1'000'000;
+  if (!IsInBounds(0, kMicrosecondsPerSecond, local_time_parameters.millisecond) ||
+      !IsInBounds(0, kMicrosecondsPerSecond, local_time_parameters.microsecond)) {
+    throw temporal::InvalidArgumentException("Creating a LocalTime with a negative or overlarge sub-second parameter.");
   }
-
-  if (!IsInBounds(0, 999, local_time_parameters.microsecond)) {
-    throw temporal::InvalidArgumentException("Creating a LocalTime with invalid microseconds parameter.");
+  const auto fraction =
+      local_time_parameters.millisecond * kMicrosecondsPerMillisecond + local_time_parameters.microsecond;
+  if (fraction >= kMicrosecondsPerSecond) {
+    throw temporal::InvalidArgumentException(
+        "Creating a LocalTime whose milliseconds and microseconds reach a whole second.");
   }
 
   hour = local_time_parameters.hour;
   minute = local_time_parameters.minute;
   second = local_time_parameters.second;
-  millisecond = local_time_parameters.millisecond;
-  microsecond = local_time_parameters.microsecond;
+  millisecond = fraction / kMicrosecondsPerMillisecond;
+  microsecond = fraction % kMicrosecondsPerMillisecond;
 }
 
 std::chrono::microseconds LocalTime::SumLocalTimeParts() const {

@@ -3011,6 +3011,27 @@ TYPED_TEST(FunctionTest, Date) {
   EXPECT_TRUE(this->EvaluateFunction("DATE", TypedValue()).IsNull());
 }
 
+TYPED_TEST(FunctionTest, LocalTimeSubSecondFieldsCarry) {
+  // A fraction may be written at whichever scale the caller has it in, so a
+  // count of microseconds beyond a millisecond is read as the time it names
+  // rather than refused.
+  EXPECT_EQ(this->EvaluateFunction("LOCALTIME",
+                                   TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
+                                                                                {"minute", TypedValue(2)},
+                                                                                {"second", TypedValue(3)},
+                                                                                {"microsecond", TypedValue(1500)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({1, 2, 3, 1, 500}));
+
+  // The fraction stops short of a whole second, which would otherwise carry
+  // into the second the caller gave.
+  EXPECT_THROW(this->EvaluateFunction(
+                   "LOCALTIME",
+                   TypedValue(std::map<std::string, TypedValue>{
+                       {"hour", TypedValue(1)}, {"second", TypedValue(3)}, {"microsecond", TypedValue(1'000'000)}})),
+               memgraph::utils::temporal::InvalidArgumentException);
+}
+
 TYPED_TEST(FunctionTest, LocalTime) {
   const auto local_time = memgraph::utils::LocalTime({13, 3, 2, 0, 0});
   EXPECT_EQ(this->EvaluateFunction("LOCALTIME", "130302").ValueLocalTime(), local_time);
