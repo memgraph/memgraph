@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/frontend/semantic/graph_access.hpp"
+#include "query/frontend/semantic/graph_free.hpp"
 
 #include <algorithm>
 
@@ -28,7 +28,7 @@ namespace {
 // graph state, so no vertex or edge can be in scope, and those are the only operands that would send
 // the evaluator to the accessor. Expressions that bind an identifier themselves are rejected to keep
 // that invariant in one place.
-class ExpressionGraphAccess final : public ExpressionVisitor<void> {
+class GraphReachChecker final : public ExpressionVisitor<void> {
  public:
   using ExpressionVisitor::Visit;
 
@@ -178,7 +178,7 @@ class ExpressionGraphAccess final : public ExpressionVisitor<void> {
 // Accepts an Expression or a NamedExpression; both are visitable by an ExpressionVisitor.
 bool ReachesGraph(auto *node) {
   if (node == nullptr) return false;
-  ExpressionGraphAccess visitor;
+  GraphReachChecker visitor;
   node->Accept(visitor);
   return visitor.ReachesGraph();
 }
@@ -232,13 +232,13 @@ bool HasPreQueryDirectives(const PreQueryDirectives &directives) {
 
 }  // namespace
 
-bool RequiresGraphAccess(const CypherQuery &query) {
+bool IsGraphFree(const CypherQuery &query) {
   // A query-level memory limit is enforced by the transaction's memory tracker, which only exists when a
   // transaction does.
-  if (query.memory_limit_ != nullptr) return true;
-  if (HasPreQueryDirectives(query.pre_query_directives_)) return true;
-  if (SingleQueryReachesGraph(query.single_query_)) return true;
-  return std::ranges::any_of(query.cypher_unions_, [](CypherUnion *cypher_union) {
+  if (query.memory_limit_ != nullptr) return false;
+  if (HasPreQueryDirectives(query.pre_query_directives_)) return false;
+  if (SingleQueryReachesGraph(query.single_query_)) return false;
+  return std::ranges::none_of(query.cypher_unions_, [](CypherUnion *cypher_union) {
     return cypher_union == nullptr || SingleQueryReachesGraph(cypher_union->single_query_);
   });
 }

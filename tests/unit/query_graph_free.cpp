@@ -17,7 +17,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/graph_access.hpp"
+#include "query/frontend/semantic/graph_free.hpp"
 #include "query/parameters.hpp"
 #include "utils/typeinfo.hpp"
 
@@ -27,11 +27,11 @@ using memgraph::query::frontend::ParsingContext;
 
 namespace {
 
-class GraphAccessTest : public ::testing::Test {
+class GraphFreeTest : public ::testing::Test {
  protected:
   // Parses as an uncached query so literals stay literals. Stripping turns them into parameters, and both
   // forms have to answer the same way, which StrippedLiteralsAreStillGraphFree covers.
-  bool RequiresGraphAccessOf(std::string_view query_string, bool is_query_cached = false) {
+  bool IsGraphFreeQuery(std::string_view query_string, bool is_query_cached = false) {
     ::frontend::opencypher::Parser parser{std::string{query_string}};
     Parameters parameters;
     ParsingContext context{.is_query_cached = is_query_cached};
@@ -39,23 +39,23 @@ class GraphAccessTest : public ::testing::Test {
     visitor.visit(parser.tree());
     auto *query = memgraph::utils::Downcast<CypherQuery>(visitor.query());
     EXPECT_NE(query, nullptr) << query_string;
-    return RequiresGraphAccess(*query);
+    return IsGraphFree(*query);
   }
 
   void ExpectGraphFree(std::string_view query_string) {
     SCOPED_TRACE(query_string);
-    EXPECT_FALSE(RequiresGraphAccessOf(query_string));
+    EXPECT_TRUE(IsGraphFreeQuery(query_string));
   }
 
   void ExpectNeedsGraph(std::string_view query_string) {
     SCOPED_TRACE(query_string);
-    EXPECT_TRUE(RequiresGraphAccessOf(query_string));
+    EXPECT_FALSE(IsGraphFreeQuery(query_string));
   }
 
   AstStorage storage_;
 };
 
-TEST_F(GraphAccessTest, ConstantProjections) {
+TEST_F(GraphFreeTest, ConstantProjections) {
   ExpectGraphFree("RETURN 1");
   ExpectGraphFree("RETURN 1 AS APP_INTERNAL_EXEC_VAR");
   ExpectGraphFree("RETURN 1, 'x' AS s, true AS b, null AS n");
@@ -72,7 +72,7 @@ TEST_F(GraphAccessTest, ConstantProjections) {
 }
 
 // Shapes the two hardcoded recognizers this analysis replaces could not accept.
-TEST_F(GraphAccessTest, ComposedGraphFreeQueries) {
+TEST_F(GraphFreeTest, ComposedGraphFreeQueries) {
   ExpectGraphFree("UNWIND [1, 2, 3] AS x RETURN x");
   ExpectGraphFree("WITH 1 AS x RETURN x");
   ExpectGraphFree("WITH 1 AS x WHERE x > 0 RETURN x");
@@ -84,7 +84,7 @@ TEST_F(GraphAccessTest, ComposedGraphFreeQueries) {
   ExpectGraphFree("CALL mg.functions() YIELD name, signature WHERE name <> signature RETURN name");
 }
 
-TEST_F(GraphAccessTest, GraphFreeProcedureCalls) {
+TEST_F(GraphFreeTest, GraphFreeProcedureCalls) {
   ExpectGraphFree("CALL mg.procedures() YIELD *");
   ExpectGraphFree("CALL mg.procedures() YIELD name");
   ExpectGraphFree("CALL mg.functions() YIELD name");
@@ -94,7 +94,7 @@ TEST_F(GraphAccessTest, GraphFreeProcedureCalls) {
 // Which builtins declare that they reach no graph. Every mg.* callback ignores its graph argument, so
 // this set is a choice about which are worth running without a transaction, not a statement about which
 // could be. Pinned here so that adding to it is deliberate.
-TEST_F(GraphAccessTest, BuiltinsThatDeclareGraphFreedom) {
+TEST_F(GraphFreeTest, BuiltinsThatDeclareGraphFreedom) {
   ExpectGraphFree("CALL mg.procedures() YIELD name");
   ExpectGraphFree("CALL mg.functions() YIELD name");
   ExpectGraphFree("CALL mg.transformations() YIELD name");
@@ -106,7 +106,7 @@ TEST_F(GraphAccessTest, BuiltinsThatDeclareGraphFreedom) {
   ExpectNeedsGraph("CALL mg.load_all()");
 }
 
-TEST_F(GraphAccessTest, PatternsNeedTheGraph) {
+TEST_F(GraphFreeTest, PatternsNeedTheGraph) {
   ExpectNeedsGraph("MATCH (n) RETURN n");
   ExpectNeedsGraph("MATCH (n) RETURN 1");
   ExpectNeedsGraph("CREATE (n) RETURN 1");
@@ -120,7 +120,7 @@ TEST_F(GraphAccessTest, PatternsNeedTheGraph) {
   ExpectNeedsGraph("MATCH (n) RETURN [(n)-[]->(m) | m] AS l");
 }
 
-TEST_F(GraphAccessTest, ExpressionsThatReachStorage) {
+TEST_F(GraphFreeTest, ExpressionsThatReachStorage) {
   // Every function receives the accessor and may use it, so a function of any kind is rejected. This is
   // what keeps the string predicates, which parse as functions, out: `x STARTS WITH 'a'` and friends.
   ExpectNeedsGraph("RETURN toString(1) AS x");
@@ -138,9 +138,9 @@ TEST_F(GraphAccessTest, ExpressionsThatReachStorage) {
   ExpectNeedsGraph("RETURN reduce(acc = 0, x IN [1, 2] | acc + x) AS r");
 }
 
-TEST_F(GraphAccessTest, ProjectingEverythingNeedsTheGraph) { ExpectNeedsGraph("WITH 1 AS x RETURN *"); }
+TEST_F(GraphFreeTest, ProjectingEverythingNeedsTheGraph) { ExpectNeedsGraph("WITH 1 AS x RETURN *"); }
 
-TEST_F(GraphAccessTest, ModifiersNeedATransaction) {
+TEST_F(GraphFreeTest, ModifiersNeedATransaction) {
   ExpectNeedsGraph("RETURN 1 QUERY MEMORY LIMIT 1MB");
   ExpectNeedsGraph("USING HOPS LIMIT 1 RETURN 1");
   ExpectNeedsGraph("USING PERIODIC COMMIT 1 UNWIND [1] AS x RETURN x");
@@ -148,10 +148,10 @@ TEST_F(GraphAccessTest, ModifiersNeedATransaction) {
 
 // Memgraph strips literals into parameters before planning a cacheable query, so the analysis sees
 // ParameterLookup where the text had a literal. Both readings must agree.
-TEST_F(GraphAccessTest, StrippedLiteralsAreStillGraphFree) {
-  EXPECT_FALSE(RequiresGraphAccessOf("RETURN 1", /*is_query_cached=*/true));
-  EXPECT_FALSE(RequiresGraphAccessOf("UNWIND [1, 2] AS x RETURN x", /*is_query_cached=*/true));
-  EXPECT_TRUE(RequiresGraphAccessOf("MATCH (n) RETURN 1", /*is_query_cached=*/true));
+TEST_F(GraphFreeTest, StrippedLiteralsAreStillGraphFree) {
+  EXPECT_TRUE(IsGraphFreeQuery("RETURN 1", /*is_query_cached=*/true));
+  EXPECT_TRUE(IsGraphFreeQuery("UNWIND [1, 2] AS x RETURN x", /*is_query_cached=*/true));
+  EXPECT_FALSE(IsGraphFreeQuery("MATCH (n) RETURN 1", /*is_query_cached=*/true));
 }
 
 }  // namespace

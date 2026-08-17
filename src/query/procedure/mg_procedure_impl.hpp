@@ -853,6 +853,11 @@ struct mgp_graph {
     return impl;
   }
 
+  /// A stand-in for the graph a procedure declared it does not need, so that one can run with no storage
+  /// transaction open. It is a workaround, not the shape this should have: a procedure needing no graph
+  /// should not be handed one at all, which means changing what its callback is passed and so breaking
+  /// the module ABI. Until that happens the argument is present but empty, and reaching through it
+  /// reports a logic error rather than reading through nothing.
   static mgp_graph GraphlessGraph(memgraph::storage::View view, memgraph::query::ExecutionContext &ctx,
                                   memgraph::storage::StorageMode storage_mode) {
     return mgp_graph{static_cast<memgraph::query::DbAccessor *>(nullptr), view, &ctx, storage_mode};

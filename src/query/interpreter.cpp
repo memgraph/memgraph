@@ -80,7 +80,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/graph_access.hpp"
+#include "query/frontend/semantic/graph_free.hpp"
 #include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
@@ -4064,7 +4064,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     throw DatabaseContextRequiredException("Database required for query execution.");
   }
   auto *dba = current_db.execution_db_accessor_ ? &*current_db.execution_db_accessor_ : nullptr;
-  bool no_storage_access = dba == nullptr;
+  bool skipped_transaction = dba == nullptr;
 
   const auto is_cacheable = parsed_query.is_cacheable;
   auto *plan_cache = is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
@@ -4081,7 +4081,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   // The plan is what runs, so it decides. No query is known to disagree with the analysis, but if one
   // does, open the transaction that was skipped. The plan stays as planned: it is correct for this query,
   // only its storage needs were mispredicted.
-  if (no_storage_access && plan::PlanRequiresStorageAccess(plan->plan())) {
+  if (skipped_transaction && plan::PlanRequiresStorageAccess(plan->plan())) {
     spdlog::error(
         "Query '{}' was found to need no graph, but its plan reaches storage. The query still runs, with the "
         "transaction opened late and unplanned for. Please report this query to Memgraph.",
@@ -4093,7 +4093,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  : storage::StorageAccessType::READ;
     interpreter.OpenDeferredStorageTransaction(access_type);
     dba = &*current_db.execution_db_accessor_;
-    no_storage_access = false;
+    skipped_transaction = false;
   }
 
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
@@ -4175,24 +4175,24 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 #endif
   );
   // The one way a client can tell; such a query is otherwise reported like any other.
-  if (no_storage_access) summary->insert_or_assign("no_storage_access", true);
+  if (skipped_transaction) summary->insert_or_assign("no_storage_access", true);
 
   return PreparedQuery{
       .header = std::move(header),
       .privileges = std::move(parsed_query.required_privileges),
       // Nothing to commit, and NOTHING is what disposes of the tracking instead.
       .query_handler =
-          [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary, no_storage_access](
+          [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary, skipped_transaction](
               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->Pull(stream, n, output_symbols, summary)) {
-          return no_storage_access ? QueryHandlerResult::NOTHING : QueryHandlerResult::COMMIT;
+          return skipped_transaction ? QueryHandlerResult::NOTHING : QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
       },
       .rw_type = rw_type,
       .db = current_db.db_acc_->get()->name(),
       // Short, and usually a client's health check, so it does not queue behind data queries.
-      .priority = no_storage_access ? utils::Priority::HIGH : utils::Priority::LOW,
+      .priority = skipped_transaction ? utils::Priority::HIGH : utils::Priority::LOW,
       .slow_query_plan_renderer = std::move(slow_query_plan_renderer)};
 }
 
@@ -4270,7 +4270,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
 // The privilege condition is policy, not safety: privileges are validated on either path, but keeping
 // privileged queries on one of them means their auditing has one shape.
 bool IsGraphFreeCandidate(const CypherQuery &query, const std::vector<AuthQuery::Privilege> &privileges) {
-  return privileges.empty() && !RequiresGraphAccess(query);
+  return privileges.empty() && IsGraphFree(query);
 }
 
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -4471,7 +4471,7 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
 bool IsGraphFreeQuery(const CypherQuery &query) {
   // Scheduling only, so it skips the privilege condition the dispatch applies: extracting privileges
   // here would cost more than the sharper answer is worth.
-  return !RequiresGraphAccess(query);
+  return IsGraphFree(query);
 }
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(

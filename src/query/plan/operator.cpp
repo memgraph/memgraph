@@ -8692,17 +8692,17 @@ class CallProcedureCursor : public Cursor {
           ExpressionEvaluator{&frame, context, graph_view, nullptr, &context.number_of_hops};
 
       // Re-check the declaration: a module reload can change what a name resolves to after planning.
-      const bool no_storage_access = context.db_accessor == nullptr;
-      if (no_storage_access && !proc_->info.graph_free) {
+      const bool has_accessor = context.db_accessor != nullptr;
+      if (!has_accessor && !proc_->info.graph_free) {
         throw QueryRuntimeException("The procedure named '{}' requires graph access.", self_->procedure_name_);
       }
       const auto storage_mode =
-          no_storage_access ? storage::StorageMode::IN_MEMORY_TRANSACTIONAL : context.db_accessor->GetStorageMode();
+          has_accessor ? context.db_accessor->GetStorageMode() : storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
       result_.is_transactional = storage::IsTransactional(storage_mode);
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
-      auto graph = no_storage_access ? mgp_graph::GraphlessGraph(graph_view, context, storage_mode)
-                                     : mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
+      auto graph = has_accessor ? mgp_graph::WritableGraph(*context.db_accessor, graph_view, context)
+                                : mgp_graph::GraphlessGraph(graph_view, context, storage_mode);
       CallCustomProcedure(self_->procedure_name_,
                           *proc_,
                           self_->arguments_,
