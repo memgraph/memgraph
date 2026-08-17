@@ -3010,12 +3010,12 @@ class PruningBFSCursor : public query::plan::Cursor {
           visited_.emplace(vertex);
           frame_writer.Write(self_.common_.node_symbol, vertex);
           if (upper_bound_ > 0) {
-            expand_from_vertex(vertex, evaluator, frame, frame_writer, context);
+            expand_from_vertex(vertex, evaluator, frame_writer, context);
           }
           return true;
         }
 
-        expand_from_vertex(vertex, evaluator, frame, frame_writer, context);
+        expand_from_vertex(vertex, evaluator, frame_writer, context);
         continue;
       }
 
@@ -3024,7 +3024,7 @@ class PruningBFSCursor : public query::plan::Cursor {
 
       // expand deeper if within upper bound
       if (current_depth_ < upper_bound_ && !context.hops_limit.IsLimitReached()) {
-        expand_from_vertex(curr_vertex, evaluator, frame, frame_writer, context);
+        expand_from_vertex(curr_vertex, evaluator, frame_writer, context);
       }
 
       // only emit if within lower bound
@@ -3045,8 +3045,8 @@ class PruningBFSCursor : public query::plan::Cursor {
   }
 
  private:
-  void expand_from_vertex(VertexAccessor const &vertex, ExpressionEvaluator &evaluator, Frame & /*frame*/,
-                          FrameWriter &frame_writer, ExecutionContext &context) {
+  void expand_from_vertex(VertexAccessor const &vertex, ExpressionEvaluator &evaluator, FrameWriter &frame_writer,
+                          ExecutionContext &context) {
     auto try_visit = [&](EdgeAccessor edge, VertexAccessor next_vertex) {
       if (visited_.contains(next_vertex)) return;
 #ifdef MG_ENTERPRISE
