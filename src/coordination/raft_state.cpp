@@ -348,7 +348,7 @@ auto RaftState::InitRaftServer(std::optional<utils::TlsConfig> const &tls_config
     } else if (event_type == cb_func::BecomeFollower) {
       spdlog::trace("Got request to become follower");
       become_follower_cb_();
-      spdlog::trace("Node {} became follower", param->myId);
+      spdlog::info("Node {} became follower", param->myId);
     }
     return CbReturnCode::Ok;
   };
@@ -382,7 +382,7 @@ auto RaftState::InitRaftServer(std::optional<utils::TlsConfig> const &tls_config
   // By setting it to false, all coordinators are started as leaders.
   bool constexpr skip_initial_election_timeout{false};
   raft_server_->start_server(skip_initial_election_timeout);
-  spdlog::trace("Raft server started on port {}", coordinator_port_);
+  spdlog::info("Raft server started on port {}", coordinator_port_);
 
   asio_listener_->listen(raft_server_);
   spdlog::trace("Asio listener active on port {}", coordinator_port_);
@@ -407,14 +407,14 @@ auto RaftState::InitRaftServer(std::optional<utils::TlsConfig> const &tls_config
 }
 
 RaftState::~RaftState() {
-  spdlog::trace("Shutting down RaftState for coordinator_{}", coordinator_id_);
+  spdlog::info("Shutting down RaftState for coordinator_{}", coordinator_id_);
   // Destruction order is critical:
   // 1. Shutdown raft_server first - it holds references to state_machine and state_manager
   //    and may be executing callbacks on its threads
   if (raft_server_) {
     raft_server_->shutdown();
     raft_server_.reset();
-    spdlog::trace("Raft server closed");
+    spdlog::info("Raft server closed");
   }
 
   // 2. Stop and shutdown asio_listener - it's listening for network connections
@@ -526,7 +526,7 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
   while (!maybe_stop()) {
     std::this_thread::sleep_for(waiting_period);
     if (const auto server_config = raft_server_->get_srv_config(config.coordinator_id)) {
-      spdlog::trace("Server with id {} added to cluster", config.coordinator_id);
+      spdlog::info("Server with id {} added to cluster", config.coordinator_id);
       return AddCoordinatorInstanceStatus::SUCCESS;
     }
   }

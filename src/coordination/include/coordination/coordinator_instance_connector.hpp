@@ -33,7 +33,7 @@ class CoordinatorInstanceConnector {
       auto stream{client_.RpcClient().Stream<Rpc>(std::forward<Args>(args)...)};
       return stream.SendAndWait().arg_;
     } catch (std::exception const &e) {
-      spdlog::error("Failed to receive response to {}: {}", Rpc::Request::kType.name, e.what());
+      spdlog::warn("Failed to receive response to {}: {}", Rpc::Request::kType.name, e.what());
       return std::nullopt;
     }
   }
