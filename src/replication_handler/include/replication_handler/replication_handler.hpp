@@ -215,7 +215,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
  private:
   void ClientsShutdown(auto &locked_repl_state) const {
-    spdlog::trace("Shutting down instance level clients.");
+    spdlog::info("Shutting down instance level clients.");
 
     auto &repl_clients = std::get<RoleMainData>(locked_repl_state->ReplicationData()).registered_replicas_;
     for (auto &client : repl_clients) {
@@ -232,7 +232,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       storage->repl_storage_state_.replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
     });
 
-    spdlog::trace("Replication storage clients destroyed.");
+    spdlog::info("Replication storage clients destroyed.");
   }
 
   using LockedReplState = utils::Synchronized<ReplicationState, utils::RWSpinLock>::LockedPtr;
@@ -370,7 +370,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
         case UnregisterReplicaResult::NO_ACCESS:
           LOG_FATAL("UnregisterReplicaLocked_ must not acquire ReplicationState; the caller already holds it.");
         case UnregisterReplicaResult::NOT_MAIN:
-          spdlog::trace(
+          spdlog::error(
               "Failed to unregister replica {} after failed registration process since the instance isn't main "
               "anymore. The instance left in inconsistent state, the administrator should manually delete the "
               "data and restart process.",
@@ -384,14 +384,14 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
               "and restart process.",
               config.name);
         case UnregisterReplicaResult::CANNOT_UNREGISTER:
-          spdlog::trace(
+          spdlog::error(
               "Failed to unregister replica {} after failed registration process since unregistration unsuccessful for "
               "all database clients. The instance left in inconsistent state, the administrator should manually delete "
               "the data and restart process.",
               config.name);
           break;
         case UnregisterReplicaResult::SUCCESS:
-          spdlog::trace("Replica {} successfully unregistered after failed registration process.", config.name);
+          spdlog::info("Replica {} successfully unregistered after failed registration process.", config.name);
           break;
       }
       return std::unexpected{RegisterReplicaError::CONNECTION_FAILED};
@@ -433,7 +433,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     if (!locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid)) {
       return false;
     }
-    spdlog::trace("Role set to replica, instance-level clients destroyed.");
+    spdlog::info("Role set to replica, instance-level clients destroyed.");
 
     // Start
     const auto success = std::visit(

@@ -155,7 +155,7 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
 #endif
   // No client error, start instance level client
   auto const &endpoint = client.rpc_client_.Endpoint();
-  spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
+  spdlog::info("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
   client.StartFrequentCheck(
       [&, license = license::global_license_checker.IsEnterpriseValidFast(), main_uuid](
           ReplicationClient &local_client) mutable {
@@ -297,7 +297,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
 
     // All DBs should have the same epoch
     auto const new_epoch = ReplicationEpoch();
-    spdlog::trace("Generated new epoch {}", new_epoch.id());
+    spdlog::info("Generated new epoch {}", new_epoch.id());
 
     // STEP 4) We are now MAIN, update storage local epoch
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
