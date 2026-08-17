@@ -1761,34 +1761,26 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                false,
                                estimated_count};
     }
-    if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
-      return ScanByIndexResult{std::make_shared<ScanAllByVertexProperty>(
-                                   input, node_symbol, best->property, ExpressionRange::RegexMatch(), view),
-                               std::move(metadata),
-                               false,
-                               estimated_count};
-    }
-    if (prop_filter.type_ == PropertyFilter::Type::STARTS_WITH) {
+    auto const make_string_range = [&]() -> std::optional<ExpressionRange> {
+      switch (prop_filter.type_) {
+        case PropertyFilter::Type::REGEX_MATCH:
+          return ExpressionRange::RegexMatch();
+        case PropertyFilter::Type::STARTS_WITH:
+          return ExpressionRange::StartsWith(prop_filter.value_);
+        case PropertyFilter::Type::CONTAINS:
+          return ExpressionRange::Contains();
+        case PropertyFilter::Type::ENDS_WITH:
+          return ExpressionRange::EndsWith();
+        default:
+          return std::nullopt;
+      }
+    };
+    if (auto range = make_string_range()) {
       return ScanByIndexResult{
-          std::make_shared<ScanAllByVertexProperty>(
-              input, node_symbol, best->property, ExpressionRange::StartsWith(prop_filter.value_), view),
+          std::make_shared<ScanAllByVertexProperty>(input, node_symbol, best->property, std::move(*range), view),
           std::move(metadata),
           false,
           estimated_count};
-    }
-    if (prop_filter.type_ == PropertyFilter::Type::CONTAINS) {
-      return ScanByIndexResult{std::make_shared<ScanAllByVertexProperty>(
-                                   input, node_symbol, best->property, ExpressionRange::Contains(), view),
-                               std::move(metadata),
-                               false,
-                               estimated_count};
-    }
-    if (prop_filter.type_ == PropertyFilter::Type::ENDS_WITH) {
-      return ScanByIndexResult{std::make_shared<ScanAllByVertexProperty>(
-                                   input, node_symbol, best->property, ExpressionRange::EndsWith(), view),
-                               std::move(metadata),
-                               false,
-                               estimated_count};
     }
     if (prop_filter.type_ == PropertyFilter::Type::IN) {
       auto *membership_list = utils::Downcast<ListLiteral>(prop_filter.value_);
