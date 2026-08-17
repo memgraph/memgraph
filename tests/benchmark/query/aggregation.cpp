@@ -17,8 +17,17 @@
 // graph in one process, so a single commit can be held against a single number.
 //
 // The graph is the one those queries were written for: a hub of degree N, whose neighbours carry a
-// skewed category, a uniform region and bucket, and the numbers the aggregations add up. It is built
-// once and shared, because building it costs far more than running any query over it.
+// skewed category, a uniform region and bucket, and the numbers the aggregations add up, with the
+// first of them linked to each other in a ring with chords for the queries that walk paths. It is
+// built once and shared, because building it costs far more than running any query over it.
+//
+// The distributions are the large graph's, not convenient ones, because they decide the answers:
+// how skewed the category is decides the size of a group, and how long the tail of the values is
+// decides how much a filter on them keeps. The two edge types are held at the same ratio to each
+// other as well, since which end of a two-hop pattern is cheaper to start from follows from that
+// ratio and not from the size of the graph.
+//
+// Measured against the large graph, most shapes cost within a few percent of the same per row.
 //
 // Only execution is measured. Parsing and planning happen once, outside the loop, as they do for a
 // real query whose plan is cached.
@@ -89,6 +98,11 @@ int64_t ItemCount() {
   return count;
 }
 
+/// Items that are also linked to each other. Held at the same proportion of the hub's degree as the
+/// large graph uses, because which end of a two-hop pattern a planner starts from is decided by the
+/// ratio between the two edge types, not by their absolute size.
+int64_t LinkCoreSize() { return ItemCount() / 50; }
+
 /// The value distributions the queries were written against: category is skewed so a few groups hold
 /// most of the rows, region and bucket are uniform, and the grouping keys span four orders of
 /// magnitude of cardinality across the query set.
@@ -132,13 +146,22 @@ Graph const &TheGraph() {
       auto const p_amount = dba->NameToProperty("amount");
       auto const p_year = dba->NameToProperty("year");
 
+      auto const p_cost = dba->NameToProperty("cost");
+      auto const link_type = dba->NameToEdgeType("LINK");
+
       auto hub = dba->CreateVertex();
       MG_ASSERT(hub.AddLabel(hub_label).has_value());
       MG_ASSERT(hub.SetProperty(p_id, ms::PropertyValue(int64_t{0})).has_value());
 
+      // The first items are also wired to each other, which is what the path queries walk.
+      auto core = std::vector<ms::VertexAccessor>{};
+      core.reserve(static_cast<size_t>(LinkCoreSize()));
+
       // NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp)
       auto rng = std::mt19937_64{42};
       auto uniform = std::uniform_real_distribution<double>{0.0, 1.0};
+      // Long tailed rather than flat, which is what decides how much a filter on it keeps.
+      auto value_of = std::lognormal_distribution<double>{3.0, 1.0};
 
       auto categories = std::vector<std::string>{};
       for (int i = 0; i != kCategoryCount; ++i) {
@@ -161,11 +184,13 @@ Graph const &TheGraph() {
         MG_ASSERT(item.SetProperty(p_region, ms::PropertyValue(regions[rng() % kRegionCount])).has_value());
         MG_ASSERT(
             item.SetProperty(p_bucket, ms::PropertyValue(static_cast<int64_t>(rng() % kBucketCount))).has_value());
-        MG_ASSERT(item.SetProperty(p_value, ms::PropertyValue(uniform(rng) * 200.0)).has_value());
+        MG_ASSERT(item.SetProperty(p_value, ms::PropertyValue(value_of(rng))).has_value());
         MG_ASSERT(item.SetProperty(p_quantity, ms::PropertyValue(static_cast<int64_t>(1 + rng() % 100))).has_value());
         MG_ASSERT(item.SetProperty(p_ts, ms::PropertyValue(kTsMin + static_cast<int64_t>(rng() % (kTsMax - kTsMin))))
                       .has_value());
         MG_ASSERT(item.SetProperty(p_active, ms::PropertyValue(uniform(rng) < 0.7)).has_value());
+
+        if (i < LinkCoreSize()) core.push_back(item);
 
         auto edge = dba->CreateEdge(&hub, &item, has_type);
         MG_ASSERT(edge.has_value());
@@ -174,6 +199,21 @@ Graph const &TheGraph() {
         MG_ASSERT(
             edge->SetProperty(p_year, ms::PropertyValue(int64_t{2015} + static_cast<int64_t>(rng() % 11))).has_value());
       }
+
+      // A ring, so every core item can reach every other, plus two random chords each. That is what
+      // makes the shortest paths short and the depth-limited walks branch.
+      auto const core_size = static_cast<int64_t>(core.size());
+      auto link = [&](ms::VertexAccessor &from, ms::VertexAccessor &to) {
+        auto edge = dba->CreateEdge(&from, &to, link_type);
+        MG_ASSERT(edge.has_value());
+        MG_ASSERT(edge->SetProperty(p_cost, ms::PropertyValue(1.0 + uniform(rng) * 9.0)).has_value());
+        MG_ASSERT(edge->SetProperty(p_weight, ms::PropertyValue(uniform(rng))).has_value());
+      };
+      for (int64_t k = 0; k != core_size; ++k) {
+        link(core[k], core[(k + 1) % core_size]);
+        for (int chord = 0; chord != 2; ++chord) link(core[k], core[rng() % core_size]);
+      }
+
       MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
@@ -184,6 +224,12 @@ Graph const &TheGraph() {
     {
       auto unique_acc = db->UniqueAccess();
       MG_ASSERT(unique_acc->CreateIndex(db->NameToLabel("Item")).has_value());
+      MG_ASSERT(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    {
+      auto unique_acc = db->UniqueAccess();
+      MG_ASSERT(
+          unique_acc->CreateIndex(db->NameToLabel("Item"), {ms::PropertyPath{db->NameToProperty("id")}}).has_value());
       MG_ASSERT(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     return Graph{.db = std::move(db)};
@@ -393,6 +439,88 @@ void CollectDistinct(benchmark::State &state) {
            "RETURN category, size(buckets) AS distinct_buckets ORDER BY category");
 }
 
+// --------------------------------------------------------------------------- no expansion ----
+
+// Every item by label, touching no edge at all. The other engine answers this from a count store in
+// about a millisecond, which is a difference in metadata bookkeeping rather than in aggregation, so
+// it is here as a floor rather than as a comparison.
+//
+// This is also the one shape whose cost per row does not carry over from the large graph: a quarter
+// million labelled vertices are walked out of cache, ten million are not, so this reads about twice
+// as fast here. It is still a floor to compare a build against itself on.
+void CountAllItems(benchmark::State &state) { RunQuery(state, "MATCH (i:Item) RETURN count(i) AS items"); }
+
+// ------------------------------------------------------------- grouping keys, wider still ----
+
+// Eight thousand groups from a uniform key crossed with a small one.
+void GroupByBucketRegion(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (:Hub)-[:HAS]->(i:Item) "
+           "RETURN i.bucket AS bucket, i.region AS region, count(*) AS n, sum(i.value) AS total_value, "
+           "max(i.quantity) AS max_quantity ORDER BY bucket, region");
+}
+
+// Sixteen thousand groups, a skewed key crossed with a uniform one.
+void GroupByCategoryBucket(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (:Hub)-[:HAS]->(i:Item) "
+           "RETURN i.category AS category, i.bucket AS bucket, count(*) AS n, avg(i.value) AS mean_value "
+           "ORDER BY category, bucket");
+}
+
+// ------------------------------------------------------------------------------ traversal ----
+//
+// These walk the linked core rather than the hub's neighbours. The ids are the ones the large-graph
+// runs use, and are written as literals because a benchmark has no parameters to bind.
+
+// Depth-limited expansion with no path built: what a branching walk costs.
+void VarLengthPaths(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (a:Item {id: 1})-[:LINK *1..6]->(b:Item) "
+           "RETURN count(*) AS paths, count(DISTINCT b) AS distinct_endpoints");
+}
+
+// The same reachability question asked breadth first, which visits each node once.
+void BfsReachability(benchmark::State &state) {
+  RunQuery(state, "MATCH (a:Item {id: 1})-[:LINK *BFS 1..12]->(b:Item) RETURN count(b) AS reached");
+}
+
+// One path between two fixed items.
+void ShortestPath(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH p = (a:Item {id: 1})-[:LINK *BFS 1..20]->(b:Item {id: 1338}) "
+           "RETURN size(relationships(p)) AS hops");
+}
+
+// The cheapest path by an edge property rather than the shortest by hop count.
+void WeightedShortestPath(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH p = (a:Item {id: 1})-[:LINK *WSHORTEST 20 (e, n | e.cost) total_cost]->(b:Item {id: 1338}) "
+           "RETURN size(relationships(p)) AS hops, total_cost AS cost");
+}
+
+// Aggregating over whole paths: a path object per row, reduced over its relationships.
+void PathAggregation(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH p = (a:Item {id: 1})-[:LINK *1..6]->(b:Item) "
+           "WITH size(relationships(p)) AS hops, reduce(c = 0.0, r IN relationships(p) | c + r.cost) AS path_cost "
+           "RETURN hops, count(*) AS paths, min(path_cost) AS cheapest, avg(path_cost) AS mean_cost, "
+           "max(path_cost) AS dearest ORDER BY hops");
+}
+
+// Two hops off the supernode, aggregated over the path. Which end this starts from decides it: there
+// are fifty times as many edges of the first type as of the second, and the ratio is held at what the
+// large graph has for exactly that reason.
+void TwoHopPathAggregate(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH p = (:Hub)-[:HAS]->(i:Item)-[:LINK]->(j:Item) "
+           "WITH i.category AS category, reduce(w = 0.0, r IN relationships(p) | w + r.weight) AS path_weight, "
+           "j.value AS endpoint_value "
+           "RETURN category, count(*) AS paths, avg(path_weight) AS mean_path_weight, "
+           "max(path_weight) AS max_path_weight, sum(endpoint_value) AS endpoint_value_total "
+           "ORDER BY paths DESC");
+}
+
 constexpr auto kUnit = benchmark::kMillisecond;
 
 BENCHMARK(CountNoGroupKey)->Unit(kUnit);
@@ -412,6 +540,15 @@ BENCHMARK(ComputedGroupKey)->Unit(kUnit);
 BENCHMARK(EdgePropertyAggregate)->Unit(kUnit);
 BENCHMARK(CollectListOfMaps)->Unit(kUnit);
 BENCHMARK(CollectDistinct)->Unit(kUnit);
+BENCHMARK(CountAllItems)->Unit(kUnit);
+BENCHMARK(GroupByBucketRegion)->Unit(kUnit);
+BENCHMARK(GroupByCategoryBucket)->Unit(kUnit);
+BENCHMARK(VarLengthPaths)->Unit(kUnit);
+BENCHMARK(BfsReachability)->Unit(kUnit);
+BENCHMARK(ShortestPath)->Unit(kUnit);
+BENCHMARK(WeightedShortestPath)->Unit(kUnit);
+BENCHMARK(PathAggregation)->Unit(kUnit);
+BENCHMARK(TwoHopPathAggregate)->Unit(kUnit);
 
 }  // namespace
 
