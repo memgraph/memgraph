@@ -96,7 +96,7 @@ bool ReadWriteTypeChecker::PreVisit(CallProcedure &op) {
 bool StorageAccessChecker::PreVisit(CallProcedure &op) {
   // A call that reaches no storage is still a read to RWType, which is what clients and the read
   // counters are told. Only the storage question is answered differently here.
-  if (!op.ReachesStorage()) {
+  if (op.graph_free_) {
     UpdateType(RWType::NONE);
     return true;
   }
