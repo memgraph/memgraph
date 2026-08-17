@@ -19,6 +19,7 @@
 #include <ctime>
 #include <format>
 #include <limits>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -776,7 +777,9 @@ Timezone ParseTimezoneFromUserString(std::string_view timezone) {
 
   try {
     return Timezone{std::chrono::locate_zone(timezone)};
-  } catch (...) {
+  } catch (const std::runtime_error &) {
+    // The only failure locate_zone reports, and narrow on purpose: catching
+    // everything would report a failed allocation as an unknown zone name.
     throw temporal::InvalidArgumentException("Timezone name is not in the IANA time zone database.");
   }
 }
