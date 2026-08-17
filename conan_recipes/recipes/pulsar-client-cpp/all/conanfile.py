@@ -95,6 +95,10 @@ class PulsarClientCppConan(ConanFile):
         # legacy Pulsar build can otherwise compile generated sources against
         # protobuf headers from the external toolchain.
         extra_cxx_flags = ["-Wno-error=array-bounds"]
+        if self.settings.os == "FreeBSD" and self.settings.arch == "x86_64":
+            # FreeBSD reports CMAKE_SYSTEM_PROCESSOR=amd64, which the upstream
+            # CMakeLists.txt doesn't recognise when gating -msse4.2 -mpclmul.
+            extra_cxx_flags.extend(["-msse4.2", "-mpclmul"])
         if protobuf_include:
             extra_cxx_flags.insert(0, f"-I{protobuf_include}")
         tc.variables["CMAKE_CXX_FLAGS"] = " ".join(extra_cxx_flags)

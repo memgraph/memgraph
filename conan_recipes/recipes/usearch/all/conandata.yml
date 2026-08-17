@@ -13,3 +13,5 @@ patches:
       patch_description: "Allow Memgraph to provide custom usearch tape allocators."
     - patch_file: "patches/0002-fix-tombstone-iteration.patch"
       patch_description: "Skip tombstones while advancing flat_hash_multi_set iterators."
+    - patch_file: "patches/0003-fix-mmap-anonymous-fd-freebsd.patch"
+      patch_description: "Use fd=-1 with MAP_ANONYMOUS for POSIX compliance (required on FreeBSD)."

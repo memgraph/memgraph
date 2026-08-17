@@ -46,6 +46,9 @@ class LibrdtscConan(ConanFile):
         tc = CMakeToolchain(self)
         tc.variables["LIBRDTSC_ARCH_x86"] = self.settings.arch == "x86_64"
         tc.variables["LIBRDTSC_ARCH_ARM64"] = self.settings.arch == "armv8"
+        if self.settings.os == "FreeBSD":
+            # FreeBSD has no CLOCK_MONOTONIC_RAW; CLOCK_MONOTONIC_PRECISE is equivalent
+            tc.preprocessor_definitions["CLOCK_MONOTONIC_RAW"] = "CLOCK_MONOTONIC_PRECISE"
         tc.generate()
 
     def build(self):
