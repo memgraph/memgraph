@@ -22,7 +22,7 @@ def get_plan(memgraph, query):
 
 
 def operator_names(plan):
-    return [line.strip().lstrip("* ").split(" ")[0] for line in plan]
+    return [line.strip().removeprefix("* ").split(" ")[0] for line in plan]
 
 
 @pytest.fixture(autouse=True)
