@@ -1322,8 +1322,7 @@ TEST_P(CypherMainVisitorTest, NumericLiteralForms) {
 
 TEST_P(CypherMainVisitorTest, LeadingZeroWithNonOctalDigitIsRejected) {
   // A leading zero introduces an octal literal, and 8 and 9 are not octal
-  // digits, so these name no number the grammar accepts. Reading them as reals
-  // is what let them through before.
+  // digits, so these name no number the grammar accepts.
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("RETURN 09"), SyntaxException);
   EXPECT_THROW(ast_generator.ParseQuery("RETURN 018"), SyntaxException);

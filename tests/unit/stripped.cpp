@@ -84,9 +84,7 @@ TEST(QueryStripper, HexInteger) {
 
 TEST(QueryStripper, LeadingZeroDigitRunIsNotReal) {
   // A run of digits carries neither a fraction nor an exponent, so it is not a
-  // real literal whatever it starts with. `09` is not a valid octal integer
-  // either, and reclassifying it as a real would change the arithmetic its
-  // value takes part in.
+  // real literal whatever it starts with.
   StrippedQuery stripped("RETURN 09");
   for (const auto &[position, literal] : stripped.literals()) {
     EXPECT_TRUE(literal.IsInt());
@@ -95,10 +93,9 @@ TEST(QueryStripper, LeadingZeroDigitRunIsNotReal) {
 }
 
 TEST(QueryStripper, LeadingZeroDigitRunKeepsIntegerRangeCheck) {
-  // Routing a digit run to a real literal also skipped the 64-bit range check
-  // that integer literals get, so an out-of-range value silently became an
-  // approximate double. The same digits without the leading zero are rejected,
-  // and adding one must not change that.
+  // A digit run is checked against the 64-bit integer range whether or not it
+  // has a leading zero, so an out-of-range value is an error rather than an
+  // approximate double.
   EXPECT_THROW(StrippedQuery("RETURN 9223372036854775808"), SemanticException);
   EXPECT_THROW(StrippedQuery("RETURN 009223372036854775808"), SemanticException);
 }
