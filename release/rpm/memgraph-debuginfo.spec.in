@@ -43,7 +43,7 @@ Vendor:         @CPACK_RPM_PACKAGE_VENDOR@
 # Normalize directory modes: cpack stages them with the build host's umask
 # (e.g. 0775 under umask 002), and shared dirs like /usr/lib/memgraph must
 # match the memgraph package's 0755 or rpm refuses the transaction.
-find $RPM_BUILD_ROOT -type d | xargs chmod 755
+find $RPM_BUILD_ROOT -type d -exec chmod 755 {} +
 mv $RPM_BUILD_ROOT %_topdir/tmpBBroot
 
 %install

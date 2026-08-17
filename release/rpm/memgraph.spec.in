@@ -83,7 +83,7 @@ mkdir -p $RPM_BUILD_ROOT/%{_unitdir}
 mv $RPM_BUILD_ROOT/lib/systemd/system/memgraph.service $RPM_BUILD_ROOT/%{_unitdir}
 rm -rf $RPM_BUILD_ROOT/lib
 # Fix the incorrect directory permissions set by cpack (this is fixed in CMake 3.11)
-find $RPM_BUILD_ROOT -type d | xargs chmod 755
+find $RPM_BUILD_ROOT -type d -exec chmod 755 {} +
 # After setting up custom prep, continue with CMake's default
 mv $RPM_BUILD_ROOT %_topdir/tmpBBroot
 
@@ -146,41 +146,52 @@ if [ "$PYBIN" != "python3" ]; then
         ln -sf "$libpython" /usr/lib/memgraph/libpython3.so
     fi
 fi
-pyminor="$($PYBIN -c 'import sys; print(sys.version_info[1])')"
-numpy_version="1.26.4"; scipy_version="1.13.0"
-pyyaml_version="6.0.1"; xmlsec_version="1.3.16"
-if [ "$pyminor" -ge 14 ]; then
-    numpy_version="2.5.1"; scipy_version="1.18.0"
-    pyyaml_version="6.0.3"; xmlsec_version="1.3.17"
-elif [ "$pyminor" -eq 13 ]; then
-    numpy_version="2.1.0"; scipy_version="1.15.0"
-fi
-pip_packages="cryptography==49.0.0 PyJWT==2.13.0 requests==2.32.5 \
-ldap3==2.6 pyyaml==$pyyaml_version python3-saml==1.16.0 lxml==6.1.0 \
-xmlsec==$xmlsec_version numpy==$numpy_version scipy==$scipy_version \
-networkx==3.4.2"
-# Failure stays hard unless MEMGRAPH_OFFLINE_INSTALL=1 (the .run installer
-# pre-installs the wheels; see the MAGE %%post).
-if ! runuser -l memgraph -c "PIP_BREAK_SYSTEM_PACKAGES=1 $PYBIN -m pip install --user --no-cache-dir --no-warn-script-location $pip_packages"; then
-    if [ "${MEMGRAPH_OFFLINE_INSTALL:-}" = "1" ]; then
-        echo "WARNING: pip install of query module python deps failed;" >&2
-        echo "         tolerated because MEMGRAPH_OFFLINE_INSTALL=1." >&2
-    else
-        echo "ERROR: failed to install python deps for query modules." >&2
-        echo "       Check network connectivity and pip configuration, then retry." >&2
-        exit 1
-    fi
-fi
-# gssapi (Kerberos SSO only) ships no PyPI wheels; only attempt the source
-# build when its prerequisites are already present, so the common case
-# skips with one line instead of a pip traceback.
-if command -v krb5-config >/dev/null 2>&1 && command -v cc >/dev/null 2>&1; then
-    runuser -l memgraph -c "PIP_BREAK_SYSTEM_PACKAGES=1 $PYBIN -m pip install --user --no-cache-dir --no-warn-script-location gssapi==1.11.1" || \
-        echo "WARNING: python gssapi failed to build; Kerberos SSO will be unavailable." >&2
+# MG_SKIP_PYTHON_DEPS=1 skips the pip phase entirely (matches the deb postinst
+# and the MAGE %%post) — for installs whose environment provides the deps by
+# other means. The libpython repoint above still runs; it must hold even when
+# the deps are pre-provisioned.
+if [ "${MG_SKIP_PYTHON_DEPS:-}" = "1" ]; then
+    echo "NOTE: MG_SKIP_PYTHON_DEPS=1 — skipping python query module deps install." >&2
 else
-    echo "NOTE: skipping python gssapi (only Kerberos SSO needs it); to enable," >&2
-    echo "      install krb5-devel and a C compiler, then as memgraph run:" >&2
-    echo "      $PYBIN -m pip install --user gssapi==1.11.1" >&2
+    pyminor="$($PYBIN -c 'import sys; print(sys.version_info[1])')"
+    numpy_version="1.26.4"; scipy_version="1.13.0"
+    pyyaml_version="6.0.1"; xmlsec_version="1.3.16"
+    if [ "$pyminor" -ge 14 ]; then
+        numpy_version="2.5.1"; scipy_version="1.18.0"
+        pyyaml_version="6.0.3"; xmlsec_version="1.3.17"
+    elif [ "$pyminor" -eq 13 ]; then
+        numpy_version="2.1.0"; scipy_version="1.15.0"
+    fi
+    pip_packages="cryptography==49.0.0 PyJWT==2.13.0 requests==2.32.5 \
+    ldap3==2.6 pyyaml==$pyyaml_version python3-saml==1.16.0 lxml==6.1.0 \
+    xmlsec==$xmlsec_version numpy==$numpy_version scipy==$scipy_version \
+    networkx==3.4.2"
+    # Failure stays hard unless MEMGRAPH_OFFLINE_INSTALL=1 (the .run installer
+    # pre-installs the wheels; see the MAGE %%post).
+    if ! runuser -l memgraph -c "PIP_BREAK_SYSTEM_PACKAGES=1 $PYBIN -m pip install --user --no-cache-dir --no-warn-script-location $pip_packages"; then
+        if [ "${MEMGRAPH_OFFLINE_INSTALL:-}" = "1" ]; then
+            echo "WARNING: pip install of query module python deps failed;" >&2
+            echo "         tolerated because MEMGRAPH_OFFLINE_INSTALL=1." >&2
+        else
+            echo "ERROR: failed to install python deps for query modules." >&2
+            echo "       Check network connectivity and pip configuration, then retry." >&2
+            echo "       If the deps are provided by other means: MEMGRAPH_OFFLINE_INSTALL=1" >&2
+            echo "       tolerates this failure (deps pre-installed, e.g. bundled wheels)," >&2
+            echo "       and MG_SKIP_PYTHON_DEPS=1 skips the pip phase entirely." >&2
+            exit 1
+        fi
+    fi
+    # gssapi (Kerberos SSO only) ships no PyPI wheels; only attempt the source
+    # build when its prerequisites are already present, so the common case
+    # skips with one line instead of a pip traceback.
+    if command -v krb5-config >/dev/null 2>&1 && command -v cc >/dev/null 2>&1; then
+        runuser -l memgraph -c "PIP_BREAK_SYSTEM_PACKAGES=1 $PYBIN -m pip install --user --no-cache-dir --no-warn-script-location gssapi==1.11.1" || \
+            echo "WARNING: python gssapi failed to build; Kerberos SSO will be unavailable." >&2
+    else
+        echo "NOTE: skipping python gssapi (only Kerberos SSO needs it); to enable," >&2
+        echo "      install krb5-devel and a C compiler, then as memgraph run:" >&2
+        echo "      $PYBIN -m pip install --user gssapi==1.11.1" >&2
+    fi
 fi
 @RPM_SYMLINK_POSTINSTALL@
 @CPACK_RPM_SPEC_POSTINSTALL@

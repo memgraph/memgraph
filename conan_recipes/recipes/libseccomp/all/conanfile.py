@@ -48,8 +48,6 @@ class LibseccompConan(ConanFile):
         tc = AutotoolsToolchain(self)
         # We don't need the Python bindings — memgraph consumes the C API only.
         tc.configure_args.append("--disable-python")
-        # Skip building the test/util binaries; we just want the library.
-        tc.configure_args.append("--disable-gnu-symver-name")
         tc.generate()
 
     def build(self):

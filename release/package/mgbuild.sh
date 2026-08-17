@@ -1516,6 +1516,11 @@ copy_memgraph() {
     # Clean up staging directory
     docker exec -u mg "$build_container" bash -c "rm -rf $staging_dir"
 
+    # Guard against host-glibc leakage: the packages hand-write the glibc
+    # floor (auto-shlibdeps is off), so this is the only automated check that
+    # the binary really was built against the toolchain sysroot (glibc 2.31).
+    "$PROJECT_ROOT/tools/ci/check-glibc-ceiling.sh" "$host_dir/memgraph" 2.31
+
     echo "Memgraph installed to $host_dir!"
     return
   fi
@@ -1545,6 +1550,8 @@ copy_memgraph() {
     done
   else
     docker cp -L $build_container:$container_artifact_path $host_artifact_path
+    # Same host-glibc-leakage guard as the cmake-install path above.
+    "$PROJECT_ROOT/tools/ci/check-glibc-ceiling.sh" "$host_artifact_path" 2.31
   fi
   echo -e "Memgraph $artifact saved to $host_artifact_path!"
 }

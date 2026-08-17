@@ -175,7 +175,6 @@ target_link_libraries(mg-storage-v2
     mg-rpc
     mg-slk
     mg-memory
-    mg-events
     range-v3::range-v3
     mgcxx_text_search
     tantivy_text_search

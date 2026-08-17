@@ -43,7 +43,7 @@ set(CPACK_DEBIAN_MEMGRAPH_PACKAGE_CONTROL_EXTRA
 # (which has `Build-Depends-Package: libc6-dev` forcing minimum to whatever
 # libc6 the build host ships), so building on Ubuntu 24.04 results in
 # `libc6 (>= 2.38)` regardless of the symbols the binary actually uses. The
-# binary itself is sysroot-clean (no symbols above GLIBC_2.30), so we write
+# binary itself is sysroot-clean (no symbols above GLIBC_2.31), so we write
 # Depends manually with a realistic libc6 floor instead.
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
 

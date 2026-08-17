@@ -231,16 +231,29 @@ target_compile_definitions(mg-query PUBLIC
     "Py_LIMITED_API=${MG_PYTHON_STABLE_ABI_FLOOR}")
 
 # Debian/Ubuntu split pyconfig.h between /usr/include/pythonX.Y/pyconfig.h
-# (a redirect) and /usr/include/<triple>/pythonX.Y/pyconfig.h (the real one).
-# cmake's FindPython3 returns only the first path, and our toolchain sysroot
-# blocks the redirect's <triple>/pythonX.Y/pyconfig.h fallback through the
-# default /usr/include search. -idirafter appends host /usr/include to the
-# tail of the search path, so it's only consulted for headers the sysroot
-# doesn't have (i.e. just the multiarch pyconfig redirect target).
-if(EXISTS "/usr/include/x86_64-linux-gnu/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/pyconfig.h"
-    OR EXISTS "/usr/include/aarch64-linux-gnu/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/pyconfig.h")
-    target_compile_options(Python3::Python INTERFACE -idirafter /usr/include)
-endif()
+# (a redirect: `#include <triple/pythonX.Y/pyconfig.h>`) and
+# /usr/include/<triple>/pythonX.Y/pyconfig.h (the real one). cmake's
+# FindPython3 returns only the first path, and the toolchain sysroot blocks
+# the redirect target's resolution through the default /usr/include search.
+# Do NOT expose all of host /usr/include (e.g. via -idirafter) to bridge
+# this — that changes libstdc++'s compile-time glibc feature detection
+# (__has_include of host-glibc-only headers) and emits symbols the sysroot
+# glibc cannot satisfy. Instead, mirror cmake/FindReadline.cmake: a shim
+# include dir exposing ONLY the multiarch pythonX.Y directory.
+set(_mg_py_ver "python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}")
+foreach(_mg_multiarch x86_64-linux-gnu aarch64-linux-gnu)
+    set(_mg_pyconfig_dir "/usr/include/${_mg_multiarch}/${_mg_py_ver}")
+    if(EXISTS "${_mg_pyconfig_dir}/pyconfig.h")
+        set(_mg_py_shim "${CMAKE_BINARY_DIR}/pyconfig-include-shim")
+        file(MAKE_DIRECTORY "${_mg_py_shim}/${_mg_multiarch}")
+        if(NOT EXISTS "${_mg_py_shim}/${_mg_multiarch}/${_mg_py_ver}")
+            file(CREATE_LINK "${_mg_pyconfig_dir}"
+                 "${_mg_py_shim}/${_mg_multiarch}/${_mg_py_ver}" SYMBOLIC)
+        endif()
+        set_property(TARGET Python3::Python APPEND PROPERTY
+                     INTERFACE_INCLUDE_DIRECTORIES "${_mg_py_shim}")
+    endif()
+endforeach()
 
 target_link_libraries(mg-query
     PUBLIC

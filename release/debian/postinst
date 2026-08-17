@@ -102,6 +102,9 @@ networkx==3.4.2"
                 else
                     echo "ERROR: failed to install python deps for query modules." >&2
                     echo "       Check network connectivity and pip configuration, then retry." >&2
+                    echo "       If the deps are provided by other means: MEMGRAPH_OFFLINE_INSTALL=1" >&2
+                    echo "       tolerates this failure (deps pre-installed, e.g. bundled wheels)," >&2
+                    echo "       and MG_SKIP_PYTHON_DEPS=1 skips the pip phase entirely." >&2
                     exit 1
                 fi
             fi
