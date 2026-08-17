@@ -2943,8 +2943,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   bool is_write_;
   int64_t procedure_id_;
   bool void_procedure_;
-  /// The procedure never touches its `mgp_graph *`, so a `CALL` of it neither reads nor writes the
-  /// graph. Stamped from the procedure registry when the clause is parsed.
+  /// Copied from the procedure's own declaration, by way of the AST clause.
   bool no_graph_access_{false};
 
   std::string ToString(const DbAccessor *dba) const override;

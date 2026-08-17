@@ -2570,8 +2570,8 @@ class CallProcedure : public memgraph::query::Clause {
   size_t memory_scale_{1024U};
   bool is_write_{false};
   bool void_procedure_{false};
-  /// The procedure never touches its `mgp_graph *`. Read from the registry alongside `is_write_` so
-  /// later phases can answer "does this call reach storage" without taking the registry lock again.
+  /// Copied from the procedure's own declaration, alongside `is_write_`, so that later phases need not
+  /// take the registry lock again.
   bool no_graph_access_{false};
   memgraph::query::Where *where_{nullptr};
 

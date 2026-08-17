@@ -71,11 +71,9 @@ ModuleRegistry gModuleRegistry;
 
 Module::~Module() {}
 
-// Every procedure registered here ignores its `mgp_graph *` argument: each callback names the parameter
-// `/*graph*/` and answers from the module registry or the filesystem. Declaring `no_graph_access` says so,
-// which lets a `CALL` of one run with no storage transaction open. It is declared per procedure rather
-// than for the module as a whole because the declaration is also what opts a procedure into that path,
-// and a procedure is only worth putting there if callers actually issue it that way.
+// Every procedure registered here ignores its `mgp_graph *`. `no_graph_access` is declared per procedure
+// rather than for the module because declaring it is also what opts one into running with no transaction,
+// which is only worth doing for those callers actually issue that way.
 class BuiltinModule final : public Module {
  public:
   BuiltinModule();

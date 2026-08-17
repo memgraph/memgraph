@@ -15,24 +15,15 @@ namespace memgraph::query {
 
 class CypherQuery;
 
-/// True if running `query` needs the graph: it reads or writes vertices, edges or their metadata, or
-/// resolves anything else that lives in storage. False only if the query can be answered from its own
-/// literals, its parameters, and procedures that declare they never touch the graph.
+/// True if running `query` reads or writes vertices, edges or their metadata, or resolves anything else
+/// that lives in storage.
 ///
-/// The answer is conservative in one direction only: a query that needs the graph is never reported as
-/// graph-free, while a graph-free query may be reported as needing the graph. Callers may therefore use a
-/// false result to skip opening a storage transaction, but must treat a true result as "no opinion" rather
-/// than proof that storage is reached.
+/// Conservative in one direction: a query that needs the graph is never reported as graph-free, so a
+/// false answer is safe to act on, while a true answer means only that this could not prove otherwise.
+/// `PlanRequiresStorageAccess` answers the same question exactly, once a plan exists.
 ///
-/// This reads the query. The plan built from it is checked separately by `PlanRequiresStorageAccess`,
-/// which is exact where this is conservative, and which is what the interpreter acts on: a query this
-/// admits still opens a transaction if its plan turns out to need one.
-///
-/// The widest source of that conservatism is functions. A function implementation receives the accessor
-/// and is free to use it, and nothing records which ones do, so calling any function is reported as
-/// needing the graph. This also covers the string predicates, which parse as functions, so a `WHERE`
-/// using `STARTS WITH` or `CONTAINS` is not graph-free. Narrowing that means declaring per function what
-/// a procedure already declares for itself.
+/// Every function counts as needing the graph, because implementations receive the accessor and nothing
+/// records which of them use it. That includes the string predicates, which parse as functions.
 bool RequiresGraphAccess(const CypherQuery &query);
 
 }  // namespace memgraph::query
