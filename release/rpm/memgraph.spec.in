@@ -8,7 +8,17 @@ License:        @CPACK_RPM_PACKAGE_LICENSE@
 # Group field is deprecated
 # Group:          @CPACK_RPM_PACKAGE_GROUP@
 Vendor:         @CPACK_RPM_PACKAGE_VENDOR@
-BuildRequires: systemd
+# No systemd BuildRequires: it only supplied %%{_unitdir} and is unsatisfiable
+# when packaging the rpm on a Debian-family host; define the macro instead.
+%{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
+
+# Memgraph needs python >= 3.10; el9's default python3 is 3.9, so require the
+# 3.12 interpreter + pip there. Rich (boolean) dependency so it is evaluated
+# at INSTALL time — the rpm is distro-agnostic, a build-time %%if can't see
+# the target distro. `system-release(releasever)` is provided by every
+# RHEL-family release package. The %%post below repoints the embedded
+# interpreter at 3.12 via /usr/lib/memgraph/libpython3.so.
+Requires:       ((python3.12 and python3.12-pip) if system-release(releasever) = 9)
 
 @TMP_RPM_URL@
 @TMP_RPM_REQUIRES@
@@ -73,7 +83,7 @@ mkdir -p $RPM_BUILD_ROOT/%{_unitdir}
 mv $RPM_BUILD_ROOT/lib/systemd/system/memgraph.service $RPM_BUILD_ROOT/%{_unitdir}
 rm -rf $RPM_BUILD_ROOT/lib
 # Fix the incorrect directory permissions set by cpack (this is fixed in CMake 3.11)
-find $RPM_BUILD_ROOT -type d | xargs chmod 755
+find $RPM_BUILD_ROOT -type d -exec chmod 755 {} +
 # After setting up custom prep, continue with CMake's default
 mv $RPM_BUILD_ROOT %_topdir/tmpBBroot
 
@@ -103,6 +113,85 @@ if [ ! -d /etc/memgraph/ssl ]; then
         -subj "/C=GB/ST=London/L=London/O=Memgraph Ltd./CN=Memgraph DB" || exit 1
     chown memgraph:memgraph /etc/memgraph/ssl/* || exit 1
     chmod 400 /etc/memgraph/ssl/* || exit 1
+fi
+
+# Python deps for the bundled query modules (nxalg, wcc, graph_analyzer,
+# node2vec_online, ...) and the auth/SSO modules, pinned to the versions
+# validated by the package smoke tests (release/package/mgbuild.sh).
+# numpy/scipy/pyyaml/xmlsec pins step up with the Python version — the
+# older pins ship no wheels for newer interpreters (e.g. nothing below
+# numpy 2.3 has cp314 wheels). Installed --user as memgraph (runuser, not
+# su — see release/rpm/memgraph-mage.spec.in) so the embedded interpreter
+# (which runs as memgraph) imports them from /var/lib/memgraph/.local.
+# When the build embeds an explicit Python (MG_PYTHON_VERSION, e.g. CentOS
+# Stream 9 embedding 3.12), use that interpreter's pip — the distro pip3
+# would install into a site-packages the embedded Python never reads.
+PYBIN="python3"
+if [ -n "@CPACK_MG_PYTHON_VERSION@" ]; then
+    PYBIN="python@CPACK_MG_PYTHON_VERSION@"
+elif python3 -c 'import sys; raise SystemExit(0 if sys.version_info < (3, 10) else 1)' \
+        && command -v python3.12 >/dev/null 2>&1; then
+    # Default python3 is below memgraph's >= 3.10 floor (el9: 3.9, where the
+    # rich dep above pulled python3.12) — use 3.12 for the deps instead.
+    PYBIN="python3.12"
+fi
+# When the deps target a non-default interpreter, the embedded interpreter
+# must follow: the binary links the unversioned libpython3.so with RUNPATH
+# $ORIGIN, so a symlink next to it beats the distro's default shim
+# (/usr/lib64/libpython3.so from python3-libs). %%ghost-owned in %%files.
+if [ "$PYBIN" != "python3" ]; then
+    pyver="${PYBIN#python}"
+    libpython="$(ls /usr/lib64/libpython${pyver}.so.1* /usr/lib/libpython${pyver}.so.1* 2>/dev/null | head -1 || true)"
+    if [ -n "$libpython" ]; then
+        ln -sf "$libpython" /usr/lib/memgraph/libpython3.so
+    fi
+fi
+# MG_SKIP_PYTHON_DEPS=1 skips the pip phase entirely (matches the deb postinst
+# and the MAGE %%post) — for installs whose environment provides the deps by
+# other means. The libpython repoint above still runs; it must hold even when
+# the deps are pre-provisioned.
+if [ "${MG_SKIP_PYTHON_DEPS:-}" = "1" ]; then
+    echo "NOTE: MG_SKIP_PYTHON_DEPS=1 — skipping python query module deps install." >&2
+else
+    pyminor="$($PYBIN -c 'import sys; print(sys.version_info[1])')"
+    numpy_version="1.26.4"; scipy_version="1.13.0"
+    pyyaml_version="6.0.1"; xmlsec_version="1.3.16"
+    if [ "$pyminor" -ge 14 ]; then
+        numpy_version="2.5.1"; scipy_version="1.18.0"
+        pyyaml_version="6.0.3"; xmlsec_version="1.3.17"
+    elif [ "$pyminor" -eq 13 ]; then
+        numpy_version="2.1.0"; scipy_version="1.15.0"
+    fi
+    pip_packages="cryptography==49.0.0 PyJWT==2.13.0 requests==2.32.5 \
+    ldap3==2.6 pyyaml==$pyyaml_version python3-saml==1.16.0 lxml==6.1.0 \
+    xmlsec==$xmlsec_version numpy==$numpy_version scipy==$scipy_version \
+    networkx==3.4.2"
+    # Failure stays hard unless MEMGRAPH_OFFLINE_INSTALL=1 (the .run installer
+    # pre-installs the wheels; see the MAGE %%post).
+    if ! runuser -l memgraph -c "PIP_BREAK_SYSTEM_PACKAGES=1 $PYBIN -m pip install --user --no-cache-dir --no-warn-script-location $pip_packages"; then
+        if [ "${MEMGRAPH_OFFLINE_INSTALL:-}" = "1" ]; then
+            echo "WARNING: pip install of query module python deps failed;" >&2
+            echo "         tolerated because MEMGRAPH_OFFLINE_INSTALL=1." >&2
+        else
+            echo "ERROR: failed to install python deps for query modules." >&2
+            echo "       Check network connectivity and pip configuration, then retry." >&2
+            echo "       If the deps are provided by other means: MEMGRAPH_OFFLINE_INSTALL=1" >&2
+            echo "       tolerates this failure (deps pre-installed, e.g. bundled wheels)," >&2
+            echo "       and MG_SKIP_PYTHON_DEPS=1 skips the pip phase entirely." >&2
+            exit 1
+        fi
+    fi
+    # gssapi (Kerberos SSO only) ships no PyPI wheels; only attempt the source
+    # build when its prerequisites are already present, so the common case
+    # skips with one line instead of a pip traceback.
+    if command -v krb5-config >/dev/null 2>&1 && command -v cc >/dev/null 2>&1; then
+        runuser -l memgraph -c "PIP_BREAK_SYSTEM_PACKAGES=1 $PYBIN -m pip install --user --no-cache-dir --no-warn-script-location gssapi==1.11.1" || \
+            echo "WARNING: python gssapi failed to build; Kerberos SSO will be unavailable." >&2
+    else
+        echo "NOTE: skipping python gssapi (only Kerberos SSO needs it); to enable," >&2
+        echo "      install krb5-devel and a C compiler, then as memgraph run:" >&2
+        echo "      $PYBIN -m pip install --user gssapi==1.11.1" >&2
+    fi
 fi
 @RPM_SYMLINK_POSTINSTALL@
 @CPACK_RPM_SPEC_POSTINSTALL@
@@ -134,6 +223,11 @@ echo "Don't forget to switch to the 'memgraph' user to use Memgraph" || exit 1
 %config(noreplace) "/etc/memgraph/apoc_compatibility_mappings.json"
 %config(noreplace) "/etc/memgraph/auth_module/ldap.example.yaml"
 %config(noreplace) "/etc/logrotate.d/memgraph"
+
+# Created by %%post when the embedded interpreter is repointed at a
+# non-default python (and by the memgraph-mage %%post); %%ghost so rpm owns
+# and removes it on erase without shipping it in the payload.
+%ghost /usr/lib/memgraph/libpython3.so
 
 @CPACK_RPM_USER_INSTALL_FILES@
 

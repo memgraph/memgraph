@@ -21,6 +21,8 @@
 #include <vector>
 
 #include <fmt/format.h>
+#include <boost/container/flat_set.hpp>
+#include <boost/container/small_vector.hpp>
 
 #include "utils/small_vector.hpp"
 

@@ -19,10 +19,6 @@ on:
         type: string
         description: "Memgraph Build type. Default value is Release."
         default: 'Release'
-      threads:
-        type: number
-        description: "Number of threads to use for Memgraph build. Default value is 24."
-        default: 24
       run_release_tests:
         type: string
         description: "Run all release tests. Default value is true."
@@ -41,9 +37,8 @@ on:
         value: ${{ jobs.aggregate_results.outputs.test_status }}
 env:
   OS: ${{ inputs.os }}
-  TOOLCHAIN: v7
+  TOOLCHAIN: v8
   ARCH: ${{ inputs.arch }}
-  THREADS: ${{ inputs.threads }}
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   BUILD_TYPE: ${{ inputs.build_type }}
@@ -106,13 +101,15 @@ jobs:
 
       - name: Build community binary
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 2.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph --community \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -131,7 +128,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
@@ -215,14 +211,16 @@ jobs:
 
       - name: Build coverage binaries
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.5)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           --no-ccache \
           build-memgraph --coverage \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -367,7 +365,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph leftover-CTest
@@ -378,7 +375,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           --enable-monitoring \
@@ -393,7 +389,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           --enable-monitoring \
@@ -408,7 +403,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           --enable-monitoring \
@@ -528,7 +522,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           --enable-monitoring \
@@ -614,13 +607,15 @@ jobs:
 
       - name: Build release binaries
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 2.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph --disable-jemalloc \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -654,7 +649,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
@@ -756,13 +750,15 @@ jobs:
 
       - name: Build release binaries
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 2.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -803,7 +799,6 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
@@ -906,13 +901,15 @@ jobs:
 
       - name: Build release binaries
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 2.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -1040,13 +1037,15 @@ jobs:
 
       - name: Build release binaries
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 2.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -1178,13 +1177,15 @@ jobs:
 
       - name: Build release binaries
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 2.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -1324,7 +1325,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set Jepsen OS
-        run: echo "OS=debian-12" >> $GITHUB_ENV
+        run: echo "OS=ubuntu-24.04" >> $GITHUB_ENV
 
       - name: Refresh Jepsen Cluster
         run: |
@@ -1349,13 +1350,15 @@ jobs:
 
       - name: Build release binaries
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 2.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -1523,13 +1526,15 @@ jobs:
 
       - name: Build release binaries
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 2.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -1649,12 +1654,15 @@ jobs:
 
       - name: Build release binaries
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 2.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD

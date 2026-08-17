@@ -45,7 +45,7 @@ env:
   OS: ${{ inputs.os }}
   PYTHON_BUILD_VERSION: ${{ inputs.python_build_version }}
   PYTHON_RUNTIME_VERSION: ${{ inputs.python_runtime_version }}
-  TOOLCHAIN: v7
+  TOOLCHAIN: v8
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}

@@ -90,10 +90,9 @@ def parse_file_os_arch(file, image_type):
             arch = f"{arch}-debuginfo"
 
         if is_rpm:
-            match = re.search(r"-1\.([a-z]+-\d+)\.(?:x86_64|aarch64)", file)
-            os = match.group(1) if match else "unknown"
+            os = "RPM"
         elif is_deb:
-            os = "ubuntu-24.04"
+            os = "DEB"
         else:
             os = f"Docker ({base_arch})"
 
@@ -116,7 +115,13 @@ def parse_file_os_arch(file, image_type):
         if "-debuginfo" in file:
             arch = f"{arch}-debuginfo"
 
-        os = file.split("/")[3].replace("-malloc", "").replace("-aarch64", "").replace("-relwithdebinfo", "")
+        # `os` is not really an OS anymore - it's basically a packaging format
+        os_path = file.split("/")[3].replace("-malloc", "").replace("-aarch64", "").replace("-relwithdebinfo", "")
+        os = "unknown"
+        for substr in ["docker", "rpm", "deb"]:
+            if substr in os_path:
+                os = substr
+                break
     else:
         raise ValueError(f"Unsupported image_type: {image_type}")
 
@@ -154,6 +159,10 @@ def build_package_json(files: List[str], return_url: bool = True, image_type: st
             url = quote(f"https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/{file}", safe=":/")
         else:
             url = file
+
+        # skip .tsv - this is used for tracking debug info for releases
+        if url.endswith(".tsv"):
+            continue
 
         os, arch = parse_file_os_arch(file, image_type)
 

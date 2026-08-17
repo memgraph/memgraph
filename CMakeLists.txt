@@ -233,6 +233,7 @@ find_package(GTest REQUIRED)
 find_package(fmt REQUIRED)
 find_package(Boost REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(libuuid REQUIRED)
 
 if(MG_BUILD_MEMGRAPH)
     find_package(ApprovalTests REQUIRED)

@@ -20,8 +20,11 @@ set -e
 case "$1" in
     configure)
         # Add the 'memgraph' user and group and set permissions on
-        # 'var/*/memgraph' directories.
-        adduser --quiet --system --group --home /var/lib/memgraph --no-create-home --shell /bin/bash memgraph || exit 1
+        # 'var/*/memgraph' directories. useradd (essential passwd package)
+        getent group memgraph >/dev/null || groupadd --system memgraph || exit 1
+        getent passwd memgraph >/dev/null || \
+            useradd --system --gid memgraph --home-dir /var/lib/memgraph \
+                --no-create-home --shell /bin/bash memgraph || exit 1
         echo "Don't forget to switch to the 'memgraph' user to use Memgraph" || exit 1
         chown memgraph:memgraph /var/lib/memgraph || exit 1
         chmod 750 /var/lib/memgraph || exit 1
@@ -45,13 +48,76 @@ case "$1" in
         # highest-numbered installed libpython3.X.so.1.0. The glob covers the
         # multiarch dir (e.g. x86_64-linux-gnu), /usr/lib64 and /usr/lib without
         # needing dpkg-architecture (dpkg-dev is not present on runtime hosts).
-        target="$(ls -1 /usr/lib/*/libpython3.*.so.1.0 /usr/lib64/libpython3.*.so.1.0 /usr/lib/libpython3.*.so.1.0 2>/dev/null | sort -V | tail -1)"
+        # Prefer the libpython matching the default python3: the pip install
+        # below fills that version's site-packages, and the embedded
+        # interpreter must read the same ones. Fall back to the newest
+        # installed libpython only if the matching one is absent.
+        pyver="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+        target="$(ls -1 /usr/lib/*/libpython${pyver}.so.1.0 /usr/lib64/libpython${pyver}.so.1.0 /usr/lib/libpython${pyver}.so.1.0 2>/dev/null | head -1)"
+        if [ -z "$target" ]; then
+            target="$(ls -1 /usr/lib/*/libpython3.*.so.1.0 /usr/lib64/libpython3.*.so.1.0 /usr/lib/libpython3.*.so.1.0 2>/dev/null | sort -V | tail -1)"
+        fi
         if [ -n "$target" ]; then
             libdir="$(dirname "$target")"
             # Skip (leave as-is) if something already provides libpython3.so.
             if [ ! -e "$libdir/libpython3.so" ]; then
                 ln -sf "$(basename "$target")" "$libdir/libpython3.so"
                 ldconfig || true
+            fi
+        fi
+
+        # Python deps for the bundled query modules (nxalg, wcc,
+        # graph_analyzer, node2vec_online, ...) and the auth/SSO modules,
+        # pinned to the versions validated by the package smoke tests
+        # (release/package/mgbuild.sh). numpy/scipy/pyyaml/xmlsec pins step
+        # up with the Python version — the older pins ship no wheels for
+        # newer interpreters (e.g. nothing below numpy 2.3 has cp314 wheels).
+        # Installed --user as memgraph so the embedded interpreter (which
+        # runs as memgraph) imports them from /var/lib/memgraph/.local.
+        # MG_SKIP_PYTHON_DEPS=1 skips this whole phase — used by the docker
+        # image build (release/docker/v8_deb.dockerfile), which pre-installs
+        # the deps in its python-base stage and copies them into the image.
+        if [ "${MG_SKIP_PYTHON_DEPS:-}" = "1" ]; then
+            echo "NOTE: MG_SKIP_PYTHON_DEPS=1 — skipping python query module deps install." >&2
+        else
+            pyminor="$(python3 -c 'import sys; print(sys.version_info[1])')"
+            numpy_version="1.26.4"; scipy_version="1.13.0"
+            pyyaml_version="6.0.1"; xmlsec_version="1.3.16"
+            if [ "$pyminor" -ge 14 ]; then
+                numpy_version="2.5.1"; scipy_version="1.18.0"
+                pyyaml_version="6.0.3"; xmlsec_version="1.3.17"
+            elif [ "$pyminor" -eq 13 ]; then
+                numpy_version="2.1.0"; scipy_version="1.15.0"
+            fi
+            pip_packages="cryptography==49.0.0 PyJWT==2.13.0 requests==2.32.5 \
+ldap3==2.6 pyyaml==$pyyaml_version python3-saml==1.16.0 lxml==6.1.0 \
+xmlsec==$xmlsec_version numpy==$numpy_version scipy==$scipy_version \
+networkx==3.4.2"
+            # Failure stays hard unless MEMGRAPH_OFFLINE_INSTALL=1 (the .run
+            # installer pre-installs the wheels; see release/mage/postinst.in).
+            if ! su - memgraph -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --no-cache-dir --no-warn-script-location $pip_packages"; then
+                if [ "${MEMGRAPH_OFFLINE_INSTALL:-}" = "1" ]; then
+                    echo "WARNING: pip install of query module python deps failed;" >&2
+                    echo "         tolerated because MEMGRAPH_OFFLINE_INSTALL=1." >&2
+                else
+                    echo "ERROR: failed to install python deps for query modules." >&2
+                    echo "       Check network connectivity and pip configuration, then retry." >&2
+                    echo "       If the deps are provided by other means: MEMGRAPH_OFFLINE_INSTALL=1" >&2
+                    echo "       tolerates this failure (deps pre-installed, e.g. bundled wheels)," >&2
+                    echo "       and MG_SKIP_PYTHON_DEPS=1 skips the pip phase entirely." >&2
+                    exit 1
+                fi
+            fi
+            # gssapi (Kerberos SSO only) ships no PyPI wheels; only attempt
+            # the source build when its prerequisites are already present, so
+            # the common case skips with one line instead of a pip traceback.
+            if command -v krb5-config >/dev/null 2>&1 && command -v cc >/dev/null 2>&1; then
+                su - memgraph -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --no-cache-dir --no-warn-script-location gssapi==1.11.1" || \
+                    echo "WARNING: python gssapi failed to build; Kerberos SSO will be unavailable." >&2
+            else
+                echo "NOTE: skipping python gssapi (only Kerberos SSO needs it); to enable," >&2
+                echo "      install libkrb5-dev and a C compiler, then as memgraph run:" >&2
+                echo "      python3 -m pip install --user gssapi==1.11.1" >&2
             fi
         fi
     ;;

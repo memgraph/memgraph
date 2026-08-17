@@ -22,13 +22,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
   && rm -rf /var/lib/apt/lists/*
 
 # Set up build dependencies and environment via provided scripts
-# Uses TARGETARCH to choose appropriate scripts
 RUN cd /memgraph && \
-    if [ "$TARGETARCH" = "amd64" ]; then \
-      ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \
-    else \
-      ./environment/os/ubuntu-24.04-arm.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \
-    fi
+    ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS && \
+    ./environment/os/ubuntu-24.04.sh install MEMGRAPH_BUILD_DEPS
 
 # Create a build user
 RUN useradd --create-home --shell /bin/bash memgraph \

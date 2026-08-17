@@ -19,6 +19,8 @@
 // single-best and multi-alt cost-result types).
 
 #include <gtest/gtest.h>
+#include <boost/container/flat_set.hpp>
+#include <boost/container/small_vector.hpp>
 
 #include <algorithm>
 #include <set>

@@ -4,29 +4,30 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 # Source the util.sh file to get the parse_operating_system function
 source "$SCRIPT_DIR/../util.sh"
 
-SUPPORTED_OS=(
-    all
-    centos-9 centos-10
-    debian-12 debian-12-arm debian-13 debian-13-arm
-    fedora-42 fedora-42-arm
-    rocky-10
-    ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
+# Distro scripts no longer exposed through install_deps.sh (the files remain
+# and can still be run directly).
+DEPRECATED_OS=(
+    ubuntu-20.04
 )
+
+# Every distro script in this directory is a supported OS; the filename is
+# the OS name.
+SUPPORTED_OS=()
+for script in "$SCRIPT_DIR"/*.sh; do
+    name="$(basename "$script" .sh)"
+    case "$name" in
+        lib|install_deps|template|test|run) continue ;;
+    esac
+    for deprecated in "${DEPRECATED_OS[@]}"; do
+        [[ "$name" == "$deprecated" ]] && continue 2
+    done
+    SUPPORTED_OS+=("$name")
+done
 
 # Define toolchain download URLs for supported OS and architectures
 declare -A TOOLCHAIN_URLS=(
-    [centos-9]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-centos-9-x86_64.tar.gz"
-    [centos-10]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-centos-10-x86_64.tar.gz"
-    [debian-12]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-debian-12-amd64.tar.gz"
-    [debian-12-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-debian-12-arm64.tar.gz"
-    [debian-13]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-debian-13-amd64.tar.gz"
-    [debian-13-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-debian-13-arm64.tar.gz"
-    [fedora-42]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-fedora-42-amd64.tar.gz"
-    [fedora-42-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-fedora-42-arm64.tar.gz"
-    [rocky-10]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-rocky-10-amd64.tar.gz"
-    [ubuntu-22.04]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-ubuntu-22.04-amd64.tar.gz"
-    [ubuntu-24.04]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-ubuntu-24.04-amd64.tar.gz"
-    [ubuntu-24.04-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-ubuntu-24.04-arm64.tar.gz"
+    [x86_64]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-x86_64.tar.gz"
+    [aarch64]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-aarch64.tar.gz"
 )
 
 # Parse command line arguments to extract --set-os flag
@@ -57,6 +58,9 @@ Commands:
 Dependency sets:
     TOOLCHAIN_RUN_DEPS       Dependencies required for the toolchain runtime.
     MEMGRAPH_BUILD_DEPS      Dependencies required for building Memgraph.
+    MEMGRAPH_TEST_DEPS       Extra dependencies (on top of MEMGRAPH_BUILD_DEPS)
+                             required to run the test suites.
+    MEMGRAPH_RUN_DEPS        Dependencies required to run a Memgraph package.
 
 Examples:
     sudo ./install_deps.sh prepare TOOLCHAIN_RUN_DEPS
@@ -92,7 +96,8 @@ run_script() {
 # New function for 'prepare' command to download and extract the toolchain
 prepare_toolchain() {
     local os_arch="$1"
-    local toolchain_url="${TOOLCHAIN_URLS[$os_arch]}"
+    local toolchain_arch=$([[ "$(uname -m)" == "aarch64" ]] && echo "aarch64" || echo "x86_64")
+    local toolchain_url="${TOOLCHAIN_URLS[$toolchain_arch]}"
 
     if [ -z "$toolchain_url" ]; then
         echo "No toolchain URL found for $os_arch. Please ensure your OS and architecture are supported."
@@ -100,7 +105,7 @@ prepare_toolchain() {
     fi
 
     echo "Setting up toolchain for $os_arch..."
-    curl -L "$toolchain_url" --output /tmp/toolchain.tar.gz || {
+    curl -fL --proto '=https' --proto-redir '=https' "$toolchain_url" --output /tmp/toolchain.tar.gz || {
         echo "Failed to download toolchain. Please check your internet connection or the URL and try again."
         exit 1
     }
@@ -143,24 +148,10 @@ else
     exit 1
 fi
 
-ARCH=$(uname -m)
-case $ARCH in
-    arm*|aarch64)
-        ARCH="arm"
-        ;;
-    *)
-        ARCH=""
-        ;;
-esac
-
-# Normalize OS name to lowercase
+# Normalize OS name to lowercase. One distro script serves every
+# architecture, so the OS identifier carries no arch suffix.
 OS=$(echo "$OS" | tr '[:upper:]' '[:lower:]')
-
-if [[ -z "$ARCH" ]]; then
-    OS_ARCH="${OS}-${VER}"
-else
-    OS_ARCH="${OS}-${VER}-${ARCH}"
-fi
+OS_ARCH="${OS}-${VER}"
 
 OS_ARCH_SCRIPT="${OS_ARCH}.sh"
 

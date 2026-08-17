@@ -160,10 +160,9 @@ CPACK_LOG="$OUTPUT_DIR/cpack.log"
 ) 2>&1 | tee "$CPACK_LOG"
 
 # CPack can drop a component whose rpmbuild/dpkg-deb run fails (logging the
-# error only at debug verbosity) and still exit 0 — e.g. the memgraph rpm's
-# `BuildRequires: systemd` is unsatisfiable on a Debian-family host, which
-# silently yields only the debuginfo rpm. One component maps to one package
-# here, so require exactly that many.
+# error only at debug verbosity) and still exit 0, silently yielding fewer
+# packages than requested. One component maps to one package here, so
+# require exactly that many.
 expected=$(awk -F';' '{print NF}' <<< "$COMPONENTS")
 generated=$(grep -c "CPack: - package: .* generated\." "$CPACK_LOG" || true)
 if [[ "$generated" -ne "$expected" ]]; then

@@ -24,13 +24,35 @@ on:
           - "amd"
           - "arm"
       memgraph_download_link:
-        description: "Memgraph package download link. Leave empty to use the official download link."
+        description: "Memgraph package download link (DEB). Leave empty to build memgraph inside the job."
+        default: ""
+        type: string
+      memgraph_rpm_download_link:
+        description: "Memgraph package download link (RPM)"
+        default: ""
+        type: string
+      memgraph_debuginfo_download_link:
+        description: "Memgraph debuginfo package download link (DEB). Required when memgraph_download_link is set (the debug MAGE image needs it)."
         default: ""
         type: string
       cuda:
         type: boolean
         description: "Build the image for CUDA"
         default: false
+      cugraph:
+        type: boolean
+        description: "Build the image for CuGraph"
+        default: false
+      build_docker_image:
+        type: choice
+        description: "MAGE docker image(s) to produce. 'default' applies the usual heuristic (debug image on ubuntu-24.04, none for rpm distros / cugraph)."
+        default: default
+        options:
+          - default
+          - none
+          - prod
+          - debug
+          - both
       push_to_s3:
         type: boolean
         description: "Push the image to S3?"
@@ -51,6 +73,18 @@ on:
         type: boolean
         description: "Run smoke tests on images after building"
         default: false
+      run_tests:
+        type: boolean
+        description: "Run MAGE tests (unit/e2e) after building"
+        default: false
+      os:
+        type: choice
+        description: Build container distro
+        default: ubuntu-24.04
+        # Only Python-3.12 distros are currently supported (MAGE's deps are
+        # cp312-only); see tools/ci/package_mage_setup.py for the full note.
+        options:
+          - ubuntu-24.04
 
 
 run-name: "Package MAGE"
@@ -69,12 +103,18 @@ jobs:
     with:
       build_arch: ${{ inputs.build_arch }}
       memgraph_download_link: ${{ inputs.memgraph_download_link }}
+      memgraph_rpm_download_link: ${{ inputs.memgraph_rpm_download_link }}
+      memgraph_debuginfo_download_link: ${{ inputs.memgraph_debuginfo_download_link }}
       cuda: ${{ inputs.cuda }}
+      cugraph: ${{ inputs.cugraph }}
+      build_docker_image: ${{ inputs.build_docker_image }}
       push_to_s3: ${{ inputs.push_to_s3 }}
       s3_dest_dir: ${{ inputs.s3_dest_dir }}
       matrix_build: ${{ inputs.matrix_build }}
       malloc: ${{ inputs.malloc }}
       run_smoke_tests: ${{ inputs.run_smoke_tests }}
+      run_tests: ${{ inputs.run_tests }}
+      os: ${{ inputs.os }}
       ref: ${{ needs.CallCreateStagingBranch.outputs.staging_branch }}
     secrets: inherit
 

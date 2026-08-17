@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <boost/container/flat_set.hpp>
+#include <boost/container/small_vector.hpp>
 
 #include "test_support/types.hpp"
 

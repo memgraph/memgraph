@@ -1,0 +1,31 @@
+{% set toolchain_path = os.getenv("MG_TOOLCHAIN_ROOT", "/opt/toolchain-v8") %}
+{% set target_arch = {"aarch64": "armv8"}.get(platform.machine(), platform.machine()) %}
+
+[settings]
+arch={{ target_arch }}
+compiler=clang
+compiler.cppstd=gnu23
+compiler.libcxx=libstdc++11
+compiler.version=22
+os=Linux
+
+{% set sysroot_path = os.path.join(toolchain_path, "sysroot") %}
+
+[conf]
+# NOTE: for cross-compilation, set tools.gnu:host_triplet (e.g. aarch64-unknown-linux-gnu).
+# The vendored Boost recipe passes it as <triple> to b2 for correct --target resolution.
+m4/*:tools.build:cflags=["-std=gnu17"]
+tools.cmake.cmaketoolchain:generator=Ninja
+tools.cmake.cmaketoolchain:user_toolchain=["{{ os.path.join(os.getcwd(), 'environment', 'toolchain', 'v8', 'toolchain.cmake') }}"]
+tools.build:compiler_executables={"c": "{{ os.path.join(toolchain_path, "bin/clang") }}", "cpp": "{{ os.path.join(toolchain_path, "bin/clang++") }}"}
+# --sysroot keeps every conan build (cmake- or autotools-based) compiling
+# against the toolchain's glibc 2.31 headers. Without this, autotools-only
+# packages (jemalloc, openssl, libuuid, libseccomp, curl, ...) pick up host
+# /usr/include and end up referencing host-glibc-2.38 symbols
+# (__isoc23_strtol, pthread_*@GLIBC_2.34, etc.).
+# --gcc-toolchain points clang at the bundled GCC's libdir so it finds
+# libstdc++, libgcc_s, libatomic.
+tools.build:cflags=["--sysroot={{ sysroot_path }}", "--gcc-toolchain={{ toolchain_path }}"]
+tools.build:cxxflags=["--sysroot={{ sysroot_path }}", "--gcc-toolchain={{ toolchain_path }}"]
+tools.build:sharedlinkflags=["--sysroot={{ sysroot_path }}", "--gcc-toolchain={{ toolchain_path }}"]
+tools.build:exelinkflags=["--sysroot={{ sysroot_path }}", "--gcc-toolchain={{ toolchain_path }}"]

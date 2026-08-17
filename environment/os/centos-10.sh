@@ -1,18 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-source "$DIR/../util.sh"
-
-# Parse command line arguments for --skip-check flag
-SKIP_CHECK=$(parse_skip_check_flag "$@")
-
-# Only run checks if --skip-check flag is not provided
-if [[ "$SKIP_CHECK" == false ]]; then
-    check_operating_system "centos-10"
-    check_architecture "x86_64"
-else
-    echo "Skipping checks for centos-10"
-fi
+source "$DIR/lib.sh"
 
 TOOLCHAIN_BUILD_DEPS=(
     wget # used for archive download
@@ -27,7 +16,6 @@ TOOLCHAIN_BUILD_DEPS=(
     libffi-devel libxml2-devel # for llvm
     libedit-devel pcre2-devel automake bison # for swig
     file gmp-devel gperf diffutils
-    libipt libipt-devel # intel
     patch
     custom-rust # for mgcxx
     libtool # for protobuf
@@ -40,248 +28,53 @@ TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz # used for archive unpacking
     zlib-ng-compat # zlib library used for all builds
-    expat xz-libs python3 # for gdb
-    readline # for cmake and llvm
-    libffi libxml2 # for llvm
-    openssl-devel
-    perl # for openssl
+    python3 # llvm helper scripts; gdb ships its own python via the sysroot
 )
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
+    gcc-c++ libstdc++-devel libstdc++-static # conan tool builds (ninja links -static-libstdc++)
     make cmake pkgconf-pkg-config # build system
-    wget # for downloading libs
-    libuuid-devel # required by antlr
-    readline-devel # for memgraph console
+    wget tar gzip # for downloading and unpacking libs (curl binary ships via curl-minimal)
+    perl # conan openssl's Configure
+    gperf # conan libseccomp source build
+    readline-devel # optional readline support (manual tests)
     python3-devel # for query modules
     patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
-    openssl-devel
-    libseccomp-devel
-    python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests
-    #
-    # IMPORTANT: python3-yaml does NOT exist on CentOS
-    # Install it manually using `pip3 install PyYAML`
-    #
-    PyYAML # Package name here does not correspond to the yum package!
-    libcurl-devel # mg-requests
+    openssl-devel # for mgconsole (cloned + built at package time)
+    python3 python3-pip python3-virtualenv # for conan (runs in a venv) and build tooling
+    python3-pyyaml
+    custom-rust
     rpm-build rpmlint # for RPM package building
-    which nodejs golang custom-golang # for driver tests
-    zip unzip java-21-openjdk-headless java-21-openjdk java-21-openjdk-devel custom-maven # for driver tests
-    sbcl # for custom Lisp C++ preprocessing
+    which # needed by various build and test scripts
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
-    cyrus-sasl-devel
     ninja-build
     krb5-devel # for building python gssapi (kerberos auth module)
 )
 
-MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
+# Extra packages on top of MEMGRAPH_BUILD_DEPS needed to run the test suites.
+MEMGRAPH_TEST_DEPS=(
+    nmap-ncat lsof # for qa, macro_benchmark and stress tests
+    nodejs golang custom-golang # for driver tests
+    zip unzip java-25-openjdk-headless java-25-openjdk java-25-openjdk-devel custom-maven # for driver tests and neo4j (macro benchmarks)
+    xmlsec1-devel xmlsec1-openssl-devel # pip xmlsec (SAML SSO) builds from source; no wheels since 1.3.15
+    sudo # stress tests set up passwordless sudo for mg (iptables)
+)
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp
     krb5-libs # runtime for python gssapi (kerberos auth module)
 )
 
-NEW_DEPS=(
-    wget curl tar gzip
-)
 
-list() {
-    local -n packages="$1"
-    printf '%s\n' "${packages[@]}"
-}
-
-check() {
-    local -n packages=$1
-    local missing=""
-    local missing_custom=""
-
-    # Separate standard and custom packages
-    local standard_packages=()
-    local custom_packages=()
-
-    for pkg in "${packages[@]}"; do
-        case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv)
-                custom_packages+=("$pkg")
-                ;;
-            *)
-                standard_packages+=("$pkg")
-                ;;
-        esac
-    done
-
-    # check if python3 is installed
-    if ! command -v python3 &>/dev/null; then
-        echo "python3 is not installed"
-        exit 1
-    fi
-
-    # Check standard packages with Python script
-    if [ ${#standard_packages[@]} -gt 0 ]; then
-        missing=$(python3 "$DIR/check-packages.py" "check" "centos-10" "${standard_packages[@]}")
-    fi
-
-    # Check custom packages with bash logic
-    for pkg in "${custom_packages[@]}"; do
-        missing_pkg=$(check_custom_package "$pkg" || true)
-        if [ $? -eq 0 ]; then
-            if [ -n "$missing_pkg" ]; then
-                missing_custom="$missing_pkg $missing_custom"
-            fi
-        else
-            case "$pkg" in
-                PyYAML)
-                    if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
-                        missing_custom="$pkg $missing_custom"
-                    fi
-                    ;;
-                python3-virtualenv)
-                    # Skip this as it's handled during installation
-                    ;;
-            esac
-        fi
-    done
-
-    # Combine missing packages
-    [ -n "$missing_custom" ] && missing="${missing:+$missing }$missing_custom"
-
-    if [ -n "$missing" ]; then
-        echo "MISSING PACKAGES: $missing"
-        exit 1
-    fi
-}
-
-install() {
-    if [ "$EUID" -ne 0 ]; then
-        echo "Please run as root."
-        exit 1
-    fi
-
-    local -n packages=$1
-
-    # If GitHub Actions runner is installed, append LANG to the environment.
-    # Python related tests doesn't work the LANG export.
-    if [ -d "/home/gh/actions-runner" ]; then
-        echo "LANG=en_US.utf8" >> /home/gh/actions-runner/.env
-    else
-        echo "NOTE: export LANG=en_US.utf8"
-    fi
-
-    # enable EPEL repo for rpmlint
-    dnf install -y epel-release
-
-    dnf install -y wget git python3 python3-pip
+setup_repos() {
     # CRB repo is required for, e.g. texinfo, ninja-build
     dnf config-manager --set-enabled crb
-
-    # Enable EPEL for additional packages
+    # EPEL is required for, e.g. rpmlint, python3-virtualenv
     dnf install -y epel-release
-
     # enable rpm fusion
     dnf install --nogpgcheck -y https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-10.noarch.rpm
-
-    # Separate standard and custom packages
-    local standard_packages=()
-    local custom_packages=()
-
-    for pkg in "${packages[@]}"; do
-        case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel|java-11-openjdk-headless|java-11-openjdk|java-11-openjdk-devel|java-17-openjdk-headless|java-17-openjdk|java-17-openjdk-devel|sbcl)
-                custom_packages+=("$pkg")
-                ;;
-            *)
-                standard_packages+=("$pkg")
-                ;;
-        esac
-    done
-
-    # Install standard packages with Python script
-    if [ ${#standard_packages[@]} -gt 0 ]; then
-        if ! python3 "$DIR/check-packages.py" "install" "centos-10" "${standard_packages[@]}"; then
-            echo "Failed to install standard packages"
-            exit 1
-        fi
-    fi
-
-    # Install custom packages with bash logic
-    install_custom_packages "${custom_packages[@]}"
-
-    # Handle non-custom packages that need special installation
-    for pkg in "${custom_packages[@]}"; do
-        case "$pkg" in
-            libipt)
-                if ! dnf list installed libipt >/dev/null 2>/dev/null; then
-                    dnf install -y https://dl.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/Packages/l/libipt-2.1.1-2.fc41.x86_64.rpm
-                fi
-                ;;
-            libipt-devel)
-                if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
-                    dnf install -y https://dl.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/Packages/l/libipt-devel-2.1.1-2.fc41.x86_64.rpm
-                fi
-                ;;
-            java-11-openjdk-headless)
-                if ! dnf list installed java-11-openjdk-headless >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-11-openjdk-headless-11.0.20.1.1-2.el9.x86_64.rpm
-                fi
-                ;;
-            java-11-openjdk)
-                if ! dnf list installed java-11-openjdk >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-11-openjdk-11.0.20.1.1-2.el9.x86_64.rpm
-                fi
-                ;;
-            java-11-openjdk-devel)
-                if ! dnf list installed java-11-openjdk-devel >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-11-openjdk-devel-11.0.20.1.1-2.el9.x86_64.rpm
-                fi
-                ;;
-            java-17-openjdk-headless)
-                if ! dnf list installed java-17-openjdk-headless >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-17-openjdk-headless-17.0.13.0.11-4.el9.x86_64.rpm
-                fi
-                ;;
-            java-17-openjdk)
-                if ! dnf list installed java-17-openjdk >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-17-openjdk-17.0.13.0.11-4.el9.x86_64.rpm
-                fi
-                ;;
-            java-17-openjdk-devel)
-                if ! dnf list installed java-17-openjdk-devel >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-17-openjdk-devel-17.0.13.0.11-4.el9.x86_64.rpm
-                fi
-                ;;
-            PyYAML)
-                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                    pip3 install --user PyYAML
-                else # Running using sudo.
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
-                fi
-                ;;
-            python3-virtualenv)
-                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                    pip3 install virtualenv
-                    pip3 install virtualenvwrapper
-                else # Running using sudo.
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
-                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
-                fi
-                ;;
-            sbcl)
-                if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
-                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/cl-asdf-20101028-27.el9.noarch.rpm
-                fi
-                if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
-                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/common-lisp-controller-7.4-29.el9.noarch.rpm
-                fi
-                if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
-                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/sbcl-2.3.11-3.el9~bootstrap.x86_64.rpm
-                fi
-                ;;
-            *)
-                # Skip packages that don't need special handling
-                ;;
-        esac
-    done
 }
 
-"$1" "$2"
+main "$@"

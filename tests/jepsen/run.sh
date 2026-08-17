@@ -70,6 +70,13 @@ GET_SHARED_LIBRARIES() {
             if [[ "$lib_path" == /* ]]; then
                 lib_path="$(realpath -m -s "$lib_path")"
             fi
+            # Never ship libpython to the nodes: the build dir stages the BUILD
+            # container's copy (newer glibc symbols than the Debian nodes), and
+            # the binary's $ORIGIN rpath would prefer it over the node's own.
+            # Each node gets its distro libpython instead — see ENSURE_NODE_LIBPYTHON.
+            if [[ "$(basename -- "$lib_path")" == libpython3* ]]; then
+                continue
+            fi
             # Skip "not found" and system libraries
             if [[ "$lib_path" != "not found" && "$lib_path" != "/lib"* && "$lib_path" != "/usr/lib"* ]]; then
                 # Check if the library is in the build directory
@@ -171,6 +178,38 @@ PROCESS_ARGS() {
     done
 }
 
+# The abi3 memgraph binary's DT_NEEDED is the unversioned `libpython3.so`; it
+# must resolve against the NODE's own distro libpython (a copy of the build
+# container's would carry newer-glibc symbol versions than the Debian nodes
+# provide). Install the node's libpython3.X shared library if absent and point
+# the `libpython3.so` SONAME at it. Idempotent; nodes are Debian-based.
+ENSURE_NODE_LIBPYTHON() {
+    local node="$1"
+    docker exec -u root "$node" bash -c '
+        set -euo pipefail
+        find_libpython() {
+            # ls exits non-zero when one glob has no match even if the other
+            # does; neutralize it or pipefail kills the script.
+            { ls /usr/lib/*/libpython3.*.so.1.0 /usr/lib/libpython3.*.so.1.0 2>/dev/null || true; } | sort -V | tail -1
+        }
+        target=$(find_libpython)
+        if [ -z "$target" ]; then
+            export DEBIAN_FRONTEND=noninteractive
+            v=$(python3 -c "import sys; print(\"%d.%d\" % sys.version_info[:2])")
+            apt-get update -qq
+            apt-get install -y -qq "libpython${v}"
+            target=$(find_libpython)
+        fi
+        if [ -z "$target" ]; then
+            echo "ERROR: no libpython3.X.so.1.0 found or installable in this node" >&2
+            exit 1
+        fi
+        ln -sf "$(basename "$target")" "$(dirname "$target")/libpython3.so"
+        ldconfig
+        echo "libpython3.so -> $target"
+    '
+}
+
 COPY_FILES() {
    # Copy Memgraph binary, handles both cases, when binary is a sym link
    # or a regular file.
@@ -221,6 +260,7 @@ COPY_FILES() {
          _binary_name="$binary_name"
        fi
        $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph/src/query"
+       ENSURE_NODE_LIBPYTHON "$jepsen_node_name"
         docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$_binary_name"
 
        # Copy all shared libraries to the appropriate location

@@ -287,6 +287,12 @@ DEFINE_string(cluster_ca_file, "",
               "The file used for storing certificate of the Certificate Authority you trust for intra-cluster TLS "
               "communication.");
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(ca_bundle_file, "",
+              "Path to a CA certificate bundle used to verify peers of outgoing HTTPS requests (e.g. LOAD CSV from "
+              "https URLs). When empty, well-known system trust-store locations are probed on the first outgoing "
+              "request and the result is cached for the lifetime of the process.");
+
 auto memgraph::flags::IsIntraClusterTLSEnabled() -> bool {
   return !FLAGS_cluster_cert_file.empty() && !FLAGS_cluster_key_file.empty() && !FLAGS_cluster_ca_file.empty();
 }

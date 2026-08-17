@@ -64,6 +64,11 @@ startup_config_dict = {
         "Neo4j/v5.11.0 compatible graph database server - Memgraph",
         "Server name which the database should send to the client in the Bolt INIT message.",
     ),
+    "ca_bundle_file": (
+        "",
+        "",
+        "Path to a CA certificate bundle used to verify peers of outgoing HTTPS requests (e.g. LOAD CSV from https URLs). When empty, well-known system trust-store locations are probed on the first outgoing request and the result is cached for the lifetime of the process.",
+    ),
     "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
     "cluster_ca_file": (
         "",

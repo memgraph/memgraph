@@ -65,6 +65,12 @@ if (MG_ENABLE_CUGRAPH)
   # toolchain's ld.lld.
   string(APPEND CMAKE_EXE_LINKER_FLAGS " -B${MG_TOOLCHAIN_ROOT}/bin")
   string(APPEND CMAKE_SHARED_LINKER_FLAGS " -B${MG_TOOLCHAIN_ROOT}/bin")
+  # The conan profile injects the clang-only --gcc-toolchain= driver flag
+  # into the global linker flags, and g++ rejects it — scrub it in this
+  # scope. clang-driven CXX links are unaffected: they receive the flag
+  # again through CMAKE_CXX_FLAGS on the link line.
+  string(REGEX REPLACE "--gcc-toolchain=[^ ]*" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+  string(REGEX REPLACE "--gcc-toolchain=[^ ]*" "" CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
 
   include(rapids-cuda)
   rapids_cuda_init_architectures("${MEMGRAPH_MAGE_PROJECT_NAME}")

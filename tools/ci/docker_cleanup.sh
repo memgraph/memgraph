@@ -72,6 +72,9 @@ remove_unwanted_images() {
         "memgraph/mgbuild:v7_ubuntu-24.04"
         "memgraph/mgbuild:v7_ubuntu-24.04-arm"
         "memgraph/mgbuild:v7_debian-12"
+        "memgraph/mgbuild:v8_ubuntu-24.04"
+        "memgraph/mgbuild:v8_ubuntu-24.04-arm"
+        "memgraph/mgbuild:v8_debian-12"
     )
 
     print_status "Removing unwanted images (preserving specific ones)..."

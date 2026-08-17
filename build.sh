@@ -34,6 +34,9 @@ OPTIONS:
 
 ENVIRONMENT VARIABLES:
     VENV_DIR                Path to Python virtual environment (default: env)
+    MG_PYTHON               Python interpreter to use (must be >= 3.10). By
+                            default the newest suitable python3/python3.X on
+                            PATH is picked automatically.
 
 CMAKE_ARGS:
     Any additional arguments are passed directly to CMake configuration.
@@ -225,6 +228,20 @@ source environment/util.sh
 DISTRO="$(operating_system)"
 echo "Distro: $DISTRO"
 
+# Resolve a Python >= 3.10 (the floor for every python invocation here and in
+# init-dev). Handles distros whose default python3 is older but ship a newer
+# versioned binary (e.g. centos-9: python3 = 3.9, python3.12 installed).
+PYTHON="$(resolve_python)" || exit 1
+export MG_PYTHON="$PYTHON"
+echo "Python: $PYTHON ($("$PYTHON" --version 2>&1))"
+
+# Rust (mgcxx) is installed via rustup into ~/.cargo. Login shells get it on
+# PATH from ~/.cargo/env via the shell profile, but CI / non-login shells
+# don't — source it here so `cargo` resolves in both.
+if ! command -v cargo >/dev/null 2>&1 && [[ -f "$HOME/.cargo/env" ]]; then
+    source "$HOME/.cargo/env"
+fi
+
 # Validate build type
 if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD_TYPE" != "Debug" ]]; then
     echo "Error: --build-type must be either 'Release', 'RelWithDebInfo', or 'Debug'"
@@ -232,7 +249,7 @@ if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD
 fi
 
 # Initialize arrays for arguments
-HOST_PROFILES=("-pr:h" "memgraph_toolchain_v7")
+HOST_PROFILES=("-pr:h" "memgraph_toolchain_v8")
 CONAN_COMMON_ARGS=(
   -pr:b memgraph_build_profile
   -s build_type="$BUILD_TYPE"
@@ -262,14 +279,21 @@ fi
 
 # run check for operating system dependencies
 if [[ "$skip_os_deps" = false ]]; then
-    if ! ./environment/os/install_deps.sh check TOOLCHAIN_RUN_DEPS; then
-        echo "Error: Dependency check failed for TOOLCHAIN_RUN_DEPS"
-        exit 1
-    fi
-    if ! ./environment/os/install_deps.sh check MEMGRAPH_BUILD_DEPS; then
-        echo "Error: Dependency check failed for MEMGRAPH_BUILD_DEPS"
-        exit 1
-    fi
+    # Hard requirements: without these the build itself fails.
+    for deps_group in TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; do
+        if ! ./environment/os/install_deps.sh check "$deps_group"; then
+            echo "Error: Dependency check failed for $deps_group"
+            exit 1
+        fi
+    done
+    # Not needed to compile — only to run the test suites / the built
+    # memgraph. Warn so the gap is visible, but don't block the build.
+    for deps_group in MEMGRAPH_TEST_DEPS MEMGRAPH_RUN_DEPS; do
+        if ! ./environment/os/install_deps.sh check "$deps_group"; then
+            echo "Warning: missing $deps_group packages (needed to run tests / memgraph itself);"
+            echo "         install with: sudo ./environment/os/install_deps.sh install $deps_group"
+        fi
+    done
 else
     echo "Skipping OS dependency checks"
 fi
@@ -282,11 +306,18 @@ bash ./init-dev "${DEV_SETUP_ARGS[@]}"
 
 if [[ -f "$VENV_DIR/bin/activate" ]]; then
     echo "Using existing virtual environment at $VENV_DIR"
+    # A venv created by an older interpreter keeps that version forever —
+    # reject it rather than fail later in subtler ways.
+    if ! "$VENV_DIR/bin/python" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+        echo "Error: $VENV_DIR uses $("$VENV_DIR/bin/python" --version 2>&1), but >= 3.10 is required." >&2
+        echo "Delete it (rm -rf $VENV_DIR) and re-run to recreate it with $PYTHON." >&2
+        exit 1
+    fi
     source "$VENV_DIR/bin/activate"
     trap 'deactivate 2>/dev/null' EXIT ERR
 else
     echo "Creating virtual environment and installing conan"
-    python3 -m venv "$VENV_DIR"
+    "$PYTHON" -m venv "$VENV_DIR"
     source "$VENV_DIR/bin/activate"
     trap 'deactivate 2>/dev/null' EXIT ERR
     pip install "conan>=2.26.0"
@@ -336,7 +367,7 @@ fi
 # generate dependency graph and exit early
 if [[ "$graph_info" = true ]]; then
     echo "Generating dependency graph -> graph.html"
-    MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan graph info . \
+    MG_TOOLCHAIN_ROOT="/opt/toolchain-v8" conan graph info . \
       "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
       --format=html > graph.html
     echo "Open graph.html in a browser to view the dependency graph"
@@ -348,7 +379,7 @@ if [[ "$update_lockfile" = true ]]; then
     echo "Updating conan.lock"
     # Resolve recipe revisions from remotes (including local-recipes-index),
     # not from any stale local cache export, so lockfiles stay portable.
-    MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan lock create . \
+    MG_TOOLCHAIN_ROOT="/opt/toolchain-v8" conan lock create . \
       "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
       --update \
       --lockfile="" \
@@ -356,7 +387,7 @@ if [[ "$update_lockfile" = true ]]; then
 fi
 
 # install conan dependencies
-MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install . --build=missing \
+MG_TOOLCHAIN_ROOT="/opt/toolchain-v8" conan install . --build=missing \
   "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}"
 
 source build/generators/conanbuild.sh

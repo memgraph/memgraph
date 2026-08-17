@@ -39,7 +39,13 @@ set(CPACK_DEBIAN_MEMGRAPH_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;")
-set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+# Auto-shlibdeps is OFF: dpkg-shlibdeps reads the build host's libc6.symbols
+# (which has `Build-Depends-Package: libc6-dev` forcing minimum to whatever
+# libc6 the build host ships), so building on Ubuntu 24.04 results in
+# `libc6 (>= 2.38)` regardless of the symbols the binary actually uses. The
+# binary itself is sysroot-clean (no symbols above GLIBC_2.31), so we write
+# Depends manually with a realistic libc6 floor instead.
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
 
 # Description formatting is important, summary must be followed with a newline and 1 space.
 set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
@@ -47,9 +53,37 @@ set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
  speed, simplicity and scale required to build the next generation of
  applications driver by real-time connected data.")
 
-# Add `openssl` package to dependencies list. Used to generate SSL certificates.
-# We also depend on `python3` because we embed it in Memgraph.
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "openssl (>= 1.1.0), python3 (>= 3.5.0)")
+# Explicit runtime deps. Format:
+#   libc6 (>= 2.31)           — matches the toolchain sysroot glibc floor.
+#   libstdc++6 (>= 9)         — std::filesystem in plain libstdc++ since GCC 9
+#                                (Ubuntu 20.04 LTS has libstdc++6 10).
+#   libgcc-s1                 — provides libgcc_s.so.1 (Ubuntu 20.04+).
+#   libatomic1                — NEEDED libatomic.so.1; absent on minimal images.
+#   openssl                   — CLI; pulls libssl{3,1.1} transitively, name
+#                                stable across libssl3 / libssl3t64.
+#   python3 (>= 3.5.0)        — interpreter for tooling around query modules;
+#                                does NOT pull libpython3.X on Debian/Ubuntu.
+#   python3-pip               — postinst pip-installs the query-module deps.
+#   ca-certificates           — TLS trust for pip (PyPI over https).
+#   libxmlsec1|libxmlsec1-1   — system lib for the pip xmlsec wheel (SAML SSO);
+#                                t64 name Provides libxmlsec1 on Ubuntu 24.04,
+#                                renamed libxmlsec1-1 from Ubuntu 26.04 (xmlsec
+#                                1.3 soname bump, no Provides).
+#   libkrb5-3                 — GSSAPI runtime for the gssapi wheel (Kerberos
+#                                SSO; the wheel itself is best-effort/offline).
+#   libpython3.10 | ... |3.14 — the binary links the unversioned abi3 SONAME
+#                                libpython3.so (needs >= 3.10); only versioned
+#                                runtime libs exist as packages, so pull one
+#                                and let postinst symlink libpython3.so to it
+#                                (t64 names Provide these). OLDEST FIRST: the
+#                                postinst pip-installs the query-module deps
+#                                with the default python3, and every distro's
+#                                default is its oldest >= 3.10 candidate (e.g.
+#                                jammy also carries 3.11 in universe — newest
+#                                first would embed 3.11 while pip fills 3.10's
+#                                site-packages, breaking the python modules).
+set(CPACK_DEBIAN_PACKAGE_DEPENDS
+    "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, libatomic1, openssl (>= 1.1.0), python3 (>= 3.5.0), python3-pip, ca-certificates, libxmlsec1 | libxmlsec1-1, libkrb5-3, libpython3.10 | libpython3.11 | libpython3.12 | libpython3.13 | libpython3.14")
 
 # Setting architecture extension for rpm packages
 set(MG_ARCH_EXTENSION_RPM "noarch")
@@ -86,14 +120,20 @@ the next generation of applications driver by real-time connected data.")
 # We also depend on `python3` because we embed it in Memgraph. `libatomic` is a
 # runtime dependency of the binary; since CPACK_RPM_PACKAGE_AUTOREQ is off
 # (above), soname deps aren't auto-detected and must be listed explicitly.
-set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, logrotate, libatomic")
+# python3-pip + util-linux (runuser) serve the %post pip install of the
+# query-module deps; xmlsec1/krb5-libs are the system libs behind the pip
+# xmlsec and gssapi packages (SAML / Kerberos SSO).
+set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, python3-pip, logrotate, libatomic, util-linux, xmlsec1, krb5-libs")
 
 # When memgraph is built against an explicit Python (currently CentOS Stream 9,
 # where it embeds python 3.12 instead of the distro-default 3.9 — see
-# -DMG_PYTHON_VERSION), require that interpreter's package so the embedded
-# libpython is present and the MAGE %post (which runs python<ver> -m pip) works.
+# -DMG_PYTHON_VERSION), require that interpreter's package (+ its pip) so the
+# embedded libpython is present and the %post pip installs target the
+# interpreter memgraph actually embeds. CPACK_-prefixed copy so the value is
+# serialized into CPackConfig.cmake and substituted into the spec template.
+set(CPACK_MG_PYTHON_VERSION "${MG_PYTHON_VERSION}")
 if(NOT "${MG_PYTHON_VERSION}" STREQUAL "")
-    set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "${CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES}, python${MG_PYTHON_VERSION}")
+    set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "${CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES}, python${MG_PYTHON_VERSION}, python${MG_PYTHON_VERSION}-pip")
 endif()
 
 # Configure CPack to build mgconsole using the unified install script.

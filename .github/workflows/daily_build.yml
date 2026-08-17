@@ -83,7 +83,6 @@ jobs:
     with:
       os: 'ubuntu-24.04'
       arch: amd
-      threads: 24
       build_type: 'RelWithDebInfo'
       run_release_tests: 'true'
       run_stress_large: 'true'
@@ -95,51 +94,27 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04]
-        arch: [amd]
-        additional_build_args: ['']
-        include:
-          - os: debian-12
-            arch: arm
-            additional_build_args: ''
-          - os: debian-13
-            arch: arm
-            additional_build_args: ''
-          - os: fedora-42
-            arch: arm
-            additional_build_args: ''
-          - os: ubuntu-24.04
-            arch: amd
-            additional_build_args: ''
-            build_docker_image: both
-          - os: ubuntu-24.04
-            arch: arm
-            additional_build_args: ''
-            build_docker_image: both
-          - os: ubuntu-24.04
-            arch: amd
-            additional_build_args: '--disable-jemalloc'
-          - os: ubuntu-24.04
-            arch: arm
-            additional_build_args: '--disable-jemalloc'
+        arch: [amd, arm]
+        additional_build_args: ['', '--disable-jemalloc']
     uses: ./.github/workflows/reusable_package.yaml
     with:
-      os: ${{ matrix.os }}
+      os: "ubuntu-24.04"
       arch: ${{ matrix.arch }}
       build_type: RelWithDebInfo
-      build_docker_image: ${{ matrix.build_docker_image || 'none' }}
+      build_docker_image: ${{ matrix.additional_build_args == '' && 'both' || 'debug' }}
       daily_build: true
       push_to_github: 'false'
       push_to_s3: 'true'
       print_output_url: true
       s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
       additional_build_args: ${{ matrix.additional_build_args }}
-      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.arch == 'amd' && matrix.additional_build_args == '' && matrix.build_docker_image == 'both') && true || false }}
+      generate_sbom: ${{ (matrix.arch == 'amd' && matrix.additional_build_args == '') && true || false }}
       run_smoke_tests: true
+      package_smoke_os: "all"
     secrets: inherit
 
   AggregateBuildTests:
-    if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests && !inputs.mock)) && always() }}
+    if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests && !inputs.mock)) && !cancelled() }}
     needs: [CurrentDateJob,TestBuild,DailyPackageArtifact]
     runs-on: [self-hosted]
     steps:
@@ -179,7 +154,7 @@ jobs:
 
   MemgraphVersionSetup:
     name: Resolve memgraph version for MAGE deb URLs
-    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
+    if: ${{ (github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
     runs-on: ubuntu-latest
     outputs:
       memgraph_version: ${{ steps.version.outputs.memgraph_version }}
@@ -207,7 +182,7 @@ jobs:
           echo "memgraph_version_rpm=$version_rpm" >> $GITHUB_OUTPUT
 
   BuildAndTestMAGE:
-    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
+    if: ${{ (github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
     name: Build and Test MAGE
     needs: [CurrentDateJob, DailyPackageArtifact, MemgraphVersionSetup]
     uses: ./.github/workflows/reusable_package_mage.yaml
@@ -220,80 +195,68 @@ jobs:
             malloc: false
             cuda: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "arm"
             build_docker_image: "both"
             malloc: false
             cuda: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "both"
             malloc: true
             cuda: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "arm"
             build_docker_image: "debug"
             malloc: true
             cuda: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "debug"
             cuda: true
             malloc: false
             cugraph: false
-            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "debug"
             cuda: false
             malloc: false
             cugraph: true
-            os: "ubuntu-24.04"
-          - build_arch: "amd"
-            build_docker_image: "none"
-            cuda: false
-            malloc: false
-            cugraph: false
-            os: "centos-9"
-          - build_arch: "amd"
-            build_docker_image: "none"
-            cuda: false
-            malloc: false
-            cugraph: false
-            os: "centos-10"
     with:
       arch: ${{ matrix.build_arch }}
       build_type: RelWithDebInfo
       build_docker_image: ${{ matrix.build_docker_image }}
       daily_build: true
-      os: ${{ matrix.os }}
+      os: ubuntu-24.04
       memgraph_download_link: >-
-        ${{ startsWith(matrix.os, 'centos') && format(
-          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}/memgraph-{3}-1.x86_64.rpm',
+        ${{ format(
+          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}-deb{3}/memgraph_{4}-1_{5}.deb',
           inputs.mock && '_mock' || '',
           needs.CurrentDateJob.outputs.current_date,
-          matrix.os,
-          needs.MemgraphVersionSetup.outputs.memgraph_version_rpm
-        ) || format(
-          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph_{4}-1_{5}.deb',
-          inputs.mock && '_mock' || '',
-          needs.CurrentDateJob.outputs.current_date,
+          matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
           matrix.malloc && '-malloc' || '',
-          matrix.build_arch == 'arm' && '-aarch64' || '',
           needs.MemgraphVersionSetup.outputs.memgraph_version_url,
           matrix.build_arch == 'arm' && 'arm64' || 'amd64'
         )}}
+      memgraph_rpm_download_link: >-
+        ${{
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}-rpm{3}/memgraph-{4}-1.{5}.rpm',
+            inputs.mock && '_mock' || '',
+            needs.CurrentDateJob.outputs.current_date,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
+            matrix.malloc && '-malloc' || '',
+            needs.MemgraphVersionSetup.outputs.memgraph_version_rpm,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64'
+          )
+        }}
       memgraph_debuginfo_download_link: >-
         ${{
           (matrix.build_docker_image == 'debug' || matrix.build_docker_image == 'both') &&
           format(
-            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph-debuginfo_{4}-1_{5}.deb',
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}-deb{3}/memgraph-debuginfo_{4}-1_{5}.deb',
             inputs.mock && '_mock' || '',
             needs.CurrentDateJob.outputs.current_date,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
             matrix.malloc && '-malloc' || '',
-            matrix.build_arch == 'arm' && '-aarch64' || '',
             needs.MemgraphVersionSetup.outputs.memgraph_version_url,
             matrix.build_arch == 'arm' && 'arm64' || 'amd64'
           ) || ''
@@ -308,11 +271,11 @@ jobs:
       run_tests: true
       package_mage: "default"
       upload_debug_symbols: true
-      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
+      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
     secrets: inherit
 
   AggregateMAGEBuildTests:
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     needs: [CurrentDateJob,BuildAndTestMAGE]
     runs-on: [self-hosted]
     steps:
@@ -354,7 +317,7 @@ jobs:
   SetupDailyBuildImageOutputs:
     name: Setup Daily Build Image Outputs
     needs: [CurrentDateJob, DailyPackageArtifact, BuildAndTestMAGE]
-    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests || !inputs.skip_stress_tests) }}
+    if: ${{ (github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests || !inputs.skip_stress_tests) }}
     runs-on: ubuntu-24.04
     outputs:
       amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
@@ -403,7 +366,7 @@ jobs:
   RunISSUTest:
     name: Run ISSU Tests
     needs: [SetupDailyBuildImageOutputs]
-    if: ${{ (github.event_name == 'schedule' && always() || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
+    if: ${{ (github.event_name == 'schedule' && !cancelled() || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
     uses: ./.github/workflows/reusable_issu_test.yaml
     strategy:
       fail-fast: false
@@ -431,7 +394,7 @@ jobs:
   StressTestsNativeStandalone:
     name: "Stress Tests Native Standalone"
     needs: [DailyPackageArtifact]
-    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
+    if: ${{ (github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: standalone/native
@@ -440,7 +403,7 @@ jobs:
   StressTestsNativeHA:
     name: "Stress Tests Native HA"
     needs: [DailyPackageArtifact]
-    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
+    if: ${{ (github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ha/native
@@ -449,7 +412,7 @@ jobs:
   StressTestsDockerHA:
     name: "Stress Tests Docker HA"
     needs: [SetupDailyBuildImageOutputs]
-    if: ${{ ((github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
+    if: ${{ ((github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ha/docker
@@ -459,7 +422,7 @@ jobs:
   StressTestsEKSHA:
     name: "Stress Tests EKS HA"
     needs: [SetupDailyBuildImageOutputs]
-    if: ${{ ((github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
+    if: ${{ ((github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ha/eks

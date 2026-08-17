@@ -57,7 +57,6 @@ jobs:
       s3_dest_dir: "stress-test/mage/${{ github.run_id }}"
       print_output_url: true
       run_tests: false
-      package_deb: "false"
     secrets: inherit
 
   stress_test_standalone:

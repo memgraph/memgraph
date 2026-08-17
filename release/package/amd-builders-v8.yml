@@ -1,0 +1,147 @@
+# Raise the core-dump size limit (ulimit -c) in every build container so a
+# Memgraph that crashes during a CI test actually writes a core into
+# /tmp/mg-cores for collection. Equivalent to `docker run --ulimit core=-1`;
+# without it the in-container soft limit is 0 and no core is produced. The
+# host's kernel.core_pattern (pointing at /tmp/mg-cores) is configured
+# out-of-band on the runners.
+x-mgbuild-ulimits: &mgbuild-ulimits
+  core:
+    soft: -1
+    hard: -1
+
+services:
+  # NOTE: build > context > args are injected via mgbuild.sh script.
+
+  mgbuild_v8_centos-9:
+    image: "memgraph/mgbuild:v8_centos-9"
+    build:
+      context: centos-9
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_centos-9"
+
+  mgbuild_v8_centos-10:
+    image: "memgraph/mgbuild:v8_centos-10"
+    build:
+      context: centos-10
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_centos-10"
+
+  mgbuild_v8_debian-12:
+    image: "memgraph/mgbuild:v8_debian-12"
+    build:
+      context: debian-12
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_debian-12"
+
+  mgbuild_v8_debian-13:
+    image: "memgraph/mgbuild:v8_debian-13"
+    build:
+      context: debian-13
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_debian-13"
+
+  mgbuild_v8_fedora-43:
+    image: "memgraph/mgbuild:v8_fedora-43"
+    build:
+      context: fedora-43
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_fedora-43"
+
+  mgbuild_v8_fedora-44:
+    image: "memgraph/mgbuild:v8_fedora-44"
+    build:
+      context: fedora-44
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_fedora-44"
+
+  mgbuild_v8_fedora-45:
+    image: "memgraph/mgbuild:v8_fedora-45"
+    build:
+      context: fedora-45
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_fedora-45"
+
+  mgbuild_v8_rocky-10:
+    image: "memgraph/mgbuild:v8_rocky-10"
+    build:
+      context: rocky-10
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_rocky-10"
+
+  mgbuild_v8_ubuntu-22.04:
+    image: "memgraph/mgbuild:v8_ubuntu-22.04"
+    build:
+      context: ubuntu-22.04
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_ubuntu-22.04"
+
+  mgbuild_v8_ubuntu-24.04:
+    image: "memgraph/mgbuild:v8_ubuntu-24.04"
+    build:
+      context: ubuntu-24.04
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    cap_add:
+      - NET_ADMIN
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_ubuntu-24.04"
+
+  mgbuild_v8_ubuntu-24.04-cugraph:
+    image: "memgraph/mgbuild:v8_ubuntu-24.04-cugraph"
+    build:
+      context: ubuntu-24.04-cugraph
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_ubuntu-24.04-cugraph"
+
+  mgbuild_v8_ubuntu-26.04:
+    image: "memgraph/mgbuild:v8_ubuntu-26.04"
+    build:
+      context: ubuntu-26.04
+      args:
+        TOOLCHAIN_VERSION: "v8"
+    extra_hosts:
+      - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
+    container_name: "mgbuild_v8_ubuntu-26.04"
