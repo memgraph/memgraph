@@ -403,7 +403,7 @@ LocalTime::LocalTime(const LocalTimeParameters &local_time_parameters) {
     throw temporal::InvalidArgumentException("Creating a LocalTime with a negative or overlarge sub-second parameter.");
   }
   const auto fraction =
-      local_time_parameters.millisecond * kMicrosecondsPerMillisecond + local_time_parameters.microsecond;
+      (local_time_parameters.millisecond * kMicrosecondsPerMillisecond) + local_time_parameters.microsecond;
   if (fraction >= kMicrosecondsPerSecond) {
     throw temporal::InvalidArgumentException(
         "Creating a LocalTime whose milliseconds and microseconds reach a whole second.");
