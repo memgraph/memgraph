@@ -219,6 +219,7 @@ nlohmann::json ToJson(const ExpressionRange &expression_range, const DbAccessor 
     }
     case PropertyFilter::Type::STARTS_WITH: {
       result["type"] = "StartsWith";
+      result["expression"] = ToJson(expression_range.lower_->value(), dba);
       break;
     }
     case PropertyFilter::Type::CONTAINS: {
