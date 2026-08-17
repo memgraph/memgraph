@@ -1663,9 +1663,12 @@ bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
 }
 
 // Instant components are named from most to least significant, and an omitted
-// one takes its lowest value. That default is only meaningful for a trailing
-// run: naming a component while a more significant one is missing would leave
-// part of the instant to a default the caller was in the middle of replacing.
+// one takes its lowest value. That default only makes sense for a trailing run:
+// naming a component while a more significant one is missing would mix an
+// explicit value with a defaulted one above it.
+//
+// Call this after the components have been mapped, so that an unrecognised name
+// is reported as such rather than as a gap between the ones understood.
 void EnsureNoOmittedSignificantComponent(std::initializer_list<std::string_view> components_by_significance,
                                          const auto &input_parameters) {
   std::string_view first_omitted;
@@ -1719,8 +1722,6 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
                                            std::pair{"month"sv, &date_parameters.month},
                                            std::pair{"day"sv, &date_parameters.day}};
 
-  // After the mapping, so an unrecognised key is reported as such rather than
-  // as a gap between the components that were understood.
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
   EnsureNoOmittedSignificantComponent({"year", "month", "day"}, args[0].ValueMap());
   return TypedValue(utils::Date(date_parameters), ctx.memory);
