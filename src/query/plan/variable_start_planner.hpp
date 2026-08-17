@@ -401,6 +401,7 @@ class VariableStartPlanner {
 
           RuleBasedPlanner<TPlanningContext> rule_planner(context);
           context->bound_symbols.clear();
+          context->scoped_call_imports.clear();
           return rule_planner.Plan(reconstructed_query_parts);
         },
         VaryQueryMatching(query_parts, *context_->symbol_table));

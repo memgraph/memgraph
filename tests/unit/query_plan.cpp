@@ -3082,6 +3082,217 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportSelfReferentialFilterNoIndex) {
   DeleteListContent(&branch);
 }
 
+// An import outlives a WITH that drops its name, so the next pattern expands from it, never re-scans.
+TYPED_TEST(TestPlanner, SubqueryScopedImportSurvivesIntermediateWith) {
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
+  FakeDbAccessor dba;
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                WITH("a"),
+                                MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("b"))),
+                                RETURN("a", "b"));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"m"}), RETURN("a", "b")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // No ExpectScanAll before the second ExpectExpand: `m` is still bound.
+  std::list<BaseOpChecker *> branch{new ExpectExpand(), new ExpectProduce(), new ExpectExpand(), new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+}
+
+// `CALL (*) { ... }` imports the same way, through all_variables_scoped_.
+TYPED_TEST(TestPlanner, SubqueryScopedAllImportSurvivesIntermediateWith) {
+  // MATCH (m) CALL (*) { MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
+  FakeDbAccessor dba;
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                WITH("a"),
+                                MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("b"))),
+                                RETURN("a", "b"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED_ALL(subquery), RETURN("a", "b")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> branch{new ExpectExpand(), new ExpectProduce(), new ExpectExpand(), new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+}
+
+// The legacy leading-WITH form imports nothing, so the name after the WITH is fresh and gets scanned.
+// Plans identically before and after the fix: this guards the intended divergence, not the defect.
+TYPED_TEST(TestPlanner, SubqueryLegacyImportDoesNotSurviveIntermediateWith) {
+  // MATCH (m) CALL { WITH m MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
+  FakeDbAccessor dba;
+  auto *subquery = SINGLE_QUERY(WITH("m"),
+                                MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                WITH("a"),
+                                MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("b"))),
+                                RETURN("a", "b"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(subquery), RETURN("a", "b")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> branch{new ExpectProduce(),
+                                    new ExpectExpand(),
+                                    new ExpectProduce(),
+                                    new ExpectScanAll(),
+                                    new ExpectExpand(),
+                                    new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+}
+
+// A nested `CALL (*) { ... }` builds its imports from the bound set, so the preserved one must reach it.
+TYPED_TEST(TestPlanner, SubqueryScopedImportReachesNestedScopedAllAfterWith) {
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a CALL (*) { MATCH (m)-[r2]-(b) RETURN b }
+  //                      RETURN a, b } RETURN a, b
+  FakeDbAccessor dba;
+  auto *nested = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("b"))), RETURN("b"));
+  auto *subquery = SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))), WITH("a"), CALL_SUBQUERY_SCOPED_ALL(nested), RETURN("a", "b"));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"m"}), RETURN("a", "b")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> nested_branch{new ExpectExpand(), new ExpectProduce()};
+  std::list<BaseOpChecker *> branch{
+      new ExpectExpand(), new ExpectProduce(), new ExpectApply(nested_branch), new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+  DeleteListContent(&nested_branch);
+}
+
+// The import keeps its outer symbol, so listing it in `optional_symbols_` would null the outer slot on a
+// miss - `Apply` shares the frame. Hence the assertion that only the edge and far node are listed.
+TYPED_TEST(TestPlanner, SubqueryScopedImportNotNulledByOptionalMatchAfterWith) {
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a OPTIONAL MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
+  FakeDbAccessor dba;
+  auto *opt_edge = EDGE("r2");
+  auto *opt_node = NODE("b");
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                WITH("a"),
+                                OPTIONAL_MATCH(PATTERN(NODE("m"), opt_edge, opt_node)),
+                                RETURN("a", "b"));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"m"}), RETURN("a", "b")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Only the edge and the far node are new; `m` stays bound, so it is never null-filled.
+  std::vector<Symbol> optional_symbols{symbol_table.at(*opt_edge->identifier_),
+                                       symbol_table.at(*opt_node->identifier_)};
+  std::list<BaseOpChecker *> optional_branch{new ExpectExpand()};
+  std::list<BaseOpChecker *> branch{new ExpectExpand(),
+                                    new ExpectProduce(),
+                                    new ExpectOptional(optional_symbols, optional_branch),
+                                    new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+  DeleteListContent(&optional_branch);
+}
+
+// A nested legacy `CALL { WITH ... }` clears the import set; without the restore the next WITH drops it.
+TYPED_TEST(TestPlanner, SubqueryScopedImportRestoredAfterNestedLegacySubquery) {
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) CALL { WITH a MATCH (a)-[r3]-(c) RETURN c }
+  //                      WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
+  FakeDbAccessor dba;
+  auto *nested = SINGLE_QUERY(WITH("a"), MATCH(PATTERN(NODE("a"), EDGE("r3"), NODE("c"))), RETURN("c"));
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                CALL_SUBQUERY(nested),
+                                WITH("a"),
+                                MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("b"))),
+                                RETURN("a", "b"));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"m"}), RETURN("a", "b")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // No ExpectScanAll before the last ExpectExpand: `m` is bound again once the nested body is planned.
+  std::list<BaseOpChecker *> nested_branch{new ExpectProduce(), new ExpectExpand(), new ExpectProduce()};
+  std::list<BaseOpChecker *> branch{
+      new ExpectExpand(), new ExpectApply(nested_branch), new ExpectProduce(), new ExpectExpand(), new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+  DeleteListContent(&nested_branch);
+}
+
+// A named expression may redeclare an import's name; the import must stay suppressed, not coexist with
+// the shadow. Plans identically before and after the fix - it guards `GenWith`'s shadow check, without
+// which `WITH *` projects `m` twice.
+TYPED_TEST(TestPlanner, SubqueryScopedImportShadowedByNamedExpressionIsNotProjectedTwice) {
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a, a AS m WITH * RETURN a } RETURN a
+  FakeDbAccessor dba;
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                WITH(NEXPR("a", IDENT("a")), NEXPR("m", IDENT("a"))),
+                                WITH("*"),
+                                RETURN("a"));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"m"}), RETURN("a")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> branch{
+      new ExpectExpand(), new ExpectProduce(), new ExpectProduceColumns({"a", "m"}), new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+}
+
+// An unshadowed import is still in scope at a trailing `RETURN *`, so `*` projects it as a column.
+TYPED_TEST(TestPlanner, SubqueryScopedImportProjectedByReturnStarAfterWith) {
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a RETURN * } RETURN a
+  FakeDbAccessor dba;
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))), WITH("a"), RETURN("*"));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"m"}), RETURN("a")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> branch{new ExpectExpand(), new ExpectProduce(), new ExpectProduceColumns({"a", "m"})};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+}
+
+// The import set is not reset per query part, so every UNION branch keeps it, as SymbolGenerator does.
+TYPED_TEST(TestPlanner, SubqueryScopedImportSurvivesIntermediateWithInEveryUnionBranch) {
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN b
+  //                      UNION ALL
+  //                      MATCH (m)-[r3]-(c) WITH c MATCH (m)-[r4]-(d) RETURN d AS b } RETURN b
+  FakeDbAccessor dba;
+  auto *subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                      WITH("a"),
+                                      MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("b"))),
+                                      RETURN("b")),
+                         UNION_ALL(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r3"), NODE("c"))),
+                                                WITH("c"),
+                                                MATCH(PATTERN(NODE("m"), EDGE("r4"), NODE("d"))),
+                                                RETURN(NEXPR("b", IDENT("d"))))));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"m"}), RETURN("b")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Neither branch re-scans `m`.
+  std::list<BaseOpChecker *> left_branch{
+      new ExpectExpand(), new ExpectProduce(), new ExpectExpand(), new ExpectProduce()};
+  std::list<BaseOpChecker *> right_branch{
+      new ExpectExpand(), new ExpectProduce(), new ExpectExpand(), new ExpectProduce()};
+  std::list<BaseOpChecker *> branch{new ExpectUnion(left_branch, right_branch)};
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(branch), ExpectProduce());
+  DeleteListContent(&branch);
+  DeleteListContent(&left_branch);
+  DeleteListContent(&right_branch);
+}
+
 TYPED_TEST(TestPlanner, PatternComprehensionInReturn) {
   FakeDbAccessor dba;
   const auto prop = PROPERTY_PAIR(dba, "prop");

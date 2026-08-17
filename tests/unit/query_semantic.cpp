@@ -1720,6 +1720,45 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryCorrelatesItsOwnSc
       << "a name declared inside the subquery is in scope there, so shadowing must not fire";
 }
 
+// Pins the premise the planner fix rests on: `VisitReturnBody` re-injects the import rather than
+// minting a new symbol for it.
+TYPED_TEST(TestSymbolGenerator, ScopedCallImportKeepsItsSymbolAcrossIntermediateWith) {
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
+  auto *outer_m = NODE("m");
+  auto *post_with_m = NODE("m");
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                WITH("a"),
+                                MATCH(PATTERN(post_with_m, EDGE("r2"), NODE("b"))),
+                                RETURN("a", "b"));
+  auto *call_sub = CALL_SUBQUERY(subquery);
+  call_sub->has_variable_scope_ = true;
+  call_sub->scoped_variables_.push_back(NEXPR("m", IDENT("m")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_m)), call_sub, RETURN("a", "b")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_EQ(symbol_table.at(*outer_m->identifier_), symbol_table.at(*post_with_m->identifier_))
+      << "the import survives the WITH as the same symbol, so it names the outer frame slot";
+}
+
+// The legacy form declares a fresh symbol instead, which is why the planner clears its import set there.
+TYPED_TEST(TestSymbolGenerator, LegacyCallImportDoesNotKeepItsSymbolAcrossIntermediateWith) {
+  // MATCH (m) CALL { WITH m MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
+  auto *outer_m = NODE("m");
+  auto *post_with_m = NODE("m");
+  auto *subquery = SINGLE_QUERY(WITH("m"),
+                                MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                WITH("a"),
+                                MATCH(PATTERN(post_with_m, EDGE("r2"), NODE("b"))),
+                                RETURN("a", "b"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_m)), CALL_SUBQUERY(subquery), RETURN("a", "b")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_NE(symbol_table.at(*outer_m->identifier_), symbol_table.at(*post_with_m->identifier_))
+      << "the legacy form imports nothing, so the name after the WITH is declared afresh";
+}
+
 TYPED_TEST(TestSymbolGenerator, PatternComprehensionAtTopLevelCorrelatesToABoundName) {
   // MATCH (zz) RETURN [(zz)-->() | 1] AS k
   // Outside a subquery there is no boundary to shadow against, so a bound name in a comprehension pattern must resolve
