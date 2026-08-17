@@ -658,7 +658,7 @@ struct mgp_vertex {
   using VertexImpl = std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor,
                                   memgraph::query::VirtualNode>;
 
-  // dispatches on graph->impl: real arms use VertexAccessor / SubgraphVertexAccessor,
+  // dispatches on graph->CheckedImpl(): real arms use VertexAccessor / SubgraphVertexAccessor,
   // virtual arm wraps tv.ValueVirtualNode().
   static mgp_vertex *FromTypedValue(const memgraph::query::TypedValue &tv, mgp_graph *graph, allocator_type alloc);
 
@@ -845,12 +845,22 @@ struct mgp_graph {
         this->impl);
   }
 
+  /// The variant itself, once there is known to be an accessor behind it. Reading `impl` directly skips
+  /// that check, and most of the C API reads it directly to tell the three accessor kinds apart.
+  [[nodiscard]] auto const &CheckedImpl() const {
+    RequireGraph();
+    return impl;
+  }
+
   [[nodiscard]] memgraph::query::DbAccessor *getImpl() const {
-    auto *impl = TryGetImpl();
-    if (impl == nullptr) [[unlikely]] {
+    RequireGraph();
+    return TryGetImpl();
+  }
+
+  void RequireGraph() const {
+    if (TryGetImpl() == nullptr) [[unlikely]] {
       throw std::logic_error{"Procedure reached for the graph, but it declared that it needs none."};
     }
-    return impl;
   }
 
   /// A stand-in for the graph a procedure declared it does not need, so that one can run with no storage
@@ -973,7 +983,7 @@ struct mgp_properties_iterator {
           [this](const auto *impl) {
             return memgraph::utils::pmr::string(impl->PropertyToName(current_it->first), alloc);
           },
-          graph->impl);
+          graph->CheckedImpl());
 
       current.emplace(value,
                       mgp_value(current_it->second, graph->getImpl()->GetStorageAccessor()->GetNameIdMapper(), alloc));
@@ -1029,7 +1039,7 @@ struct mgp_vertices_iterator {
   using virtual_node_map_t =
       memgraph::utils::pmr::unordered_map<memgraph::storage::Gid, std::shared_ptr<const memgraph::query::VirtualNode>>;
 
-  // single-valued cursor; chosen once at ctor based on graph->impl's variant arm.
+  // single-valued cursor; chosen once at ctor based on graph->CheckedImpl()'s variant arm.
   // monostate is the default; the ctor assigns one of the two live arms.
   struct RealCursor {
     memgraph::query::VerticesIterable vertices;

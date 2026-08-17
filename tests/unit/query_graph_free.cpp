@@ -141,10 +141,12 @@ TEST_F(GraphFreeTest, ExpressionsThatReachStorage) {
 TEST_F(GraphFreeTest, ProjectingEverythingNeedsTheGraph) { ExpectNeedsGraph("WITH 1 AS x RETURN *"); }
 
 TEST_F(GraphFreeTest, ModifiersNeedATransaction) {
-  ExpectNeedsGraph("RETURN 1 QUERY MEMORY LIMIT 1MB");
   ExpectNeedsGraph("USING HOPS LIMIT 1 RETURN 1");
   ExpectNeedsGraph("USING PERIODIC COMMIT 1 UNWIND [1] AS x RETURN x");
 }
+
+// A memory limit is enforced by a tracker the query execution owns, so it does not need a transaction.
+TEST_F(GraphFreeTest, MemoryLimitIsStillGraphFree) { ExpectGraphFree("RETURN 1 QUERY MEMORY LIMIT 1MB"); }
 
 // Memgraph strips literals into parameters before planning a cacheable query, so the analysis sees
 // ParameterLookup where the text had a literal. Both readings must agree.

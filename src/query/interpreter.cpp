@@ -3602,8 +3602,9 @@ struct TxTimeout {
 struct PullPlan {
   explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                    storage::DatabaseProtectorPtr protector, metrics::DatabaseMetricHandles &metric_handles,
+                    utils::QueryMemoryTracker *fallback_memory_tracker, std::shared_ptr<QueryUserOrRole> user_or_role,
+                    StoppingContext stopping_context, storage::DatabaseProtectorPtr protector,
+                    metrics::DatabaseMetricHandles &metric_handles,
                     FineGrainedAuthChecker const *auth_checker = nullptr,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
@@ -3642,16 +3643,17 @@ struct PullPlan {
   // manually by using this flag.
   bool has_unsent_results_ = false;
   metrics::DatabaseMetricHandles *metric_handles_;
+  utils::QueryMemoryTracker *fallback_memory_tracker_;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                   std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                   storage::DatabaseProtectorPtr protector, metrics::DatabaseMetricHandles &metric_handles,
-                   FineGrainedAuthChecker const *auth_checker, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
-                   const std::optional<int64_t> hops_limit, utils::PriorityThreadPool *worker_pool,
-                   memory::ArenaPool *db_arena_pool
+                   utils::QueryMemoryTracker *fallback_memory_tracker, std::shared_ptr<QueryUserOrRole> user_or_role,
+                   StoppingContext stopping_context, storage::DatabaseProtectorPtr protector,
+                   metrics::DatabaseMetricHandles &metric_handles, FineGrainedAuthChecker const *auth_checker,
+                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
+                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
+                   utils::PriorityThreadPool *worker_pool, memory::ArenaPool *db_arena_pool
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
@@ -3666,7 +3668,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       user_resource_{std::move(user_resource)}
 #endif
       ,
-      metric_handles_(&metric_handles) {
+      metric_handles_(&metric_handles),
+      fallback_memory_tracker_(fallback_memory_tracker) {
   ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
   ctx_.metric_handles = &metric_handles;
   if (hops_limit) {
@@ -3716,16 +3719,16 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
-  // No transaction, so no transaction memory tracker. Whatever would need one keeps its transaction.
-  auto *memory_tracker = ctx_.db_accessor != nullptr ? &ctx_.db_accessor->GetTransactionMemoryTracker() : nullptr;
-  if (memory_tracker != nullptr) {
-    // Single query memory limit
-    memory_tracker->SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
-    if (memory_limit_) memgraph::memory::StartTrackingCurrentThread(memory_tracker);
-  }
+  // A transaction carries a tracker; without one the query execution's own stands in, so a memory limit
+  // and a user's quota are enforced either way.
+  auto *memory_tracker =
+      ctx_.db_accessor != nullptr ? &ctx_.db_accessor->GetTransactionMemoryTracker() : fallback_memory_tracker_;
+  // Single query memory limit
+  memory_tracker->SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
+  if (memory_limit_) memgraph::memory::StartTrackingCurrentThread(memory_tracker);
 #ifdef MG_ENTERPRISE
   // User-specific resource monitoring
-  if (memory_tracker != nullptr && user_resource_ &&
+  if (user_resource_ &&
       user_resource_->GetTransactionsMemory().second != utils::TransactionsMemoryResource::kUnlimited) {
     memgraph::memory::StartTrackingCurrentThread(memory_tracker);  // Needs the query tracker for accurate tracking
     memgraph::memory::StartTrackingUserResource(user_resource_.get());
@@ -4017,7 +4020,9 @@ void CheckParallelExecution(std::optional<size_t> &parallel_execution, plan::Log
 
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                 utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
+                                 utils::MemoryResource *execution_memory,
+                                 utils::QueryMemoryTracker *fallback_memory_tracker,
+                                 std::vector<Notification> *notifications,
                                  std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                                  Interpreter &interpreter, FrameChangeCollector *frame_change_collector = nullptr
 #ifdef MG_ENTERPRISE
@@ -4157,6 +4162,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               dba,
                                               interpreter_context,
                                               execution_memory,
+                                              fallback_memory_tracker,
                                               std::move(user_or_role),
                                               std::move(stopping_context),
                                               dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
@@ -4402,6 +4408,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         dba,
                                         interpreter_context,
                                         execution_memory,
+                                        nullptr,
                                         std::move(user_or_role),
                                         std::move(stopping_context),
                                         dbms::DatabaseProtector{db_acc}.clone(),
@@ -10728,15 +10735,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         graph_free_candidate = IsGraphFreeCandidate(*cypher_query, parsed_query.required_privileges);
       }
     }
-#ifdef MG_ENTERPRISE
-    // The allocation hook charges a user only while the transaction memory tracker is set, so skipping
-    // the transaction would let the query allocate outside the quota.
-    if (graph_free_candidate && user_resource_ &&
-        user_resource_->GetTransactionsMemory().second != utils::TransactionsMemoryResource::kUnlimited) {
-      graph_free_candidate = false;
-    }
-#endif
-
     if (!in_explicit_transaction_) {
       auto storage_mode = current_db_.db_acc_
                               ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
@@ -10852,6 +10850,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                           interpreter_context_,
                                           current_db_,
                                           memory_resource,
+                                          &query_execution->memory_tracker,
                                           &query_execution->notifications,
                                           user_or_role_,
                                           make_stopping_context(),

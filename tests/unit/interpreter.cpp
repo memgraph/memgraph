@@ -538,7 +538,7 @@ TYPED_TEST(InterpreterTest, PlanThatReachesStorageOpensTheSkippedTransaction) {
 #ifdef MG_ENTERPRISE
 // A user's memory quota is charged through the transaction's memory tracker. A query that opened no
 // transaction is never charged, so a user who has a quota keeps every query on the transaction path.
-TYPED_TEST(InterpreterTest, UserWithAMemoryQuotaTakesNormalPath) {
+TYPED_TEST(InterpreterTest, UserWithAMemoryQuotaStillSkipsTheTransaction) {
   // A user resource is only attached to a session under an enterprise license. The checker is process
   // state shared with every other test in this binary, so put it back.
   memgraph::license::global_license_checker.EnableTesting();
@@ -549,16 +549,17 @@ TYPED_TEST(InterpreterTest, UserWithAMemoryQuotaTakesNormalPath) {
   quota->SetTransactionsMemoryLimit(1024UL * 1024UL * 1024UL);
   interpreter.SetUser(this->default_interpreter.auth_checker.GenQueryUser("alice", {}), quota);
 
+  // The quota is charged through the tracker the query execution owns, so it no longer costs the user
+  // their transaction-free path.
   for (auto const *query : {"RETURN 1", "CALL mg.procedures() YIELD name"}) {
     SCOPED_TRACE(query);
     auto stream = this->Interpret(query);
-    EXPECT_EQ(stream.GetSummary().count("no_storage_access"), 0U);
+    EXPECT_EQ(stream.GetSummary().count("no_storage_access"), 1U);
   }
 
-  // Without a quota the same queries skip the transaction.
-  interpreter.SetUser(this->default_interpreter.auth_checker.GenQueryUser("bob", {}));
-  auto stream = this->Interpret("RETURN 1");
-  EXPECT_EQ(stream.GetSummary().count("no_storage_access"), 1U);
+  // Charged against the user, which is the point: without a tracker of its own this path used to
+  // allocate outside the quota entirely.
+  EXPECT_GT(quota->GetTransactionsMemory().first, 0U);
 }
 #endif
 
@@ -634,11 +635,10 @@ TYPED_TEST(InterpreterTest, AccessorFreePathModifierRouting) {
     EXPECT_GT(stream.GetResults().size(), 1U);
   }
   {
-    // A query-level QUERY MEMORY LIMIT is enforced by the PullPlan transaction memory tracker, which the
-    // accessor-free path does not arm, so it must take the normal transaction path.
-    SCOPED_TRACE("query-level QUERY MEMORY LIMIT takes the normal path");
-    auto stream = this->Interpret("RETURN 1 QUERY MEMORY LIMIT 1 KB");
-    EXPECT_EQ(stream.GetSummary().count("no_storage_access"), 0U);
+    // A memory limit is armed on the tracker the query execution owns, so it needs no transaction.
+    SCOPED_TRACE("query-level QUERY MEMORY LIMIT stays on the graph-free path");
+    auto stream = this->Interpret("RETURN 1 QUERY MEMORY LIMIT 1024 MB");
+    EXPECT_EQ(stream.GetSummary().count("no_storage_access"), 1U);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
   }
