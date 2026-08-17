@@ -420,14 +420,20 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        .write_occurred = branch_sees_write()};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
+            // An EXISTS branch is only counted, never returned, so neither of the two operators a RETURN body can
+            // add for a write buys anything there - and both are actively harmful. A PeriodicCommit would finalize
+            // the caller's transaction from inside a filter predicate, and an Accumulate drains its input below the
+            // fold's Limit(1), so a write that reached the body through the union allow-list hole would run once
+            // per matched row instead of once. Both are already refused above, in the parser and the allow-list;
+            // this mirrors what GenWith has always done and keeps the planner from depending on those gates.
             input_op = impl::GenReturn(*ret,
                                        std::move(input_op),
                                        *context.symbol_table,
-                                       context.is_write_query,
+                                       context.is_write_query && !context.in_exists_subquery,
                                        context.bound_symbols,
                                        *context.ast_storage,
                                        subquery_ctx,
-                                       query_parts.commit_frequency);
+                                       context.in_exists_subquery ? nullptr : query_parts.commit_frequency);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             // ON CREATE / ON MATCH comprehensions originate here too; GenMerge splices each onto the branch that
             // reads it, so this chain must not take them first.
@@ -1684,8 +1690,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
       // the branch has to correlate against.
       auto branch_bound_symbols = bound_symbols;
-      // in_exists_subquery drives two behaviours of the recursive plan: the EmptyResult wrapper is suppressed, and
-      // GenWith keeps outer-scope vertex/edge symbols across a body WITH.
+      // in_exists_subquery drives four behaviours of the recursive plan: the EmptyResult wrapper is suppressed, a
+      // null-planning query part gets a Once, GenWith keeps outer-scope vertex/edge symbols across a body WITH, and
+      // GenReturn is denied the write-only operators (Accumulate, PeriodicCommit) that make no sense in a branch.
       auto const restore = utils::OnScopeExit{[this,
                                                old_exists_subquery = context_->in_exists_subquery,
                                                old_after_write = exists_branch_after_write_,

@@ -721,6 +721,24 @@ Feature: WHERE exists
           | 'Bob'  | false   |
           | 'John' | true    |
 
+  Scenario: Test invalid periodic commit inside EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+            USING PERIODIC COMMIT 1
+            MATCH (person)-[:HAS_DOG]->(dog:Dog)
+            RETURN dog
+          }
+          RETURN person.name AS name;
+          """
+      Then an error should be raised
+
   Scenario: Test invalid SET inside EXISTS
       Given an empty graph
       And having executed:

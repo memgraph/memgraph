@@ -8131,6 +8131,30 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
                                                "EXISTS supports only a single relation or a subquery as its input.");
 }
 
+TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
+  auto &ast_generator = *GetParam();
+
+  // The body parses as a full cypherQuery, so it carries the pre-query directives with it. Planning its RETURN would
+  // otherwise put a PeriodicCommit inside the branch, finalizing the caller's transaction from inside a predicate.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) WHERE EXISTS { USING PERIODIC COMMIT 1 MATCH (n)-[]->(m) RETURN m } RETURN n;",
+      ast_generator,
+      "EXISTS subqueries cannot have a periodic commit.");
+  // The projection position reaches the same body check.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN EXISTS { USING PERIODIC COMMIT 1 MATCH (n)-[]->(m) RETURN m } AS h;",
+      ast_generator,
+      "EXISTS subqueries cannot have a periodic commit.");
+  // The outer query may still have one - only the body is refused.
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("USING PERIODIC COMMIT 1 MATCH (n) WHERE EXISTS { MATCH (n)-[]->(m) RETURN m } "
+                                 "SET n.x = 1 RETURN n;"));
+    ASSERT_TRUE(query);
+    EXPECT_NE(query->pre_query_directives_.commit_frequency_, nullptr);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, ExistsBodyIsNotJudgedByTheEnclosingWith) {
   auto &ast_generator = *GetParam();
 
