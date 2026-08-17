@@ -1956,8 +1956,8 @@ TYPED_TEST(FunctionTest, Last) {
 }
 
 TYPED_TEST(FunctionTest, SizeCountsCodePoints) {
-  // size() of a string is its length in characters, not the size of its UTF-8
-  // buffer. Escapes are used so the normalisation of the input is explicit.
+  // size() of a string is its length in code points, not the size of its UTF-8
+  // buffer. Escapes keep the normalisation of the input explicit.
   EXPECT_EQ(this->EvaluateFunction("SIZE", "\u00E9").ValueInt(), 1);
   EXPECT_EQ(this->EvaluateFunction("SIZE", "\u4E2D").ValueInt(), 1);
   EXPECT_EQ(this->EvaluateFunction("SIZE", "a\u00E9b").ValueInt(), 3);
@@ -1967,13 +1967,13 @@ TYPED_TEST(FunctionTest, SizeCountsCodePoints) {
   // A decomposed character is two code points, so it counts as two.
   EXPECT_EQ(this->EvaluateFunction("SIZE", "e\u0301").ValueInt(), 2);
 
-  // ASCII is unaffected, and lists and maps still count their elements.
+  // ASCII is unaffected.
   EXPECT_EQ(this->EvaluateFunction("SIZE", "john").ValueInt(), 4);
 }
 
 TYPED_TEST(FunctionTest, SubstringLeftRightCountCodePoints) {
-  // Positions and lengths follow size(): a multi-byte character is one unit and
-  // is never cut in half, which byte offsets would do and produce invalid UTF-8.
+  // Positions and lengths follow size(): a multi-byte character is one unit,
+  // and is never cut in half into invalid UTF-8 as byte offsets would do.
   EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "a\u4E2Db", 1, 1).ValueString(), "\u4E2D");
   EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "\U0001F600\U0001F600", 0, 1).ValueString(), "\U0001F600");
   EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "\u00E9\u4E2D", 1).ValueString(), "\u4E2D");
@@ -1987,7 +1987,7 @@ TYPED_TEST(FunctionTest, SubstringLeftRightCountCodePoints) {
   EXPECT_EQ(this->EvaluateFunction("LEFT", "\u4E2D", 5).ValueString(), "\u4E2D");
   EXPECT_EQ(this->EvaluateFunction("SUBSTRING", "\u4E2D", 5).ValueString(), "");
 
-  // Every result is a whole number of characters.
+  // The functions agree with each other on what one unit is.
   EXPECT_EQ(this->EvaluateFunction("SIZE", this->EvaluateFunction("LEFT", "\U0001F600\U0001F600", 1)).ValueInt(), 1);
 }
 

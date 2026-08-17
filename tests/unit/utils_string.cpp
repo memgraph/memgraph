@@ -89,8 +89,6 @@ TEST(String, ReverseUtf8CountsCodePointsNotBytes) {
 }
 
 TEST(String, CountUtf8CodePoints) {
-  // Code points are written as escapes: a directly typed accented character
-  // may arrive precomposed or decomposed, and those have different counts.
   EXPECT_EQ(CountUtf8CodePoints(""), 0);
   EXPECT_EQ(CountUtf8CodePoints("abc"), 3);
 
@@ -100,8 +98,7 @@ TEST(String, CountUtf8CodePoints) {
   EXPECT_EQ(CountUtf8CodePoints("\U0001F600"), 1);
   EXPECT_EQ(CountUtf8CodePoints("a\u00E9b"), 3);
 
-  // The count is not the buffer size: these differ precisely because the
-  // characters are multi-byte.
+  // The count is not the buffer size.
   EXPECT_EQ(std::string_view("a\u00E9b").size(), 4);
   EXPECT_EQ(CountUtf8CodePoints("a\u00E9b"), 3);
 
@@ -112,7 +109,7 @@ TEST(String, CountUtf8CodePoints) {
 
 TEST(String, SubstrUtf8) {
   // Positions and lengths are in code points, so a multi-byte character is
-  // never split. Escapes keep the input bytes unambiguous.
+  // never split.
   EXPECT_EQ(SubstrUtf8("abc", 1), "bc");
   EXPECT_EQ(SubstrUtf8("abc", 1, 1), "b");
 
@@ -122,7 +119,7 @@ TEST(String, SubstrUtf8) {
   EXPECT_EQ(SubstrUtf8("\U0001F600\U0001F600", 0, 1), "\U0001F600");
   EXPECT_EQ(SubstrUtf8("\U0001F600\U0001F600", 1, 1), "\U0001F600");
 
-  // Out of range clamps rather than throwing, as the byte-wise Substr does.
+  // Out of range clamps rather than throwing.
   EXPECT_EQ(SubstrUtf8("a\u4E2Db", 9), "");
   EXPECT_EQ(SubstrUtf8("a\u4E2Db", 1, 99), "\u4E2Db");
   EXPECT_EQ(SubstrUtf8("a\u4E2Db", 0, 0), "");
@@ -142,8 +139,6 @@ TEST(String, Utf8OffsetOfCodePoint) {
 }
 
 TEST(String, Utf8OffsetOfLastCodePoints) {
-  // The tail is found by walking back, so asking for a few characters of a long
-  // string reads only those characters rather than all of it.
   EXPECT_EQ(Utf8OffsetOfLastCodePoints("abc", 1), 2);
   EXPECT_EQ(Utf8OffsetOfLastCodePoints("a\u4E2Db", 2), 1);
   EXPECT_EQ(Utf8OffsetOfLastCodePoints("\U0001F600\U0001F600", 1), 4);

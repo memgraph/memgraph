@@ -168,10 +168,8 @@ inline std::string ReverseUtf8(const std::string_view s) {
 /**
  * Count the UTF-8 code points of `s`.
  *
- * A code point counts once however many bytes encode it, so this is the length
- * a reader would give the text rather than the size of its buffer. Note that a
- * combining mark is a code point of its own, so a decomposed character counts
- * as more than one.
+ * A code point counts once however many bytes encode it. A combining mark is a
+ * code point of its own, so a decomposed character counts as more than one.
  *
  * Bytes that do not introduce a well-formed sequence each count once, so a
  * malformed string still yields a length rather than an error.
@@ -184,26 +182,19 @@ inline size_t CountUtf8CodePoints(const std::string_view s) {
  * Byte offset at which the code point numbered `index` starts, or the size of
  * `s` when it holds fewer than `index + 1` of them.
  *
- * Counting from the front is linear, which is inherent to a variable-width
- * encoding: there is no way to reach the n-th code point without reading what
- * precedes it.
+ * Reaching the n-th code point means reading what precedes it, which a
+ * variable-width encoding leaves no way around.
  */
 inline size_t Utf8OffsetOfCodePoint(const std::string_view s, const size_t index) {
   size_t seen = 0;
   for (size_t offset = 0; offset != s.size(); ++offset) {
-    if ((static_cast<unsigned char>(s[offset]) & 0xC0U) == 0x80U) continue;
+    if (IsUtf8Continuation(s[offset])) continue;
     if (seen == index) return offset;
     ++seen;
   }
   return s.size();
 }
 
-/**
- * Substring of `s` starting at code point `pos` and running for at most `count`
- * code points, so a multi-byte character is never cut in half.
- *
- * Out-of-range positions and lengths clamp rather than throw, as `Substr` does.
- */
 /**
  * Byte offset at which the last `count` code points of `s` begin, or 0 when it
  * holds no more than that many.
@@ -223,6 +214,12 @@ inline size_t Utf8OffsetOfLastCodePoints(const std::string_view s, const size_t 
   return 0;
 }
 
+/**
+ * Substring of `s` starting at code point `pos` and running for at most `count`
+ * code points, so a multi-byte character is never cut in half.
+ *
+ * Out-of-range positions and lengths clamp rather than throw.
+ */
 inline std::string_view SubstrUtf8(const std::string_view s, const size_t pos,
                                    const size_t count = std::string_view::npos) {
   const auto begin = Utf8OffsetOfCodePoint(s, pos);
