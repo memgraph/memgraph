@@ -20,7 +20,6 @@ import pytest
 from common import (
     connect,
     execute_and_fetch_all,
-    execute_and_ignore_dead_replica,
     get_data_path,
     get_logs_path,
     show_instances,
@@ -240,17 +239,16 @@ def retrieve_lag_for_instance(cursor, instance_name):
     return None
 
 
-def commit_ignoring_dead_replica(cursor, query, strict_sync):
-    # SYNC / SYNC+ASYNC clusters commit locally on MAIN even when the down SYNC replica can't be reached, so
-    # the replication failure is swallowed and divergent history is created. STRICT_SYNC aborts the 2PC txn
-    # instead, so nothing is committed locally; we only assert the expected error was raised.
-    expected_error = (
-        "Failed to replicate to STRICT_SYNC replica" if strict_sync else "Failed to replicate to SYNC replica"
-    )
-    try:
-        execute_and_fetch_all(cursor, query)
-    except Exception as e:
-        assert expected_error in str(e), f"Unexpected error: {e}"
+def commit_with_dead_replica(cursor, query, strict_sync):
+    # SYNC / SYNC+ASYNC clusters commit locally on MAIN even when the down SYNC replica can't be reached, so the
+    # query succeeds (the unreachable replica is reported through a notification) and divergent history is
+    # created. STRICT_SYNC aborts the 2PC txn instead, so nothing is committed locally and the query fails.
+    if strict_sync:
+        with pytest.raises(Exception) as e:
+            execute_and_fetch_all(cursor, query)
+        assert "Failed to replicate to STRICT_SYNC replica" in str(e.value)
+        return
+    execute_and_fetch_all(cursor, query)
 
 
 @pytest.mark.parametrize("cluster", ["strict_sync", "sync"])
@@ -449,9 +447,9 @@ def test_replication_lag_failover(test_name):
     interactive_mg_runner.kill(inner_instances_description, "instance_2")
 
     # Commit 3 txns on main
-    execute_and_ignore_dead_replica(instance3_cursor, "CREATE ()")
-    execute_and_ignore_dead_replica(instance3_cursor, "CREATE ()")
-    execute_and_ignore_dead_replica(instance3_cursor, "CREATE ()")
+    execute_and_fetch_all(instance3_cursor, "CREATE ()")
+    execute_and_fetch_all(instance3_cursor, "CREATE ()")
+    execute_and_fetch_all(instance3_cursor, "CREATE ()")
 
     # So that coordinator sends StateCheckRpc
     time.sleep(3)
@@ -516,8 +514,13 @@ def test_replication_lag_not_negative_after_divergent_main_rejoins(test_name, cl
     # For SYNC / SYNC+ASYNC these commit locally on MAIN (divergent history); for STRICT_SYNC they abort.
     interactive_mg_runner.kill(inner_instances_description, "instance_2")
     interactive_mg_runner.kill(inner_instances_description, "instance_3")
-    commit_ignoring_dead_replica(instance1_cursor, "CREATE ()", strict_sync)
-    commit_ignoring_dead_replica(instance1_cursor, "CREATE ()", strict_sync)
+    commit_with_dead_replica(instance1_cursor, "CREATE ()", strict_sync)
+    commit_with_dead_replica(instance1_cursor, "CREATE ()", strict_sync)
+
+    # SYNC clusters keep the two extra txns on the MAIN only (the replicas are down and never see them);
+    # STRICT_SYNC aborted them everywhere, so the MAIN is still at the single replicated txn.
+    expected_on_main = 1 if strict_sync else 3
+    assert execute_and_fetch_all(instance1_cursor, "MATCH (n) RETURN count(n);")[0][0] == expected_on_main
 
     # Kill instance_1 and bring instance_2 back up to trigger a failover. instance_2 (which only has the first
     # txn) becomes the new MAIN, while instance_3 stays down.

@@ -23,7 +23,7 @@ from common import (
     show_instances,
     show_replicas,
     show_replication_role,
-    wait_until_main_writeable_assert_replica_down,
+    wait_until_main_writeable,
 )
 from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection, mg_sleep_and_assert_until_role_change
 
@@ -277,11 +277,11 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     interactive_mg_runner.kill(memgraph_instances_description, "instance_1")
 
     # 6
+    # The down SYNC replica (instance_1) doesn't fail the write: it commits on the main and on the reachable
+    # replicas, and the unreachable replica is only reported through a notification.
+    execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:2});")
 
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:2});")
-    assert "Failed to replicate to SYNC replica" in str(e.value)
-
+    assert execute_and_fetch_all(main_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
     assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
 
     # 7
@@ -303,7 +303,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
         lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
-    wait_until_main_writeable_assert_replica_down(instance_2_cursor, "CREATE (:Epoch3 {prop:3});")
+    wait_until_main_writeable(instance_2_cursor, "CREATE (:Epoch3 {prop:3});")
 
     # 10
     interactive_mg_runner.start(memgraph_instances_description, "instance_1")
@@ -436,11 +436,10 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
 
     # 4
+    # instance_2 is a down SYNC replica; the write still commits on the main and on the reachable replicas.
+    execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:1});")
 
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:1});")
-    assert "Failed to replicate to SYNC replica" in str(e.value)
-
+    assert execute_and_fetch_all(main_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
     assert execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
     assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
 
@@ -465,7 +464,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
         lambda: execute_and_fetch_all(instance_1_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
-    wait_until_main_writeable_assert_replica_down(instance_1_cursor, "CREATE (:Epoch2Vertex {prop:1});")
+    wait_until_main_writeable(instance_1_cursor, "CREATE (:Epoch2Vertex {prop:1});")
 
     # 8
 
@@ -492,7 +491,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
         lambda: execute_and_fetch_all(instance_4_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
-    wait_until_main_writeable_assert_replica_down(instance_4_cursor, "CREATE (:Epoch3Vertex {prop:1});")
+    wait_until_main_writeable(instance_4_cursor, "CREATE (:Epoch3Vertex {prop:1});")
 
     # 12
 
@@ -642,7 +641,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
         lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
-    wait_until_main_writeable_assert_replica_down(instance_2_cursor, "CREATE (:Epoch2Vertex {prop:1});")
+    wait_until_main_writeable(instance_2_cursor, "CREATE (:Epoch2Vertex {prop:1});")
 
     mg_sleep_and_assert(3, partial(get_vertex_count, instance_4_cursor))
     mg_sleep_and_assert(3, partial(get_vertex_count, instance_2_cursor))
@@ -701,10 +700,8 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     mg_sleep_and_assert(2, partial(get_vertex_count, instance_2_cursor))
 
     # 13
-
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch3Vertex {prop:1});")
-    assert "Failed to replicate to SYNC replica" in str(e.value)
+    # instance_3 and instance_4 are down SYNC replicas; the write commits on the main and on instance_2.
+    execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch3Vertex {prop:1});")
 
     # 14
 
@@ -829,7 +826,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
         lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
-    wait_until_main_writeable_assert_replica_down(instance_2_cursor, "CREATE (:Epoch2Vertex {prop:1});")
+    wait_until_main_writeable(instance_2_cursor, "CREATE (:Epoch2Vertex {prop:1});")
 
     interactive_mg_runner.start(memgraph_instances_description, "instance_4")
     instance_4_cursor = connect(host="localhost", port=7691).cursor()
@@ -942,7 +939,7 @@ def test_replication_works_on_failover_simple(test_name):
 
     # 5
 
-    wait_until_main_writeable_assert_replica_down(new_main_cursor, "CREATE ();")
+    wait_until_main_writeable(new_main_cursor, "CREATE ();")
 
     # 6
     alive_replica_cursor = connect(host="localhost", port=7689).cursor()
@@ -1045,10 +1042,10 @@ def test_replication_works_on_replica_instance_restart(test_name):
     # 4
     instance_1_cursor = connect(host="localhost", port=7688).cursor()
 
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(main_cursor, "CREATE ();")
-    assert "Failed to replicate to SYNC replica" in str(e.value)
+    # instance_2 is a down SYNC replica; the write commits on the main and on instance_1 regardless.
+    execute_and_fetch_all(main_cursor, "CREATE ();")
 
+    assert execute_and_fetch_all(main_cursor, "MATCH (n) RETURN count(n)")[0][0] == 1
     res_instance_1 = execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
     assert res_instance_1 == 1
 

@@ -236,10 +236,10 @@ def test_ttl_high_availability_failover(test_name):
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
 
     # Create additional TTL data while replica is down
-    execute_and_ignore_dead_replica(
+    execute_and_fetch_all(
         instance1_cursor, "UNWIND RANGE(1,50) AS d CREATE (:TTL{ttl:timestamp() + timestamp(duration({second:d}))});"
     )
-    execute_and_ignore_dead_replica(
+    execute_and_fetch_all(
         instance1_cursor,
         "UNWIND RANGE(1, 50) AS d CREATE ()-[:E1{ttl:timestamp() + timestamp(duration({second:d}))}]->();",
     )

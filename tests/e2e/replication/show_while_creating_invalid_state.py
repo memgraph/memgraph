@@ -14,7 +14,6 @@ import random
 import sys
 
 import interactive_mg_runner
-import mgclient
 import pytest
 from common import execute_and_fetch_all, get_data_path, get_logs_path
 from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
@@ -537,7 +536,7 @@ def test_basic_recovery(recover_data_on_startup, connection, test_name):
     # 9/ We add some data to main.
     # 10/ We re-add the two replicas dropped/killed and check the data.
     # 11/ We kill another replica.
-    # 12/ Add some more data to main. It must still occur but exception is expected since one replica is down.
+    # 12/ Add some more data to main. It must still occur; the down replica is reported through a notification.
     # 13/ Restart the replica
     # 14/ Check the states of replicas.
     # 15/ Add some data again.
@@ -817,10 +816,9 @@ def test_basic_recovery(recover_data_on_startup, connection, test_name):
     assert all([x in actual_data for x in expected_data])
 
     # 12/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(
-            "CREATE (p1:Number {name:'Magic_again_again', value:44})"
-        )
+    # replica_1 is down. The write still commits on the main and on the reachable replicas; the SYNC replica
+    # that could not be reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p1:Number {name:'Magic_again_again', value:44})")
     expected_data = [
         (
             "replica_1",
@@ -1069,8 +1067,10 @@ def test_replication_role_recovery(connection, test_name):
     interactive_mg_runner.kill(CONFIGURATION, "replica")
 
     # 9/
-    with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "CREATE (n:First)")
+    # The only SYNC replica is down, but the write still commits on the main; the unreachable replica is
+    # reported through a notification instead of an error.
+    execute_and_fetch_all(cursor, "CREATE (n:First)")
+    assert len(execute_and_fetch_all(cursor, "MATCH (node) RETURN node;")) == 1
 
     # 10/
     interactive_mg_runner.start(CONFIGURATION, "replica")
@@ -1438,7 +1438,7 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
 
 
 def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection, test_name):
-    # Goal of this test is to check that main cannot write new data if a sync replica is down.
+    # Goal of this test is to check that main can still write new data if a sync replica is down.
     # 0/ Start main and sync replicas.
     # 1/ Check status of replicas.
     # 2/ Add some nodes to main and check it is propagated to the sync_replicas.
@@ -1537,8 +1537,9 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection, tes
     assert all([x in actual_data for x in expected_data])
 
     # 4/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:2});")
+    # sync_replica1 is down. The write commits on the main and on sync_replica2; the replica that could not be
+    # reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:2});")
 
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 2
@@ -1788,8 +1789,9 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection,
     assert all([x in actual_data for x in expected_data])
 
     # 4/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE INDEX ON :Number(value2);")
+    # sync_replica1 is down. The index is created on the main and on sync_replica2; the replica that could not
+    # be reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE INDEX ON :Number(value2);")
 
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 2
@@ -1929,8 +1931,9 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica(connection, t
     assert all([x in actual_data for x in expected_data])
 
     # 6/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
+    # sync_replica1 is down. The write commits on the main and on sync_replica2; the replica that could not be
+    # reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
 
     # 7/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -2051,8 +2054,9 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica(connection, t
     assert all([x in actual_data for x in expected_data])
 
     # 7/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_UPDATE)
+    # sync_replica1 is down. The update commits on the main and on sync_replica2; the replica that could not be
+    # reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_UPDATE)
 
     # 8/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -2176,8 +2180,9 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection, t
     assert all([x in actual_data for x in expected_data])
 
     # 7/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_DELETE)
+    # sync_replica1 is down. The delete commits on the main and on sync_replica2; the replica that could not be
+    # reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_DELETE)
 
     # 8/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -2302,8 +2307,9 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
     assert all([x in actual_data for x in expected_data])
 
     # 6/
-    with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(main_cursor, QUERY_CREATE_NODE)
+    # sync_replica1 is down. The write commits on the main and on sync_replica2; the replica that could not be
+    # reached is reported through a notification instead of an error.
+    execute_and_fetch_all(main_cursor, QUERY_CREATE_NODE)
 
     # 7/
     mg_sleep_and_assert(3, lambda: len(execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)))
@@ -2423,8 +2429,9 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica(connection, 
     assert all([x in actual_data for x in expected_data])
 
     # 6/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
+    # sync_replica1 is down. The write commits on the main and on sync_replica2; the replica that could not be
+    # reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
 
     # 7/
     def get_number_of_nodes():

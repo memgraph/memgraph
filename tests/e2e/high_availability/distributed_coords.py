@@ -30,7 +30,7 @@ from common import (
     show_instances,
     show_replicas,
     update_tuple_value,
-    wait_until_main_writeable_assert_replica_down,
+    wait_until_main_writeable,
 )
 from mg_utils import (
     mg_sleep_and_assert,
@@ -293,21 +293,16 @@ def test_main_cannot_connect(test_name):
     interactive_mg_runner.kill(inner_instances_description, "instance_1")
 
     main_cursor = connect(host="localhost", port=7689).cursor()
-    try:
-        execute_and_fetch_all(main_cursor, "create ()")
-    except Exception as e:
-        assert "Failed to replicate to SYNC replica 'instance_1'" in str(e)
+    # A SYNC replica the main cannot connect to does not fail the write: the transaction commits on the main and
+    # the unreachable replica is reported through a notification instead.
+    execute_and_fetch_all(main_cursor, "create ()")
+    assert execute_and_fetch_all(main_cursor, "MATCH (n) RETURN count(n);")[0][0] == 1
 
     interactive_mg_runner.kill(inner_instances_description, "instance_2")
 
     main_cursor = connect(host="localhost", port=7689).cursor()
-    try:
-        execute_and_fetch_all(main_cursor, "create ()")
-    except Exception as e:
-        # Depending on exact replication timing, there could be a different reason for a failure for instance_1 and instance_2, that's why we check for a failure in this way
-        assert "Failed to replicate to SYNC replica" in str(e)
-        assert "instance_1" in str(e)
-        assert "instance_2" in str(e)
+    execute_and_fetch_all(main_cursor, "create ()")
+    assert execute_and_fetch_all(main_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
 
 
 def test_global_edge_index_drop_replication(test_name):
@@ -323,23 +318,14 @@ def test_global_edge_index_drop_replication(test_name):
 
     instance_3_cursor = connect(host="localhost", port=7689).cursor()
 
-    # Exception because one SYNC replica is down
-    try:
-        execute_and_fetch_all(instance_3_cursor, "create global edge index on :(id)")
-    except:
-        pass
+    # instance_1 is a down SYNC replica; every one of these still commits on the main and is only reported
+    # through a notification.
+    execute_and_fetch_all(instance_3_cursor, "create global edge index on :(id)")
+    execute_and_fetch_all(instance_3_cursor, "create (n:Test {id: 1})")
+    execute_and_fetch_all(instance_3_cursor, "drop global edge index on :(id)")
 
-    # Exception because one SYNC replica is down
-    try:
-        execute_and_fetch_all(instance_3_cursor, "create (n:Test {id: 1})")
-    except:
-        pass
-
-    # Exception because one SYNC replica is down
-    try:
-        execute_and_fetch_all(instance_3_cursor, "drop global edge index on :(id)")
-    except:
-        pass
+    # The main holds the vertex and no index; the down replica converges to that state once restarted below.
+    assert get_vertex_count(instance_3_cursor) == 1
 
     interactive_mg_runner.start(inner_instances_description, "instance_1")
     instance_1_cursor = connect(host="localhost", port=7687).cursor()
@@ -1464,7 +1450,7 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
         lambda: execute_and_fetch_all(instance_3_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
-    wait_until_main_writeable_assert_replica_down(instance_3_cursor, "CREATE ();")
+    wait_until_main_writeable(instance_3_cursor, "CREATE ();")
 
     # 12
     interactive_mg_runner.start(inner_memgraph_instances, "instance_1")
@@ -2335,11 +2321,9 @@ def test_main_reselected_to_become_main(test_name):
     leader_data = update_tuple_value(leader_data, "instance_2", 0, -2, "down")
     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_3))
 
-    # write to main
+    # write to main; the down SYNC replicas are reported through a notification, not an error
     main_cursor = connect(host="localhost", port=7689).cursor()
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(main_cursor, "CREATE (n:Node {name: 'node'})")
-    assert "Failed to replicate to SYNC replica" in str(e.value)
+    execute_and_fetch_all(main_cursor, "CREATE (n:Node {name: 'node'})")
 
     # check it was written
     def check_data():

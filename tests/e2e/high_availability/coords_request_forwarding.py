@@ -20,7 +20,6 @@ import pytest
 from common import (
     connect,
     execute_and_fetch_all,
-    execute_and_ignore_dead_replica,
     get_data_path,
     get_logs_path,
     show_instances,

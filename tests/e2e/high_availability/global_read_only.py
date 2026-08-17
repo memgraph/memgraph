@@ -21,7 +21,7 @@ from common import (
     get_data_path,
     get_logs_path,
     show_instances,
-    wait_until_main_writeable_assert_replica_down,
+    wait_until_main_writeable,
 )
 from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_until_role_change
 
@@ -336,10 +336,11 @@ def test_global_read_only_honored_across_failover():
     mg_sleep_and_assert(True, partial(write_rejected_with_read_only_message, new_main_cursor))
 
     # Clearing read-only mode re-enables writes on the promoted main within a reconciliation cycle. instance_3 (the
-    # promoted main's SYNC replica) is still down, so a successful local write surfaces as a SYNC-replication error;
-    # the helper treats that as "main is writeable", which is what we assert here.
+    # promoted main's SYNC replica) is still down, but that only produces a notification, so the write succeeds
+    # once the main is writeable again.
     execute_and_fetch_all(coordinator_cursor, "SET COORDINATOR SETTING 'global_read_only' TO 'false'")
-    wait_until_main_writeable_assert_replica_down(new_main_cursor, "CREATE (n:Node {name: 'after_clear'})")
+    wait_until_main_writeable(new_main_cursor, "CREATE (n:Node {name: 'after_clear'})")
+    assert execute_and_fetch_all(new_main_cursor, "MATCH (n:Node {name: 'after_clear'}) RETURN count(n);")[0][0] == 1
 
 
 if __name__ == "__main__":

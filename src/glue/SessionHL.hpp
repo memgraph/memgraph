@@ -71,7 +71,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void BeginTransaction(const bolt_map_t &extra);
 
-  void CommitTransaction();
+  bolt_map_t CommitTransaction();
 
   void RollbackTransaction();
 

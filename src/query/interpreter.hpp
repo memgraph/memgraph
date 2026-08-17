@@ -466,7 +466,9 @@ class Interpreter final {
 
   std::optional<uint64_t> GetTransactionId() const;
 
-  void CommitTransaction();
+  // Returns the notification produced by the commit, if any. A SYNC replication failure does not abort the
+  // transaction, so it is reported as a notification instead of an exception.
+  std::optional<Notification> CommitTransaction();
 
   void RollbackTransaction();
 
@@ -579,6 +581,7 @@ class Interpreter final {
     query_executions_.clear();
     system_transaction_.reset();
     transaction_queries_->clear();
+    commit_notification_.reset();
     if (current_db_.db_acc_ && current_db_.db_acc_->is_marked_for_deletion()) {
       current_db_.db_acc_.reset();
     }
@@ -670,6 +673,12 @@ class Interpreter final {
 
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;
+
+  // Notification produced by the last Commit(); set when the transaction committed on main but could not be
+  // replicated to every SYNC replica. Consumed by whoever drove the commit (Pull or CommitTransaction).
+  std::optional<Notification> commit_notification_;
+
+  static void AppendNotificationToSummary(const Notification &notification, std::map<std::string, TypedValue> &summary);
 
   PreparedQuery PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum, QueryExtras const &extras = {});
   void Commit();
@@ -767,6 +776,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         }
       }
 
+      // NOTE: must happen before Commit(), which clears the runtime data of every query execution.
       if (!query_execution->notifications.empty()) {
         std::vector<TypedValue> notifications;
         notifications.reserve(query_execution->notifications.size());
@@ -790,6 +800,12 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
             MG_ASSERT(!current_db_.db_transactional_accessor_);
             break;
           }
+        }
+        // The commit itself can report a SYNC replication failure. This also covers the explicit COMMIT
+        // query, whose handler already cleared in_explicit_transaction_ by the time we get here.
+        if (commit_notification_) {
+          AppendNotificationToSummary(*commit_notification_, *maybe_summary);
+          commit_notification_.reset();
         }
         // As the transaction is done we can clear all the executions
         // NOTE: we cannot clear query_execution inside the Abort and Commit
