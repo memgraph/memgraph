@@ -1325,6 +1325,43 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
   std::unordered_map<EdgeSetPropertyCacheKey, EdgeAccessor, EdgeSetPropertyCacheKeyHash> edge_set_property_cache;
 
+  // Edge deletions are buffered and applied as one batch. DeleteEdgesEx resolves the whole batch from gids and
+  // hands it to a single DetachDelete, which groups by endpoint vertex and scans each vertex's adjacency once —
+  // so the batch costs O(degree) per vertex where a delta-at-a-time loop costs O(degree) per edge. Main is
+  // already on the batched path (the Delete operator buffers, then calls DetachDelete once), which is why
+  // deleting a dense vertex's edges is linear there and was quadratic here.
+  //
+  // The WAL encoder emits deltas in fixed passes (vertex writes, edge creates, edge property sets, edge deletes,
+  // vertex deletes), so every edge delete of a transaction arrives as one contiguous run and a single batch
+  // absorbs all of them.
+  std::vector<storage::InMemoryStorage::EdgeDeleteSpec> pending_edge_deletes;
+
+  // Bounds the buffer's memory: main may split one transaction's deletions across several DetachDelete calls
+  // (the Delete operator's buffer size), so a transaction can carry far more edge deletes than main ever held
+  // at once. Flushing mid-run only costs one extra adjacency scan per vertex per chunk.
+  constexpr size_t kMaxPendingEdgeDeletes = 100'000;
+
+  auto flush_pending_edge_deletes = [&]() {
+    if (pending_edge_deletes.empty()) return;
+    // A non-empty buffer implies the accessor was created when the first edge delete was buffered.
+    DMG_ASSERT(commit_accessor, "Buffered edge deletions without a commit accessor");
+    auto const deleted = commit_accessor->DeleteEdgesEx(pending_edge_deletes);
+    // Each buffered edge was already traced with its gid above, so the timestamp is enough to correlate.
+    if (!deleted.has_value()) {
+      throw utils::BasicException(
+          "Failed to delete a batch of {} edges at timestamp {}.", pending_edge_deletes.size(), commit_timestamp);
+    }
+    // Resolving by gid no longer visits the edge through a visibility-checked lookup, so the count is what
+    // catches a WAL naming an edge the replica does not have.
+    if (*deleted != pending_edge_deletes.size()) {
+      throw utils::BasicException("Deleted {} of {} edges in the batch at timestamp {}.",
+                                  *deleted,
+                                  pending_edge_deletes.size(),
+                                  commit_timestamp);
+    }
+    pending_edge_deletes.clear();
+  };
+
   decoder->ResetCrcAcc();
   // A DDL delta below can occupy the handler for minutes on its own, so index population and constraint validation
   // report progress per vertex through this. Returning true also abandons that work once the main is gone, instead of
@@ -1461,22 +1498,15 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                         from_vertex_gid,
                         to_vertex_gid);
           auto *transaction = get_replication_accessor(delta_timestamp);
-          auto from_vertex = transaction->FindVertex(data.from_vertex, View::NEW);
-          if (!from_vertex) {
-            throw utils::BasicException("Failed to find vertex {} when deleting edge {}.", from_vertex_gid, edge_gid);
-          }
-          auto to_vertex = transaction->FindVertex(data.to_vertex, View::NEW);
-          if (!to_vertex) {
-            throw utils::BasicException("Failed to find vertex {} when deleting edge {}.", from_vertex_gid, edge_gid);
-          }
-          auto edgeType = transaction->NameToEdgeType(data.edge_type);
-          auto edge = transaction->FindEdge(data.gid, View::NEW, edgeType, &*from_vertex, &*to_vertex);
-          if (!edge) {
-            throw utils::BasicException("Couldn't find edge {} when deleting edge.", edge_gid);
-          }
-          if (auto ret = transaction->DeleteEdge(&*edge); !ret.has_value()) {
-            throw utils::BasicException(
-                "Failed to delete edge {} between vertices {} and {}.", edge_gid, from_vertex_gid, to_vertex_gid);
+          // The record already says everything needed to delete the edge, so nothing is resolved here; the
+          // batch is flushed by the next non-edge-delete delta and resolves its edges together.
+          pending_edge_deletes.push_back(
+              storage::InMemoryStorage::EdgeDeleteSpec{.edge_gid = data.gid,
+                                                       .from_gid = data.from_vertex,
+                                                       .to_gid = data.to_vertex,
+                                                       .edge_type = transaction->NameToEdgeType(data.edge_type)});
+          if (pending_edge_deletes.size() >= kMaxPendingEdgeDeletes) {
+            flush_pending_edge_deletes();
           }
         },
         [&](WalEdgeSetProperty const &data) {
@@ -2143,6 +2173,13 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     if (loading_wal && !should_commit) continue;
 
     try {
+      // Any other delta may observe the effect of the buffered deletions, so the batch is flushed before it runs.
+      // Guarding here rather than inside each handler keeps the invariant in one place: the transaction-end delta
+      // (which commits) and the vertex-delete deltas (which require detached vertices) are both covered, as is
+      // every handler added later.
+      if (!std::holds_alternative<WalEdgeDelete>(delta.data_)) {
+        flush_pending_edge_deletes();
+      }
       std::visit(delta_apply, delta.data_);
     } catch (const std::exception &e) {
       spdlog::error("Applying deltas failed because of {}", e.what());
@@ -2150,6 +2187,10 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     }
     applied_deltas++;
   }
+
+  // The transaction-end delta goes through the flush guard before it commits, so the buffer is always drained
+  // by the time the loop exits.
+  MG_ASSERT(pending_edge_deletes.empty(), "Buffered edge deletions were never applied");
 
   spdlog::debug("Applied {} deltas. Committed {} txns.", applied_deltas, num_committed_txns);
 

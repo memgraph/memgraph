@@ -5034,6 +5034,46 @@ EdgeInfo ScanOutEdgesForGid(Vertex *from_vertex, Gid edge_gid) {
   }
   return std::nullopt;
 }
+
+// Plural, either-direction form of ScanOutEdgesForGid: resolves a whole set of GIDs in one pass over one
+// vertex's adjacency rather than one pass each. An edge is linked from both of its endpoints, so a caller that
+// knows both can scan whichever list is shorter — see CheaperScanSide. Found GIDs are erased from `wanted`, so
+// whatever remains on return is the set this vertex does not have on this side. Kept separate from the singular
+// form rather than sharing an implementation with it: that one is called per vertex by the full-scan light-edge
+// path, which must not pay for a set allocation.
+std::vector<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> ScanEdgesForGids(Vertex *vertex,
+                                                                                  EdgeDirection direction,
+                                                                                  std::unordered_set<Gid> &wanted) {
+  std::vector<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> found;
+  found.reserve(wanted.size());
+
+  auto const scanning_out = direction == EdgeDirection::OUT;
+  std::shared_lock const guard{vertex->lock};
+  // The Vertex* in an adjacency entry is always the opposing endpoint, so which end `vertex` is depends on the
+  // list being walked.
+  for (const auto &[edge_type, opposing_vertex, edge_ref] : scanning_out ? vertex->out_edges : vertex->in_edges) {
+    if (wanted.erase(edge_ref.ptr->gid) == 0) continue;
+    found.emplace_back(
+        edge_ref, edge_type, scanning_out ? vertex : opposing_vertex, scanning_out ? opposing_vertex : vertex);
+    if (wanted.empty()) break;
+  }
+  return found;
+}
+
+// Which endpoint's adjacency is cheaper to scan for an edge between these two vertices. Sizes are read one lock
+// at a time: only ever holding one means no lock-ordering rule is needed and a self-loop needs no special case,
+// unlike FindEdges which holds both at once.
+EdgeDirection CheaperScanSide(Vertex *from_vertex, Vertex *to_vertex) {
+  auto const out_n = std::invoke([&] {
+    std::shared_lock const guard{from_vertex->lock};
+    return from_vertex->out_edges.size();
+  });
+  auto const in_n = std::invoke([&] {
+    std::shared_lock const guard{to_vertex->lock};
+    return to_vertex->in_edges.size();
+  });
+  return out_n <= in_n ? EdgeDirection::OUT : EdgeDirection::IN;
+}
 }  // namespace
 
 EdgeInfo InMemoryStorage::FindHeavyEdge(Gid edge_gid) {
@@ -5127,6 +5167,104 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
     throw utils::BasicException("Vertex with GID {} not found in the database", from_vertex_gid.AsUint());
   }
   return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
+}
+
+Result<size_t> InMemoryStorage::InMemoryAccessor::DeleteEdgesEx(std::span<EdgeDeleteSpec const> edges) {
+  if (edges.empty()) return size_t{0};
+
+  // Deliberately not routed through InMemoryStorage::FindEdge: that has to recover the edge type and the
+  // to-vertex from adjacency (via ExtractEdgeInfo / ScanOutEdgesForGid) because its callers know only a GID,
+  // which costs an O(degree) scan per edge. Every spec here already names both, so the only open question is
+  // the EdgeRef — and only the light config needs to touch adjacency to answer it.
+  std::vector<EdgeAccessor> accessors;
+  accessors.reserve(edges.size());
+
+  // Memoized because a batch is typically many edges around few vertices — a hub's whole fan-out resolves to
+  // the same Vertex*, and without this each edge would repeat the skip-list lookup. Safe for the length of the
+  // batch: vertices are only ever deleted after their edges, so nothing here can be removed mid-resolution.
+  std::unordered_map<Gid, Vertex *> resolved_vertices;
+  auto resolve_vertex = [&](Gid gid) -> Vertex * {
+    auto [it, inserted] = resolved_vertices.try_emplace(gid, nullptr);
+    if (inserted) {
+      auto vertex = FindVertex(gid, View::NEW);
+      it->second = vertex ? vertex->vertex_ : nullptr;
+    }
+    return it->second;
+  };
+
+  // A spec already names the edge type and both endpoints, so the configs differ only in how they answer the
+  // one remaining question — which EdgeRef the GID denotes.
+  auto emplace_from_spec = [&](EdgeDeleteSpec const &spec, EdgeRef edge_ref) {
+    auto *from_vertex = resolve_vertex(spec.from_gid);
+    auto *to_vertex = resolve_vertex(spec.to_gid);
+    if (!from_vertex || !to_vertex) return false;
+    accessors.emplace_back(edge_ref, spec.edge_type, from_vertex, to_vertex, storage_, &transaction_);
+    return true;
+  };
+
+  // Held until after DetachDelete so an Edge* taken out of the skip list cannot be reclaimed underneath the
+  // batch. Engaged only when there is a skip list to read, i.e. heavy edges.
+  std::optional<utils::SkipListDb<Edge>::Accessor> edge_acc;
+
+  if (!config_.properties_on_edges) {
+    // No Edge object is ever allocated, so the EdgeRef carries the GID itself and there is nothing to look up.
+    // Mirrors the same split in CreateEdgeInternal. Light edges cannot reach this arm: they imply properties.
+    for (auto const &spec : edges) {
+      if (!emplace_from_spec(spec, EdgeRef{spec.edge_gid})) return std::unexpected{Error::NONEXISTENT_OBJECT};
+    }
+  } else if (!config_.storage_light_edge) {
+    // Heavy edges are in the edges_ skip list, keyed by GID.
+    edge_acc = static_cast<InMemoryStorage *>(storage_)->edges_.access();
+    for (auto const &spec : edges) {
+      auto edge_it = edge_acc->find(spec.edge_gid);
+      if (edge_it == edge_acc->end()) return std::unexpected{Error::NONEXISTENT_OBJECT};
+      if (!emplace_from_spec(spec, EdgeRef{&*edge_it})) return std::unexpected{Error::NONEXISTENT_OBJECT};
+    }
+  } else {
+    // Light edges are in no skip list, so adjacency is the only way to reach the Edge*.
+    //
+    // Each edge is linked from both endpoints, so it is resolved from whichever side is cheaper, and edges that
+    // pick the same vertex are bucketed to share one scan. Both halves matter: the side choice is what makes
+    // deleting a handful of a supernode's edges cost O(1) each instead of a full scan of the supernode, and the
+    // bucketing is what makes deleting all of them cost one scan rather than one per edge.
+    std::unordered_map<Vertex *, std::unordered_set<Gid>> wanted_by_out_vertex;
+    std::unordered_map<Vertex *, std::unordered_set<Gid>> wanted_by_in_vertex;
+
+    for (auto const &spec : edges) {
+      auto *from_vertex = resolve_vertex(spec.from_gid);
+      auto *to_vertex = resolve_vertex(spec.to_gid);
+      if (!from_vertex || !to_vertex) return std::unexpected{Error::NONEXISTENT_OBJECT};
+
+      if (CheaperScanSide(from_vertex, to_vertex) == EdgeDirection::OUT) {
+        wanted_by_out_vertex[from_vertex].insert(spec.edge_gid);
+      } else {
+        wanted_by_in_vertex[to_vertex].insert(spec.edge_gid);
+      }
+    }
+
+    // Returns false if this vertex turned out not to have some of the edges asked of it.
+    auto drain_bucket = [&](Vertex *vertex, EdgeDirection direction, std::unordered_set<Gid> &wanted) {
+      for (auto const &[edge_ref, edge_type, from_v, to_v] : ScanEdgesForGids(vertex, direction, wanted)) {
+        accessors.emplace_back(edge_ref, edge_type, from_v, to_v, storage_, &transaction_);
+      }
+      return wanted.empty();
+    };
+
+    // The two maps partition the batch — the loop above put each edge in exactly one of them — so these are two
+    // halves of a single pass over the edges, not one pass per direction. No edge is looked at twice.
+    for (auto &[vertex, wanted] : wanted_by_out_vertex) {
+      if (!drain_bucket(vertex, EdgeDirection::OUT, wanted)) return std::unexpected{Error::NONEXISTENT_OBJECT};
+    }
+    for (auto &[vertex, wanted] : wanted_by_in_vertex) {
+      if (!drain_bucket(vertex, EdgeDirection::IN, wanted)) return std::unexpected{Error::NONEXISTENT_OBJECT};
+    }
+  }
+
+  auto edge_ptrs = accessors | rv::transform([](EdgeAccessor &edge) { return &edge; }) | r::to_vector;
+  auto res = DetachDelete({}, std::move(edge_ptrs), false);
+  if (!res) return std::unexpected{res.error()};
+  if (!*res) return size_t{0};
+  return (*res)->second.size();
 }
 
 Edge *InMemoryStorage::LightEdgePool::Create(Gid gid, Delta *delta) {
