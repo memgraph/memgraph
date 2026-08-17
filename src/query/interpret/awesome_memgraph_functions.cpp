@@ -1667,10 +1667,10 @@ bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
 // naming a component while a more significant one is missing would mix an
 // explicit value with a defaulted one above it.
 //
-// Each level holds the names sharing one significance. The sub-second fields
-// are alternative scales for a single fraction of a second rather than steps of
-// their own, so any combination of them may be given together, and the level
-// counts as supplied when any one of them is.
+// Each level holds the names sharing one significance, and counts as supplied
+// when any name in it is. The sub-second fields share a level below second:
+// giving the fraction at a finer scale than another is ordinary, so an omission
+// among them does not signal the mistake an omitted hour or minute does.
 //
 // Call this after the components have been mapped, so that an unrecognised name
 // is reported as such rather than as a gap between the ones understood.

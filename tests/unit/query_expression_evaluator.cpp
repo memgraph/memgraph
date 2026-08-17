@@ -3153,8 +3153,9 @@ TYPED_TEST(FunctionTest, LocalTimeRejectsOmittedSignificantComponent) {
 }
 
 TYPED_TEST(FunctionTest, LocalTimeSubSecondComponentsShareOneLevel) {
-  // The sub-second fields are scales of a single fraction of a second, not
-  // steps of the sequence, so either may be given without the other.
+  // The sub-second fields share one level, so either may be given without the
+  // other. A microsecond given alone still counts as microseconds, the coarser
+  // scale defaulting to zero.
   EXPECT_EQ(this->EvaluateFunction("LOCALTIME",
                                    TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
                                                                                 {"minute", TypedValue(2)},
