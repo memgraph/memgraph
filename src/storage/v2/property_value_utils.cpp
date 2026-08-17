@@ -90,7 +90,7 @@ auto PrefixSuccessor(std::string_view prefix) -> std::optional<std::string> {
     result.pop_back();
   }
   if (result.empty()) return std::nullopt;
-  ++result.back();
+  result.back() = static_cast<char>(static_cast<unsigned char>(result.back()) + 1);
   return result;
 }
 
