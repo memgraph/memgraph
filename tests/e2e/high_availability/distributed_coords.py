@@ -298,6 +298,11 @@ def test_main_cannot_connect(test_name):
     execute_and_fetch_all(main_cursor, "create ()")
     assert execute_and_fetch_all(main_cursor, "MATCH (n) RETURN count(n);")[0][0] == 1
 
+    # instance_2, the SYNC replica that is still up, received the same commit: only the unreachable instance_1
+    # missed it.
+    instance_2_cursor = connect(host="localhost", port=7688).cursor()
+    assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 1
+
     interactive_mg_runner.kill(inner_instances_description, "instance_2")
 
     main_cursor = connect(host="localhost", port=7689).cursor()
