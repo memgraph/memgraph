@@ -211,7 +211,7 @@ TYPED_TEST(InterpreterTest, ExistsSubqueryWithoutReadingClause) {
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
   }
   {
-    // A body that does read something was never affected, and still is not.
+    // A body that does read something takes the ordinary path.
     auto stream = this->Interpret("MATCH (n) WHERE exists { WITH 1 AS x RETURN x } RETURN count(n) AS c");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
