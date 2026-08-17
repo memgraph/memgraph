@@ -9,15 +9,23 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/disk/rocksdb_utils.hpp"
+#include "kvstore/rocksdb_options.hpp"
 
-#include <rocksdb/env.h>
-#include <rocksdb/options.h>
+#include <gflags/gflags.h>
+#include <spdlog/spdlog.h>
+
 #include <string_view>
 
-#include "spdlog/spdlog.h"
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(storage_rocksdb_info_log_level, "INFO_LEVEL",
+              "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, "
+              "FATAL_LEVEL, HEADER_LEVEL. Default is INFO_LEVEL.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_rocksdb_keep_log_file_num, 50,
+              "Maximum number of RocksDB info log files kept per RocksDB instance. Every restart rolls the current "
+              "info log, older ones are deleted. Default is 50.");
 
-namespace memgraph::storage {
+namespace memgraph::kvstore {
 
 namespace {
 
@@ -34,11 +42,9 @@ rocksdb::InfoLogLevel ParseRocksDBInfoLogLevel(std::string_view level) {
 
 }  // namespace
 
-void ApplyRocksDBConfig(rocksdb::Options &options, std::string_view info_log_level, bool enable_thread_tracking,
-                        size_t keep_log_file_num) {
-  options.info_log_level = ParseRocksDBInfoLogLevel(info_log_level);
-  options.enable_thread_tracking = enable_thread_tracking;
-  options.keep_log_file_num = keep_log_file_num;
+void ApplyRocksDBLogConfig(rocksdb::Options &options) {
+  options.info_log_level = ParseRocksDBInfoLogLevel(FLAGS_storage_rocksdb_info_log_level);
+  options.keep_log_file_num = FLAGS_storage_rocksdb_keep_log_file_num;
 }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::kvstore

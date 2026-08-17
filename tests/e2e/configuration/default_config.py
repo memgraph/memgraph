@@ -356,7 +356,7 @@ startup_config_dict = {
     "storage_rocksdb_keep_log_file_num": (
         "50",
         "50",
-        "Maximum number of RocksDB info log files kept on disk. Older files are deleted. Default is 50.",
+        "Maximum number of RocksDB info log files kept per RocksDB instance. Every restart rolls the current info log, older ones are deleted. Default is 50.",
     ),
     "debug_query_plans": ("false", "false", "Enable DEBUG logging of potential query plans."),
 }

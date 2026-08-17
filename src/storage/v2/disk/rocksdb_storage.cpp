@@ -11,19 +11,15 @@
 
 #include "rocksdb_storage.hpp"
 
-#include <string_view>
-
 #include "flags/general.hpp"
-#include "storage/v2/disk/rocksdb_utils.hpp"
+#include "kvstore/rocksdb_options.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
 
 RocksDBStorage::RocksDBStorage() {
-  ApplyRocksDBConfig(options_,
-                     FLAGS_storage_rocksdb_info_log_level,
-                     FLAGS_storage_rocksdb_enable_thread_tracking,
-                     FLAGS_storage_rocksdb_keep_log_file_num);
+  kvstore::ApplyRocksDBLogConfig(options_);
+  options_.enable_thread_tracking = FLAGS_storage_rocksdb_enable_thread_tracking;
 }
 
 namespace {
