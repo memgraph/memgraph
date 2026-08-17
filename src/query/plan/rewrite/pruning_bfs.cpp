@@ -138,9 +138,15 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(EmptyResult &) override { return true; }
 
-  bool PreVisit(Apply &) override { return true; }
+  bool PreVisit(Apply &op) override {
+    VisitBranch(*op.subquery_);
+    return true;
+  }
 
-  bool PreVisit(Optional &) override { return true; }
+  bool PreVisit(Optional &op) override {
+    VisitBranch(*op.optional_);
+    return true;
+  }
 
   bool PreVisit(Cartesian &op) override {
     VisitBranch(*op.left_op_);
@@ -158,9 +164,16 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Union &) override { return true; }
 
-  bool PreVisit(Merge &) override { return true; }
+  bool PreVisit(Merge &op) override {
+    VisitBranch(*op.merge_match_);
+    VisitBranch(*op.merge_create_);
+    return true;
+  }
 
-  bool PreVisit(RollUpApply &) override { return true; }
+  bool PreVisit(RollUpApply &op) override {
+    VisitBranch(*op.list_collection_branch_);
+    return true;
+  }
 
   bool PreVisit(EvaluatePatternFilter &) override { return true; }
 
