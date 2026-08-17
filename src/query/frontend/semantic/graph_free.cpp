@@ -233,9 +233,6 @@ bool HasPreQueryDirectives(const PreQueryDirectives &directives) {
 }  // namespace
 
 bool IsGraphFree(const CypherQuery &query) {
-  // A query-level memory limit is enforced by the transaction's memory tracker, which only exists when a
-  // transaction does.
-  if (query.memory_limit_ != nullptr) return false;
   if (HasPreQueryDirectives(query.pre_query_directives_)) return false;
   if (SingleQueryReachesGraph(query.single_query_)) return false;
   return std::ranges::none_of(query.cypher_unions_, [](CypherUnion *cypher_union) {

@@ -605,10 +605,11 @@ class Interpreter final {
     // prepared. System-only executions may pass nullptr because they do not run
     // inside a DB query-memory budget.
     explicit QueryExecution(utils::MemoryTracker *db_query_tracker = nullptr)
-        : execution_memory{std::in_place_type<QueryAllocator>, db_query_tracker} {}
+        : execution_memory{std::in_place_type<QueryAllocator>, db_query_tracker}, memory_tracker{db_query_tracker} {}
 
     QueryExecution(ThreadSafe /*marker*/, utils::MemoryTracker *db_query_tracker)
-        : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>, db_query_tracker} {}
+        : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>, db_query_tracker},
+          memory_tracker{db_query_tracker} {}
 
     QueryExecution(const QueryExecution &) = delete;
     QueryExecution(QueryExecution &&) = delete;
@@ -619,6 +620,11 @@ class Interpreter final {
 
     std::variant<QueryAllocator, ThreadSafeQueryAllocator>
         execution_memory;  // NOTE: before all other fields which uses this memory
+
+    /// Tracks this query's allocations when there is no storage transaction to do it. A transaction
+    /// carries one of these for the same purpose; nothing about it needs the transaction, only the
+    /// database's tracker to report to, and that may be absent too.
+    utils::QueryMemoryTracker memory_tracker;
 
     std::optional<PreparedQuery> prepared_query;
     std::map<std::string, TypedValue> summary;
