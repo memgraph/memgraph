@@ -4082,6 +4082,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   // does, open the transaction that was skipped. The plan stays as planned: it is correct for this query,
   // only its storage needs were mispredicted.
   if (no_storage_access && plan::PlanRequiresStorageAccess(plan->plan())) {
+    spdlog::error(
+        "Query '{}' was found to need no graph, but its plan reaches storage. The query still runs, with the "
+        "transaction opened late and unplanned for. Please report this query to Memgraph.",
+        parsed_query.stripped_query.stripped_query().str());
     using RWType = plan::ReadWriteTypeChecker::RWType;
     auto const plan_rw_type = plan->rw_type();
     auto const access_type = (plan_rw_type == RWType::W || plan_rw_type == RWType::RW)

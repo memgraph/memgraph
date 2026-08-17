@@ -836,13 +836,19 @@ struct mgp_graph {
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
 
-  /// False for the graph handed to a procedure that declared it needs none. `getImpl` throws without.
-  [[nodiscard]] bool HasAccessor() const { return RawImpl() != nullptr; }
+  /// Null for the graph handed to a procedure that declared it needs none.
+  [[nodiscard]] memgraph::query::DbAccessor *TryGetImpl() const {
+    return std::visit(
+        memgraph::utils::Overloaded{[](memgraph::query::DbAccessor *impl) { return impl; },
+                                    [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor(); },
+                                    [](memgraph::query::VirtualGraphDbAccessor *impl) { return impl->GetAccessor(); }},
+        this->impl);
+  }
 
   [[nodiscard]] memgraph::query::DbAccessor *getImpl() const {
-    auto *impl = RawImpl();
+    auto *impl = TryGetImpl();
     if (impl == nullptr) [[unlikely]] {
-      throw std::logic_error{"Procedure reached for the graph, but it declared that it needs no graph access."};
+      throw std::logic_error{"Procedure reached for the graph, but it declared that it needs none."};
     }
     return impl;
   }
@@ -868,15 +874,6 @@ struct mgp_graph {
 
   static mgp_graph NonWritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view) {
     return mgp_graph{&acc, view, nullptr, acc.GetStorageMode()};
-  }
-
- private:
-  [[nodiscard]] memgraph::query::DbAccessor *RawImpl() const {
-    return std::visit(
-        memgraph::utils::Overloaded{[](memgraph::query::DbAccessor *impl) { return impl; },
-                                    [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor(); },
-                                    [](memgraph::query::VirtualGraphDbAccessor *impl) { return impl->GetAccessor(); }},
-        this->impl);
   }
 };
 
@@ -1067,7 +1064,7 @@ struct ProcedureInfo {
   /// storage transaction open. Declaring it falsely is caught rather than fatal: the graph handed over
   /// has no accessor behind it, and reaching through it reports a logic error. Internal, set only on the
   /// builtin `mg.*` procedures.
-  bool no_graph_access{false};
+  bool graph_free{false};
 };
 
 struct mgp_proc {

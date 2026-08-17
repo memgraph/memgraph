@@ -514,7 +514,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                              call_proc->is_write_,
                                                              procedure_id++,
                                                              call_proc->void_procedure_,
-                                                             call_proc->no_graph_access_);
+                                                             call_proc->graph_free_);
             // Above the operator, below the Filter: the slot is rewritten per procedure output row, which is what
             // the WHERE reads.
             input_op = SpliceSatisfiedComprehensions(std::move(input_op),
