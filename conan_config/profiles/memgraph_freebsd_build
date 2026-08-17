@@ -1,0 +1,35 @@
+{% set target_arch = {"amd64": "x86_64", "aarch64": "armv8"}.get(platform.machine(), platform.machine()) %}
+
+[settings]
+arch={{ target_arch }}
+build_type=Release
+compiler=clang
+compiler.cppstd=gnu17
+compiler.cstd=gnu17
+compiler.libcxx=libc++
+compiler.version=21
+os=FreeBSD
+
+[conf]
+m4/*:tools.build:cflags=["-std=gnu17"]
+tools.build:compiler_executables={"c": "/usr/bin/cc", "cpp": "/usr/bin/c++"}
+# BSD make doesn't support GNU Makefile syntax; scoped so it doesn't leak
+# into CMAKE_MAKE_PROGRAM of CMake-based builds.
+jemalloc/*:tools.gnu:make_program=gmake
+libbcrypt/*:tools.gnu:make_program=gmake
+
+# Normalize version ranges to the versions the system provides, then satisfy
+# them via platform_tool_requires - Conan recipes don't have FreeBSD binaries.
+[replace_tool_requires]
+cmake/*: cmake/4.3.2
+ninja/*: ninja/1.13.2
+flex/*: flex/2.6.4
+antlr4/*: antlr4/4.13.1
+openjdk/*: openjdk/21.0.1
+
+[platform_tool_requires]
+cmake/4.3.2
+ninja/1.13.2
+flex/2.6.4
+antlr4/4.13.1
+openjdk/21.0.1

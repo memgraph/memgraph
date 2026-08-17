@@ -26,6 +26,9 @@ class Memgraph(ConanFile):
         # CMake with MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON. Used by
         # `./build.sh --mage only`.
         "mage_only": [True, False],
+        # Build against the bundled toolchain (custom libstdc++). Disabled on
+        # platforms that use the system toolchain, e.g. FreeBSD.
+        "bundled_toolchain": [True, False],
     }
 
     exports_sources = (
@@ -45,6 +48,7 @@ class Memgraph(ConanFile):
 
     default_options = {
         "mage_only": False,
+        "bundled_toolchain": True,
         "aws-sdk-cpp/*:config": True,
         "aws-sdk-cpp/*:s3": True,
         "aws-sdk-cpp/*:monitoring": False,
@@ -118,7 +122,9 @@ class Memgraph(ConanFile):
         self.requires("libbcrypt/1.0-memgraph")
         self.requires("librdkafka/2.6.1")
         self.requires("librdtsc/0.3-memgraph")
-        self.requires("libseccomp/2.6.0", options={"shared": True})
+        if self.settings.os == "Linux":
+            # seccomp is a Linux kernel interface; gated in code by MG_HAS_SECCOMP
+            self.requires("libseccomp/2.6.0", options={"shared": True})
         self.requires("mgclient/1.8.0")
         self.requires("nuraft/2.1.0-memgraph")
         has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
@@ -161,9 +167,8 @@ class Memgraph(ConanFile):
 
     def validate(self):
         """Validate configuration before generation"""
-        # Memgraph only supports Linux
-        if self.settings.os != "Linux":
-            raise ConanInvalidConfiguration("Memgraph only supports Linux")
+        if self.settings.os not in ("Linux", "FreeBSD"):
+            raise ConanInvalidConfiguration(f"Unsupported OS {self.settings.os}: Memgraph builds only on Linux and FreeBSD")
 
         user_toolchain = self.conf.get("tools.cmake.cmaketoolchain:user_toolchain")
         if user_toolchain:
@@ -199,6 +204,8 @@ class Memgraph(ConanFile):
         deps = CMakeDeps(self)
         deps.generate()
         tc = CMakeToolchain(self)
+
+        tc.cache_variables["MG_BUNDLED_TOOLCHAIN"] = "ON" if self.options.bundled_toolchain else "OFF"
 
         # Automatically set sanitizer CMake flags based on compiler settings
         if self.settings.get_safe("compiler.asan"):
