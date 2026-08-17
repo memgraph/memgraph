@@ -1078,13 +1078,15 @@ bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) {
 
 void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
                                            const std::vector<Identifier *> &identifiers) {
-  auto &scope = scopes_.back();
+  // Index rather than hold a reference: the body may push a Scope, and scopes_ reallocating would dangle it.
+  const auto scope_idx = scopes_.size() - 1;
   std::vector<std::pair<std::optional<Symbol>, Identifier *>> prev_symbols;
   // Collect previous symbols if they exist.
   for (const auto &identifier : identifiers) {
     std::optional<Symbol> prev_symbol;
-    auto prev_symbol_it = scope.symbols.find(identifier->name_);
-    if (prev_symbol_it != scope.symbols.end()) {
+    auto &symbols = scopes_[scope_idx].symbols;
+    auto prev_symbol_it = symbols.find(identifier->name_);
+    if (prev_symbol_it != symbols.end()) {
       prev_symbol = prev_symbol_it->second;
     }
     identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
@@ -1092,7 +1094,6 @@ void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
   }
   // Visit the expressions with the new symbols bound. Every construct binding a per-element identifier funnels
   // through here, so this is the one place that marks the body as element-scoped.
-  const auto scope_idx = scopes_.size() - 1;
   ++scopes_[scope_idx].element_lambda_depth;
   for (auto *expr : exprs) {
     expr->Accept(*this);
@@ -1103,9 +1104,9 @@ void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
     const auto &prev_symbol = prev.first;
     const auto &identifier = prev.second;
     if (prev_symbol) {
-      scope.symbols[identifier->name_] = *prev_symbol;
+      scopes_[scope_idx].symbols[identifier->name_] = *prev_symbol;
     } else {
-      scope.symbols.erase(identifier->name_);
+      scopes_[scope_idx].symbols.erase(identifier->name_);
     }
   }
 }

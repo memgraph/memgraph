@@ -1351,6 +1351,37 @@ TYPED_TEST(TestSymbolGenerator, ExistsAllowedPositions) {
              AS("l"))))));
 }
 
+// A lambda's element variable must not survive the lambda, even when the body pushes a scope. scopes_ is a vector
+// built with capacity 1, so the push reallocates and a Scope& held across the body would dangle - the unbind would
+// then miss the live scope and leak the variable out, and the write itself is a use-after-free.
+TYPED_TEST(TestSymbolGenerator, LambdaVariableDoesNotEscapeAScopePushingBody) {
+  // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { MATCH (n)-[r]->(m) }) AND x = 1 RETURN n
+  EXPECT_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))),
+          WHERE(AND(ALL("x",
+                        LIST(LITERAL(1)),
+                        WHERE(EXISTS_SUBQUERY(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))))))),
+                    EQ(IDENT("x"), LITERAL(1)))),
+          RETURN("n")))),
+      UnboundVariableError);
+
+  // The same shape with a pattern comprehension, which pushes a scope of its own:
+  // MATCH (n) WHERE all(x IN [1] WHERE size([(n)-[r]->(m) | m]) > 0) AND x = 1 RETURN n
+  EXPECT_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))),
+          WHERE(AND(ALL("x",
+                        LIST(LITERAL(1)),
+                        WHERE(GREATER(FN("size",
+                                         PATTERN_COMPREHENSION(
+                                             nullptr, PATTERN(NODE("n"), EDGE("r"), NODE("m")), nullptr, IDENT("m"))),
+                                      LITERAL(0)))),
+                    EQ(IDENT("x"), LITERAL(1)))),
+          RETURN("n")))),
+      UnboundVariableError);
+}
+
 TYPED_TEST(TestSymbolGenerator, ExistsRefusedPositions) {
   auto prop = this->dba.NameToProperty("prop");
   auto exists_subquery = [this] {
