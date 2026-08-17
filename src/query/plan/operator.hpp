@@ -2917,7 +2917,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> arguments,
                 std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
                 size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure = false,
-                bool no_graph_access = false);
+                bool graph_free = false);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
@@ -2929,6 +2929,10 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
 
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  /// True if calling this procedure needs a storage transaction: it writes, or it made no claim to
+  /// leave the graph alone.
+  bool ReachesStorage() const { return is_write_ || !graph_free_; }
 
   static void IncrementCounter(const std::string &procedure_name);
   static std::unordered_map<std::string, int64_t> GetAndResetCounters();
@@ -2944,7 +2948,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   int64_t procedure_id_;
   bool void_procedure_;
   /// Copied from the procedure's own declaration, by way of the AST clause.
-  bool no_graph_access_{false};
+  bool graph_free_{false};
 
   std::string ToString(const DbAccessor *dba) const override;
 

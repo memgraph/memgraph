@@ -8438,7 +8438,7 @@ std::unique_ptr<LogicalOperator> OutputTableStream::Clone(AstStorage *storage) c
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
                              size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure,
-                             bool no_graph_access)
+                             bool graph_free)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(std::move(name)),
       arguments_(std::move(args)),
@@ -8449,7 +8449,7 @@ CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string
       is_write_(is_write),
       procedure_id_(procedure_id),
       void_procedure_(void_procedure),
-      no_graph_access_(no_graph_access) {}
+      graph_free_(graph_free) {}
 
 ACCEPT_WITH_INPUT(CallProcedure);
 
@@ -8559,7 +8559,8 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: What about cross library boundary exceptions? OMG C++?! <- should be fine since moving to shared libstd
     proc.cb(&proc_args, &graph, result, &proc_memory);
 
-    if (graph.HasAccessor() && graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
+    if (auto *impl = graph.TryGetImpl();
+        impl != nullptr && impl->TransactionHasSerializationError() && !result->error_msg) {
       static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
     }
 
@@ -8574,7 +8575,8 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
 
-    if (graph.HasAccessor() && graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
+    if (auto *impl = graph.TryGetImpl();
+        impl != nullptr && impl->TransactionHasSerializationError() && !result->error_msg) {
       static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
     }
   }
@@ -8691,7 +8693,7 @@ class CallProcedureCursor : public Cursor {
 
       // Re-check the declaration: a module reload can change what a name resolves to after planning.
       const bool no_storage_access = context.db_accessor == nullptr;
-      if (no_storage_access && !proc_->info.no_graph_access) {
+      if (no_storage_access && !proc_->info.graph_free) {
         throw QueryRuntimeException("The procedure named '{}' requires graph access.", self_->procedure_name_);
       }
       const auto storage_mode =
@@ -8789,7 +8791,7 @@ std::unique_ptr<LogicalOperator> CallProcedure::Clone(AstStorage *storage) const
   object->is_write_ = is_write_;
   object->procedure_id_ = procedure_id_;
   object->void_procedure_ = void_procedure_;
-  object->no_graph_access_ = no_graph_access_;
+  object->graph_free_ = graph_free_;
   return object;
 }
 

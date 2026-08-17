@@ -275,7 +275,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, CallGraphFreeProcedureIsStillARead) {
   call_op.procedure_name_ = "mg.procedures";
   call_op.result_fields_ = {"name", "signature"};
   call_op.is_write_ = false;
-  call_op.no_graph_access_ = true;
+  call_op.graph_free_ = true;
   call_op.result_symbols_ = {this->GetSymbol("name_alias"), this->GetSymbol("signature_alias")};
 
   this->CheckPlanType(&call_op, RWType::R);

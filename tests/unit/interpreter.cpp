@@ -651,7 +651,7 @@ TYPED_TEST(InterpreterTest, AccessorFreePathModifierRouting) {
   }
 }
 
-// The accessor-free path is gated on procedure metadata (no_graph_access AND no required privilege),
+// The accessor-free path is gated on procedure metadata (graph_free AND no required privilege),
 // not on the procedure name.
 TYPED_TEST(InterpreterTest, AccessorFreePathRequiresDeclaredNoGraphAccess) {
   for (auto const *query :
@@ -662,7 +662,7 @@ TYPED_TEST(InterpreterTest, AccessorFreePathRequiresDeclaredNoGraphAccess) {
   }
 }
 
-// mg.get_module_files declares no_graph_access but requires MODULE_READ, so it is not accessor-free
+// mg.get_module_files declares graph_free but requires MODULE_READ, so it is not accessor-free
 // eligible: the fast path would invoke the callback during Prepare, before the auth check.
 TYPED_TEST(InterpreterTest, AccessorFreePathExcludesPrivilegedProcedures) {
   auto stream = this->Interpret("CALL mg.get_module_files() YIELD path");

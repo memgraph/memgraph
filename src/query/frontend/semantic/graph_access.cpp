@@ -210,7 +210,7 @@ bool ClauseReachesGraph(Clause *clause) {
     return ReachesGraph(unwind->named_expression_);
   }
   if (auto *call_procedure = utils::Downcast<CallProcedure>(clause)) {
-    if (!call_procedure->no_graph_access_) return true;
+    if (!call_procedure->graph_free_) return true;
     return AnyReachesGraph(call_procedure->arguments_) ||
            (call_procedure->where_ != nullptr && ReachesGraph(call_procedure->where_->expression_));
   }

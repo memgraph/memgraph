@@ -2572,7 +2572,7 @@ class CallProcedure : public memgraph::query::Clause {
   bool void_procedure_{false};
   /// Copied from the procedure's own declaration, alongside `is_write_`, so that later phases need not
   /// take the registry lock again.
-  bool no_graph_access_{false};
+  bool graph_free_{false};
   memgraph::query::Where *where_{nullptr};
 
   CallProcedure *Clone(AstStorage *storage) const override {
@@ -2591,7 +2591,7 @@ class CallProcedure : public memgraph::query::Clause {
     object->memory_scale_ = memory_scale_;
     object->is_write_ = is_write_;
     object->void_procedure_ = void_procedure_;
-    object->no_graph_access_ = no_graph_access_;
+    object->graph_free_ = graph_free_;
     object->where_ = where_ ? where_->Clone(storage) : nullptr;
     return object;
   }

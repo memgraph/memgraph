@@ -71,7 +71,7 @@ ModuleRegistry gModuleRegistry;
 
 Module::~Module() {}
 
-// Every procedure registered here ignores its `mgp_graph *`. `no_graph_access` is declared per procedure
+// Every procedure registered here ignores its `mgp_graph *`. `graph_free` is declared per procedure
 // rather than for the module because declaring it is also what opts one into running with no transaction,
 // which is only worth doing for those callers actually issue that way.
 class BuiltinModule final : public Module {
@@ -262,7 +262,7 @@ void RegisterMgProcedures(std::map<std::string, std::shared_ptr<Module>, std::le
       }
     }
   };
-  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource(), {.no_graph_access = true});
+  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource(), {.graph_free = true});
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "signature", Call<mgp_type *>(mgp_type_string)) ==
@@ -331,7 +331,7 @@ void RegisterMgTransformations(std::map<std::string, std::shared_ptr<Module>, st
       }
     }
   };
-  mgp_proc procedures("transformations", transformations_cb, utils::NewDeleteResource(), {.no_graph_access = true});
+  mgp_proc procedures("transformations", transformations_cb, utils::NewDeleteResource(), {.graph_free = true});
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "path", Call<mgp_type *>(mgp_type_string)) ==
@@ -408,7 +408,7 @@ void RegisterMgFunctions(std::map<std::string, std::shared_ptr<Module>, std::les
       }
     }
   };
-  mgp_proc functions("functions", functions_cb, utils::NewDeleteResource(), {.no_graph_access = true});
+  mgp_proc functions("functions", functions_cb, utils::NewDeleteResource(), {.graph_free = true});
   MG_ASSERT(mgp_proc_add_result(&functions, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&functions, "signature", Call<mgp_type *>(mgp_type_string)) ==
@@ -510,7 +510,7 @@ void RegisterMgGetModuleFiles(ModuleRegistry *module_registry, BuiltinModule *mo
   mgp_proc get_module_files("get_module_files",
                             get_module_files_cb,
                             utils::NewDeleteResource(),
-                            {.required_privilege = AuthQuery::Privilege::MODULE_READ, .no_graph_access = true});
+                            {.required_privilege = AuthQuery::Privilege::MODULE_READ, .graph_free = true});
   MG_ASSERT(mgp_proc_add_result(&get_module_files, "path", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&get_module_files, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
