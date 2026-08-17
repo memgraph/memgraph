@@ -54,8 +54,8 @@ TEST(String, ToUpperCase) {
 }
 
 TEST(String, ReverseUtf8) {
-  // Code points are written as escapes: a directly typed accented character
-  // may be precomposed or decomposed, and the two have different answers here.
+  // Escapes rather than typed characters: an accented character may reach the
+  // compiler precomposed or decomposed, and the two have different answers here.
   EXPECT_EQ(ReverseUtf8(""), "");
   EXPECT_EQ(ReverseUtf8("abc"), "cba");
 
@@ -70,15 +70,12 @@ TEST(String, ReverseUtf8) {
   // rather than staying attached to the character it followed.
   EXPECT_EQ(ReverseUtf8("abc\u0301"), "\u0301cba");
 
-  // Reversing twice is the identity, which byte reversal also satisfies; the
-  // point here is that the intermediate value is well formed.
   EXPECT_EQ(ReverseUtf8(ReverseUtf8("a\u4E2Db\u00E9")), "a\u4E2Db\u00E9");
 }
 
 TEST(String, ReverseUtf8CountsCodePointsNotBytes) {
-  // The distinguishing property: the result holds as many code points as the
-  // input, each intact. A byte-wise reversal keeps the byte count too, so
-  // comparing lengths alone would not catch the defect.
+  // The result holds as many code points as the input, each intact. Byte-wise
+  // reversal preserves the byte count too, so length alone proves nothing.
   const std::string input = "a\u00E9\u4E2D";
   const std::string reversed = ReverseUtf8(input);
   ASSERT_EQ(reversed.size(), input.size());

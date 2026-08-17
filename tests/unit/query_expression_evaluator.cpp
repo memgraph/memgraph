@@ -2967,12 +2967,9 @@ TYPED_TEST(FunctionTest, Reverse) {
 }
 
 TYPED_TEST(FunctionTest, ReverseNonAscii) {
-  // Code points are written as escapes throughout: an accented character typed
-  // directly may reach the compiler either precomposed or as a base plus a
-  // combining mark, and those two forms have different correct answers here.
-  //
-  // Reversal is by code point, so a multi-byte character survives intact
-  // instead of having its bytes turned around into invalid UTF-8.
+  // Escapes rather than typed characters: an accented character may reach the
+  // compiler precomposed or as a base plus a combining mark, and the two forms
+  // have different correct answers here.
   EXPECT_EQ(this->EvaluateFunction("REVERSE", "caf\u00E9").ValueString(), "\u00E9fac");
   EXPECT_EQ(this->EvaluateFunction("REVERSE", "a\u4E2Db").ValueString(), "b\u4E2Da");
   EXPECT_EQ(this->EvaluateFunction("REVERSE", "\u00E9").ValueString(), "\u00E9");
