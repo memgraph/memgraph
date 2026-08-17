@@ -34,9 +34,8 @@ def execute_query(query: str):
 def expect_error(query: str, label: str, expected: str):
     """Assert that a query fails with `expected` in the message.
 
-    Matching the message matters: a bare `except Exception` would also pass if the server were
-    unreachable, or if the query failed for a completely different reason than the one under test.
-    The assertions are raised outside the `except` block so they cannot be swallowed.
+    Matching the message matters: a bare `except Exception` also passes when the server is
+    unreachable, or when the query fails for an unrelated reason.
     """
     try:
         execute_query(query)
@@ -142,13 +141,10 @@ def test_kshortest_limit():
 def test_kshortest_inline_property_filter():
     """An inlined edge property map is now applied during the search, not only after it.
 
-    The planner turns `{p: 1}` into two filters: an inline one over the expansion's inner edge, and
-    a post-expansion `all(e IN r WHERE e.p = 1)`. The path limit is enforced inside the operator, so
-    before the inline filter was honoured the limit could be spent on paths the post-expansion filter
-    then threw away - yielding fewer than `k` matching paths, or none at all.
-
-    The graph makes the shortest path the non-matching one, so the ordering is deterministic rather
-    than dependent on storage iteration order.
+    The planner turns `{p: 1}` into an inline filter on the inner edge plus a post-expansion
+    `all(e IN r WHERE e.p = 1)`. The limit is enforced inside the operator, so before the inline
+    filter was honoured it could be spent on paths the post-expansion filter then discarded.
+    The shortest path is the non-matching one, so ordering does not depend on storage iteration.
     """
     print("Testing kshortest with an inlined edge property map...")
     execute_query("MATCH (n) DETACH DELETE n")
@@ -189,6 +185,97 @@ def test_kshortest_inline_property_filter():
     assert len(results[0]["r"]) == 2, f"Expected the two-hop matching path, got {len(results[0]['r'])} edges"
 
     print("Inlined property map tests passed! ✅")
+
+
+def test_kshortest_limit_is_per_input_row():
+    """The `|k` limit caps each input row independently, not the whole result stream.
+
+    The operator used to stop for good the first time one row produced `k` paths, dropping every
+    later row. Three disjoint pairs with two paths each discriminate all three candidate
+    semantics: per-row gives 3/6/6, a global budget 1/2/3, the old behaviour 1/2/6.
+    """
+    print("Testing that the kshortest limit is scoped to an input row...")
+    execute_query("MATCH (n) DETACH DELETE n")
+    for i in range(3):
+        execute_query(
+            f"""
+            CREATE (s:Src {{id: {i}}})
+            CREATE (m:Mid {{id: {i}}})
+            CREATE (t:Dst {{id: {i}}})
+            CREATE (s)-[:LINK]->(t)
+            CREATE (s)-[:LINK]->(m)
+            CREATE (m)-[:LINK]->(t)
+        """
+        )
+
+    for limit, expected in ((1, 3), (2, 6), (3, 6)):
+        results = execute_query(
+            f"""
+            MATCH (s:Src),(t:Dst) WHERE s.id = t.id
+            WITH s, t MATCH (s)-[r:LINK *KSHORTEST|{limit}]->(t) RETURN r
+        """
+        )
+        print(f"  limit {limit}: {len(results)} paths")
+        assert len(results) == expected, f"Expected {expected} paths with limit {limit}, got {len(results)}"
+
+    # A non-positive limit yields nothing at all, on every row.
+    for limit in (0, -1):
+        results = execute_query(
+            f"""
+            MATCH (s:Src),(t:Dst) WHERE s.id = t.id
+            WITH s, t MATCH (s)-[r:LINK *KSHORTEST|{limit}]->(t) RETURN r
+        """
+        )
+        assert len(results) == 0, f"Expected 0 paths with limit {limit}, got {len(results)}"
+
+    print("Per-input-row limit tests passed! ✅")
+
+
+def test_kshortest_depth_bounds():
+    """A zero lower bound is legal; a negative one and a non-positive upper bound are not.
+
+    `0..n` is accepted by every other expansion taking a lower bound, and 0 is inert here since
+    KSHORTEST already skips `source == target`. Only a negative bound wraps to a huge unsigned
+    value and makes the top-up loop enumerate every simple path.
+    """
+    print("Testing kshortest depth bounds...")
+    execute_query("MATCH (n) DETACH DELETE n")
+    execute_query(
+        """
+        CREATE (s:Src {id: 0})
+        CREATE (m:Mid {id: 0})
+        CREATE (t:Dst {id: 0})
+        CREATE (s)-[:LINK]->(t)
+        CREATE (s)-[:LINK]->(m)
+        CREATE (m)-[:LINK]->(t)
+    """
+    )
+
+    for bounds in ("0..3", "0..", "1..3"):
+        results = execute_query(
+            f"""
+            MATCH (s:Src),(t:Dst) WITH s, t MATCH (s)-[r:LINK *KSHORTEST {bounds}]->(t) RETURN r
+        """
+        )
+        print(f"  bounds {bounds!r}: {len(results)} paths")
+        assert len(results) == 2, f"Expected 2 paths for bounds {bounds}, got {len(results)}"
+
+    expect_error(
+        """
+        MATCH (s:Src),(t:Dst) WITH s, t MATCH (s)-[r:LINK *KSHORTEST (0-1)..3]->(t) RETURN r
+    """,
+        "negative lower bound",
+        "Minimum depth in KSHORTEST path expansion must not be negative.",
+    )
+    expect_error(
+        """
+        MATCH (s:Src),(t:Dst) WITH s, t MATCH (s)-[r:LINK *KSHORTEST 1..0]->(t) RETURN r
+    """,
+        "zero upper bound",
+        "Maximum depth in KSHORTEST path expansion must be at least 1.",
+    )
+
+    print("Depth bound tests passed! ✅")
 
 
 def test_syntax_errors():
@@ -256,6 +343,8 @@ if __name__ == "__main__":
     try:
         test_kshortest_limit()
         test_kshortest_inline_property_filter()
+        test_kshortest_limit_is_per_input_row()
+        test_kshortest_depth_bounds()
         test_syntax_errors()
         print("\n🎉 All tests completed successfully!")
     except Exception as e:

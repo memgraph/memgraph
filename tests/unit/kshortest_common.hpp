@@ -281,14 +281,9 @@ auto GetProp(const TRecord &rec, std::string prop, memgraph::query::DbAccessor *
   return *rec.GetProperty(memgraph::storage::View::OLD, dba->NameToProperty(prop));
 }
 
-// Removes from `edges` everything the filter lambda blocks, so the Yen oracle runs on exactly the
-// subgraph the expansion sees. Blocking an entity means blocking every edge whose traversal binds
-// it, i.e. the edge itself, or every edge leading into the vertex.
-//
-// A blocked edge is matched by its `(from, to)` property pair rather than by gid, so this is only
-// exact while `kEdges` holds no two edges between the same ordered pair of vertices - the cursor
-// would block one parallel edge where this blocks all of them. Keep `kEdges` free of parallel edges,
-// or switch this to comparing gids.
+// Removes everything the filter lambda blocks, so the Yen oracle runs on the subgraph the expansion
+// sees: the blocked edge itself, or every edge leading into the blocked vertex.
+// Matches a blocked edge by `(from, to)`, not gid, so keep `kEdges` free of parallel edges.
 std::vector<std::pair<int, int>> GetFilteredEdgeList(const memgraph::query::TypedValue &blocked,
                                                      memgraph::query::EdgeAtom::Direction direction,
                                                      const std::vector<std::string> &edge_types,
@@ -523,14 +518,16 @@ class Database {
       return paths;
     };
 
-    // Without a limit every expected path must be returned, so a group missing entirely from
-    // `results` - which the per-group loop below cannot see - has to be caught by the total.
-    if (limit == -1) {
+    // A wholly missing group is invisible to the per-group loop below, so the total has to catch
+    // it. Must be asserted with a limit too: the limit caps each group, never removes one.
+    {
       size_t expected_total = 0;
       for (const auto &blocked_entity : blocked_values) {
         for (int source_id = 0; source_id < kVertexCount; ++source_id) {
           for (int sink_id = 0; sink_id < kVertexCount; ++sink_id) {
-            if (source_id != sink_id) expected_total += correct_paths_for(blocked_entity, source_id, sink_id).size();
+            if (source_id == sink_id) continue;
+            const auto group = correct_paths_for(blocked_entity, source_id, sink_id).size();
+            expected_total += limit == -1 ? group : std::min(group, static_cast<size_t>(limit));
           }
         }
       }
@@ -717,10 +714,8 @@ class Database {
 
     memgraph::query::Expression *filter_expr = nullptr;
     if (blocked_vertex_id) {
-      // Compare vertex identities against a vertex bound on an outer frame symbol, the way
-      // `KShortestTest`'s USE_FRAME case does, rather than reading `inner_node.id`: a property
-      // lookup built here evaluates to null at runtime, which silently made the predicate false for
-      // every expansion and left this whole matrix passing on zero rows.
+      // Compare vertex identities against an outer frame symbol, not `inner_node.id`: a property
+      // lookup built here evaluates to null, which left this whole matrix passing on zero rows.
       const auto blocked_vertex = std::ranges::find_if(
           vertices, [&](const auto &v) { return GetProp(v, "id", &db_accessor).ValueInt() == *blocked_vertex_id; });
       MG_ASSERT(blocked_vertex != vertices.end(), "The blocked vertex must be part of the fixture");
@@ -754,11 +749,9 @@ class Database {
 
     switch (fine_grained_test_type) {
       case FineGrainedTestType::ALL_GRANTED:
-        // `CheckPathsAndExtractLengths` only validates the paths that came back, so on its own it
-        // passes vacuously if the expansion over-blocks and returns nothing. With every permission
-        // granted at least one path always survives - even with `blocked_vertex_id` set, which only
-        // removes the edges leading into that vertex - so pin non-emptiness here. The denied arms
-        // below can legitimately be empty, which is why they get no such assertion.
+        // `CheckPathsAndExtractLengths` only validates the paths that came back, so it passes
+        // vacuously on zero rows. With everything granted a path always survives, so pin that.
+        // The denied arms below can legitimately be empty.
         EXPECT_FALSE(results.empty());
         CheckPathsAndExtractLengths(&db_accessor, edges_in_result, results);
         break;
@@ -776,11 +769,9 @@ class Database {
     db_accessor.Abort();
   }
 
-  // The access check must run before the filter lambda: an edge the user cannot read must never
-  // make the lambda run on it. Edge (5)-[:b]->(3) is the only one with `to` = 3, and edge type "b"
-  // is denied - so the lambda below, which evaluates to an integer exactly on that edge, may never
-  // be reached. No edge type filter is given to the operator, so storage really does hand the
-  // expansion the denied edge.
+  // The access check must run before the lambda. Edge (5)-[:b]->(3) is the only one with `to` = 3
+  // and type "b" is denied, so the lambda - which returns an integer exactly there - must never
+  // run on it. The operator gets no edge type filter, so storage really does hand it that edge.
   void KShortestTestAccessCheckBeforeFilterLambda(Database *db) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor db_accessor(storage_dba.get());
@@ -842,23 +833,13 @@ class Database {
     db_accessor.Abort();
   }
 
-  // Memoising an expansion verdict must not merge the two halves of the bidirectional search. They
-  // check access on opposite endpoints of the same edge while binding the same vertex as the
-  // lambda's node, so keying the memo on (edge, node) alone makes one half answer for the other.
-  //
-  // Vertex 4 is denied and is the target, and (2)-[:b]->(4) runs straight from source to target.
-  // The source side sees that edge first and is denied on `To` = 4. The target side then sees the
-  // same edge - binding the same vertex 4, because the target-side pass binds the vertex it
-  // expands *from* - but checks `From` = 2 and is allowed; endpoint vertices are seeded into the
-  // search without an access check, which is pre-existing behaviour shared with `*BFS`. A memo
-  // that cannot tell the two passes apart replays the source side's `false` and loses the
-  // one-hop path, falling back to (2)-[:a]->(5)-[:a]->(4).
-  //
-  // That dependency is structural, not incidental: for the two halves to disagree about one edge,
-  // one of the access-checked endpoints has to be a vertex admitted without a check, because any
-  // mid-path denied vertex is rejected by whichever half reaches it first. So if the endpoint
-  // seeding gap is ever closed, this test returns zero rows and needs redesigning around the new
-  // behaviour rather than relaxing.
+  // The memo must not merge the two halves of the bidirectional search: they check access on
+  // opposite endpoints of the same edge while binding the same vertex as the lambda's node.
+  // Denied vertex 4 is the target and (2)-[:b]->(4) runs source to target. The source side is
+  // denied on `To` = 4; the target side binds the same vertex 4 but checks `From` = 2 and allows.
+  // A memo blind to the pass replays the `false` and loses the one-hop path.
+  // Depends on endpoints being seeded without an access check (pre-existing, shared with `*BFS`).
+  // If that gap is closed this returns zero rows and needs redesigning, not relaxing.
   void KShortestTestMemoDistinguishesSearchDirections(Database *db) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor db_accessor(storage_dba.get());

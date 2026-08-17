@@ -3749,36 +3749,36 @@ class KShortestPathsCursor : public Cursor {
     limit_ = self_.limit_ ? EvaluateInt(evaluator, self_.limit_, "Limit in KSHORTEST path expansion")
                           : std::numeric_limits<int64_t>::max();
 
-    // With neither a lambda nor access checks there is nothing to memoise, so don't pay for it.
-    // Lambda-presence must stay the *left* operand: `ShouldExpand` skips the lambda entirely when
-    // this is false, so anything that makes memoisation conditional on something else (a flag, an
-    // entry cap) has to re-audit that branch or it will silently stop filtering.
+    // Nothing to memoise without a lambda or access checks. Lambda-presence must stay the left
+    // operand: `ShouldExpand` skips the lambda entirely when this is false.
     fine_grained_access_check_enabled_ = FineGrainedAccessCheckEnabled(context);
     memoize_expansion_ = self_.filter_lambda_.expression != nullptr || fine_grained_access_check_enabled_;
+
+    // A non-positive limit can never yield a path, so don't search at all.
+    if (limit_ <= 0) return false;
 
     auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
       PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource(), context);
       n_returned_paths_++;
     };
 
-    // Check if we reached the maximum number of paths to return
-    if (n_returned_paths_ >= limit_) {
-      return false;
-    }
-
     auto unsent_paths_count = [&]() { return shortest_paths_.size() - current_path_index_; };
 
-    // If we have cached shortest paths, return the next one
-    if (unsent_paths_count() > 0) {
-      push_next_path(frame, evaluator);
-      return true;
-    }
+    // The limit is per input row, so guard each serving site rather than returning early: a
+    // saturated row must still fall through to the input loop, where `ResetState` zeroes the count.
+    if (n_returned_paths_ < limit_) {
+      // If we have cached shortest paths, return the next one
+      if (unsent_paths_count() > 0) {
+        push_next_path(frame, evaluator);
+        return true;
+      }
 
-    // Try to compute the next shortest path for current input
-    if (current_input_initialized_ && current_source_.has_value() && current_target_.has_value() &&
-        ComputeNextShortestPath(current_source_.value(), current_target_.value(), frame, evaluator, context)) {
-      push_next_path(frame, evaluator);
-      return true;
+      // Try to compute the next shortest path for current input
+      if (current_input_initialized_ && current_source_.has_value() && current_target_.has_value() &&
+          ComputeNextShortestPath(current_source_.value(), current_target_.value(), frame, evaluator, context)) {
+        push_next_path(frame, evaluator);
+        return true;
+      }
     }
 
     // Need to pull new input
@@ -3802,16 +3802,17 @@ class KShortestPathsCursor : public Cursor {
       upper_bound_ = self_.upper_bound_ ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in expansion")
                                         : std::numeric_limits<int64_t>::max();
 
-      // Both bounds are compared against a `size_t` further down, so a negative one converts to a
-      // huge unsigned value and silently disables the check instead of narrowing the search: the
-      // depth guard stops firing, and the lower-bound top-up loop below never terminates until
-      // every simple path has been enumerated. Every other shortest-path cursor already rejects
-      // this (BFS, WSHORTEST, ALLSHORTEST); KSHORTEST was the only one that did not.
+      // Both bounds are compared against a `size_t` below, so a negative one wraps to a huge value
+      // and disables the check instead of narrowing the search - the top-up loop then runs until
+      // every simple path is enumerated.
+      // Asymmetric on purpose: `upper_bound_ < 1` matches WSHORTEST/ALLSHORTEST, but no sibling has
+      // a lower-bound floor, and 0 is inert here (the top-up loop is already false at 0), so
+      // rejecting it would break the legal `-[*KSHORTEST 0..n]->`.
       if (upper_bound_ < 1) {
         throw QueryRuntimeException("Maximum depth in KSHORTEST path expansion must be at least 1.");
       }
-      if (lower_bound_ < 1) {
-        throw QueryRuntimeException("Minimum depth in KSHORTEST path expansion must be at least 1.");
+      if (lower_bound_ < 0) {
+        throw QueryRuntimeException("Minimum depth in KSHORTEST path expansion must not be negative.");
       }
 
       // Initialize for this new source-target pair
@@ -3834,7 +3835,7 @@ class KShortestPathsCursor : public Cursor {
         last_path = &shortest_paths_.back();
       }
 
-      if (unsent_paths_count() > 0) {
+      if (n_returned_paths_ < limit_ && unsent_paths_count() > 0) {
         push_next_path(frame, evaluator);
         return true;
       }
@@ -3886,9 +3887,8 @@ class KShortestPathsCursor : public Cursor {
     }
   };
 
-  // Identifies one (edge, bound node) test of the expansion predicate. The pass is part of the key
-  // because the two halves of the bidirectional search check access on opposite endpoints of the
-  // same edge and bind opposite endpoints as the lambda's node.
+  // One (edge, bound node) test of the expansion predicate. The pass is part of the key because the
+  // two halves of the bidirectional search check access on opposite endpoints of the same edge.
   struct ExpansionKey {
     storage::Gid edge;
     storage::Gid node;
@@ -3926,19 +3926,14 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::unordered_set<EdgeAccessor, EdgeAccessorHash> blocked_edges_;
   utils::pmr::unordered_set<VertexAccessor, VertexAccessorHash> blocked_vertices_;
   utils::pmr::unordered_map<VertexAccessor, double, VertexAccessorHash> distances_;
-  // Raw storage adjacency, deliberately *not* cleared per input row (unlike `expansion_memo_`), so
-  // Yen's repeated inner searches don't re-fetch. What makes that safe is not the transaction: a
-  // transaction spans several command epochs and `View::OLD` moves with `AdvanceCommand()`, and
-  // under non-snapshot isolation `OLD` visibility is evaluated live. What keeps one cursor inside
-  // one epoch is that MATCH plans `View::OLD` and the planner throws on a variable-length pattern
-  // whose view is anything else (the `view != storage::View::OLD` check in
-  // `rule_based_planner.hpp`). It must also keep storing unfiltered edges - caching post-filter
-  // results here would be wrong the moment the lambda reads an outer-row value.
-  //
-  // The edges are copied into an arena vector rather than cached as the `EdgeVertexAccessorResult`
-  // storage hands back: that struct is not allocator-aware, so its `std::vector` would allocate from
-  // the global heap and escape this query's memory accounting even though the map itself does not.
-  // `expanded_count` is consumed before the insert and never read back, so it is not cached.
+  // Raw storage adjacency, deliberately not cleared per input row (unlike `expansion_memo_`) so
+  // Yen's repeated inner searches don't re-fetch. Must stay unfiltered: caching post-filter results
+  // would break the moment the lambda reads an outer-row value.
+  // Known pre-existing gap: a cursor can outlive its command epoch (`Apply` reuses one cursor
+  // across an `Accumulate` that calls `AdvanceCommand`), so the cache can go stale.
+  // Copied into an arena vector because `EdgeVertexAccessorResult` is not allocator-aware and its
+  // `std::vector` would escape this query's memory accounting. `expanded_count` is consumed before
+  // the insert, so it is not cached.
   using CachedEdges = utils::pmr::vector<EdgeAccessor>;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> in_edges_;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> out_edges_;
@@ -3946,6 +3941,7 @@ class KShortestPathsCursor : public Cursor {
 
   // Memoised `access check && filter lambda` verdicts. Sound across Yen's O(k*L) inner searches
   // because the blocked sets - the only per-deviation inputs - are checked outside the memo.
+  // Assumes the flag below is constant for the row; a mid-query license flip is not invalidated.
   utils::pmr::unordered_map<ExpansionKey, bool, ExpansionKeyHash> expansion_memo_;
   bool memoize_expansion_{false};
   bool fine_grained_access_check_enabled_{false};
@@ -4005,8 +4001,7 @@ class KShortestPathsCursor : public Cursor {
     // Get the deviation vertex
     VertexAccessor deviation_vertex = GetVertexAtIndex(source, base_path, deviation_index);
 
-    // Compute shortest path from deviation vertex to target with blocked elements. The candidate's
-    // total length is `deviation_index + spur_len`, so the spur gets what's left of the bound.
+    // The candidate's total is `deviation_index + spur_len`, so the spur gets what's left of it.
     auto spur_path = ComputeShortestPath(
         deviation_vertex, target, upper_bound_ - static_cast<int64_t>(deviation_index), frame, evaluator, context);
 
@@ -4154,9 +4149,8 @@ class KShortestPathsCursor : public Cursor {
   }
 
   /// `To` picks the endpoint the traversal advances to. `Backward` marks the target-side pass,
-  /// where the filter lambda binds the vertex we expand *from* rather than the one we reach - that
-  /// asymmetry is what makes the bidirectional search test exactly the (edge, node) pairs a forward
-  /// walk of the finished path would. Copied from `STShortestPathCursor::ShouldExpand`.
+  /// where the lambda binds the vertex we expand *from* rather than the one we reach; that
+  /// asymmetry makes the search test exactly the (edge, node) pairs a forward walk would.
   template <bool To, bool Backward>
   bool ShouldExpand(const EdgeAccessor &edge, const VertexAccessor &expand_from, const VertexEdgeMapT &reached,
                     Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
@@ -4165,10 +4159,8 @@ class KShortestPathsCursor : public Cursor {
     if (!memoize_expansion_) return FineGrainedAccessCheck<To>(edge, context);
 
     const VertexAccessor &inner_node = Backward ? expand_from : next;
-    // The pass only has to be part of the key because the two halves check access on opposite
-    // endpoints of the same edge. With access checks off the verdict is a pure function of
-    // `(edge, inner_node)`, so dropping the pass merges two entries that are guaranteed to agree and
-    // saves evaluating the lambda a second time on every arc the two frontiers both reach.
+    // With access checks off the verdict is a pure function of `(edge, inner_node)`, so dropping
+    // the pass merges two entries guaranteed to agree.
     const ExpansionKey key{
         .edge = edge.Gid(), .node = inner_node.Gid(), .backward = Backward && fine_grained_access_check_enabled_};
     if (const auto it = expansion_memo_.find(key); it != expansion_memo_.end()) return it->second;
@@ -4363,9 +4355,7 @@ class KShortestPathsCursor : public Cursor {
     predecessors_.clear();
     // Cleared per input row: the lambda may read outer variables, so verdicts don't survive a row.
     expansion_memo_.clear();
-    // The `|K` limit counts paths per input row. Without this reset the counter carried across rows
-    // (and across `Reset()`), so once the first row had produced K paths every later row - and every
-    // outer row of a subquery or pattern comprehension - returned nothing at all.
+    // Makes `|K` per input row; `Pull` guards each serving site instead of returning early.
     n_returned_paths_ = 0;
   }
 };

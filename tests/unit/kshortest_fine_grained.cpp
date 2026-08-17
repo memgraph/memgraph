@@ -134,8 +134,7 @@ TEST_P(FineGrainedKShortestTestInMemory, All) {
       db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type);
 }
 
-// The same matrix, with a filter lambda blocking every edge that leads into vertex 4 on top of the
-// access checks.
+// The same matrix, plus a lambda blocking every edge into vertex 4, on top of the access checks.
 TEST_P(FineGrainedKShortestTestInMemory, WithFilterLambda) {
   int upper_bound;
   EdgeAtom::Direction direction;
@@ -198,8 +197,7 @@ TEST_P(FineGrainedKShortestTestOnDisk, All) {
       db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type);
 }
 
-// The same matrix, with a filter lambda blocking every edge that leads into vertex 4 on top of the
-// access checks.
+// The same matrix, plus a lambda blocking every edge into vertex 4, on top of the access checks.
 TEST_P(FineGrainedKShortestTestOnDisk, WithFilterLambda) {
   int upper_bound;
   EdgeAtom::Direction direction;
