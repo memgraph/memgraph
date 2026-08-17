@@ -3152,6 +3152,37 @@ TYPED_TEST(FunctionTest, LocalTimeRejectsOmittedSignificantComponent) {
             memgraph::utils::LocalTime({10, 5, 0, 0, 0}));
 }
 
+TYPED_TEST(FunctionTest, LocalTimeSubSecondComponentsShareOneLevel) {
+  // The sub-second fields are scales of a single fraction of a second, not
+  // steps of the sequence, so either may be given without the other.
+  EXPECT_EQ(this->EvaluateFunction("LOCALTIME",
+                                   TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
+                                                                                {"minute", TypedValue(2)},
+                                                                                {"second", TypedValue(3)},
+                                                                                {"microsecond", TypedValue(5)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({1, 2, 3, 0, 5}));
+  EXPECT_EQ(this->EvaluateFunction("LOCALTIME",
+                                   TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
+                                                                                {"minute", TypedValue(2)},
+                                                                                {"second", TypedValue(3)},
+                                                                                {"millisecond", TypedValue(4)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({1, 2, 3, 4, 0}));
+
+  // The level still sits below second, so the fraction cannot be given while
+  // the second it divides is missing.
+  EXPECT_THROW(
+      this->EvaluateFunction("LOCALTIME",
+                             TypedValue(std::map<std::string, TypedValue>{
+                                 {"hour", TypedValue(1)}, {"minute", TypedValue(2)}, {"microsecond", TypedValue(5)}})),
+      QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction("LOCALTIME",
+                                      TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
+                                                                                   {"millisecond", TypedValue(4)}})),
+               QueryRuntimeException);
+}
+
 TYPED_TEST(FunctionTest, LocalTime) {
   const auto local_time = memgraph::utils::LocalTime({13, 3, 2, 0, 0});
   EXPECT_EQ(this->EvaluateFunction("LOCALTIME", "130302").ValueLocalTime(), local_time);

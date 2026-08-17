@@ -1667,20 +1667,29 @@ bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
 // naming a component while a more significant one is missing would mix an
 // explicit value with a defaulted one above it.
 //
+// Each level holds the names sharing one significance. The sub-second fields
+// are alternative scales for a single fraction of a second rather than steps of
+// their own, so any combination of them may be given together, and the level
+// counts as supplied when any one of them is.
+//
 // Call this after the components have been mapped, so that an unrecognised name
 // is reported as such rather than as a gap between the ones understood.
-void EnsureNoOmittedSignificantComponent(std::initializer_list<std::string_view> components_by_significance,
+void EnsureNoOmittedSignificantComponent(std::initializer_list<std::initializer_list<std::string_view>> levels,
                                          const auto &input_parameters) {
+  const auto is_supplied = [&input_parameters](const std::string_view component) {
+    return std::ranges::any_of(input_parameters,
+                               [component](const auto &entry) { return std::string_view{entry.first} == component; });
+  };
+
   std::string_view first_omitted;
-  for (const auto component : components_by_significance) {
-    const auto supplied = std::ranges::any_of(
-        input_parameters, [component](const auto &entry) { return std::string_view{entry.first} == component; });
-    if (!supplied) {
-      if (first_omitted.empty()) first_omitted = component;
+  for (const auto level : levels) {
+    const auto *const supplied = std::ranges::find_if(level, is_supplied);
+    if (supplied == level.end()) {
+      if (first_omitted.empty()) first_omitted = *level.begin();
       continue;
     }
     if (!first_omitted.empty()) {
-      throw QueryRuntimeException("'{}' cannot be specified without '{}'.", component, first_omitted);
+      throw QueryRuntimeException("'{}' cannot be specified without '{}'.", *supplied, first_omitted);
     }
   }
 }
@@ -1723,7 +1732,7 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
                                            std::pair{"day"sv, &date_parameters.day}};
 
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
-  EnsureNoOmittedSignificantComponent({"year", "month", "day"}, args[0].ValueMap());
+  EnsureNoOmittedSignificantComponent({{"year"}, {"month"}, {"day"}}, args[0].ValueMap());
   return TypedValue(utils::Date(date_parameters), ctx.memory);
 }
 
@@ -1773,7 +1782,8 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
   };
 
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
-  EnsureNoOmittedSignificantComponent({"hour", "minute", "second", "millisecond", "microsecond"}, args[0].ValueMap());
+  EnsureNoOmittedSignificantComponent({{"hour"}, {"minute"}, {"second"}, {"millisecond", "microsecond"}},
+                                      args[0].ValueMap());
   return TypedValue(utils::LocalTime(local_time_parameters), ctx.memory);
 }
 
