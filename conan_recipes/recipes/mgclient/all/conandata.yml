@@ -1,0 +1,4 @@
+sources:
+  "1.8.0":
+    url: "https://github.com/memgraph/mgclient/archive/refs/tags/v1.8.0.tar.gz"
+    sha256: "b5a892fd4db905acf8fb709b696e0606ea790986714f8ac0e8eda66fa973666c"
