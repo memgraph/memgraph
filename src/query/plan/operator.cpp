@@ -2961,7 +2961,7 @@ class PruningBFSCursor : public query::plan::Cursor {
         to_visit_next_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler const oom_exception;
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("PruningBFSExpand");
 
     ExpressionEvaluator evaluator =
