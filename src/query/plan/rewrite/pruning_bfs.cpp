@@ -144,9 +144,21 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Optional &) override { return true; }
 
-  bool PreVisit(Cartesian &) override { return true; }
+  bool PreVisit(Cartesian &op) override {
+    VisitBranch(*op.left_op_);
+    VisitBranch(*op.right_op_);
+    return false;
+  }
 
-  bool PreVisit(Union &) override { return true; }
+  bool PostVisit(Cartesian &) override { return true; }
+
+  bool PreVisit(Union &op) override {
+    VisitBranch(*op.left_op_);
+    VisitBranch(*op.right_op_);
+    return false;
+  }
+
+  bool PostVisit(Union &) override { return true; }
 
   bool PreVisit(Merge &) override { return true; }
 
@@ -183,6 +195,20 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     for (auto *expr : exprs) {
       CollectSymbolsFromExpression(expr);
     }
+  }
+
+  void VisitBranch(LogicalOperator &branch) {
+    auto saved_symbols = used_symbols_;
+    auto saved_dedup = deduplicates_;
+    auto saved_blocked = rewrite_blocked_;
+    auto saved_stack = dedup_stack_;
+
+    branch.Accept(*this);
+
+    used_symbols_ = std::move(saved_symbols);
+    deduplicates_ = saved_dedup;
+    rewrite_blocked_ = saved_blocked;
+    dedup_stack_ = std::move(saved_stack);
   }
 
   SymbolTable const &symbol_table_;
