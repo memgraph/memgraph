@@ -14,16 +14,20 @@
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 
+#include <cstdint>
 #include <string_view>
+
+#include "utils/flag_validation.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(storage_rocksdb_info_log_level, "INFO_LEVEL",
               "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, "
               "FATAL_LEVEL, HEADER_LEVEL. Default is INFO_LEVEL.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(storage_rocksdb_keep_log_file_num, 50,
-              "Maximum number of RocksDB info log files kept per RocksDB instance. Every restart rolls the current "
-              "info log, older ones are deleted. Default is 50.");
+DEFINE_VALIDATED_uint64(storage_rocksdb_keep_log_file_num, 1000,
+                        "Maximum number of RocksDB info log files kept per RocksDB instance. Every restart rolls the "
+                        "current info log, older ones are deleted. Default is 1000.",
+                        FLAG_IN_RANGE(1, UINT64_MAX));
 
 namespace memgraph::kvstore {
 
