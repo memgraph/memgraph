@@ -5272,9 +5272,8 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnion) {
   DeleteListContent(&exists_union_plan);
 }
 
-// A body's RETURN is dropped inside an exists subquery, so a UNION of RETURN-only branches plans both sides to
-// nothing. Each part gets its own Once before the combinator merges them - substituting one on the branch root would
-// come too late, and GenUnion dereferences both operands for their output symbols.
+// A RETURN-only branch plans to a Produce over the Once its own constructor substitutes for a null input, so each
+// side of the UNION has real output symbols - GenUnion dereferences both operands to read them.
 
 TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionOfReturnOnlyBodies) {
   // MATCH (n) WHERE EXISTS { RETURN 1 AS c UNION RETURN 2 AS c } RETURN n

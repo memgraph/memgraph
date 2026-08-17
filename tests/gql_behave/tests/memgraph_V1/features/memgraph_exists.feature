@@ -1718,9 +1718,10 @@ Feature: WHERE exists
           """
       Then an error should be raised
 
-  # The body's RETURN decides how many rows reach the fold, so every clause on it - DISTINCT, SKIP, LIMIT,
-  # aggregation - changes the answer. The fixture discriminates: Alice has 3 KNOWS rows to only 2 distinct
-  # friends, Bob has 1, Carol has 0.
+  # The body's RETURN decides how many rows reach the fold, so SKIP, LIMIT and aggregation on it change the answer.
+  # DISTINCT alone cannot - it never takes a non-empty table to an empty one - so it only shows up composed with a
+  # SKIP that the reduced row count can no longer clear. The fixture discriminates: Alice has 3 KNOWS rows to only
+  # 2 distinct friends, Bob has 1, Carol has 0.
 
   Scenario: Test EXISTS subquery whose body RETURN aggregates
       Given an empty graph
@@ -1814,7 +1815,36 @@ Feature: WHERE exists
           | 'Bob'   | false |
           | 'Carol' | false |
 
+  # Alice is the discriminating row: 3 rows but 2 distinct, so the SKIP clears the table only if the DISTINCT was
+  # planned. Dave, with 3 distinct, keeps a row either way, so an all-false table cannot pass by accident.
   Scenario: Test EXISTS subquery whose body RETURN is DISTINCT
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'}), (d:Person {name: 'Dave'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'}), (f3:Friend {name: 'F3'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          CREATE (d)-[:KNOWS]->(f1)
+          CREATE (d)-[:KNOWS]->(f2)
+          CREATE (d)-[:KNOWS]->(f3)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN DISTINCT f SKIP 2 } AS h
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | h     |
+          | 'Alice' | false |
+          | 'Bob'   | false |
+          | 'Carol' | false |
+          | 'Dave'  | true  |
+
+  Scenario: Test EXISTS subquery in a WHERE whose body RETURN aggregates
       Given an empty graph
       And having executed:
           """
@@ -1828,14 +1858,15 @@ Feature: WHERE exists
       When executing query:
           """
           MATCH (p:Person)
-          RETURN p.name AS name, EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN DISTINCT f } AS h
+          WHERE EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN count(f) }
+          RETURN p.name AS name
           ORDER BY name;
           """
       Then the result should be, in order:
-          | name    | h     |
-          | 'Alice' | true  |
-          | 'Bob'   | true  |
-          | 'Carol' | false |
+          | name    |
+          | 'Alice' |
+          | 'Bob'   |
+          | 'Carol' |
 
   Scenario: Test EXISTS subquery in a WHERE whose body RETURN has a SKIP
       Given an empty graph
