@@ -72,6 +72,14 @@ def test_no_rewrite_with_mixed_aggregation(memgraph):
     assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
 
 
+def test_no_rewrite_when_distinct_above_plain_aggregate(memgraph):
+    """DISTINCT above a non-distinct Aggregate must not leak deduplicates_ downward."""
+    plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) WITH count(b) AS cnt, a RETURN DISTINCT a, cnt")
+    ops = operator_names(plan)
+    assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
+    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+
+
 def test_pruning_bfs_with_filter_lambda(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*1..5 (e, n | n:N)]->(b) RETURN DISTINCT b")
     ops = operator_names(plan)

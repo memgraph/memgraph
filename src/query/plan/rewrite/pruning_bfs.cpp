@@ -75,10 +75,8 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Aggregate &op) override {
     dedup_stack_.push_back(deduplicates_);
-    if (!op.aggregations_.empty() &&
-        std::ranges::all_of(op.aggregations_, [](auto const &elem) { return elem.distinct; })) {
-      deduplicates_ = true;
-    }
+    deduplicates_ = !op.aggregations_.empty() &&
+                    std::ranges::all_of(op.aggregations_, [](auto const &elem) { return elem.distinct; });
     for (auto const &elem : op.aggregations_) {
       CollectSymbolsFromExpression(elem.arg1);
       CollectSymbolsFromExpression(elem.arg2);
