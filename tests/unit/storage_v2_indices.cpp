@@ -5665,19 +5665,19 @@ TEST(PrefixSuccessor, ComputesSuccessorOfAsciiString) {
   EXPECT_EQ(*result, "fop");
 }
 
-TEST(PrefixSuccessor, ComputesSuccessOfSingleChar) {
+TEST(PrefixSuccessor, ComputesSuccessorOfSingleChar) {
   auto result = memgraph::storage::PrefixSuccessor("a");
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(*result, "b");
 }
 
-TEST(PrefixSuccessor, ComputesSuccessWhenTrailingByteIsCharMax) {
+TEST(PrefixSuccessor, ComputesSuccessorWhenTrailingByteIsCharMax) {
   auto result = memgraph::storage::PrefixSuccessor(std::string("ab\xFF", 3));
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(*result, "ac");
 }
 
-TEST(PrefixSuccessor, ComputesSuccessorWhenMultipleTrailingCharMaxByes) {
+TEST(PrefixSuccessor, ComputesSuccessorWhenMultipleTrailingCharMaxBytes) {
   auto result = memgraph::storage::PrefixSuccessor(std::string("a\xFF\xFF", 3));
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(*result, "b");
