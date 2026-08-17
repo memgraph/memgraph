@@ -778,8 +778,8 @@ Timezone ParseTimezoneFromUserString(std::string_view timezone) {
   try {
     return Timezone{std::chrono::locate_zone(timezone)};
   } catch (const std::runtime_error &) {
-    // The only failure locate_zone reports, and narrow on purpose: catching
-    // everything would report a failed allocation as an unknown zone name.
+    // The only failure locate_zone reports. Catching everything here would
+    // report a failed allocation as an unknown zone name.
     throw temporal::InvalidArgumentException("Timezone name is not in the IANA time zone database.");
   }
 }

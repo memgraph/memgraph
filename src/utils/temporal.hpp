@@ -633,8 +633,8 @@ Timezone DefaultTimezone();
 /// `+0100`, `+01`, or `Z`) or a name from the IANA time zone database.
 ///
 /// Throws temporal::InvalidArgumentException for anything else. Constructing a
-/// Timezone from a name directly reports an unknown name by throwing out of the
-/// standard library instead, which callers handling user input cannot present.
+/// Timezone from a name directly throws out of the standard library instead,
+/// which is not an error a query can report.
 Timezone ParseTimezoneFromUserString(std::string_view timezone);
 }  // namespace memgraph::utils
 
