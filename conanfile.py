@@ -118,7 +118,7 @@ class Memgraph(ConanFile):
         self.requires("libbcrypt/1.0-memgraph")
         self.requires("librdkafka/2.6.1")
         self.requires("librdtsc/0.3-memgraph")
-        self.requires("libseccomp/2.6.0")
+        self.requires("libseccomp/2.6.0", options={"shared": True})
         self.requires("mgclient/1.4.3")
         self.requires("nuraft/2.1.0-memgraph")
         has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))

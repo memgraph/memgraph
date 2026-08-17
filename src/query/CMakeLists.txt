@@ -186,10 +186,6 @@ set(_mg_saved_library_mode "${CMAKE_FIND_ROOT_PATH_MODE_LIBRARY}")
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY NEVER)
 
-if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
-    set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
-endif()
-
 # Build against the Python stable ABI (abi3) so the resulting binary works
 # against any libpython3 with version >= MG_PYTHON_STABLE_ABI_FLOOR.
 # Compile-time headers only need to exist for *some* compatible Python; the

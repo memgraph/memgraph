@@ -46,7 +46,9 @@ GDB_VERSION=17.2
 CMAKE_VERSION=4.4.1
 CPPCHECK_VERSION=2.21.1
 LLVM_VERSION=22.1.8
+PAHOLE_SHA256="7abd613e4dfabeb46d8ef312ef85b280808a369301db21cb7c2b76a6660b53de"  # Note, this may not match if there is ever another commit to this repo
 SWIG_VERSION=4.4.1 # used only for LLVM compilation
+SWIG_SHA256="8bf32042beb7ee1eeb5c71aa15a62513d964893f84234f2cd77e4a8e2ed41e87"
 PCRE2_VERSION=10.47 # build-time dep of SWIG 4.4+ (hard requirement)
 # Sysroot: pin glibc/kernel-headers so the toolchain produces binaries that run
 # on any Linux with glibc >= GLIBC_VERSION and kernel >= 5.4.
@@ -160,9 +162,11 @@ if [[ ! -d llvmorg-$LLVM_VERSION ]]; then
 fi
 if [[ ! -f pahole-gdb-master.zip ]]; then
     wget --https-only https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -O pahole-gdb-master.zip
+    echo "$PAHOLE_SHA256 pahole-gdb-master.zip" | sha256sum -c -
 fi
 if [[ ! -f swig-$SWIG_VERSION.tar.gz ]]; then
     wget --https-only https://github.com/swig/swig/archive/refs/tags/v$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
+    echo "$SWIG_SHA256 swig-$SWIG_VERSION.tar.gz" | sha256sum -c -
 fi
 if [[ ! -f pcre2-$PCRE2_VERSION.tar.gz ]]; then
     wget --https-only https://github.com/PCRE2Project/pcre2/releases/download/pcre2-$PCRE2_VERSION/pcre2-$PCRE2_VERSION.tar.gz
