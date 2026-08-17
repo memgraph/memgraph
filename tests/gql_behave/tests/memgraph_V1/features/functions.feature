@@ -1083,6 +1083,36 @@ Feature: Functions
             """
         Then an error should be raised
 
+    Scenario: Extract in WHERE test 01:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Actor {domain: 'test.com', infringes: [{brand: 'Customer A'}, {brand: 'Customer B'}]})
+            """
+        When executing query:
+            """
+            MATCH (i:Actor {domain: 'test.com'})
+            WHERE 'Customer A' IN extract(v IN i.infringes | v.brand)
+            RETURN i.domain AS d
+            """
+        Then the result should be:
+            | d          |
+            | 'test.com' |
+
+    Scenario: Extract in WHERE test 02:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Actor {domain: 'test.com', infringes: [{brand: 'Customer A'}]})
+            """
+        When executing query:
+            """
+            MATCH (i:Actor {domain: 'test.com'})
+            WHERE 'Customer Z' IN extract(v IN i.infringes | v.brand)
+            RETURN i.domain AS d
+            """
+        Then the result should be empty
+
     Scenario: Assert test fail, no message:
         Given an empty graph
         And having executed:
