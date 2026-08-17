@@ -1643,6 +1643,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                             parameters_);
           if (!marginal) return db_->VerticesCount(scan_op->label_, scan_op->properties_);
           result *= *marginal;
+          pvrs[slot] = storage::PropertyValueRange::IsNotNull();
         }
         result /= std::pow(static_cast<double>(total), static_cast<double>(in_slots.size() - 1));
         return std::min(result, static_cast<double>(total));
