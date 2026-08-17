@@ -1320,6 +1320,26 @@ TEST_P(CypherMainVisitorTest, NumericLiteralForms) {
   ast_generator.CheckLiteral(literal_of("RETURN .1e-2"), 0.1e-2, 1);
 }
 
+TEST_P(CypherMainVisitorTest, LeadingZeroWithNonOctalDigitIsRejected) {
+  // A leading zero introduces an octal literal, and 8 and 9 are not octal
+  // digits, so these name no number the grammar accepts. Reading them as reals
+  // is what let them through before.
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("RETURN 09"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("RETURN 018"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("RETURN 0098"), SyntaxException);
+
+  // A value too large for an integer is rejected as one rather than kept as an
+  // approximation, with or without the leading zero.
+  EXPECT_THROW(ast_generator.ParseQuery("RETURN 9223372036854775808"), SemanticException);
+
+  // Octal itself is unchanged.
+  auto *octal = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 010"));
+  ASSERT_TRUE(octal);
+  auto *ret = dynamic_cast<Return *>(octal->single_query_->clauses_[0]);
+  ast_generator.CheckLiteral(ret->body_.named_expressions[0]->expression_, 8, 1);
+}
+
 TEST_P(CypherMainVisitorTest, NumbersAdjacentToDots) {
   // A dot after digits belongs to the range operator or to member access, not
   // to a real literal, so the matcher must not swallow it.
