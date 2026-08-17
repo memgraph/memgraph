@@ -11265,22 +11265,25 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
 }
 
 void Interpreter::FinishAutocommitNothing() {
-  // Mirrors Abort()'s clean_status: CAS ACTIVE->IDLE, spin-waiting out a
-  // concurrent ShowTransactions/TerminateTransactions CAS to VERIFYING before clearing the fields below.
-  // Must be a CAS, not an unconditional store, or it could race that concurrent VERIFYING transition.
+  // A query that opened no storage transaction still armed the interpreter's tracking, and returning
+  // NOTHING skips the Commit()/Abort() that would dispose of it. This is Commit()'s return to IDLE,
+  // reached from ACTIVE rather than from STARTED_COMMITTING.
+  //
+  // Every transition is a CAS from an observed state, never a store. ShowTransactions takes ownership by
+  // CAS-ing to VERIFYING and reads the fields cleared below while it holds it, so a store could land
+  // between observing some other state and writing IDLE, dropping that ownership underneath the reader.
+  // TERMINATED, from a concurrent kill, is retried rather than waited on: the query has already produced
+  // its result, so there is nothing left to terminate and the state is ours to retire.
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
-    if (expected == TransactionStatus::VERIFYING) {
-      expected = TransactionStatus::ACTIVE;
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
+      // compare_exchange_weak has already loaded the observed state into `expected`; retry from it.
       continue;
     }
-    // TERMINATED, or already IDLE because a concurrent kill finished the job: force IDLE to complete
-    // disposal without spinning, exactly as Abort()/Commit() do on an unexpected state.
-    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
-    break;
+    expected = TransactionStatus::ACTIVE;
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
-  // Status is now IDLE -- no concurrent ShowTransactions reader will access these fields.
+  // Status is now IDLE, so no concurrent ShowTransactions reader holds these fields.
   current_transaction_.reset();
   metadata_ = std::nullopt;
   session_log_ctx_.ClearTxId();
