@@ -190,6 +190,9 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
 
     case Type::STARTS_WITH: {
       auto const typed_value = lower_->value()->Accept(evaluator);
+      if (typed_value.IsNull()) {
+        return storage::PropertyValueRange::Bounded(utils::MakeBoundInclusive(storage::PropertyValue()), std::nullopt);
+      }
       if (!typed_value.IsString()) {
         throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
       }

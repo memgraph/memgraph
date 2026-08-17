@@ -132,5 +132,15 @@ def test_starts_with_mixed_types(memgraph):
     assert [r["t"] for r in result] == ["alpha"]
 
 
+def test_starts_with_null_returns_empty(memgraph):
+    result = list(memgraph.execute_and_fetch("MATCH (n:N) WHERE n.type STARTS WITH null RETURN n.type AS t"))
+    assert result == []
+
+
+def test_starts_with_null_param_returns_empty(memgraph):
+    result = list(memgraph.execute_and_fetch("MATCH (n:N) WHERE n.type STARTS WITH $p RETURN n.type AS t", {"p": None}))
+    assert result == []
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
