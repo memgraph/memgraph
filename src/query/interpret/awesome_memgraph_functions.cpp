@@ -684,22 +684,23 @@ TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext 
   }
 }
 
+// int64's maximum is not representable as a double, so the bound is the
+// smallest double above the range, 2^63, and it is exclusive.
+constexpr double kInt64UpperBoundExclusive = 9223372036854775808.0;
+constexpr auto kInt64LowerBoundInclusive = static_cast<double>(std::numeric_limits<int64_t>::min());
+
+// False for NaN, which compares false against both bounds.
+bool IsWithinInt64Range(const double value) {
+  return value >= kInt64LowerBoundInclusive && value < kInt64UpperBoundExclusive;
+}
+
 // Truncates toward zero, saturating at either end of the range and taking NaN
 // to zero. This is how a floating point argument converts: the C++ cast is
 // undefined outside the range, so the bounds are applied before it.
-//
-// The bounds are spelled out rather than taken from boost's range checker,
-// which reports the exact lowest value as an underflow even though it converts,
-// and reports NaN as in range. Both would need working around here, where every
-// input has to yield a number.
-int64_t TruncateToInteger(double value) {
-  // int64's maximum is not representable as a double; the smallest double at or
-  // above the range is 2^63, which is.
-  constexpr double kExclusiveUpperBound = 9223372036854775808.0;
-  constexpr auto kInclusiveLowerBound = static_cast<double>(std::numeric_limits<int64_t>::min());
+int64_t TruncateToInteger(const double value) {
   if (std::isnan(value)) return 0;
-  if (value >= kExclusiveUpperBound) return std::numeric_limits<int64_t>::max();
-  if (value < kInclusiveLowerBound) return std::numeric_limits<int64_t>::min();
+  if (value >= kInt64UpperBoundExclusive) return std::numeric_limits<int64_t>::max();
+  if (value < kInt64LowerBoundInclusive) return std::numeric_limits<int64_t>::min();
   return static_cast<int64_t>(value);
 }
 
@@ -732,11 +733,7 @@ std::pair<StringToInteger, int64_t> ParseInteger(std::string_view text) {
   } catch (const utils::BasicException &) {
     return {StringToInteger::kNotANumber, 0};
   }
-  constexpr double kExclusiveUpperBound = 9223372036854775808.0;
-  constexpr auto kInclusiveLowerBound = static_cast<double>(std::numeric_limits<int64_t>::min());
-  if (std::isnan(as_double) || as_double >= kExclusiveUpperBound || as_double < kInclusiveLowerBound) {
-    return {StringToInteger::kOutOfRange, 0};
-  }
+  if (!IsWithinInt64Range(as_double)) return {StringToInteger::kOutOfRange, 0};
   return {StringToInteger::kOk, static_cast<int64_t>(as_double)};
 }
 

@@ -2107,9 +2107,8 @@ TYPED_TEST(FunctionTest, ToInteger) {
 }
 
 TYPED_TEST(FunctionTest, ToIntegerPreservesFullInt64Range) {
-  // Every int64 must survive the conversion. Routing the string through a
-  // double first cannot represent the values near the limits, so they round
-  // onto a different integer and adjacent inputs collapse together.
+  // Every int64 survives the conversion, including values near the limits that
+  // a double cannot represent, and adjacent inputs stay distinct.
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "9223372036854775807").ValueInt(), std::numeric_limits<int64_t>::max());
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "9223372036854775806").ValueInt(),
             std::numeric_limits<int64_t>::max() - 1);
@@ -2138,10 +2137,9 @@ TYPED_TEST(FunctionTest, ToIntegerPreservesFullInt64Range) {
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", -1.0e30).ValueInt(), std::numeric_limits<int64_t>::min());
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", std::nan("")).ValueInt(), 0);
 
-  // The bottom of the range is exactly representable as a double and belongs
-  // to it, so it converts rather than saturating into place by luck, and the
-  // string naming it is a value rather than an error. The top is not
-  // representable, which is why the bound above it is the one tested.
+  // The bottom of the range is exactly representable as a double and belongs to
+  // it, so it converts rather than saturating into place by luck. The top is
+  // not representable, which is why the bound above it is the one tested.
   const auto lowest = static_cast<double>(std::numeric_limits<int64_t>::min());
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", lowest).ValueInt(), std::numeric_limits<int64_t>::min());
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", "-9223372036854775808.0").ValueInt(),
