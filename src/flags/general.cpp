@@ -207,10 +207,8 @@ DEFINE_bool(storage_backup_dir_enabled, true,
             "Controls whether .old dir will be used to store latest snapshot and WAL files.");
 
 // RocksDB flags
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(storage_rocksdb_info_log_level, "INFO_LEVEL",
-              "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, "
-              "FATAL_LEVEL, HEADER_LEVEL. Default is INFO_LEVEL.");
+// The info log flags are defined in mg-kvstore (kvstore/rocksdb_options.hpp) because they apply to every RocksDB
+// instance, not just the disk storage one.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_rocksdb_enable_thread_tracking, false,
             "Enable RocksDB thread status tracking. Default is false for reduced syscall overhead. "

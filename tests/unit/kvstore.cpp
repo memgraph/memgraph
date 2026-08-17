@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,8 +13,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include "kvstore/kvstore.hpp"
+#include "kvstore/rocksdb_options.hpp"
 #include "utils/file.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace fs = std::filesystem;
 
@@ -234,4 +238,27 @@ TEST_F(KVStore, IteratorPrefix) {
 
   it = kvstore.begin("unexisting_prefix");
   ASSERT_FALSE(it.IsValid());
+}
+
+TEST_F(KVStore, KeepsOnlyConfiguredNumberOfInfoLogs) {
+  constexpr uint64_t kKeepLogFileNum = 3;
+  constexpr int kOpenCount = 10;
+
+  auto const original = FLAGS_storage_rocksdb_keep_log_file_num;
+  FLAGS_storage_rocksdb_keep_log_file_num = kKeepLogFileNum;
+  auto const restore = memgraph::utils::OnScopeExit{[original] { FLAGS_storage_rocksdb_keep_log_file_num = original; }};
+
+  auto const store_path = test_folder_ / "KeepsOnlyConfiguredNumberOfInfoLogs";
+  // Every reopen rolls the current LOG into a timestamped LOG.old.<ts> file.
+  for (int i = 0; i < kOpenCount; ++i) {
+    memgraph::kvstore::KVStore kvstore(store_path);
+    ASSERT_TRUE(kvstore.Put("key", "value"));
+  }
+
+  auto const info_log_count = std::ranges::count_if(fs::directory_iterator{store_path}, [](auto const &entry) {
+    return entry.path().filename().string().starts_with("LOG");
+  });
+  // Without the cap all kOpenCount info logs would still be there; the live LOG may or may not be counted by RocksDB
+  // towards the limit.
+  EXPECT_LE(static_cast<uint64_t>(info_log_count), kKeepLogFileNum + 1);
 }
