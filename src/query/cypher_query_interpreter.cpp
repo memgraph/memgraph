@@ -311,9 +311,8 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
       // validate the index usage
       auto &ptr = existing_plan.value();
 
-      // Without an accessor there is no way to check that an index is ready, so a cached plan is only
-      // reusable if it needs none. A query planned with no accessor is scan-free and needs none, which is
-      // what lets these queries hit the plan cache rather than re-plan on every ping.
+      // Index readiness cannot be checked without an accessor, so a cached plan is reusable without one
+      // only if it needs no indices.
       auto const all_satisfied = db_accessor != nullptr ? db_accessor->CheckIndicesAreReady(ptr->required_indices())
                                                         : RequiresNoIndices(ptr->required_indices());
       if (all_satisfied && IsFresh(ptr->ast_storage(), ptr->module_generation(), module_generation)) {

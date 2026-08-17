@@ -30,8 +30,7 @@ class LogicalOperator;
 /// because we don't have support for visiting a const LogicalOperator.
 void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out);
 
-// Pointer overload tolerating a null accessor, for a plan that runs without one and whose operators
-// therefore never dereference it.
+// Pointer overload tolerating a null accessor, for a plan that runs without one.
 void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out);
 
 /// Convert a `LogicalOperator` plan to a JSON representation.

@@ -836,8 +836,7 @@ struct mgp_graph {
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
 
-  /// False for a graph handed to a procedure that declared it never touches one, which runs with no
-  /// storage transaction open. Ask before reaching for the accessor; `getImpl` throws without one.
+  /// False for the graph handed to a procedure that declared it needs none. `getImpl` throws without.
   [[nodiscard]] bool HasAccessor() const { return RawImpl() != nullptr; }
 
   [[nodiscard]] memgraph::query::DbAccessor *getImpl() const {
@@ -1064,11 +1063,10 @@ struct ProcedureInfo {
   bool is_write{false};
   bool is_batched{false};
   std::optional<memgraph::query::AuthQuery::Privilege> required_privilege = std::nullopt;
-  /// True only if the procedure never touches its `mgp_graph *`; lets `CALL mg.<introspection>()`
-  /// run with no storage accessor open. Declaring it falsely is caught rather than fatal: the procedure
-  /// is handed a graph with no accessor behind it, and reaching through that graph reports a logic error.
-  /// INTERNAL: set only on the builtin `mg.*` procedures; not reachable via the public module API.
-  /// Defaults to false so a procedure that says nothing is assumed to need a graph.
+  /// True only if the procedure never touches its `mgp_graph *`, which lets a `CALL` of it run with no
+  /// storage transaction open. Declaring it falsely is caught rather than fatal: the graph handed over
+  /// has no accessor behind it, and reaching through it reports a logic error. Internal, set only on the
+  /// builtin `mg.*` procedures.
   bool no_graph_access{false};
 };
 

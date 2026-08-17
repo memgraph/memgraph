@@ -6930,8 +6930,7 @@ class AggregateCursor : public Cursor {
   bool ProcessAll(Frame *frame, ExecutionContext *context) {
     db_accessor_ = context->db_accessor;
     auth_checker_ = context->auth_checker;
-    // Only the projecting aggregations build graph values and reach for the accessor. The scalar ones
-    // fold the values they are given, which a query that opened no transaction can still do.
+    // Only the projecting aggregations build graph values; the scalar ones fold what they are given.
     MG_ASSERT(db_accessor_ != nullptr || std::ranges::none_of(self_.aggregations_, ProjectsGraphValues),
               "Aggregation expects a current DB transaction");
     ExpressionEvaluator evaluator =
@@ -8510,7 +8509,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: What about cross library boundary exceptions? OMG C++?! <- should be fine since moving to shared libstd
     proc.cb(&proc_args, &graph, result, &proc_memory);
 
-    // No accessor means no transaction, hence nothing that could have failed to serialize.
     if (graph.HasAccessor() && graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
       static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
     }
@@ -8526,7 +8524,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
 
-    // No accessor means no transaction, hence nothing that could have failed to serialize.
     if (graph.HasAccessor() && graph.getImpl()->TransactionHasSerializationError() && !result->error_msg) {
       static_cast<void>(mgp_result_set_error_msg(result, "Unable to commit due to serialization error."));
     }
@@ -8642,8 +8639,7 @@ class CallProcedureCursor : public Cursor {
       ExpressionEvaluator evaluator =
           ExpressionEvaluator{&frame, context, graph_view, nullptr, &context.number_of_hops};
 
-      // No storage transaction, so run against a graph-less stub. Only a procedure that declared it needs
-      // no graph should reach here; re-check, because a module reload can change what a name resolves to.
+      // Re-check the declaration: a module reload can change what a name resolves to after planning.
       const bool no_storage_access = context.db_accessor == nullptr;
       if (no_storage_access && !proc_->info.no_graph_access) {
         throw QueryRuntimeException("The procedure named '{}' requires graph access.", self_->procedure_name_);

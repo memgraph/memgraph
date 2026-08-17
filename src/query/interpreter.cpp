@@ -3688,8 +3688,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
   ctx_.evaluation_context.parameters = parameters;
-  // A plan that runs without an accessor never resolves a property, label or edge type by id: every
-  // expression that would is rejected before such a plan is built. Leave the id maps empty.
+  // Nothing a plan without an accessor can evaluate resolves an id, so there is nothing to resolve.
   if (dba != nullptr) {
     ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
     ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
@@ -3717,9 +3716,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
-  // A plan running without a storage transaction has no transaction memory tracker to arm. Nothing that
-  // needs one reaches here: a query-level MEMORY LIMIT and a user memory quota both keep a query on the
-  // transaction path, and a per-call PROCEDURE MEMORY LIMIT is installed by the cursor instead.
+  // No transaction, so no transaction memory tracker. Whatever would need one keeps its transaction.
   auto *memory_tracker = ctx_.db_accessor != nullptr ? &ctx_.db_accessor->GetTransactionMemoryTracker() : nullptr;
   if (memory_tracker != nullptr) {
     // Single query memory limit
@@ -4061,10 +4058,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
   }
 
-  // A graph-free query opens no storage transaction, so it never passes through the database check that
-  // opening one performs. It still needs the database itself for the plan cache, metrics and arena, and a
-  // session can lose its database at any point: it is dropped from under the session while marked for
-  // deletion. Report that rather than dereferencing nothing.
+  // Opening a transaction is what checks the session still has a database, and a session can lose one
+  // mid-flight when it is dropped from under it. A query that opens none has to check for itself.
   if (!current_db.db_acc_) {
     throw DatabaseContextRequiredException("Database required for query execution.");
   }
@@ -4083,13 +4078,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                 interpreter.query_planner_context(),
                                 parsed_query.module_generation);
 
-  // The graph-access analysis reads the query; this reads the plan built from it. They are expected to
-  // agree, and no query is known to make them disagree, but the plan is what actually runs: if it turns
-  // out to reach storage after all, open the transaction that was skipped rather than run the plan
-  // against a null accessor. The plan itself stays as planned. It is a correct plan for this query, only
-  // its storage needs were mispredicted, and it was built without the accessor so the planner had no
-  // statistics; that is a worse plan than usual, which is the right price for a case that should not
-  // happen.
+  // The plan is what runs, so it decides. No query is known to disagree with the analysis, but if one
+  // does, open the transaction that was skipped. The plan stays as planned: it is correct for this query,
+  // only its storage needs were mispredicted.
   if (no_storage_access && plan::PlanRequiresStorageAccess(plan->plan())) {
     using RWType = plan::ReadWriteTypeChecker::RWType;
     auto const plan_rw_type = plan->rw_type();
@@ -4179,15 +4170,13 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               user_resource
 #endif
   );
-  // No storage transaction was opened. This is the observable half of the fast path: such a query is
-  // otherwise reported like any other, with a plan, a planning time and an execution time.
+  // The one way a client can tell; such a query is otherwise reported like any other.
   if (no_storage_access) summary->insert_or_assign("no_storage_access", true);
 
   return PreparedQuery{
       .header = std::move(header),
       .privileges = std::move(parsed_query.required_privileges),
-      // With no transaction there is nothing to commit, and NOTHING is what makes the interpreter dispose
-      // its transaction tracking rather than leave the session looking mid-transaction.
+      // Nothing to commit, and NOTHING is what disposes of the tracking instead.
       .query_handler =
           [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary, no_storage_access](
               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -4198,8 +4187,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       },
       .rw_type = rw_type,
       .db = current_db.db_acc_->get()->name(),
-      // A query that reaches no graph is short and usually a client's health check, so it does not queue
-      // behind data queries; the rest of Cypher stays LOW.
+      // Short, and usually a client's health check, so it does not queue behind data queries.
       .priority = no_storage_access ? utils::Priority::HIGH : utils::Priority::LOW,
       .slow_query_plan_renderer = std::move(slow_query_plan_renderer)};
 }
@@ -4275,9 +4263,8 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
       .rw_type = RWType::NONE};
 }
 
-// A query may skip its storage transaction when it reaches no graph and carries no privilege of its own.
-// The privilege condition is policy rather than safety: privileges are validated before any Pull whichever
-// path a query takes, but keeping privileged queries on one path means their auditing has one shape.
+// The privilege condition is policy, not safety: privileges are validated on either path, but keeping
+// privileged queries on one of them means their auditing has one shape.
 bool IsGraphFreeCandidate(const CypherQuery &query, const std::vector<AuthQuery::Privilege> &privileges) {
   return privileges.empty() && !RequiresGraphAccess(query);
 }
@@ -4478,10 +4465,8 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
 }  // namespace
 
 bool IsGraphFreeQuery(const CypherQuery &query) {
-  // Approximates the Prepare dispatch for scheduling purposes only: the privileges are not extracted
-  // here, so a privileged graph-free query is prioritized as if it took the fast path even though it
-  // will not. Priority is a hint, and paying for privilege extraction on the dispatch path is not worth
-  // sharpening it.
+  // Scheduling only, so it skips the privilege condition the dispatch applies: extracting privileges
+  // here would cost more than the sharper answer is worth.
   return !RequiresGraphAccess(query);
 }
 
@@ -10474,8 +10459,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Write access required
   void Visit(CypherQuery & /*unused*/) override {
-    // Leaving accessor_type_ unset means NO_ACCESS, so Prepare opens no storage transaction. The plan is
-    // still checked before it runs, in PrepareCypherQuery.
+    // Leaving accessor_type_ unset means NO_ACCESS, so no storage transaction is opened.
     if (is_graph_free_cypher_) {
       return;
     }
@@ -10562,7 +10546,6 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   bool const is_schema_assert_query_;
   bool const is_cypher_read_;
   std::optional<storage::StorageMode> storage_mode_;
-  // Precomputed by the caller: this CypherQuery can run with no storage accessor at all.
   bool const is_graph_free_cypher_;
 
   bool could_commit_ = false;
@@ -10734,8 +10717,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 #endif
 
-    // Classified once here and reused by the dispatch below. Only implicit transactions are eligible:
-    // inside BEGIN...COMMIT the accessor is already open, so the query must take the normal path.
+    // Inside BEGIN...COMMIT the accessor is already open, so there is nothing to skip.
     bool graph_free_candidate = false;
     if (!in_explicit_transaction_) {
       if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
@@ -10743,9 +10725,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       }
     }
 #ifdef MG_ENTERPRISE
-    // A user's memory quota is charged through the transaction's memory tracker, and the allocation hook
-    // only charges a user when that tracker is set. Skipping the transaction would therefore let a query
-    // allocate outside the quota, so a user who has one keeps every query on the transaction path.
+    // The allocation hook charges a user only while the transaction memory tracker is set, so skipping
+    // the transaction would let the query allocate outside the quota.
     if (graph_free_candidate && user_resource_ &&
         user_resource_->GetTransactionsMemory().second != utils::TransactionsMemoryResource::kUnlimited) {
       graph_free_candidate = false;
@@ -10855,15 +10836,13 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto *dba = &*current_db_.execution_db_accessor_;
       cached_fga_->Refresh(*interpreter_context_->auth_checker, *user_or_role_, dba, dba->DatabaseName());
     } else if (!graph_free_candidate) {
-      // A query that opened no transaction has no accessor to rebuild the cache from, and reads nothing
-      // the cache protects. Dropping it would make the session's next real query pay to rebuild it.
+      // No accessor to rebuild from, and nothing read that the cache protects. Dropping it would make
+      // the session's next real query pay for the rebuild.
       cached_fga_->Reset();
     }
 #endif
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      // A graph-free query plans and executes like any other, except that no storage transaction was
-      // opened, so execution_db_accessor_ is null and a null accessor is threaded through.
       prepared_query = PrepareCypherQuery(std::move(parsed_query),
                                           &query_execution->summary,
                                           interpreter_context_,
@@ -11265,15 +11244,12 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
 }
 
 void Interpreter::FinishAutocommitNothing() {
-  // A query that opened no storage transaction still armed the interpreter's tracking, and returning
-  // NOTHING skips the Commit()/Abort() that would dispose of it. This is Commit()'s return to IDLE,
-  // reached from ACTIVE rather than from STARTED_COMMITTING.
+  // Returning NOTHING skips the Commit()/Abort() that would dispose of the tracking, so do it here.
   //
-  // Every transition is a CAS from an observed state, never a store. ShowTransactions takes ownership by
-  // CAS-ing to VERIFYING and reads the fields cleared below while it holds it, so a store could land
-  // between observing some other state and writing IDLE, dropping that ownership underneath the reader.
-  // TERMINATED, from a concurrent kill, is retried rather than waited on: the query has already produced
-  // its result, so there is nothing left to terminate and the state is ours to retire.
+  // Every transition is a compare-exchange from an observed state, never a store: ShowTransactions takes
+  // ownership by CAS-ing to VERIFYING and reads the fields cleared below while it holds it, and a store
+  // would drop that ownership underneath it. TERMINATED is retried rather than waited on, the result
+  // having already been produced.
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
     if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {

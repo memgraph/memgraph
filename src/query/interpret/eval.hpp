@@ -300,10 +300,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
-  /// A query that opened no storage transaction evaluates with no accessor. Everything it can evaluate
-  /// is reachable without one, which holds because no vertex, edge or path value can exist here: those
-  /// come out of a scan or an expand, or out of a procedure holding a graph, and such a query has
-  /// neither. The sites below assume that rather than prove it, so they say so instead of trusting it.
+  /// A query that opened no storage transaction evaluates with no accessor. No vertex, edge or path can
+  /// exist in one, since those come from a scan, an expand, or a procedure holding a graph, so the sites
+  /// below are unreachable rather than merely unused. They check instead of relying on that.
   void RequireAccessor(std::string_view what) const {
     if (dba_ == nullptr) [[unlikely]] {
       throw QueryRuntimeException("{} requires a database accessor.", what);
@@ -792,9 +791,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
-    // Function implementations receive the accessor and are free to use it, so none of them may run
-    // without one. A query that opened no storage transaction reaches here only if it was admitted by
-    // a graph-access analysis that let a function through.
+    // Implementations receive the accessor and are free to use it, so none may run without one.
     if (dba_ == nullptr) [[unlikely]] {
       throw QueryRuntimeException("Function '{}' cannot be evaluated without a database accessor.",
                                   function.function_name_);

@@ -602,9 +602,8 @@ void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::o
 }
 
 void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out) {
-  // dba may be null for a plan that runs without one. That is safe because such a plan contains no
-  // operator that names a label, property or edge type, which are the only things ToString resolves
-  // through the accessor. PlanPrinter holds it as a nullable pointer, so nothing dereferences it here.
+  // dba may be null: ToString resolves it only to name a label, property or edge type, and a plan that
+  // runs without an accessor contains no operator that names one.
   PlanPrinter printer(dba, out);
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(printer);

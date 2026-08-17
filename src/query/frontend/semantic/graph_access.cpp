@@ -21,20 +21,13 @@
 namespace memgraph::query {
 namespace {
 
-// Classifies an expression as reaching the graph or not. Derives from ExpressionVisitor, whose Visit
-// overloads are all pure, so every expression type must be classified here by name: a newly added
-// expression fails to compile until someone decides which side it falls on.
+// Derives from ExpressionVisitor, whose Visit overloads are all pure, so a newly added expression type
+// fails to compile until it is classified here.
 //
-// Two kinds of expression reach the graph. The first names graph state directly, by property, label or
-// pattern. The second is resolved through the accessor by the evaluator even when its operands do not
-// name anything: a function, because implementations receive the accessor and are free to use it, and an
-// enum, which lives in storage.
-//
-// An Identifier does not reach the graph, which holds only because the clause walker below admits no
-// clause that can bind graph state to one. That single invariant is also what makes indexing safe:
-// subscript and slicing dispatch on the runtime type of their operand and only consult the accessor for a
-// vertex or an edge, neither of which can be in scope. Expressions that introduce a binding of their own
-// (the list comprehension family) are rejected so that the invariant stays owned by one place.
+// Identifiers, subscript and slicing are admitted on one invariant: the clause walker below binds no
+// graph state, so no vertex or edge can be in scope, and those are the only operands that would send
+// the evaluator to the accessor. Expressions that bind an identifier themselves are rejected to keep
+// that invariant in one place.
 class ExpressionGraphAccess final : public ExpressionVisitor<void> {
  public:
   using ExpressionVisitor::Visit;
@@ -182,8 +175,7 @@ class ExpressionGraphAccess final : public ExpressionVisitor<void> {
   bool reaches_graph_{false};
 };
 
-// Accepts an Expression or a NamedExpression: both are visitable by an ExpressionVisitor, and a named
-// expression is just a projection of the expression underneath it.
+// Accepts an Expression or a NamedExpression; both are visitable by an ExpressionVisitor.
 bool ReachesGraph(auto *node) {
   if (node == nullptr) return false;
   ExpressionGraphAccess visitor;
@@ -196,8 +188,7 @@ bool AnyReachesGraph(auto const &nodes) {
 }
 
 bool BodyReachesGraph(const ReturnBody &body) {
-  // `RETURN *` projects whatever is in scope. Nothing graph-bound can be, but the clause walker owns that
-  // reasoning by naming the symbols it admits, and an asterisk names none of them, so leave it out.
+  // `RETURN *` projects what is in scope without naming it, so there is nothing to check.
   if (body.all_identifiers) return true;
   if (ReachesGraph(body.skip) || ReachesGraph(body.limit)) return true;
   if (AnyReachesGraph(body.named_expressions)) return true;
@@ -219,8 +210,6 @@ bool ClauseReachesGraph(Clause *clause) {
     return ReachesGraph(unwind->named_expression_);
   }
   if (auto *call_procedure = utils::Downcast<CallProcedure>(clause)) {
-    // The declaration is the procedure's own statement that it never touches its graph argument; it is
-    // read from the registry when the clause is parsed.
     if (!call_procedure->no_graph_access_) return true;
     return AnyReachesGraph(call_procedure->arguments_) ||
            (call_procedure->where_ != nullptr && ReachesGraph(call_procedure->where_->expression_));
@@ -233,9 +222,8 @@ bool SingleQueryReachesGraph(SingleQuery *single_query) {
   return std::ranges::any_of(single_query->clauses_, ClauseReachesGraph);
 }
 
-// Every pre-query directive either steers a scan or needs a transaction to act on, so any of them set
-// means the query is not graph-free. Bound by structured binding rather than field-by-field so that a
-// newly added directive breaks the build here instead of being silently ignored.
+// Every directive either steers a scan or needs a transaction to act on. Bound by structured binding so
+// that a directive added later breaks the build here rather than being silently admitted.
 bool HasPreQueryDirectives(const PreQueryDirectives &directives) {
   auto const &[index_hints, hops_limit, commit_frequency, parallel_execution, num_threads] = directives;
   return !index_hints.empty() || hops_limit != nullptr || commit_frequency != nullptr || parallel_execution ||
