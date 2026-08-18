@@ -329,5 +329,5 @@ class Cache:
         # Write and rename so readers never observe a half-written file.
         tmp_config = self._config + ".tmp"
         with open(tmp_config, "w") as f:
-            json.dump(config.get_data(), f)
+            json.dump(config.get_data(), f, indent=2)
         os.replace(tmp_config, self._config)

@@ -1181,14 +1181,14 @@ if __name__ == "__main__":
     log_benchmark_summary(bench_results.in_memory_txn_results.get_data(), IN_MEMORY_TRANSACTIONAL)
     if benchmark_context.export_results:
         with open(benchmark_context.export_results, "w") as f:
-            json.dump(bench_results.in_memory_txn_results.get_data(), f)
+            json.dump(bench_results.in_memory_txn_results.get_data(), f, indent=2)
 
     log_benchmark_summary(bench_results.in_memory_analytical_results.get_data(), IN_MEMORY_ANALYTICAL)
     if benchmark_context.export_results_in_memory_analytical:
         with open(benchmark_context.export_results_in_memory_analytical, "w") as f:
-            json.dump(bench_results.in_memory_analytical_results.get_data(), f)
+            json.dump(bench_results.in_memory_analytical_results.get_data(), f, indent=2)
 
     log_benchmark_summary(bench_results.disk_results.get_data(), ON_DISK_TRANSACTIONAL)
     if benchmark_context.export_results_on_disk_txn:
         with open(benchmark_context.export_results_on_disk_txn, "w") as f:
-            json.dump(bench_results.disk_results.get_data(), f)
+            json.dump(bench_results.disk_results.get_data(), f, indent=2)
