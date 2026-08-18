@@ -536,7 +536,7 @@ TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   } else if (value.IsList()) {
     return TypedValue(static_cast<int64_t>(value.ValueList().size()), ctx.memory);
   } else if (value.IsString()) {
-    return TypedValue(static_cast<int64_t>(value.ValueString().size()), ctx.memory);
+    return TypedValue(static_cast<int64_t>(utils::CountUtf8CodePoints(value.ValueString())), ctx.memory);
   } else if (value.IsMap()) {
     // neo4j doesn't implement size for map, but I don't see a good reason not
     // to do it.
@@ -1488,7 +1488,7 @@ TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContex
 TypedValue Left(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, String>, Or<Null, NonNegativeInteger>>("left", args, nargs);
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue(utils::Substr(args[0].ValueString(), 0, args[1].ValueInt()), ctx.memory);
+  return TypedValue(utils::SubstrUtf8(args[0].ValueString(), 0, args[1].ValueInt()), ctx.memory);
 }
 
 TypedValue Right(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1496,8 +1496,7 @@ TypedValue Right(const TypedValue *args, int64_t nargs, const FunctionContext &c
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
   const auto &str = args[0].ValueString();
   auto len = args[1].ValueInt();
-  return len <= str.size() ? TypedValue(utils::Substr(str, str.size() - len, len), ctx.memory)
-                           : TypedValue(str, ctx.memory);
+  return TypedValue(std::string_view{str}.substr(utils::Utf8OffsetOfLastCodePoints(str, len)), ctx.memory);
 }
 
 TypedValue CallStringFunction(const TypedValue *args, int64_t nargs, utils::MemoryResource *memory, const char *name,
@@ -1581,9 +1580,9 @@ TypedValue Substring(const TypedValue *args, int64_t nargs, const FunctionContex
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &str = args[0].ValueString();
   auto start = args[1].ValueInt();
-  if (nargs == 2) return TypedValue(utils::Substr(str, start), ctx.memory);
+  if (nargs == 2) return TypedValue(utils::SubstrUtf8(str, start), ctx.memory);
   auto len = args[2].ValueInt();
-  return TypedValue(utils::Substr(str, start, len), ctx.memory);
+  return TypedValue(utils::SubstrUtf8(str, start, len), ctx.memory);
 }
 
 TypedValue ToByteString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
