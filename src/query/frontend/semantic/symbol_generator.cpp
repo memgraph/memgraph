@@ -979,6 +979,12 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     if (edge_atom.upper_bound_) {
       edge_atom.upper_bound_->Accept(*this);
     }
+    // Visited here because this `PreVisit` returns false, suppressing the generic child traversal
+    // that would otherwise reach the `| k` limit. Without it the limit's identifiers keep
+    // `symbol_pos_ == -1`, which `DependantSymbolVisitor`'s always-on assert turns into an abort.
+    if (edge_atom.limit_) {
+      edge_atom.limit_->Accept(*this);
+    }
     scope.in_edge_range = false;
     scope.in_pattern = false;
     if (edge_atom.filter_lambda_.expression) {
