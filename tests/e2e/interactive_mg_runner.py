@@ -37,7 +37,6 @@ from argparse import ArgumentParser
 from inspect import signature
 
 import yaml
-
 from memgraph import *
 
 log = logging.getLogger("memgraph.tests.e2e")
@@ -422,27 +421,41 @@ def start(instances, instance_name, procdir="", gdb_port=None, run_setup_queries
         storage_snapshot_on_exit=storage_snapshot_on_exit,
         gdb_port=gdb_port,
     )
-    if started:
-        log.info(f"Instance with name {instance_name} started")
     return started
 
 
-def start_all(context, procdir="", keep_directories=True, gdb_port=None, ignore_setup_failures=False):
+def start_all(
+    context,
+    procdir="",
+    keep_directories=True,
+    gdb_port=None,
+    ignore_setup_failures=False,
+    log_ignored_setup_failures=True,
+):
     """
     Start all instances by first stopping all instances and then starting all instances from the `context` in parallel.
     If gdb_port is set, only the first instance will be started under gdbserver.
     """
     stop_all(keep_directories)
-    start_all_keep_others(context, procdir, gdb_port=gdb_port, ignore_setup_failures=ignore_setup_failures)
+    start_all_keep_others(
+        context,
+        procdir,
+        gdb_port=gdb_port,
+        ignore_setup_failures=ignore_setup_failures,
+        log_ignored_setup_failures=log_ignored_setup_failures,
+    )
 
 
-def start_all_keep_others(context, procdir="", gdb_port=None, ignore_setup_failures=False):
+def start_all_keep_others(
+    context, procdir="", gdb_port=None, ignore_setup_failures=False, log_ignored_setup_failures=True
+):
     """
     Start all instances from the context in parallel but don't stop currently running instances.
     Instances must be started in parallel because e.g. coordinators cannot finish their startup until a quorum of them
     is reachable. Setup queries are executed sequentially in context order only after all instances are up.
     When `ignore_setup_failures` is set, individual setup query failures are logged and skipped, e.g. when restarting
-    instances on which the queries were already applied.
+    instances on which the queries were already applied. `log_ignored_setup_failures` can be turned off when those
+    failures happen on every restart and would drown out the rest of the output.
     """
     if not context:
         return
@@ -459,8 +472,11 @@ def start_all_keep_others(context, procdir="", gdb_port=None, ignore_setup_failu
             continue
         setup_queries = value.get("setup_queries", [])
         if setup_queries:
-            MEMGRAPH_INSTANCES[key].execute_setup_queries(setup_queries, ignore_failures=ignore_setup_failures)
-            log.info(f"Executed setup queries for instance with name {key}.")
+            MEMGRAPH_INSTANCES[key].execute_setup_queries(
+                setup_queries,
+                ignore_failures=ignore_setup_failures,
+                log_ignored_failures=log_ignored_setup_failures,
+            )
 
 
 def info(context):

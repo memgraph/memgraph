@@ -919,7 +919,14 @@ class MemgraphHA(BaseRunner):
         return main_name, ""
 
     def _start_cluster(self):
-        self._mg_runner.start_all(self._description, keep_directories=True, ignore_setup_failures=True)
+        # The cluster setup queries are applied once and fail on every later restart, by design, so
+        # their failures are not worth a warning per restart per query.
+        self._mg_runner.start_all(
+            self._description,
+            keep_directories=True,
+            ignore_setup_failures=True,
+            log_ignored_setup_failures=False,
+        )
         deadline = time.time() + self.READY_TIMEOUT_SEC
         problem = ""
         while time.time() < deadline:
