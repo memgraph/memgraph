@@ -166,11 +166,21 @@ def parse_args():
         help="File path into which results for on_disk_transactional storage mode should be exported. If set, benchmarks for disk storage will be run.",
     )
 
+    # One attribute, both spellings. The value says what it does: True runs the fine-grained
+    # authorization pass in addition to the anonymous one, so each query is measured twice.
+    # --no-authorization is kept because it is what existing scripts pass to turn the pass off.
+    benchmark_parser.add_argument(
+        "--authorization",
+        dest="authorization",
+        action="store_true",
+        default=True,
+        help="Measure each query a second time as an authorized user (default)",
+    )
     benchmark_parser.add_argument(
         "--no-authorization",
+        dest="authorization",
         action="store_false",
-        default=True,
-        help="Run each query with authorization",
+        help="Skip the fine-grained authorization pass",
     )
 
     benchmark_parser.add_argument(
@@ -896,7 +906,7 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
                 benchmark_context,
             )
 
-        if benchmark_context.no_authorization:
+        if benchmark_context.authorization:
             run_isolated_workload_with_authorization(
                 vendor_runner,
                 client,
@@ -1122,7 +1132,7 @@ if __name__ == "__main__":
         time_dependent_execution=args.time_depended_execution,
         warm_up=args.warm_up,
         performance_tracking=args.performance_tracking,
-        no_authorization=args.no_authorization,
+        authorization=args.authorization,
         customer_workloads=args.customer_workloads,
         vendor_args=vendor_specific_args,
         use_parallel_execution=args.use_parallel_execution,

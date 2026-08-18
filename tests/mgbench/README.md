@@ -195,9 +195,8 @@ Or through the build script, which is also what CI runs:
 ```
 
 The fine-grained authorization pass runs here as it does for a single instance, so each query is
-measured twice, once anonymously and once as an authorized user. That roughly doubles the runtime,
-and `--no-authorization` turns it off — note that the name is misleading, since it is a
-`store_false` whose *absence* leaves the pass switched **on**.
+measured twice, once anonymously and once as an authorized user. That roughly doubles the runtime.
+It is on by default; `--no-authorization` turns it off and `--authorization` asks for it explicitly.
 
 Supporting it needs one thing from the runner, which is worth knowing if the probe ever misbehaves:
 the pass runs `CREATE USER` partway through a run and only tells the benchmark client the new
