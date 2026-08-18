@@ -43,7 +43,7 @@ class BenchmarkContext:
         time_dependent_execution: int = 0,
         warm_up: str = None,
         performance_tracking: bool = False,
-        no_authorization: bool = True,
+        authorization: bool = True,
         customer_workloads: str = None,
         vendor_args: dict = {},
         use_parallel_execution: bool = False,
@@ -86,7 +86,7 @@ class BenchmarkContext:
         self.time_dependent_execution = time_dependent_execution
         self.performance_tracking = performance_tracking
         self.warm_up = warm_up
-        self.no_authorization = no_authorization
+        self.authorization = authorization
         self.customer_workloads = customer_workloads
         self.vendor_args = vendor_args
         self.use_parallel_execution = use_parallel_execution
