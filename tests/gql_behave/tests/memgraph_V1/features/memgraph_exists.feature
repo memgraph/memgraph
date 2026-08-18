@@ -1768,6 +1768,34 @@ Feature: WHERE exists
           | 'Bob'   | true |
           | 'Carol' | true |
 
+  # The counterpart to the scenario above, and the reason it is worth pinning: an un-aggregated column becomes a
+  # grouping key, and a grouped aggregate emits no row at all on empty input, so Carol flips to false. The body's
+  # column list therefore decides the row count. Neither of these two answers depends on this change - both hold with
+  # the body's RETURN discarded - so this pair guards a future rewrite that prunes an unread projection column from
+  # silently turning the grouped answer into the ungrouped one. Both measured against the reference engine.
+  Scenario: Test EXISTS subquery whose body RETURN aggregates with a grouping key
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN 1, count(f) } AS h
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | h     |
+          | 'Alice' | true  |
+          | 'Bob'   | true  |
+          | 'Carol' | false |
+
   Scenario: Test EXISTS subquery whose body RETURN has a LIMIT
       Given an empty graph
       And having executed:
@@ -1866,6 +1894,30 @@ Feature: WHERE exists
           | 'Alice' |
           | 'Bob'   |
           | 'Carol' |
+
+  # The grouping key reaches the WHERE fold too, and drops the row the ungrouped spelling above keeps.
+  Scenario: Test EXISTS subquery in a WHERE whose body RETURN aggregates with a grouping key
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          WHERE EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN 1, count(f) }
+          RETURN p.name AS name
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    |
+          | 'Alice' |
+          | 'Bob'   |
 
   Scenario: Test EXISTS subquery in a WHERE whose body RETURN has a SKIP
       Given an empty graph
