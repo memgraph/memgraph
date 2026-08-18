@@ -3749,8 +3749,8 @@ class KShortestPathsCursor : public Cursor {
     limit_ = self_.limit_ ? EvaluateInt(evaluator, self_.limit_, "Limit in KSHORTEST path expansion")
                           : std::numeric_limits<int64_t>::max();
 
-    // Nothing to memoise without a lambda or access checks. Lambda-presence must stay the left
-    // operand: `ShouldExpand` skips the lambda entirely when this is false.
+    // Nothing to memoise without a lambda or access checks, so don't pay for the map. This is a
+    // cost switch only: `ShouldExpand` computes the same verdict either way.
     fine_grained_access_check_enabled_ = FineGrainedAccessCheckEnabled(context);
     memoize_expansion_ = self_.filter_lambda_.expression != nullptr || fine_grained_access_check_enabled_;
 
@@ -3835,7 +3835,10 @@ class KShortestPathsCursor : public Cursor {
         last_path = &shortest_paths_.back();
       }
 
-      if (n_returned_paths_ < limit_ && unsent_paths_count() > 0) {
+      // `InitializeKShortestPaths` reset the per-row count above, and the top-up loop serves
+      // nothing, so this row has spent none of its budget yet.
+      DMG_ASSERT(n_returned_paths_ == 0, "KSHORTEST path count must be reset before a new input row is served");
+      if (unsent_paths_count() > 0) {
         push_next_path(frame, evaluator);
         return true;
       }
@@ -4156,18 +4159,22 @@ class KShortestPathsCursor : public Cursor {
                     Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
     const VertexAccessor next = To == kTo ? edge.To() : edge.From();
     if (blocked_edges_.contains(edge) || blocked_vertices_.contains(next) || reached.contains(next)) return false;
-    if (!memoize_expansion_) return FineGrainedAccessCheck<To>(edge, context);
 
     const VertexAccessor &inner_node = Backward ? expand_from : next;
+    // Access check first: an edge the user cannot read must never make the lambda run on it.
+    auto verdict = [&] {
+      return FineGrainedAccessCheck<To>(edge, context) &&
+             EvaluateFilterLambda(edge, inner_node, frame, evaluator, context);
+    };
+    if (!memoize_expansion_) return verdict();
+
     // With access checks off the verdict is a pure function of `(edge, inner_node)`, so dropping
     // the pass merges two entries guaranteed to agree.
     const ExpansionKey key{
         .edge = edge.Gid(), .node = inner_node.Gid(), .backward = Backward && fine_grained_access_check_enabled_};
     if (const auto it = expansion_memo_.find(key); it != expansion_memo_.end()) return it->second;
 
-    // Access check first: an edge the user cannot read must never make the lambda run on it.
-    const bool allowed =
-        FineGrainedAccessCheck<To>(edge, context) && EvaluateFilterLambda(edge, inner_node, frame, evaluator, context);
+    const bool allowed = verdict();
     expansion_memo_.emplace(key, allowed);
     return allowed;
   }
