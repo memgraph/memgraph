@@ -102,6 +102,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --threads 12 \
           build-memgraph --community \
           --link-threads $LINK_THREADS \
           --split-debug \
