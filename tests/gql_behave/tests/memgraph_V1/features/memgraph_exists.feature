@@ -1172,7 +1172,7 @@ Feature: WHERE exists
           | true  |
           | true  |
 
-  Scenario: EXISTS subquery body with no operators
+  Scenario: EXISTS subquery body that is only a RETURN
       Given an empty graph
       And having executed:
           """
@@ -1190,7 +1190,7 @@ Feature: WHERE exists
           | id    |
           | 1     |
 
-  Scenario: EXISTS subquery body that is a UNION of bodies with no operators
+  Scenario: EXISTS subquery body that is a UNION of RETURN-only bodies
       Given an empty graph
       And having executed:
           """
@@ -1210,7 +1210,7 @@ Feature: WHERE exists
           | id    |
           | 1     |
 
-  Scenario: EXISTS subquery in a projection whose body is a UNION with no operators
+  Scenario: EXISTS subquery in a projection whose body is a UNION of RETURN-only bodies
       Given an empty graph
       And having executed:
           """
@@ -1248,7 +1248,7 @@ Feature: WHERE exists
           | h    |
           | true |
 
-  Scenario: EXISTS subquery body that is a UNION of a branch with rows and one with no operators
+  Scenario: EXISTS subquery body that is a UNION of a branch with rows and a RETURN-only one
       Given an empty graph
       And having executed:
           """
@@ -1288,7 +1288,7 @@ Feature: WHERE exists
           | h     |
           | false |
 
-  Scenario: EXISTS subquery body with no operators in a projection
+  Scenario: EXISTS subquery body that is only a RETURN in a projection
       Given an empty graph
       And having executed:
           """
@@ -1305,7 +1305,7 @@ Feature: WHERE exists
           | h    |
           | true |
 
-  Scenario: EXISTS subquery body with no operators in a WITH projection
+  Scenario: EXISTS subquery body that is only a RETURN in a WITH projection
       Given an empty graph
       And having executed:
           """
@@ -1323,7 +1323,7 @@ Feature: WHERE exists
           | e    |
           | true |
 
-  Scenario: EXISTS subquery body with no operators in an ORDER BY
+  Scenario: EXISTS subquery body that is only a RETURN in an ORDER BY
       Given an empty graph
       And having executed:
           """
@@ -1488,7 +1488,7 @@ Feature: WHERE exists
           | 2  |
           | 1  |
 
-  Scenario: Test EXISTS subquery with a body with no operators inside a CASE
+  Scenario: Test EXISTS subquery with a RETURN-only body inside a CASE
       Given an empty graph
       And having executed:
           """
