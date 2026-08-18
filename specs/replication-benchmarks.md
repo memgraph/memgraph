@@ -62,8 +62,8 @@ add.
 | 7 | `start_db` readiness contract | Returns only once: a coordinator leader exists, all three data instances are registered and healthy in `SHOW INSTANCES`, a main exists, `SHOW REPLICAS` on main lists both replicas as SYNC and caught up, and main accepts a write. Built from the existing `tests/e2e/high_availability/common.py` helpers (`has_leader`, `has_main`, `show_instances`, `show_replicas`, `wait_until_main_writeable`) wrapped in `mg_utils.mg_sleep_and_assert` |
 | 8 | Main identity after a restart | Main **may drift** off `instance_1`. Whichever instance `SHOW INSTANCES` reports as main is used as-is. No attempt is made to force main back with `SET INSTANCE … TO MAIN`, which would have the runner fighting the cluster's own recovery decision and would reintroduce the role-transition risk of decision 6 |
 | 9 | How the client follows main | `BoltClient._bolt_port` becomes **dynamic**, resolved from `runner.get_database_port()` when a runner is supplied and falling back to today's `vendor_args["bolt-port"]` otherwise. `MemgraphHA.get_database_port()` returns the Bolt port of whichever instance `SHOW INSTANCES` reports as main. This is required, not cosmetic: `BoltClient` currently caches the port in `__init__` and is constructed once per run, so after drift it would keep writing to a replica and every write would fail. The fallback keeps the standalone path byte-identical in the flags it passes. **Amended during implementation**: `PythonClient` was described here as already resolving its port this way, which was only half true — it takes the runner's port once at construction and caches it, so it had the same staleness. Both clients now resolve per execution. The runner is supplied only for the HA installation type, because `ExternalVendor.get_database_port()` returns a hardcoded 7687 and ignores `vendor_args`, so consulting it would have regressed external vendors |
-| 10 | Workloads | `pokec/medium/create/*` and `pokec/medium/update/*` for writes; `pokec/medium/match/*` as a **control**. No new workload code. Each pokec write query is one autocommit transaction, so each pays exactly one SYNC round trip to both replicas — the unit of cost being measured |
-| 11 | Workloads excluded | `high_write_set_property` is dropped. Its query is a single `MATCH (n:Node) SET …` over 100 000 nodes — *one* transaction — so it measures the cost of shipping one enormous delta batch, not commit rate. A genuinely different regime, and reporting it alongside per-commit numbers would mislead. The `basic` group is also avoided as a primary target because it mixes reads, writes and aggregations under one group name and so cannot be split by group filtering |
+| 10 | Workloads | `pokec/medium`, targeting **all 8 distinct write shapes plus 2 reads as a control**: `create/*` (4 queries), `arango/single_vertex_write`, `arango/single_edge_write`, `arango/unwind_range_vertex_write`, `basic/single_vertex_property_update_update`, and `arango/single_vertex_read` + `arango/aggregate` as the control. 10 queries, no new workload code. Each write is one autocommit transaction, so each pays exactly one SYNC round trip to both replicas — the unit of cost being measured. `unwind_range_vertex_write` is the deliberate exception at 100 nodes per commit, the only point where the delta batch is large enough to show bandwidth cost rather than round-trip cost. **Amended during implementation**: this was originally `create/*` + `update/*` for writes with all of `match/*` as control. Enumerating the queries showed that pokec contains exactly 11 writes, that the published dashboard series come from the `arango`, `create` and `match` groups, and that group-level filtering therefore both missed arango's three writes and dragged in 25 reads. Reads are held to two on purpose: they are only a harness sanity check, and every query costs its own cluster restart |
+| 11 | Workloads excluded | `high_write_set_property` is dropped. Its query is a single `MATCH (n:Node) SET …` over 100 000 nodes — *one* transaction — so it measures the cost of shipping one enormous delta batch, not commit rate. A genuinely different regime, and reporting it alongside per-commit numbers would mislead. The `basic` group is not used as a group target because it mixes reads, writes and aggregations under one name; one query is named individually instead. **Amended during implementation**: two of the three writes in `basic` are byte-identical Cypher to `arango/single_vertex_write` and `arango/single_edge_write`, so only `single_vertex_property_update_update` is taken from it. `update/vertex_on_property` is dropped as well: it matches on `(n {id: $id})` with no label, so it scans rather than seeks and the commit it is meant to measure is lost in the scan time — `basic/single_vertex_property_update_update` is the same write against an index |
 | 12 | Dataset size | `medium` (100 000 vertices / 1 768 515 edges). `small` at 10 000 vertices risks the write queries finishing too fast for stable timing; `large` pays the replication tax on every commit of a 30M-edge import |
 | 13 | Import path | Imports through the **fully attached** SYNC cluster — both replicas are present from the first start, so the import itself is replicated. This is the honest configuration, and the alternative (import to a detached main, attach replicas afterwards) contradicts decision 6. `import_results` is already captured and exported, so "import throughput under SYNC replication" comes for free |
 | 14 | `clean_db` scope | Clears the three data instances' snapshots only — mirroring today's `rm -Rf memgraph/snapshots/*` — and **never** coordinator state. `save_memory_usage_of_empty_db` calls `clean_db` mid-run; wiping coordinator directories there would destroy the Raft state that makes registration durable and force the re-registration path decision 6 avoids |
@@ -119,8 +119,14 @@ Running the suite:
 ```
 cd tests/mgbench
 ./benchmark.py --installation-type ha --num-workers-for-benchmark 6 \
-  --export-results benchmark_result_replication.json \
-  'pokec/medium/create/*' 'pokec/medium/update/*' 'pokec/medium/match/*'
+  --export-results benchmark_result_replication.json --no-save-query-counts \
+  'pokec/medium/create/*' \
+  pokec/medium/arango/single_vertex_write \
+  pokec/medium/arango/single_edge_write \
+  pokec/medium/arango/unwind_range_vertex_write \
+  pokec/medium/basic/single_vertex_property_update_update \
+  pokec/medium/arango/single_vertex_read \
+  pokec/medium/arango/aggregate
 ```
 
 Requires `MEMGRAPH_ENTERPRISE_LICENSE` and `MEMGRAPH_ORGANIZATION_NAME` in the environment — HA
@@ -163,17 +169,19 @@ Stated plainly, because each one bounds how far the resulting numbers can be pus
 
 - **Coordinator chatter is inside the measurement.** Coordinators health-check every data
   instance continuously and run Raft among themselves. None of that is on the write path, but it
-  is not excluded from the throughput number either. The `match` control group exists to detect
-  this: reads on main should show a near-zero delta against standalone, and if they do not, the
+  is not excluded from the throughput number either. The two control reads exist to detect this:
+  reads on main should show a near-zero delta against standalone, and if they do not, the
   perturbation is the harness or the coordinators rather than replication.
-- **The cluster restarts five-plus times per run.** `benchmark.py` brackets every phase — import,
-  query-count calibration, authorization setup, each workload group — with `start_db`/`stop_db`.
-  Each becomes a six-process restart plus a wait for Raft convergence. This is the dominant added
-  wall-clock cost and the most likely source of flakiness.
+- **The cluster restarts once per query, not once per phase.** `benchmark.py` brackets each
+  query's measured run with `start_db`/`stop_db`, and its calibration too when the count is not
+  cached, on top of the empty-database measurement and the import. Every one of those is a
+  six-process restart plus a wait for Raft convergence, so wall-clock scales with the size of the
+  target set — about a dozen restarts for the 10 queries of decision 10. This is the dominant added
+  cost and the most likely source of flakiness.
 - **The commit-size axis is sampled, not swept.** pokec's write queries were designed to stress
-  the storage engine; none produces a transaction of deliberately controlled delta size. The
-  small-commit regime is covered; the large-commit regime is not covered at all now that
-  `high_write_set_property` is excluded.
+  the storage engine; none produces a transaction of deliberately controlled delta size. Seven of
+  the eight writes are single-entity commits and `unwind_range_vertex_write` adds one mid-size point
+  at 100 nodes, so the axis has two samples rather than a sweep.
 - **Memory is main-only.** Replica memory under replication load is not reported, and adding it is
   a schema change rather than a flag, because `database: {cpu, memory}` holds exactly one value.
 - **Import is slower than standalone by construction** (decision 13), on every run.
