@@ -204,6 +204,7 @@ class BoltClient(BaseClient):
         max_retries: int = 50,
         validation: bool = False,
         time_dependent_execution: int = 0,
+        log_args: bool = False,
     ):
         check_db_query = Path(self._directory.name) / "check_db_query.json"
         with open(check_db_query, "w") as f:
@@ -224,8 +225,6 @@ class BoltClient(BaseClient):
             time_dependent_execution=time_dependent_execution,
             databases=self._databases,
         )
-
-        log.info("Client args: {}".format(client_args))
 
         while True:
             try:
@@ -264,7 +263,8 @@ class BoltClient(BaseClient):
             databases=self._databases,
         )
 
-        log.info("Client args: {}".format(args))
+        if log_args:
+            log.info("Client args: {}".format(args))
 
         ret = None
         try:
@@ -330,6 +330,7 @@ class BoltClientDocker(BaseClient):
         max_retries: int = 50,
         validation: bool = False,
         time_dependent_execution: int = 0,
+        log_args: bool = False,
     ):
         if (queries is None and file_path is None) or (queries is not None and file_path is not None):
             raise ValueError("Either queries or input_path must be specified!")
@@ -485,6 +486,7 @@ class PythonClient(BaseClient):
         max_retries: int = 50,
         validation: bool = False,
         time_dependent_execution: int = 0,
+        log_args: bool = False,
     ):
         check_db_query = Path(self._directory.name) / "check_db_query.json"
         with open(check_db_query, "w") as f:
