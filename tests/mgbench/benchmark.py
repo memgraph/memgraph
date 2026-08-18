@@ -929,15 +929,21 @@ def run_target_workloads(benchmark_context, target_workloads, bench_results):
 
 
 def get_runner_client(runner, benchmark_context):
+    # Only the HA runner can move the database to another port mid-run, when a cluster restart
+    # leaves a different instance as main. Every other runner derives its port from the same
+    # vendor_args value the client already reads, so it is left resolving the port itself.
+    dynamic_runner = runner if benchmark_context.installation_type == BenchmarkInstallationType.HA else None
     if benchmark_context.client_language == BenchmarkClientLanguage.CPP:
         if (
             benchmark_context.vendor_name is None
             or benchmark_context.installation_type != BenchmarkInstallationType.DOCKER
         ):
-            return runners.BoltClient(benchmark_context=benchmark_context)
+            return runners.BoltClient(benchmark_context=benchmark_context, runner=dynamic_runner)
         return runners.BoltClientDocker(benchmark_context=benchmark_context)
     elif benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
-        return runners.PythonClient(benchmark_context=benchmark_context, database_port=runner.get_database_port())
+        return runners.PythonClient(
+            benchmark_context=benchmark_context, database_port=runner.get_database_port(), runner=dynamic_runner
+        )
     else:
         raise Exception("Unknown runner client type!")
 

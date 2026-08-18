@@ -165,17 +165,29 @@ class BaseClient(ABC):
 
 
 class BoltClient(BaseClient):
-    def __init__(self, benchmark_context: BenchmarkContext):
+    def __init__(self, benchmark_context: BenchmarkContext, runner=None):
         super().__init__(benchmark_context=benchmark_context)
         self._client_binary = benchmark_context.client_binary
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
-        self._bolt_port = (
+        self._configured_bolt_port = (
             benchmark_context.vendor_args["bolt-port"] if "bolt-port" in benchmark_context.vendor_args.keys() else 7687
         )
+        self._runner = runner
         self._bolt_address = benchmark_context.client_bolt_address
         self._databases = benchmark_context.databases
+
+    @property
+    def _bolt_port(self):
+        """
+        Resolved on every execution rather than cached, because the HA runner's main can move to a
+        different instance, and so a different port, across the cluster restarts between phases.
+        Without a runner this is the configured port, which is what every other vendor uses.
+        """
+        if self._runner is not None:
+            return self._runner.get_database_port()
+        return self._configured_bolt_port
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(self._client_binary, **kwargs)
@@ -440,13 +452,23 @@ class BoltClientDocker(BaseClient):
 
 
 class PythonClient(BaseClient):
-    def __init__(self, benchmark_context: BenchmarkContext, database_port: int):
+    def __init__(self, benchmark_context: BenchmarkContext, database_port: int, runner=None):
         super().__init__(benchmark_context=benchmark_context)
         self._client_binary = os.path.join(os.path.dirname(os.path.abspath(__file__)), "python_client.py")
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
-        self._database_port = database_port
+        self._configured_database_port = database_port
+        self._runner = runner
+
+    @property
+    def _database_port(self):
+        """
+        Same reason as BoltClient: the port is only stable for vendors whose database cannot move.
+        """
+        if self._runner is not None:
+            return self._runner.get_database_port()
+        return self._configured_database_port
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags("python3", self._client_binary, **kwargs)

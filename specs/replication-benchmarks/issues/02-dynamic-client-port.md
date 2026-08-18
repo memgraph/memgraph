@@ -21,11 +21,11 @@ and no attempt is made to move the role back.
 
 ## Acceptance criteria
 
-- [ ] The client resolves main's Bolt port at execution time rather than caching it at construction
-- [ ] The runner derives main from the cluster's own view of instance roles
-- [ ] With no runner supplied, the client passes exactly the same connection flags it passes today, so standalone runs are unchanged
-- [ ] A run completes successfully when main is an instance other than the one on the default port, verified by pointing the description YAML's main election at a different instance
-- [ ] An existing standalone benchmark run still completes and reports throughput
+- [x] The client resolves main's Bolt port at execution time rather than caching it at construction
+- [x] The runner derives main from the cluster's own view of instance roles
+- [x] With no runner supplied, the client passes exactly the same connection flags it passes today, so standalone runs are unchanged
+- [ ] A run completes successfully when main is an instance other than the one on the default port, verified by pointing the description YAML's main election at a different instance (needs a built binary)
+- [ ] An existing standalone benchmark run still completes and reports throughput (needs a built binary)
 
 ## Blocked by
 
