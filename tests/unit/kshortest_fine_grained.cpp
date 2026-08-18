@@ -125,13 +125,13 @@ TEST_P(FineGrainedKShortestTestInMemory, All) {
   int upper_bound;
   EdgeAtom::Direction direction;
   std::vector<std::string> edge_types;
-  int k;
+  int limit;
   FineGrainedTestType fine_grained_test_type;
 
-  std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
+  std::tie(upper_bound, direction, edge_types, limit, fine_grained_test_type) = GetParam();
 
   this->db_->KShortestTestWithFineGrainedFiltering(
-      db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type);
+      db_.get(), upper_bound, direction, edge_types, limit, fine_grained_test_type);
 }
 
 // The same matrix, plus a lambda blocking every edge into vertex 4, on top of the access checks.
@@ -139,13 +139,13 @@ TEST_P(FineGrainedKShortestTestInMemory, WithFilterLambda) {
   int upper_bound;
   EdgeAtom::Direction direction;
   std::vector<std::string> edge_types;
-  int k;
+  int limit;
   FineGrainedTestType fine_grained_test_type;
 
-  std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
+  std::tie(upper_bound, direction, edge_types, limit, fine_grained_test_type) = GetParam();
 
   this->db_->KShortestTestWithFineGrainedFiltering(
-      db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type, 4);
+      db_.get(), upper_bound, direction, edge_types, limit, fine_grained_test_type, 4);
 }
 
 std::unique_ptr<VertexDb<FineGrainedKShortestTestInMemory::StorageType>> FineGrainedKShortestTestInMemory::db_{nullptr};
@@ -154,7 +154,7 @@ INSTANTIATE_TEST_SUITE_P(
     FineGrained, FineGrainedKShortestTestInMemory,
     testing::Combine(testing::Values(3),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
-                     testing::Values(std::vector<std::string>{"a", "b"}), testing::Values(3),
+                     testing::Values(std::vector<std::string>{"a", "b"}), testing::Values(-1, 3),
                      testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
                                      FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
                                      FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
@@ -188,13 +188,13 @@ TEST_P(FineGrainedKShortestTestOnDisk, All) {
   int upper_bound;
   EdgeAtom::Direction direction;
   std::vector<std::string> edge_types;
-  int k;
+  int limit;
   FineGrainedTestType fine_grained_test_type;
 
-  std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
+  std::tie(upper_bound, direction, edge_types, limit, fine_grained_test_type) = GetParam();
 
   this->db_->KShortestTestWithFineGrainedFiltering(
-      db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type);
+      db_.get(), upper_bound, direction, edge_types, limit, fine_grained_test_type);
 }
 
 // The same matrix, plus a lambda blocking every edge into vertex 4, on top of the access checks.
@@ -202,13 +202,13 @@ TEST_P(FineGrainedKShortestTestOnDisk, WithFilterLambda) {
   int upper_bound;
   EdgeAtom::Direction direction;
   std::vector<std::string> edge_types;
-  int k;
+  int limit;
   FineGrainedTestType fine_grained_test_type;
 
-  std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
+  std::tie(upper_bound, direction, edge_types, limit, fine_grained_test_type) = GetParam();
 
   this->db_->KShortestTestWithFineGrainedFiltering(
-      db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type, 4);
+      db_.get(), upper_bound, direction, edge_types, limit, fine_grained_test_type, 4);
 }
 
 std::unique_ptr<VertexDb<FineGrainedKShortestTestOnDisk::StorageType>> FineGrainedKShortestTestOnDisk::db_{nullptr};
@@ -217,7 +217,7 @@ INSTANTIATE_TEST_SUITE_P(
     FineGrained, FineGrainedKShortestTestOnDisk,
     testing::Combine(testing::Values(3),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
-                     testing::Values(std::vector<std::string>{"a", "b"}), testing::Values(3),
+                     testing::Values(std::vector<std::string>{"a", "b"}), testing::Values(-1, 3),
                      testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
                                      FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
                                      FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
