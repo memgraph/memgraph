@@ -2,11 +2,8 @@
 # Print a safe build thread count:
 #   min(nproc, floor((MemAvailableGB - reserve_gb) / mem_per_thread_gb))
 #
-# Peak build memory is close to affine in the thread count: a fixed cost that
-# does not scale (the resident toolchain, the ninja process, whatever else the
-# runner is holding) plus a per-thread cost. Charging the fixed part to
-# reserve_gb rather than inflating mem_per_thread_gb keeps the per-thread figure
-# meaning what it says, so it can be measured once and reused.
+# reserve_gb carries the part of peak memory that does not scale with threads,
+# so mem_per_thread_gb stays a pure per-thread figure and can be measured alone.
 #
 # Usage: compute-build-threads.sh <mem_per_thread_gb> [reserve_gb]
 

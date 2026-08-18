@@ -69,13 +69,10 @@ SUPPORTED_TESTS=(
     unit unit-coverage upload-to-bench-graph
 )
 DEFAULT_THREADS=0
-# Memory budget per concurrent job, used to derive a default -j when none is
-# given. Measured against a full cold Debug build: peak anonymous memory tracks
-# 4.8 GB + 1.02 GB per compile job across j=8/22/44, and the heaviest single
-# translation unit peaks near 3.5 GB. The per-thread figures carry a margin over
-# the measured slope; the reserve covers the affine part plus the toolchain and
-# ninja themselves. Debug is the worst case, so these are safe for every build
-# type. Re-measure if the query or storage translation units grow substantially.
+# Memory budget per concurrent job, derived from a cold Debug build: peak
+# anonymous memory is affine in the job count, so the reserve covers the fixed
+# part and the per-thread figures the slope, both with margin. Debug is the
+# worst case. Re-measure when the query or storage sources grow substantially.
 MEM_GB_PER_BUILD_THREAD=1.3
 MEM_GB_PER_DEP_THREAD=2.0
 MEM_GB_BUILD_RESERVE=6
@@ -814,11 +811,9 @@ build_memgraph () {
   # NOTE: also registered in build.sh — keep in sync
   docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add memgraph-recipes /home/mg/memgraph/conan_recipes -t local-recipes-index --force"
 
-  # Peak build memory is affine in the job count, so an uncapped -j$(nproc) asks
-  # for memory proportional to the core count on a machine whose RAM is fixed.
-  # Runners with a high core-to-RAM ratio OOM long before they run out of cores.
-  # Derive the caps from what the machine actually has, still bounded by nproc,
-  # so a memory-rich machine is unaffected. Explicit flags win.
+  # -j$(nproc) scales memory demand with the core count on a machine whose RAM
+  # is fixed, so a high core-to-RAM runner OOMs before it runs out of cores.
+  # Still bounded by nproc, leaving memory-rich machines unaffected.
   local compute_threads="$PROJECT_ROOT/tools/ci/compute-build-threads.sh"
   if [[ "$threads" == "$DEFAULT_THREADS" && -x "$compute_threads" ]]; then
     threads=$("$compute_threads" "$MEM_GB_PER_BUILD_THREAD" "$MEM_GB_BUILD_RESERVE")
@@ -846,9 +841,8 @@ build_memgraph () {
 
   local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_${toolchain_version} $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
 
-  # Each dependency Conan builds from source compiles at $(nproc) by default.
-  # A toolchain bump changes every package_id, so a cache miss means rebuilding
-  # the whole graph -- arrow and aws-sdk-cpp included -- at full width.
+  # Each dependency builds at $(nproc) by default. A toolchain bump changes
+  # every package_id, so the whole graph rebuilds from source at full width.
   if [[ "$dep_threads" -gt 0 ]]; then
     CONAN_PROFILE_ARGS="$CONAN_PROFILE_ARGS -c tools.build:jobs=$dep_threads"
   fi
@@ -917,11 +911,9 @@ build_memgraph () {
     fi
   fi
 
-  # Cap compile and link concurrency independently via Ninja job pools. Compiles
-  # and links have very different per-job memory costs, so a single -j that is
-  # safe for links wastes cores during the compile phase and vice versa. The
-  # pool list is single-quoted because its ';' separator would otherwise be
-  # parsed as a command separator by the shell running the cmake invocation.
+  # Compiles cost roughly twice what links do in unreclaimable memory, so the
+  # two classes are capped independently. The pool list is single-quoted because
+  # its ';' separator would otherwise split the cmake command.
   local job_pools=""
   if [[ "$compile_threads" -gt 0 ]]; then
     job_pools="compile=$compile_threads"
@@ -986,8 +978,8 @@ build_memgraph () {
 
   # Build using Conan preset
   echo "Building with Conan preset: $PRESET"
-  # cargo (mgcxx/text_search) spawns its own rustc jobs from inside a Ninja
-  # edge, so its parallelism multiplies with Ninja's unless capped separately.
+  # cargo picks its own rustc parallelism from inside a single Ninja edge, so it
+  # multiplies with Ninja's rather than sharing it.
   local EXPORT_CARGO_JOBS=""
   if [[ "$dep_threads" -gt 0 ]]; then
     EXPORT_CARGO_JOBS="export CARGO_BUILD_JOBS=$dep_threads &&"
