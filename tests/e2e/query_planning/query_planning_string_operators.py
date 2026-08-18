@@ -142,5 +142,54 @@ def test_starts_with_null_param_returns_empty(memgraph):
     assert result == []
 
 
+def test_starts_with_string_param_uses_index(memgraph):
+    plan = get_plan(memgraph, "MATCH (n:N) WHERE n.type STARTS WITH $p RETURN n")
+    ops = operator_names(plan)
+    assert "ScanAllByLabelProperties" in ops, f"Expected ScanAllByLabelProperties, got: {plan}"
+    assert "ScanAll" not in ops, f"ScanAll should not appear, got: {plan}"
+    result = list(memgraph.execute_and_fetch("MATCH (n:N) WHERE n.type STARTS WITH $p RETURN n.type AS t", {"p": "al"}))
+    assert [r["t"] for r in result] == ["alpha"]
+
+
+# --- Edge string-op index tests ---
+
+
+@pytest.fixture
+def edge_graph(memgraph):
+    memgraph.execute("CREATE EDGE INDEX ON :REL(kind);")
+    memgraph.execute("FOREACH (x IN ['alpha', 'beta', 'gamma'] | CREATE ({id: x})-[:REL {kind: x}]->({id: x + '_t'}));")
+    yield
+    # teardown handled by setup_graph's drop_database
+
+
+def test_edge_contains_uses_edge_type_property_range(memgraph, edge_graph):
+    plan = get_plan(memgraph, "MATCH (a)-[r:REL]->(b) WHERE r.kind CONTAINS 'lph' RETURN r.kind AS k")
+    ops = operator_names(plan)
+    assert "ScanAllByEdgeTypePropertyRange" in ops, f"Expected ScanAllByEdgeTypePropertyRange, got: {plan}"
+    result = list(memgraph.execute_and_fetch("MATCH (a)-[r:REL]->(b) WHERE r.kind CONTAINS 'lph' RETURN r.kind AS k"))
+    assert [r["k"] for r in result] == ["alpha"]
+
+
+def test_edge_starts_with_uses_edge_type_property_range(memgraph, edge_graph):
+    plan = get_plan(memgraph, "MATCH (a)-[r:REL]->(b) WHERE r.kind STARTS WITH 'be' RETURN r.kind AS k")
+    ops = operator_names(plan)
+    assert "ScanAllByEdgeTypePropertyRange" in ops, f"Expected ScanAllByEdgeTypePropertyRange, got: {plan}"
+    result = list(memgraph.execute_and_fetch("MATCH (a)-[r:REL]->(b) WHERE r.kind STARTS WITH 'be' RETURN r.kind AS k"))
+    assert [r["k"] for r in result] == ["beta"]
+
+
+def test_edge_ends_with_uses_edge_type_property_range(memgraph, edge_graph):
+    plan = get_plan(memgraph, "MATCH (a)-[r:REL]->(b) WHERE r.kind ENDS WITH 'ma' RETURN r.kind AS k")
+    ops = operator_names(plan)
+    assert "ScanAllByEdgeTypePropertyRange" in ops, f"Expected ScanAllByEdgeTypePropertyRange, got: {plan}"
+    result = list(memgraph.execute_and_fetch("MATCH (a)-[r:REL]->(b) WHERE r.kind ENDS WITH 'ma' RETURN r.kind AS k"))
+    assert [r["k"] for r in result] == ["gamma"]
+
+
+def test_edge_starts_with_null_returns_empty(memgraph, edge_graph):
+    result = list(memgraph.execute_and_fetch("MATCH (a)-[r:REL]->(b) WHERE r.kind STARTS WITH null RETURN r.kind AS k"))
+    assert result == []
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))

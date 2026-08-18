@@ -55,4 +55,9 @@ workloads:
   - name: "Query planning string operators"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["query_planning/query_planning_string_operators.py"]
-    <<: *queries_cluster
+    cluster:
+      main:
+        args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-properties-on-edges=TRUE"]
+        log_file: "query_planning.log"
+        setup_queries: []
+        validation_queries: []
