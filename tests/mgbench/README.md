@@ -177,7 +177,6 @@ Select it with `--installation-type ha`. The vendor name stays `memgraph`:
 
 ```bash
 ./benchmark.py --installation-type ha --num-workers-for-benchmark 6 \
-  --no-save-query-counts \
   --export-results benchmark_result_replication.json \
   'pokec/medium/create/*' \
   pokec/medium/arango/single_vertex_write \
@@ -210,13 +209,14 @@ A few things about this mode are worth knowing before reading its numbers:
 - The dataset is imported through the fully attached cluster, so the import is itself replicated and
   slower than a standalone import. Its throughput is reported as well.
 - Reported memory and CPU are main's alone.
-- `--no-save-query-counts` is a safety net rather than a requirement. The query-count cache is
-  keyed on workload, variant, group and query with no vendor or installation type, so both legs
-  share it — which is what makes them execute the same number of queries. An existing entry is never
-  overwritten, and the standalone suite calibrates a superset of these queries, so in practice the
-  cache is already warm when this suite runs. The flag matters only when it is not: a cold HA run
-  would otherwise persist counts calibrated against replicated commits, and a later standalone run
-  would inherit the smaller numbers.
+- **Run the standalone suite before this one.** The query-count cache in `.cache/config.json` is
+  keyed on workload, variant, group and query with no vendor or installation type, so both legs share
+  it — which is exactly what makes them execute the same number of queries, and what
+  `compare_results.py` requires. Whichever leg calibrates a query first authors its count, and this
+  one is slower per commit, so it would author a smaller count. Running the standalone suite first
+  keeps it the author; that is also why the CI job orders the two suites that way. If the calibration
+  ever needs resetting, delete `.cache/config.json` — it holds only the counts, so the cached
+  datasets next to it are not re-downloaded — and run the standalone suite again first.
 
 #### Reading the replication cost
 
@@ -235,7 +235,8 @@ Do not pass `--different-vendors`: both legs are Memgraph, and the comparison re
 that flag would switch off. `compare_results.py` refuses to diff two runs whose `count` or
 `num_workers` differ, which is the real reason the query-count cache is shared between the legs — it
 is what makes the two runs execute the same number of queries and therefore comparable at all. If
-you see `Incompatible results!`, the two legs calibrated separately.
+you see `Incompatible results!`, the two legs calibrated separately: delete `.cache/config.json` and
+run them again in this order.
 
 When reading the output, the control reads come first: they should show close to no difference. A
 systematic delta on `single_vertex_read` or `aggregate` means something other than replication is

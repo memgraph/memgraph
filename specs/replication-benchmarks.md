@@ -119,7 +119,7 @@ Running the suite:
 ```
 cd tests/mgbench
 ./benchmark.py --installation-type ha --num-workers-for-benchmark 6 \
-  --export-results benchmark_result_replication.json --no-save-query-counts \
+  --export-results benchmark_result_replication.json \
   'pokec/medium/create/*' \
   pokec/medium/arango/single_vertex_write \
   pokec/medium/arango/single_edge_write \
@@ -187,17 +187,22 @@ Stated plainly, because each one bounds how far the resulting numbers can be pus
 - **Import is slower than standalone by construction** (decision 13), on every run.
 - **The query-count cache is shared between the two legs.** `get_query_cache_count` keys its cache
   on `workload/variant/group/query` only — not on vendor or installation type — and persists it to
-  `tests/mgbench/.cache`. Sharing it is a requirement, not an accident: `compare_results.py` refuses
-  to diff two runs whose `count` or `num_workers` differ, raising `Incompatible results!`, so two
-  independently calibrated legs could not be compared at all. The exposure is that whichever leg
-  calibrates a query first authors its count, and HA is slower per commit, so an HA-authored count is
-  smaller for the same single-threaded target. It is bounded, though: an existing entry is never
-  rewritten — `set_value` is reached only on a cache miss — and the standalone suite calibrates all
-  60 pokec queries against this suite's 10, a strict superset. So the ordering in CI, standalone
-  before HA in the same job and checkout, already keeps HA a pure consumer. `--no-save-query-counts`
-  covers what ordering does not: this suite run on its own against a cold cache. When that happens
-  the counts stay in memory, the two legs disagree, and `compare_results.py` fails loudly instead of
-  diffing mismatched runs.
+  `tests/mgbench/.cache/config.json`. Sharing it is a requirement, not an accident:
+  `compare_results.py` refuses to diff two runs whose `count` or `num_workers` differ, raising
+  `Incompatible results!`, so two independently calibrated legs could not be compared at all. The
+  exposure is that whichever leg calibrates a query first authors its count, and the HA leg is slower
+  per commit, so it would author a smaller count for the same single-threaded target. **Ordering is
+  the guard**: the standalone suite runs first, calibrates all 60 pokec queries against this suite's
+  10 — a strict superset — and an existing entry is never rewritten, since `set_value` is reached
+  only on a cache miss. CI gets this for free, because `actions/checkout` cleans ignored files so
+  every job starts with no `config.json` and the standalone step is the first to run. An earlier
+  version of this design also passed `--no-save-query-counts` to the HA leg as a belt-and-braces
+  guard for a cold cache; it was dropped. It is a no-op whenever ordering holds, it makes the HA
+  invocation diverge from the standalone one for no gain in a harness whose whole claim is an
+  identical measurement path, and because counts would then never persist it would charge anyone
+  iterating on the HA suite alone ten extra six-process cluster restarts on every run. Resetting
+  calibration is `rm tests/mgbench/.cache/config.json`, which leaves the cached datasets beside it
+  untouched.
 
 ## Future work
 

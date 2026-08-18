@@ -22,7 +22,7 @@ The mechanics are documented under "Reading the replication cost" in `tests/mgbe
 run the standalone suite first so it calibrates the per-query counts, then the HA suite, then diff
 the two result files with `compare_results.py` without `--different-vendors`. An
 `Incompatible results!` error means the two legs calibrated separately and the comparison is not
-valid.
+valid; delete `.cache/config.json` and run them again in that order.
 
 Findings that change the agreed design belong in an amendment to the parent spec, noting what
 changed and why.
