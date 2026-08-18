@@ -940,9 +940,6 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
 }
 
 DatabaseMetricHandles PrometheusMetrics::AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name) {
-  if (name == dbms::kDefaultDB) {
-    default_db_uuid_ = uuid;
-  }
   prometheus::Labels const labels{{"database", std::string(name)}, {"uuid", std::string(uuid)}};
   databases_.entries.push_back(
       {
@@ -1063,6 +1060,9 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabaseUnsafe(utils::UUID const &uu
                   .gc_index_sweeps = {&gc_index_sweeps_family_.Add(labels)},
               },
       });
+  if (name == dbms::kDefaultDB) {
+    default_db_uuid_ = uuid;
+  }
   return databases_.entries.back().handles;
 }
 
