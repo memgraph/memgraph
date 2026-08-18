@@ -13,8 +13,10 @@ import atexit
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -725,6 +727,246 @@ class Memgraph(BaseRunner):
                 f.write(str(rss))
                 f.write("\n")
             f.close()
+
+
+_E2E_DIRECTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "e2e")
+
+
+def _import_interactive_mg_runner():
+    """
+    tests/e2e is not a package, so it has to be on the path before interactive_mg_runner and the
+    memgraph module it star-imports can be found. Imported lazily so a standalone mgbench run does
+    not need the e2e dependencies.
+    """
+    if _E2E_DIRECTORY not in sys.path:
+        sys.path.insert(0, _E2E_DIRECTORY)
+    import interactive_mg_runner
+
+    return interactive_mg_runner
+
+
+def _assert_enterprise_license():
+    missing = [
+        variable
+        for variable in ("MEMGRAPH_ENTERPRISE_LICENSE", "MEMGRAPH_ORGANIZATION_NAME")
+        if not os.environ.get(variable)
+    ]
+    if missing:
+        raise Exception(
+            "High availability is an enterprise feature, so the HA benchmark needs {} in the "
+            "environment.".format(" and ".join(missing))
+        )
+
+
+def _is_coordinator(instance):
+    return any(argument.startswith("--coordinator-id") for argument in instance["args"])
+
+
+class MemgraphHA(BaseRunner):
+    """
+    Runs the benchmark against a coordinator-managed HA cluster described by a YAML file: three
+    coordinators, one main and two SYNC replicas, driven through tests/e2e/interactive_mg_runner.py.
+
+    Every phase of a benchmark run restarts the whole cluster. Coordinators keep their Raft state
+    across those restarts, so instances are registered exactly once and the repeated setup queries
+    are expected to fail and are ignored.
+    """
+
+    DEFAULT_CLUSTER_YAML = "ha_cluster.yaml"
+    CLUSTER_YAML_ARG = "ha-cluster-yaml"
+    LOG_DIRECTORY = "ha_logs"
+    READY_TIMEOUT_SEC = 120
+    READY_POLL_SEC = 0.5
+    WRITE_PROBE_QUERY = "CREATE (n:__mgbench_ha_probe) DELETE n;"
+
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
+        # Set before anything that can raise, so a failed construction does not turn into an
+        # attribute error while cleaning up.
+        self._mg_runner = None
+        self._main_name = None
+        _assert_enterprise_license()
+        self._mg_runner = _import_interactive_mg_runner()
+        if benchmark_context.vendor_binary is not None:
+            # interactive_mg_runner starts every instance from this module-level path.
+            self._mg_runner.MEMGRAPH_BINARY = benchmark_context.vendor_binary
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._description = self._load_description()
+        self._coordinators = [name for name, instance in self._description.items() if _is_coordinator(instance)]
+        self._data_instances = [name for name in self._description if name not in self._coordinators]
+        if not self._coordinators or len(self._data_instances) < 2:
+            raise Exception(
+                "The cluster description needs at least one coordinator and two data instances, got "
+                "coordinators {} and data instances {}.".format(self._coordinators, self._data_instances)
+            )
+        self._bolt_ports = {
+            name: self._mg_runner.extract_bolt_port(instance["args"]) for name, instance in self._description.items()
+        }
+        # Until the cluster is up there is no main to ask about, so the client falls back to the
+        # first data instance, which is the one the description elects.
+        self._bolt_port = self._bolt_ports[self._data_instances[0]]
+        atexit.register(self._cleanup)
+
+    def __del__(self):
+        self._cleanup()
+        atexit.unregister(self._cleanup)
+
+    def _load_description(self):
+        import yaml
+
+        path = self.benchmark_context.vendor_args.get(
+            self.CLUSTER_YAML_ARG,
+            os.path.join(os.path.dirname(os.path.realpath(__file__)), self.DEFAULT_CLUSTER_YAML),
+        )
+        with open(path, "r") as description_file:
+            description = yaml.safe_load(description_file)
+        if not isinstance(description, dict) or not description:
+            raise Exception("{} does not describe any instances!".format(path))
+        # Absolute paths, because interactive_mg_runner otherwise resolves both of these under the
+        # build directory, which a benchmark run has no reason to depend on.
+        log_directory = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.LOG_DIRECTORY)
+        os.makedirs(log_directory, exist_ok=True)
+        for name, instance in description.items():
+            # Pinned for the whole run so the dataset survives the phase restarts, and under a
+            # fresh temporary directory so the next run does not benchmark this run's data.
+            instance["data_directory"] = os.path.join(self._directory.name, name)
+            instance["log_file"] = os.path.join(log_directory, os.path.basename(instance["log_file"]))
+        return description
+
+    def _fetch(self, instance_name, query):
+        connection = self._mg_runner.MEMGRAPH_INSTANCES[instance_name].get_connection()
+        try:
+            cursor = connection.cursor()
+            cursor.execute(query)
+            return cursor.fetchall()
+        finally:
+            connection.close()
+
+    def _cluster_state(self):
+        """
+        Returns (main_name, problem). The main name is set only once the cluster is fully usable:
+        a coordinator leader exists, every data instance is registered and up, exactly one of them
+        is main, both replicas are ready on that main, and it accepts a write.
+        """
+        rows = None
+        problem = "no coordinator answered SHOW INSTANCES"
+        for coordinator in self._coordinators:
+            try:
+                # The last column is the elapsed time since the last response, which is dropped so
+                # that the role and health are the final two, as the e2e helpers also assume.
+                rows = [row[:-1] for row in self._fetch(coordinator, "SHOW INSTANCES;")]
+                break
+            except Exception as error:
+                problem = "no coordinator answered SHOW INSTANCES ({})".format(error)
+        if rows is None:
+            return None, problem
+
+        if not any(row[-1] == "leader" for row in rows):
+            return None, "no coordinator leader yet"
+
+        instances = {row[0]: row for row in rows if row[0] in self._data_instances}
+        unregistered = [name for name in self._data_instances if name not in instances]
+        if unregistered:
+            return None, "data instances not registered yet: {}".format(unregistered)
+        down = [name for name, row in instances.items() if row[-2] != "up"]
+        if down:
+            return None, "data instances not up yet: {}".format(down)
+
+        mains = [name for name, row in instances.items() if row[-1] == "main"]
+        if len(mains) != 1:
+            return None, "expected exactly one main, saw {}".format(mains)
+        main_name = mains[0]
+
+        try:
+            replicas = self._fetch(main_name, "SHOW REPLICAS;")
+        except Exception as error:
+            return None, "main {} is not answering SHOW REPLICAS ({})".format(main_name, error)
+        expected_replicas = len(self._data_instances) - 1
+        if len(replicas) != expected_replicas:
+            return None, "main {} reports {} replicas, expected {}".format(main_name, len(replicas), expected_replicas)
+        for row in replicas:
+            statuses = [field["status"] for field in row if isinstance(field, dict) and "status" in field]
+            if not statuses or any(status != "ready" for status in statuses):
+                return None, "replica {} is not ready yet: {}".format(row[0], row)
+
+        try:
+            self._fetch(main_name, self.WRITE_PROBE_QUERY)
+        except Exception as error:
+            return None, "main {} is not writeable yet ({})".format(main_name, error)
+
+        return main_name, ""
+
+    def _start_cluster(self):
+        self._mg_runner.start_all(self._description, keep_directories=True, ignore_setup_failures=True)
+        deadline = time.time() + self.READY_TIMEOUT_SEC
+        problem = ""
+        while time.time() < deadline:
+            main_name, problem = self._cluster_state()
+            if main_name is not None:
+                self._main_name = main_name
+                log.info("HA cluster is ready, main is {} on bolt port {}.".format(main_name, self.get_database_port()))
+                return
+            time.sleep(self.READY_POLL_SEC)
+        raise Exception(
+            "The HA cluster did not become ready in {}s, last seen: {}".format(self.READY_TIMEOUT_SEC, problem)
+        )
+
+    def _stop_cluster(self):
+        # Read while the process is still alive, since the usage comes from /proc.
+        usage = self._main_usage()
+        self._mg_runner.stop_all(keep_directories=True)
+        self._main_name = None
+        return usage
+
+    def _main_usage(self):
+        if self._main_name is None:
+            return {"cpu": 0, "memory": 0}
+        instance = self._mg_runner.MEMGRAPH_INSTANCES.get(self._main_name)
+        if instance is None or instance.proc_mg is None:
+            return {"cpu": 0, "memory": 0}
+        return _get_usage(instance.proc_mg.pid)
+
+    def _cleanup(self):
+        if self._mg_runner is None:
+            return
+        self._mg_runner.stop_all(keep_directories=True)
+        self._main_name = None
+
+    def start_db_init(self, workload):
+        self._start_cluster()
+
+    def stop_db_init(self, workload):
+        return self._stop_cluster()
+
+    def start_db(self, workload):
+        self._start_cluster()
+
+    def stop_db(self, workload):
+        return self._stop_cluster()
+
+    def clean_db(self):
+        """
+        Clears the data instances' durability only. Coordinator state is what makes registration
+        durable across the phase restarts, so wiping it would force instances to be registered a
+        second time on an instance that already holds data.
+        """
+        if self._mg_runner.MEMGRAPH_INSTANCES:
+            raise Exception("The HA cluster is still running, cannot clear its data!")
+        for name in self._data_instances:
+            databases = os.path.join(self._description[name]["data_directory"], "databases")
+            if not os.path.isdir(databases):
+                continue
+            for tenant in os.listdir(databases):
+                for durability in ("snapshots", "wal"):
+                    path = os.path.join(databases, tenant, durability)
+                    if os.path.isdir(path):
+                        shutil.rmtree(path, ignore_errors=True)
+                        os.makedirs(path, exist_ok=True)
+
+    def get_database_port(self):
+        if self._main_name is not None:
+            return self._bolt_ports[self._main_name]
+        return self._bolt_port
 
 
 class Neo4j(BaseRunner):
