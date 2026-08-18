@@ -1876,6 +1876,12 @@ test_memgraph() {
       # --installation-type and the query list; in particular query-count caching is left alone, so
       # both suites calibrate and reuse counts by the same rules. mgbench runs first and is
       # therefore the leg that authors the counts.
+      #
+      # --no-authorization skips the fine-grained authorization pass. Despite its name it is the
+      # switch that turns that pass off, and it has to be off here: the pass creates a user, after
+      # which everything that connects without credentials fails, including this runner's own
+      # readiness probe. Its results are not compared either, since compare_results.py reads only
+      # the without_fine_grained_authorization entries.
       shift 1
       local DATASET_SIZE='medium'
       local EXPORT_RESULTS_FILE='benchmark_result_replication.json'
@@ -1899,7 +1905,7 @@ test_memgraph() {
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type ha --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE 'pokec/$DATASET_SIZE/create/*' pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/arango/unwind_range_vertex_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read pokec/$DATASET_SIZE/arango/aggregate"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type ha --num-workers-for-benchmark 6 --no-authorization --export-results $EXPORT_RESULTS_FILE 'pokec/$DATASET_SIZE/create/*' pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/arango/unwind_range_vertex_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read pokec/$DATASET_SIZE/arango/aggregate"
     ;;
     mgbench-supernode)
       shift 1

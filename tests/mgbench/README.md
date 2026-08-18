@@ -177,6 +177,7 @@ Select it with `--installation-type ha`. The vendor name stays `memgraph`:
 
 ```bash
 ./benchmark.py --installation-type ha --num-workers-for-benchmark 6 \
+  --no-authorization \
   --export-results benchmark_result_replication.json \
   'pokec/medium/create/*' \
   pokec/medium/arango/single_vertex_write \
@@ -193,6 +194,14 @@ Or through the build script, which is also what CI runs:
 ./release/package/mgbuild.sh --os ubuntu-24.04 --toolchain v7 --arch amd \
   test-memgraph mgbench-replication --size medium
 ```
+
+`--no-authorization` is required, and its name is misleading: it is a `store_false` whose *absence*
+leaves the fine-grained authorization pass switched on. That pass runs `CREATE USER` and then calls
+`set_credentials` on the benchmark client, so from that point everything else that connects without
+credentials fails — including this runner's own readiness probe, and the cluster setup queries on
+each restart. The runner refuses to start without the flag rather than timing out on an
+authentication failure. Nothing is lost by skipping it: `compare_results.py` reads only the
+`without_fine_grained_authorization` entries, so the pass never takes part in a comparison.
 
 **High availability is an enterprise feature**, so `MEMGRAPH_ENTERPRISE_LICENSE` and
 `MEMGRAPH_ORGANIZATION_NAME` have to be set in the environment. The runner refuses to start without
