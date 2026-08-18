@@ -240,7 +240,7 @@ auto DataInstanceManagementServerHandlers::DoRegisterReplica(replication::Replic
       }
     }
   }
-  spdlog::trace("Instance {} successfully registered as replica.", config.instance_name);
+  spdlog::info("Instance {} successfully registered as replica.", config.instance_name);
   return true;
 }
 

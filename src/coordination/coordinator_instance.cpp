@@ -400,12 +400,12 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
           spdlog::trace("Reconcile cluster state finished successfully but coordinator is already in state ready.");
           return result;
         }
-        spdlog::trace("Reconcile cluster state finished successfully. Leader is ready now.");
+        spdlog::info("Reconcile cluster state finished successfully. Leader is ready now.");
         metrics::Metrics().global.become_leader_success->Increment();
         return result;
       }
       case FAIL:
-        spdlog::trace("ReconcileClusterState_ failed!");
+        spdlog::warn("ReconcileClusterState_ failed!");
         metrics::Metrics().global.failed_to_become_leader->Increment();
         break;
       case SHUTTING_DOWN:
@@ -495,15 +495,15 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
         for (auto &instance : repl_instances_) {
           instance.StartStateCheck();
         }
-        spdlog::trace("Exiting ReconcileClusterState_. Cluster is in healthy state.");
+        spdlog::info("Exiting ReconcileClusterState_. Cluster is in healthy state.");
         return ReconcileClusterStateStatus::SUCCESS;
       };
       case FailoverStatus::NO_INSTANCE_ALIVE: {
-        spdlog::trace("Failover failed because no instance is alive.");
+        spdlog::warn("Failover failed because no instance is alive.");
         return ReconcileClusterStateStatus::FAIL;
       };
       case FailoverStatus::RAFT_FAILURE: {
-        spdlog::trace("Writing to Raft log failed, reconciliation task will be scheduled.");
+        spdlog::warn("Writing to Raft log failed, reconciliation task will be scheduled.");
         return ReconcileClusterStateStatus::FAIL;
       };
     };
@@ -543,7 +543,7 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
   }
 
   auto const &new_main_name = *maybe_most_up_to_date_instance;
-  spdlog::trace("Found new main instance {} while doing failover.", new_main_name);
+  spdlog::info("Found new main instance {} while doing failover.", new_main_name);
 
   auto data_instances = raft_state_->GetDataInstancesContext();
 
@@ -801,7 +801,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
         "retried in the next iteration of the reconciliation loop.",
         config.instance_name);
   } else {
-    spdlog::trace("Successfully demoted instance {} to replica.", config.instance_name);
+    spdlog::info("Successfully demoted instance {} to replica.", config.instance_name);
   }
 
   if (auto const main_name = raft_state_->TryGetCurrentMainName(); main_name.has_value()) {
@@ -929,7 +929,7 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
   });
 
   if (num_removed == 1) {
-    spdlog::trace("Removed coordinator {} from local coordinator instance.", coordinator_id);
+    spdlog::info("Removed coordinator {} from local coordinator instance.", coordinator_id);
   } else {
     LOG_FATAL(
         "Couldn't find coordinator {} in local application logs, there was a mistake when starting cluster. Please "
@@ -1366,7 +1366,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
 
   auto lock = std::unique_lock{coord_instance_lock_, std::defer_lock};
   if (!lock.try_lock_for(500ms)) {
-    spdlog::trace("Failed to acquire lock in InstanceSuccessCallback in 500ms");
+    spdlog::warn("Failed to acquire lock in InstanceSuccessCallback in 500ms");
     return;
   }
   auto maybe_instance = FindReplicationInstance(instance_name, repl_instances_);
@@ -1403,9 +1403,9 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
 
           if (instance.SendRpc<RegisterReplicaOnMainRpc>(curr_main_uuid,
                                                          replica_inmem_instance->get().GetReplicationClientInfo())) {
-            spdlog::trace("Replica {} successfully registered on the current main {}",
-                          replica_inmem_instance->get().InstanceName(),
-                          instance_name);
+            spdlog::info("Replica {} successfully registered on the current main {}",
+                         replica_inmem_instance->get().InstanceName(),
+                         instance_name);
           } else {
             spdlog::warn(
                 "Failed to register replica {} on the current main {}. The operation will be retried in the next "
@@ -1454,15 +1454,15 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
                       std::string{curr_main_uuid});
         switch (TryFailover()) {
           case FailoverStatus::SUCCESS: {
-            spdlog::trace("Failover successful after failing to promote main instance.");
+            spdlog::info("Failover successful after failing to promote main instance.");
             break;
           };
           case FailoverStatus::NO_INSTANCE_ALIVE: {
-            spdlog::trace("Failover failed because no instance is alive.");
+            spdlog::warn("Failover failed because no instance is alive.");
             break;
           };
           case FailoverStatus::RAFT_FAILURE: {
-            spdlog::trace("Writing to Raft failed during failover.");
+            spdlog::warn("Writing to Raft failed during failover.");
             break;
           };
         };
@@ -1500,7 +1500,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
             instance_name,
             std::string{curr_main_uuid});
       } else {
-        spdlog::trace("Set UUID on instance {} to {}", instance_name, std::string{curr_main_uuid});
+        spdlog::info("Set UUID on instance {} to {}", instance_name, std::string{curr_main_uuid});
       }
     }
   }
@@ -1534,7 +1534,7 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name) {
 
   auto lock = std::unique_lock{coord_instance_lock_, std::defer_lock};
   if (!lock.try_lock_for(500ms)) {
-    spdlog::trace("Failed to acquire lock in InstanceFailCallback in 500ms");
+    spdlog::warn("Failed to acquire lock in InstanceFailCallback in 500ms");
     return;
   }
   auto const maybe_instance = FindReplicationInstance(instance_name, repl_instances_);
@@ -1548,15 +1548,15 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name) {
     spdlog::trace("Cluster without main instance, trying failover.");
     switch (TryFailover()) {
       case FailoverStatus::SUCCESS: {
-        spdlog::trace("Failover successful in the InstanceFailCallback");
+        spdlog::info("Failover successful in the InstanceFailCallback");
         break;
       };
       case FailoverStatus::NO_INSTANCE_ALIVE: {
-        spdlog::trace("Failover failed because no instance is alive.");
+        spdlog::warn("Failover failed because no instance is alive.");
         break;
       };
       case FailoverStatus::RAFT_FAILURE: {
-        spdlog::trace("Writing to Raft failed during failover.");
+        spdlog::warn("Writing to Raft failed during failover.");
         break;
       };
     };

@@ -34,7 +34,7 @@ void ReplicationClient::Shutdown() const {
 ReplicationClient::~ReplicationClient() {
   auto const &endpoint = rpc_client_.Endpoint();
   try {
-    spdlog::trace("Closing replication client on {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
+    spdlog::info("Closing replication client on {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
   } catch (...) {
     // Logging can throw. Not a big deal, just ignore.
   }
