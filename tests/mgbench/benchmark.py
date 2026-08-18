@@ -286,13 +286,19 @@ def sanitize_args(args):
         args.workload_realistic is None or args.workload_mixed is None
     ), "Cannot run both realistic and mixed workload, only one mode run at the time"
 
-    # Auto-detect vendor binary if not specified and installation type is native
-    if args.installation_type == BenchmarkInstallationType.NATIVE and args.vendor_binary is None:
+    # Auto-detect vendor binary if not specified and the installation type starts a local binary
+    if (
+        args.installation_type in BenchmarkInstallationType.get_local_binary_installation_types()
+        and args.vendor_binary is None
+    ):
         args.vendor_binary = helpers.get_binary_path(GraphVendors.MEMGRAPH)
         log.log(f"Auto-detected vendor binary: {args.vendor_binary}")
 
     # Validate vendor binary path if specified (after auto-detection)
-    if args.installation_type == BenchmarkInstallationType.NATIVE and args.vendor_binary is not None:
+    if (
+        args.installation_type in BenchmarkInstallationType.get_local_binary_installation_types()
+        and args.vendor_binary is not None
+    ):
         if not os.path.isfile(args.vendor_binary):
             raise FileNotFoundError(
                 f"Vendor binary not found at specified path: {args.vendor_binary}\n"
@@ -1071,13 +1077,18 @@ if __name__ == "__main__":
 
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
-        vendor_binary=args.vendor_binary if args.installation_type == BenchmarkInstallationType.NATIVE else None,
+        vendor_binary=(
+            args.vendor_binary
+            if args.installation_type in BenchmarkInstallationType.get_local_binary_installation_types()
+            else None
+        ),
         vendor_name=args.vendor_name,
         installation_type=args.installation_type,
-        # Client binary present in native and external installation types
+        # Client binary present in every installation type that is not a container
         client_binary=(
             args.client_binary
-            if args.installation_type in [BenchmarkInstallationType.NATIVE, BenchmarkInstallationType.EXTERNAL]
+            if args.installation_type
+            in BenchmarkInstallationType.get_local_binary_installation_types() + [BenchmarkInstallationType.EXTERNAL]
             else None
         ),
         client_language=args.client_language,

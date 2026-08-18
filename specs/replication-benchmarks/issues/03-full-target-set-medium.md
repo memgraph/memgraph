@@ -20,11 +20,11 @@ its throughput is captured as a byproduct.
 
 ## Acceptance criteria
 
-- [ ] Write groups and the read control group all run at the medium dataset size
-- [ ] The worker count matches what the standalone suite uses
-- [ ] The result JSON contains entries for every targeted group, including the control
-- [ ] Import throughput through the attached cluster is captured in the results
-- [ ] The read control delta against an equivalent standalone run is measured and recorded for review
+- [x] Write groups and the read control group all run at the medium dataset size
+- [x] The worker count matches what the standalone suite uses
+- [ ] The result JSON contains entries for every targeted group, including the control (needs a built binary)
+- [ ] Import throughput through the attached cluster is captured in the results (needs a built binary)
+- [ ] The read control delta against an equivalent standalone run is measured and recorded for review (needs a built binary)
 
 ## Blocked by
 
