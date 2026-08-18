@@ -37,6 +37,9 @@ class BenchmarkContext:
         export_results: str = None,
         export_results_in_memory_analytical: str = None,
         export_results_on_disk_txn: str = None,
+        export_results_ha: str = None,
+        ha_target_workload: str = None,
+        run_ha_leg: bool = False,
         temporary_directory: str = None,
         workload_mixed: str = None,  # Default mode is isolated, mixed None
         workload_realistic: str = None,  # Default mode is isolated, realistic None
@@ -67,6 +70,9 @@ class BenchmarkContext:
         self.export_results = export_results
         self.export_results_in_memory_analytical = export_results_in_memory_analytical
         self.export_results_on_disk_txn = export_results_on_disk_txn
+        self.export_results_ha = export_results_ha
+        self.ha_target_workload = ha_target_workload
+        self.run_ha_leg = run_ha_leg
         self.temporary_directory = temporary_directory
 
         assert (

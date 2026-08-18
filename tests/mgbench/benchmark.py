@@ -84,8 +84,8 @@ def parse_args():
         "--installation-type",
         type=str,
         default=BenchmarkInstallationType.NATIVE,
-        choices=BenchmarkInstallationType.get_all_installation_types(),
-        help="Installation type (native, docker, external, ha)",
+        choices=BenchmarkInstallationType.get_selectable_installation_types(),
+        help="How a single Memgraph is installed and run (native, docker, external)",
     )
 
     benchmark_parser.add_argument(
@@ -164,6 +164,43 @@ def parse_args():
         "--export-results-on-disk-txn",
         default=None,
         help="File path into which results for on_disk_transactional storage mode should be exported. If set, benchmarks for disk storage will be run.",
+    )
+
+    benchmark_parser.add_argument(
+        "--export-results-ha",
+        default=None,
+        help="File path into which the results of the high availability leg should be exported. Required when ha is "
+        "combined with another installation type, and unused otherwise.",
+    )
+
+    # High availability is its own axis rather than an installation type: a cluster is a topology, not a
+    # way of installing Memgraph. --run-ha measures it alongside the single instance, --ha-only measures
+    # only the cluster.
+    high_availability = benchmark_parser.add_mutually_exclusive_group()
+    high_availability.add_argument(
+        "--run-ha",
+        action="store_true",
+        default=False,
+        help="Also measure the target workloads against a high availability cluster, in the same invocation, so both "
+        "legs share one query count calibration. Requires --export-results-ha.",
+    )
+    high_availability.add_argument(
+        "--ha-only",
+        action="store_true",
+        default=False,
+        help="Measure only against a high availability cluster. Results go to --export-results, as for any other "
+        "single target.",
+    )
+
+    benchmark_parser.add_argument(
+        "--ha-target-workload",
+        action="append",
+        default=None,
+        help="One workload description for the high availability leg, in the same dataset/variant/group/query form as "
+        "the positional arguments; repeat the flag for several. Defaults to the same workloads as the single instance "
+        "leg, and worth narrowing, since every query measured against a cluster costs a restart of each instance in "
+        "it. Takes one value per occurrence on purpose: a multi-value option here would swallow the positional "
+        "workload arguments.",
     )
 
     # One attribute, both spellings. The value says what it does: True runs the fine-grained
@@ -287,7 +324,39 @@ def parse_args():
     return benchmark_parser.parse_args()
 
 
+def resolve_high_availability_args(args):
+    """
+    High availability is orthogonal to how a single Memgraph is installed, so it arrives as its own flag
+    and is reconciled here with the installation type every other reader expects. --ha-only turns the
+    whole run into a cluster run; --run-ha leaves the installation type alone and adds a second leg.
+    """
+    args.run_ha_leg = False
+    if not (args.run_ha or args.ha_only):
+        return
+
+    # A cluster is started from binaries on this machine, so it cannot be measured through a type that
+    # runs the database in a container or expects one to be running already.
+    if args.installation_type not in BenchmarkInstallationType.get_local_binary_installation_types():
+        raise ValueError(
+            f"A high availability cluster is started from local binaries, so it cannot be measured with "
+            f"--installation-type {args.installation_type}. Supported types are "
+            f"{BenchmarkInstallationType.get_selectable_installation_types_for_ha()}."
+        )
+
+    if args.ha_only:
+        args.installation_type = BenchmarkInstallationType.HA
+        return
+
+    args.run_ha_leg = True
+    if args.export_results_ha is None:
+        raise ValueError(
+            "--run-ha measures a single instance and a cluster in one invocation, which writes two result sets, so "
+            "--export-results-ha is required to say where the cluster results go."
+        )
+
+
 def sanitize_args(args):
+    resolve_high_availability_args(args)
     assert args.benchmarks is not None, helpers.list_available_workloads()
     assert args.num_workers_for_import > 0
     assert args.num_workers_for_benchmark > 0
@@ -938,6 +1007,35 @@ def run_target_workloads(benchmark_context, target_workloads, bench_results):
                     benchmark_context, workload, bench_queries, bench_results.in_memory_analytical_results
                 )
 
+    if benchmark_context.run_ha_leg:
+        run_ha_target_workloads(benchmark_context, bench_results.ha_results)
+
+
+def run_ha_target_workloads(benchmark_context, ha_results):
+    """
+    The HA leg is a separate pass rather than another leg inside the loop above, because it needs its
+    own target set. Every query measured against a cluster costs a restart of every instance in it, so
+    running the single-instance target set unchanged would multiply the wall-clock by the size of that
+    set. --ha-target-workload narrows it; without it the HA leg measures the same queries as the
+    single-instance leg.
+    """
+    ha_benchmark_context = deepcopy(benchmark_context)
+    ha_benchmark_context.installation_type = BenchmarkInstallationType.HA
+    if benchmark_context.ha_target_workload:
+        ha_benchmark_context.benchmark_target_workload = benchmark_context.ha_target_workload
+
+    ha_target_workloads = helpers.filter_workloads(
+        available_workloads=helpers.get_available_workloads(benchmark_context.customer_workloads),
+        benchmark_context=ha_benchmark_context,
+    )
+    validate_target_workloads(ha_benchmark_context, ha_target_workloads)
+
+    for workload, bench_queries in ha_target_workloads:
+        log.info(f"Started running {str(workload.NAME)} workload against a cluster")
+        ha_benchmark_context.set_active_workload(workload.NAME)
+        ha_benchmark_context.set_active_variant(workload.get_variant())
+        run_ha_benchmark(ha_benchmark_context, workload, bench_queries, ha_results)
+
 
 def get_runner_client(runner, benchmark_context):
     # Only the HA runner can move the database to another port mid-run, when a cluster restart
@@ -1008,6 +1106,31 @@ def run_in_memory_transactional_benchmark(benchmark_context, workload, bench_que
         IN_MEMORY_TRANSACTIONAL,
     )
     log.info(f"Finished running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
+
+
+def run_ha_benchmark(benchmark_context, workload, bench_queries, ha_results):
+    """
+    Runs the target workloads a second time against a coordinator-managed HA cluster, in the same
+    invocation as the single-instance leg. Sharing the invocation is the point: the query count cache
+    is a module-level dict here, so both legs execute the same number of queries by construction
+    rather than by depending on which one calibrated first.
+    """
+    log.info(f"Running benchmarks against a {BenchmarkInstallationType.HA} cluster.")
+    # The context arrives with installation_type already set to HA, which is what selects the cluster
+    # runner and, through get_runner_client, what lets the client follow whichever instance is main.
+    ha_vendor_runner = client_runner_factory(benchmark_context)
+    ha_client = get_runner_client(ha_vendor_runner, benchmark_context)
+
+    run_target_workload(
+        benchmark_context,
+        workload,
+        bench_queries,
+        ha_vendor_runner,
+        ha_client,
+        ha_results,
+        IN_MEMORY_TRANSACTIONAL,
+    )
+    log.info(f"Finished running benchmarks against a {BenchmarkInstallationType.HA} cluster.")
 
 
 def client_runner_factory(benchmark_context):
@@ -1126,6 +1249,9 @@ if __name__ == "__main__":
         export_results=args.export_results,
         export_results_in_memory_analytical=args.export_results_in_memory_analytical,
         export_results_on_disk_txn=args.export_results_on_disk_txn,
+        export_results_ha=args.export_results_ha,
+        run_ha_leg=args.run_ha_leg,
+        ha_target_workload=args.ha_target_workload,
         temporary_directory=temp_dir.absolute(),
         workload_mixed=args.workload_mixed,
         workload_realistic=args.workload_realistic,
@@ -1164,10 +1290,15 @@ if __name__ == "__main__":
     on_disk_transactional_run_config = deepcopy(in_memory_txn_run_config)
     on_disk_transactional_run_config[STORAGE_MODE] = ON_DISK_TRANSACTIONAL
 
+    # Same storage mode as the single-instance leg; what differs is the cluster behind it.
+    ha_run_config = deepcopy(in_memory_txn_run_config)
+    ha_run_config[INSTALLATION_TYPE] = BenchmarkInstallationType.HA
+
     bench_results = BenchmarkResults()
     bench_results.in_memory_txn_results.set_value(RUN_CONFIGURATION, value=in_memory_txn_run_config)
     bench_results.in_memory_analytical_results.set_value(RUN_CONFIGURATION, value=in_memory_analytical_run_config)
     bench_results.disk_results.set_value(RUN_CONFIGURATION, value=on_disk_transactional_run_config)
+    bench_results.ha_results.set_value(RUN_CONFIGURATION, value=ha_run_config)
 
     available_workloads = helpers.get_available_workloads(benchmark_context.customer_workloads)
 
@@ -1197,3 +1328,8 @@ if __name__ == "__main__":
     if benchmark_context.export_results_on_disk_txn:
         with open(benchmark_context.export_results_on_disk_txn, "w") as f:
             json.dump(bench_results.disk_results.get_data(), f, indent=2)
+
+    if benchmark_context.run_ha_leg:
+        log_benchmark_summary(bench_results.ha_results.get_data(), f"{BenchmarkInstallationType.HA} cluster")
+        with open(benchmark_context.export_results_ha, "w") as f:
+            json.dump(bench_results.ha_results.get_data(), f, indent=2)
