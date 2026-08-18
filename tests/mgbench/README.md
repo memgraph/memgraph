@@ -210,10 +210,13 @@ A few things about this mode are worth knowing before reading its numbers:
 - The dataset is imported through the fully attached cluster, so the import is itself replicated and
   slower than a standalone import. Its throughput is reported as well.
 - Reported memory and CPU are main's alone.
-- `--no-save-query-counts` is not optional in spirit. The query-count cache is shared with the
-  standalone suite, which is what makes both legs execute the same number of queries; without this
-  flag a cold HA run would persist counts derived from replicated commits and a later standalone run
-  would inherit them.
+- `--no-save-query-counts` is a safety net rather than a requirement. The query-count cache is
+  keyed on workload, variant, group and query with no vendor or installation type, so both legs
+  share it — which is what makes them execute the same number of queries. An existing entry is never
+  overwritten, and the standalone suite calibrates a superset of these queries, so in practice the
+  cache is already warm when this suite runs. The flag matters only when it is not: a cold HA run
+  would otherwise persist counts calibrated against replicated commits, and a later standalone run
+  would inherit the smaller numbers.
 
 #### Reading the replication cost
 
