@@ -170,11 +170,13 @@ class MemgraphInstanceRunner:
 
         return data
 
-    def execute_setup_queries(self, setup_queries=List, ignore_failures=False):
+    def execute_setup_queries(self, setup_queries=List, ignore_failures=False, log_ignored_failures=True):
         """
         Executes setup queries. The element inside `setup_queries` can be a string or a list. Connection is closed at the end and cannot be
         reused. When `ignore_failures` is set, failures of individual setup queries are logged and skipped, e.g. when
-        restarting an instance on which the queries were already applied.
+        restarting an instance on which the queries were already applied. `log_ignored_failures` can be turned off when
+        those failures are expected on every restart and would otherwise bury the interesting output, as when a
+        benchmark restarts a cluster whose setup has already been applied.
         """
         conn = self.get_connection(self.username or "", self.password or "")
         conn.autocommit = True
@@ -187,7 +189,8 @@ class MemgraphInstanceRunner:
             except Exception as e:
                 if not ignore_failures:
                     raise
-                log.warning(f"Ignoring failed setup query '{query}': {e}")
+                if log_ignored_failures:
+                    log.warning(f"Ignoring failed setup query '{query}': {e}")
                 # The connection may be left in a bad state after a failed query, use a fresh one.
                 nonlocal conn
                 try:
