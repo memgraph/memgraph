@@ -48,6 +48,14 @@ class BenchmarkInstallationType:
     def get_all_installation_types(cls):
         return [cls.NATIVE, cls.DOCKER, cls.EXTERNAL, cls.HA]
 
+    @classmethod
+    def get_local_binary_installation_types(cls):
+        """
+        Types that start Memgraph from a binary on this machine, so --vendor-binary applies to them
+        and is auto-detected and validated for them.
+        """
+        return [cls.NATIVE, cls.HA]
+
 
 class BenchmarkClientLanguage:
     CPP = "cpp"
