@@ -17,8 +17,9 @@ from common import memgraph
 QUERY_PLAN = "QUERY PLAN"
 
 
-def get_plan(memgraph, query):
-    return [x[QUERY_PLAN] for x in memgraph.execute_and_fetch(f"EXPLAIN {query}")]
+def get_plan(memgraph, query, params=None):
+    args = (f"EXPLAIN {query}",) if params is None else (f"EXPLAIN {query}", params)
+    return [x[QUERY_PLAN] for x in memgraph.execute_and_fetch(*args)]
 
 
 def operator_names(plan):
@@ -143,7 +144,7 @@ def test_starts_with_null_param_returns_empty(memgraph):
 
 
 def test_starts_with_string_param_uses_index(memgraph):
-    plan = get_plan(memgraph, "MATCH (n:N) WHERE n.type STARTS WITH $p RETURN n")
+    plan = get_plan(memgraph, "MATCH (n:N) WHERE n.type STARTS WITH $p RETURN n", {"p": "al"})
     ops = operator_names(plan)
     assert "ScanAllByLabelProperties" in ops, f"Expected ScanAllByLabelProperties, got: {plan}"
     assert "ScanAll" not in ops, f"ScanAll should not appear, got: {plan}"
