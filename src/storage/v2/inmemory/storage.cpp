@@ -683,9 +683,9 @@ InMemoryStorage::~InMemoryStorage() {
 }
 
 void InMemoryStorage::RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) {
-  gc_runner_.Pause();
-  snapshot_runner_.Pause();
-  ttl_.Pause();
+  gc_runner_.PauseAndWait();
+  snapshot_runner_.PauseAndWait();
+  ttl_.PauseAndWait();
   auto resume = utils::OnScopeExit{[&] {
     ttl_.Resume();
     snapshot_runner_.Resume();

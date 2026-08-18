@@ -274,19 +274,14 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   auto &dbms = DBMS();
 
   // Update clean default db
-  memgraph::utils::UUID old_uuid;
-  memgraph::storage::Storage *old_storage{};
-  {
-    auto default_db = dbms.Get();
-    old_uuid = default_db->config().salient.uuid;
-    old_storage = default_db->storage();
-  }
+  auto default_db = dbms.Get();
+  const auto old_uuid = default_db->config().salient.uuid;
   const memgraph::utils::UUID new_uuid{/* random */};
   const memgraph::storage::SalientConfig &config{.name = "memgraph", .uuid = new_uuid};
   auto new_default = dbms.Update(config);
   ASSERT_TRUE(new_default.has_value());
   ASSERT_NE(new_uuid, old_uuid);
-  ASSERT_EQ(old_storage, new_default.value()->storage());
+  ASSERT_EQ(default_db->storage(), new_default.value()->storage());
 
   // Add node to default
   auto interpreter1 = this->NewInterpreter();

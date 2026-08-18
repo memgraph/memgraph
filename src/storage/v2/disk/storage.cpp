@@ -289,7 +289,7 @@ DiskStorage::~DiskStorage() {
 }
 
 void DiskStorage::RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) {
-  ttl_.Pause();
+  ttl_.PauseAndWait();
   auto resume = utils::OnScopeExit{[&] { ttl_.Resume(); }};
   metric_handles_ = new_handles;
   // Disk indices don't store gauge handles, so nothing to rebind there.
