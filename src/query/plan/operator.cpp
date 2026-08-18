@@ -2950,6 +2950,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_current_;
 };
 
+namespace {
+
 class PruningBFSCursor : public query::plan::Cursor {
  public:
   PruningBFSCursor(const ExpandVariable &self, utils::MemoryResource *mem,
@@ -2961,7 +2963,7 @@ class PruningBFSCursor : public query::plan::Cursor {
         to_visit_next_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP("PruningBFSExpand");
 
     ExpressionEvaluator evaluator =
@@ -3104,6 +3106,8 @@ class PruningBFSCursor : public query::plan::Cursor {
   utils::pmr::vector<VertexAccessor> to_visit_current_;
   utils::pmr::vector<VertexAccessor> to_visit_next_;
 };
+
+}  // namespace
 
 namespace {
 

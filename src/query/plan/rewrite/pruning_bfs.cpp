@@ -12,6 +12,7 @@
 #include "query/plan/rewrite/pruning_bfs.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <unordered_set>
 #include <vector>
 
@@ -31,11 +32,6 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
-
-  bool DefaultPreVisit() override {
-    rewrite_blocked_ = true;
-    return true;
-  }
 
   bool Visit(Once &) override { return true; }
 
@@ -222,8 +218,15 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     dedup_stack_ = std::move(saved_stack);
   }
 
+ protected:
+  bool DefaultPreVisit() override {
+    rewrite_blocked_ = true;
+    return true;
+  }
+
+ private:
   SymbolTable const &symbol_table_;
-  std::unordered_set<int> used_symbols_;
+  std::unordered_set<int64_t> used_symbols_;
   bool deduplicates_{false};
   bool rewrite_blocked_{false};
   std::vector<bool> dedup_stack_;
