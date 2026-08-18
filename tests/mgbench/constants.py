@@ -41,7 +41,7 @@ class BenchmarkInstallationType:
     NATIVE = "native"
     DOCKER = "docker"
     EXTERNAL = "external"
-    # Coordinator-managed HA cluster: one main and two SYNC replicas behind three coordinators.
+    # Coordinator-managed HA cluster: one main and one SYNC replica behind three coordinators.
     HA = "ha"
 
     @classmethod

@@ -24,8 +24,8 @@ jobs:
     #  - macro-benchmark: 3 minutes
     #  - mgbench: 20 minutes
     #  - mgbench-replication: 20 minutes (ESTIMATE, not yet measured: 10 queries run twice, once
-    #    without and once with fine-grained authorization, at one six-process cluster restart each,
-    #    plus a pokec import that replicates synchronously to two replicas)
+    #    without and once with fine-grained authorization, at one five-process cluster restart each,
+    #    plus a pokec import that replicates synchronously to one replica)
     #  - extended planner improvements mgbench: 15 minutes
     #  - mgbench-supernode: 1.5 minute
     #  - mgbench-load-parquet: 4 minutes

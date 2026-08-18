@@ -227,7 +227,7 @@ print_help () {
   echo -e "\nmgbench-replication options:"
   echo -e "  --size string                 Specify dataset size: small, medium, large (default \"medium\")"
   echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result_replication.json\")"
-  echo -e "  Runs against a main with two SYNC replicas behind three coordinators. Needs an enterprise license."
+  echo -e "  Runs against a main with one SYNC replica behind three coordinators. Needs an enterprise license."
 
   echo -e "\ngenerate-memgraph-build-sbom options:"
   echo -e "  --conan-remote string         Specify conan remote (optional)"
@@ -1902,7 +1902,7 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION $DATASET/$DATASET_SIZE/*/*"
     ;;
     mgbench-replication)
-      # Same queries and worker count as mgbench, but against a main with two SYNC replicas behind
+      # Same queries and worker count as mgbench, but against a main with one SYNC replica behind
       # three coordinators, so the throughput can be compared against the standalone series.
       # Targets every distinct pokec write shape plus two reads as a control; see
       # specs/replication-benchmarks.md. The invocation deliberately differs from mgbench only in
