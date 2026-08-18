@@ -866,7 +866,10 @@ class MemgraphHA(BaseRunner):
         return description
 
     def _fetch(self, instance_name, query):
-        connection = self._mg_runner.MEMGRAPH_INSTANCES[instance_name].get_connection()
+        instance = self._mg_runner.MEMGRAPH_INSTANCES[instance_name]
+        # get_connection defaults to anonymous, so the instance's own credentials have to be passed
+        # explicitly, the same way execute_setup_queries does it.
+        connection = instance.get_connection(instance.username or "", instance.password or "")
         try:
             cursor = connection.cursor()
             cursor.execute(query)
