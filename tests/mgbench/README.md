@@ -177,7 +177,6 @@ Select it with `--installation-type ha`. The vendor name stays `memgraph`:
 
 ```bash
 ./benchmark.py --installation-type ha --num-workers-for-benchmark 6 \
-  --no-authorization \
   --export-results benchmark_result_replication.json \
   'pokec/medium/create/*' \
   pokec/medium/arango/single_vertex_write \
@@ -195,13 +194,18 @@ Or through the build script, which is also what CI runs:
   test-memgraph mgbench-replication --size medium
 ```
 
-`--no-authorization` is required, and its name is misleading: it is a `store_false` whose *absence*
-leaves the fine-grained authorization pass switched on. That pass runs `CREATE USER` and then calls
-`set_credentials` on the benchmark client, so from that point everything else that connects without
-credentials fails — including this runner's own readiness probe, and the cluster setup queries on
-each restart. The runner refuses to start without the flag rather than timing out on an
-authentication failure. Nothing is lost by skipping it: `compare_results.py` reads only the
-`without_fine_grained_authorization` entries, so the pass never takes part in a comparison.
+The fine-grained authorization pass runs here as it does for a single instance, so each query is
+measured twice, once anonymously and once as an authorized user. That roughly doubles the runtime,
+and `--no-authorization` turns it off — note that the name is misleading, since it is a
+`store_false` whose *absence* leaves the pass switched **on**.
+
+Supporting it needs one thing from the runner, which is worth knowing if the probe ever misbehaves:
+the pass runs `CREATE USER` partway through a run and only tells the benchmark client the new
+credentials, so from that point the cluster refuses anonymous connections while the runner still has
+its own reason to connect — checking that the cluster is ready. The readiness probe therefore tries
+the credentials the cluster description gives it, then the benchmark's own, and uses whichever the
+instance currently accepts. Both states occur in a single run, since the pass drops the user again
+when it finishes.
 
 **High availability is an enterprise feature**, so `MEMGRAPH_ENTERPRISE_LICENSE` and
 `MEMGRAPH_ORGANIZATION_NAME` have to be set in the environment. The runner refuses to start without

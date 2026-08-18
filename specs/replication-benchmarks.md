@@ -185,16 +185,16 @@ Stated plainly, because each one bounds how far the resulting numbers can be pus
 - **Memory is main-only.** Replica memory under replication load is not reported, and adding it is
   a schema change rather than a flag, because `database: {cpu, memory}` holds exactly one value.
 - **Import is slower than standalone by construction** (decision 13), on every run.
-- **The fine-grained authorization pass cannot run under HA.** It creates a user and switches the
-  benchmark client to authenticated connections, but everything else that talks to the cluster keeps
-  connecting anonymously — this runner's readiness probe, and the cluster setup queries on each
-  restart — so they start failing with authentication errors, and the coordinator reports the
-  knock-on as `Request forwarded to the leader but leader failed with request processing!`. The
-  standalone runner never notices because it never connects to the database itself. The pass is
-  therefore skipped, with `--no-authorization` in the suite command and a hard refusal in the runner
-  if it is left enabled. Its results were never comparable anyway, since `compare_results.py` reads
-  only the `without_fine_grained_authorization` entries. Making it work would mean teaching both the
-  runner and the coordinators to authenticate, which buys nothing for measuring replication.
+- **The fine-grained authorization pass doubles the runtime.** It runs here exactly as it does for a
+  single instance, so every query is measured twice and the cluster is restarted for each of those
+  measurements. It also forced a change in the runner, because it is the one thing in a run that
+  makes the cluster stop accepting anonymous connections: it creates a user partway through and tells
+  only the benchmark client the credentials, while the runner still needs to connect on its own
+  account to check readiness. The probe therefore tries the credentials from the cluster description
+  first and the benchmark's own second, and both states genuinely occur in one run, since the pass
+  drops the user again when it finishes. An earlier revision of this design refused to run the pass
+  at all and skipped it via `--no-authorization`; that was wrong — authorization overhead under
+  replication is a legitimate thing to measure, and the harness should not decide otherwise.
 - **The query-count cache is shared between the two legs.** `get_query_cache_count` keys its cache
   on `workload/variant/group/query` only — not on vendor or installation type — and persists it to
   `tests/mgbench/.cache/config.json`. Sharing it is a requirement, not an accident:

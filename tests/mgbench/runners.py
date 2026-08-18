@@ -25,7 +25,7 @@ from pathlib import Path
 
 import log
 from benchmark_context import BenchmarkContext
-from constants import BenchmarkInstallationType, GraphVendors
+from constants import PASSWORD, USERNAME, BenchmarkInstallationType, GraphVendors
 
 DOCKER_NETWORK_NAME = "mgbench_network"
 
@@ -808,16 +808,6 @@ class MemgraphHA(BaseRunner):
         self._mg_runner = None
         self._main_name = None
         _assert_enterprise_license()
-        # benchmark_context.no_authorization is True when the fine-grained authorization pass is
-        # ENABLED: --no-authorization is a store_false whose absence leaves it set. That pass creates
-        # a user, and from then on this runner cannot connect to the cluster to check readiness, so
-        # refuse now with the remedy rather than time out later on an authentication failure.
-        if benchmark_context.no_authorization:
-            raise Exception(
-                "The HA benchmark cannot run the fine-grained authorization pass: it creates a user, "
-                "after which the runner can no longer connect to the cluster to check that it is "
-                "ready. Pass --no-authorization to skip that pass."
-            )
         self._mg_runner = _import_interactive_mg_runner()
         if benchmark_context.vendor_binary is not None:
             # interactive_mg_runner starts every instance from this module-level path.
@@ -866,16 +856,33 @@ class MemgraphHA(BaseRunner):
         return description
 
     def _fetch(self, instance_name, query):
+        """
+        Runs one query against an instance, connecting with whatever credentials that instance
+        currently accepts. Two sets are tried, because the cluster's answer changes during a run:
+        the instance's own, from the cluster description, which is what it accepts while no user
+        exists; and the benchmark's, once the fine-grained authorization pass has created its user
+        and anonymous connections start being refused. Only a failure to connect falls through to
+        the next set — a query that fails once connected is the caller's business.
+        """
         instance = self._mg_runner.MEMGRAPH_INSTANCES[instance_name]
-        # get_connection defaults to anonymous, so the instance's own credentials have to be passed
-        # explicitly, the same way execute_setup_queries does it.
-        connection = instance.get_connection(instance.username or "", instance.password or "")
-        try:
-            cursor = connection.cursor()
-            cursor.execute(query)
-            return cursor.fetchall()
-        finally:
-            connection.close()
+        candidates = [(instance.username or "", instance.password or "")]
+        if (USERNAME, PASSWORD) not in candidates:
+            candidates.append((USERNAME, PASSWORD))
+
+        connect_error = None
+        for username, password in candidates:
+            try:
+                connection = instance.get_connection(username, password)
+            except Exception as error:
+                connect_error = error
+                continue
+            try:
+                cursor = connection.cursor()
+                cursor.execute(query)
+                return cursor.fetchall()
+            finally:
+                connection.close()
+        raise connect_error
 
     def _cluster_state(self):
         """
