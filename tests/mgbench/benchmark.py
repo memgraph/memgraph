@@ -453,6 +453,7 @@ def realistic_workload(
     ret = client.execute(
         queries=prepared_queries,
         num_workers=benchmark_context.num_workers_for_benchmark,
+        log_args=True,
     )[0]
 
     usage_workload = vendor.stop_db(rss_db)
@@ -530,6 +531,7 @@ def mixed_workload(
         ret = client.execute(
             queries=prepared_queries,
             num_workers=benchmark_context.num_workers_for_benchmark,
+            log_args=True,
         )[0]
 
         usage_workload = vendor.stop_db(rss_db)
@@ -699,6 +701,7 @@ def run_isolated_workload_with_authorization(
         ret = client.execute(
             queries=get_queries(func, count, benchmark_context),
             num_workers=benchmark_context.num_workers_for_benchmark,
+            log_args=True,
         )[0]
         usage = vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
         usage[MEMORY] -= memory_usage_with_imported_data
@@ -756,6 +759,7 @@ def run_isolated_workload_without_authorization(
             queries=get_queries(func, count, benchmark_context),
             num_workers=benchmark_context.num_workers_for_benchmark,
             time_dependent_execution=benchmark_context.time_dependent_execution,
+            log_args=True,
         )[0]
 
         time_elapsed = time.time() - start_time
@@ -782,7 +786,9 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
         client.execute(queries=workload.indexes_generator(), num_workers=1)
         log.info("Finished setting up indexes.")
         log.info("Started importing dataset")
-        import_results = client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
+        import_results = client.execute(
+            queries=generated_queries, num_workers=benchmark_context.num_workers_for_import, log_args=True
+        )
     else:
         log.info("Using workload information for importing dataset and creating indices")
         log.info("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
@@ -793,11 +799,11 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
             log.info("Finished setting up indexes.")
             log.info("Started importing dataset")
             if storage_mode == ON_DISK_TRANSACTIONAL:
-                import_results = client.execute(file_path=workload.get_node_file(), num_workers=1)
-                import_results = client.execute(file_path=workload.get_edge_file(), num_workers=1)
+                import_results = client.execute(file_path=workload.get_node_file(), num_workers=1, log_args=True)
+                import_results = client.execute(file_path=workload.get_edge_file(), num_workers=1, log_args=True)
             else:
                 import_results = client.execute(
-                    file_path=workload.get_file(), num_workers=benchmark_context.num_workers_for_import
+                    file_path=workload.get_file(), num_workers=benchmark_context.num_workers_for_import, log_args=True
                 )
         else:
             log.info("Custom import executed")
