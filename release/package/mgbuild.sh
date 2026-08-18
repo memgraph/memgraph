@@ -1279,12 +1279,23 @@ package_smoke_image() {
   # The package's own postinst/%post installs the query-module python deps
   # (as the memgraph user), so the smoke image exercises the real install
   # path instead of pre-installing them here. Only gssapi is extra: it has
-  # no PyPI wheels, so install the wheel built in the mgbuild container when
-  # it matches the target's python; on a mismatch skip it — exactly what a
-  # customer install without build tooling does.
+  # no PyPI wheels, so install one of ours when it matches the target's
+  # python; on a mismatch skip it — exactly what a customer install without
+  # build tooling does.
+  #
+  # Two details matter for the wheel to actually be usable at runtime:
+  #   * it must go into the interpreter that imports it, which is not always the
+  #     distro's `python3` (on el9 that is 3.9, below memgraph's floor, so the
+  #     deps land in 3.12). The importer here is an auth module, and memgraph
+  #     execve()s those, so the shebang of the installed module — which the
+  #     memgraph %post repoints when the distro python3 is too old — is the
+  #     authority on which python that is;
+  #   * the index has to stay reachable for gssapi's pure-python dependency
+  #     (decorator), which is not in the wheels dir; --only-binary=gssapi still
+  #     forbids falling back to gssapi's own sdist.
   local gssapi_cmd="echo 'no gssapi wheel supplied; skipping'"
   if [[ -n "$pip_find_links" ]]; then
-    gssapi_cmd="runuser -l memgraph -c 'PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --no-cache-dir --no-warn-script-location --no-index --find-links=/wheels gssapi==1.11.1' || echo 'no matching gssapi wheel for this python; skipping'"
+    gssapi_cmd="auth_py=\$(sed -n '1s|^#!||p' /usr/lib/memgraph/auth_module/kerberos.py 2>/dev/null); auth_py=\${auth_py:-python3}; echo \"installing gssapi for \$auth_py\"; runuser -l memgraph -c \"PIP_BREAK_SYSTEM_PACKAGES=1 \$auth_py -m pip install --user --no-cache-dir --no-warn-script-location --find-links=/wheels --only-binary=gssapi gssapi==1.11.1\" || echo 'no matching gssapi wheel for this python; skipping'"
   fi
 
   local install_cmd

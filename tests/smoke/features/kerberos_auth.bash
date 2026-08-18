@@ -161,6 +161,34 @@ test_kerberos_auth_setup() {
     $MEMGRAPH_GENERAL_FLAGS --auth-module-mappings=kerberos >/dev/null
 
   kerberos_wait_for_bolt
+  kerberos_check_module_interpreter
+}
+
+# The auth module is a separate process: memgraph execve()s the .py file, so
+# its shebang -- not the interpreter memgraph embeds -- has to be the one the
+# image installed gssapi for. When it isn't (e.g. a distro whose default
+# python3 is older than the python the packages target), the login below fails
+# with a plain "Authentication failure" and the reason is only visible in
+# memgraph's log. Check it up front so the suite says which python is short of
+# what instead.
+kerberos_check_module_interpreter() {
+  local module=/usr/lib/memgraph/auth_module/kerberos.py
+  local interpreter
+  interpreter="$(docker exec "$KERBEROS_MG_CONTAINER" \
+    sed -n '1s|^#!||p' "$module")" || return 1
+  echo "SUBFEATURE: checking $module runs on an interpreter with gssapi ($interpreter)"
+  if ! docker exec "$KERBEROS_MG_CONTAINER" "$interpreter" -c "import gssapi"; then
+    echo "$interpreter (the shebang of $module) cannot import gssapi."
+    echo "Interpreters in the image and whether they have it:"
+    docker exec "$KERBEROS_MG_CONTAINER" bash -c \
+      'for py in /usr/bin/python3 /usr/bin/python3.*; do
+         [ -x "$py" ] || continue
+         case "$py" in *-config|*t) continue ;; esac
+         printf "  %s (%s): " "$py" "$("$py" --version 2>&1)"
+         "$py" -c "import gssapi" 2>/dev/null && echo "gssapi ok" || echo "no gssapi"
+       done' || true
+    return 1
+  fi
 }
 
 test_kerberos_auth() {
