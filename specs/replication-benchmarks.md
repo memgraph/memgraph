@@ -187,15 +187,17 @@ Stated plainly, because each one bounds how far the resulting numbers can be pus
 - **Import is slower than standalone by construction** (decision 13), on every run.
 - **The query-count cache is shared between the two legs.** `get_query_cache_count` keys its cache
   on `workload/variant/group/query` only — not on vendor or installation type — and persists it to
-  `tests/mgbench/.cache`. This cuts both ways. It is what makes the two legs execute the *same*
-  number of queries, which comparability depends on; but whichever leg calibrates first writes the
-  counts the other one then uses, so an HA run calibrating from cold would persist counts derived
-  from replicated commits and a later standalone run would silently inherit them. The suite command
-  therefore runs the HA leg with `--no-save-query-counts`, so it can consume counts but never
-  publish them, and the CI step order keeps the standalone suite calibrating first. Sharing the
-  cache is not merely convenient: `compare_results.py` refuses to diff two runs whose `count` or
-  `num_workers` differ, raising `Incompatible results!`, so two independently calibrated legs could
-  not be compared at all.
+  `tests/mgbench/.cache`. Sharing it is a requirement, not an accident: `compare_results.py` refuses
+  to diff two runs whose `count` or `num_workers` differ, raising `Incompatible results!`, so two
+  independently calibrated legs could not be compared at all. The exposure is that whichever leg
+  calibrates a query first authors its count, and HA is slower per commit, so an HA-authored count is
+  smaller for the same single-threaded target. It is bounded, though: an existing entry is never
+  rewritten — `set_value` is reached only on a cache miss — and the standalone suite calibrates all
+  60 pokec queries against this suite's 10, a strict superset. So the ordering in CI, standalone
+  before HA in the same job and checkout, already keeps HA a pure consumer. `--no-save-query-counts`
+  covers what ordering does not: this suite run on its own against a cold cache. When that happens
+  the counts stay in memory, the two legs disagree, and `compare_results.py` fails loudly instead of
+  diffing mismatched runs.
 
 ## Future work
 
