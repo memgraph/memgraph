@@ -192,7 +192,10 @@ Stated plainly, because each one bounds how far the resulting numbers can be pus
   counts the other one then uses, so an HA run calibrating from cold would persist counts derived
   from replicated commits and a later standalone run would silently inherit them. The suite command
   therefore runs the HA leg with `--no-save-query-counts`, so it can consume counts but never
-  publish them, and the CI step order keeps the standalone suite calibrating first.
+  publish them, and the CI step order keeps the standalone suite calibrating first. Sharing the
+  cache is not merely convenient: `compare_results.py` refuses to diff two runs whose `count` or
+  `num_workers` differ, raising `Incompatible results!`, so two independently calibrated legs could
+  not be compared at all.
 
 ## Future work
 

@@ -18,11 +18,11 @@ populations and make the existing history look as though it had suddenly regress
 
 ## Acceptance criteria
 
-- [ ] The replication suite runs whenever the standalone benchmark suite runs, driven by the existing benchmark label and workflow gate
-- [ ] No new label, input or gate is introduced
-- [ ] A step is added to the nightly benchmark workflow, with its expected runtime noted alongside the other suites
-- [ ] Results upload under a dashboard series distinct from the standalone one, from the distinct results file
-- [ ] The standalone series is unaffected, verified by confirming its name and results path are unchanged
+- [x] The replication suite runs whenever the standalone benchmark suite runs, driven by the existing benchmark label and workflow gate
+- [x] No new label, input or gate is introduced
+- [ ] A step is added to the nightly benchmark workflow, with its expected runtime noted alongside the other suites (step added; the 10-minute figure is an unmeasured estimate and the job timeout was raised from 550 to 660 on that basis)
+- [x] Results upload under a dashboard series distinct from the standalone one, from the distinct results file
+- [x] The standalone series is unaffected, verified by confirming its name and results path are unchanged
 
 ## Blocked by
 

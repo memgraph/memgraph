@@ -108,6 +108,7 @@ Listed below are the main scripts used to run the benchmarks:
 - `client.cpp` - Client for querying the database.
 - `graph_bench.py` - Script that starts all tests from Benchgraph.
 - `compare_results.py` - Script that visually compares benchmark results.
+- `ha_cluster.yaml` - Cluster description for the replication benchmarks: the per-instance flags and the cluster setup queries for a main with two SYNC replicas behind three coordinators. Used only with `--installation-type ha`.
 
 Except for these scripts, the project also includes query files, dataset files and index configuration files. Once the first test is executed, those files can be located in the newly generated `.cache` and `.temp` folders.
 
@@ -157,6 +158,88 @@ In a production environment, database query caches are usually warmed from usage
 - ***Vulcanic run*** - The workload is executed twice. The first time is used to pre-warm the database, and the second time is used to take measurements. The workload does not change between the two runs.
 
 The details specification of warmup procedure is visible in the `benchmark.py` file, `warmup` function.
+
+### Replication benchmarks (high availability)
+
+Benchgraph can run against a coordinator-managed HA cluster instead of a single instance, so the
+cost of synchronous replication can be read off as the difference between two otherwise identical
+runs. The same client binary and the same measurement loop are used, so the throughput number means
+the same thing in both.
+
+The cluster is a main and two SYNC replicas behind three coordinators, all on localhost and
+distinguished by port. It is described by `ha_cluster.yaml`, which holds each instance's flags and
+the cluster setup queries, and is the file to edit to change the topology or the replication mode.
+Data directories are not in that file: the runner assigns them, pinned for the duration of a run so
+the imported dataset survives the cluster restarts between phases, and fresh for the next run so no
+run ever benchmarks the previous one's data.
+
+Select it with `--installation-type ha`. The vendor name stays `memgraph`:
+
+```bash
+./benchmark.py --installation-type ha --num-workers-for-benchmark 6 \
+  --no-save-query-counts \
+  --export-results benchmark_result_replication.json \
+  'pokec/medium/create/*' \
+  pokec/medium/arango/single_vertex_write \
+  pokec/medium/arango/single_edge_write \
+  pokec/medium/arango/unwind_range_vertex_write \
+  pokec/medium/basic/single_vertex_property_update_update \
+  pokec/medium/arango/single_vertex_read \
+  pokec/medium/arango/aggregate
+```
+
+Or through the build script, which is also what CI runs:
+
+```bash
+./release/package/mgbuild.sh --os ubuntu-24.04 --toolchain v7 --arch amd \
+  test-memgraph mgbench-replication --size medium
+```
+
+**High availability is an enterprise feature**, so `MEMGRAPH_ENTERPRISE_LICENSE` and
+`MEMGRAPH_ORGANIZATION_NAME` have to be set in the environment. The runner refuses to start without
+them rather than letting cluster setup fail later. Instance logs are written to `ha_logs/`.
+
+A few things about this mode are worth knowing before reading its numbers:
+
+- The target set is every distinct write shape in pokec plus two reads. The reads are a control
+  rather than a subject: reads on main are unaffected by synchronous replication, so if they show a
+  delta against the standalone series then the harness or the coordinator health checks are
+  perturbing the measurement, not replication.
+- The cluster is restarted once per query, which dominates the added wall-clock, so the runtime
+  grows with the size of the target set.
+- The dataset is imported through the fully attached cluster, so the import is itself replicated and
+  slower than a standalone import. Its throughput is reported as well.
+- Reported memory and CPU are main's alone.
+- `--no-save-query-counts` is not optional in spirit. The query-count cache is shared with the
+  standalone suite, which is what makes both legs execute the same number of queries; without this
+  flag a cold HA run would persist counts derived from replicated commits and a later standalone run
+  would inherit them.
+
+#### Reading the replication cost
+
+The replication cost is the difference between two runs, so produce both and diff them. Run the
+standalone suite first, because it is the leg that calibrates and persists the per-query counts:
+
+```bash
+./benchmark.py --installation-type native --num-workers-for-benchmark 6 \
+  --export-results standalone.json pokec/medium/*/*
+# then the HA run above, writing benchmark_result_replication.json
+./compare_results.py --compare standalone.json benchmark_result_replication.json \
+  --output replication_cost.html
+```
+
+Do not pass `--different-vendors`: both legs are Memgraph, and the comparison relies on the checks
+that flag would switch off. `compare_results.py` refuses to diff two runs whose `count` or
+`num_workers` differ, which is the real reason the query-count cache is shared between the legs — it
+is what makes the two runs execute the same number of queries and therefore comparable at all. If
+you see `Incompatible results!`, the two legs calibrated separately.
+
+When reading the output, the control reads come first: they should show close to no difference. A
+systematic delta on `single_vertex_read` or `aggregate` means something other than replication is
+being measured, and the write numbers should not be trusted until that is understood.
+
+The design, the decisions behind it and its limitations are recorded in
+`specs/replication-benchmarks.md`.
 
 ### Comparing results
 
@@ -314,7 +397,7 @@ AWS EC2 `r7a.4xlarge`
 ## :nut_and_bolt: Supported databases
 
 Due to current [database compatibility](link) requirements, the only supported database systems at the moment are:
-1. Memgraph 
+1. Memgraph
 2. Neo4j Community Edition
 
 ### Database notes
@@ -344,7 +427,7 @@ Benchgraph is currently a passive benchmark since resource usage and saturation 
 
 Latest version: https://memgraph.com/benchgraph
 
-### Release v4 (latest) - 2024-25-07 
+### Release v4 (latest) - 2024-25-07
 
  - Updated benchmarks with the run on AWS EC2 instances: `r7i.4xlarge`  and `r7a.4xlarge`
  - Dropped the BI dataset run (due to optimization)

@@ -218,6 +218,11 @@ print_help () {
   echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
   echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
 
+  echo -e "\nmgbench-replication options:"
+  echo -e "  --size string                 Specify dataset size: small, medium, large (default \"medium\")"
+  echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result_replication.json\")"
+  echo -e "  Runs against a main with two SYNC replicas behind three coordinators. Needs an enterprise license."
+
   echo -e "\ngenerate-memgraph-build-sbom options:"
   echo -e "  --conan-remote string         Specify conan remote (optional)"
   echo -e "  --sbom-scripts-dir string     Path to the infra SBOM scripts (required)"
@@ -256,6 +261,7 @@ print_help () {
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo test-memgraph unit"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench --dataset pokec --size large"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench --dataset ldbc_bi --size medium --export-results-file my_results.json"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench-replication --size medium"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd package"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd copy --package"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd copy --use-make-install --dest-dir build/install"
@@ -1861,6 +1867,38 @@ test_memgraph() {
 
       check_support pokec_size $DATASET_SIZE
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
+    ;;
+    mgbench-replication)
+      # Same queries and worker count as mgbench, but against a main with two SYNC replicas behind
+      # three coordinators, so the throughput can be compared against the standalone series.
+      # Targets every distinct pokec write shape plus two reads as a control; see
+      # specs/replication-benchmarks.md. Query counts are read from the cache but never written to
+      # it, so a cold HA run cannot publish counts derived from replicated commits and have a later
+      # standalone run inherit them.
+      shift 1
+      local DATASET_SIZE='medium'
+      local EXPORT_RESULTS_FILE='benchmark_result_replication.json'
+
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --size)
+            DATASET_SIZE="$2"
+            shift 2
+          ;;
+          --export-results-file)
+            EXPORT_RESULTS_FILE="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench-replication"
+            echo "Supported flags: --size, --export-results-file"
+            exit 1
+          ;;
+        esac
+      done
+
+      check_support pokec_size $DATASET_SIZE
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type ha --num-workers-for-benchmark 6 --no-save-query-counts --export-results $EXPORT_RESULTS_FILE 'pokec/$DATASET_SIZE/create/*' pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/arango/unwind_range_vertex_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read pokec/$DATASET_SIZE/arango/aggregate"
     ;;
     mgbench-supernode)
       shift 1
