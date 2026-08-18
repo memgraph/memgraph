@@ -18,6 +18,12 @@ The read control group is the instrument for this. Reads on main should be essen
 by synchronous replication, so a near-zero delta against the standalone series means the harness
 is quiet; a visible delta means something other than replication is being measured.
 
+The mechanics are documented under "Reading the replication cost" in `tests/mgbench/README.md`:
+run the standalone suite first so it calibrates the per-query counts, then the HA suite, then diff
+the two result files with `compare_results.py` without `--different-vendors`. An
+`Incompatible results!` error means the two legs calibrated separately and the comparison is not
+valid.
+
 Findings that change the agreed design belong in an amendment to the parent spec, noting what
 changed and why.
 

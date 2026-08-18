@@ -18,11 +18,13 @@ jobs:
   release_benchmarks:
     name: "Daily benchmarks"
     runs-on: [self-hosted, Linux, benchmark]
-    timeout-minutes: 550
+    timeout-minutes: 660
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
     #  - macro-benchmark: 3 minutes
     #  - mgbench: 20 minutes
+    #  - mgbench-replication: 10 minutes (ESTIMATE, not yet measured: 10 queries, one six-process
+    #    cluster restart each, plus a pokec import that replicates synchronously to two replicas)
     #  - extended planner improvements mgbench: 15 minutes
     #  - mgbench-supernode: 1.5 minute
     #  - mgbench-load-parquet: 4 minutes
@@ -30,7 +32,7 @@ jobs:
     #  - mgbench-vector-search-edge-index: 5 minutes
     #  - mgbench-text-search-index: 5 minutes
     #  - mgbench-text-search-edge-index: 5 minutes
-    #  10 iterations would take about 500 minutes, leaving 50 minutes to allow
+    #  10 iterations would take about 600 minutes, leaving 60 minutes to allow
     #  for building memgraph and variations in benchmark times.
     env:
       ARCH: "amd"
@@ -40,6 +42,9 @@ jobs:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
+      # Separate from the file above: both suites publish the same test names, so sharing
+      # either the file or the series name would interleave standalone and HA results.
+      DEFAULT_MGBENCH_REPLICATION_EXPORT_RESULTS_FILE: 'benchmark_result_replication.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
       CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -209,6 +214,21 @@ jobs:
             mgbench \
             mgbench \
             ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      # Runs after mgbench so the standalone suite is the one that calibrates and persists query
+      # counts; this suite consumes them but never writes them.
+      - name: Run and upload mgbench-replication
+        id: mgbench-replication
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-replication \
+            mgbench-replication \
+            ${{ env.DEFAULT_MGBENCH_REPLICATION_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
             ${{ github.run_number }} \
             $BRANCH_NAME \

@@ -18,12 +18,12 @@ second clobber the first inside the same job.
 
 ## Acceptance criteria
 
-- [ ] A replication-benchmark suite command runs the target set with the HA installation type and the standalone worker count
-- [ ] It writes to a results file distinct from the standalone suite's
-- [ ] It runs with query-count saving disabled, so the HA leg can consume calibrated counts but never overwrite the standalone suite's
-- [ ] The same command works locally and is what CI will call, with no divergent invocation
-- [ ] Documentation covers the mode, the enterprise licence requirement, and the cluster-description YAML
-- [ ] The existing standalone suite command is unchanged
+- [x] A replication-benchmark suite command runs the target set with the HA installation type and the standalone worker count
+- [x] It writes to a results file distinct from the standalone suite's
+- [x] It runs with query-count saving disabled, so the HA leg can consume calibrated counts but never overwrite the standalone suite's
+- [x] The same command works locally and is what CI will call, with no divergent invocation
+- [x] Documentation covers the mode, the enterprise licence requirement, and the cluster-description YAML
+- [x] The existing standalone suite command is unchanged
 
 ## Blocked by
 
