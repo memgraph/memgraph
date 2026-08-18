@@ -8,6 +8,10 @@
 #
 # Log level stays at WARNING. Trace-level logging on the commit path would dominate the
 # measurement rather than the replication it is meant to expose.
+#
+# Each instance's console output is discarded, since a run restarts all six once per measurement and
+# every start would otherwise print a banner and a couple of notices. The log files are unaffected.
+# Set silence_output: false on an instance to watch it start.
 
 instance_1:
   args:

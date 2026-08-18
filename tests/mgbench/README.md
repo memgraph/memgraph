@@ -209,7 +209,14 @@ when it finishes.
 
 **High availability is an enterprise feature**, so `MEMGRAPH_ENTERPRISE_LICENSE` and
 `MEMGRAPH_ORGANIZATION_NAME` have to be set in the environment. The runner refuses to start without
-them rather than letting cluster setup fail later. Instance logs are written to `ha_logs/`.
+them rather than letting cluster setup fail later.
+
+Instance logs go to `ha_logs/`. Note that Memgraph uses a daily file sink, so the file on disk
+carries a date suffix — `mgbench_ha_instance_1_2026-08-18.log` — and is opened in append mode, so
+every restart in a run adds to the same file. The instances' console output is discarded instead of
+inherited, because a run restarts all six once per measurement and each start would otherwise print
+a banner, a flag deprecation notice and a query module import note. Nothing Memgraph logs is lost;
+set `silence_output: false` on an instance in `ha_cluster.yaml` to watch it start.
 
 A few things about this mode are worth knowing before reading its numbers:
 

@@ -853,6 +853,10 @@ class MemgraphHA(BaseRunner):
             # fresh temporary directory so the next run does not benchmark this run's data.
             instance["data_directory"] = os.path.join(self._directory.name, name)
             instance["log_file"] = os.path.join(log_directory, os.path.basename(instance["log_file"]))
+            # A run restarts six instances once per measurement, and each start writes a banner, a
+            # flag deprecation notice and a query module import note to the console. The instances
+            # keep logging to their log files. A description can opt back in per instance.
+            instance.setdefault("silence_output", True)
         return description
 
     def _fetch(self, instance_name, query):
