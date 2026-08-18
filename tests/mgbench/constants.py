@@ -41,10 +41,12 @@ class BenchmarkInstallationType:
     NATIVE = "native"
     DOCKER = "docker"
     EXTERNAL = "external"
+    # Coordinator-managed HA cluster: one main and two SYNC replicas behind three coordinators.
+    HA = "ha"
 
     @classmethod
     def get_all_installation_types(cls):
-        return [cls.NATIVE, cls.DOCKER, cls.EXTERNAL]
+        return [cls.NATIVE, cls.DOCKER, cls.EXTERNAL, cls.HA]
 
 
 class BenchmarkClientLanguage:

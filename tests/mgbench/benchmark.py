@@ -84,7 +84,7 @@ def parse_args():
         type=str,
         default=BenchmarkInstallationType.NATIVE,
         choices=BenchmarkInstallationType.get_all_installation_types(),
-        help="Installation type (native, docker, external)",
+        help="Installation type (native, docker, external, ha)",
     )
 
     benchmark_parser.add_argument(
