@@ -332,7 +332,10 @@ class Workload(ABC):
         return False
 
     def dataset_generator(self) -> list:
-        print("Workload is not auto generated")
+        """
+        Overridden by workloads that generate their dataset. Workloads that import one from a file or
+        through custom_import inherit this, and an empty list is what routes them to the import path.
+        """
         return []
 
     # All tests should be query generator functions that output all of the
