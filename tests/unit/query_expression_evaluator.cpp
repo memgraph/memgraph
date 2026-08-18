@@ -2993,6 +2993,20 @@ TYPED_TEST(FunctionTest, Reverse) {
   EXPECT_THROW(this->EvaluateFunction("REVERSE", "x", "y"), QueryRuntimeException);
 }
 
+TYPED_TEST(FunctionTest, ReverseNonAscii) {
+  // Escapes rather than typed characters: an accented character may reach the
+  // compiler precomposed or as a base plus a combining mark, and the two forms
+  // have different correct answers here.
+  EXPECT_EQ(this->EvaluateFunction("REVERSE", "caf\u00E9").ValueString(), "\u00E9fac");
+  EXPECT_EQ(this->EvaluateFunction("REVERSE", "a\u4E2Db").ValueString(), "b\u4E2Da");
+  EXPECT_EQ(this->EvaluateFunction("REVERSE", "\u00E9").ValueString(), "\u00E9");
+  EXPECT_EQ(this->EvaluateFunction("REVERSE", "ab\u0107").ValueString(), "\u0107ba");
+  // Decomposed: the combining mark is a code point of its own, so it leads the
+  // result rather than staying with the character it followed.
+  EXPECT_EQ(this->EvaluateFunction("REVERSE", "abc\u0301").ValueString(), "\u0301cba");
+  EXPECT_EQ(this->EvaluateFunction("REVERSE", "").ValueString(), "");
+}
+
 TYPED_TEST(FunctionTest, Replace) {
   EXPECT_THROW(this->EvaluateFunction("REPLACE"), QueryRuntimeException);
   EXPECT_TRUE(this->EvaluateFunction("REPLACE", TypedValue(), "l", "w").IsNull());

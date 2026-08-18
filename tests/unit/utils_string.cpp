@@ -53,6 +53,41 @@ TEST(String, ToUpperCase) {
   EXPECT_EQ(ToUpperCase("\u0161memgraph"), "\u0161MEMGRAPH");
 }
 
+TEST(String, ReverseUtf8) {
+  // Escapes rather than typed characters: an accented character may reach the
+  // compiler precomposed or decomposed, and the two have different answers here.
+  EXPECT_EQ(ReverseUtf8(""), "");
+  EXPECT_EQ(ReverseUtf8("abc"), "cba");
+
+  // A multi-byte sequence moves as a unit. Reversing the underlying bytes would
+  // put a continuation byte ahead of its lead byte, which is not valid UTF-8.
+  EXPECT_EQ(ReverseUtf8("caf\u00E9"), "\u00E9fac");
+  EXPECT_EQ(ReverseUtf8("a\u4E2Db"), "b\u4E2Da");
+  EXPECT_EQ(ReverseUtf8("\u00E9"), "\u00E9");
+  EXPECT_EQ(ReverseUtf8("ab\u0107"), "\u0107ba");
+
+  // A combining mark is a code point in its own right, so it leads the result
+  // rather than staying attached to the character it followed.
+  EXPECT_EQ(ReverseUtf8("abc\u0301"), "\u0301cba");
+
+  EXPECT_EQ(ReverseUtf8(ReverseUtf8("a\u4E2Db\u00E9")), "a\u4E2Db\u00E9");
+}
+
+TEST(String, ReverseUtf8CountsCodePointsNotBytes) {
+  // The result holds as many code points as the input, each intact. Byte-wise
+  // reversal preserves the byte count too, so length alone proves nothing.
+  const std::string input = "a\u00E9\u4E2D";
+  const std::string reversed = ReverseUtf8(input);
+  ASSERT_EQ(reversed.size(), input.size());
+
+  auto const lead_bytes = [](std::string_view s) {
+    return std::ranges::count_if(s, [](char c) { return (static_cast<unsigned char>(c) & 0xC0U) != 0x80U; });
+  };
+  EXPECT_EQ(lead_bytes(reversed), 3);
+  EXPECT_EQ(lead_bytes(reversed), lead_bytes(input));
+  EXPECT_EQ(reversed, "\u4E2D\u00E9a");
+}
+
 TEST(String, Join) {
   using namespace std::string_literals;
   EXPECT_EQ(Join(std::array<std::string, 0>{}, " "), "");
