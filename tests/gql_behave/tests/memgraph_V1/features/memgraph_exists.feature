@@ -1153,3 +1153,172 @@ Feature: WHERE exists
           | false |
           | true  |
           | true  |
+
+  Scenario: EXISTS subquery body with no operators
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 1})
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          WHERE EXISTS {
+              RETURN 1
+          }
+          RETURN n.id as id;
+          """
+      Then the result should be:
+          | id    |
+          | 1     |
+
+  Scenario: EXISTS subquery body that is a UNION of bodies with no operators
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 1})
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          WHERE EXISTS {
+              RETURN 1 AS c
+              UNION
+              RETURN 2 AS c
+          }
+          RETURN n.id as id;
+          """
+      Then the result should be:
+          | id    |
+          | 1     |
+
+  Scenario: EXISTS subquery in a projection whose body is a UNION with no operators
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 1})
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          RETURN EXISTS {
+              RETURN 1 AS c
+              UNION ALL
+              RETURN 2 AS c
+          } AS h;
+          """
+      Then the result should be:
+          | h    |
+          | true |
+
+  Scenario: EXISTS subquery body that is a UNION of one matching and one empty branch
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 1})
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          RETURN EXISTS {
+              MATCH (x:Missing) RETURN x AS c
+              UNION
+              RETURN 2 AS c
+          } AS h;
+          """
+      Then the result should be:
+          | h    |
+          | true |
+
+  Scenario: EXISTS subquery body that is a UNION of a branch with rows and one with no operators
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 1})
+          CREATE (:Node {id: 2})
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          RETURN EXISTS {
+              MATCH (x:Node) RETURN x AS c
+              UNION
+              RETURN 2 AS c
+          } AS h;
+          """
+      Then the result should be:
+          | h    |
+          | true |
+          | true |
+
+  Scenario: EXISTS subquery body that is a UNION of two branches matching nothing
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 1})
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          RETURN EXISTS {
+              MATCH (x:Missing) RETURN x AS c
+              UNION
+              MATCH (y:AlsoMissing) RETURN y AS c
+          } AS h;
+          """
+      Then the result should be:
+          | h     |
+          | false |
+
+  Scenario: EXISTS subquery body with no operators in a projection
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 1})
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          RETURN EXISTS {
+              RETURN 1
+          } AS h;
+          """
+      Then the result should be:
+          | h    |
+          | true |
+
+  Scenario: EXISTS subquery body with no operators in a WITH projection
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 1})
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          WITH n, EXISTS {
+              RETURN 1
+          } AS e
+          RETURN e;
+          """
+      Then the result should be:
+          | e    |
+          | true |
+
+  Scenario: EXISTS subquery body with no operators in an ORDER BY
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 1})
+          """
+      When executing query:
+          """
+          MATCH (n:Node)
+          WITH n ORDER BY EXISTS {
+              RETURN 1
+          }
+          RETURN n.id AS id;
+          """
+      Then the result should be:
+          | id    |
+          | 1     |
