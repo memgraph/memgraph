@@ -895,6 +895,54 @@ class Database {
   }
 #endif
 
+  // An inverted depth range is provably empty, because no path can exceed the upper bound. Assert
+  // on the work done and not just on the empty result: without a guard the lower-bound top-up loop
+  // enumerates every simple path in the graph before giving up, which on a larger graph does not
+  // terminate in any useful time.
+  void KShortestTestInvertedRangeDoesNotSearch(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    memgraph::query::Symbol source_sym = context.symbol_table.CreateSymbol("source", true);
+    memgraph::query::Symbol sink_sym = context.symbol_table.CreateSymbol("sink", true);
+    memgraph::query::Symbol edges_sym = context.symbol_table.CreateSymbol("edges", true);
+    memgraph::query::Symbol inner_node_sym = context.symbol_table.CreateSymbol("inner_node", true);
+    memgraph::query::Symbol inner_edge_sym = context.symbol_table.CreateSymbol("inner_edge", true);
+
+    std::vector<memgraph::query::VertexAccessor> vertices;
+    std::vector<memgraph::query::EdgeAccessor> edges;
+    std::tie(vertices, edges) = db->BuildGraph(&dba, kVertexLocations, kEdges);
+    dba.AdvanceCommand();
+
+    std::shared_ptr<memgraph::query::plan::LogicalOperator> input_op = nullptr;
+    input_op = YieldVertices(&dba, vertices, source_sym, input_op);
+    input_op = YieldVertices(&dba, vertices, sink_sym, input_op);
+
+    auto input_operator =
+        db->MakeKShortestOperator(source_sym,
+                                  sink_sym,
+                                  edges_sym,
+                                  memgraph::query::EdgeAtom::Direction::OUT,
+                                  {},
+                                  input_op,
+                                  true,
+                                  LITERAL(kVertexCount + 1),
+                                  LITERAL(kVertexCount),
+                                  memgraph::query::plan::ExpansionLambda{inner_edge_sym, inner_node_sym, nullptr});
+
+    context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
+    context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &dba);
+    context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &dba);
+
+    auto results = PullResults(
+        input_operator.get(), &context, std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym});
+
+    EXPECT_TRUE(results.empty());
+    EXPECT_EQ(context.number_of_hops, 0) << "An inverted range must be rejected before anything is expanded";
+
+    dba.Abort();
+  }
+
  protected:
   memgraph::query::AstStorage storage;
 };

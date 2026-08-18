@@ -218,15 +218,24 @@ def test_kshortest_limit_is_per_input_row():
         print(f"  limit {limit}: {len(results)} paths")
         assert len(results) == expected, f"Expected {expected} paths with limit {limit}, got {len(results)}"
 
-    # A non-positive limit yields nothing at all, on every row.
-    for limit in (0, -1):
-        results = execute_query(
-            f"""
-            MATCH (s:Src),(t:Dst) WHERE s.id = t.id
-            WITH s, t MATCH (s)-[r:LINK *KSHORTEST|{limit}]->(t) RETURN r
+    # Zero is a legal request for no paths, and yields nothing on every row.
+    results = execute_query(
         """
-        )
-        assert len(results) == 0, f"Expected 0 paths with limit {limit}, got {len(results)}"
+        MATCH (s:Src),(t:Dst) WHERE s.id = t.id
+        WITH s, t MATCH (s)-[r:LINK *KSHORTEST|0]->(t) RETURN r
+    """
+    )
+    assert len(results) == 0, f"Expected 0 paths with limit 0, got {len(results)}"
+
+    # A negative limit is not a request for anything, so it is an error rather than an empty result.
+    expect_error(
+        """
+        MATCH (s:Src),(t:Dst) WHERE s.id = t.id
+        WITH s, t MATCH (s)-[r:LINK *KSHORTEST|(0-1)]->(t) RETURN r
+    """,
+        "negative path limit",
+        "Limit in KSHORTEST path expansion must not be negative.",
+    )
 
     print("Per-input-row limit tests passed! ✅")
 
@@ -274,6 +283,14 @@ def test_kshortest_depth_bounds():
         "zero upper bound",
         "Maximum depth in KSHORTEST path expansion must be at least 1.",
     )
+    # An inverted range is legally empty, unlike the invalid bounds above.
+    results = execute_query(
+        """
+        MATCH (s:Src),(t:Dst) WITH s, t MATCH (s)-[r:LINK *KSHORTEST 4..3]->(t) RETURN r
+    """
+    )
+    print(f"  inverted range: {len(results)} paths")
+    assert len(results) == 0, f"Expected no paths for an inverted range, got {len(results)}"
 
     print("Depth bound tests passed! ✅")
 

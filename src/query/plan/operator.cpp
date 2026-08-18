@@ -3754,8 +3754,11 @@ class KShortestPathsCursor : public Cursor {
     fine_grained_access_check_enabled_ = FineGrainedAccessCheckEnabled(context);
     memoize_expansion_ = self_.filter_lambda_.expression != nullptr || fine_grained_access_check_enabled_;
 
-    // A non-positive limit can never yield a path, so don't search at all.
-    if (limit_ <= 0) return false;
+    if (limit_ < 0) {
+      throw QueryRuntimeException("Limit in KSHORTEST path expansion must not be negative.");
+    }
+    // Zero paths is a legal request, unlike a negative count, so serve it without searching.
+    if (limit_ == 0) return false;
 
     auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
       PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource(), context);
@@ -3814,6 +3817,10 @@ class KShortestPathsCursor : public Cursor {
       if (lower_bound_ < 0) {
         throw QueryRuntimeException("Minimum depth in KSHORTEST path expansion must not be negative.");
       }
+      // An inverted range is legally empty, and BFS skips the row for it too. Not merely a
+      // shortcut: no path can exceed `upper_bound_`, so the top-up loop below would enumerate
+      // every simple path and still serve nothing.
+      if (lower_bound_ > upper_bound_) continue;
 
       // Initialize for this new source-target pair
       current_source_ = source_vertex;

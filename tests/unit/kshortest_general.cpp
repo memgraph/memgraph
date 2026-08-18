@@ -151,6 +151,10 @@ TEST_F(GeneralKShortestTestInMemory, KShortestWithLimit) {
   db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 5);
 }
 
+TEST_F(GeneralKShortestTestInMemory, InvertedRangeDoesNotSearch) {
+  db_->KShortestTestInvertedRangeDoesNotSearch(db_.get());
+}
+
 // Filter lambda: the k shortest paths of the subgraph the lambda leaves behind.
 class FilteredKShortestTestInMemory
     : public ::testing::TestWithParam<std::tuple<int, EdgeAtom::Direction, FilterLambdaType>> {
