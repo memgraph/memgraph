@@ -930,16 +930,18 @@ bool SymbolGenerator::PostVisit(NodeAtom &) {
 }
 
 bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
-  auto &scope = scopes_.back();
-  scope.visiting_edge = &edge_atom;
-  if (scope.in_create || scope.in_merge) {
-    scope.in_create_edge = true;
+  // Not a `Scope &`: the `Accept` calls below can visit a pattern comprehension, which pushes
+  // onto `scopes_` and reallocates it. An index survives that, a reference does not.
+  auto const scope_idx = scopes_.size() - 1;
+  scopes_[scope_idx].visiting_edge = &edge_atom;
+  if (scopes_[scope_idx].in_create || scopes_[scope_idx].in_merge) {
+    scopes_[scope_idx].in_create_edge = true;
     if (edge_atom.edge_types_.size() != 1U) {
       throw SemanticException(
           "A single relationship type must be specified "
           "when creating an edge.");
     }
-    if (scope.in_create &&  // Merge allows bidirectionality
+    if (scopes_[scope_idx].in_create &&  // Merge allows bidirectionality
         edge_atom.direction_ == EdgeAtom::Direction::BOTH) {
       throw SemanticException(
           "Bidirectional relationship are not supported "
@@ -960,7 +962,7 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     }
   }
 
-  if (!scope.in_create && has_expressions) {
+  if (!scopes_[scope_idx].in_create && has_expressions) {
     throw SemanticException("You can use expressions with edge types only with CREATE!");
   }
 
@@ -972,7 +974,7 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     std::get<ParameterLookup *>(edge_atom.properties_)->Accept(*this);
   }
   if (edge_atom.IsVariable()) {
-    scope.in_edge_range = true;
+    scopes_[scope_idx].in_edge_range = true;
     if (edge_atom.lower_bound_) {
       edge_atom.lower_bound_->Accept(*this);
     }
@@ -985,8 +987,8 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     if (edge_atom.limit_) {
       edge_atom.limit_->Accept(*this);
     }
-    scope.in_edge_range = false;
-    scope.in_pattern = false;
+    scopes_[scope_idx].in_edge_range = false;
+    scopes_[scope_idx].in_pattern = false;
     if (edge_atom.filter_lambda_.expression) {
       std::vector<Identifier *> filter_lambda_identifiers{edge_atom.filter_lambda_.inner_edge,
                                                           edge_atom.filter_lambda_.inner_node};
@@ -1022,11 +1024,11 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
       VisitWithIdentifiers({edge_atom.weight_lambda_.expression},
                            {edge_atom.weight_lambda_.inner_edge, edge_atom.weight_lambda_.inner_node});
     }
-    scope.in_pattern = true;
+    scopes_[scope_idx].in_pattern = true;
   }
-  scope.in_pattern_atom_identifier = true;
+  scopes_[scope_idx].in_pattern_atom_identifier = true;
   edge_atom.identifier_->Accept(*this);
-  scope.in_pattern_atom_identifier = false;
+  scopes_[scope_idx].in_pattern_atom_identifier = false;
   if (edge_atom.total_weight_) {
     if (HasSymbol(edge_atom.total_weight_->name_)) {
       throw RedeclareVariableError(edge_atom.total_weight_->name_);
