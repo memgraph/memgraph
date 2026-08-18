@@ -255,14 +255,20 @@ class DbmsHandler {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
         return std::unexpected{NewError::GENERIC};
       }
+      auto const old_uuid = storage->config_.salient.uuid;
+      storage->config_.salient.uuid = config.uuid;
+      try {
+        UpdateDurability(storage->config_, ".");
+      } catch (...) {
+        storage->config_.salient.uuid = old_uuid;
+        throw;
+      }
       if (storage->config_.register_metrics) {
         storage->RebindMetricHandles({});
         auto new_handles = metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
         storage->RebindMetricHandles(new_handles);
         db->RebindMetrics(config.uuid, new_handles);
       }
-      storage->config_.salient.uuid = config.uuid;
-      UpdateDurability(storage->config_, ".");
 
       return db;
     }
