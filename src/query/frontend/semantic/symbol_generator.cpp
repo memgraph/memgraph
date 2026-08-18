@@ -725,10 +725,7 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
     throw utils::NotYetImplemented("Exists cannot be used within REDUCE!");
   }
 
-  if (scope.num_if_operators) {
-    throw utils::NotYetImplemented("IF operator cannot be used with exists, but only during matching!");
-  }
-
+  // A CASE holds no position of its own, so it is not consulted here. num_if_operators still gates aggregations.
   if (!IsSupportedExistsPosition(scope)) {
     throw utils::NotYetImplemented("Exists is not supported in this position yet!");
   }
@@ -736,26 +733,19 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   const auto &symbol = CreateAnonymousSymbol();
   exists.MapTo(symbol);
 
-  if (exists.HasPattern()) {
-    scope.in_exists_pattern = true;
-  }
-
-  if (exists.HasSubquery()) {
-    // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
-    scopes_.emplace_back(Scope{.in_exists_subquery = true, .call_subquery_base = scope.call_subquery_base});
-  }
+  // Each form declares only its own variables, so each gets a scope; the pattern form's are named at parse time, so
+  // leaving them outside redeclared them wherever one expression is reached twice, as a simple CASE reaches its test.
+  // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name.
+  // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
+  scopes_.emplace_back(Scope{.in_exists_pattern = exists.HasPattern(),
+                             .in_exists_subquery = exists.HasSubquery(),
+                             .call_subquery_base = scope.call_subquery_base});
 
   return true;
 }
 
-bool SymbolGenerator::PostVisit(Exists &exists) {
-  if (exists.HasPattern()) {
-    auto &scope = scopes_.back();
-    scope.in_exists_pattern = false;
-  } else if (exists.HasSubquery()) {
-    scopes_.pop_back();
-  }
-
+bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
+  scopes_.pop_back();
   return true;
 }
 
