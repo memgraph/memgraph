@@ -129,11 +129,18 @@ ExpressionRange::ExpressionRange(ExpressionRange const &other, AstStorage &stora
                  : std::nullopt},
       upper_{other.upper_
                  ? std::make_optional(utils::Bound(other.upper_->value()->Clone(&storage), other.upper_->type()))
-                 : std::nullopt} {}
+                 : std::nullopt},
+      membership_list_{other.membership_list_ ? other.membership_list_->Clone(&storage) : nullptr} {}
 
 auto ExpressionRange::Equal(Expression *value) -> ExpressionRange {
   // Only store lower bound, Evaluate will only use the lower bound
   return {Type::EQUAL, utils::MakeBoundInclusive(value), std::nullopt};
+}
+
+auto ExpressionRange::In(Expression *runtime_value, ListLiteral *membership_list) -> ExpressionRange {
+  auto er = ExpressionRange{Type::IN, utils::MakeBoundInclusive(runtime_value), std::nullopt};
+  er.membership_list_ = membership_list;
+  return er;
 }
 
 auto ExpressionRange::RegexMatch() -> ExpressionRange { return {Type::REGEX_MATCH, std::nullopt, std::nullopt}; }

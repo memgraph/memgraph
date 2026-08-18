@@ -2516,7 +2516,7 @@ TYPED_TEST(TestPlanner, LabelPropertyInListValidOptimization) {
               ExpectUnwind(),
               ExpectScanAllByLabelProperties(label,
                                              std::vector{ms::PropertyPath{property.second}},
-                                             std::vector{ExpressionRange::Equal(fake_identifier)}),
+                                             std::vector{ExpressionRange::In(fake_identifier, lit_list_a)}),
               ExpectProduce());
   }
 }
@@ -2534,13 +2534,13 @@ TYPED_TEST(TestPlanner, LabelPropertyInListParameter) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   auto fake_identifier = IDENT("fake");
-  CheckPlan(
-      planner.plan(),
-      symbol_table,
-      ExpectUnwind(),
-      ExpectScanAllByLabelProperties(
-          label, std::vector{ms::PropertyPath{property.second}}, std::vector{ExpressionRange::Equal(fake_identifier)}),
-      ExpectProduce());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectUnwind(),
+            ExpectScanAllByLabelProperties(label,
+                                           std::vector{ms::PropertyPath{property.second}},
+                                           std::vector{ExpressionRange::In(fake_identifier, nullptr)}),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, LabelPropertyInListWhereLabelPropertyOnLeftNotListOnRight) {
@@ -2949,7 +2949,7 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportDrivesLabelPropertyIndex) {
         new ExpectUnwind(),
         new ExpectScanAllByLabelProperties(label,
                                            std::vector{ms::PropertyPath{property.second}},
-                                           std::vector{ExpressionRange::Equal(fake_identifier)}),
+                                           std::vector{ExpressionRange::In(fake_identifier, nullptr)}),
         new ExpectProduce()};
     CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(branch), ExpectProduce());
     DeleteListContent(&branch);

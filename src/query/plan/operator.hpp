@@ -44,6 +44,7 @@ struct ExecutionContext;
 class DbAccessor;
 class ExpressionEvaluator;
 class Frame;
+class ListLiteral;
 class SymbolTable;
 
 namespace plan {
@@ -54,8 +55,10 @@ struct ExpressionRange {
   Type type_;
   std::optional<utils::Bound<Expression *>> lower_;
   std::optional<utils::Bound<Expression *>> upper_;
+  ListLiteral *membership_list_{nullptr};  // Non-owning; lives in AstStorage. Cloned by copy ctor.
 
   static auto Equal(Expression *value) -> ExpressionRange;
+  static auto In(Expression *runtime_value, ListLiteral *membership_list) -> ExpressionRange;
   static auto RegexMatch() -> ExpressionRange;
   static auto Range(std::optional<utils::Bound<Expression *>> lower, std::optional<utils::Bound<Expression *>> upper)
       -> ExpressionRange;
