@@ -31,6 +31,7 @@ from benchmark_context import BenchmarkContext
 from benchmark_results import BenchmarkResults
 from constants import *
 from workload_mode import BENCHMARK_MODE_MIXED, BENCHMARK_MODE_REALISTIC
+from workloads.base import Workload
 
 SETUP_AUTH_QUERIES = [
     ("CREATE USER user IDENTIFIED BY 'test';", {}),
@@ -836,8 +837,15 @@ def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_
 def run_target_workload(benchmark_context, workload, bench_queries, vendor_runner, client, results, storage_mode):
     memory_usage_of_empty_db = save_memory_usage_of_empty_db(vendor_runner, workload, results)
     generated_queries = workload.dataset_generator()
-    if not generated_queries:
-        log.warning("Generated import dataset is empty, probably dataset_generator under workload function is wrong.")
+    # A workload either generates its dataset or imports one, and Workload.__init_subclass__ refuses
+    # a class that does neither or both. So an inherited generator returning nothing is the normal
+    # case for every file-imported workload, and only a workload that defines its own generator has
+    # something to complain about when that generator comes back empty.
+    generates_its_dataset = type(workload).dataset_generator is not Workload.dataset_generator
+    if not generated_queries and generates_its_dataset:
+        log.warning(
+            f"The dataset_generator of workload {workload.NAME} produced no queries, so there is nothing to import."
+        )
     import_results, rss_usage = setup_indices_and_import_dataset(
         client, vendor_runner, generated_queries, workload, storage_mode
     )
