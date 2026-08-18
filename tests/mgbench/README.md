@@ -173,7 +173,13 @@ Data directories are not in that file: the runner assigns them, pinned for the d
 the imported dataset survives the cluster restarts between phases, and fresh for the next run so no
 run ever benchmarks the previous one's data.
 
-Select it with `--installation-type ha`. The vendor name stays `memgraph`:
+High availability is its own axis rather than an installation type, since a cluster is a topology and
+not a way of installing Memgraph. `--ha-only` measures only a cluster; `--run-ha` measures a single
+instance and then a cluster in one invocation. Either way the vendor name stays `memgraph`, and
+neither combines with `--installation-type docker` or `external`, because the cluster is started from
+binaries on this machine.
+
+To measure only a cluster:
 
 ```bash
 ./benchmark.py --installation-type ha --num-workers-for-benchmark 6 \
@@ -187,12 +193,24 @@ Select it with `--installation-type ha`. The vendor name stays `memgraph`:
   pokec/medium/arango/aggregate
 ```
 
-Or through the build script, which is also what CI runs:
+In CI the two legs run in **one** invocation instead, which is also how the build script drives it:
 
 ```bash
 ./release/package/mgbuild.sh --os ubuntu-24.04 --toolchain v7 --arch amd \
-  test-memgraph mgbench-replication --size medium
+  test-memgraph mgbench --size medium
 ```
+
+That runs the full single-instance suite and then the HA leg, and uploads both as one measurement —
+`results` for the single instance and `ha_results` for the cluster — rather than as two series. Two
+reasons for one invocation. The query count cache is per process, so both legs execute the same
+number of queries by construction instead of depending on which one calibrated first, which is what
+`compare_results.py` needs. And with both legs in one row, the replication cost is arithmetic between
+two fields rather than a join across series.
+
+The legs do not share a target set: `--run-ha` selects the leg, `--export-results-ha` says where its
+results go, and `--ha-target-workload` narrows what it measures, because every query measured against
+a cluster restarts every instance in it. Repeat that flag per pattern — it takes one value at a time
+so that it cannot swallow the positional workload arguments.
 
 The fine-grained authorization pass runs here as it does for a single instance, so each query is
 measured twice, once anonymously and once as an authorized user. That roughly doubles the runtime.

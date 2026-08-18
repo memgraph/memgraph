@@ -223,11 +223,8 @@ print_help () {
   echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
   echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
   echo -e "  --no-authorization            Skip the fine-grained authorization run of each workload"
+  echo -e "  --export-results-ha-file string  Output file for the high availability leg (default \"benchmark_result_ha.json\"). Needs an enterprise license."
 
-  echo -e "\nmgbench-replication options:"
-  echo -e "  --size string                 Specify dataset size: small, medium, large (default \"medium\")"
-  echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result_replication.json\")"
-  echo -e "  Runs against a main with one SYNC replica behind three coordinators. Needs an enterprise license."
 
   echo -e "\ngenerate-memgraph-build-sbom options:"
   echo -e "  --conan-remote string         Specify conan remote (optional)"
@@ -267,7 +264,6 @@ print_help () {
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo test-memgraph unit"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench --dataset pokec --size large"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench --dataset ldbc_bi --size medium --export-results-file my_results.json"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench-replication --size medium"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd package"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd copy --package"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd copy --use-make-install --dest-dir build/install"
@@ -1669,6 +1665,7 @@ test_memgraph() {
   local EXPORT_AWS_SECRET_KEY="export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
   local default_benchmark_result_file='benchmark_result.json'
+  local default_benchmark_result_ha_file='benchmark_result_ha.json'
 
   # Parse key=value output from a deployment.sh monitoring-targets invocation
   # and export recognized vars if not already set. Uses `<<<` (not a pipe) so
@@ -1866,11 +1863,21 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/build "'&& ulimit -s 262144 && ctest -R memgraph__benchmark -V'
     ;;
     mgbench)
+      # Runs the single-instance leg and, in the same invocation, the same measurement against a
+      # coordinator-managed HA cluster. One invocation because the query count cache is per process,
+      # so both legs execute the same number of queries by construction rather than by depending on
+      # which one calibrated first, and because both legs then land in one upload.
+      #
+      # The HA leg gets its own, much smaller target set: every query measured against a cluster
+      # restarts every instance in it, so running the full single-instance set there would multiply
+      # the wall-clock by its size. It covers every distinct pokec write shape plus two reads as a
+      # control; see specs/replication-benchmarks.md.
       shift 1
       local DATASET='pokec'
       local DATASET_SIZE='medium'
       local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
       local NO_AUTHORIZATION=""
+      local EXPORT_RESULTS_HA_FILE="$default_benchmark_result_ha_file"
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -1890,50 +1897,20 @@ test_memgraph() {
             NO_AUTHORIZATION="--no-authorization"
             shift 1
           ;;
+          --export-results-ha-file)
+            EXPORT_RESULTS_HA_FILE="$2"
+            shift 2
+          ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench"
-            echo "Supported flags: --dataset, --size, --export-results-file, --no-authorization"
+            echo "Supported flags: --dataset, --size, --export-results-file, --no-authorization, --export-results-ha-file"
             exit 1
           ;;
         esac
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION $DATASET/$DATASET_SIZE/*/*"
-    ;;
-    mgbench-replication)
-      # Same queries and worker count as mgbench, but against a main with one SYNC replica behind
-      # three coordinators, so the throughput can be compared against the standalone series.
-      # Targets every distinct pokec write shape plus two reads as a control; see
-      # specs/replication-benchmarks.md. The invocation deliberately differs from mgbench only in
-      # --installation-type and the query list; in particular query-count caching is left alone, so
-      # both suites calibrate and reuse counts by the same rules. mgbench runs first and is
-      # therefore the leg that authors the counts.
-
-      shift 1
-      local DATASET_SIZE='medium'
-      local EXPORT_RESULTS_FILE='benchmark_result_replication.json'
-
-      while [[ $# -gt 0 ]]; do
-        case "$1" in
-          --size)
-            DATASET_SIZE="$2"
-            shift 2
-          ;;
-          --export-results-file)
-            EXPORT_RESULTS_FILE="$2"
-            shift 2
-          ;;
-          *)
-            echo "Error: Unknown flag '$1' for mgbench-replication"
-            echo "Supported flags: --size, --export-results-file"
-            exit 1
-          ;;
-        esac
-      done
-
-      check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type ha --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE 'pokec/$DATASET_SIZE/create/*' pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/arango/unwind_range_vertex_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read pokec/$DATASET_SIZE/arango/aggregate"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --run-ha $MGBENCH_CACHE_ARG --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE --export-results-ha $EXPORT_RESULTS_HA_FILE $NO_AUTHORIZATION --ha-target-workload 'pokec/$DATASET_SIZE/create/*' --ha-target-workload pokec/$DATASET_SIZE/arango/single_vertex_write --ha-target-workload pokec/$DATASET_SIZE/arango/single_edge_write --ha-target-workload pokec/$DATASET_SIZE/arango/unwind_range_vertex_write --ha-target-workload pokec/$DATASET_SIZE/basic/single_vertex_property_update_update --ha-target-workload pokec/$DATASET_SIZE/arango/single_vertex_read --ha-target-workload pokec/$DATASET_SIZE/arango/aggregate $DATASET/$DATASET_SIZE/*/*"
     ;;
     mgbench-supernode)
       shift 1

@@ -7,9 +7,12 @@ RUN_ID=$4
 RUN_NUMBER=$5
 BRANCH_NAME=$6
 TEST_PATH=${7:-mgbench}
+# Optional: results file for the high availability leg, uploaded alongside the main one so a run
+# lands as a single measurement rather than two series.
+HA_RESULTS_FILE=${8:-}
 
 if [ -z "$BENCHMARK_COMMAND" ] || [ -z "$BENCHMARK_NAME" ] || [ -z "$RESULTS_FILE" ] || [ -z "$RUN_ID" ] || [ -z "$RUN_NUMBER" ] || [ -z "$BRANCH_NAME" ]; then
-    echo "Usage: $0 <benchmark_command> <benchmark_name> <results_file> <run_id> <run_number> <branch_name> [test_path]"
+    echo "Usage: $0 <benchmark_command> <benchmark_name> <results_file> <run_id> <run_number> <branch_name> [test_path] [ha_results_file]"
     exit 1
 fi
 
@@ -33,7 +36,8 @@ for ((i=1; i<=LOOP_COUNT; i++)); do
         --arch $ARCH \
         --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
         --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-        test-memgraph $BENCHMARK_COMMAND --export-results-file $RESULTS_FILE; then
+        test-memgraph $BENCHMARK_COMMAND --export-results-file $RESULTS_FILE \
+        ${HA_RESULTS_FILE:+--export-results-ha-file $HA_RESULTS_FILE}; then
         FAIL_COUNT=$((FAIL_COUNT + 1))
         continue
     fi
@@ -47,6 +51,7 @@ for ((i=1; i<=LOOP_COUNT; i++)); do
         test-memgraph upload-to-bench-graph \
         --benchmark-name $BENCHMARK_NAME \
         --benchmark-results "../../tests/${TEST_PATH}/${RESULTS_FILE}" \
+        ${HA_RESULTS_FILE:+--benchmark-results-ha-path "../../tests/${TEST_PATH}/${HA_RESULTS_FILE}"} \
         --github-run-id $RUN_ID \
         --github-run-number $RUN_NUMBER \
         --head-branch-name $BRANCH_NAME; then

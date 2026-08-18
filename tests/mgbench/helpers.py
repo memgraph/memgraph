@@ -205,13 +205,16 @@ def match_patterns(workload, variant, group, query, is_default_variant, patterns
 
 
 def filter_workloads(available_workloads: dict, benchmark_context: BenchmarkContext) -> list:
-    patterns = benchmark_context.benchmark_target_workload
-    for i in range(len(patterns)):
-        pattern = patterns[i].split("/")
+    # Split into a local list rather than writing back into the context. Writing back left the
+    # caller's patterns as component lists, so a second call raised AttributeError on str.split, and
+    # validation.py works around it by passing a copy.
+    patterns = []
+    for target_workload in benchmark_context.benchmark_target_workload:
+        pattern = target_workload.split("/")
         if len(pattern) > 5 or len(pattern) == 0:
-            raise Exception("Invalid benchmark description '" + pattern + "'!")
+            raise Exception("Invalid benchmark description '" + target_workload + "'!")
         pattern.extend(["", "*", "*"][len(pattern) - 1 :])
-        patterns[i] = pattern
+        patterns.append(pattern)
 
     filtered = []
     for workload in sorted(available_workloads.keys()):
