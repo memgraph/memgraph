@@ -13,7 +13,6 @@
 
 #include "utils/exceptions.hpp"
 
-#include <fmt/core.h>
 #include <fmt/format.h>
 
 namespace memgraph::query {

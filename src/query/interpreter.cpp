@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/interpreter.hpp"
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include "ctre.hpp"
 #include "memory/db_arena_fwd.hpp"
 

@@ -13,7 +13,7 @@
 #include <ranges>
 #include <string_view>
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <mgp.hpp>
 
 constexpr std::string_view kProcedureCase = "case";
