@@ -8134,8 +8134,7 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
 TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
   auto &ast_generator = *GetParam();
 
-  // The body parses as a full cypherQuery, so it carries the pre-query directives with it. Planning its RETURN would
-  // otherwise put a PeriodicCommit inside the branch, finalizing the caller's transaction from inside a predicate.
+  // The body parses as a full cypherQuery, so it carries the pre-query directives with it.
   TestInvalidQueryWithMessage<SyntaxException>(
       "MATCH (n) WHERE EXISTS { USING PERIODIC COMMIT 1 MATCH (n)-[]->(m) RETURN m } RETURN n;",
       ast_generator,

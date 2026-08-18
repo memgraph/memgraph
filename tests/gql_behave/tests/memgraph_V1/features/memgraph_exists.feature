@@ -1719,9 +1719,7 @@ Feature: WHERE exists
       Then an error should be raised
 
   # The body's RETURN decides how many rows reach the fold, so SKIP, LIMIT and aggregation on it change the answer.
-  # DISTINCT alone cannot - it never takes a non-empty table to an empty one - so it only shows up composed with a
-  # SKIP that the reduced row count can no longer clear. The fixture discriminates: Alice has 3 KNOWS rows to only
-  # 2 distinct friends, Bob has 1, Carol has 0.
+  # DISTINCT alone cannot - it never empties a non-empty table - so it appears only composed with a SKIP.
 
   Scenario: Test EXISTS subquery whose body RETURN aggregates
       Given an empty graph
@@ -1746,6 +1744,7 @@ Feature: WHERE exists
           | 'Bob'   | true |
           | 'Carol' | true |
 
+  # Invariance pin: the WITH spelling was always planned, so this agrees either way. It guards the two from diverging.
   Scenario: Test EXISTS subquery whose body RETURN aggregates agrees with the WITH spelling
       Given an empty graph
       And having executed:
@@ -1815,8 +1814,8 @@ Feature: WHERE exists
           | 'Bob'   | false |
           | 'Carol' | false |
 
-  # Alice is the discriminating row: 3 rows but 2 distinct, so the SKIP clears the table only if the DISTINCT was
-  # planned. Dave, with 3 distinct, keeps a row either way, so an all-false table cannot pass by accident.
+  # Alice is the discriminating row: 3 rows, 2 distinct, so the SKIP clears the table only if DISTINCT was planned.
+  # Dave, with 3 distinct, keeps a row either way, so an all-false table cannot pass by accident.
   Scenario: Test EXISTS subquery whose body RETURN is DISTINCT
       Given an empty graph
       And having executed:
@@ -1890,9 +1889,8 @@ Feature: WHERE exists
           | name    |
           | 'Alice' |
 
-  # ORDER BY is the one RETURN body clause that cannot change the answer - a sort permutes the table, and the fold
-  # reads only whether it is empty. These pin that invariance, and that the sort still plans: composed with a SKIP it
-  # must leave the count the SKIP acts on alone, and it may order on a correlated outer symbol.
+  # ORDER BY cannot change the answer - a sort permutes the table and the fold reads only whether it is empty. These
+  # pin that invariance, and that the sort still plans: composed with a SKIP, and ordering on a correlated outer symbol.
 
   Scenario: Test EXISTS subquery whose body RETURN has an ORDER BY
       Given an empty graph
@@ -1963,8 +1961,8 @@ Feature: WHERE exists
           | 'Bob'   | true  |
           | 'Carol' | false |
 
-  # Nesting reaches a second RETURN through the inner body's WHERE. Each LIMIT 0 below turns exactly one of the two
-  # tables empty, so the pair says which RETURN is planned: only Alice knows a friend who likes anything.
+  # Nesting reaches a second RETURN through the inner body's WHERE. Only Alice knows a friend who likes anything.
+  # The first scenario is the baseline; the LIMIT 0 pair below empties one table each and says which RETURN is planned.
 
   Scenario: Test nested EXISTS subqueries with a RETURN in both bodies
       Given an empty graph

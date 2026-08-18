@@ -3983,8 +3983,8 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
       throw SyntaxException("EXISTS subqueries cannot have a query memory limit.");
     }
 
-    // 4. No periodic commit. The body is read-only and its rows are only counted, so a commit point inside it has
-    // nothing to commit - but it would run, finalizing the caller's transaction from inside a filter predicate.
+    // 4. No periodic commit. The body's rows are only counted, so a commit point inside it has nothing to commit -
+    // but it would run, finalizing the caller's transaction from inside an expression.
     if (cypher_query->pre_query_directives_.commit_frequency_ != nullptr) {
       throw SyntaxException("EXISTS subqueries cannot have a periodic commit.");
     }

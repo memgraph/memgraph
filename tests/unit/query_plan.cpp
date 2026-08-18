@@ -5138,8 +5138,7 @@ TYPED_TEST(TestPlanner, ExistsSubqueryMatchWhere) {
 }
 
 TYPED_TEST(TestPlanner, ExistsSubqueryMatchWherePlansReturn) {
-  // The body's RETURN is planned, not discarded, so the branch gains its Produce. Everything the RETURN body carries
-  // - DISTINCT, SKIP, LIMIT, aggregation - reaches the row count the fold reads.
+  // The body's RETURN is planned, not discarded, so the branch gains its Produce.
   FakeDbAccessor dba;
 
   auto name = dba.Property("name");
@@ -5272,8 +5271,8 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnion) {
   DeleteListContent(&exists_union_plan);
 }
 
-// A RETURN-only branch plans to a Produce over the Once its own constructor substitutes for a null input, so each
-// side of the UNION has real output symbols - GenUnion dereferences both operands to read them.
+// A RETURN-only branch plans to a Produce over the Once its constructor substitutes, so each side of the UNION has
+// the real output symbols GenUnion dereferences both operands to read.
 
 TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionOfReturnOnlyBodies) {
   // MATCH (n) WHERE EXISTS { RETURN 1 AS c UNION RETURN 2 AS c } RETURN n

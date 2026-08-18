@@ -420,12 +420,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        .write_occurred = branch_sees_write()};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
-            // An EXISTS branch is only counted, never returned, so neither of the two operators a RETURN body can
-            // add for a write buys anything there - and both are actively harmful. A PeriodicCommit would finalize
-            // the caller's transaction from inside a filter predicate, and an Accumulate drains its input below the
-            // fold's Limit(1), so a write that reached the body through the union allow-list hole would run once
-            // per matched row instead of once. Both are already refused above, in the parser and the allow-list;
-            // this mirrors what GenWith has always done and keeps the planner from depending on those gates.
+            // An EXISTS branch's rows are only counted, so neither operator buys anything here and both hurt: a
+            // PeriodicCommit would finalize the caller's transaction from inside an expression, and an Accumulate
+            // drains the branch below the fold, running a union-hole write once per matched row instead of once.
             input_op = impl::GenReturn(*ret,
                                        std::move(input_op),
                                        *context.symbol_table,
@@ -601,22 +598,17 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
       }
 
-      // Is this the only situation that should be covered
       // An EXISTS branch must keep emitting its rows for the fold to read, so it never gets the EmptyResult wrapper.
-      // The null check is belt-and-braces: no clause sequence is known to plan to nothing.
       if (!context.in_exists_subquery && input_op && input_op->OutputSymbols(*context.symbol_table).empty()) {
         if (has_periodic_commit && is_root_query) {
-          // this periodic commit is from USING PERIODIC COMMIT
           input_op = std::make_unique<PeriodicCommit>(std::move(input_op), query_parts.commit_frequency);
         }
         input_op = std::make_unique<EmptyResult>(std::move(input_op));
       }
 
-      // A body that plans to nothing still matches one (empty) row. Planning the body's RETURN removed the last
-      // clause that dropped one, so a branch's own part no longer reaches this; it stays as defence, and
-      // `in_exists_subquery` survives the recursive `Plan` calls this one makes, so it still covers a nested
-      // `CALL {}` body - `HandleSubquery` dereferences that plan too. Substituted per query part, because each
-      // UNION branch is its own and the combinator below dereferences both operands.
+      // A body that plans to nothing still matches one (empty) row. Defence only: no clause sequence has been found
+      // that plans to nothing, here or in a nested `CALL {}` body, but `HandleSubquery` dereferences that plan
+      // unguarded. Per query part, because each UNION branch is its own and the combinator dereferences both.
       if (context.in_exists_subquery && !input_op) {
         input_op = std::make_unique<Once>();
       }
@@ -1692,7 +1684,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       auto branch_bound_symbols = bound_symbols;
       // in_exists_subquery drives four behaviours of the recursive plan: the EmptyResult wrapper is suppressed, a
       // null-planning query part gets a Once, GenWith keeps outer-scope vertex/edge symbols across a body WITH, and
-      // GenReturn is denied the write-only operators (Accumulate, PeriodicCommit) that make no sense in a branch.
+      // GenReturn is denied Accumulate and PeriodicCommit.
       auto const restore = utils::OnScopeExit{[this,
                                                old_exists_subquery = context_->in_exists_subquery,
                                                old_after_write = exists_branch_after_write_,
