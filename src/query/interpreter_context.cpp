@@ -18,6 +18,7 @@
 
 #include "query/interpreter_context.hpp"
 
+#include "dbms/constants.hpp"
 #include "parameters/parameters.hpp"
 #include "query/interpreter.hpp"
 #include "query/query_user.hpp"
@@ -26,6 +27,16 @@
 #include "utils/resource_monitoring.hpp"
 
 namespace memgraph::query {
+
+namespace {
+// Exactly one of lv/rv null -> false (an unauthenticated/null snapshot never matches a live caller);
+// both null also compares equal, via lv.get() == rv.
+bool SameUser(const std::shared_ptr<QueryUserOrRole> &lv, QueryUserOrRole *rv) {
+  if (lv.get() == rv) return true;
+  if (lv && rv) return *lv == *rv;
+  return false;
+}
+}  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::optional<InterpreterContext> InterpreterContextHolder::instance{};
@@ -94,12 +105,11 @@ bool TryTerminateInterpreter(Interpreter *interpreter, ShouldKill &&should_kill)
 /// TRANSACTION_MANAGEMENT for.
 bool MayTerminate(Interpreter const *interpreter, QueryUserOrRole *user_or_role,
                   std::function<bool(QueryUserOrRole *, std::string const &)> const &privilege_checker) {
-  auto same_user = [](const auto &lv, const auto &rv) {
-    if (lv.get() == rv) return true;
-    if (lv && rv) return *lv == *rv;
-    return false;
-  };
-  if (same_user(interpreter->user_or_role_, user_or_role)) return true;
+  // interpreter->user_or_role_ is owning-thread state -- SetUser/ResetUser can run concurrently on it from
+  // interpreter's own thread. foreign_user_view_.load() copies the shared_ptr, which keeps the pointee alive
+  // for the whole comparison below, instead of racing a bare reference to it.
+  auto const user_snapshot = interpreter->foreign_user_view_.load();
+  if (SameUser(user_snapshot, user_or_role)) return true;
 
   auto const db_name = interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : "";
   return privilege_checker(user_or_role, db_name);
@@ -176,6 +186,84 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateAllTransaction
   }
 
   return results;
+}
+
+TerminateSessionsResult InterpreterContext::TerminateSessions(
+    const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
+    QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
+    std::string_view caller_session_uuid) {
+  TerminateSessionsResult result;
+  result.rows.reserve(session_ids.size());
+
+  for (const auto &id : session_ids) {
+    // A connection is registered into `interpreters` before authentication completes, so a mid-handshake
+    // session carries an empty uuid; without this guard an empty id would match every such session at once.
+    if (id.empty()) {
+      result.rows.push_back({TypedValue(id), TypedValue(false)});
+      continue;
+    }
+
+    // Refuse to sever the caller's own control channel mid-statement -- the response couldn't be delivered
+    // afterwards anyway. Reported as a row (not silently dropped) so the refusal is visible.
+    if (id == caller_session_uuid) {
+      result.rows.push_back({TypedValue(id), TypedValue(false)});
+      spdlog::warn("Cannot terminate the session that issued the command");
+      continue;
+    }
+
+    Interpreter *target = nullptr;
+    for (Interpreter *interpreter : interpreters) {
+      // A null snapshot means SetSessionInfo has not run yet (unauthenticated) and so can't carry a non-empty
+      // uuid; the added null check here preserves the original `!session_info_.uuid.empty()` guard.
+      auto const session_snapshot = interpreter->foreign_session_view_.load();
+      if (session_snapshot && !session_snapshot->uuid.empty() && session_snapshot->uuid == id) {
+        target = interpreter;
+        break;
+      }
+    }
+
+    if (!target) {
+      result.rows.push_back({TypedValue(id), TypedValue(false)});
+      spdlog::warn("Session {} not found", id);
+      continue;
+    }
+
+    // foreign_db_view(), not current_db_.name(): the target is typically IDLE, which the verifier CAS below can
+    // never claim, so the unlocked read name() performs would be a data race here.
+    // This authorizes against the database the session held *at the time of the check* -- no claim is carried
+    // across to the termination below, so the target may USE DATABASE in between. That closes the systematic
+    // cross-tenant hole (a db-A admin can no longer terminate any db-B session); it is not transactional
+    // enforcement.
+    // This decision runs before the only CAS in this function (transaction_status_ below, which only marks
+    // TERMINATED) -- unlike TerminateTransactions, nothing here incidentally orders the read against the target.
+    auto const target_user_snapshot = target->foreign_user_view_.load();
+    if (!SameUser(target_user_snapshot, user_or_role)) {
+      // A dbless target has no tenant to scope against; see the declaration comment for why
+      // dbms::kDefaultDB is the fallback rather than a refusal.
+      auto target_db = target->current_db_.foreign_db_view().name;
+      if (target_db.empty()) {
+        target_db = std::string{dbms::kDefaultDB};
+      }
+      if (!privilege_checker(user_or_role, target_db)) {
+        result.rows.push_back({TypedValue(id), TypedValue(false)});
+        spdlog::warn("Not enough rights to kill the session");
+        continue;
+      }
+    }
+
+    TransactionStatus alive_status = TransactionStatus::ACTIVE;
+    if (target->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
+      target->transaction_status_.store(TransactionStatus::TERMINATED, std::memory_order_release);
+    }
+    // Unlike TerminateTransactions, a failed CAS here must NOT skip termination -- the primary target of this
+    // feature is an IDLE session, for which the CAS above is expected to fail.
+
+    result.to_close.push_back(id);
+    result.rows.push_back({TypedValue(id), TypedValue(true)});
+    spdlog::warn("Session {} successfully killed", id);
+  }
+
+  return result;
 }
 
 std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(

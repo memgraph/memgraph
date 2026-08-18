@@ -3971,7 +3971,7 @@ class TransactionQueueQuery : public memgraph::query::Query {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { SHOW_TRANSACTIONS, TERMINATE_TRANSACTIONS };
+  enum class Action { SHOW_TRANSACTIONS, TERMINATE_TRANSACTIONS, TERMINATE_SESSIONS };
 
   // Mirrors the grammar's transactionStatus rule (RUNNING | COMMITTING | ABORTING).
   // Kept as a parser-layer enum so ast.hpp stays free of runtime context headers.
@@ -3983,12 +3983,14 @@ class TransactionQueueQuery : public memgraph::query::Query {
 
   memgraph::query::TransactionQueueQuery::Action action_;
   std::vector<Expression *> transaction_id_list_;
+  std::vector<Expression *> session_id_list_;
   std::vector<StatusFilter> status_filter_;  // empty = show all statuses
 
   TransactionQueueQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<TransactionQueueQuery>();
     object->action_ = action_;
     object->transaction_id_list_ = transaction_id_list_;
+    object->session_id_list_ = session_id_list_;
     object->status_filter_ = status_filter_;
     return object;
   }

@@ -391,6 +391,11 @@ add_unit_test(network_timeouts
     LINK_TARGETS mg-communication
 )
 
+add_unit_test(session_registry
+    SOURCES session_registry.cpp
+    LINK_TARGETS mg-communication
+)
+
 # Test mg-kvstore
 add_unit_test(kvstore
     SOURCES kvstore.cpp
