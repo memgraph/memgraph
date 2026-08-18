@@ -3995,7 +3995,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, Exists::Fold fol
     // 4. No periodic commit. The body's rows are only counted, so a commit point inside it has nothing to commit -
     // but it would run, finalizing the caller's transaction from inside an expression.
     if (cypher_query->pre_query_directives_.commit_frequency_ != nullptr) {
-      throw SyntaxException("EXISTS subqueries cannot have a periodic commit.");
+      throw SyntaxException("{} subqueries cannot have a periodic commit.", construct);
     }
 
     // 5. No parallel execution. Only the enclosing query's directives are read, so the body's are silently dropped;
