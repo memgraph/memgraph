@@ -39,8 +39,8 @@
 // differential; no such rule exists.
 
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
+#include <iostream>
 #include <vector>
 
 #include <boost/unordered/unordered_flat_map.hpp>
@@ -68,7 +68,7 @@ using memgraph::planner::core::fuzz::FuzzTypedEGraph;
 using FuzzRule = RewriteRule<FuzzTypedEGraph>;  // the rewrite engine drives a TypedEGraph
 
 [[noreturn]] void fail(char const *what) {
-  std::fprintf(stderr, "incremental arming divergence: %s\n", what);
+  std::cerr << "incremental arming divergence: " << what << "\n";
   std::abort();
 }
 
@@ -180,14 +180,16 @@ void apply_ops(FuzzTypedEGraph &ref_eg, FuzzTypedEGraph &inc_eg, std::vector<ECl
   for (size_t n = 0; n < budget && cursor < size && pool.size() < 512; ++n) {
     switch (next() % 5) {
       case 0: {
-        auto const i = idx(), j = idx();
+        auto const i = idx();
+        auto const j = idx();
         auto const id = rc.emplace(FuzzSymbol::Plus, {pool[i], pool[j]}).eclass_id;
         ic.emplace(FuzzSymbol::Plus, {pool[i], pool[j]});
         if (grow) pool.push_back(id);
         break;
       }
       case 1: {
-        auto const i = idx(), j = idx();
+        auto const i = idx();
+        auto const j = idx();
         auto const id = rc.emplace(FuzzSymbol::Mul, {pool[i], pool[j]}).eclass_id;
         ic.emplace(FuzzSymbol::Mul, {pool[i], pool[j]});
         if (grow) pool.push_back(id);
@@ -201,7 +203,8 @@ void apply_ops(FuzzTypedEGraph &ref_eg, FuzzTypedEGraph &inc_eg, std::vector<ECl
         break;
       }
       case 3: {
-        auto const i = idx(), j = idx();
+        auto const i = idx();
+        auto const j = idx();
         rc.merge(pool[i], pool[j]);  // create equalities so the rules can fire
         ic.merge(pool[i], pool[j]);
         break;
@@ -221,6 +224,8 @@ void apply_ops(FuzzTypedEGraph &ref_eg, FuzzTypedEGraph &inc_eg, std::vector<ECl
         if (grow) pool.push_back(ref_id);
         break;
       }
+      default:
+        break;
     }
   }
 }
