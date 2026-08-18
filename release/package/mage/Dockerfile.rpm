@@ -26,6 +26,13 @@ USER root
 # whose default python3 is 3.9). install_python_requirements.sh (run by the
 # memgraph-mage %post) independently prefers python3.12 when present, so the
 # interpreter it installs deps into matches the one memgraph embeds.
+#
+# rpm demotes %post scriptlet failures to warnings, so a failed pip phase would
+# still produce an image whose python query modules or SSO logins fail at
+# runtime instead of at build time. Assert the deps actually landed, and assert
+# it through the interpreter that has to import them: the auth modules are
+# execve'd by memgraph, so their shebang -- repointed by the memgraph %post
+# where the distro python3 is too old -- is the python that must have gssapi.
 ARG PY_VERSION=""
 RUN --mount=type=bind,source=./memgraph.rpm,target=/packages/memgraph.rpm,ro \
     --mount=type=bind,source=./memgraph-mage.rpm,target=/packages/memgraph-mage.rpm,ro \
@@ -39,6 +46,9 @@ RUN --mount=type=bind,source=./memgraph.rpm,target=/packages/memgraph.rpm,ro \
     $py_pkgs gcc gcc-c++ krb5-devel unixODBC && \
   dnf install -y --setopt=tsflags='' \
     /packages/memgraph.rpm /packages/memgraph-mage.rpm && \
+  auth_py="$(sed -n '1s|^#!||p' /usr/lib/memgraph/auth_module/kerberos.py)" && \
+  echo "auth modules run on $auth_py ($($auth_py --version 2>&1))" && \
+  HOME=/var/lib/memgraph "$auth_py" -c "import gssapi, networkx" && \
   dnf clean all && rm -rf /var/cache/dnf
 
 # query_modules holds the MAGE .so files; memgraph's embedded loader needs them

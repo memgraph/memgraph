@@ -129,10 +129,11 @@ fi
   package-mage-deb
 
 # gssapi has no prebuilt linux wheels on PyPI; the Dockerfile's python-base
-# stage installs it from the staged wheels dir.
-./release/package/mgbuild.sh \
-  ${MGBUILD_ARGS[*]} \
-  build-gssapi
+# stage installs our own manylinux wheels from the staged wheels dir. Off a CI
+# runner the mgdeps cache is unreachable, so this falls back to S3.
+./tools/ci/fetch-gssapi-wheels.sh \
+  --arch "$ARCH" \
+  --dest-dir "$CONTEXT_DIR/wheels"
 
 if [[ "$PACKAGE_FLAVOUR" == "debug" ]]; then
   # heaptrack is prebuilt in the toolchain; copy-heaptrack stages it out.

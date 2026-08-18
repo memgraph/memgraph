@@ -182,6 +182,10 @@ docker_stop_if_there() {
 
 cleanup_docker() {
   docker_stop_if_there memgraph_smoke || true
+
+  if declare -F kerberos_cleanup >/dev/null; then
+    kerberos_cleanup
+  fi
 }
 
 cleanup_docker_exit() {
