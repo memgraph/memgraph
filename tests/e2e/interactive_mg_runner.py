@@ -209,6 +209,7 @@ def _start(
     username=None,
     password=None,
     storage_snapshot_on_exit: bool = False,
+    silence_output: bool = False,
     gdb_port=None,
 ):
     """
@@ -252,6 +253,7 @@ def _start(
         setup_queries=setup_queries,
         bolt_port=bolt_port,
         storage_snapshot_on_exit=storage_snapshot_on_exit,
+        silence_output=silence_output,
     )
     assert mg_instance.is_running(), "An error occurred after starting Memgraph instance: application stopped running."
     return True
@@ -407,6 +409,7 @@ def start(instances, instance_name, procdir="", gdb_port=None, run_setup_queries
     password = value["password"] if "password" in value else None
 
     storage_snapshot_on_exit = value["storage_snapshot_on_exit"] if "storage_snapshot_on_exit" in value else False
+    silence_output = value["silence_output"] if "silence_output" in value else False
 
     started = _start(
         instance_name,
@@ -419,6 +422,7 @@ def start(instances, instance_name, procdir="", gdb_port=None, run_setup_queries
         username,
         password,
         storage_snapshot_on_exit=storage_snapshot_on_exit,
+        silence_output=silence_output,
         gdb_port=gdb_port,
     )
     return started

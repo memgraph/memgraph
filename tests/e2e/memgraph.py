@@ -228,9 +228,14 @@ class MemgraphInstanceRunner:
         setup_queries=None,
         bolt_port: Optional[int] = None,
         storage_snapshot_on_exit: bool = False,
+        silence_output: bool = False,
     ):
         """
         Starts an instance which is not already running. Before doing anything, calls `stop` on instance.
+        When `silence_output` is set, the instance's stdout and stderr are discarded instead of inherited. Everything
+        Memgraph logs still reaches its `--log-file`; what is dropped is the startup banner, the flag deprecation
+        notices and the query module import notes, which a caller starting a whole cluster repeatedly would otherwise
+        see once per instance per start.
         """
         if not restart and self.is_running():
             return
@@ -272,7 +277,8 @@ class MemgraphInstanceRunner:
             print("Waiting for debugger to attach... (press Enter in gdb to continue)")
             print("=" * 80 + "\n")
 
-        self.proc_mg = subprocess.Popen(args_mg)
+        output = subprocess.DEVNULL if silence_output else None
+        self.proc_mg = subprocess.Popen(args_mg, stdout=output, stderr=output)
 
         # Use much longer timeout when debugging with gdb
         timeout = 3600 if self.gdb_port else 15
