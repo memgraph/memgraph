@@ -1005,7 +1005,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     if (non_empty_list && !has_value) {
       return TypedValue(ctx_->memory);
-    } else if (has_null_elements && !predicate_satisfied) {
+    } else if (has_null_elements) {
+      // Two matches already returned false above, so at most one definite match
+      // reached here and a null element could have been a second one.
       return TypedValue(ctx_->memory);
     } else {
       return TypedValue(predicate_satisfied, ctx_->memory);
