@@ -1905,9 +1905,10 @@ test_memgraph() {
       # Same queries and worker count as mgbench, but against a main with two SYNC replicas behind
       # three coordinators, so the throughput can be compared against the standalone series.
       # Targets every distinct pokec write shape plus two reads as a control; see
-      # specs/replication-benchmarks.md. Query counts are read from the cache but never written to
-      # it, so a cold HA run cannot publish counts derived from replicated commits and have a later
-      # standalone run inherit them.
+      # specs/replication-benchmarks.md. The invocation deliberately differs from mgbench only in
+      # --installation-type and the query list; in particular query-count caching is left alone, so
+      # both suites calibrate and reuse counts by the same rules. mgbench runs first and is
+      # therefore the leg that authors the counts.
       shift 1
       local DATASET_SIZE='medium'
       local EXPORT_RESULTS_FILE='benchmark_result_replication.json'
@@ -1931,7 +1932,7 @@ test_memgraph() {
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type ha --num-workers-for-benchmark 6 --no-save-query-counts --export-results $EXPORT_RESULTS_FILE 'pokec/$DATASET_SIZE/create/*' pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/arango/unwind_range_vertex_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read pokec/$DATASET_SIZE/arango/aggregate"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type ha --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE 'pokec/$DATASET_SIZE/create/*' pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/arango/unwind_range_vertex_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read pokec/$DATASET_SIZE/arango/aggregate"
     ;;
     mgbench-supernode)
       shift 1

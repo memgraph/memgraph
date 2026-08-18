@@ -219,8 +219,10 @@ jobs:
             $BRANCH_NAME \
             mgbench
 
-      # Runs after mgbench so the standalone suite is the one that calibrates and persists query
-      # counts; this suite consumes them but never writes them.
+      # Runs after mgbench so the standalone suite is the one that calibrates and persists the
+      # per-query counts. Both suites share that cache, which is what makes them execute the same
+      # number of queries, and this suite is the slower of the two, so it must not be the one that
+      # authors them.
       - name: Run and upload mgbench-replication
         id: mgbench-replication
         continue-on-error: true
