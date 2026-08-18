@@ -1889,3 +1889,148 @@ Feature: WHERE exists
       Then the result should be, in order:
           | name    |
           | 'Alice' |
+
+  # ORDER BY is the one RETURN body clause that cannot change the answer - a sort permutes the table, and the fold
+  # reads only whether it is empty. These pin that invariance, and that the sort still plans: composed with a SKIP it
+  # must leave the count the SKIP acts on alone, and it may order on a correlated outer symbol.
+
+  Scenario: Test EXISTS subquery whose body RETURN has an ORDER BY
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN f ORDER BY f.name } AS h
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | h     |
+          | 'Alice' | true  |
+          | 'Bob'   | true  |
+          | 'Carol' | false |
+
+  Scenario: Test EXISTS subquery whose body RETURN has an ORDER BY and a SKIP
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN f ORDER BY f.name SKIP 1 } AS h
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | h     |
+          | 'Alice' | true  |
+          | 'Bob'   | false |
+          | 'Carol' | false |
+
+  Scenario: Test EXISTS subquery whose body RETURN orders on a correlated outer symbol
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (a)-[:KNOWS]->(f2)
+          CREATE (b)-[:KNOWS]->(f1)
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name, EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN f ORDER BY p.name DESC } AS h
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | h     |
+          | 'Alice' | true  |
+          | 'Bob'   | true  |
+          | 'Carol' | false |
+
+  # Nesting reaches a second RETURN through the inner body's WHERE. Each LIMIT 0 below turns exactly one of the two
+  # tables empty, so the pair says which RETURN is planned: only Alice knows a friend who likes anything.
+
+  Scenario: Test nested EXISTS subqueries with a RETURN in both bodies
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (b)-[:KNOWS]->(f2)
+          CREATE (f1)-[:LIKES]->(:Movie {name: 'M1'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name,
+                 EXISTS { MATCH (p)-[:KNOWS]->(f) WHERE EXISTS { MATCH (f)-[:LIKES]->(m) RETURN m } RETURN f } AS h
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | h     |
+          | 'Alice' | true  |
+          | 'Bob'   | false |
+          | 'Carol' | false |
+
+  Scenario: Test nested EXISTS subqueries where the inner body RETURN has a LIMIT
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (b)-[:KNOWS]->(f2)
+          CREATE (f1)-[:LIKES]->(:Movie {name: 'M1'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name,
+                 EXISTS { MATCH (p)-[:KNOWS]->(f) WHERE EXISTS { MATCH (f)-[:LIKES]->(m) RETURN m LIMIT 0 } RETURN f } AS h
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | h     |
+          | 'Alice' | false |
+          | 'Bob'   | false |
+          | 'Carol' | false |
+
+  Scenario: Test nested EXISTS subqueries where the outer body RETURN has a LIMIT
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
+          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
+          CREATE (a)-[:KNOWS]->(f1)
+          CREATE (b)-[:KNOWS]->(f2)
+          CREATE (f1)-[:LIKES]->(:Movie {name: 'M1'})
+          """
+      When executing query:
+          """
+          MATCH (p:Person)
+          RETURN p.name AS name,
+                 EXISTS { MATCH (p)-[:KNOWS]->(f) WHERE EXISTS { MATCH (f)-[:LIKES]->(m) RETURN m } RETURN f LIMIT 0 } AS h
+          ORDER BY name;
+          """
+      Then the result should be, in order:
+          | name    | h     |
+          | 'Alice' | false |
+          | 'Bob'   | false |
+          | 'Carol' | false |
