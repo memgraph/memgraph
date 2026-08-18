@@ -69,6 +69,16 @@ SUPPORTED_TESTS=(
     unit unit-coverage upload-to-bench-graph
 )
 DEFAULT_THREADS=0
+# Memory budget per concurrent job, used to derive a default -j when none is
+# given. Measured against a full cold Debug build: peak anonymous memory tracks
+# 4.8 GB + 1.02 GB per compile job across j=8/22/44, and the heaviest single
+# translation unit peaks near 3.5 GB. The per-thread figures carry a margin over
+# the measured slope; the reserve covers the affine part plus the toolchain and
+# ninja themselves. Debug is the worst case, so these are safe for every build
+# type. Re-measure if the query or storage translation units grow substantially.
+MEM_GB_PER_BUILD_THREAD=1.3
+MEM_GB_PER_DEP_THREAD=2.0
+MEM_GB_BUILD_RESERVE=6
 DEFAULT_ENTERPRISE_LICENSE=""
 DEFAULT_ORGANIZATION_NAME="memgraph"
 DEFAULT_BENCH_GRAPH_HOST="bench-graph-api"
@@ -150,6 +160,8 @@ print_help () {
   echo -e "  --disable-jemalloc            Build without jemalloc"
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
   echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
+  echo -e "  --compile-threads int         Cap the number of concurrent compile steps via Ninja's job pools (default 0, no cap). Link parallelism is unaffected."
+  echo -e "  --dep-threads int             Cap parallelism inside each Conan dependency build and inside cargo (default 0, no cap)."
   echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
   echo -e "  --mage MODE                   MAGE query modules: off (default), on (build alongside memgraph), only (just MAGE; trims the conan graph). Mirrors build.sh's --mage. Combine with global --cugraph for GPU modules."
   echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph)."
@@ -575,6 +587,8 @@ build_memgraph () {
   local conan_password=""
   local build_dependency=""
   local link_threads=0
+  local compile_threads=0
+  local dep_threads=0
   local split_debug=false
   local mage_mode="off"
   local mage_cuda=false
@@ -637,6 +651,14 @@ build_memgraph () {
       ;;
       --link-threads)
         link_threads=$2
+        shift 2
+      ;;
+      --compile-threads)
+        compile_threads=$2
+        shift 2
+      ;;
+      --dep-threads)
+        dep_threads=$2
         shift 2
       ;;
       --split-debug)
@@ -792,6 +814,21 @@ build_memgraph () {
   # NOTE: also registered in build.sh — keep in sync
   docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add memgraph-recipes /home/mg/memgraph/conan_recipes -t local-recipes-index --force"
 
+  # Peak build memory is affine in the job count, so an uncapped -j$(nproc) asks
+  # for memory proportional to the core count on a machine whose RAM is fixed.
+  # Runners with a high core-to-RAM ratio OOM long before they run out of cores.
+  # Derive the caps from what the machine actually has, still bounded by nproc,
+  # so a memory-rich machine is unaffected. Explicit flags win.
+  local compute_threads="$PROJECT_ROOT/tools/ci/compute-build-threads.sh"
+  if [[ "$threads" == "$DEFAULT_THREADS" && -x "$compute_threads" ]]; then
+    threads=$("$compute_threads" "$MEM_GB_PER_BUILD_THREAD" "$MEM_GB_BUILD_RESERVE")
+    echo "Building with $threads threads (memory-aware default)"
+  fi
+  if [[ "$dep_threads" -le 0 && -x "$compute_threads" ]]; then
+    dep_threads=$("$compute_threads" "$MEM_GB_PER_DEP_THREAD" "$MEM_GB_BUILD_RESERVE")
+    echo "Building dependencies with $dep_threads threads (memory-aware default)"
+  fi
+
   # Install Conan dependencies
   echo "Installing Conan dependencies..."
   local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
@@ -808,6 +845,13 @@ build_memgraph () {
   fi
 
   local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_${toolchain_version} $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+
+  # Each dependency Conan builds from source compiles at $(nproc) by default.
+  # A toolchain bump changes every package_id, so a cache miss means rebuilding
+  # the whole graph -- arrow and aws-sdk-cpp included -- at full width.
+  if [[ "$dep_threads" -gt 0 ]]; then
+    CONAN_PROFILE_ARGS="$CONAN_PROFILE_ARGS -c tools.build:jobs=$dep_threads"
+  fi
 
   # MAGE-only: trim the conan graph; the generated toolchain then also sets
   # MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON (see conanfile.py).
@@ -873,9 +917,23 @@ build_memgraph () {
     fi
   fi
 
-  # Cap link concurrency via Ninja job pools, leaving compile parallelism untouched.
+  # Cap compile and link concurrency independently via Ninja job pools. Compiles
+  # and links have very different per-job memory costs, so a single -j that is
+  # safe for links wastes cores during the compile phase and vice versa. The
+  # pool list is single-quoted because its ';' separator would otherwise be
+  # parsed as a command separator by the shell running the cmake invocation.
+  local job_pools=""
+  if [[ "$compile_threads" -gt 0 ]]; then
+    job_pools="compile=$compile_threads"
+    additional_options="$additional_options -DCMAKE_JOB_POOL_COMPILE=compile"
+  fi
   if [[ "$link_threads" -gt 0 ]]; then
-    additional_options="$additional_options -DCMAKE_JOB_POOLS=link=$link_threads -DCMAKE_JOB_POOL_LINK=link"
+    [[ -n "$job_pools" ]] && job_pools="$job_pools;"
+    job_pools="${job_pools}link=$link_threads"
+    additional_options="$additional_options -DCMAKE_JOB_POOL_LINK=link"
+  fi
+  if [[ -n "$job_pools" ]]; then
+    additional_options="$additional_options -DCMAKE_JOB_POOLS='$job_pools'"
   fi
 
   # Extract debug info into sidecar .debug files post-link (requires RWD/Debug).
@@ -928,11 +986,17 @@ build_memgraph () {
 
   # Build using Conan preset
   echo "Building with Conan preset: $PRESET"
+  # cargo (mgcxx/text_search) spawns its own rustc jobs from inside a Ninja
+  # edge, so its parallelism multiplies with Ninja's unless capped separately.
+  local EXPORT_CARGO_JOBS=""
+  if [[ "$dep_threads" -gt 0 ]]; then
+    EXPORT_CARGO_JOBS="export CARGO_BUILD_JOBS=$dep_threads &&"
+  fi
   if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
-    docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET -- -j"'$(nproc)'
+    docker exec -u mg "$build_container" bash -c "$CMD_START && $EXPORT_CARGO_JOBS cmake --build --preset $PRESET -- -j"'$(nproc)'
   else
     local EXPORT_THREADS="export THREADS=$threads"
-    docker exec -u mg "$build_container" bash -c "$CMD_START && $EXPORT_THREADS && cmake --build --preset $PRESET -- -j\$THREADS"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && $EXPORT_THREADS && $EXPORT_CARGO_JOBS cmake --build --preset $PRESET -- -j\$THREADS"
   fi
 
   # upload conan cache if remote is set
