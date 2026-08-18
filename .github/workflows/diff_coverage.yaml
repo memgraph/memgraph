@@ -147,6 +147,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --no-ccache \
+          --threads 12 \
           build-memgraph --coverage --asan --ubsan \
           --link-threads $LINK_THREADS \
           ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \

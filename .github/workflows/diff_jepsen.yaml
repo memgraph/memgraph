@@ -83,12 +83,16 @@ jobs:
 
       - name: Build release binary
         run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.0)
+          echo "Linking with $LINK_THREADS threads"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --threads 12 \
           build-memgraph \
+          --link-threads $LINK_THREADS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
