@@ -20,7 +20,26 @@ set -euo pipefail
 #      (https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/gssapi/<version>/)
 #      — works from a dev machine or any runner without the cache.
 
-GSSAPI_VERSION="${GSSAPI_VERSION:-1.11.1}"
+# The version to fetch is the pin memgraph's auth module actually requires, read
+# straight from its requirements file so this script can't drift from it. The
+# images pin the same version at their pip install, and --only-binary=gssapi
+# means a bump with no published wheels fails the build instead of quietly
+# building the sdist -- so keep those in step when changing the pin.
+AUTH_REQUIREMENTS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/auth/reference_modules/requirements.txt"
+
+gssapi_version_from_requirements() {
+  local pin
+  pin="$(sed -n 's/^gssapi[[:space:]]*==[[:space:]]*\([^[:space:];#]*\).*/\1/p' "$AUTH_REQUIREMENTS" 2>/dev/null | head -n 1)"
+  if [[ -z "$pin" ]]; then
+    echo "Error: no 'gssapi==<version>' pin found in $AUTH_REQUIREMENTS" >&2
+    return 1
+  fi
+  printf '%s' "$pin"
+}
+
+if [[ -z "${GSSAPI_VERSION:-}" ]]; then
+  GSSAPI_VERSION="$(gssapi_version_from_requirements)"
+fi
 MGDEPS_CACHE_HOST="${MGDEPS_CACHE_HOST:-mgdeps-cache}"
 MGDEPS_CACHE_PORT="${MGDEPS_CACHE_PORT:-8000}"
 S3_BUCKET_URL="${S3_BUCKET_URL:-https://s3.eu-west-1.amazonaws.com/deps.memgraph.io}"

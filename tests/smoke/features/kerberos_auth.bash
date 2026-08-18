@@ -89,6 +89,13 @@ kerberos_wait_for_bolt() {
 
 test_kerberos_auth_setup() {
   echo "FEATURE: Kerberos (GSSAPI) authentication -- realm and instance setup"
+  # Clear anything a previous run left behind. The EXIT traps only fire if the
+  # shell lives long enough to exit -- a SIGKILLed run (a cancelled CI job that
+  # outlives its grace period, an OOM kill) skips them -- and the suite-level
+  # cleanup_docker hook can't help because it runs before this file is sourced,
+  # when kerberos_cleanup isn't defined yet. Without this, one killed run makes
+  # every later run on the same runner fail with "already exists".
+  kerberos_cleanup
 
   rm -rf "$KERBEROS_SHARED_DIR"
   mkdir -p "$KERBEROS_SHARED_DIR"
