@@ -28,11 +28,21 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_link_options(fuzz_compiler_contracts PRIVATE -fsanitize=fuzzer,address)
     target_compile_definitions(fuzz_compiler_contracts PUBLIC ASSERT_FUZZ)
 
-    # Differential fuzzer: incremental saturation must equal full saturation
+    # Differential fuzzer: incremental saturation must equal full saturation.
+    # Address sanitization only when the dependencies are instrumented too; mixing
+    # an instrumented translation unit with a plain abseil gives a SwissTable whose
+    # layout differs across the ODR boundary, and the matcher SEGVs on a valid set.
+    # Without ASAN the fuzzer still builds and its seed corpus still replays, so the
+    # regression target below works in an ordinary build.
+    if(ASAN)
+        set(fuzz_rewrite_incremental_sanitizers fuzzer,address)
+    else()
+        set(fuzz_rewrite_incremental_sanitizers fuzzer)
+    endif()
     add_executable(fuzz_rewrite_incremental fuzz_rewrite_incremental.cpp)
     target_link_libraries(fuzz_rewrite_incremental PRIVATE mg::planner fmt::fmt)
-    target_compile_options(fuzz_rewrite_incremental PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
-    target_link_options(fuzz_rewrite_incremental PRIVATE -fsanitize=fuzzer,address)
+    target_compile_options(fuzz_rewrite_incremental PRIVATE -fsanitize=${fuzz_rewrite_incremental_sanitizers} -fno-omit-frame-pointer)
+    target_link_options(fuzz_rewrite_incremental PRIVATE -fsanitize=${fuzz_rewrite_incremental_sanitizers})
     target_compile_definitions(fuzz_rewrite_incremental PUBLIC ASSERT_FUZZ)
 
     # Create corpus directories for each fuzzer
