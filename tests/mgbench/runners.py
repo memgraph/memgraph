@@ -808,6 +808,16 @@ class MemgraphHA(BaseRunner):
         self._mg_runner = None
         self._main_name = None
         _assert_enterprise_license()
+        # benchmark_context.no_authorization is True when the fine-grained authorization pass is
+        # ENABLED: --no-authorization is a store_false whose absence leaves it set. That pass creates
+        # a user, and from then on this runner cannot connect to the cluster to check readiness, so
+        # refuse now with the remedy rather than time out later on an authentication failure.
+        if benchmark_context.no_authorization:
+            raise Exception(
+                "The HA benchmark cannot run the fine-grained authorization pass: it creates a user, "
+                "after which the runner can no longer connect to the cluster to check that it is "
+                "ready. Pass --no-authorization to skip that pass."
+            )
         self._mg_runner = _import_interactive_mg_runner()
         if benchmark_context.vendor_binary is not None:
             # interactive_mg_runner starts every instance from this module-level path.
