@@ -108,7 +108,7 @@ Listed below are the main scripts used to run the benchmarks:
 - `client.cpp` - Client for querying the database.
 - `graph_bench.py` - Script that starts all tests from Benchgraph.
 - `compare_results.py` - Script that visually compares benchmark results.
-- `ha_cluster.yaml` - Cluster description for the replication benchmarks: the per-instance flags and the cluster setup queries for a main with two SYNC replicas behind three coordinators. Used only with `--installation-type ha`.
+- `ha_cluster.yaml` - Cluster description for the replication benchmarks: the per-instance flags and the cluster setup queries for a main with one SYNC replica behind three coordinators. Used only with `--installation-type ha`.
 
 Except for these scripts, the project also includes query files, dataset files and index configuration files. Once the first test is executed, those files can be located in the newly generated `.cache` and `.temp` folders.
 
@@ -166,7 +166,7 @@ cost of synchronous replication can be read off as the difference between two ot
 runs. The same client binary and the same measurement loop are used, so the throughput number means
 the same thing in both.
 
-The cluster is a main and two SYNC replicas behind three coordinators, all on localhost and
+The cluster is a main and one SYNC replica behind three coordinators, all on localhost and
 distinguished by port. It is described by `ha_cluster.yaml`, which holds each instance's flags and
 the cluster setup queries, and is the file to edit to change the topology or the replication mode.
 Data directories are not in that file: the runner assigns them, pinned for the duration of a run so
@@ -214,8 +214,8 @@ them rather than letting cluster setup fail later.
 Instance logs go to `ha_logs/`. Note that Memgraph uses a daily file sink, so the file on disk
 carries a date suffix — `mgbench_ha_instance_1_2026-08-18.log` — and is opened in append mode, so
 every restart in a run adds to the same file. The instances' console output is discarded instead of
-inherited, because a run restarts all six once per measurement and each start would otherwise print
-a banner, a flag deprecation notice and a query module import note. Nothing Memgraph logs is lost;
+inherited, because a run restarts every instance once per measurement and each start would otherwise
+print a banner, a flag deprecation notice and a query module import note. Nothing Memgraph logs is lost;
 set `silence_output: false` on an instance in `ha_cluster.yaml` to watch it start.
 
 A few things about this mode are worth knowing before reading its numbers:

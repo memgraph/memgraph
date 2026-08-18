@@ -11,7 +11,7 @@ against a coordinator-managed HA cluster.
 
 A new installation type selects an HA runner while the vendor stays `memgraph`, so every existing
 workload continues to resolve its queries. The runner reads a cluster-description YAML, boots
-three coordinators plus a main and two SYNC replicas, waits for the cluster to become genuinely
+three coordinators plus a main and one SYNC replica, waits for the cluster to become genuinely
 usable, hands the benchmark client main's Bolt port, and reports main's CPU and peak memory when
 the cluster stops. The dataset survives the repeated cluster restarts that a benchmark run
 performs between its phases.
@@ -27,8 +27,8 @@ restart cycle, and anything less than a run produces no verifiable number.
 ## Acceptance criteria
 
 - [ ] A new installation-type value selects the HA runner, with the vendor name left as `memgraph` so workload query selection is unaffected
-- [ ] The cluster — three coordinators, one main, two SYNC replicas, all on localhost distinguished by port — comes up from the description YAML
-- [ ] Starting the cluster returns only after a coordinator leader exists, all data instances are registered and healthy, a main exists and accepts a write, and both replicas report as SYNC and caught up
+- [ ] The cluster — three coordinators, one main, one SYNC replica, all on localhost distinguished by port — comes up from the description YAML
+- [ ] Starting the cluster returns only after a coordinator leader exists, all data instances are registered and healthy, a main exists and accepts a write, and every replica reports as SYNC and caught up
 - [ ] Instances run at `WARNING` log level, not `TRACE`
 - [ ] Data directories are pinned for the whole invocation and fresh at the start of each new invocation
 - [ ] Repeated start/stop cycles within one run succeed, and the imported dataset survives them

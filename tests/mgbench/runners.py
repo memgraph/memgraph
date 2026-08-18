@@ -787,7 +787,7 @@ def _is_coordinator(instance):
 class MemgraphHA(BaseRunner):
     """
     Runs the benchmark against a coordinator-managed HA cluster described by a YAML file: three
-    coordinators, one main and two SYNC replicas, driven through tests/e2e/interactive_mg_runner.py.
+    coordinators, one main and one SYNC replica, driven through tests/e2e/interactive_mg_runner.py.
 
     Every phase of a benchmark run restarts the whole cluster. Coordinators keep their Raft state
     across those restarts, so instances are registered exactly once and the repeated setup queries
@@ -853,7 +853,7 @@ class MemgraphHA(BaseRunner):
             # fresh temporary directory so the next run does not benchmark this run's data.
             instance["data_directory"] = os.path.join(self._directory.name, name)
             instance["log_file"] = os.path.join(log_directory, os.path.basename(instance["log_file"]))
-            # A run restarts six instances once per measurement, and each start writes a banner, a
+            # A run restarts every instance once per measurement, and each start writes a banner, a
             # flag deprecation notice and a query module import note to the console. The instances
             # keep logging to their log files. A description can opt back in per instance.
             instance.setdefault("silence_output", True)
@@ -892,7 +892,7 @@ class MemgraphHA(BaseRunner):
         """
         Returns (main_name, problem). The main name is set only once the cluster is fully usable:
         a coordinator leader exists, every data instance is registered and up, exactly one of them
-        is main, both replicas are ready on that main, and it accepts a write.
+        is main, every replica is ready on that main, and it accepts a write.
         """
         rows = None
         problem = "no coordinator answered SHOW INSTANCES"

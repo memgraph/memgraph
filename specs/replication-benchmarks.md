@@ -10,7 +10,7 @@ throughput is directly comparable to the standalone numbers already collected.
 ## Goal
 
 Produce **the same number the standalone mgbench suite produces** — `throughput` in queries per
-second as computed by `tests/mgbench/client.cpp` — with a main and two SYNC replicas behind the
+second as computed by `tests/mgbench/client.cpp` — with a main and one SYNC replica behind the
 Bolt port. The replication tax is then the ratio between two series that differ only in what is
 running behind that port.
 
@@ -32,15 +32,19 @@ could not be trusted to be comparable.
 
 ## Cluster topology
 
-Six processes on localhost, distinguished by port: three coordinators, one main, two SYNC
-replicas. Main is `instance_1` on Bolt port 7687, matching the default the benchmark client
+Five processes on localhost, distinguished by port: three coordinators, one main, one SYNC
+replica. Main is `instance_1` on Bolt port 7687, matching the default the benchmark client
 falls back to.
+
+**Amended during implementation**: the topology started as main plus *two* SYNC replicas and was
+reduced to one. Nothing in the runner encodes the count — the readiness contract derives the
+expected replica count from the description — so this is a YAML edit, which is what decision 4 was
+for.
 
 | Instance | Bolt | Management | Replication / Coordinator |
 |---|---|---|---|
 | `instance_1` (main) | 7687 | 10011 | replication 10001 |
 | `instance_2` (replica) | 7688 | 10012 | replication 10002 |
-| `instance_3` (replica) | 7689 | 10013 | replication 10003 |
 | `coordinator_1` | 7690 | 10121 | coordinator 10111 |
 | `coordinator_2` | 7691 | 10122 | coordinator 10112 |
 | `coordinator_3` | 7692 | 10123 | coordinator 10113 |
@@ -58,14 +62,14 @@ add.
 | 3 | How it is selected | A new `BenchmarkInstallationType.HA = "ha"`, i.e. `--installation-type ha`, keeping `--vendor-name memgraph`. `BaseRunner.create` builds the registry key as `f"{vendor_name}{installation_type}"` for non-native types, so `MemgraphHA` registers automatically. **A new vendor name would be wrong**: every workload selects its queries behind `match self._vendor: case GraphVendors.MEMGRAPH`, so a new vendor would silently yield no queries. `--installation-type ha` also keeps `get_runner_client` returning `BoltClient`, which only special-cases Docker. **Amended during implementation**: this was not sufficient on its own. `sanitize_args` and the benchmark-context construction gated `--vendor-binary` on `native` and `--client-binary` on `native`/`external`, so an HA run received `client_binary=None` and could not execute a single query. Both gates now include HA, via `BenchmarkInstallationType.get_local_binary_installation_types()`, which also gives HA the binary auto-detection and path validation that native already had |
 | 4 | Where per-instance flags live | **One cluster-description YAML**, in the shape `interactive_mg_runner` already accepts via `--context-yaml`: top-level keys are instance names, each with `args`, `log_file`, `setup_queries`. This file is the single source of truth for both flags and topology, so changing replication mode or adding replicas later is an edit here rather than in Python. **Amended during implementation**: this originally suggested YAML anchors for shared flag blocks, which does not work here — a top-level anchor key would be read as a seventh instance, so each instance spells its flags out |
 | 5 | Data directories | **Runner-injected**, overriding whatever the YAML says. They must be pinned *within* an invocation (the dataset has to survive the phase restarts) and fresh *across* invocations (otherwise the previous run's dataset is still present and the import phase silently benchmarks doubled data). `interactive_mg_runner.start` otherwise defaults each start to `secrets.token_hex(4)`, a fresh random directory, which would lose the dataset between phases |
-| 6 | Coordinator state across restarts | **Durable.** All six instances keep their directories for the whole invocation; instances are registered exactly once and never re-registered. `start_all(..., ignore_setup_failures=True)` turns the repeated setup queries into no-ops. The rejected alternative — wiping coordinator state each phase and re-running registration — would call `REGISTER INSTANCE` on a data instance already holding a full dataset, driving it through a role transition whose effect on that data is exactly the kind of thing that would corrupt results rather than fail them |
-| 7 | `start_db` readiness contract | Returns only once: a coordinator leader exists, all three data instances are registered and healthy in `SHOW INSTANCES`, a main exists, `SHOW REPLICAS` on main lists both replicas as SYNC and caught up, and main accepts a write. Built from the existing `tests/e2e/high_availability/common.py` helpers (`has_leader`, `has_main`, `show_instances`, `show_replicas`, `wait_until_main_writeable`) wrapped in `mg_utils.mg_sleep_and_assert` |
+| 6 | Coordinator state across restarts | **Durable.** Every instance keeps its directory for the whole invocation; instances are registered exactly once and never re-registered. `start_all(..., ignore_setup_failures=True)` turns the repeated setup queries into no-ops. The rejected alternative — wiping coordinator state each phase and re-running registration — would call `REGISTER INSTANCE` on a data instance already holding a full dataset, driving it through a role transition whose effect on that data is exactly the kind of thing that would corrupt results rather than fail them |
+| 7 | `start_db` readiness contract | Returns only once: a coordinator leader exists, every data instance is registered and healthy in `SHOW INSTANCES`, a main exists, `SHOW REPLICAS` on main lists every replica as SYNC and caught up, and main accepts a write. The expected replica count comes from the cluster description rather than being hardcoded, so changing the topology needs no code change. Built from the existing `tests/e2e/high_availability/common.py` helpers (`has_leader`, `has_main`, `show_instances`, `show_replicas`, `wait_until_main_writeable`) wrapped in `mg_utils.mg_sleep_and_assert` |
 | 8 | Main identity after a restart | Main **may drift** off `instance_1`. Whichever instance `SHOW INSTANCES` reports as main is used as-is. No attempt is made to force main back with `SET INSTANCE … TO MAIN`, which would have the runner fighting the cluster's own recovery decision and would reintroduce the role-transition risk of decision 6 |
 | 9 | How the client follows main | `BoltClient._bolt_port` becomes **dynamic**, resolved from `runner.get_database_port()` when a runner is supplied and falling back to today's `vendor_args["bolt-port"]` otherwise. `MemgraphHA.get_database_port()` returns the Bolt port of whichever instance `SHOW INSTANCES` reports as main. This is required, not cosmetic: `BoltClient` currently caches the port in `__init__` and is constructed once per run, so after drift it would keep writing to a replica and every write would fail. The fallback keeps the standalone path byte-identical in the flags it passes. **Amended during implementation**: `PythonClient` was described here as already resolving its port this way, which was only half true — it takes the runner's port once at construction and caches it, so it had the same staleness. Both clients now resolve per execution. The runner is supplied only for the HA installation type, because `ExternalVendor.get_database_port()` returns a hardcoded 7687 and ignores `vendor_args`, so consulting it would have regressed external vendors |
-| 10 | Workloads | `pokec/medium`, targeting **all 8 distinct write shapes plus 2 reads as a control**: `create/*` (4 queries), `arango/single_vertex_write`, `arango/single_edge_write`, `arango/unwind_range_vertex_write`, `basic/single_vertex_property_update_update`, and `arango/single_vertex_read` + `arango/aggregate` as the control. 10 queries, no new workload code. Each write is one autocommit transaction, so each pays exactly one SYNC round trip to both replicas — the unit of cost being measured. `unwind_range_vertex_write` is the deliberate exception at 100 nodes per commit, the only point where the delta batch is large enough to show bandwidth cost rather than round-trip cost. **Amended during implementation**: this was originally `create/*` + `update/*` for writes with all of `match/*` as control. Enumerating the queries showed that pokec contains exactly 11 writes, that the published dashboard series come from the `arango`, `create` and `match` groups, and that group-level filtering therefore both missed arango's three writes and dragged in 25 reads. Reads are held to two on purpose: they are only a harness sanity check, and every query costs its own cluster restart |
+| 10 | Workloads | `pokec/medium`, targeting **all 8 distinct write shapes plus 2 reads as a control**: `create/*` (4 queries), `arango/single_vertex_write`, `arango/single_edge_write`, `arango/unwind_range_vertex_write`, `basic/single_vertex_property_update_update`, and `arango/single_vertex_read` + `arango/aggregate` as the control. 10 queries, no new workload code. Each write is one autocommit transaction, so each pays exactly one SYNC round trip to every replica — the unit of cost being measured. `unwind_range_vertex_write` is the deliberate exception at 100 nodes per commit, the only point where the delta batch is large enough to show bandwidth cost rather than round-trip cost. **Amended during implementation**: this was originally `create/*` + `update/*` for writes with all of `match/*` as control. Enumerating the queries showed that pokec contains exactly 11 writes, that the published dashboard series come from the `arango`, `create` and `match` groups, and that group-level filtering therefore both missed arango's three writes and dragged in 25 reads. Reads are held to two on purpose: they are only a harness sanity check, and every query costs its own cluster restart |
 | 11 | Workloads excluded | `high_write_set_property` is dropped. Its query is a single `MATCH (n:Node) SET …` over 100 000 nodes — *one* transaction — so it measures the cost of shipping one enormous delta batch, not commit rate. A genuinely different regime, and reporting it alongside per-commit numbers would mislead. The `basic` group is not used as a group target because it mixes reads, writes and aggregations under one name; one query is named individually instead. **Amended during implementation**: two of the three writes in `basic` are byte-identical Cypher to `arango/single_vertex_write` and `arango/single_edge_write`, so only `single_vertex_property_update_update` is taken from it. `update/vertex_on_property` is dropped as well: it matches on `(n {id: $id})` with no label, so it scans rather than seeks and the commit it is meant to measure is lost in the scan time — `basic/single_vertex_property_update_update` is the same write against an index |
 | 12 | Dataset size | `medium` (100 000 vertices / 1 768 515 edges). `small` at 10 000 vertices risks the write queries finishing too fast for stable timing; `large` pays the replication tax on every commit of a 30M-edge import |
-| 13 | Import path | Imports through the **fully attached** SYNC cluster — both replicas are present from the first start, so the import itself is replicated. This is the honest configuration, and the alternative (import to a detached main, attach replicas afterwards) contradicts decision 6. `import_results` is already captured and exported, so "import throughput under SYNC replication" comes for free |
+| 13 | Import path | Imports through the **fully attached** SYNC cluster — every replica is present from the first start, so the import itself is replicated. This is the honest configuration, and the alternative (import to a detached main, attach replicas afterwards) contradicts decision 6. `import_results` is already captured and exported, so "import throughput under SYNC replication" comes for free |
 | 14 | `clean_db` scope | Clears the three data instances' snapshots only — mirroring today's `rm -Rf memgraph/snapshots/*` — and **never** coordinator state. `save_memory_usage_of_empty_db` calls `clean_db` mid-run; wiping coordinator directories there would destroy the Raft state that makes registration durable and force the re-registration path decision 6 avoids |
 | 15 | Worker count | `--num-workers-for-benchmark 6`, matching what `mgbuild.sh` passes for the standalone `mgbench` suite. Comparability requires it |
 | 16 | Log level | Data instances and coordinators run at `WARNING`, **not** the `TRACE` used by the e2e HA tests. Trace-level logging on the commit path would dominate the measurement |
@@ -88,7 +92,7 @@ instance_1:
   log_file: "instance_1.log"
   setup_queries: []
 
-# instance_2, instance_3, coordinator_1, coordinator_2 likewise
+# instance_2, coordinator_1, coordinator_2 likewise
 
 coordinator_3:
   args:
@@ -106,7 +110,6 @@ coordinator_3:
     - "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}"
     - "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'}"
     - "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'}"
-    - "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'}"
     - "SET INSTANCE instance_1 TO MAIN"
 ```
 
@@ -175,7 +178,7 @@ Stated plainly, because each one bounds how far the resulting numbers can be pus
 - **The cluster restarts once per query, not once per phase.** `benchmark.py` brackets each
   query's measured run with `start_db`/`stop_db`, and its calibration too when the count is not
   cached, on top of the empty-database measurement and the import. Every one of those is a
-  six-process restart plus a wait for Raft convergence, so wall-clock scales with the size of the
+  five-process restart plus a wait for Raft convergence, so wall-clock scales with the size of the
   target set — about a dozen restarts for the 10 queries of decision 10. This is the dominant added
   cost and the most likely source of flakiness.
 - **The commit-size axis is sampled, not swept.** pokec's write queries were designed to stress
@@ -210,7 +213,7 @@ Stated plainly, because each one bounds how far the resulting numbers can be pus
   guard for a cold cache; it was dropped. It is a no-op whenever ordering holds, it makes the HA
   invocation diverge from the standalone one for no gain in a harness whose whole claim is an
   identical measurement path, and because counts would then never persist it would charge anyone
-  iterating on the HA suite alone ten extra six-process cluster restarts on every run. Resetting
+  iterating on the HA suite alone ten extra five-process cluster restarts on every run. Resetting
   calibration is `rm tests/mgbench/.cache/config.json`, which leaves the cached datasets beside it
   untouched.
 
@@ -219,9 +222,10 @@ Stated plainly, because each one bounds how far the resulting numbers can be pus
 - **Routing leg**, once `communication/bolt/client.hpp` speaks routing: a second benchmark type
   connecting to the coordinators rather than directly to main.
 - **`tc`/netem latency injection.** A `NetworkShaper` seam with a no-op default, implemented as a
-  `prio` qdisc on `lo` with `u32` filters. Because replicas 2 and 3 already listen on distinct
-  replication ports (10002, 10003), per-replica asymmetric latency needs no addressing change —
-  the localhost-plus-distinct-ports topology of this design is sufficient. Requires `sudo`.
+  `prio` qdisc on `lo` with `u32` filters matched on the replication port, so no addressing change
+  is needed — the localhost-plus-distinct-ports topology of this design is sufficient. Should the
+  topology grow back to several replicas, each listens on its own replication port, so asymmetric
+  per-replica latency stays reachable the same way. Requires `sudo`.
 - **Other replication modes and larger topologies** — ASYNC, STRICT_SYNC, more replicas — as
   additional YAML files rather than code.
 - **A purpose-built workload with tunable commit size**, to sweep rather than sample the axis
