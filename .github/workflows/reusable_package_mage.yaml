@@ -122,6 +122,10 @@ env:
   CUGRAPH: "${{ inputs.cugraph }}"  # This image cannot be tested in CI, needs an Nvidia GPU
   CONTAINER_NAME: "mgbuild"
   MAGE_CONTAINER: "mage"
+  # Bound into the mage container at the same path on both sides, so an e2e test running on the
+  # runner can read back a file the containerised server wrote. Tests that assert on a written
+  # file's bytes, mode or inode have no other way to see it, and would otherwise skip in CI.
+  MAGE_E2E_SHARED_DIR: "/tmp/mage-e2e-shared"
   MEMGRAPH_PORT: 7687
   NEO4J_PORT: 7688
   NEO4J_CONTAINER: "neo4j_test"
@@ -829,6 +833,11 @@ jobs:
         run: |
           docker network create $MEMGRAPH_NETWORK || true
 
+          # 777 and deliberately NOT sticky: memgraph runs as a different user inside the image than
+          # the runner does outside it, and the sticky bit would stop each from replacing the other's
+          # files — including the temporary-rename an export legitimately performs over its target.
+          mkdir -p $MAGE_E2E_SHARED_DIR && chmod 777 $MAGE_E2E_SHARED_DIR
+
           docker run -d \
             --network $MEMGRAPH_NETWORK \
             --name $MAGE_CONTAINER \
@@ -836,6 +845,7 @@ jobs:
             -p $MEMGRAPH_PORT:$MEMGRAPH_PORT \
             -p 7444:7444 \
             -p 9091:9091 \
+            -v $MAGE_E2E_SHARED_DIR:$MAGE_E2E_SHARED_DIR \
             -e MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE \
             -e MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
             -e OPENAI_API_KEY=$OPENAI_API_KEY \
@@ -939,6 +949,8 @@ jobs:
         run: |
           docker network create $MEMGRAPH_NETWORK || true
 
+          mkdir -p $MAGE_E2E_SHARED_DIR && chmod 777 $MAGE_E2E_SHARED_DIR
+
           docker run -d \
             --rm \
             --network $MEMGRAPH_NETWORK \
@@ -946,6 +958,7 @@ jobs:
             -p $MEMGRAPH_PORT:$MEMGRAPH_PORT \
             -p 7444:7444 \
             -p 9091:9091 \
+            -v $MAGE_E2E_SHARED_DIR:$MAGE_E2E_SHARED_DIR \
             -e MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE \
             -e MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
             -e OPENAI_API_KEY=$OPENAI_API_KEY \
