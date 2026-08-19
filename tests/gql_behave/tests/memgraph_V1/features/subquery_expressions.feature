@@ -1,4 +1,4 @@
-Feature: WHERE exists
+Feature: Subquery expressions
 
   Scenario: Test exists with empty edge and node specifiers
       Given an empty graph
