@@ -234,6 +234,11 @@ only started failing once the cluster leg was added.
 `MEMGRAPH_ORGANIZATION_NAME` have to be set in the environment. The runner refuses to start without
 them rather than letting cluster setup fail later.
 
+When running non-interactively — in CI, or piped to a file — export `PYTHONUNBUFFERED=1`. Python
+block-buffers stdout when it is not a terminal, so a run that spends several minutes importing or
+waiting for a cluster to converge prints nothing at all and looks hung. The `mgbench-ha` suite command
+sets it for that reason.
+
 Instance logs go to `ha_logs/`. Note that Memgraph uses a daily file sink, so the file on disk
 carries a date suffix — `mgbench_ha_instance_1_2026-08-18.log` — and is opened in append mode, so
 every restart in a run adds to the same file. The instances' console output is discarded instead of
