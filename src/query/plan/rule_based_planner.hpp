@@ -420,17 +420,15 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        .write_occurred = branch_sees_write()};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
-            // GenReturn is denied both operators: a PeriodicCommit would finalize the caller's transaction from
-            // inside an expression, and an Accumulate would drain the branch below the fold, multiplying any write
-            // in it. No write can reach a body while every branch is clause-checked, so only the commit can fire.
+            CheckExistsBodyInvariants(context, query_parts.commit_frequency);
             input_op = impl::GenReturn(*ret,
                                        std::move(input_op),
                                        *context.symbol_table,
-                                       context.is_write_query && !context.in_exists_subquery,
+                                       context.is_write_query,
                                        context.bound_symbols,
                                        *context.ast_storage,
                                        subquery_ctx,
-                                       context.in_exists_subquery ? nullptr : query_parts.commit_frequency);
+                                       query_parts.commit_frequency);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             // ON CREATE / ON MATCH comprehensions originate here too; GenMerge splices each onto the branch that
             // reads it, so this chain must not take them first.
@@ -453,12 +451,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                 pending_comprehensions,
                                 wrote_before_merge);
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
-            // GenWith is denied Accumulate for the same reason. Also unreachable, and kept for the same one: the
-            // planner should not depend on a parse-time clause check, which has already had a hole once.
+            CheckExistsBodyInvariants(context, /*commit_frequency=*/nullptr);
             input_op = impl::GenWith(*with,
                                      std::move(input_op),
                                      *context.symbol_table,
-                                     context.is_write_query && !context.in_exists_subquery,
+                                     context.is_write_query,
                                      context.bound_symbols,
                                      *context.ast_storage,
                                      subquery_ctx,
@@ -865,6 +862,23 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
   // Check if a clause is a write clause that HandleWriteClause can process.
+  /// An EXISTS body is read-only and carries no periodic commit: `visitExistsSubquery` allows only MATCH, WHERE,
+  /// WITH and RETURN - in every UNION branch - and rejects a body-level commit directive. Reaching either here means
+  /// that validation has a hole. Throws rather than asserts, which would abort the process from an `EXPLAIN` alone.
+  static void CheckExistsBodyInvariants(const TPlanningContext &context, Expression *commit_frequency) {
+    if (!context.in_exists_subquery) return;
+    if (context.is_write_query) {
+      throw QueryException(
+          "A write clause reached the body of an EXISTS subquery, which may only read. Please contact Memgraph "
+          "support or submit a GitHub issue, as this scenario should not happen.");
+    }
+    if (commit_frequency != nullptr) {
+      throw QueryException(
+          "A periodic commit reached the body of an EXISTS subquery, which cannot commit. Please contact Memgraph "
+          "support or submit a GitHub issue, as this scenario should not happen.");
+    }
+  }
+
   static bool IsWriteClause(Clause *clause) {
     return utils::Downcast<Create>(clause) || utils::Downcast<query::Delete>(clause) ||
            utils::Downcast<query::SetProperty>(clause) || utils::Downcast<query::SetProperties>(clause) ||
@@ -1684,9 +1698,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
       // the branch has to correlate against.
       auto branch_bound_symbols = bound_symbols;
-      // in_exists_subquery drives four behaviours of the recursive plan: the EmptyResult wrapper is suppressed, a
-      // null-planning query part gets a Once, GenWith keeps outer-scope vertex/edge symbols across a body WITH, and
-      // neither GenReturn nor GenWith may build an Accumulate (nor GenReturn a PeriodicCommit).
+      // in_exists_subquery drives three behaviours of the recursive plan: the EmptyResult wrapper is suppressed, a
+      // null-planning query part gets a Once, and GenWith keeps outer-scope vertex/edge symbols across a body WITH.
+      // It also selects the read-only invariants CheckExistsBodyInvariants enforces.
       auto const restore = utils::OnScopeExit{[this,
                                                old_exists_subquery = context_->in_exists_subquery,
                                                old_after_write = exists_branch_after_write_,
