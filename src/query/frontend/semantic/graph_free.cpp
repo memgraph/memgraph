@@ -34,25 +34,6 @@ class GraphReachChecker final : public ExpressionVisitor<void> {
 
   bool ReachesGraph() const { return reaches_graph_; }
 
- private:
-  void Reject() { reaches_graph_ = true; }
-
-  void Recurse(Expression *expression) {
-    if (reaches_graph_ || expression == nullptr) return;
-    expression->Accept(*this);
-  }
-
-  template <typename TOperator>
-  void RecurseBinary(TOperator &op) {
-    Recurse(op.expression1_);
-    Recurse(op.expression2_);
-  }
-
-  template <typename TOperator>
-  void RecurseUnary(TOperator &op) {
-    Recurse(op.expression_);
-  }
-
   // Values the query already carries.
   void Visit(PrimitiveLiteral & /*unused*/) override {}
 
@@ -171,6 +152,25 @@ class GraphReachChecker final : public ExpressionVisitor<void> {
   void Visit(None & /*unused*/) override { Reject(); }
 
   void Visit(ListComprehension & /*unused*/) override { Reject(); }
+
+ private:
+  void Reject() { reaches_graph_ = true; }
+
+  void Recurse(Expression *expression) {
+    if (reaches_graph_ || expression == nullptr) return;
+    expression->Accept(*this);
+  }
+
+  template <typename TOperator>
+  void RecurseBinary(TOperator &op) {
+    Recurse(op.expression1_);
+    Recurse(op.expression2_);
+  }
+
+  template <typename TOperator>
+  void RecurseUnary(TOperator &op) {
+    Recurse(op.expression_);
+  }
 
   bool reaches_graph_{false};
 };

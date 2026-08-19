@@ -2919,7 +2919,7 @@ mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory) {
   MG_ASSERT(it != nullptr);
 
   if (v->IsVirtual()) {
-    auto *vg_acc = std::get_if<memgraph::query::VirtualGraphDbAccessor *>(&v->graph->CheckedImpl());
+    auto *const *vg_acc = std::get_if<memgraph::query::VirtualGraphDbAccessor *>(&v->graph->CheckedImpl());
     if (!vg_acc) {
       throw memgraph::query::QueryRuntimeException(
           ForIn ? "Cannot iterate in-edges: virtual node has no associated virtual graph context."
