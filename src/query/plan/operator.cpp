@@ -4224,7 +4224,7 @@ class KShortestPathsCursor : public Cursor {
       AbortCheck(context);
       // Top-down step (expansion from the source).
       ++current_length;
-      if (current_length > upper_bound) return PathInfo(evaluator.GetMemoryResource());
+      if (std::cmp_greater(current_length, upper_bound)) return PathInfo(evaluator.GetMemoryResource());
 
       for (const auto &vertex : source_frontier) {
         if (context.hops_limit.IsLimitReached()) break;
@@ -4278,7 +4278,7 @@ class KShortestPathsCursor : public Cursor {
 
       // Bottom-up step (expansion from the target).
       ++current_length;
-      if (current_length > upper_bound) return PathInfo(evaluator.GetMemoryResource());
+      if (std::cmp_greater(current_length, upper_bound)) return PathInfo(evaluator.GetMemoryResource());
 
       // When expanding from the target we have to be careful which edge
       // endpoint we pass to `should_expand`, because everything is
