@@ -245,7 +245,7 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     dedup_stack_ = std::move(saved_stack);
   }
 
- private:
+ protected:
   bool DefaultPreVisit() override {
     rewrite_blocked_ = true;
     return true;
