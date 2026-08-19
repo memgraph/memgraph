@@ -18,15 +18,17 @@ jobs:
   release_benchmarks:
     name: "Daily benchmarks"
     runs-on: [self-hosted, Linux, benchmark]
-    timeout-minutes: 760
+    timeout-minutes: 900
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
     #  - macro-benchmark: 3 minutes
-    #  - mgbench: 40 minutes (a single instance leg plus a high availability leg, see below)
+    #  - mgbench: 45 minutes (a single instance leg plus a high availability leg, see below)
     #    The high availability leg runs inside the mgbench invocation above and is most of its
-    #    cost: 10 queries measured twice, once without and once with fine-grained authorization, at
-    #    one five-process cluster restart each, plus a pokec import that replicates synchronously to
-    #    one replica. Estimated at 20 of those 40 minutes and not yet measured.
+    #    cost: 10 queries at one five-process cluster restart each, plus a pokec import that
+    #    replicates synchronously to one replica. It does not run the authorization pass, which would
+    #    double those restarts. Estimated at 25 of those 45 minutes; on run 32227509791 the step ran
+    #    past 58 minutes with the authorization pass still enabled on that leg, so this figure is an
+    #    extrapolation and not yet confirmed.
     #  - extended planner improvements mgbench: 15 minutes
     #  - mgbench-supernode: 1.5 minute
     #  - mgbench-load-parquet: 4 minutes
@@ -34,8 +36,9 @@ jobs:
     #  - mgbench-vector-search-edge-index: 5 minutes
     #  - mgbench-text-search-index: 5 minutes
     #  - mgbench-text-search-edge-index: 5 minutes
-    #  10 iterations would take about 700 minutes, leaving 60 minutes to allow
-    #  for building memgraph and variations in benchmark times.
+    #  10 iterations would take about 750 minutes, leaving 150 minutes to allow
+    #  for building memgraph and variations in benchmark times. The margin is wider than it used to be
+    #  because the high availability leg's cost is still an estimate.
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"

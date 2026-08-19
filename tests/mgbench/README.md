@@ -212,9 +212,11 @@ results go, and `--ha-target-workload` narrows what it measures, because every q
 a cluster restarts every instance in it. Repeat that flag per pattern — it takes one value at a time
 so that it cannot swallow the positional workload arguments.
 
-The fine-grained authorization pass runs here as it does for a single instance, so each query is
-measured twice, once anonymously and once as an authorized user. That roughly doubles the runtime.
-It is on by default; `--no-authorization` turns it off and `--authorization` asks for it explicitly.
+The fine-grained authorization pass measures each query a second time as an authorized user, which
+roughly doubles a leg's runtime. For a single instance it is on by default, and `--no-authorization`
+turns it off. On the cluster leg added by `--run-ha` it is **off** by default, because there the second
+measurement also pays a second cluster restart; `--ha-authorization` turns it on. With `--ha-only` the
+cluster is the whole run, so `--authorization` governs it as usual.
 
 Supporting it needs one thing from the runner, which is worth knowing if the probe ever misbehaves:
 the pass runs `CREATE USER` partway through a run and only tells the benchmark client the new
