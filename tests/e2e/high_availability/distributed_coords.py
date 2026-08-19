@@ -1630,8 +1630,7 @@ def test_multiple_old_mains_single_failover(test_name):
     time_slept = 0
     failover_time = 5
     while time_slept < failover_time:
-        with pytest.raises(Exception):
-            execute_and_fetch_all(instance_1_cursor, "CREATE ();")
+        execute_and_fetch_all(instance_1_cursor, "CREATE ();")
         vertex_count += 1
 
         assert vertex_count == execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0]
