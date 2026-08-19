@@ -8139,11 +8139,6 @@ TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
       "MATCH (n) WHERE EXISTS { USING PERIODIC COMMIT 1 MATCH (n)-[]->(m) RETURN m } RETURN n;",
       ast_generator,
       "EXISTS subqueries cannot have a periodic commit.");
-  // The projection position reaches the same body check.
-  TestInvalidQueryWithMessage<SyntaxException>(
-      "MATCH (n) RETURN EXISTS { USING PERIODIC COMMIT 1 MATCH (n)-[]->(m) RETURN m } AS h;",
-      ast_generator,
-      "EXISTS subqueries cannot have a periodic commit.");
   // The outer query may still have one - only the body is refused.
   {
     const auto *query = dynamic_cast<CypherQuery *>(

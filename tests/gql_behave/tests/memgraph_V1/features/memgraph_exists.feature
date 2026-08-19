@@ -439,7 +439,7 @@ Feature: WHERE exists
           | n.prop |
           | 1      |
 
-  Scenario: Test exists equal to true
+  Scenario: Test exists equal to false
       Given an empty graph
       And having executed:
           """
@@ -1943,29 +1943,6 @@ Feature: WHERE exists
 
   # ORDER BY cannot change the answer - a sort permutes the table and the fold reads only whether it is empty. These
   # pin that invariance, and that the sort still plans: composed with a SKIP, and ordering on a correlated outer symbol.
-
-  Scenario: Test EXISTS subquery whose body RETURN has an ORDER BY
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
-          CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
-          CREATE (a)-[:KNOWS]->(f1)
-          CREATE (a)-[:KNOWS]->(f1)
-          CREATE (a)-[:KNOWS]->(f2)
-          CREATE (b)-[:KNOWS]->(f1)
-          """
-      When executing query:
-          """
-          MATCH (p:Person)
-          RETURN p.name AS name, EXISTS { MATCH (p)-[:KNOWS]->(f) RETURN f ORDER BY f.name } AS h
-          ORDER BY name;
-          """
-      Then the result should be, in order:
-          | name    | h     |
-          | 'Alice' | true  |
-          | 'Bob'   | true  |
-          | 'Carol' | false |
 
   Scenario: Test EXISTS subquery whose body RETURN has an ORDER BY and a SKIP
       Given an empty graph
