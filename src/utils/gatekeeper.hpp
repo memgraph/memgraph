@@ -536,6 +536,10 @@ struct Gatekeeper {
     auto guard = std::unique_lock{pimpl_->mutex_};
     DMG_ASSERT(pimpl_->draining_, "abort_drain() called while not draining");
     pimpl_->draining_ = false;
+    // Undo DbmsHandler::Delete_'s prepare_for_deletion() call, its exact pairing partner (the only
+    // other caller of prepare_for_deletion() in src/): otherwise a rolled-back drop leaves the
+    // surviving tenant's Accessor::operator bool() permanently false for the rest of the process.
+    pimpl_->is_marked_for_deletion = false;
     pimpl_->cv_.notify_all();
   }
 

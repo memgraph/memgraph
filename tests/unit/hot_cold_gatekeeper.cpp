@@ -438,6 +438,38 @@ TEST(HotColdGatekeeper, BeginDrainIsSingleFlightAndHotGated) {
 }
 
 // ---------------------------------------------------------------------------
+// AbortDrainRestoresAUsableTenant
+// ---------------------------------------------------------------------------
+// PINS: DbmsHandler::Delete_'s Phase 1 mints a drain_bypass accessor and calls
+// prepare_for_deletion() on it right after begin_drain(); if the drop is then rolled back via
+// abort_drain(), the surviving tenant must come back fully usable. The operator bool() assertion
+// below is the one that actually catches the regression: access() alone still returns an engaged
+// optional even while marked for deletion (only the minted Accessor's operator bool goes false), so
+// checking has_value() alone would pass whether or not abort_drain() undoes the mark.
+TEST(HotColdGatekeeper, AbortDrainRestoresAUsableTenant) {
+  auto gk = make_hot();
+
+  ASSERT_TRUE(gk.begin_drain());
+
+  // Exactly what DbmsHandler::Delete_ Phase 1 does: mint via the bypass overload and mark for
+  // deletion, then release the accessor.
+  auto drop_acc = gk.access(drain_bypass);
+  ASSERT_TRUE(drop_acc.has_value());
+  drop_acc->prepare_for_deletion();
+  drop_acc->reset();
+
+  // The drop is rolled back.
+  gk.abort_drain();
+  EXPECT_FALSE(gk.is_draining());
+
+  // A plain access() must be both minted AND usable.
+  auto acc = gk.access();
+  ASSERT_TRUE(acc.has_value());
+  EXPECT_TRUE(static_cast<bool>(*acc));
+  acc->reset();
+}
+
+// ---------------------------------------------------------------------------
 // DtorOfDrainingGatekeeperReturnsPromptly
 // ---------------------------------------------------------------------------
 // The wedge regression. PINS: ~Gatekeeper waits on (state_ == HOT || state_ == COLD) && count_ == 0.

@@ -317,6 +317,61 @@ class DbmsHandler {
 #endif
 
 #ifdef MG_ENTERPRISE
+  /// Per-call cooperative-cancel hook for a DROP. Invoked from Delete_'s Phase 2, OFF-lock (`lock_` is
+  /// not held), so it may take locks of its own -- this is precisely why it cannot live in Phase 1 or
+  /// Phase 3, both of which run under `lock_`. Its job is to *ask* current holders of the tenant's
+  /// DatabaseAccess to release it (e.g. terminate the sessions/transactions pinning it); it must never
+  /// revoke one itself -- a trigger cursor or a Bolt session mid-Prepare/Pull would use-after-free if
+  /// its accessor were released out from under it. Called once from Phase 2, then again on every
+  /// AwaitDrain_ poll iteration -- up to roughly deadline/kDrainPollSlice times (about 200 at the 10 s
+  /// default and the 50 ms slice) -- and again on any retried drop of the same tenant, so it must be
+  /// idempotent. May throw: RequestCooperativeCancel_'s doc covers how the two call sites differ on
+  /// that -- in short, the looped call's throw is swallowed by the caller and the wait continues.
+  ///
+  /// This is a per-call parameter, not a SetOnSuspend-style member hook, because the query layer's
+  /// sweep is scoped to the dropping user's privileges (it needs a QueryUserOrRole* and a
+  /// TRANSACTION_MANAGEMENT privilege checker for THIS call) -- a process-wide member hook cannot carry
+  /// per-call session state without either making termination unconditional or storing a
+  /// session-owned pointer process-wide.
+  using CooperativeCancelFn = std::function<void()>;
+
+  // Outcome of Delete_'s Phase 2 bounded drain wait (see DrainRequest below). NOT_REQUESTED is the
+  // report's default-constructed value, distinguishing "no DrainRequest was passed" from an actual
+  // wait outcome for a caller that always reads a DrainReport regardless of whether it supplied one.
+  enum class DrainOutcome : uint8_t { NOT_REQUESTED, CONVERGED, EXPIRED };
+
+  // Counts the query layer can attribute at expiry. Numbers only: the operator-facing wording lives in
+  // the query layer, which owns user-visible text.
+  struct DrainBlockers {
+    uint64_t transactions_asked_to_abort{0};
+    bool probe_ran{false};
+  };
+
+  struct DrainReport {  // caller-owned; Delete_ only writes it
+    DrainOutcome outcome{DrainOutcome::NOT_REQUESTED};
+    std::chrono::milliseconds waited{0};
+    uint64_t holders_remaining{0};
+    DrainBlockers blockers{};
+  };
+
+  // Diagnostic-only holder breakdown, sampled once at expiry (see AwaitDrain_'s catch(...) around this
+  // call -- an escaping throw here must not fail an otherwise-honoured, merely-expired drop).
+  using HolderProbeFn = std::function<DrainBlockers()>;
+
+  // Opt-in bounded wait for Delete_'s Phase 2 (off-lock) window: after asking outside holders to
+  // release (cooperative_cancel, looped), wait up to `deadline` for the tenant's own drop accessor to
+  // become the sole holder before proceeding to Phase 3's DeferDelete. A null `drain` (the default on
+  // every Delete/Delete_ overload) skips the wait entirely -- this is how the replica-apply path
+  // (Delete(uuid) -> Delete_) stays excluded from the deadline by construction.
+  struct DrainRequest {
+    std::chrono::milliseconds deadline{};
+    HolderProbeFn probe{};
+    DrainReport *report{nullptr};
+  };
+
+  static constexpr std::chrono::milliseconds kDrainDeadline{10'000};
+  static constexpr std::chrono::milliseconds kDrainPollSlice{50};
+
   /**
    * @brief Attempt to delete database.
    *
@@ -337,6 +392,9 @@ class DbmsHandler {
   /**
    * @brief Delete or defer deletion of database.
    *
+   * Replica-apply path (no session/user context available here), so it always runs with an empty
+   * cooperative-cancel callback -- deliberate, not an oversight; see CooperativeCancelFn's doc above.
+   *
    * @param uuid database UUID
    * @return DeleteResult error on failure
    */
@@ -347,9 +405,13 @@ class DbmsHandler {
    *
    * @param db_name database name
    * @param transaction system transaction
+   * @param cooperative_cancel see CooperativeCancelFn's doc above
+   * @param drain optional bounded Phase-2 drain wait (see DrainRequest's doc above); nullptr (default)
+   *        skips the wait, exactly like every call site before this parameter existed.
    * @return DeleteResult error on failure
    */
-  DeleteResult Delete(std::string_view db_name, system::Transaction *transaction);
+  DeleteResult Delete(std::string_view db_name, system::Transaction *transaction,
+                      CooperativeCancelFn cooperative_cancel = {}, DrainRequest const *drain = nullptr);
 
   /**
    * @brief Rename a database.
@@ -1055,7 +1117,30 @@ class DbmsHandler {
   // CONTRACT: `lock` is held EXCLUSIVE on entry and on every return path, including every error
   // return. Delete_ unlocks/relocks it internally for Phase 2; the caller's lock object is left in
   // the SAME (locked) state either way, as if this were one uninterrupted critical section.
-  DeleteResult Delete_(std::string_view db_name, std::unique_lock<LockT> &lock);
+  // `cooperative_cancel`: see CooperativeCancelFn's doc at the Delete() overload that takes it. Called
+  // exactly once, from Phase 2 -- see RequestCooperativeCancel_ -- plus once per AwaitDrain_ poll
+  // iteration when `drain` is non-null (see AwaitDrain_'s doc).
+  // `drain`: nullptr (default) skips the bounded Phase-2 wait entirely -- see DrainRequest's doc.
+  DeleteResult Delete_(std::string_view db_name, std::unique_lock<LockT> &lock,
+                       CooperativeCancelFn const &cooperative_cancel = {}, DrainRequest const *drain = nullptr);
+
+  // Phase-2 helper: ask `cooperative_cancel` (if any) to release outside holders, then latch this
+  // tenant's after-commit triggers stopped. Order is load-bearing: step 1 can throw; step 2 is
+  // noexcept and one-way, so it must run last. The two call sites handle that throw differently:
+  // Delete_'s Phase 2 pre-loop call is unguarded, because nothing about the drop is latched yet there,
+  // so a throw correctly unwinds into `rollback_drain` and the drop stays retriable; AwaitDrain_'s
+  // poll-loop call runs after Phase 2's teardown, which `rollback_drain` cannot undo, so it is
+  // caller-guarded (try/catch) instead. May be called more than once for the same `database` (see
+  // CooperativeCancelFn's idempotence requirement).
+  static void RequestCooperativeCancel_(Database *database, CooperativeCancelFn const &cooperative_cancel);
+
+  // Phase-2 helper: bounded wait for `drain.deadline`, re-sweeping `cooperative_cancel` every
+  // kDrainPollSlice, until `gk` reports only the drop's own drain_bypass accessor still live (or the
+  // deadline expires). Writes the outcome to `drain.report` if non-null. Runs entirely off `lock_` --
+  // see AwaitDrain_'s definition doc for why holder_count()'s "diagnostics only" caveat does not apply
+  // here, and why the wait must fail (expire) rather than hang.
+  void AwaitDrain_(utils::Gatekeeper<Database> *gk, Database *database, CooperativeCancelFn const &cooperative_cancel,
+                   DrainRequest const &drain);
 
   // Drop a COLD (suspended) tenant: erases suspended_ entry, durable cold marker, on-disk data dir,
   // cold shell, and tenant-profile attachment. Returns the dropped UUID on success, or DeleteError
