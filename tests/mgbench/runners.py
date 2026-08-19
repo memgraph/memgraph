@@ -810,6 +810,7 @@ class MemgraphHA(BaseRunner):
     LOG_DIRECTORY = "ha_logs"
     READY_TIMEOUT_SEC = 120
     READY_POLL_SEC = 0.5
+    READY_REPORT_SEC = 10
     WRITE_PROBE_QUERY = "CREATE (n:__mgbench_ha_probe) DELETE n;"
 
     def __init__(self, benchmark_context: BenchmarkContext):
@@ -954,6 +955,12 @@ class MemgraphHA(BaseRunner):
         return main_name, ""
 
     def _start_cluster(self):
+        started_at = time.time()
+        log.info(
+            "Starting the HA cluster: {} coordinators and {} data instances.".format(
+                len(self._coordinators), len(self._data_instances)
+            )
+        )
         # The cluster setup queries are applied once and fail on every later restart, by design, so
         # their failures are not worth a warning per restart per query.
         self._mg_runner.start_all(
@@ -962,24 +969,40 @@ class MemgraphHA(BaseRunner):
             ignore_setup_failures=True,
             log_ignored_setup_failures=False,
         )
-        deadline = time.time() + self.READY_TIMEOUT_SEC
+        log.info(
+            "Instances are up after {:.1f}s, waiting for the cluster to converge.".format(time.time() - started_at)
+        )
+
+        deadline = started_at + self.READY_TIMEOUT_SEC
         problem = ""
+        reported_at = 0.0
         while time.time() < deadline:
             main_name, problem = self._cluster_state()
             if main_name is not None:
                 self._main_name = main_name
-                log.info("HA cluster is ready, main is {} on bolt port {}.".format(main_name, self.get_database_port()))
+                log.info(
+                    "HA cluster is ready after {:.1f}s, main is {} on bolt port {}.".format(
+                        time.time() - started_at, main_name, self.get_database_port()
+                    )
+                )
                 return
+            # Convergence can take tens of seconds, and a silent wait is indistinguishable from a
+            # hang, so say what is still missing rather than only reporting it on timeout.
+            if time.time() - reported_at >= self.READY_REPORT_SEC:
+                reported_at = time.time()
+                log.info("Waiting for the cluster ({:.0f}s): {}".format(time.time() - started_at, problem))
             time.sleep(self.READY_POLL_SEC)
         raise Exception(
             "The HA cluster did not become ready in {}s, last seen: {}".format(self.READY_TIMEOUT_SEC, problem)
         )
 
     def _stop_cluster(self):
+        stopped_at = time.time()
         # Read while the process is still alive, since the usage comes from /proc.
         usage = self._main_usage()
         self._mg_runner.stop_all(keep_directories=True)
         self._main_name = None
+        log.info("Stopped the HA cluster in {:.1f}s.".format(time.time() - stopped_at))
         return usage
 
     def _main_usage(self):
