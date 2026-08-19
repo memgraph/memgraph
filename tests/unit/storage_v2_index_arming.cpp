@@ -18,20 +18,29 @@
 
 #include "storage/v2/delta_container.hpp"
 #include "storage/v2/index_arming.hpp"
+#include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/view.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
 #include <set>
 
+using memgraph::storage::Config;
 using memgraph::storage::Delta;
 using memgraph::storage::delta_container;
 using memgraph::storage::EdgeRef;
 using memgraph::storage::EdgeTypeId;
+using memgraph::storage::Gid;
 using memgraph::storage::IndexArming;
+using memgraph::storage::InMemoryStorage;
 using memgraph::storage::LabelId;
 using memgraph::storage::PropertiesPaths;
 using memgraph::storage::PropertyId;
 using memgraph::storage::PropertyPath;
 using memgraph::storage::PropertyValue;
 using memgraph::storage::PropertyWriteTargets;
+using memgraph::storage::StorageMode;
+using memgraph::storage::View;
 
 namespace {
 
@@ -398,4 +407,70 @@ TEST(IndexArming, ASingleScopeReadsAWholeDeltaBuffer) {
   EXPECT_TRUE(arming.arms_vertex_index_on(Label(3), PropertiesPaths{PropertyPath{Property(10)}}));
   EXPECT_FALSE(arming.arms_vertex_index_on(Label(3)));
   EXPECT_FALSE(arming.arms_edge_indexes());
+}
+
+namespace {
+
+// Sets the indexed property `writes` times, each in its own transaction, and returns how many
+// entries the index is left holding once GC has had two passes at it. Every write past the first
+// supersedes the previous entry, and only the sweep removes the superseded ones, so anything above
+// 1 is a sweep that never ran.
+auto EntriesLeftAfterRepeatedWrites(StorageMode mode, int writes) -> uint64_t {
+  Config config{};
+  config.salient.items.properties_on_edges = true;
+  config.gc.type = Config::Gc::Type::NONE;
+
+  auto storage = std::make_unique<InMemoryStorage>(config);
+  auto const edge_type = storage->NameToEdgeType("E");
+  auto const property = storage->NameToProperty("p");
+  {
+    auto acc = storage->ReadOnlyAccess();
+    EXPECT_TRUE(acc->CreateIndex(edge_type, property).has_value());
+    EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  storage->SetStorageMode(mode);
+
+  Gid from_gid{};
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&from, &to, edge_type);
+    EXPECT_TRUE(edge.has_value());
+    EXPECT_TRUE(edge->SetProperty(property, PropertyValue{0}).has_value());
+    from_gid = from.Gid();
+    EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  for (int i = 1; i <= writes; ++i) {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto from = acc->FindVertex(from_gid, View::NEW);
+    EXPECT_TRUE(from.has_value());
+    auto out = from->OutEdges(View::NEW);
+    EXPECT_TRUE(out.has_value());
+    for (auto &edge : out->edges) {
+      EXPECT_TRUE(edge.SetProperty(property, PropertyValue{i}).has_value());
+    }
+    EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  storage->FreeMemory({}, false);
+  storage->FreeMemory({}, false);
+
+  auto acc = storage->Access(memgraph::storage::READ);
+  auto const entries = acc->ApproximateEdgeCount(edge_type, property);
+  acc->Abort();
+  return entries;
+}
+
+}  // namespace
+
+// Arming is derived from the delta buffer, which an analytical transaction never writes to. A
+// write-only analytical workload must still arm the sweep, or every superseded entry accumulates.
+TEST(EdgeIndexArming, AnalyticalWritesArmTheSweep) {
+  constexpr int kWrites = 50;
+  EXPECT_EQ(EntriesLeftAfterRepeatedWrites(StorageMode::IN_MEMORY_TRANSACTIONAL, kWrites), 1U);
+  EXPECT_EQ(EntriesLeftAfterRepeatedWrites(StorageMode::IN_MEMORY_ANALYTICAL, kWrites), 1U)
+      << "superseded entries survived: the sweep was never armed";
 }

@@ -94,6 +94,9 @@ void Indices::DropGraphClearIndices() {
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) {
+  if (tx.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) [[unlikely]]
+    tx.index_arming.note_label(label);
+
   tx.active_indices_->label_->UpdateOnAddLabel(label, vertex, tx);
   tx.active_indices_->label_properties_->UpdateOnAddLabel(label, vertex, tx);
   tx.active_indices_->text_->UpdateOnAddLabel(label, vertex, tx);
@@ -104,6 +107,9 @@ void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, N
 }
 
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) {
+  if (tx.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) [[unlikely]]
+    tx.index_arming.note_label(label);
+
   tx.active_indices_->label_->UpdateOnRemoveLabel(label, vertex, tx);
   tx.active_indices_->label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
   tx.active_indices_->text_->UpdateOnRemoveLabel(label, vertex, tx);
@@ -115,6 +121,9 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
                                   Vertex *vertex, Transaction &tx) {
+  if (tx.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) [[unlikely]]
+    tx.index_arming.note_vertex_property(property);
+
   tx.active_indices_->label_properties_->UpdateOnSetProperty(property, old_value, new_value, vertex, tx);
   tx.active_indices_->vertex_property_->UpdateOnSetProperty(property, new_value, vertex, tx.start_timestamp);
   tx.active_indices_->text_->UpdateOnSetProperty(vertex, tx, property);
@@ -123,6 +132,9 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &old_
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
                                   Vertex *from_vertex, Vertex *to_vertex, Edge *edge, Transaction &tx) {
+  if (tx.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) [[unlikely]]
+    tx.index_arming.note_edge_property(property);
+
   tx.active_indices_->edge_type_properties_->UpdateOnSetProperty(
       from_vertex, to_vertex, edge, edge_type, property, value, tx.start_timestamp);
   tx.active_indices_->edge_property_->UpdateOnSetProperty(

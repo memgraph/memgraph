@@ -334,6 +334,8 @@ uint64_t InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, 
   // Pin the edge store while sweeping: the loop dereferences raw Edge* the epoch GC could free.
   auto const edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
 
+  auto const preserve_recent_entries = SweepPreservesRecentEntries(storage->GetStorageMode());
+
   uint64_t swept = 0;
   for (auto &[index, property] : *all_indices) {
     if (token.stop_requested()) return swept;
@@ -348,7 +350,7 @@ uint64_t InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, 
       auto next_it = it;
       ++next_it;
 
-      if (it->timestamp >= oldest_active_start_timestamp) {
+      if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
         it = next_it;
         continue;
       }

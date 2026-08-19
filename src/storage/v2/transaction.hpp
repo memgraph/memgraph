@@ -21,6 +21,7 @@
 #include <spdlog/spdlog.h>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/property_write_targets.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -240,6 +241,11 @@ struct Transaction {
   // delta is created, so it is recorded here rather than worked out later by following the delta
   // chain back to whatever it belongs to.
   PropertyWriteTargets wrote_properties_on{};
+  // Which indexes this transaction's writes could have left something to sweep, filled by the write
+  // path itself. Only analytical uses it: transactional arming is read off the deltas as the
+  // collector unlinks them, and analytical produces no deltas to read. Empty, and allocation-free,
+  // otherwise.
+  IndexArming index_arming{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};
   bool edge_import_mode_active{false};

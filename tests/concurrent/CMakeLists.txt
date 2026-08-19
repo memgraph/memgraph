@@ -58,3 +58,6 @@ target_link_libraries(${test_prefix}storage_indices mg-utils mg::storage)
 
 add_concurrent_test(storage_unique_constraints.cpp)
 target_link_libraries(${test_prefix}storage_unique_constraints mg-utils mg::storage)
+
+add_concurrent_test(storage_gc_soak.cpp)
+target_link_libraries(${test_prefix}storage_gc_soak mg-utils mg::storage)
