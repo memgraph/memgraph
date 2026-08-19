@@ -184,8 +184,19 @@ INSTANTIATE_TEST_SUITE_P(Filtered, FilteredKShortestTestInMemory,
                          testing::Combine(testing::Values(3, -1),
                                           testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
                                                           EdgeAtom::Direction::BOTH),
-                                          testing::Values(FilterLambdaType::USE_FRAME, FilterLambdaType::USE_FRAME_NULL,
-                                                          FilterLambdaType::USE_CTX, FilterLambdaType::ERROR)));
+                                          testing::Values(FilterLambdaType::USE_FRAME, FilterLambdaType::USE_CTX)));
+
+// A null verdict prunes exactly as false does, one line apart in `EvaluateFilterLambda`, so the
+// expectations match `USE_FRAME` and there is nothing for the matrix to vary.
+TEST_F(FilteredKShortestTestInMemory, NullLambdaPrunesLikeFalse) {
+  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::BOTH, {}, -1, FilterLambdaType::USE_FRAME_NULL);
+}
+
+// The non-boolean verdict throws on the first edge that reaches vertex 5, which every direction and
+// bound does, so the harness returns before it looks at either.
+TEST_F(FilteredKShortestTestInMemory, NonBooleanLambdaThrows) {
+  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::BOTH, {}, -1, FilterLambdaType::ERROR);
+}
 
 // Filter lambda combined with a path limit, which the lambda must not disturb.
 TEST_F(FilteredKShortestTestInMemory, FilteredWithLimit) {
