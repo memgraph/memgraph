@@ -95,19 +95,21 @@ memory::ArenaPool &Database::Arena() noexcept { return *db_arena_; }
 
 memory::ArenaPool &Database::Arena() const noexcept { return *db_arena_; }
 
+namespace {
+
+// A coordinator reports no per-database metrics under OpenMetrics, and some databases ask not to be
+// measured at all; both hold an empty registration, which releases nothing.
+auto RegisterMetrics(storage::Config const &config) -> metrics::PrometheusMetrics::Registration {
+  if (!config.register_metrics) return {};
+  if (FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator()) return {};
+  return metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str());
+}
+
+}  // namespace
+
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
-    : db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
-      metrics_(config.salient.uuid, ([&config]() -> metrics::DatabaseMetricHandles {
-                 if (!config.register_metrics) {
-                   return {};
-                 }
-                 auto const should_register =
-                     !(FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator());
-                 if (!should_register) {
-                   return {};
-                 }
-                 return metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str());
-               })()),
+    : metrics_(RegisterMetrics(config)),
+      db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
       after_commit_trigger_pool_{1,
                                  // After-commit triggers run on a dedicated DB worker.
                                  // Keep a DB arena scope alive for the full worker lifetime.
@@ -151,8 +153,6 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                            &db_embedding_memory_tracker_);
   }
 }
-
-Database::DatabaseMetricsRegistration::~DatabaseMetricsRegistration() { metrics::Metrics().RemoveDatabase(uuid_); }
 
 DatabaseInfo Database::GetInfo() const {
   DatabaseInfo info;

@@ -237,6 +237,10 @@ class Database {
   metrics::DatabaseMetricHandles *metric_handles() { return &metrics_.handles(); }
 
  private:
+  // Declared first so it is released last: the storage's garbage collector writes to these metrics
+  // until it is joined, which happens while the storage is being destroyed.
+  metrics::PrometheusMetrics::Registration metrics_;
+
   // Enforcement-only: caps total per-DB memory (tenant profile limit).
   // No parent — does not roll up to any global. Per-DB domain trackers list this
   // as their second parent so every allocation is counted here AND in the domain global.
@@ -252,30 +256,6 @@ class Database {
   utils::MemoryTracker db_query_memory_tracker_{&db_total_memory_tracker_};
   std::unique_ptr<memory::ArenaPool> db_arena_;  //!< Per-DB jemalloc arena pool with tracking hooks
 
-  // RAII guard that de-registers this database's metric handles from the
-  // global PrometheusMetrics registry on destruction.
-  class DatabaseMetricsRegistration {
-   public:
-    DatabaseMetricsRegistration(utils::UUID uuid, metrics::DatabaseMetricHandles handles)
-        : uuid_(uuid), handles_(std::move(handles)) {}
-
-    ~DatabaseMetricsRegistration();
-
-    DatabaseMetricsRegistration(DatabaseMetricsRegistration const &) = delete;
-    DatabaseMetricsRegistration &operator=(DatabaseMetricsRegistration const &) = delete;
-    DatabaseMetricsRegistration(DatabaseMetricsRegistration &&) = delete;
-    DatabaseMetricsRegistration &operator=(DatabaseMetricsRegistration &&) = delete;
-
-    metrics::DatabaseMetricHandles const &handles() const { return handles_; }
-
-    metrics::DatabaseMetricHandles &handles() { return handles_; }
-
-   private:
-    utils::UUID uuid_;
-    metrics::DatabaseMetricHandles handles_{};
-  };
-
-  DatabaseMetricsRegistration metrics_;                 //!< De-registration guard for this db's prometheus metrics
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers
