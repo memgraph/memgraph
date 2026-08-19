@@ -780,9 +780,12 @@ class Database {
     CheckPathsAndExtractLengths(&db_accessor, edges_in_result, baseline);
     if (fine_grained_test_type == FineGrainedTestType::ALL_DENIED) {
       EXPECT_EQ(baseline.size(), 0);
-    } else if (fine_grained_test_type == FineGrainedTestType::ALL_GRANTED) {
+    } else {
       // `CheckPathsAndExtractLengths` only validates the paths that came back, so it passes
-      // vacuously on zero rows. With everything granted a path always survives, so pin that.
+      // vacuously on zero rows. Every arm but `ALL_DENIED` leaves a path reachable, so pin that for
+      // all of them: on the label arms the assertions below degrade to a per-pair cap, which an
+      // empty result satisfies, so without this an arm that silently went to zero rows would assert
+      // nothing whatsoever.
       EXPECT_FALSE(baseline.empty());
     }
 

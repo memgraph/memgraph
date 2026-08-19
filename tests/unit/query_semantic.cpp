@@ -957,6 +957,39 @@ TYPED_TEST(TestSymbolGenerator, MatchKShortestLimitUsesEdgeSymbolError) {
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
+// `PreVisit(EdgeAtom &)` must not hold a `Scope &` across its children's `Accept` calls. A pattern
+// comprehension in a bound or in the `| k` limit pushes a scope of its own, and `scopes_` is built
+// with capacity 1, so the push reallocates. The writes after the child traversal then land in the
+// freed buffer, leaving `in_pattern_atom_identifier` unset on the live scope - the edge identifier
+// is resolved as a plain variable reference and a valid query answers "Unbound variable: r".
+TYPED_TEST(TestSymbolGenerator, EdgeAtomChildScopePushKeepsTheEdgeBound) {
+  // MATCH (n) -[r *BFS 1..size([(n)-[e]->(m) | m])]-> (o) RETURN r
+  auto *bound_edge = IDENT("r");
+  auto *bfs =
+      this->storage.template Create<EdgeAtom>(bound_edge, EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
+  bfs->filter_lambda_.inner_edge = IDENT("inner_e");
+  bfs->filter_lambda_.inner_node = IDENT("inner_n");
+  bfs->lower_bound_ = LITERAL(1);
+  bfs->upper_bound_ =
+      FN("size", PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("e"), NODE("m")), nullptr, IDENT("m")));
+  auto *bound_query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("o"))), RETURN("r")));
+  auto bound_symbols = memgraph::query::MakeSymbolTable(bound_query);
+  EXPECT_EQ(bound_symbols.at(*bound_edge).type(), Symbol::Type::EDGE_LIST);
+
+  // MATCH (n) -[r *KSHORTEST|size([(n)-[e]->(m) | m])]-> (o) RETURN r
+  // The limit is the child this branch newly visits, so it pushes a scope from a fresh site.
+  auto *limit_edge = IDENT("r");
+  auto *kshortest =
+      this->storage.template Create<EdgeAtom>(limit_edge, EdgeAtom::Type::KSHORTEST, EdgeAtom::Direction::OUT);
+  kshortest->filter_lambda_.inner_edge = IDENT("inner_e");
+  kshortest->filter_lambda_.inner_node = IDENT("inner_n");
+  kshortest->limit_ =
+      FN("size", PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("e"), NODE("m")), nullptr, IDENT("m")));
+  auto *limit_query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), kshortest, NODE("o"))), RETURN("r")));
+  auto limit_symbols = memgraph::query::MakeSymbolTable(limit_query);
+  EXPECT_EQ(limit_symbols.at(*limit_edge).type(), Symbol::Type::EDGE_LIST);
+}
+
 TYPED_TEST(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   // MATCH ()-[*]-() RETURN 42 AS res
   auto ident_n = this->storage.template Create<Identifier>("anon_n", false);
