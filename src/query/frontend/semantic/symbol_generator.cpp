@@ -482,7 +482,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
 
   if (scope.in_subquery_pattern && (scope.visiting_edge || scope.in_node_atom)) {
     if (!name_in_scope && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
-      throw SemanticException("Unbounded variables are not allowed in {}!", scope.subquery_construct);
+      throw SemanticException("Unbounded variables are not allowed in {}!",
+                              SubqueryExpression::FoldName(scope.subquery_fold));
     }
   }
 
@@ -742,7 +743,7 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &exists) {
   // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
   scopes_.emplace_back(Scope{.in_subquery_pattern = exists.HasPattern(),
                              .in_subquery_body = exists.HasSubquery(),
-                             .subquery_construct = exists.FoldName(),
+                             .subquery_fold = exists.fold_,
                              .call_subquery_base = scope.call_subquery_base});
 
   return true;

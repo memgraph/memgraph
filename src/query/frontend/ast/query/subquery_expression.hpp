@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <string_view>
+
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/query/expression.hpp"
 #include "query/frontend/ast/query/pattern.hpp"
@@ -46,8 +48,18 @@ class SubqueryExpression : public memgraph::query::Expression {
   /// Symbol table position of the symbol this Aggregation is mapped to.
   int32_t symbol_pos_{-1};
 
-  /// The construct as written, so a diagnostic names the spelling the user reached for.
-  const char *FoldName() const { return fold_ == Fold::kCount ? "COUNT" : "EXISTS"; }
+  /// The construct a fold is written as, so a diagnostic names the spelling the user reached for. A switch, so a
+  /// third fold fails to compile rather than reporting itself as an EXISTS.
+  static constexpr std::string_view FoldName(Fold fold) {
+    switch (fold) {
+      case Fold::kBool:
+        return "EXISTS";
+      case Fold::kCount:
+        return "COUNT";
+    }
+  }
+
+  constexpr std::string_view FoldName() const { return FoldName(fold_); }
 
   SubqueryExpression *Clone(AstStorage *storage) const override {
     SubqueryExpression *object = storage->Create<SubqueryExpression>();

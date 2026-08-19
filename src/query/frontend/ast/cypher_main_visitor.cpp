@@ -3946,8 +3946,8 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
 }
 
 template <typename TContext>
-Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpression::Fold fold,
-                                                 std::string_view construct) {
+Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpression::Fold fold) {
+  auto const construct = SubqueryExpression::FoldName(fold);
   auto *exists = storage_->Create<SubqueryExpression>();
   exists->fold_ = fold;
   // Pattern form: ( ... ) or { ... } with forcePatternPart
@@ -4020,11 +4020,11 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpressi
 }
 
 antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) {
-  return BuildSubqueryFold(ctx, SubqueryExpression::Fold::kBool, "EXISTS");
+  return BuildSubqueryFold(ctx, SubqueryExpression::Fold::kBool);
 }
 
 antlrcpp::Any CypherMainVisitor::visitCountSubquery(MemgraphCypher::CountSubqueryContext *ctx) {
-  return BuildSubqueryFold(ctx, SubqueryExpression::Fold::kCount, "COUNT");
+  return BuildSubqueryFold(ctx, SubqueryExpression::Fold::kCount);
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::PatternComprehensionContext *ctx) {

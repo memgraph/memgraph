@@ -1127,13 +1127,13 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCountSubquery(MemgraphCypher::CountSubqueryContext *ctx) override;
 
   /**
-   * The body shared by the two brace forms, which differ only in their fold and the construct their errors name.
-   * Templated because the two grammar rules have the same shape but distinct context types.
+   * The body shared by the two brace forms, which differ only in their fold - and the construct their errors name
+   * follows from it. Templated because the two grammar rules have the same shape but distinct context types.
    *
    * @return SubqueryExpression* (Expression)
    */
   template <typename TContext>
-  Expression *BuildSubqueryFold(TContext *ctx, SubqueryExpression::Fold fold, std::string_view construct);
+  Expression *BuildSubqueryFold(TContext *ctx, SubqueryExpression::Fold fold);
 
   /**
    * @return pattern comprehension (Expression)

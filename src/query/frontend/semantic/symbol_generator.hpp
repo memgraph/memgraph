@@ -21,6 +21,7 @@
 #include "query/exceptions.hpp"
 // TODO: remove once ast has been split
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/subquery_expression.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 
 namespace memgraph::query {
@@ -150,7 +151,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_subquery_pattern{false};
     bool in_subquery_body{false};
     /// Which construct opened the surrounding subquery, so its refusals name the spelling the user wrote.
-    const char *subquery_construct{"EXISTS"};
+    SubqueryExpression::Fold subquery_fold{SubqueryExpression::Fold::kBool};
     bool in_reduce{false};
     bool in_call_subquery{false};
     bool has_return{false};
