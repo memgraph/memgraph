@@ -913,14 +913,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(std::move(result), ctx_->memory);
   }
 
-  TypedValue Visit(SubqueryExpression &exists) override {
-    TypedValue const &frame_fold_value = frame_->at(symbol_table_->at(exists));
-    // A forced fold already wrote the answer - a bool for EXISTS, an integer for COUNT; a deferred one wrote the
-    // closure that computes it. A fold lost on the way here would not raise - `true > 1` is Null - so assert it.
-    DMG_ASSERT(!frame_fold_value.IsBool() || exists.fold_ == SubqueryExpression::Fold::kBool,
-               "a bool reached a COUNT's frame slot");
-    DMG_ASSERT(!frame_fold_value.IsInt() || exists.fold_ == SubqueryExpression::Fold::kCount,
-               "an integer reached an EXISTS's frame slot");
+  TypedValue Visit(SubqueryExpression &subquery) override {
+    TypedValue const &frame_fold_value = frame_->at(symbol_table_->at(subquery));
+    // Which arm is live follows from where the node was spliced, so exactly one applies per node: a forced fold ran the
+    // branch and wrote the answer - a bool for EXISTS, an integer for COUNT - while a deferred one wrote the closure
+    // that computes it. Past all three means neither operator ran and the slot was never written.
     if (frame_fold_value.IsBool()) {
       return TypedValue(frame_fold_value.ValueBool(), ctx_->memory);
     }
@@ -929,8 +926,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     if (!frame_fold_value.IsFunction()) [[unlikely]] {
       throw QueryRuntimeException(
-          "Unexpected behavior: {} expected a function, got {}. Please report the problem on GitHub issues",
-          exists.FoldName(),
+          "Unexpected behavior: nothing evaluated this {}, so its frame slot holds {}. Please report the problem on "
+          "GitHub issues",
+          subquery.FoldName(),
           frame_fold_value.type());
     }
     TypedValue result(ctx_->memory);
