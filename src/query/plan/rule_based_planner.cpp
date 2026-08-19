@@ -1014,9 +1014,12 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
   // COUNT { ... } > 1 - an Exists wrapped in a comparison - is tagged Generic and would keep whatever
   // position collection order gave it. exists_matchings is collected by walking the whole filter
   // expression, so it sees the wrapped case too.
-  std::ranges::partition(and_joinable_filters, [](const FilterInfo &filter_info) {
+  auto subquery_conjuncts = std::ranges::stable_partition(and_joinable_filters, [](const FilterInfo &filter_info) {
     return filter_info.type != FilterInfo::Type::Pattern && filter_info.exists_matchings.empty();
   });
+  // SplitExpression is a LIFO stack, so the moved conjuncts arrive reversed. Restore what the user wrote, or a cheap
+  // subquery conjunct lands behind an expensive one and pays its whole drain.
+  std::ranges::reverse(subquery_conjuncts);
   for (auto &and_joinable_filter : and_joinable_filters) {
     filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, and_joinable_filter.expression);
   }

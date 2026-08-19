@@ -5481,6 +5481,36 @@ TYPED_TEST(TestPlanner, SubqueryConjunctIsJoinedLast) {
       << "the cheap conjunct should be the one evaluated first";
 }
 
+TYPED_TEST(TestPlanner, SubqueryConjunctsKeepAuthoringOrderAmongThemselves) {
+  // Sorting the subquery conjuncts last says nothing about their order relative to each other, and collection order
+  // reverses - so a cheap subquery conjunct would land behind an expensive one and pay its whole drain. The cheap one
+  // is written first here, which is the spelling that fails without the reverse.
+  FakeDbAccessor dba;
+
+  auto *cheap = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r1"), NODE("m1")))));
+  auto *expensive = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r2"), NODE("m2")))));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WHERE(AND(GREATER(COUNT_SUBQUERY(cheap), LITERAL(1)), GREATER(COUNT_SUBQUERY(expensive), LITERAL(2)))),
+      RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *filter = FindFirstFilter(planner.plan());
+  ASSERT_NE(filter, nullptr);
+  auto *outer_and = memgraph::utils::Downcast<memgraph::query::AndOperator>(filter->expression_);
+  ASSERT_NE(outer_and, nullptr) << "expected the two conjuncts joined by an AND";
+
+  // BoolJoin is left-associative, so the first-written conjunct is the outermost AND's left operand.
+  auto *first = memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression1_);
+  auto *second = memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression2_);
+  ASSERT_NE(first, nullptr);
+  ASSERT_NE(second, nullptr);
+  EXPECT_EQ(memgraph::utils::Downcast<memgraph::query::PrimitiveLiteral>(first->expression2_)->value_.ValueInt(), 1)
+      << "the conjunct written first should still be evaluated first";
+  EXPECT_EQ(memgraph::utils::Downcast<memgraph::query::PrimitiveLiteral>(second->expression2_)->value_.ValueInt(), 2);
+}
+
 TYPED_TEST(TestPlanner, ExistsPatternInReturnProjection) {
   // MATCH (n) RETURN EXISTS((n)-[r]->(m)) AS h - the pattern form takes the same splice point.
   auto *query = QUERY(SINGLE_QUERY(
