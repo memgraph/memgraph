@@ -135,14 +135,20 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(EmptyResult &) override { return true; }
 
   bool PreVisit(Apply &op) override {
-    VisitBranch(*op.subquery_);
-    return true;
+    VisitSubquery(*op.subquery_);
+    op.input_->Accept(*this);
+    return false;
   }
 
+  bool PostVisit(Apply &) override { return true; }
+
   bool PreVisit(Optional &op) override {
-    VisitBranch(*op.optional_);
-    return true;
+    VisitSubquery(*op.optional_);
+    op.input_->Accept(*this);
+    return false;
   }
+
+  bool PostVisit(Optional &) override { return true; }
 
   bool PreVisit(Cartesian &op) override {
     VisitBranch(*op.left_op_);
@@ -161,15 +167,21 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Union &) override { return true; }
 
   bool PreVisit(Merge &op) override {
-    VisitBranch(*op.merge_match_);
-    VisitBranch(*op.merge_create_);
-    return true;
+    VisitSubquery(*op.merge_match_);
+    VisitSubquery(*op.merge_create_);
+    op.input_->Accept(*this);
+    return false;
   }
 
+  bool PostVisit(Merge &) override { return true; }
+
   bool PreVisit(RollUpApply &op) override {
-    VisitBranch(*op.list_collection_branch_);
-    return true;
+    VisitSubquery(*op.list_collection_branch_);
+    op.input_->Accept(*this);
+    return false;
   }
+
+  bool PostVisit(RollUpApply &) override { return true; }
 
   bool PreVisit(EvaluatePatternFilter &) override { return true; }
 
@@ -204,6 +216,7 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
   }
 
+  // Fully isolated: used for Cartesian/Union where branches are independent.
   void VisitBranch(LogicalOperator &branch) {
     auto saved_symbols = used_symbols_;
     auto saved_dedup = deduplicates_;
@@ -213,6 +226,20 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     branch.Accept(*this);
 
     used_symbols_ = std::move(saved_symbols);
+    deduplicates_ = saved_dedup;
+    rewrite_blocked_ = saved_blocked;
+    dedup_stack_ = std::move(saved_stack);
+  }
+
+  // Subquery variant: merges used_symbols_ back into the parent so that edge
+  // symbols referenced inside the subquery are visible to the main pipeline.
+  void VisitSubquery(LogicalOperator &branch) {
+    auto saved_dedup = deduplicates_;
+    auto saved_blocked = rewrite_blocked_;
+    auto saved_stack = dedup_stack_;
+
+    branch.Accept(*this);
+
     deduplicates_ = saved_dedup;
     rewrite_blocked_ = saved_blocked;
     dedup_stack_ = std::move(saved_stack);
