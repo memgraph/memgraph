@@ -254,7 +254,7 @@ jobs:
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]  # REVERT BEFORE MERGE!
+    runs-on: [self-hosted, Linux, benchmark]
     timeout-minutes: 100
     steps:
       - name: Set up repository
