@@ -5397,7 +5397,7 @@ TYPED_TEST(TestPlanner, CountSubqueryInMatchWhereUsesTheDeferredFold) {
   // MATCH (n) WHERE COUNT { MATCH (n)-[r]->(m) } > 1 RETURN n
   //
   // The deferred fold, as for EXISTS - so an untaken disjunct skips the branch entirely, which for a count is a whole
-  // drain rather than a single pull. No Limit above the branch: the bool fold's one-row cap would truncate the count.
+  // drain rather than a single pull. No Limit above the branch: it would truncate the drain.
   FakeDbAccessor dba;
 
   auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
@@ -5418,8 +5418,8 @@ TYPED_TEST(TestPlanner, CountSubqueryInMatchWhereUsesTheDeferredFold) {
 }
 
 TYPED_TEST(TestPlanner, ExistsSubqueryInMatchWhereKeepsItsLimit) {
-  // The sibling of the test above, so the Limit's absence there reads as a decision rather than an omission: the bool
-  // fold still gets one, because a single row is all it looks at.
+  // The sibling of the test above, so the Limit's absence there reads as a decision rather than an omission. The bool
+  // fold is still planted one, though it caps nothing - the cursor pulls once regardless.
   FakeDbAccessor dba;
 
   auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
@@ -5452,12 +5452,10 @@ memgraph::query::plan::Filter *FindFirstFilter(memgraph::query::plan::LogicalOpe
 }  // namespace
 
 TYPED_TEST(TestPlanner, SubqueryConjunctIsJoinedLast) {
-  // ExtractFilters sorts the conjunct carrying a subquery branch last, so a cheaper conjunct decides the row
-  // first and a deferred fold whose value is never read never runs its branch. FilterInfo::Type::Pattern does
-  // not answer this on its own - it is set only when the conjunct *is* an Exists, so COUNT { ... } > 1, an
-  // Exists wrapped in a comparison, is tagged Generic. BoolJoin is left-associative, so the conjunct joined
-  // last is the outermost AND's right operand. The COUNT is written *second* here on purpose: collection order
-  // reverses, so without the fix this is the spelling that lands it first and it is the only one that fails.
+  // ExtractFilters sorts the conjunct carrying a subquery branch last, and Type::Pattern does not answer that on its
+  // own: it is set only when the conjunct *is* an Exists, so `COUNT { ... } > 1` is tagged Generic. BoolJoin is
+  // left-associative, so the conjunct joined last is the outermost AND's right operand. The COUNT is written second
+  // on purpose - collection order reverses, so that is the spelling which fails without the fix.
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
 
@@ -5481,10 +5479,37 @@ TYPED_TEST(TestPlanner, SubqueryConjunctIsJoinedLast) {
       << "the cheap conjunct should be the one evaluated first";
 }
 
+// `VaryMatchingStart` takes its `Matching` by value, so an `ExistsMatching` is sliced and the fold survives only
+// because `SetCurrentQueryPart` restores it by hand. No other test reaches that code: `PlannerTypes` is
+// `RuleBasedPlanner` alone, while the cost planner - on by default - plans through `VariableStartPlanner`.
+TYPED_TEST(TestPlanner, CountSubqueryKeepsItsFoldThroughPlanVariation) {
+  FakeDbAccessor dba;
+
+  auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(GREATER(COUNT_SUBQUERY(count_subquery), LITERAL(1))), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planning_context = MakePlanningContext(&this->storage, &symbol_table, query, &dba);
+  auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
+
+  auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &planning_context);
+  auto plan_it = plans.begin();
+  ASSERT_NE(plan_it, plans.end());
+  auto plan = std::move(*plan_it);
+  ASSERT_TRUE(plan);
+
+  auto *filter = FindOpOfType<memgraph::query::plan::Filter>(plan.get());
+  ASSERT_NE(filter, nullptr);
+  ASSERT_EQ(filter->pattern_filters_.size(), 1U);
+  auto *deferred = dynamic_cast<EvaluatePatternFilter *>(filter->pattern_filters_[0].get());
+  ASSERT_NE(deferred, nullptr);
+  EXPECT_EQ(deferred->fold_, RollUpApply::Fold::kCount) << "the variable-start planner downgraded the count fold";
+  EXPECT_EQ(FindOpOfType<Limit>(deferred->input_.get()), nullptr) << "a Limit would truncate the count's drain";
+}
+
 TYPED_TEST(TestPlanner, SubqueryConjunctsKeepAuthoringOrderAmongThemselves) {
-  // Sorting the subquery conjuncts last says nothing about their order relative to each other, and collection order
-  // reverses - so a cheap subquery conjunct would land behind an expensive one and pay its whole drain. The cheap one
-  // is written first here, which is the spelling that fails without the reverse.
+  // Sorting them last says nothing about their order relative to each other, and collection order reverses, so a
+  // cheap subquery conjunct would land behind an expensive one. The cheap one is written first: the failing spelling.
   FakeDbAccessor dba;
 
   auto *cheap = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r1"), NODE("m1")))));

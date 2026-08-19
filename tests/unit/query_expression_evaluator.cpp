@@ -210,6 +210,25 @@ TYPED_TEST(ExpressionEvaluatorTest, ExistsReadsAForcedBoolFold) {
   }
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, ExistsReadsAForcedCountFold) {
+  // The count fold writes an integer where the bool fold writes a bool, and both are read from the same slot by the
+  // same visitor, so the integer arm needs its own case.
+  auto *count = this->CreateExistsWithValue("anon1", TypedValue(int64_t{3}, this->ctx.memory));
+  count->fold_ = memgraph::query::Exists::Fold::kCount;
+  EXPECT_EQ(this->Eval(count).ValueInt(), 3);
+
+  auto *zero = this->CreateExistsWithValue("anon2", TypedValue(int64_t{0}, this->ctx.memory));
+  zero->fold_ = memgraph::query::Exists::Fold::kCount;
+  EXPECT_EQ(this->Eval(zero).ValueInt(), 0);
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ExistsRefusesAnUnexpectedFrameValueByConstruct) {
+  // Neither a value nor a closure: the message names the construct the user wrote.
+  auto *count = this->CreateExistsWithValue("anon1", TypedValue("not a fold", this->ctx.memory));
+  count->fold_ = memgraph::query::Exists::Fold::kCount;
+  EXPECT_THROW(this->Eval(count), QueryRuntimeException);
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, AndOperatorNull) {
   {
     // Null doesn't short circuit
