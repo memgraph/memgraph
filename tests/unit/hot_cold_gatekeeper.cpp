@@ -11,6 +11,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <future>
+#include <memory>
 #include <optional>
 #include <thread>
 
@@ -355,4 +357,214 @@ TEST(HotColdGatekeeper, DeferDeleteDoesNotHeadOfLineBlockAnotherEntry) {
     ASSERT_LT(std::chrono::steady_clock::now(), drain_deadline) << "\"stuck\" was not destroyed after being released";
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
+}
+
+// ---------------------------------------------------------------------------
+// DrainingRefusesNewAccessButNotTheDropPath
+// ---------------------------------------------------------------------------
+// PINS: draining_ gates minting, not use. begin_drain() must flip plain access() to nullopt while
+// leaving access(drain_bypass) minting and leaving an already-live Accessor (taken before the
+// drain started) fully usable and still counted.
+TEST(HotColdGatekeeper, DrainingRefusesNewAccessButNotTheDropPath) {
+  auto gk = make_hot();
+
+  // Minted BEFORE the drain starts.
+  auto pre_existing = gk.access();
+  ASSERT_TRUE(pre_existing.has_value());
+  EXPECT_EQ(gk.holder_count(), 1u);
+
+  ASSERT_TRUE(gk.begin_drain());
+  EXPECT_TRUE(gk.is_draining());
+
+  // New plain access() must now be refused.
+  EXPECT_FALSE(gk.access().has_value());
+
+  // The drop path's bypass overload still mints.
+  auto bypass_acc = gk.access(drain_bypass);
+  ASSERT_TRUE(bypass_acc.has_value());
+  EXPECT_EQ(gk.holder_count(), 2u);
+
+  // The accessor minted before the drain remains usable and still contributes to the count -- the
+  // flag gates minting, not use of an already-live accessor.
+  EXPECT_EQ((*pre_existing)->v, 42);
+  EXPECT_TRUE(static_cast<bool>(*pre_existing));
+
+  bypass_acc->reset();
+  pre_existing->reset();
+  gk.abort_drain();
+}
+
+// ---------------------------------------------------------------------------
+// BeginDrainIsSingleFlightAndHotGated
+// ---------------------------------------------------------------------------
+// PINS: begin_drain() is a single-flight CAS gated on state_ == HOT: a second concurrent drain must
+// lose, abort_drain() must let a later drain win again, and a COLD shell or a SUSPENDING gatekeeper
+// (in-flight transition) must refuse the drain outright.
+TEST(HotColdGatekeeper, BeginDrainIsSingleFlightAndHotGated) {
+  auto gk = make_hot();
+
+  // First begin_drain() wins the single-flight token.
+  EXPECT_TRUE(gk.begin_drain());
+  EXPECT_TRUE(gk.is_draining());
+
+  // A concurrent second begin_drain() must see draining_ already set and lose.
+  EXPECT_FALSE(gk.begin_drain());
+
+  // abort_drain() rolls the flag back; access() and a fresh begin_drain() both work again.
+  gk.abort_drain();
+  EXPECT_FALSE(gk.is_draining());
+  auto acc = gk.access();
+  ASSERT_TRUE(acc.has_value());
+  acc->reset();
+
+  EXPECT_TRUE(gk.begin_drain());
+  gk.abort_drain();
+
+  // HOT-gated: a COLD shell must refuse begin_drain() outright.
+  auto cold = GK{cold_shell};
+  ASSERT_EQ(cold.state(), State::COLD);
+  EXPECT_FALSE(cold.begin_drain());
+
+  // Also refused while a suspend is in flight (SUSPENDING) -- reachable with the existing
+  // try_begin_suspend() helper, no new scaffolding needed.
+  auto gk2 = make_hot();
+  auto suspend_acc = gk2.access();
+  ASSERT_TRUE(suspend_acc.has_value());
+  ASSERT_TRUE(gk2.try_begin_suspend(std::chrono::milliseconds(200)));
+  ASSERT_EQ(gk2.state(), State::SUSPENDING);
+  EXPECT_FALSE(gk2.begin_drain());
+  suspend_acc->reset();
+  gk2.abort_suspend();
+}
+
+// ---------------------------------------------------------------------------
+// DtorOfDrainingGatekeeperReturnsPromptly
+// ---------------------------------------------------------------------------
+// The wedge regression. PINS: ~Gatekeeper waits on (state_ == HOT || state_ == COLD) && count_ == 0.
+// draining_ is deliberately a flag layered on top of HOT, NOT a fifth GatekeeperState value -- had
+// begin_drain() instead flipped state_ to some DRAINING enumerator, that predicate would never
+// recognize it as terminal and this destructor would block forever.
+TEST(HotColdGatekeeper, DtorOfDrainingGatekeeperReturnsPromptly) {
+  auto gk = std::make_unique<GK>(7);
+  ASSERT_TRUE(gk->begin_drain());
+  EXPECT_TRUE(gk->is_draining());
+  // No live accessors: count_ is already 0, so the terminal-state half of the wait predicate is the
+  // only thing in question here.
+  EXPECT_EQ(gk->holder_count(), 0u);
+
+  auto done = std::make_shared<std::promise<void>>();
+  auto done_future = done->get_future();
+  // `gk` and a copy of the shared_ptr `done` are moved/copied into the thread's closure so both stay
+  // alive even if this test has to detach the thread below (a hung ~Gatekeeper must not dangle-deref
+  // a stack-local promise).
+  std::thread destroyer([gk = std::move(gk), done]() mutable {
+    gk.reset();  // Runs ~Gatekeeper() with draining_ == true and count_ == 0.
+    done->set_value();
+  });
+
+  constexpr auto kBound = std::chrono::seconds(2);
+  auto const status = done_future.wait_for(kBound);
+  if (status == std::future_status::ready) {
+    destroyer.join();
+  } else {
+    // A hung ~Gatekeeper must not wedge the whole test binary: detach and let the ASSERT below fail
+    // the test instead of blocking join() forever.
+    destroyer.detach();
+  }
+  ASSERT_EQ(status, std::future_status::ready)
+      << "~Gatekeeper did not return within " << kBound.count() << "s while draining_ was set.";
+}
+
+// ---------------------------------------------------------------------------
+// DeferDeleteOfADrainingEntryStillErasesIt
+// ---------------------------------------------------------------------------
+// The strand-forever hazard. PINS: Handler<T>::DeferDelete must mint its own accessor via
+// access(drain_bypass), not the plain drain-gated access() -- otherwise it would `return` before its
+// unconditional items_.erase(itr), and a draining entry would stay in the map forever: unreachable
+// by name, never destroyed.
+TEST(HotColdGatekeeper, DeferDeleteOfADrainingEntryStillErasesIt) {
+  std::atomic<bool> destroyed{false};
+  std::atomic<bool> callback_fired{false};
+  memgraph::dbms::Handler<DeferDeleteProbe> handler;
+
+  auto new_result = handler.New(std::piecewise_construct, "draining_probe", &destroyed, std::chrono::milliseconds(0));
+  ASSERT_TRUE(new_result.has_value());
+  auto held_acc = std::move(*new_result);
+  ASSERT_TRUE(held_acc);
+
+  // Drain the in-map gatekeeper directly, the way the drop path does before calling DeferDelete.
+  auto *gk = handler.GetGatekeeper("draining_probe");
+  ASSERT_NE(gk, nullptr);
+  ASSERT_TRUE(gk->begin_drain());
+
+  // held_acc + DeferDelete's own drain_bypass mint push count_ to 2, so try_delete()'s count_==1
+  // check times out and this takes the deferred path.
+  handler.DeferDelete("draining_probe", [&callback_fired] { callback_fired.store(true, std::memory_order_release); });
+
+  // Erased from the map immediately even though access() itself now refuses (draining_) and
+  // held_acc keeps the object alive.
+  EXPECT_FALSE(handler.Has("draining_probe"));
+  EXPECT_FALSE(destroyed.load(std::memory_order_acquire));
+
+  // Dropping held_acc's count to 0 lets the already-blocked deferred ~Gatekeeper proceed.
+  held_acc.reset();
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!destroyed.load(std::memory_order_acquire) || !callback_fired.load(std::memory_order_acquire)) {
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline)
+        << "draining entry's deferred destruction never completed after its last accessor was released";
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_TRUE(destroyed.load(std::memory_order_acquire));
+  EXPECT_TRUE(callback_fired.load(std::memory_order_acquire));
+}
+
+// ---------------------------------------------------------------------------
+// DrainingTenantRefusesSuspend
+// ---------------------------------------------------------------------------
+// PINS: try_begin_suspend()'s upfront refusal checks draining_ directly, alongside (not folded into)
+// the count_==1 wait -- a tenant already accepted for deletion must not be frozen out from under the
+// drop by a competing suspend.
+TEST(HotColdGatekeeper, DrainingTenantRefusesSuspend) {
+  // Control: on a non-draining gatekeeper, a sole accessor is sufficient for try_begin_suspend() to
+  // succeed. Without this, a `false` from the draining case below would be ambiguous -- it could
+  // just be the count_==1 check failing for an unrelated reason.
+  {
+    auto control = make_hot();
+    auto acc = control.access();
+    ASSERT_TRUE(acc.has_value());
+    EXPECT_TRUE(control.try_begin_suspend(std::chrono::milliseconds(200)));
+    ASSERT_EQ(control.state(), State::SUSPENDING);
+    acc->reset();
+    control.abort_suspend();
+  }
+
+  auto gk = make_hot();
+  auto acc = gk.access();
+  ASSERT_TRUE(acc.has_value());
+  EXPECT_EQ(gk.holder_count(), 1u);
+
+  ASSERT_TRUE(gk.begin_drain());
+
+  // count_==1 precondition is satisfied (only `acc` is live); the refusal must be the drain check.
+  // Captured into a local (not asserted on directly): if the draining_ check regresses, this call
+  // succeeds and leaves state_ == SUSPENDING. SUSPENDING is not terminal for ~Gatekeeper's wait
+  // predicate, so asserting first and returning early would destruct `gk` mid-transition and wedge
+  // the destructor forever -- turning a named test failure into an opaque CI job timeout instead.
+  const bool suspend_began = gk.try_begin_suspend(std::chrono::milliseconds(50));
+
+  // Release the accessor before acting on the result: on the expected-false path state_ is still
+  // HOT and this is a no-op ordering-wise; on the regressed-true path count_ must reach 0 before
+  // abort_suspend() below hands the gatekeeper back a clean HOT state to destruct from.
+  acc->reset();
+
+  if (suspend_began) {
+    // Roll the transition back before the assertion below can return early.
+    gk.abort_suspend();
+  }
+  EXPECT_FALSE(suspend_began)
+      << "try_begin_suspend() succeeded on a draining gatekeeper -- the draining_ upfront check regressed";
+  EXPECT_EQ(gk.state(), State::HOT);
+
+  gk.abort_drain();
 }
