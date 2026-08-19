@@ -27,7 +27,7 @@
 #include "license/license.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/graph_access.hpp"
+#include "query/frontend/semantic/graph_free.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/state.hpp"
@@ -143,7 +143,7 @@ void RunAnalysis(benchmark::State &state, const std::string &query_string) {
   auto *query = memgraph::utils::Downcast<memgraph::query::CypherQuery>(visitor.query());
   MG_ASSERT(query, "Expected a Cypher query");
   while (state.KeepRunning()) {
-    benchmark::DoNotOptimize(memgraph::query::RequiresGraphAccess(*query));
+    benchmark::DoNotOptimize(memgraph::query::IsGraphFree(*query));
   }
 }
 
