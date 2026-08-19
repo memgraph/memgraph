@@ -55,7 +55,7 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
-          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
       - name: Clean up Docker
         if: always()
