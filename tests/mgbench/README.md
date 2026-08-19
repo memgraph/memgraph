@@ -224,6 +224,11 @@ the credentials the cluster description gives it, then the benchmark's own, and 
 instance currently accepts. Both states occur in a single run, since the pass drops the user again
 when it finishes.
 
+Anything involving a cluster drives `tests/e2e/interactive_mg_runner.py`, which needs `mgclient`, so
+run it from the `tests/ve3` virtualenv that `init-test` builds from `tests/requirements.txt` — the
+same one the e2e and stress suites use. The single-instance path does not need it, which is why CI
+only started failing once the cluster leg was added.
+
 **High availability is an enterprise feature**, so `MEMGRAPH_ENTERPRISE_LICENSE` and
 `MEMGRAPH_ORGANIZATION_NAME` have to be set in the environment. The runner refuses to start without
 them rather than letting cluster setup fail later.

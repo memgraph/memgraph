@@ -188,6 +188,12 @@ Stated plainly, because each one bounds how far the resulting numbers can be pus
 - **Memory is main-only.** Replica memory under replication load is not reported, and adding it is
   a schema change rather than a flag, because `database: {cpu, memory}` holds exactly one value.
 - **Import is slower than standalone by construction** (decision 13), on every run.
+- **The cluster leg needs the e2e virtualenv.** Driving `interactive_mg_runner` pulls in `mgclient`
+  through its star import of the e2e `memgraph` module, so the benchmark has to run from `tests/ve3`,
+  built from `tests/requirements.txt`, which is what the e2e and stress suites already activate. This
+  surfaced only in CI and only once the cluster leg existed, because the single-instance path never
+  imports the runner. The import is now wrapped so the failure names the virtualenv rather than
+  reporting a missing module several imports deep.
 - **The fine-grained authorization pass doubles the runtime.** It runs here exactly as it does for a
   single instance, so every query is measured twice and the cluster is restarted for each of those
   measurements. It also forced a change in the runner, because it is the one thing in a run that
