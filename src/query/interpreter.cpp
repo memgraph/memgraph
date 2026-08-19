@@ -3621,6 +3621,24 @@ struct PullPlan {
                                                         const std::vector<Symbol> &output_symbols,
                                                         std::map<std::string, TypedValue> *summary);
 
+  /// A transaction settles what it charged a user's quota when it commits or aborts. A query that opened
+  /// none has neither to reconcile through, so it returns its own charge here, on every way out
+  /// including a throw. Without this a session's usage climbs by one query's peak per query, until the
+  /// user is refused for memory nothing is holding.
+  ~PullPlan() {
+#ifdef MG_ENTERPRISE
+    if (ctx_.db_accessor == nullptr && user_resource_ && fallback_memory_tracker_ != nullptr) {
+      auto const charged = fallback_memory_tracker_->Amount();
+      if (charged > 0) user_resource_->DecrementTransactionsMemory(charged);
+    }
+#endif
+  }
+
+  PullPlan(const PullPlan &) = delete;
+  PullPlan(PullPlan &&) = delete;
+  PullPlan &operator=(const PullPlan &) = delete;
+  PullPlan &operator=(PullPlan &&) = delete;
+
  private:
   std::shared_ptr<PlanWrapper> plan_ = nullptr;
   plan::UniqueCursorPtr cursor_ = nullptr;
