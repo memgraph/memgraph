@@ -224,7 +224,7 @@ class DependantSymbolVisitor : public ExpressionVisitor<void> {
     is_cacheable_ = false;  // Not cacheable due to pattern matching
   }
 
-  void Visit(SubqueryExpression & /*exists*/) override {
+  void Visit(SubqueryExpression & /*subquery*/) override {
     is_cacheable_ = false;  // Not cacheable due to pattern/subquery
   }
 

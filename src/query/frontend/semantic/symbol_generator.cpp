@@ -712,44 +712,44 @@ bool SymbolGenerator::IsSupportedSubqueryPosition(const Scope &scope) {
   return (scope.in_with || scope.in_return) && !scope.in_skip && !scope.in_limit;
 }
 
-bool SymbolGenerator::PreVisit(SubqueryExpression &exists) {
+bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
   auto &scope = scopes_.back();
 
-  if (!exists.HasPattern() && !exists.HasSubquery()) {
+  if (!subquery.HasPattern() && !subquery.HasSubquery()) {
     throw SemanticException(
         "{} semantic hold neither pattern or subquery part! Please contact Memgraph support as this scenario "
         "should not happen!",
-        exists.FoldName());
+        subquery.FoldName());
   }
 
   // Narrowed refusals, kept ahead of the position check because they name a specific construct rather than a position.
   if (scope.in_reduce) {
-    throw utils::NotYetImplemented("{} cannot be used within REDUCE!", exists.FoldName());
+    throw utils::NotYetImplemented("{} cannot be used within REDUCE!", subquery.FoldName());
   }
 
   // A CASE holds no position of its own, so it is not consulted here. num_if_operators still gates aggregations.
   // The fold does not change which positions work; only what is written into the frame slot differs.
   if (!IsSupportedSubqueryPosition(scope)) {
-    throw utils::NotYetImplemented("{} is not supported in this position yet!", exists.FoldName());
+    throw utils::NotYetImplemented("{} is not supported in this position yet!", subquery.FoldName());
   }
 
   const auto &symbol = CreateAnonymousSymbol();
-  exists.MapTo(symbol);
+  subquery.MapTo(symbol);
 
   // Each form declares only its own variables, so each gets a scope; the pattern form's are named at parse time, so
   // leaving them outside redeclared them wherever one expression is reached twice, as a simple CASE reaches its test.
   // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name, and the fold name
   // with it, so a diagnostic raised inside names the construct the user wrote.
   // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
-  scopes_.emplace_back(Scope{.in_subquery_pattern = exists.HasPattern(),
-                             .in_subquery_body = exists.HasSubquery(),
-                             .subquery_fold = exists.fold_,
+  scopes_.emplace_back(Scope{.in_subquery_pattern = subquery.HasPattern(),
+                             .in_subquery_body = subquery.HasSubquery(),
+                             .subquery_fold = subquery.fold_,
                              .call_subquery_base = scope.call_subquery_base});
 
   return true;
 }
 
-bool SymbolGenerator::PostVisit(SubqueryExpression & /*exists*/) {
+bool SymbolGenerator::PostVisit(SubqueryExpression & /*subquery*/) {
   scopes_.pop_back();
   return true;
 }

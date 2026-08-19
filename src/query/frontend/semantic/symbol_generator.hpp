@@ -105,8 +105,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PreVisit(Reduce &) override;
   bool PostVisit(Reduce &) override;
   bool PreVisit(Extract &) override;
-  bool PreVisit(SubqueryExpression & /*exists*/) override;
-  bool PostVisit(SubqueryExpression & /*exists*/) override;
+  bool PreVisit(SubqueryExpression & /*subquery*/) override;
+  bool PostVisit(SubqueryExpression & /*subquery*/) override;
   bool PreVisit(NamedExpression & /*unused*/) override;
   bool PreVisit(ListComprehension &) override;
   bool PostVisit(ListComprehension &) override;

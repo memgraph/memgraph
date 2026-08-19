@@ -100,17 +100,17 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(SubqueryExpression &exists) override {
+  bool PreVisit(SubqueryExpression &subquery) override {
     ++in_subquery_depth;
 
-    if (exists.HasPattern()) {
-      // We do not visit pattern identifier since we're in exists filter pattern
-      for (auto &atom : exists.GetPattern()->atoms_) {
+    if (subquery.HasPattern()) {
+      // We do not visit pattern identifier since we're in subquery filter pattern
+      for (auto &atom : subquery.GetPattern()->atoms_) {
         atom->Accept(*this);
       }
-    } else if (exists.HasSubquery()) {
+    } else if (subquery.HasSubquery()) {
       // For subqueries, we need to collect symbols from the subquery
-      auto *single_query = exists.GetSubquery()->single_query_;
+      auto *single_query = subquery.GetSubquery()->single_query_;
       if (single_query) {
         for (auto *clause : single_query->clauses_) {
           if (auto *match = utils::Downcast<Match>(clause)) {
@@ -126,13 +126,13 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
       throw SemanticException(
           "{} semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
           "should not happen!",
-          exists.FoldName());
+          subquery.FoldName());
     }
 
     return false;
   }
 
-  bool PostVisit(SubqueryExpression & /*exists*/) override {
+  bool PostVisit(SubqueryExpression & /*subquery*/) override {
     --in_subquery_depth;
     return true;
   }
@@ -161,7 +161,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
  protected:
   // Depths, not flags: a nested one's `PostVisit` would clear a flag and let the rest of the outer body collect
   // anonymous symbols. Both nest - a pattern's property maps and variable-length bounds may hold another
-  // comprehension, and an exists body may hold another exists. Protected so a subclass that walks the body itself
+  // comprehension, and a subquery body may hold another subquery. Protected so a subclass that walks the body itself
   // can enter without also triggering the base's walk.
   int in_subquery_depth{0};
   int in_pattern_comprehension_depth{0};
@@ -225,7 +225,7 @@ struct PatternComprehensionMatching;
 struct SubqueryMatching;
 using PatternComprehensionMatchings = std::vector<PatternComprehensionMatching>;
 
-/// Which spelling an EXISTS was written as: `exists(pattern)` or `EXISTS { ... }`.
+/// Which body form was written: a bare pattern, or a full subquery. Independent of the fold.
 enum class SubqueryKind : uint8_t { kPattern, kSubquery };
 
 /// Collects pattern comprehensions and EXISTS patterns from any AST node.

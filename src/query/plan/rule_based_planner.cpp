@@ -56,13 +56,13 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
     return false;
   }
 
-  bool PreVisit(SubqueryExpression &exists) override {
+  bool PreVisit(SubqueryExpression &subquery) override {
     // The whole body, not just the base's pattern walk - and entering keeps anonymous symbols out.
     ++in_subquery_depth;
-    if (exists.HasPattern()) {
-      exists.GetPattern()->Accept(*this);
-    } else if (exists.HasSubquery()) {
-      exists.GetSubquery()->Accept(*this);
+    if (subquery.HasPattern()) {
+      subquery.GetPattern()->Accept(*this);
+    } else if (subquery.HasSubquery()) {
+      subquery.GetSubquery()->Accept(*this);
     }
     return false;
   }
@@ -94,9 +94,9 @@ class SubquerySymbolCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(SubqueryExpression &exists) override {
+  bool PreVisit(SubqueryExpression &subquery) override {
     if (subquery_symbols_) {
-      subquery_symbols_->push_back(symbol_table_.at(exists));
+      subquery_symbols_->push_back(symbol_table_.at(subquery));
     }
     return false;  // The body is planned by its own branch, so nothing inside it belongs to this expression.
   }
@@ -142,7 +142,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   /// chain is deterministic rather than ordered by symbol hash.
   struct BranchesAt {
     std::vector<PatternComprehensionData> comprehensions;
-    std::vector<SubqueryBranch> exists;
+    std::vector<SubqueryBranch> subqueries;
   };
 
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols,
@@ -611,13 +611,13 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(SubqueryExpression &exists) override {
+  bool PreVisit(SubqueryExpression &subquery) override {
     // Mirrors the comprehension pair, minus its aggregation bookkeeping: this returns false, so nothing inside the
     // body is visited and there is no nesting to unwind. The body is planned into its own branch, so nothing inside
     // it may reach has_aggregation_ or group_by_ - but the outer names it correlates to must reach used_symbols_,
     // for whatever restores rows below the branch to remember them.
     SubqueryReadSymbolsCollector collector(symbol_table_);
-    exists.Accept(collector);
+    subquery.Accept(collector);
     for (const auto &symbol : collector.symbols_) {
       if (!std::ranges::contains(output_symbols_, symbol)) {
         used_symbols_.insert(symbol);
@@ -626,13 +626,13 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return false;
   }
 
-  bool PostVisit(SubqueryExpression &exists) override {
+  bool PostVisit(SubqueryExpression &subquery) override {
     // An EXISTS is a scalar and its body's aggregations belong to the branch, not to this return body.
     has_aggregation_.emplace_back(false);
 
     // Only plan a top-level EXISTS; one nested in a comprehension is built inside that comprehension's own tree.
     if (aggregations_start_index_stack_.empty()) {
-      PlanSubqueryOnDemand(symbol_table_.at(exists));
+      PlanSubqueryOnDemand(symbol_table_.at(subquery));
     }
     return true;
   }
@@ -757,7 +757,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
         subquery_ctx_->planner->PlanSubqueryBranch(it->second, subquery_ctx_->write_occurred, BranchBoundSymbols());
     auto const fold = impl::ToOperatorFold(it->second.fold);
     subquery_ctx_->pending_subqueries.erase(it);
-    Bucket(position_).exists.emplace_back(result_sym, std::move(op), fold);
+    Bucket(position_).subqueries.emplace_back(result_sym, std::move(op), fold);
   }
 
   BranchesAt &Bucket(BodyPosition position) { return branches_[static_cast<size_t>(position)]; }
@@ -856,7 +856,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     }
 
     const auto &subqueries_in_aggregations = body.subqueries_in_aggregations();
-    for (auto &[result_symbol, op, fold] : projection.exists) {
+    for (auto &[result_symbol, op, fold] : projection.subqueries) {
       if (!op) continue;
       last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(op), result_symbol, fold);
       if (!std::ranges::contains(subqueries_in_aggregations, result_symbol)) {
@@ -876,7 +876,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
       last_op = std::make_unique<RollUpApply>(
           std::move(last_op), std::move(data.op), list_collection_symbols, data.result_symbol);
     }
-    for (auto &[result_symbol, op, fold] : branches.exists) {
+    for (auto &[result_symbol, op, fold] : branches.subqueries) {
       if (!op) continue;
       last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(op), result_symbol, fold);
     }

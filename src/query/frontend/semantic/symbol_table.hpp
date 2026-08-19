@@ -57,7 +57,7 @@ class SymbolTable final {
 
   const Symbol &at(const Aggregation &aggr) const { return table_.at(aggr.symbol_pos_); }
 
-  const Symbol &at(const SubqueryExpression &exists) const { return table_.at(exists.symbol_pos_); }
+  const Symbol &at(const SubqueryExpression &subquery) const { return table_.at(subquery.symbol_pos_); }
 
   const Symbol &at(const PatternComprehension &pattern_comprehension) const {
     return table_.at(pattern_comprehension.symbol_pos_);

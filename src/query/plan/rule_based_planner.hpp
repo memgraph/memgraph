@@ -338,8 +338,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         // EXISTS is planned only from a WITH/RETURN body, the one splice point it has. A MATCH's WHERE keeps its own
         // on the FilterInfo and never reaches this map.
         std::unordered_map<Symbol, SubqueryMatching> pending_subqueries;
-        for (const auto &exists : single_query_part.subquery_matchings) {
-          pending_subqueries.emplace(exists.symbol.value(), exists);
+        for (const auto &matching : single_query_part.subquery_matchings) {
+          pending_subqueries.emplace(matching.symbol.value(), matching);
         }
 
         // Compute all symbols that will be bound by this query part (from MATCH, CREATE, MERGE, etc.)

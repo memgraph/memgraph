@@ -3922,11 +3922,11 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
 }
 
 antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
-  auto *exists = storage_->Create<SubqueryExpression>();
+  auto *subquery = storage_->Create<SubqueryExpression>();
   // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
-    exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-    if (exists->GetPattern()->identifier_) {
+    subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    if (subquery->GetPattern()->identifier_) {
       throw SyntaxException("Identifiers are not supported in exists(...).");
     }
   } else {
@@ -3934,26 +3934,26 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   }
 
   // Ensure only one of pattern_ or subquery_ is set
-  const bool has_pattern = exists->HasPattern();
-  const bool has_subquery = exists->HasSubquery();
+  const bool has_pattern = subquery->HasPattern();
+  const bool has_subquery = subquery->HasSubquery();
   if ((has_pattern && has_subquery) || (!has_pattern && !has_subquery)) {
     throw SyntaxException(
         "EXISTS must have exactly one of pattern or subquery set. Please contact Memgraph support as this scenario "
         "should not happen!");
   }
 
-  return static_cast<Expression *>(exists);
+  return static_cast<Expression *>(subquery);
 }
 
 template <typename TContext>
 Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpression::Fold fold) {
   auto const construct = SubqueryExpression::FoldName(fold);
-  auto *exists = storage_->Create<SubqueryExpression>();
-  exists->fold_ = fold;
+  auto *subquery = storage_->Create<SubqueryExpression>();
+  subquery->fold_ = fold;
   // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
-    exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-    if (exists->GetPattern()->identifier_) {
+    subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    if (subquery->GetPattern()->identifier_) {
       throw SyntaxException("Identifiers are not supported in a {} pattern.", construct);
     }
   } else if (ctx->cypherQuery()) {
@@ -3965,7 +3965,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpressi
     auto *cypher_query = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
     in_with_ = old_in_with;
     parsing_subquery_body_ = old_flag;
-    exists->content_ = cypher_query;
+    subquery->content_ = cypher_query;
 
     // 1. There must be at least one clause, and 2. only MATCH, WHERE, WITH, RETURN. Per branch: a UNION's
     // further branches are each their own SingleQuery, and a clause forbidden in the first is not legal in them.
@@ -4007,8 +4007,8 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpressi
   }
 
   // Ensure only one of pattern_ or subquery_ is set
-  const bool has_pattern = exists->HasPattern();
-  const bool has_subquery = exists->HasSubquery();
+  const bool has_pattern = subquery->HasPattern();
+  const bool has_subquery = subquery->HasSubquery();
   if ((has_pattern && has_subquery) || (!has_pattern && !has_subquery)) {
     throw SyntaxException(
         "{} must have exactly one of pattern or subquery set! Please contact Memgraph support as this scenario "
@@ -4016,7 +4016,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpressi
         construct);
   }
 
-  return static_cast<Expression *>(exists);
+  return static_cast<Expression *>(subquery);
 }
 
 antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) {
@@ -4041,13 +4041,13 @@ antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::Patte
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternExpression(MemgraphCypher::PatternExpressionContext *ctx) {
-  auto *exists = storage_->Create<SubqueryExpression>();
-  exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-  if (exists->GetPattern()->identifier_) {
+  auto *subquery = storage_->Create<SubqueryExpression>();
+  subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+  if (subquery->GetPattern()->identifier_) {
     throw SyntaxException("Identifiers are not supported in pattern expressions.");
   }
 
-  return static_cast<Expression *>(exists);
+  return static_cast<Expression *>(subquery);
 }
 
 antlrcpp::Any CypherMainVisitor::visitParenthesizedExpression(MemgraphCypher::ParenthesizedExpressionContext *ctx) {
