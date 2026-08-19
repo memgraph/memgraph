@@ -653,7 +653,7 @@ TYPED_TEST(InterpreterTest, AccessorFreePathModifierRouting) {
 
 // The accessor-free path is gated on procedure metadata (graph_free AND no required privilege),
 // not on the procedure name.
-TYPED_TEST(InterpreterTest, AccessorFreePathRequiresDeclaredNoGraphAccess) {
+TYPED_TEST(InterpreterTest, AccessorFreePathRequiresDeclaredGraphFree) {
   for (auto const *query :
        {"CALL mg.procedures() YIELD name", "CALL mg.functions() YIELD name", "CALL mg.transformations() YIELD name"}) {
     SCOPED_TRACE(query);
