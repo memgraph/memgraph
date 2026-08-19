@@ -234,6 +234,10 @@ only started failing once the cluster leg was added.
 `MEMGRAPH_ORGANIZATION_NAME` have to be set in the environment. The runner refuses to start without
 them rather than letting cluster setup fail later.
 
+Every log line carries a wall-clock timestamp, and the cluster reports how long it took to start,
+converge and stop, plus what it is still waiting for while converging. Between those and the import
+and query lines, a stretch of silence can be attributed to a phase rather than guessed at.
+
 When running non-interactively — in CI, or piped to a file — export `PYTHONUNBUFFERED=1`. Python
 block-buffers stdout when it is not a terminal, so a run that spends several minutes importing or
 waiting for a cluster to converge prints nothing at all and looks hung. The `mgbench-ha` suite command
