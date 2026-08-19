@@ -4893,8 +4893,7 @@ TEST(PlanRequiresStorageAccess, StorageFreePlans) {
   call->input_ = distinct;
   call->procedure_name_ = "mg.procedures";
   call->result_fields_ = {"name"};
-  call->is_write_ = false;
-  call->graph_free_ = true;
+  call->graph_access_ = memgraph::query::GraphAccess::None;
   call->result_symbols_ = {memgraph::query::Symbol{"name", 1, /*user_declared=*/true}};
   EXPECT_FALSE(PlanRequiresStorageAccess(*call));
 }
@@ -4916,8 +4915,7 @@ TEST(PlanRequiresStorageAccess, PlansThatReachStorage) {
   undeclared_call->input_ = once;
   undeclared_call->procedure_name_ = "example.proc";
   undeclared_call->result_fields_ = {"name"};
-  undeclared_call->is_write_ = false;
-  undeclared_call->graph_free_ = false;
+  undeclared_call->graph_access_ = memgraph::query::GraphAccess::Read;
   undeclared_call->result_symbols_ = {memgraph::query::Symbol{"name", 1, /*user_declared=*/true}};
   EXPECT_TRUE(PlanRequiresStorageAccess(*undeclared_call));
 
@@ -4927,7 +4925,7 @@ TEST(PlanRequiresStorageAccess, PlansThatReachStorage) {
   writing_call->input_ = once;
   writing_call->procedure_name_ = "example.writer";
   writing_call->result_fields_ = {"name"};
-  writing_call->is_write_ = true;
+  writing_call->graph_access_ = memgraph::query::GraphAccess::Write;
   writing_call->result_symbols_ = {memgraph::query::Symbol{"name", 1, /*user_declared=*/true}};
   EXPECT_TRUE(PlanRequiresStorageAccess(*writing_call));
 }

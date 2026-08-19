@@ -511,16 +511,15 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                              result_symbols,
                                                              call_proc->memory_limit_,
                                                              call_proc->memory_scale_,
-                                                             call_proc->is_write_,
+                                                             call_proc->graph_access_,
                                                              procedure_id++,
-                                                             call_proc->void_procedure_,
-                                                             call_proc->graph_free_);
+                                                             call_proc->void_procedure_);
             // Above the operator, below the Filter: the slot is rewritten per procedure output row, which is what
             // the WHERE reads.
             input_op = SpliceSatisfiedComprehensions(std::move(input_op),
                                                      pending_comprehensions,
                                                      context.bound_symbols,
-                                                     write_occurred || call_proc->is_write_,
+                                                     write_occurred || call_proc->graph_access_ == GraphAccess::Write,
                                                      eligible);
             if (call_proc->where_) {
               auto *filter_expr = call_proc->where_->expression_;

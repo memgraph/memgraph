@@ -1610,7 +1610,7 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
                   CallPythonProcedure(py_cb, args, graph, result, memory, false);
                 },
                 memory,
-                {.is_write = is_write_procedure});
+                {.graph_access = is_write_procedure ? GraphAccess::Write : GraphAccess::Read});
   const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
   if (!did_insert) {
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
@@ -1657,7 +1657,7 @@ PyObject *PyQueryModuleAddBatchProcedure(PyQueryModule *self, PyObject *args, bo
       },
       [py_cleanup] { CallPythonCleanup(py_cleanup); },
       memory,
-      {.is_write = is_write_procedure, .is_batched = true});
+      {.graph_access = is_write_procedure ? GraphAccess::Write : GraphAccess::Read, .is_batched = true});
   const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
   if (!did_insert) {
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");

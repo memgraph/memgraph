@@ -85,7 +85,7 @@ bool ReadWriteTypeChecker::PreVisit(Union &op) {
 PRE_VISIT(Unwind, RWType::NONE, true)
 
 bool ReadWriteTypeChecker::PreVisit(CallProcedure &op) {
-  if (op.is_write_) {
+  if (op.graph_access_ == GraphAccess::Write) {
     UpdateType(RWType::RW);
     return false;
   }
@@ -96,7 +96,7 @@ bool ReadWriteTypeChecker::PreVisit(CallProcedure &op) {
 bool StorageAccessChecker::PreVisit(CallProcedure &op) {
   // A call that reaches no storage is still a read to RWType, which is what clients and the read
   // counters are told. Only the storage question is answered differently here.
-  if (op.graph_free_) {
+  if (op.graph_access_ == GraphAccess::None) {
     UpdateType(RWType::NONE);
     return true;
   }

@@ -118,12 +118,7 @@ PRE_VISIT(Union)
 
 PRE_VISIT(Unwind)
 
-bool UsedIndexChecker::PreVisit(CallProcedure &op) {
-  if (op.is_write_) {
-    return true;
-  }
-  return true;
-}
+bool UsedIndexChecker::PreVisit(CallProcedure & /*unused*/) { return true; }
 
 bool UsedIndexChecker::PreVisit([[maybe_unused]] Foreach &op) { return true; }
 
