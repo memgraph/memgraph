@@ -1502,9 +1502,8 @@ TYPED_TEST(PrintToJsonTest, SubqueryExpression) {
                                std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1")},
                                false,
                                memgraph::storage::View::OLD);
-  std::shared_ptr<LogicalOperator> limit = std::make_shared<Limit>(expand, LITERAL(1));
   std::shared_ptr<LogicalOperator> evaluate_pattern_filter =
-      std::make_shared<EvaluatePatternFilter>(limit, output, RollUpApply::Fold::kBool);
+      std::make_shared<EvaluatePatternFilter>(expand, output, RollUpApply::Fold::kBool);
   last_op = std::make_shared<Filter>(last_op,
                                      std::vector<std::shared_ptr<LogicalOperator>>{evaluate_pattern_filter},
                                      EXISTS(PATTERN(NODE("x"),
@@ -1524,22 +1523,18 @@ TYPED_TEST(PrintToJsonTest, SubqueryExpression) {
             "name": "Filter",
             "pattern_filter1": {
               "input": {
-                "expression": "1",
+                "direction": "both",
+                "edge_symbol": "edge",
+                "edge_types": [
+                  "EdgeType1"
+                ],
+                "existing_node": false,
                 "input": {
-                  "direction": "both",
-                  "edge_symbol": "edge",
-                  "edge_types": [
-                    "EdgeType1"
-                  ],
-                  "existing_node": false,
-                  "input": {
-                    "name": "Once"
-                  },
-                  "input_symbol": "x",
-                  "name": "Expand",
-                  "node_symbol": "node"
+                  "name": "Once"
                 },
-                "name": "Limit"
+                "input_symbol": "x",
+                "name": "Expand",
+                "node_symbol": "node"
               },
               "name": "EvaluatePatternFilter",
               "output_symbol": "output_symbol"

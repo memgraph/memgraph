@@ -1556,8 +1556,7 @@ TYPED_TEST(TestPlanner, MatchFilterWhere) {
                                    AND(NEQ(IDENT("n"), IDENT("n")), NEQ(LITERAL(7), LITERAL(8))))),
                          RETURN("n")));
 
-  std::list<BaseOpChecker *> pattern_filter{
-      new ExpectScanAll(), new ExpectExpand(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+  std::list<BaseOpChecker *> pattern_filter{new ExpectScanAll(), new ExpectExpand(), new ExpectEvaluatePatternFilter()};
   CheckPlan<TypeParam>(
       query,
       this->storage,
@@ -2740,7 +2739,7 @@ TYPED_TEST(TestPlanner, SubqueryExpression) {
 
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    std::list<BaseOpChecker *> pattern_filter{new ExpectExpand(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+    std::list<BaseOpChecker *> pattern_filter{new ExpectExpand(), new ExpectEvaluatePatternFilter()};
 
     CheckPlan(planner.plan(),
               symbol_table,
@@ -2763,7 +2762,7 @@ TYPED_TEST(TestPlanner, SubqueryExpression) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> pattern_filter{
-        new ExpectExpand(), new ExpectFilter(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+        new ExpectExpand(), new ExpectFilter(), new ExpectEvaluatePatternFilter()};
 
     CheckPlan(planner.plan(),
               symbol_table,
@@ -2789,9 +2788,8 @@ TYPED_TEST(TestPlanner, SubqueryExpression) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> pattern_filter_with_types{
-        new ExpectExpand(), new ExpectFilter(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
-    std::list<BaseOpChecker *> pattern_filter_without_types{
-        new ExpectExpand(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+        new ExpectExpand(), new ExpectFilter(), new ExpectEvaluatePatternFilter()};
+    std::list<BaseOpChecker *> pattern_filter_without_types{new ExpectExpand(), new ExpectEvaluatePatternFilter()};
 
     CheckPlan(
         planner.plan(),
@@ -2818,7 +2816,7 @@ TYPED_TEST(TestPlanner, SubqueryExpression) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> pattern_filter{
-        new ExpectExpand(), new ExpectFilter(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+        new ExpectExpand(), new ExpectFilter(), new ExpectEvaluatePatternFilter()};
 
     CheckPlan(planner.plan(),
               symbol_table,
@@ -2844,9 +2842,8 @@ TYPED_TEST(TestPlanner, SubqueryExpression) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> pattern_filter_with_types{
-        new ExpectExpand(), new ExpectFilter(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
-    std::list<BaseOpChecker *> pattern_filter_without_types{
-        new ExpectExpand(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+        new ExpectExpand(), new ExpectFilter(), new ExpectEvaluatePatternFilter()};
+    std::list<BaseOpChecker *> pattern_filter_without_types{new ExpectExpand(), new ExpectEvaluatePatternFilter()};
 
     CheckPlan(
         planner.plan(),
@@ -5168,7 +5165,7 @@ TYPED_TEST(TestPlanner, BasicExistsSubquery) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> filter_tree{new ExpectExpand(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+  std::list<BaseOpChecker *> filter_tree{new ExpectExpand(), new ExpectEvaluatePatternFilter()};
 
   CheckPlan(planner.plan(),
             symbol_table,
@@ -5190,8 +5187,7 @@ TYPED_TEST(TestPlanner, ExistsSubqueryMatchWhere) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> filter_tree{
-      new ExpectExpand(), new ExpectFilter(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+  std::list<BaseOpChecker *> filter_tree{new ExpectExpand(), new ExpectFilter(), new ExpectEvaluatePatternFilter()};
 
   CheckPlan(planner.plan(),
             symbol_table,
@@ -5215,11 +5211,8 @@ TYPED_TEST(TestPlanner, ExistsSubqueryMatchWherePlansReturn) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> filter_tree{new ExpectExpand(),
-                                         new ExpectFilter(),
-                                         new ExpectProduce(),
-                                         new ExpectLimit(),
-                                         new ExpectEvaluatePatternFilter()};
+  std::list<BaseOpChecker *> filter_tree{
+      new ExpectExpand(), new ExpectFilter(), new ExpectProduce(), new ExpectEvaluatePatternFilter()};
 
   CheckPlan(planner.plan(),
             symbol_table,
@@ -5241,11 +5234,8 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithMatchWhere) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> filter_tree{new ExpectProduce(),
-                                         new ExpectFilter(),
-                                         new ExpectExpand(),
-                                         new ExpectLimit(),
-                                         new ExpectEvaluatePatternFilter()};
+  std::list<BaseOpChecker *> filter_tree{
+      new ExpectProduce(), new ExpectFilter(), new ExpectExpand(), new ExpectEvaluatePatternFilter()};
 
   CheckPlan(planner.plan(),
             symbol_table,
@@ -5267,11 +5257,8 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithMatchWhereOnVertexPropety) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> filter_tree{new ExpectProduce(),
-                                         new ExpectExpand(),
-                                         new ExpectFilter(),
-                                         new ExpectLimit(),
-                                         new ExpectEvaluatePatternFilter()};
+  std::list<BaseOpChecker *> filter_tree{
+      new ExpectProduce(), new ExpectExpand(), new ExpectFilter(), new ExpectEvaluatePatternFilter()};
 
   CheckPlan(planner.plan(),
             symbol_table,
@@ -5292,11 +5279,9 @@ TYPED_TEST(TestPlanner, ExistsSubqueryNested) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> nested_filter_tree{
-      new ExpectExpand(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+  std::list<BaseOpChecker *> nested_filter_tree{new ExpectExpand(), new ExpectEvaluatePatternFilter()};
   std::list<BaseOpChecker *> filter_tree{new ExpectExpand(),
                                          new ExpectFilter(std::vector<std::list<BaseOpChecker *>>{nested_filter_tree}),
-                                         new ExpectLimit(),
                                          new ExpectEvaluatePatternFilter()};
 
   CheckPlan(planner.plan(),
@@ -5320,10 +5305,8 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnion) {
 
   std::list<BaseOpChecker *> left_exists_part{new ExpectExpand()};
   std::list<BaseOpChecker *> right_exists_part{new ExpectExpand()};
-  std::list<BaseOpChecker *> exists_union_plan{new ExpectUnion(left_exists_part, right_exists_part),
-                                               new ExpectDistinct(),
-                                               new ExpectLimit(),
-                                               new ExpectEvaluatePatternFilter()};
+  std::list<BaseOpChecker *> exists_union_plan{
+      new ExpectUnion(left_exists_part, right_exists_part), new ExpectDistinct(), new ExpectEvaluatePatternFilter()};
 
   CheckPlan(planner.plan(),
             symbol_table,
@@ -5351,10 +5334,8 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionOfReturnOnlyBodies) {
 
   std::list<BaseOpChecker *> left_exists_part{new ExpectOnce(), new ExpectProduce()};
   std::list<BaseOpChecker *> right_exists_part{new ExpectOnce(), new ExpectProduce()};
-  std::list<BaseOpChecker *> exists_union_plan{new ExpectUnion(left_exists_part, right_exists_part),
-                                               new ExpectDistinct(),
-                                               new ExpectLimit(),
-                                               new ExpectEvaluatePatternFilter()};
+  std::list<BaseOpChecker *> exists_union_plan{
+      new ExpectUnion(left_exists_part, right_exists_part), new ExpectDistinct(), new ExpectEvaluatePatternFilter()};
 
   // The branch correlates to nothing, so the filter is satisfied before the scan and sits below it.
   CheckPlan(planner.plan(),
@@ -5380,8 +5361,8 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionAllOfReturnOnlyBodies) {
 
   std::list<BaseOpChecker *> left_exists_part{new ExpectOnce(), new ExpectProduce()};
   std::list<BaseOpChecker *> right_exists_part{new ExpectOnce(), new ExpectProduce()};
-  std::list<BaseOpChecker *> exists_union_plan{
-      new ExpectUnion(left_exists_part, right_exists_part), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+  std::list<BaseOpChecker *> exists_union_plan{new ExpectUnion(left_exists_part, right_exists_part),
+                                               new ExpectEvaluatePatternFilter()};
 
   CheckPlan(planner.plan(),
             symbol_table,
@@ -5447,7 +5428,7 @@ TYPED_TEST(TestPlanner, CountSubqueryInReturnProjection) {
 
 TYPED_TEST(TestPlanner, CountSubqueryInMatchWhereUsesTheDeferredFold) {
   // MATCH (n) WHERE COUNT { MATCH (n)-[r]->(m) } > 1 RETURN n
-  // Deferred, as for EXISTS. No Limit above the branch: it would truncate the drain.
+  // Deferred, as for EXISTS: an untaken disjunct skips the branch, which for a count is a whole drain.
   FakeDbAccessor dba;
 
   auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
