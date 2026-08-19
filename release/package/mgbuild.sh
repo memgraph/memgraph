@@ -1913,6 +1913,10 @@ test_memgraph() {
       # cluster restart. Runs under tests/ve3, the virtualenv init-tests builds from
       # tests/requirements.txt, because driving tests/e2e/interactive_mg_runner.py needs mgclient;
       # the e2e and stress suites activate the same virtualenv for the same reason.
+      #
+      # PYTHONUNBUFFERED because in CI stdout is a pipe, so Python block-buffers it and a run that
+      # spends minutes in one phase looks hung: the first 8KB of output never appears. Progress has to
+      # be visible to tell a slow cluster restart from a stuck one.
       shift 1
       local DATASET_SIZE='medium'
       local EXPORT_RESULTS_FILE="$default_benchmark_result_ha_file"
@@ -1936,7 +1940,7 @@ test_memgraph() {
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE 'pokec/$DATASET_SIZE/create/*' pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/arango/unwind_range_vertex_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read pokec/$DATASET_SIZE/arango/aggregate"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE 'pokec/$DATASET_SIZE/create/*' pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/arango/unwind_range_vertex_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read pokec/$DATASET_SIZE/arango/aggregate"
     ;;
     mgbench-supernode)
       shift 1
