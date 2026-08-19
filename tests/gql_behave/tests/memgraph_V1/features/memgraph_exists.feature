@@ -823,6 +823,55 @@ Feature: WHERE exists
           """
       Then an error should be raised
 
+  # A UNION's later branches are each their own SingleQuery, so the clause rules above have to be checked on every
+  # one of them, not just the first. Both were accepted before. The earlier branches match nothing on purpose: the
+  # fold stops at the first row, so only then is the writing branch pulled - measured, it created the node.
+
+  Scenario: Test invalid CREATE in a UNION branch inside EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+            MATCH (person)-[:HAS_CAT]->(cat:Cat)
+            RETURN cat AS d
+            UNION
+            MATCH (other:Dog)
+            CREATE (:Marker)
+            RETURN other AS d
+          }
+          RETURN person.name AS name;
+          """
+      Then an error should be raised
+
+  Scenario: Test invalid CREATE in the last of three UNION branches inside EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+            MATCH (person)-[:HAS_CAT]->(cat:Cat)
+            RETURN cat AS d
+            UNION
+            MATCH (second:Cat)
+            RETURN second AS d
+            UNION
+            MATCH (third:Dog)
+            CREATE (:Marker)
+            RETURN third AS d
+          }
+          RETURN person.name AS name;
+          """
+      Then an error should be raised
+
   Scenario: Test EXISTS with UNION in RETURN
       Given an empty graph
       And having executed:

@@ -453,10 +453,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                 pending_comprehensions,
                                 wrote_before_merge);
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
+            // Denied Accumulate for the same reason as GenReturn: it drains the branch below the fold. Unreachable
+            // while the allow-list keeps writes out of a body - kept so the planner does not depend on it holding.
             input_op = impl::GenWith(*with,
                                      std::move(input_op),
                                      *context.symbol_table,
-                                     context.is_write_query,
+                                     context.is_write_query && !context.in_exists_subquery,
                                      context.bound_symbols,
                                      *context.ast_storage,
                                      subquery_ctx,
@@ -1684,7 +1686,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       auto branch_bound_symbols = bound_symbols;
       // in_exists_subquery drives four behaviours of the recursive plan: the EmptyResult wrapper is suppressed, a
       // null-planning query part gets a Once, GenWith keeps outer-scope vertex/edge symbols across a body WITH, and
-      // GenReturn is denied Accumulate and PeriodicCommit.
+      // neither GenReturn nor GenWith may build an Accumulate (nor GenReturn a PeriodicCommit).
       auto const restore = utils::OnScopeExit{[this,
                                                old_exists_subquery = context_->in_exists_subquery,
                                                old_after_write = exists_branch_after_write_,
