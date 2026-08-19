@@ -608,9 +608,6 @@ def get_query_cache_count(
 
         vendor.stop_db(CACHE)
 
-        if count < benchmark_context.query_count_lower_bound:
-            count = benchmark_context.query_count_lower_bound
-
         config.set_value(
             *config_key,
             value={
@@ -626,6 +623,9 @@ def get_query_cache_count(
             ),
         )
         count = int(cached_count[COUNT] * benchmark_context.single_threaded_runtime_sec / cached_count[DURATION])
+
+    if count < benchmark_context.query_count_lower_bound:
+        count = benchmark_context.query_count_lower_bound
     return count
 
 
