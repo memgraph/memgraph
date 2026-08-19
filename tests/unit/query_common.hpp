@@ -46,7 +46,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
-#include "query/frontend/ast/query/exists.hpp"
+#include "query/frontend/ast/query/subquery_expression.hpp"
 #include "utils/string.hpp"
 
 #include "storage/v2/inmemory/storage.hpp"
@@ -688,7 +688,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 }
 
 auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
-  auto *exists_subquery = storage.Create<query::Exists>();
+  auto *exists_subquery = storage.Create<query::SubqueryExpression>();
   exists_subquery->content_ = std::move(subquery);
 
   return exists_subquery;
@@ -697,15 +697,15 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
 /// `COUNT { subquery }` - the same node as EXISTS_SUBQUERY, carrying the count fold instead of the bool one.
 auto GetCountSubquery(AstStorage &storage, CypherQuery *subquery) {
   auto *count_subquery = GetExistsSubquery(storage, subquery);
-  count_subquery->fold_ = query::Exists::Fold::kCount;
+  count_subquery->fold_ = query::SubqueryExpression::Fold::kCount;
 
   return count_subquery;
 }
 
 /// `COUNT { pattern }` - the pattern form of the count fold, the COUNT counterpart of the EXISTS macro.
 auto GetCountPattern(AstStorage &storage, Pattern *pattern) {
-  auto *count_pattern = storage.Create<query::Exists>(pattern);
-  count_pattern->fold_ = query::Exists::Fold::kCount;
+  auto *count_pattern = storage.Create<query::SubqueryExpression>(pattern);
+  count_pattern->fold_ = query::SubqueryExpression::Fold::kCount;
 
   return count_pattern;
 }
@@ -863,7 +863,7 @@ auto GetCountPattern(AstStorage &storage, Pattern *pattern) {
 #define EXTRACT(variable, list, expr)                      \
   this->storage.template Create<memgraph::query::Extract>( \
       this->storage.template Create<memgraph::query::Identifier>(variable), list, expr)
-#define EXISTS(pattern) this->storage.template Create<memgraph::query::Exists>(pattern)
+#define EXISTS(pattern) this->storage.template Create<memgraph::query::SubqueryExpression>(pattern)
 #define EXISTS_SUBQUERY(...) memgraph::query::test_common::GetExistsSubquery(this->storage, __VA_ARGS__)
 #define COUNT_SUBQUERY(...) memgraph::query::test_common::GetCountSubquery(this->storage, __VA_ARGS__)
 #define COUNT_PATTERN(pattern) memgraph::query::test_common::GetCountPattern(this->storage, pattern)

@@ -13,8 +13,8 @@
 
 #include "query/frontend/ast/query/aggregation.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
-#include "query/frontend/ast/query/exists.hpp"  // Visit(Exists&) reads the fold, so the definition is needed
 #include "query/frontend/ast/query/pattern_comprehension.hpp"
+#include "query/frontend/ast/query/subquery_expression.hpp"  // Visit(SubqueryExpression&) reads the fold, so the definition is needed
 
 #include <type_traits>
 
@@ -73,7 +73,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(Reduce &op) override;
   void Visit(Coalesce &op) override;
   void Visit(Extract &op) override;
-  void Visit(Exists &op) override;
+  void Visit(SubqueryExpression &op) override;
   void Visit(All &op) override;
   void Visit(Single &op) override;
   void Visit(Any &op) override;
@@ -489,7 +489,7 @@ void ExpressionPrettyPrinter::Visit(Extract &op) {
   PrintOperator(out_, dba_, "Extract", op.identifier_, op.list_, op.expression_);
 }
 
-void ExpressionPrettyPrinter::Visit(Exists &op) { PrintOperator(out_, dba_, op.FoldName(), "expression"); }
+void ExpressionPrettyPrinter::Visit(SubqueryExpression &op) { PrintOperator(out_, dba_, op.FoldName(), "expression"); }
 
 void ExpressionPrettyPrinter::Visit(All &op) {
   PrintOperator(out_, dba_, "All", op.identifier_, op.list_expression_, op.where_->expression_);

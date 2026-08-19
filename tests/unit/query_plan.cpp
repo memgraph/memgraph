@@ -2726,7 +2726,7 @@ TYPED_TEST(TestPlanner, Foreach) {
   }
 }
 
-TYPED_TEST(TestPlanner, Exists) {
+TYPED_TEST(TestPlanner, SubqueryExpression) {
   // MATCH (n) WHERE exists((n)-[]-())
   FakeDbAccessor dba;
   {
@@ -5220,9 +5220,9 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithMatchWhereOnVertexPropety) {
 TYPED_TEST(TestPlanner, ExistsSubqueryNested) {
   FakeDbAccessor dba;
 
-  auto *nested_exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("o")))));
+  auto *nested_subquery_body = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("o")))));
   auto *exists_subquery = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), WHERE(EXISTS_SUBQUERY(nested_exists_subquery))));
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), WHERE(EXISTS_SUBQUERY(nested_subquery_body))));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
@@ -5453,9 +5453,9 @@ memgraph::query::plan::Filter *FindFirstFilter(memgraph::query::plan::LogicalOpe
 
 TYPED_TEST(TestPlanner, SubqueryConjunctIsJoinedLast) {
   // ExtractFilters sorts the conjunct carrying a subquery branch last, and Type::Pattern does not answer that on its
-  // own: it is set only when the conjunct *is* an Exists, so `COUNT { ... } > 1` is tagged Generic. BoolJoin is
-  // left-associative, so the conjunct joined last is the outermost AND's right operand. The COUNT is written second
-  // on purpose - collection order reverses, so that is the spelling which fails without the fix.
+  // own: it is set only when the conjunct *is* an SubqueryExpression, so `COUNT { ... } > 1` is tagged Generic.
+  // BoolJoin is left-associative, so the conjunct joined last is the outermost AND's right operand. The COUNT is
+  // written second on purpose - collection order reverses, so that is the spelling which fails without the fix.
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
 
@@ -5474,12 +5474,12 @@ TYPED_TEST(TestPlanner, SubqueryConjunctIsJoinedLast) {
 
   auto *count_conjunct = memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression2_);
   ASSERT_NE(count_conjunct, nullptr) << "the COUNT conjunct was not joined last";
-  EXPECT_NE(memgraph::utils::Downcast<memgraph::query::Exists>(count_conjunct->expression1_), nullptr);
+  EXPECT_NE(memgraph::utils::Downcast<memgraph::query::SubqueryExpression>(count_conjunct->expression1_), nullptr);
   EXPECT_EQ(memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression1_), nullptr)
       << "the cheap conjunct should be the one evaluated first";
 }
 
-// `VaryMatchingStart` takes its `Matching` by value, so an `ExistsMatching` is sliced and the fold survives only
+// `VaryMatchingStart` takes its `Matching` by value, so an `SubqueryMatching` is sliced and the fold survives only
 // because `SetCurrentQueryPart` restores it by hand. No other test reaches that code: `PlannerTypes` is
 // `RuleBasedPlanner` alone, while the cost planner - on by default - plans through `VariableStartPlanner`.
 TYPED_TEST(TestPlanner, CountSubqueryKeepsItsFoldThroughPlanVariation) {
@@ -5689,7 +5689,7 @@ TYPED_TEST(TestPlanner, TwoExistsInOneProjectionSpliceInVisitOrder) {
 TYPED_TEST(TestPlanner, ExistsInsideAPatternComprehensionWhere) {
   // MATCH (n) RETURN [(n)-[r]->(m) WHERE EXISTS { MATCH (m)-[r2]->(k) } | m] AS l
   // A comprehension's WHERE is a WHERE outside a return body, so the EXISTS in it stays a deferred fold on the
-  // comprehension's own Filter - the only allowed position that reaches MakeExistsFilter from inside another branch.
+  // comprehension's own Filter - the only allowed position that reaches MakeSubqueryFilter from inside another branch.
   FakeDbAccessor dba;
   auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("k")))));
   auto *query = QUERY(SINGLE_QUERY(

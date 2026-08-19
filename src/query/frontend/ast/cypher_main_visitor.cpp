@@ -2073,8 +2073,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
-  if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure &&
-      !parsing_exists_subquery_) {
+  if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure && !parsing_subquery_body_) {
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
@@ -3923,7 +3922,7 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
 }
 
 antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
-  auto *exists = storage_->Create<Exists>();
+  auto *exists = storage_->Create<SubqueryExpression>();
   // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
     exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
@@ -3947,8 +3946,9 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
 }
 
 template <typename TContext>
-Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, Exists::Fold fold, std::string_view construct) {
-  auto *exists = storage_->Create<Exists>();
+Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpression::Fold fold,
+                                                 std::string_view construct) {
+  auto *exists = storage_->Create<SubqueryExpression>();
   exists->fold_ = fold;
   // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
@@ -3958,13 +3958,13 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, Exists::Fold fol
     }
   } else if (ctx->cypherQuery()) {
     // Curly-brace subquery form: { cypherQuery }
-    auto old_flag = parsing_exists_subquery_;
+    auto old_flag = parsing_subquery_body_;
     // The body's clauses are its own, so the enclosing WITH's "everything must be aliased" rule does not reach them.
     auto old_in_with = std::exchange(in_with_, false);
-    parsing_exists_subquery_ = true;
+    parsing_subquery_body_ = true;
     auto *cypher_query = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
     in_with_ = old_in_with;
-    parsing_exists_subquery_ = old_flag;
+    parsing_subquery_body_ = old_flag;
     exists->content_ = cypher_query;
 
     // 1. There must be at least one clause, and 2. only MATCH, WHERE, WITH, RETURN. Per branch: a UNION's
@@ -4020,11 +4020,11 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, Exists::Fold fol
 }
 
 antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) {
-  return BuildSubqueryFold(ctx, Exists::Fold::kBool, "EXISTS");
+  return BuildSubqueryFold(ctx, SubqueryExpression::Fold::kBool, "EXISTS");
 }
 
 antlrcpp::Any CypherMainVisitor::visitCountSubquery(MemgraphCypher::CountSubqueryContext *ctx) {
-  return BuildSubqueryFold(ctx, Exists::Fold::kCount, "COUNT");
+  return BuildSubqueryFold(ctx, SubqueryExpression::Fold::kCount, "COUNT");
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::PatternComprehensionContext *ctx) {
@@ -4041,7 +4041,7 @@ antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::Patte
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternExpression(MemgraphCypher::PatternExpressionContext *ctx) {
-  auto *exists = storage_->Create<Exists>();
+  auto *exists = storage_->Create<SubqueryExpression>();
   exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
   if (exists->GetPattern()->identifier_) {
     throw SyntaxException("Identifiers are not supported in pattern expressions.");

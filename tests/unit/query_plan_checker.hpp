@@ -428,14 +428,14 @@ class ExpectFilter : public OpChecker<Filter> {
 
     auto it = filter_expressions.begin();
     for (; it != filter_expressions.end(); it++) {
-      if ((*it)->GetTypeInfo().name == query::Exists::kType.name) {
+      if ((*it)->GetTypeInfo().name == query::SubqueryExpression::kType.name) {
         break;
       }
     }
     while (it != filter_expressions.end()) {
-      ASSERT_TRUE((*it)->GetTypeInfo().name == query::Exists::kType.name)
-          << "Filter expression is '" << (*it)->GetTypeInfo().name << "' expected '" << query::Exists::kType.name
-          << "'!";
+      ASSERT_TRUE((*it)->GetTypeInfo().name == query::SubqueryExpression::kType.name)
+          << "Filter expression is '" << (*it)->GetTypeInfo().name << "' expected '"
+          << query::SubqueryExpression::kType.name << "'!";
       it++;
     }
   }

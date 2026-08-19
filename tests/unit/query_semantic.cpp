@@ -1283,7 +1283,7 @@ TYPED_TEST(TestSymbolGenerator, Foreach) {
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
-TYPED_TEST(TestSymbolGenerator, Exists) {
+TYPED_TEST(TestSymbolGenerator, SubqueryExpression) {
   {
     auto query =
         QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
@@ -1357,7 +1357,7 @@ TYPED_TEST(TestSymbolGenerator, Exists) {
 // refused, and the refused ones assert the message.
 // Run for both folds rather than duplicated per spelling: COUNT and EXISTS share the gate, so the position list is
 // one fact about two constructs. A COUNT-only refusal would show up here as a failure in the second pass.
-TYPED_TEST(TestSymbolGenerator, ExistsAllowedPositions) {
+TYPED_TEST(TestSymbolGenerator, SubqueryAllowedPositions) {
   auto check_positions = [this](auto make_subquery) {
     auto exists_subquery = [&] {
       return make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))))));
@@ -1458,7 +1458,7 @@ TYPED_TEST(TestSymbolGenerator, LambdaVariableDoesNotEscapeAScopePushingBody) {
 }
 
 // Both folds again - and here the message is part of what is pinned, since it names the construct the user wrote.
-TYPED_TEST(TestSymbolGenerator, ExistsRefusedPositions) {
+TYPED_TEST(TestSymbolGenerator, SubqueryRefusedPositions) {
   auto check_positions = [this](auto make_subquery, std::string_view construct) {
     auto prop = this->dba.NameToProperty("prop");
     auto exists_subquery = [&] {

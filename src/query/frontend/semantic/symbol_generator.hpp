@@ -104,8 +104,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PreVisit(Reduce &) override;
   bool PostVisit(Reduce &) override;
   bool PreVisit(Extract &) override;
-  bool PreVisit(Exists & /*exists*/) override;
-  bool PostVisit(Exists & /*exists*/) override;
+  bool PreVisit(SubqueryExpression & /*exists*/) override;
+  bool PostVisit(SubqueryExpression & /*exists*/) override;
   bool PreVisit(NamedExpression & /*unused*/) override;
   bool PreVisit(ListComprehension &) override;
   bool PostVisit(ListComprehension &) override;
@@ -147,8 +147,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_where{false};
     bool in_match{false};
     bool in_foreach{false};
-    bool in_exists_pattern{false};
-    bool in_exists_subquery{false};
+    bool in_subquery_pattern{false};
+    bool in_subquery_body{false};
     /// Which construct opened the surrounding subquery, so its refusals name the spelling the user wrote.
     const char *subquery_construct{"EXISTS"};
     bool in_reduce{false};
@@ -193,7 +193,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   /// The positions an EXISTS may appear in - the ones the planner has a splice point for. Default-deny, because an
   /// unlisted position leaves the frame slot unwritten and the expression reads it without an error.
-  static bool IsSupportedExistsPosition(const Scope &scope);
+  static bool IsSupportedSubqueryPosition(const Scope &scope);
 
   // Whether @p name resolves in any scope from @p from outwards; pass `call_subquery_base` to ask about a subquery.
   bool HasSymbol(const std::string &name, size_t from = 0) const;
@@ -324,7 +324,7 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
 
   void Visit(Extract &op) override {}
 
-  void Visit(Exists &op) override {}
+  void Visit(SubqueryExpression &op) override {}
 
   void Visit(All &op) override {}
 
@@ -455,7 +455,7 @@ class PropertyLookupBaseIdentifierVisitor : public ExpressionVisitor<void> {
 
   void Visit(Extract &op) override {}
 
-  void Visit(Exists &op) override {}
+  void Visit(SubqueryExpression &op) override {}
 
   void Visit(All &op) override {}
 

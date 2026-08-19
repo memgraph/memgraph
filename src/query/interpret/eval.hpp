@@ -139,7 +139,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *
   UNSUCCESSFUL_VISIT(ListComprehension);
   UNSUCCESSFUL_VISIT(ParameterLookup);
   UNSUCCESSFUL_VISIT(RegexMatch);
-  UNSUCCESSFUL_VISIT(Exists);
+  UNSUCCESSFUL_VISIT(SubqueryExpression);
   UNSUCCESSFUL_VISIT(PatternComprehension);
   UNSUCCESSFUL_VISIT(EnumValueAccess);
 
@@ -266,7 +266,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(ListComprehension)
   INVALID_VISIT(Identifier)
   INVALID_VISIT(RegexMatch)
-  INVALID_VISIT(Exists)
+  INVALID_VISIT(SubqueryExpression)
   INVALID_VISIT(PatternComprehension)
   INVALID_VISIT(EnumValueAccess)
 
@@ -913,28 +913,28 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(std::move(result), ctx_->memory);
   }
 
-  TypedValue Visit(Exists &exists) override {
-    TypedValue const &frame_exists_value = frame_->at(symbol_table_->at(exists));
+  TypedValue Visit(SubqueryExpression &exists) override {
+    TypedValue const &frame_fold_value = frame_->at(symbol_table_->at(exists));
     // A forced fold already wrote the answer - a bool for EXISTS, an integer for COUNT; a deferred one wrote the
     // closure that computes it. A fold lost on the way here would not raise - `true > 1` is Null - so assert it.
-    DMG_ASSERT(!frame_exists_value.IsBool() || exists.fold_ == Exists::Fold::kBool,
+    DMG_ASSERT(!frame_fold_value.IsBool() || exists.fold_ == SubqueryExpression::Fold::kBool,
                "a bool reached a COUNT's frame slot");
-    DMG_ASSERT(!frame_exists_value.IsInt() || exists.fold_ == Exists::Fold::kCount,
+    DMG_ASSERT(!frame_fold_value.IsInt() || exists.fold_ == SubqueryExpression::Fold::kCount,
                "an integer reached an EXISTS's frame slot");
-    if (frame_exists_value.IsBool()) {
-      return TypedValue(frame_exists_value.ValueBool(), ctx_->memory);
+    if (frame_fold_value.IsBool()) {
+      return TypedValue(frame_fold_value.ValueBool(), ctx_->memory);
     }
-    if (frame_exists_value.IsInt()) {
-      return TypedValue(frame_exists_value.ValueInt(), ctx_->memory);
+    if (frame_fold_value.IsInt()) {
+      return TypedValue(frame_fold_value.ValueInt(), ctx_->memory);
     }
-    if (!frame_exists_value.IsFunction()) [[unlikely]] {
+    if (!frame_fold_value.IsFunction()) [[unlikely]] {
       throw QueryRuntimeException(
           "Unexpected behavior: {} expected a function, got {}. Please report the problem on GitHub issues",
           exists.FoldName(),
-          frame_exists_value.type());
+          frame_fold_value.type());
     }
     TypedValue result(ctx_->memory);
-    frame_exists_value.ValueFunction()(&result);
+    frame_fold_value.ValueFunction()(&result);
     return result;
   }
 

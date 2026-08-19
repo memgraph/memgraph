@@ -94,8 +94,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     return id;
   }
 
-  Exists *CreateExistsWithValue(std::string name, TypedValue &&value) {
-    auto id = storage.template Create<Exists>();
+  SubqueryExpression *CreateSubqueryWithValue(std::string name, TypedValue &&value) {
+    auto id = storage.template Create<SubqueryExpression>();
     auto symbol = symbol_table.CreateSymbol(name, true);
     id->MapTo(symbol);
     auto frame_writer = FrameWriter(frame, nullptr, ctx.memory);
@@ -179,7 +179,7 @@ TYPED_TEST(ExpressionEvaluatorTest, AndExistsOperatorShortCircuit) {
 
     auto *op = this->storage.template Create<AndOperator>(
         this->storage.template Create<PrimitiveLiteral>(false),
-        this->CreateExistsWithValue("anon1", std::move(func_should_not_evaluate)));
+        this->CreateSubqueryWithValue("anon1", std::move(func_should_not_evaluate)));
     auto value = this->Eval(op);
     EXPECT_EQ(value.ValueBool(), false);
   }
@@ -191,7 +191,7 @@ TYPED_TEST(ExpressionEvaluatorTest, AndExistsOperatorShortCircuit) {
 
     auto *op =
         this->storage.template Create<AndOperator>(this->storage.template Create<PrimitiveLiteral>(true),
-                                                   this->CreateExistsWithValue("anon1", std::move(should_evaluate)));
+                                                   this->CreateSubqueryWithValue("anon1", std::move(should_evaluate)));
     auto value = this->Eval(op);
     EXPECT_EQ(value.ValueBool(), false);
   }
@@ -201,11 +201,11 @@ TYPED_TEST(ExpressionEvaluatorTest, ExistsReadsAForcedBoolFold) {
   // A deferred fold leaves a closure in the frame slot for the Filter to call; a forced one leaves the answer itself,
   // because the RollUpApply below already ran the branch. Both spellings have to evaluate.
   {
-    auto *exists = this->CreateExistsWithValue("anon1", TypedValue(true, this->ctx.memory));
+    auto *exists = this->CreateSubqueryWithValue("anon1", TypedValue(true, this->ctx.memory));
     EXPECT_EQ(this->Eval(exists).ValueBool(), true);
   }
   {
-    auto *exists = this->CreateExistsWithValue("anon2", TypedValue(false, this->ctx.memory));
+    auto *exists = this->CreateSubqueryWithValue("anon2", TypedValue(false, this->ctx.memory));
     EXPECT_EQ(this->Eval(exists).ValueBool(), false);
   }
 }
@@ -213,19 +213,19 @@ TYPED_TEST(ExpressionEvaluatorTest, ExistsReadsAForcedBoolFold) {
 TYPED_TEST(ExpressionEvaluatorTest, ExistsReadsAForcedCountFold) {
   // The count fold writes an integer where the bool fold writes a bool, and both are read from the same slot by the
   // same visitor, so the integer arm needs its own case.
-  auto *count = this->CreateExistsWithValue("anon1", TypedValue(int64_t{3}, this->ctx.memory));
-  count->fold_ = memgraph::query::Exists::Fold::kCount;
+  auto *count = this->CreateSubqueryWithValue("anon1", TypedValue(int64_t{3}, this->ctx.memory));
+  count->fold_ = memgraph::query::SubqueryExpression::Fold::kCount;
   EXPECT_EQ(this->Eval(count).ValueInt(), 3);
 
-  auto *zero = this->CreateExistsWithValue("anon2", TypedValue(int64_t{0}, this->ctx.memory));
-  zero->fold_ = memgraph::query::Exists::Fold::kCount;
+  auto *zero = this->CreateSubqueryWithValue("anon2", TypedValue(int64_t{0}, this->ctx.memory));
+  zero->fold_ = memgraph::query::SubqueryExpression::Fold::kCount;
   EXPECT_EQ(this->Eval(zero).ValueInt(), 0);
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, ExistsRefusesAnUnexpectedFrameValueByConstruct) {
   // Neither a value nor a closure: the message names the construct the user wrote.
-  auto *count = this->CreateExistsWithValue("anon1", TypedValue("not a fold", this->ctx.memory));
-  count->fold_ = memgraph::query::Exists::Fold::kCount;
+  auto *count = this->CreateSubqueryWithValue("anon1", TypedValue("not a fold", this->ctx.memory));
+  count->fold_ = memgraph::query::SubqueryExpression::Fold::kCount;
   EXPECT_THROW(this->Eval(count), QueryRuntimeException);
 }
 

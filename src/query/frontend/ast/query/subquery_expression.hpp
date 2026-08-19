@@ -17,10 +17,9 @@
 #include "query/frontend/semantic/symbol.hpp"
 
 namespace memgraph::query {
-/// A correlated subquery expression: a body evaluated per outer row, reduced to one value. The body (@c content_)
-/// and the fold (@c fold_) vary independently - `EXISTS` is the bool fold, `COUNT` the count fold - and they share
-/// every other part of the machinery, which is why one node carries both instead of a class per spelling.
-class Exists : public memgraph::query::Expression {
+/// A correlated subquery expression: a body evaluated per outer row, reduced to one value. The body (@c content_) and
+/// the fold (@c fold_) vary independently - `EXISTS` is the bool fold, `COUNT` the count fold.
+class SubqueryExpression : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;
 
@@ -29,7 +28,7 @@ class Exists : public memgraph::query::Expression {
   /// What the body's rows are reduced to, and hence which surface spelling this was written as.
   enum class Fold : uint8_t { kBool, kCount };
 
-  Exists() = default;
+  SubqueryExpression() = default;
 
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue>);
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue *>);
@@ -37,7 +36,7 @@ class Exists : public memgraph::query::Expression {
   DECLARE_VISITABLE(ExpressionVisitor<void>);
   DECLARE_VISITABLE(HierarchicalTreeVisitor);
 
-  Exists *MapTo(const Symbol &symbol) {
+  SubqueryExpression *MapTo(const Symbol &symbol) {
     symbol_pos_ = symbol.position();
     return this;
   }
@@ -50,8 +49,8 @@ class Exists : public memgraph::query::Expression {
   /// The construct as written, so a diagnostic names the spelling the user reached for.
   const char *FoldName() const { return fold_ == Fold::kCount ? "COUNT" : "EXISTS"; }
 
-  Exists *Clone(AstStorage *storage) const override {
-    Exists *object = storage->Create<Exists>();
+  SubqueryExpression *Clone(AstStorage *storage) const override {
+    SubqueryExpression *object = storage->Create<SubqueryExpression>();
     object->fold_ = fold_;
     if (std::holds_alternative<Pattern *>(content_)) {
       object->content_ = std::get<Pattern *>(content_)->Clone(storage);
@@ -73,9 +72,9 @@ class Exists : public memgraph::query::Expression {
   CypherQuery *GetSubquery() const { return HasSubquery() ? std::get<CypherQuery *>(content_) : nullptr; }
 
  protected:
-  explicit Exists(Pattern *pattern) : content_(pattern) {}
+  explicit SubqueryExpression(Pattern *pattern) : content_(pattern) {}
 
-  explicit Exists(CypherQuery *subquery) : content_(subquery) {}
+  explicit SubqueryExpression(CypherQuery *subquery) : content_(subquery) {}
 
  private:
   friend class AstStorage;

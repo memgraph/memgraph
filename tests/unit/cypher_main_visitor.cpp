@@ -8204,7 +8204,7 @@ TEST_P(CypherMainVisitorTest, ExistsBodyIsNotJudgedByTheEnclosingWith) {
     const auto *with = dynamic_cast<With *>(query->single_query_->clauses_[1]);
     ASSERT_TRUE(with);
     ASSERT_EQ(with->body_.named_expressions.size(), 2U);
-    EXPECT_TRUE(dynamic_cast<Exists *>(with->body_.named_expressions[1]->expression_));
+    EXPECT_TRUE(dynamic_cast<SubqueryExpression *>(with->body_.named_expressions[1]->expression_));
   }
   // `visitReturnBody` visits ORDER BY before the return items, both while the flag is set, so the body of an EXISTS
   // sorted on is judged by the same rule and was refused for the same reason.
@@ -8215,7 +8215,7 @@ TEST_P(CypherMainVisitorTest, ExistsBodyIsNotJudgedByTheEnclosingWith) {
     const auto *with = dynamic_cast<With *>(query->single_query_->clauses_[1]);
     ASSERT_TRUE(with);
     ASSERT_EQ(with->body_.order_by.size(), 1U);
-    EXPECT_TRUE(dynamic_cast<Exists *>(with->body_.order_by[0].expression));
+    EXPECT_TRUE(dynamic_cast<SubqueryExpression *>(with->body_.order_by[0].expression));
   }
   // Clearing the flag for the body does not disarm it for the body's own WITH, which has return items of its own.
   {
@@ -8233,14 +8233,14 @@ TEST_P(CypherMainVisitorTest, ExistsBodyIsNotJudgedByTheEnclosingWith) {
                                                  "Only variables can be non-aliased in WITH.");
 }
 
-TEST_P(CypherMainVisitorTest, Exists) {
+TEST_P(CypherMainVisitorTest, SubqueryExpression) {
   auto &ast_generator = *GetParam();
   {
     const auto *query =
         dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WHERE exists((n)-[]->()) RETURN n;"));
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
 
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
 
     ASSERT_TRUE(exists);
 
@@ -8262,7 +8262,7 @@ TEST_P(CypherMainVisitorTest, Exists) {
         dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WHERE exists((n)-[]->()-[]->()) RETURN n;"));
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
 
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
 
     ASSERT_TRUE(exists);
 
@@ -9220,7 +9220,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9251,7 +9251,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9277,7 +9277,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 3);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[1]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9303,7 +9303,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9329,7 +9329,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9355,7 +9355,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9381,7 +9381,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9395,7 +9395,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     const auto *subquery_where = dynamic_cast<Where *>(subquery_match->where_);
     ASSERT_NE(subquery_where, nullptr);
 
-    const auto *subquery_exists = dynamic_cast<Exists *>(subquery_where->expression_);
+    const auto *subquery_exists = dynamic_cast<SubqueryExpression *>(subquery_where->expression_);
     ASSERT_NE(subquery_exists, nullptr);
 
     const auto *nested_pattern = subquery_exists->GetPattern();
@@ -9421,7 +9421,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();

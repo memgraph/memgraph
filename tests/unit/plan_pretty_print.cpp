@@ -1487,7 +1487,7 @@ TYPED_TEST(PrintToJsonTest, Foreach) {
           })sep");
 }
 
-TYPED_TEST(PrintToJsonTest, Exists) {
+TYPED_TEST(PrintToJsonTest, SubqueryExpression) {
   Symbol x = this->GetSymbol("x");
   Symbol e = this->GetSymbol("edge");
   Symbol n = this->GetSymbol("node");

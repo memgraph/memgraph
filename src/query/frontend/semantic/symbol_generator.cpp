@@ -207,7 +207,7 @@ bool SymbolGenerator::PreVisit(CypherUnion &) {
   // instead of requiring explicit WITH imports.
   // Currently only CALL and EXISTS subqueries can contain complete queries with UNION.
   next_scope.in_call_subquery = prev_scope.in_call_subquery;
-  next_scope.in_exists_subquery = prev_scope.in_exists_subquery;
+  next_scope.in_subquery_body = prev_scope.in_subquery_body;
   next_scope.call_subquery_base = prev_scope.call_subquery_base;
   // Carry over explicit `CALL (v1, v2) { ... }` imports so each UNION branch
   // within the subquery still sees the imported variables.
@@ -480,7 +480,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   const bool name_in_scope = HasSymbol(ident.name_, from);
   const bool shadows_outer_name = !name_in_scope && from != 0 && HasSymbol(ident.name_);
 
-  if (scope.in_exists_pattern && (scope.visiting_edge || scope.in_node_atom)) {
+  if (scope.in_subquery_pattern && (scope.visiting_edge || scope.in_node_atom)) {
     if (!name_in_scope && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
       throw SemanticException("Unbounded variables are not allowed in {}!", scope.subquery_construct);
     }
@@ -490,7 +490,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       scope.in_pattern_comprehension && scopes_.size() > 1 && scopes_[scopes_.size() - 2].in_where;
 
   Symbol symbol;
-  if ((scope.in_exists_subquery || is_in_pattern_comprehension_filter) && (scope.visiting_edge || scope.in_node_atom)) {
+  if ((scope.in_subquery_body || is_in_pattern_comprehension_filter) && (scope.visiting_edge || scope.in_node_atom)) {
     if (!name_in_scope) {
       ident.user_declared_ = false;
       auto const type = scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE;
@@ -695,7 +695,7 @@ bool SymbolGenerator::PostVisit(ListComprehension & /*list_comprehension*/) {
   return true;
 }
 
-bool SymbolGenerator::IsSupportedExistsPosition(const Scope &scope) {
+bool SymbolGenerator::IsSupportedSubqueryPosition(const Scope &scope) {
   // A WHERE outside a return body: a MATCH's filter or a pattern comprehension's. It becomes a deferred closure on
   // the owning Filter, evaluated where the expression sits, so a per-element lambda is fine here.
   if (scope.in_where && !scope.in_with && !scope.in_return) return true;
@@ -711,7 +711,7 @@ bool SymbolGenerator::IsSupportedExistsPosition(const Scope &scope) {
   return (scope.in_with || scope.in_return) && !scope.in_skip && !scope.in_limit;
 }
 
-bool SymbolGenerator::PreVisit(Exists &exists) {
+bool SymbolGenerator::PreVisit(SubqueryExpression &exists) {
   auto &scope = scopes_.back();
 
   if (!exists.HasPattern() && !exists.HasSubquery()) {
@@ -728,7 +728,7 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
 
   // A CASE holds no position of its own, so it is not consulted here. num_if_operators still gates aggregations.
   // The fold does not change which positions work; only what is written into the frame slot differs.
-  if (!IsSupportedExistsPosition(scope)) {
+  if (!IsSupportedSubqueryPosition(scope)) {
     throw utils::NotYetImplemented("{} is not supported in this position yet!", exists.FoldName());
   }
 
@@ -740,15 +740,15 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name, and the fold name
   // with it, so a diagnostic raised inside names the construct the user wrote.
   // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
-  scopes_.emplace_back(Scope{.in_exists_pattern = exists.HasPattern(),
-                             .in_exists_subquery = exists.HasSubquery(),
+  scopes_.emplace_back(Scope{.in_subquery_pattern = exists.HasPattern(),
+                             .in_subquery_body = exists.HasSubquery(),
                              .subquery_construct = exists.FoldName(),
                              .call_subquery_base = scope.call_subquery_base});
 
   return true;
 }
 
-bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
+bool SymbolGenerator::PostVisit(SubqueryExpression & /*exists*/) {
   scopes_.pop_back();
   return true;
 }
