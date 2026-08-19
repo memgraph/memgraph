@@ -51,9 +51,9 @@ struct SubqueryBranchPlanner {
   /// WITH/RETURN's output symbols.
   virtual std::unique_ptr<LogicalOperator> Plan(const PatternComprehensionMatching &matching, storage::View view,
                                                 const std::unordered_set<Symbol> &bound_symbols) = 0;
-  /// Builds an EXISTS branch for a forced bool fold, i.e. without the deferred fold's
-  /// `Limit(1) -> EvaluatePatternFilter` tail. Takes @p write_occurred rather than a view, because the branch has to
-  /// pass the fact itself down to its own body, not just the view it resolves to here.
+  /// Builds an EXISTS branch for a forced bool fold, i.e. without the deferred fold's `EvaluatePatternFilter` tail.
+  /// Takes @p write_occurred rather than a view, because the branch has to pass the fact itself down to its own body,
+  /// not just the view it resolves to here.
   virtual std::unique_ptr<LogicalOperator> PlanSubqueryBranch(const SubqueryMatching &matching, bool write_occurred,
                                                               const std::unordered_set<Symbol> &bound_symbols) = 0;
 };
@@ -1755,10 +1755,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                       const std::unordered_set<Symbol> &bound_symbols) {
     // Outside an EXISTS branch the flag is false, which resolves to View::OLD.
     auto last_op = MakeSubqueryBranch(matching, symbol_table, storage, bound_symbols, subquery_branch_after_write_);
-    // Dead weight under the bool fold, whose cursor pulls exactly once - but it would truncate a count's drain.
-    if (matching.fold != SubqueryExpression::Fold::kCount) {
-      last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
-    }
     return std::make_unique<EvaluatePatternFilter>(
         std::move(last_op), matching.symbol.value(), impl::ToOperatorFold(matching.fold));
   }
