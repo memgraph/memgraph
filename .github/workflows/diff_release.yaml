@@ -59,9 +59,6 @@ env:
   PYTHON_RUNTIME_VERSION: ${{ inputs.python_runtime_version }}
   TOOLCHAIN: v8
   DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: "benchmark_result.json"
-  # The high availability leg of the same mgbench invocation. Separate file, same upload: it becomes
-  # the ha_results field of one measurement rather than a second series.
-  DEFAULT_MGBENCH_HA_EXPORT_RESULTS_FILE: "benchmark_result_ha.json"
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
@@ -258,11 +255,7 @@ jobs:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
     runs-on: [self-hosted, Linux, benchmark]
-    # Raised from 100 when the mgbench step gained a high availability leg. Measured on run
-    # 32227509791: that step alone ran past 58 minutes with the cluster leg measuring each query twice.
-    # The cluster leg no longer runs the authorization pass, which halves its measurements, but the
-    # remaining benchmark steps still need about 45 minutes after it. Estimated, not yet confirmed.
-    timeout-minutes: 130
+    timeout-minutes: 100
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -352,8 +345,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
-          --export-results-ha-file ${{ env.DEFAULT_MGBENCH_HA_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench results
         run: |
@@ -366,7 +358,6 @@ jobs:
           test-memgraph upload-to-bench-graph \
           --benchmark-name "mgbench" \
           --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
-          --benchmark-results-ha-path "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_HA_EXPORT_RESULTS_FILE }}" \
           --github-run-id "${{ github.run_id }}" \
           --github-run-number "${{ github.run_number }}" \
           --head-branch-name "${{ env.BRANCH_NAME }}"

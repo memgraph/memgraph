@@ -193,19 +193,18 @@ To measure only a cluster:
   pokec/medium/arango/aggregate
 ```
 
-In CI the two legs run in **one** invocation instead, which is also how the build script drives it:
+In CI this runs as its own nightly suite, which is also how the build script drives it:
 
 ```bash
 ./release/package/mgbuild.sh --os ubuntu-24.04 --toolchain v7 --arch amd \
-  test-memgraph mgbench --size medium
+  test-memgraph mgbench-ha --size medium
 ```
 
-That runs the full single-instance suite and then the HA leg, and uploads both as one measurement —
-`results` for the single instance and `ha_results` for the cluster — rather than as two series. Two
-reasons for one invocation. The query count cache is per process, so both legs execute the same
-number of queries by construction instead of depending on which one calibrated first, which is what
-`compare_results.py` needs. And with both legs in one row, the replication cost is arithmetic between
-two fields rather than a join across series.
+That is `--ha-only`, so it reports under its own `mgbench-ha` benchmark name rather than as a field
+of the standalone measurement. The combined form is still supported — `--run-ha` measures both legs
+in one invocation and uploads the cluster results as `ha_results` on the same measurement, which has
+the advantage that both legs then share one query count calibration by construction rather than by
+depending on which ran first. It is not what CI does today.
 
 The legs do not share a target set: `--run-ha` selects the leg, `--export-results-ha` says where its
 results go, and `--ha-target-workload` narrows what it measures, because every query measured against

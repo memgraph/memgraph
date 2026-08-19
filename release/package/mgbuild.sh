@@ -217,8 +217,13 @@ print_help () {
   echo -e "  --dataset string              Specify dataset to benchmark (default \"pokec\")"
   echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
   echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
-  echo -e "  --export-results-ha-file string  Output file for the high availability leg (default \"benchmark_result_ha.json\"). Needs an enterprise license."
 
+
+
+  echo -e "\nmgbench-ha options:"
+  echo -e "  --size string                 Specify dataset size: small, medium, large (default \"medium\")"
+  echo -e "  --export-results-file string  Output file for results (default \"benchmark_result_ha.json\")"
+  echo -e "  Measures only a main with one SYNC replica behind three coordinators. Needs an enterprise license."
 
   echo -e "\ngenerate-memgraph-build-sbom options:"
   echo -e "  --conan-remote string         Specify conan remote (optional)"
@@ -1835,24 +1840,10 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/build "'&& ulimit -s 262144 && ctest -R memgraph__benchmark -V'
     ;;
     mgbench)
-      # Runs the single-instance leg and, in the same invocation, the same measurement against a
-      # coordinator-managed HA cluster. One invocation because the query count cache is per process,
-      # so both legs execute the same number of queries by construction rather than by depending on
-      # which one calibrated first, and because both legs then land in one upload.
-      #
-      # Runs under tests/ve3, the virtualenv init-tests builds from tests/requirements.txt, because the
-      # cluster leg drives tests/e2e/interactive_mg_runner.py and that needs mgclient. The e2e and
-      # stress suites activate the same virtualenv for the same reason.
-      #
-      # The HA leg gets its own, much smaller target set: every query measured against a cluster
-      # restarts every instance in it, so running the full single-instance set there would multiply
-      # the wall-clock by its size. It covers every distinct pokec write shape plus two reads as a
-      # control; see specs/replication-benchmarks.md.
       shift 1
       local DATASET='pokec'
       local DATASET_SIZE='medium'
       local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
-      local EXPORT_RESULTS_HA_FILE="$default_benchmark_result_ha_file"
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -1868,20 +1859,51 @@ test_memgraph() {
             EXPORT_RESULTS_FILE="$2"
             shift 2
           ;;
-          --export-results-ha-file)
-            EXPORT_RESULTS_HA_FILE="$2"
-            shift 2
-          ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench"
-            echo "Supported flags: --dataset, --size, --export-results-file, --export-results-ha-file"
+            echo "Supported flags: --dataset, --size, --export-results-file"
             exit 1
           ;;
         esac
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --run-ha --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE --export-results-ha $EXPORT_RESULTS_HA_FILE --ha-target-workload 'pokec/$DATASET_SIZE/create/*' --ha-target-workload pokec/$DATASET_SIZE/arango/single_vertex_write --ha-target-workload pokec/$DATASET_SIZE/arango/single_edge_write --ha-target-workload pokec/$DATASET_SIZE/arango/unwind_range_vertex_write --ha-target-workload pokec/$DATASET_SIZE/basic/single_vertex_property_update_update --ha-target-workload pokec/$DATASET_SIZE/arango/single_vertex_read --ha-target-workload pokec/$DATASET_SIZE/arango/aggregate $DATASET/$DATASET_SIZE/*/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
+    ;;
+    mgbench-ha)
+      # Measures only a coordinator-managed HA cluster: a main and one SYNC replica behind three
+      # coordinators. Covers every distinct pokec write shape plus two reads as a control; see
+      # specs/replication-benchmarks.md. The target set is deliberately small because every query
+      # measured against a cluster restarts every instance in it.
+      #
+      # The authorization pass is left off, since on this leg each extra measurement also pays a
+      # cluster restart. Runs under tests/ve3, the virtualenv init-tests builds from
+      # tests/requirements.txt, because driving tests/e2e/interactive_mg_runner.py needs mgclient;
+      # the e2e and stress suites activate the same virtualenv for the same reason.
+      shift 1
+      local DATASET_SIZE='medium'
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_ha_file"
+
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --size)
+            DATASET_SIZE="$2"
+            shift 2
+          ;;
+          --export-results-file)
+            EXPORT_RESULTS_FILE="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench-ha"
+            echo "Supported flags: --size, --export-results-file"
+            exit 1
+          ;;
+        esac
+      done
+
+      check_support pokec_size $DATASET_SIZE
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE 'pokec/$DATASET_SIZE/create/*' pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/arango/unwind_range_vertex_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read pokec/$DATASET_SIZE/arango/aggregate"
     ;;
     mgbench-supernode)
       shift 1
