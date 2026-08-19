@@ -1990,7 +1990,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       }
       check_write_procedure("CALL");
       has_call_procedure = true;
-      if (call_procedure->is_write_) {
+      if (call_procedure->graph_access_ == GraphAccess::Write) {
         calls_write_procedure = true;
         has_update = true;
       }
@@ -2190,18 +2190,11 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
   }
 
-  // Record the dependency before reading the signature below: is_write, void-ness and the
+  // Record the dependency before reading the signature below: the graph access, void-ness and the
   // YIELD * expansion all come from it and are baked into the AST from here on.
   storage_->FindOrAddCallProcedure(call_proc->procedure_name_);
 
-  call_proc->is_write_ = maybe_found->second->info.is_write;
-  call_proc->graph_free_ = maybe_found->second->info.graph_free;
-  if (call_proc->graph_free_ && call_proc->is_write_) {
-    // A procedure writes the graph through the argument it is handed, so one that declares it never
-    // touches that argument cannot write. Refuse the call rather than trust either half.
-    throw SemanticException("Procedure '{}' is declared to write a graph it never touches.",
-                            call_proc->procedure_name_);
-  }
+  call_proc->graph_access_ = maybe_found->second->info.graph_access;
   if (maybe_found->second->results.empty()) {
     call_proc->void_procedure_ = true;
   }

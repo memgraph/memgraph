@@ -260,7 +260,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, CallReadProcedure) {
   call_op.procedure_name_ = "mg.reload";
   call_op.arguments_ = {LITERAL("example")};
   call_op.result_fields_ = {"name", "signature"};
-  call_op.is_write_ = false;
+  call_op.graph_access_ = GraphAccess::Read;
   call_op.result_symbols_ = {this->GetSymbol("name_alias"), this->GetSymbol("signature_alias")};
 
   this->CheckPlanType(&call_op, RWType::R);
@@ -274,8 +274,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, CallGraphFreeProcedureIsStillARead) {
   call_op.input_ = std::make_shared<Once>();
   call_op.procedure_name_ = "mg.procedures";
   call_op.result_fields_ = {"name", "signature"};
-  call_op.is_write_ = false;
-  call_op.graph_free_ = true;
+  call_op.graph_access_ = GraphAccess::None;
   call_op.result_symbols_ = {this->GetSymbol("name_alias"), this->GetSymbol("signature_alias")};
 
   this->CheckPlanType(&call_op, RWType::R);
@@ -287,7 +286,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, CallWriteProcedure) {
   call_op.procedure_name_ = "mg.reload";
   call_op.arguments_ = {LITERAL("example")};
   call_op.result_fields_ = {"name", "signature"};
-  call_op.is_write_ = true;
+  call_op.graph_access_ = GraphAccess::Write;
   call_op.result_symbols_ = {this->GetSymbol("name_alias"), this->GetSymbol("signature_alias")};
 
   this->CheckPlanType(&call_op, RWType::RW);
@@ -303,7 +302,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, CallReadProcedureBeforeUpdate) {
   std::vector<Symbol> result_symbols{this->GetSymbol("name_alias"), this->GetSymbol("signature_alias")};
 
   last_op = std::make_shared<plan::CallProcedure>(
-      last_op, procedure_name, arguments, result_fields, result_symbols, nullptr, 0, false, 1);
+      last_op, procedure_name, arguments, result_fields, result_symbols, nullptr, 0, GraphAccess::Read, 1);
 
   this->CheckPlanType(last_op.get(), RWType::RW);
 }

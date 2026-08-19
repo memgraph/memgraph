@@ -268,9 +268,16 @@ void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * 
 void DummyFuncCallback(mgp_list * /*args*/, mgp_func_context * /*func_ctx*/, mgp_func_result * /*result*/,
                        mgp_memory * /*memory*/) {};
 
-enum class ProcedureType { WRITE, READ };
-
-std::string ToString(const ProcedureType type) { return type == ProcedureType::WRITE ? "write" : "read"; }
+std::string ProcNameFor(const GraphAccess access) {
+  switch (access) {
+    case GraphAccess::None:
+      return "graph_free";
+    case GraphAccess::Read:
+      return "read";
+    case GraphAccess::Write:
+      return "write";
+  }
+}
 
 class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Base>> {
  public:
@@ -295,10 +302,9 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
   }
 
   static void AddProc(MockModule &module, const char *name, const std::vector<std::string_view> &args,
-                      const std::vector<std::string_view> &results, const ProcedureType type) {
+                      const std::vector<std::string_view> &results, const GraphAccess access) {
     memgraph::utils::MemoryResource *memory = memgraph::utils::NewDeleteResource();
-    const bool is_write = type == ProcedureType::WRITE;
-    mgp_proc proc(name, DummyProcCallback, memory, {.is_write = is_write});
+    mgp_proc proc(name, DummyProcCallback, memory, {.graph_access = access});
     for (const auto arg : args) {
       proc.args.emplace_back(memgraph::utils::pmr::string{arg, memory}, &any_type);
     }
@@ -317,10 +323,10 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
     module.functions.emplace(name, std::move(func));
   }
 
-  std::string CreateProcByType(const ProcedureType type, const std::vector<std::string_view> &args) {
-    const auto proc_name = std::string{"proc_"} + ToString(type);
+  std::string CreateProcByType(const GraphAccess access, const std::vector<std::string_view> &args) {
+    const auto proc_name = std::string{"proc_"} + ProcNameFor(access);
     SCOPED_TRACE(proc_name);
-    AddProc(*mock_module, proc_name.c_str(), {}, args, type);
+    AddProc(*mock_module, proc_name.c_str(), {}, args, access);
     return std::string{"mock_module."} + proc_name;
   }
 
@@ -1121,7 +1127,7 @@ TEST_P(CypherMainVisitorTest, MagicFunctionCacheable) {
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureCacheable) {
-  AddProc(*mock_module, "proc", {}, {"res"}, ProcedureType::READ);
+  AddProc(*mock_module, "proc", {}, {"res"}, GraphAccess::Read);
   ParsingContext context;
   AstStorage storage;
   Parameters parameters;
@@ -1175,7 +1181,7 @@ TEST_P(CypherMainVisitorTest, DistinctMagicFunctionsGetDistinctSlots) {
 
 // The same procedure called twice is recorded once; the list names dependencies, not call sites.
 TEST_P(CypherMainVisitorTest, RepeatedCallProcedureRecordedOnce) {
-  AddProc(*mock_module, "proc", {}, {"res"}, ProcedureType::READ);
+  AddProc(*mock_module, "proc", {}, {"res"}, GraphAccess::Read);
   ParsingContext context;
   AstStorage storage;
   Parameters parameters;
@@ -6050,7 +6056,7 @@ TEST_P(CypherMainVisitorTest, DumpDatabase) {
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
-  AddProc(*mock_module_with_dots_in_name, "proc", {}, {"res"}, ProcedureType::WRITE);
+  AddProc(*mock_module_with_dots_in_name, "proc", {}, {"res"}, GraphAccess::Write);
   auto &ast_generator = *GetParam();
 
   auto *query =
@@ -6076,7 +6082,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
-  AddProc(*mock_module, "proc-with-dashes", {}, {"res"}, ProcedureType::READ);
+  AddProc(*mock_module, "proc-with-dashes", {}, {"res"}, GraphAccess::Read);
   auto &ast_generator = *GetParam();
 
   auto *query =
@@ -6103,11 +6109,11 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
   auto &ast_generator = *GetParam();
-  auto check_proc = [this, &ast_generator](const ProcedureType type) {
-    const auto proc_name = std::string{"proc_"} + ToString(type);
+  auto check_proc = [this, &ast_generator](const GraphAccess access) {
+    const auto proc_name = std::string{"proc_"} + ProcNameFor(access);
     SCOPED_TRACE(proc_name);
     const auto fully_qualified_proc_name = std::string{"mock_module."} + proc_name;
-    AddProc(*mock_module, proc_name.c_str(), {}, {"fst", "field-with-dashes", "last_field"}, type);
+    AddProc(*mock_module, proc_name.c_str(), {}, {"fst", "field-with-dashes", "last_field"}, access);
     auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
         fmt::format("CALL {}() YIELD fst, `field-with-dashes`, last_field", fully_qualified_proc_name)));
     ASSERT_TRUE(query);
@@ -6116,7 +6122,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
     ASSERT_EQ(single_query->clauses_.size(), 1U);
     auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
     ASSERT_TRUE(call_proc);
-    ASSERT_EQ(call_proc->is_write_, type == ProcedureType::WRITE);
+    ASSERT_EQ(call_proc->graph_access_, access);
     ASSERT_EQ(call_proc->procedure_name_, fully_qualified_proc_name);
     ASSERT_TRUE(call_proc->arguments_.empty());
     ASSERT_EQ(call_proc->result_fields_.size(), 3U);
@@ -6130,14 +6136,15 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
     std::vector<std::string> expected_names{"fst", "field-with-dashes", "last_field"};
     ASSERT_EQ(identifier_names, expected_names);
     ASSERT_EQ(identifier_names, call_proc->result_fields_);
-    CheckRWType(query, type == ProcedureType::WRITE ? kWrite : kRead);
+    CheckRWType(query, access == GraphAccess::Write ? kWrite : kRead);
   };
-  check_proc(ProcedureType::READ);
-  check_proc(ProcedureType::WRITE);
+  check_proc(GraphAccess::None);
+  check_proc(GraphAccess::Read);
+  check_proc(GraphAccess::Write);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
-  AddProc(*mock_module, "proc", {}, {"fst", "snd", "thrd"}, ProcedureType::READ);
+  AddProc(*mock_module, "proc", {}, {"fst", "snd", "thrd"}, GraphAccess::Read);
   auto &ast_generator = *GetParam();
 
   auto *query =
@@ -6167,7 +6174,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithYieldWhere) {
-  AddProc(*mock_module, "proc", {}, {"res"}, ProcedureType::READ);
+  AddProc(*mock_module, "proc", {}, {"res"}, GraphAccess::Read);
   auto &ast_generator = *GetParam();
 
   auto *query =
@@ -6187,7 +6194,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldWhere) {
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
-  AddProc(*mock_module, "proc", {"arg1", "arg2", "arg3"}, {"res"}, ProcedureType::READ);
+  AddProc(*mock_module, "proc", {"arg1", "arg2", "arg3"}, {"res"}, GraphAccess::Read);
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mock_module.proc(0, 1, 2) YIELD res"));
   ASSERT_TRUE(query);
@@ -6386,7 +6393,7 @@ void TestInvalidQueryWithMessage(const auto &query, Base &ast_generator, const s
 
 void CheckParsedCallProcedure(const CypherQuery &query, Base &ast_generator,
                               const std::string_view fully_qualified_proc_name,
-                              const std::vector<std::string_view> &args, const ProcedureType type,
+                              const std::vector<std::string_view> &args, const GraphAccess access,
                               const size_t clauses_size, const size_t call_procedure_index) {
   ASSERT_NE(query.single_query_, nullptr);
   auto *single_query = query.single_query_;
@@ -6411,7 +6418,7 @@ void CheckParsedCallProcedure(const CypherQuery &query, Base &ast_generator,
   });
   EXPECT_EQ(identifier_names, args_as_str);
   EXPECT_EQ(identifier_names, call_proc->result_fields_);
-  ASSERT_EQ(call_proc->is_write_, type == ProcedureType::WRITE);
+  ASSERT_EQ(call_proc->graph_access_, access);
 };
 }  // namespace
 
@@ -6421,14 +6428,14 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
   static constexpr std::string_view snd{"snd"};
   const std::vector args{fst, snd};
 
-  const auto read_proc = CreateProcByType(ProcedureType::READ, args);
-  const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
+  const auto read_proc = CreateProcByType(GraphAccess::Read, args);
+  const auto write_proc = CreateProcByType(GraphAccess::Write, args);
 
   const auto check_parsed_call_proc = [&ast_generator, &args](const CypherQuery &query,
                                                               const std::string_view fully_qualified_proc_name,
-                                                              const ProcedureType type,
+                                                              const GraphAccess access,
                                                               const size_t clause_size) {
-    CheckParsedCallProcedure(query, ast_generator, fully_qualified_proc_name, args, type, clause_size, 0);
+    CheckParsedCallProcedure(query, ast_generator, fully_qualified_proc_name, args, access, clause_size, 0);
   };
   {
     SCOPED_TRACE("Read query part");
@@ -6449,7 +6456,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
         const auto query_str = fmt::format(kQueryWithWith, read_proc, fst, snd, fst, snd, fst);
         const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
         ASSERT_NE(query, nullptr);
-        check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+        check_parsed_call_proc(*query, read_proc, GraphAccess::Read, kQueryParts);
       }
     }
     {
@@ -6469,7 +6476,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
         const auto query_str = fmt::format(kQueryWithoutWith, read_proc, fst, snd, fst);
         const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
         ASSERT_NE(query, nullptr);
-        check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+        check_parsed_call_proc(*query, read_proc, GraphAccess::Read, kQueryParts);
       }
     }
   }
@@ -6493,7 +6500,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
         const auto query_str = fmt::format(kQueryWithWith, read_proc, fst, snd, fst, snd, fst);
         const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
         ASSERT_NE(query, nullptr);
-        check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+        check_parsed_call_proc(*query, read_proc, GraphAccess::Read, kQueryParts);
       }
     }
     {
@@ -6513,7 +6520,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
         const auto query_str = fmt::format(kQueryWithoutWith, read_proc, fst, snd, fst, snd, fst);
         const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
         ASSERT_NE(query, nullptr);
-        check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+        check_parsed_call_proc(*query, read_proc, GraphAccess::Read, kQueryParts);
       }
     }
   }
@@ -6525,14 +6532,15 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
   static constexpr std::string_view snd{"snd"};
   const std::vector args{fst, snd};
 
-  const auto read_proc = CreateProcByType(ProcedureType::READ, args);
-  const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
+  const auto read_proc = CreateProcByType(GraphAccess::Read, args);
+  const auto write_proc = CreateProcByType(GraphAccess::Write, args);
 
   const auto check_parsed_call_proc = [&ast_generator, &args](const CypherQuery &query,
                                                               const std::string_view fully_qualified_proc_name,
-                                                              const ProcedureType type,
+                                                              const GraphAccess access,
                                                               const size_t clause_size) {
-    CheckParsedCallProcedure(query, ast_generator, fully_qualified_proc_name, args, type, clause_size, clause_size - 2);
+    CheckParsedCallProcedure(
+        query, ast_generator, fully_qualified_proc_name, args, access, clause_size, clause_size - 2);
   };
   {
     SCOPED_TRACE("Read query part");
@@ -6543,7 +6551,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
       const auto query_str = fmt::format(kQueryWithReadQueryPart, write_proc);
       const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
       ASSERT_NE(query, nullptr);
-      check_parsed_call_proc(*query, write_proc, ProcedureType::WRITE, kQueryParts);
+      check_parsed_call_proc(*query, write_proc, GraphAccess::Write, kQueryParts);
       CheckRWType(query, kWrite);
     }
     {
@@ -6551,7 +6559,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
       const auto query_str = fmt::format(kQueryWithReadQueryPart, read_proc);
       const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
       ASSERT_NE(query, nullptr);
-      check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+      check_parsed_call_proc(*query, read_proc, GraphAccess::Read, kQueryParts);
       CheckRWType(query, kRead);
     }
   }
@@ -6570,7 +6578,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
       const auto query_str = fmt::format(kQueryWithWriteQueryPart, read_proc, fst, snd, fst, snd, fst);
       const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
       ASSERT_NE(query, nullptr);
-      check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+      check_parsed_call_proc(*query, read_proc, GraphAccess::Read, kQueryParts);
       CheckRWType(query, kWrite);
     }
   }
@@ -6582,8 +6590,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleProcedures) {
   static constexpr std::string_view snd{"snd"};
   const std::vector args{fst, snd};
 
-  const auto read_proc = CreateProcByType(ProcedureType::READ, args);
-  const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
+  const auto read_proc = CreateProcByType(GraphAccess::Read, args);
+  const auto write_proc = CreateProcByType(GraphAccess::Write, args);
 
   {
     SCOPED_TRACE("Read then write");
@@ -6592,8 +6600,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleProcedures) {
     const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
     ASSERT_NE(query, nullptr);
 
-    CheckParsedCallProcedure(*query, ast_generator, read_proc, args, ProcedureType::READ, kQueryParts, 0);
-    CheckParsedCallProcedure(*query, ast_generator, write_proc, args, ProcedureType::WRITE, kQueryParts, 1);
+    CheckParsedCallProcedure(*query, ast_generator, read_proc, args, GraphAccess::Read, kQueryParts, 0);
+    CheckParsedCallProcedure(*query, ast_generator, write_proc, args, GraphAccess::Write, kQueryParts, 1);
     CheckRWType(query, kWrite);
   }
   {
@@ -6620,8 +6628,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureFromSubquery) {
   static constexpr std::string_view snd{"snd"};
   const std::vector args{fst, snd};
 
-  const auto read_proc = CreateProcByType(ProcedureType::READ, args);
-  const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
+  const auto read_proc = CreateProcByType(GraphAccess::Read, args);
+  const auto write_proc = CreateProcByType(GraphAccess::Write, args);
 
   {
     SCOPED_TRACE("Read query w read proc");

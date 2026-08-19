@@ -8437,8 +8437,7 @@ std::unique_ptr<LogicalOperator> OutputTableStream::Clone(AstStorage *storage) c
 
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                             size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure,
-                             bool graph_free)
+                             size_t memory_scale, GraphAccess graph_access, int64_t procedure_id, bool void_procedure)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(std::move(name)),
       arguments_(std::move(args)),
@@ -8446,10 +8445,9 @@ CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string
       result_symbols_(std::move(symbols)),
       memory_limit_(memory_limit),
       memory_scale_(memory_scale),
-      is_write_(is_write),
+      graph_access_(graph_access),
       procedure_id_(procedure_id),
-      void_procedure_(void_procedure),
-      graph_free_(graph_free) {}
+      void_procedure_(void_procedure) {}
 
 ACCEPT_WITH_INPUT(CallProcedure);
 
@@ -8615,12 +8613,11 @@ class CallProcedureCursor : public Cursor {
     module_ = std::move(maybe_found->first);
     proc_ = maybe_found->second;
 
-    if (proc_->info.is_write != self_->is_write_) {
-      auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
+    if (proc_->info.graph_access != self_->graph_access_) {
       throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
                                   self_->procedure_name_,
-                                  get_proc_type_str(self_->is_write_),
-                                  get_proc_type_str(proc_->info.is_write));
+                                  ToString(self_->graph_access_),
+                                  ToString(proc_->info.graph_access));
     }
 
     for (size_t i = 0UZ; i < self_->result_fields_.size(); ++i) {
@@ -8687,13 +8684,13 @@ class CallProcedureCursor : public Cursor {
       }
       result_.rows.clear();
 
-      const auto graph_view = proc_->info.is_write ? storage::View::NEW : storage::View::OLD;
+      const auto graph_view = proc_->info.graph_access == GraphAccess::Write ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator =
           ExpressionEvaluator{&frame, context, graph_view, nullptr, &context.number_of_hops};
 
       // Re-check the declaration: a module reload can change what a name resolves to after planning.
       const bool has_accessor = context.db_accessor != nullptr;
-      if (!has_accessor && !proc_->info.graph_free) {
+      if (!has_accessor && proc_->info.graph_access != GraphAccess::None) {
         throw QueryRuntimeException("The procedure named '{}' requires graph access.", self_->procedure_name_);
       }
       const auto storage_mode =
@@ -8788,10 +8785,9 @@ std::unique_ptr<LogicalOperator> CallProcedure::Clone(AstStorage *storage) const
   object->result_symbols_ = result_symbols_;
   object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
   object->memory_scale_ = memory_scale_;
-  object->is_write_ = is_write_;
+  object->graph_access_ = graph_access_;
   object->procedure_id_ = procedure_id_;
   object->void_procedure_ = void_procedure_;
-  object->graph_free_ = graph_free_;
   return object;
 }
 

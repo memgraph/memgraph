@@ -25,6 +25,7 @@
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
+#include "query/frontend/ast/query/graph_access.hpp"
 #include "query/procedure/cypher_type_ptr.hpp"
 #include "query/typed_value.hpp"
 #include "query/virtual_graph.hpp"
@@ -1072,14 +1073,9 @@ struct mgp_type {
 };
 
 struct ProcedureInfo {
-  bool is_write{false};
+  memgraph::query::GraphAccess graph_access{memgraph::query::GraphAccess::Read};
   bool is_batched{false};
   std::optional<memgraph::query::AuthQuery::Privilege> required_privilege = std::nullopt;
-  /// True only if the procedure never touches its `mgp_graph *`, which lets a `CALL` of it run with no
-  /// storage transaction open. Declaring it falsely is caught rather than fatal: the graph handed over
-  /// has no accessor behind it, and reaching through it reports a logic error. Internal, set only on the
-  /// builtin `mg.*` procedures.
-  bool graph_free{false};
 };
 
 struct mgp_proc {

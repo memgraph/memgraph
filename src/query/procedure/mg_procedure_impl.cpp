@@ -5327,11 +5327,15 @@ mgp_proc *mgp_module_add_batch_procedure(mgp_module *module, const char *name, m
 }  // namespace
 
 mgp_error mgp_module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
-  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, {.is_write = false}); }, result);
+  return WrapExceptions(
+      [=] { return mgp_module_add_procedure(module, name, cb, {.graph_access = memgraph::query::GraphAccess::Read}); },
+      result);
 }
 
 mgp_error mgp_module_add_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
-  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, {.is_write = true}); }, result);
+  return WrapExceptions(
+      [=] { return mgp_module_add_procedure(module, name, cb, {.graph_access = memgraph::query::GraphAccess::Write}); },
+      result);
 }
 
 mgp_error mgp_module_add_batch_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb_batch,
@@ -5339,8 +5343,12 @@ mgp_error mgp_module_add_batch_read_procedure(mgp_module *module, const char *na
                                               mgp_proc **result) {
   return WrapExceptions(
       [=] {
-        return mgp_module_add_batch_procedure(
-            module, name, cb_batch, initializer, cleanup, {.is_write = false, .is_batched = true});
+        return mgp_module_add_batch_procedure(module,
+                                              name,
+                                              cb_batch,
+                                              initializer,
+                                              cleanup,
+                                              {.graph_access = memgraph::query::GraphAccess::Read, .is_batched = true});
       },
       result);
 }
@@ -5351,7 +5359,12 @@ mgp_error mgp_module_add_batch_write_procedure(mgp_module *module, const char *n
   return WrapExceptions(
       [=] {
         return mgp_module_add_batch_procedure(
-            module, name, cb_batch, initializer, cleanup, {.is_write = true, .is_batched = true});
+            module,
+            name,
+            cb_batch,
+            initializer,
+            cleanup,
+            {.graph_access = memgraph::query::GraphAccess::Write, .is_batched = true});
       },
       result);
 }
