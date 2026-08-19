@@ -120,7 +120,7 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
-            mgbench-load-parquet \
+            "mgbench-load-parquet --no-authorization" \
             load-parquet \
             ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
@@ -132,7 +132,7 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
-            mgbench-vector-search-index \
+            "mgbench-vector-search-index --no-authorization" \
             vector-search-index \
             ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
@@ -145,7 +145,7 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
-            mgbench-vector-search-edge-index \
+            "mgbench-vector-search-edge-index --no-authorization" \
             vector-search-edge-index \
             ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
@@ -158,7 +158,7 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
-            mgbench-text-search-index \
+            "mgbench-text-search-index --no-authorization" \
             text-search-index \
             ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
@@ -171,7 +171,7 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
-            mgbench-text-search-edge-index \
+            "mgbench-text-search-edge-index --no-authorization" \
             text-search-edge-index \
             ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
@@ -197,7 +197,7 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
-            mgbench-supernode \
+            "mgbench-supernode --no-authorization" \
             supernode \
             ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
@@ -210,7 +210,7 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
-            mgbench \
+            "mgbench --no-authorization" \
             mgbench \
             ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
@@ -223,7 +223,7 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/loop-benchmark.sh \
-            "mgbench --dataset pokec_planner_optimizations --size medium" \
+            "mgbench --no-authorization --dataset pokec_planner_optimizations --size medium" \
             mgbench-planner-optimizations \
             benchmark_result_extended.json \
             ${{ github.run_id }} \
