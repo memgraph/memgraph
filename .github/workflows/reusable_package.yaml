@@ -269,19 +269,14 @@ jobs:
           copy \
           --sbom
 
-      - name: "Build gssapi wheel for smoke image"
-        if: ${{ inputs.run_smoke_tests }}
+      - name: "Fetch gssapi wheels"
+        if: ${{ inputs.run_smoke_tests || inputs.build_docker_image != 'none' }}
         run: |
-          # gssapi has no prebuilt linux wheels on PyPI, so build one inside
-          # the MGBUILD container (which has libkrb5/krb5-devel available) and
-          # drop it into a local wheels dir that the smoke image build will
-          # pip-install from via --find-links.
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os "$OS" \
+          # gssapi has no prebuilt linux wheels on PyPI, so pull our own
+          # manylinux wheels from the mgdeps cache (S3 fallback).
+          ./tools/ci/fetch-gssapi-wheels.sh \
             --arch $ARCH \
-            build-gssapi \
-            --dest-dir build/output/smoke-wheels
+            --dest-dir release/docker/wheels
 
       - name: "Resolve package smoke OS list"
         if: ${{ inputs.run_smoke_tests }}
@@ -336,7 +331,7 @@ jobs:
               package-smoke-image \
               --src-dir $PACKAGE_ARTIFACT_DIR \
               --image-tag "$image_tag" \
-              --wheels-dir build/output/smoke-wheels
+              --wheels-dir release/docker/wheels
             echo "Built smoke image memgraph/memgraph:$image_tag"
           done
 
@@ -368,20 +363,6 @@ jobs:
             --conan-remote $CONAN_REMOTE \
             --conan-username $CONAN_USERNAME \
             --conan-password $CONAN_PASSWORD
-
-      - name: "Build gssapi wheel"
-        if: ${{ env.BUILD_DOCKER_IMAGE != 'none' }}
-        run: |
-          # gssapi has no prebuilt linux wheels on PyPI, so build one in the
-          # MGBUILD container (which has libkrb5/krb5-devel) and drop it into
-          # release/docker/wheels so the python-base Dockerfile stage can
-          # install it from the local wheel rather than hitting PyPI.
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os "$OS" \
-            --arch $ARCH \
-            build-gssapi \
-            --dest-dir release/docker/wheels
 
       - name: "Generate Memgraph build SBOM"
         # Stage 1 of the SBOM: fetch the conan + MGCXX component SBOMs from the

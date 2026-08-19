@@ -228,6 +228,8 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Coverage / Core tests"
 
   clang-tidy-community:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -319,6 +321,8 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Coverage / Clang tidy community"
 
   clang-tidy-enterprise:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -410,3 +414,5 @@ jobs:
       - name: Cancel run on merge_group failure
         if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
+        with:
+          job-name: "Coverage / Clang tidy enterprise"

@@ -21,6 +21,17 @@
 
 namespace memgraph::query::plan {
 
+// The `IN` -> `Unwind` lowering wraps the original list in toSet(coalesce(list, [])).
+// Extracts and returns the inner `ListLiteral` if the expression matches that
+// form, else returns `nullptr`.
+inline auto ExtractListFromInUnwind(Expression *expr) -> ListLiteral * {
+  auto *func = utils::Downcast<Function>(expr);
+  if (!func || func->function_name_ != "TOSET" || func->arguments_.size() != 1) return nullptr;
+  auto *coalesce = utils::Downcast<Coalesce>(func->arguments_[0]);
+  if (!coalesce || coalesce->expressions_.empty()) return nullptr;
+  return utils::Downcast<ListLiteral>(coalesce->expressions_[0]);
+}
+
 /**
  * The symbol statistics specify essential DB statistics which
  * help the query planner (namely here the cost estimator), to decide
@@ -426,10 +437,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // if the Unwind expression is a list literal, we can deduce cardinality
     // exactly, otherwise we approximate
     double unwind_value;
-    if (auto *literal = utils::Downcast<query::ListLiteral>(unwind.input_expression_))
+    if (auto *literal = utils::Downcast<query::ListLiteral>(unwind.input_expression_)) {
       unwind_value = literal->elements_.size();
-    else
+    } else if (auto *list = ExtractListFromInUnwind(unwind.input_expression_)) {
+      unwind_value = list->elements_.size();
+    } else {
       unwind_value = MiscParam::kUnwindNoLiteral;
+    }
 
     cardinality_ *= unwind_value;
     return true;
@@ -732,8 +746,25 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     switch (range.type_) {
       case Type::IS_NOT_NULL:
         return db_accessor_->VerticesCount(property);
-      case Type::EQUAL:
-      case Type::IN: {  // IN is lowered to EQUAL + Unwind at plan-build time, so fallthrough here is defensive
+      case Type::EQUAL: {
+        if (auto val = ConstPropertyValue(range.lower_->value())) {
+          return db_accessor_->VerticesCount(
+              property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
+        return db_accessor_->VerticesCount(property) * CardParam::kFilter;
+      }
+      case Type::IN: {
+        if (auto *list = range.membership_list_) {
+          auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+          double sum = 0.0;
+          for (auto *elem : list->elements_) {
+            auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters, mapper);
+            if (!resolved) return db_accessor_->VerticesCount(property) * CardParam::kFilter;
+            sum += db_accessor_->VerticesCount(property, resolved->lower_->value());
+          }
+          auto n = static_cast<double>(list->elements_.size());
+          return n > 0 ? sum / n : sum;
+        }
         if (auto val = ConstPropertyValue(range.lower_->value())) {
           return db_accessor_->VerticesCount(
               property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
@@ -747,26 +778,84 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     std::unreachable();
   }
 
+  auto EstimateInListCardinality(storage::LabelId label, std::vector<storage::PropertyPath> const &properties,
+                                 ListLiteral const &list, size_t slot,
+                                 std::vector<std::optional<storage::PropertyValueRange>> const &resolved_ranges)
+      -> std::optional<double> {
+    auto pvrs = resolved_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) | ranges::to_vector;
+    return EstimateInListSum(db_accessor_, label, properties, list, slot, pvrs, parameters);
+  }
+
   // Helper function to estimate cardinality for label properties queries.
   // Used by both single-threaded and parallel scan operators.
   double EstimateLabelPropertiesCardinality(storage::LabelId label,
-                                            const std::vector<storage::PropertyPath> &properties,
-                                            const std::vector<ExpressionRange> &expression_ranges) {
-    auto maybe_propertyvalue_ranges =
-        expression_ranges | ranges::views::transform([&](ExpressionRange const &er) {
-          return er.ResolveAtPlantime(parameters, db_accessor_->GetStorageAccessor()->GetNameIdMapper());
-        }) |
+                                            std::vector<storage::PropertyPath> const &properties,
+                                            std::vector<ExpressionRange> const &expression_ranges) {
+    auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+
+    auto maybe_ranges =
+        expression_ranges |
+        ranges::views::transform([&](ExpressionRange const &er) { return er.ResolveAtPlantime(parameters, mapper); }) |
         ranges::to_vector;
 
-    if (ranges::none_of(maybe_propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
-      auto propertyvalue_ranges = maybe_propertyvalue_ranges |
-                                  ranges::views::transform([](auto &&optional) { return *optional; }) |
-                                  ranges::to_vector;
+    if (ranges::none_of(maybe_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
+      auto pvrs = maybe_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) | ranges::to_vector;
+      return db_accessor_->VerticesCount(label, properties, pvrs);
+    }
 
-      return db_accessor_->VerticesCount(label, properties, propertyvalue_ranges);
-    } else {
+    // Collect unresolved IN slots
+    std::vector<size_t> in_slots;
+    for (size_t i = 0; i < expression_ranges.size(); ++i) {
+      if (!maybe_ranges[i] && expression_ranges[i].membership_list_) in_slots.push_back(i);
+    }
+
+    if (in_slots.empty()) {
       return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
     }
+
+    // Temporarily set all IN slots to IsNotNull so each can be estimated independently
+    for (auto slot : in_slots) {
+      maybe_ranges[slot] = storage::PropertyValueRange::IsNotNull();
+    }
+
+    // If non-IN slots are still unresolved, fall back
+    if (ranges::any_of(maybe_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
+      return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
+    }
+
+    // The Unwind above each IN slot already multiplies cardinality by the list
+    // length, so the scan factor must be per-input-row (i.e. divided by the
+    // product of list lengths) to avoid double-counting.
+    double unwind_factor = 1.0;
+    for (auto slot : in_slots) {
+      unwind_factor *= static_cast<double>(expression_ranges[slot].membership_list_->elements_.size());
+    }
+    if (unwind_factor == 0) return 0.0;
+
+    if (in_slots.size() == 1) {
+      auto sum = EstimateInListCardinality(
+          label, properties, *expression_ranges[in_slots[0]].membership_list_, in_slots[0], maybe_ranges);
+      auto total = sum.value_or(db_accessor_->VerticesCount(label, properties) * CardParam::kFilter);
+      return total / unwind_factor;
+    }
+
+    // Multiple IN slots: independence assumption. S_0 * S_1 * ... / T^(k-1)
+    auto const total =
+        db_accessor_->VerticesCount(label, properties, maybe_ranges | ranges::views::transform([](auto const &opt) {
+                                                         return *opt;
+                                                       }) | ranges::to_vector);
+    if (total == 0) return 0.0;
+
+    double result = 1.0;
+    for (auto slot : in_slots) {
+      auto marginal =
+          EstimateInListCardinality(label, properties, *expression_ranges[slot].membership_list_, slot, maybe_ranges);
+      if (!marginal) return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
+      result *= *marginal;
+    }
+    result /= std::pow(static_cast<double>(total), static_cast<double>(in_slots.size() - 1));
+    result = std::min(result, static_cast<double>(total));
+    return result / unwind_factor;
   }
 
   // Helper function to estimate cardinality for point-based queries.

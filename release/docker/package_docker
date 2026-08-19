@@ -149,7 +149,12 @@ cp -v ../../build/libssl3t64*.deb "${working_dir}/openssl"
 cp -v ../../src/auth/reference_modules/requirements.txt "${working_dir}/auth-module-requirements.txt"
 
 # stage wheels dir so the python-base stage can install packages that lack
-# prebuilt linux wheels on PyPI (e.g. gssapi). Safe to be empty.
+# prebuilt linux wheels on PyPI (e.g. gssapi). It must actually hold the gssapi
+# wheels: the dockerfile installs them with --only-binary=gssapi, so an empty
+# dir fails the build rather than silently falling back to the PyPI sdist. Fill
+# it with:
+#   tools/ci/fetch-gssapi-wheels.sh --arch <amd|arm> --dest-dir release/docker/wheels
+# which is what the packaging workflow runs before calling this script.
 mkdir -p "${working_dir}/wheels"
 
 dockerfile_path="${working_dir}/${toolchain_version}_${extension}.dockerfile"

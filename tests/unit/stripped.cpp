@@ -82,6 +82,59 @@ TEST(QueryStripper, HexInteger) {
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedIntToken);
 }
 
+TEST(QueryStripper, LeadingZeroDigitRunIsNotReal) {
+  // A run of digits carries neither a fraction nor an exponent, so it is not a
+  // real literal whatever it starts with.
+  StrippedQuery stripped("RETURN 09");
+  for (const auto &[position, literal] : stripped.literals()) {
+    EXPECT_TRUE(literal.IsInt());
+  }
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedIntToken + " " + kStrippedIntToken);
+}
+
+TEST(QueryStripper, LeadingZeroDigitRunKeepsIntegerRangeCheck) {
+  // A digit run is checked against the 64-bit integer range whether or not it
+  // has a leading zero, so an out-of-range value is an error rather than an
+  // approximate double.
+  EXPECT_THROW(StrippedQuery("RETURN 9223372036854775808"), SemanticException);
+  EXPECT_THROW(StrippedQuery("RETURN 009223372036854775808"), SemanticException);
+}
+
+TEST(QueryStripper, DigitRunWithEightOrNineIsNotReal) {
+  StrippedQuery stripped("RETURN 018");
+  for (const auto &[position, literal] : stripped.literals()) {
+    EXPECT_TRUE(literal.IsInt());
+  }
+}
+
+TEST(QueryStripper, RealLiteralStopsAtAnIncompleteExponent) {
+  // The match has to end where the last complete real ended: `1.5e` is the real
+  // `1.5` followed by a name, and taking the trailing `e` would misread both.
+  {
+    StrippedQuery stripped("RETURN 1.5e");
+    EXPECT_EQ(SingleLiteral(stripped).ValueDouble(), 1.5);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedDoubleToken + " e");
+  }
+  {
+    StrippedQuery stripped("RETURN 1.5e-");
+    EXPECT_EQ(SingleLiteral(stripped).ValueDouble(), 1.5);
+  }
+}
+
+TEST(QueryStripper, TrailingDotIsNotPartOfAnIntegerLiteral) {
+  // `42.` has no fractional part, so it is the integer `42` and a separate dot
+  // rather than a real literal.
+  StrippedQuery stripped("RETURN 42.foo");
+  EXPECT_EQ(SingleLiteral(stripped).ValueInt(), 42);
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedIntToken + " . foo");
+}
+
+TEST(QueryStripper, LeadingDotIsStillAReal) {
+  StrippedQuery stripped("RETURN .5");
+  EXPECT_EQ(SingleLiteral(stripped).ValueDouble(), 0.5);
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedDoubleToken);
+}
+
 TEST(QueryStripper, RegularDecimal) {
   StrippedQuery stripped("RETURN 42.3");
   EXPECT_EQ(stripped.literals().size(), 1);

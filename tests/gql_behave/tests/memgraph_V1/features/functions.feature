@@ -883,7 +883,7 @@ Feature: Functions
             """
         Then the result should be:
             | a    |
-            | true |
+            | null |
 
     Scenario: Single test 06:
         When executing query:
@@ -910,7 +910,7 @@ Feature: Functions
             """
         Then the result should be:
             | a     |
-            | true  |
+            | null  |
 
     Scenario: Single test 09:
         When executing query:

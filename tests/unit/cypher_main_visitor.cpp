@@ -1282,6 +1282,86 @@ TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf32) {
   CheckRWType(query, kRead);
 }
 
+TEST_P(CypherMainVisitorTest, NumericLiteralForms) {
+  // Literals are lexed twice, once by the grammar and once by the query
+  // stripper, and this suite runs every case through both. Each form below is
+  // therefore an assertion that the two agree as well as that the value is
+  // right.
+  auto &ast_generator = *GetParam();
+
+  auto literal_of = [&ast_generator](const std::string &query_string) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_string));
+    EXPECT_TRUE(query) << query_string;
+    auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+    return return_clause->body_.named_expressions[0]->expression_;
+  };
+
+  // Integers, in each base the grammar accepts.
+  ast_generator.CheckLiteral(literal_of("RETURN 0"), 0, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 42"), 42, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 9223372036854775807"), 9223372036854775807L, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 010"), 8, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 0177"), 127, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 0x1f"), 31, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 0xFF"), 255, 1);
+
+  // Reals need a fractional part or an exponent, and every arrangement of
+  // those has to keep working.
+  ast_generator.CheckLiteral(literal_of("RETURN 3.5"), 3.5, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 0.5"), 0.5, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN .5"), 0.5, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 1e5"), 1e5, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 1E5"), 1e5, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 1e-5"), 1e-5, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 1E-5"), 1e-5, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 1.5e3"), 1.5e3, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 1.5e-3"), 1.5e-3, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN 0.1e-2"), 0.1e-2, 1);
+  ast_generator.CheckLiteral(literal_of("RETURN .1e-2"), 0.1e-2, 1);
+}
+
+TEST_P(CypherMainVisitorTest, LeadingZeroWithNonOctalDigitIsRejected) {
+  // A leading zero introduces an octal literal, and 8 and 9 are not octal
+  // digits, so these name no number the grammar accepts.
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("RETURN 09"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("RETURN 018"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("RETURN 0098"), SyntaxException);
+
+  // A value too large for an integer is rejected as one rather than kept as an
+  // approximation, with or without the leading zero.
+  EXPECT_THROW(ast_generator.ParseQuery("RETURN 9223372036854775808"), SemanticException);
+
+  // Octal itself is unchanged.
+  auto *octal = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 010"));
+  ASSERT_TRUE(octal);
+  auto *ret = dynamic_cast<Return *>(octal->single_query_->clauses_[0]);
+  ast_generator.CheckLiteral(ret->body_.named_expressions[0]->expression_, 8, 1);
+}
+
+TEST_P(CypherMainVisitorTest, NumbersAdjacentToDots) {
+  // A dot after digits belongs to the range operator or to member access, not
+  // to a real literal, so the matcher must not swallow it.
+  auto &ast_generator = *GetParam();
+
+  auto *slice = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN [1, 2, 3][1..2]"));
+  ASSERT_TRUE(slice);
+  auto *range = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[*1..2]-() RETURN 1"));
+  ASSERT_TRUE(range);
+  auto *lower_only = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[*2..]-() RETURN 1"));
+  ASSERT_TRUE(lower_only);
+  auto *upper_only = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[*..3]-() RETURN 1"));
+  ASSERT_TRUE(upper_only);
+  auto *exact = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[*2]-() RETURN 1"));
+  ASSERT_TRUE(exact);
+
+  // A real as a bound, and a map value, both sit next to punctuation too.
+  auto *decimal_bound = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN [1, 2, 3][0..1]"));
+  ASSERT_TRUE(decimal_bound);
+  auto *in_map = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN {a: 1.5, b: 2, c: .5}"));
+  ASSERT_TRUE(in_map);
+}
+
 TEST_P(CypherMainVisitorTest, DoubleLiteral) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 3.5"));
