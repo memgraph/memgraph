@@ -764,7 +764,16 @@ def _import_interactive_mg_runner():
     """
     if _E2E_DIRECTORY not in sys.path:
         sys.path.insert(0, _E2E_DIRECTORY)
-    import interactive_mg_runner
+    try:
+        import interactive_mg_runner
+    except ImportError as error:
+        # The runner star-imports the e2e memgraph module, which imports mgclient, so the failure
+        # surfaces several imports deep with nothing pointing at the cause.
+        raise Exception(
+            f"Could not import the cluster runner from {_E2E_DIRECTORY}: {error}. It needs the packages in "
+            "tests/requirements.txt, so run this from the tests/ve3 virtualenv that tests/../init-test builds, as the "
+            "e2e and stress suites do."
+        ) from error
 
     return interactive_mg_runner
 

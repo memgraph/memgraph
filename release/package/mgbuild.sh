@@ -1840,6 +1840,10 @@ test_memgraph() {
       # so both legs execute the same number of queries by construction rather than by depending on
       # which one calibrated first, and because both legs then land in one upload.
       #
+      # Runs under tests/ve3, the virtualenv init-tests builds from tests/requirements.txt, because the
+      # cluster leg drives tests/e2e/interactive_mg_runner.py and that needs mgclient. The e2e and
+      # stress suites activate the same virtualenv for the same reason.
+      #
       # The HA leg gets its own, much smaller target set: every query measured against a cluster
       # restarts every instance in it, so running the full single-instance set there would multiply
       # the wall-clock by its size. It covers every distinct pokec write shape plus two reads as a
@@ -1877,7 +1881,7 @@ test_memgraph() {
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --run-ha --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE --export-results-ha $EXPORT_RESULTS_HA_FILE --ha-target-workload 'pokec/$DATASET_SIZE/create/*' --ha-target-workload pokec/$DATASET_SIZE/arango/single_vertex_write --ha-target-workload pokec/$DATASET_SIZE/arango/single_edge_write --ha-target-workload pokec/$DATASET_SIZE/arango/unwind_range_vertex_write --ha-target-workload pokec/$DATASET_SIZE/basic/single_vertex_property_update_update --ha-target-workload pokec/$DATASET_SIZE/arango/single_vertex_read --ha-target-workload pokec/$DATASET_SIZE/arango/aggregate $DATASET/$DATASET_SIZE/*/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --run-ha --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE --export-results-ha $EXPORT_RESULTS_HA_FILE --ha-target-workload 'pokec/$DATASET_SIZE/create/*' --ha-target-workload pokec/$DATASET_SIZE/arango/single_vertex_write --ha-target-workload pokec/$DATASET_SIZE/arango/single_edge_write --ha-target-workload pokec/$DATASET_SIZE/arango/unwind_range_vertex_write --ha-target-workload pokec/$DATASET_SIZE/basic/single_vertex_property_update_update --ha-target-workload pokec/$DATASET_SIZE/arango/single_vertex_read --ha-target-workload pokec/$DATASET_SIZE/arango/aggregate $DATASET/$DATASET_SIZE/*/*"
     ;;
     mgbench-supernode)
       shift 1
