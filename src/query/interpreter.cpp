@@ -8069,9 +8069,21 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
       } else {
-        handler = [interpreter_isolation_level, next_transaction_isolation_level] {
+        handler = [interpreter_isolation_level,
+                   next_transaction_isolation_level
+#ifdef MG_ENTERPRISE
+                   ,
+                   dbms_handler
+#endif
+        ] {
           metrics::Metrics().global.show_storage_info->Increment();
           const auto instance_info = GetInstanceStorageInfo();
+#ifdef MG_ENTERPRISE
+          // Surfaces detached-tenant memory (see TenantMemorySum) at the instance level, where
+          // by-name views can't see it.
+          const auto tenant_mem = dbms_handler->TenantMemorySum();
+          const auto detached_count = static_cast<int64_t>(dbms_handler->AllDetached().size());
+#endif
           const std::vector<std::vector<TypedValue>> results{
               {TypedValue("vm_max_map_count"), TypedValue(instance_info.vm_max_map_count)},
               {TypedValue("memory_res"),
@@ -8091,6 +8103,13 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                }())},
               {TypedValue("query+graph_memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
+#ifdef MG_ENTERPRISE
+              {TypedValue("tenant_memory_tracked_total"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(tenant_mem.hot + tenant_mem.detached)))},
+              {TypedValue("detached_tenant_memory_tracked"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(tenant_mem.detached)))},
+              {TypedValue("detached_tenant_count"), TypedValue(detached_count)},
+#endif
               {TypedValue("vector_index_memory_tracked"),
                TypedValue(utils::GetReadableSize(static_cast<double>(utils::vector_index_memory_tracker.Amount())))},
               {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(flags::ParseIsolationLevel()))},
@@ -8937,7 +8956,10 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 
     // A database that failed durability recovery comes up broken (see
     // --storage-allow-recovery-failure); report that so operators can spot it.
-    auto health_of = [db_handler](std::string_view name) -> std::string {
+    auto health_of = [db_handler](std::string_view name, std::string_view state) -> std::string {
+      // A newly created tenant can reuse a DETACHED name while the old one drains; probing by name
+      // here would misattribute that tenant's health, so short-circuit instead of calling Get().
+      if (state == "DETACHED") return "ready";
       try {
         return db_handler->Get(name)->storage()->IsBroken() ? "broken" : "ready";
       } catch (const memgraph::dbms::UnknownDatabaseException &) {
@@ -8953,12 +8975,11 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       for (const auto &name : all) {
         // `name` is a std::string (all_names) or a TypedValue (auth allowed-list); normalize.
         const std::string ns{TypedValue(name).ValueString()};
-        // status_of carries the HOT/COLD string. A granted name not in the
+        // status_of carries the HOT/COLD/DETACHED string. A granted name not in the
         // snapshot (e.g. a stale grant) defaults to HOT, matching the pre-cold-aware listing.
         auto it = status_of.find(ns);
-        status.push_back({TypedValue(ns),
-                          TypedValue(it != status_of.end() ? it->second : std::string{"HOT"}),
-                          TypedValue(health_of(ns))});
+        const std::string state = it != status_of.end() ? it->second : std::string{"HOT"};
+        status.push_back({TypedValue(ns), TypedValue(state), TypedValue(health_of(ns, state))});
       }
 
       std::erase_if(status, [&](auto const &row) {
