@@ -609,6 +609,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         input_op = std::make_unique<EmptyResult>(std::move(input_op));
       }
 
+      // A body whose clauses all dropped plans to nothing, yet still matches one (empty) row. Substituted per query
+      // part, not once on the branch root: each UNION branch is its own part, and the combinator below dereferences
+      // both operands. `in_exists_subquery` stays set across the recursive `Plan` calls this one makes, so this also
+      // catches a nested `CALL {}` body that plans to nothing - `HandleSubquery` dereferences that one too.
+      if (context.in_exists_subquery && !input_op) {
+        input_op = std::make_unique<Once>();
+      }
+
       if (query_part.query_combinator) {
         final_plan = MergeWithCombinator(std::move(input_op), std::move(final_plan), *query_part.query_combinator);
       } else {
@@ -1669,7 +1677,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
   /// The EXISTS branch, without either fold's tail. The pattern form is rooted at an `Once(bound_symbols)` so the
   /// branch correlates through the shared frame; the subquery form correlates by planning recursively against those
-  /// same bound symbols, and gets a bare `Once` from an operator's null-input guard.
+  /// same bound symbols, and gets a bare `Once` from `Plan` for any query part that plans to nothing.
   std::unique_ptr<LogicalOperator> MakeExistsBranch(const ExistsMatching &matching, const SymbolTable &symbol_table,
                                                     AstStorage &storage,
                                                     const std::unordered_set<Symbol> &bound_symbols,
@@ -1692,11 +1700,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       exists_branch_after_write_ = write_occurred;
       context_->bound_symbols = std::move(branch_bound_symbols);
 
-      std::unique_ptr<LogicalOperator> last_op = Plan(*matching.subquery);
-      // A body whose clauses all dropped plans to nothing, yet still matches one (empty) row - so give the fold a
-      // branch to pull rather than a null it would dereference when making its cursor.
-      if (!last_op) last_op = std::make_unique<Once>();
-      return last_op;
+      // Plan substitutes a Once for a query part that plans to nothing, so this never comes back null.
+      return Plan(*matching.subquery);
     }
 
     std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());

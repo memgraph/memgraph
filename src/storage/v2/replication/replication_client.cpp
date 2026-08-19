@@ -111,7 +111,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
       });
 
   if (!maybe_heartbeat_res) {
-    spdlog::trace("Couldn't get RPC lock while trying to UpdateReplicaState");
+    spdlog::warn("Couldn't get RPC lock while trying to UpdateReplicaState");
     return;
   }
 
@@ -422,7 +422,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
         }
 
         if (!maybe_stream_handler) {
-          spdlog::trace("Couldn't obtain RPC lock for committing to ASYNC replica.");
+          spdlog::warn("Couldn't obtain RPC lock for committing to ASYNC replica.");
           *locked_state = MAYBE_BEHIND;
           return std::unexpected{StartTxnReplicationError{FailedToGetAsyncRpcLock{}}};
         }
@@ -657,7 +657,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
 }
 
 void ReplicationStorageClient::Start(Storage *storage, DatabaseProtector const &protector) {
-  spdlog::trace("Replication client started for database \"{}\"", storage->name());
+  spdlog::info("Replication client started for database \"{}\"", storage->name());
   TryCheckReplicaStateSync(storage, protector);
 }
 

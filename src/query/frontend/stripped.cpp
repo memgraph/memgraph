@@ -457,6 +457,12 @@ int StrippedQuery::MatchReal(int start) const {
   enum class State { START, BEFORE_DOT, DOT, AFTER_DOT, E, E_MINUS, AFTER_E };
   State state = State::START;
   auto i = start;
+  // A real literal needs a fractional part or an exponent, so tracking where
+  // the last complete one ended keeps a bare run of digits out of the real
+  // parser. Longest match would otherwise hand it over: the decimal-integer
+  // matcher stops at a leading zero, making `09` longer as a real than as an
+  // integer. It also drops a partial trailing exponent, as in `1.5e`.
+  auto end_of_real = start;
   while (i < static_cast<int>(original_.size())) {
     if (original_[i] == '.') {
       if (state != State::BEFORE_DOT && state != State::START) break;
@@ -479,11 +485,9 @@ int StrippedQuery::MatchReal(int start) const {
       break;
     }
     ++i;
+    if (state == State::AFTER_DOT || state == State::AFTER_E) end_of_real = i;
   }
-  if (state == State::DOT) --i;
-  if (state == State::E) --i;
-  if (state == State::E_MINUS) i -= 2;
-  return i - start;
+  return end_of_real - start;
 }
 
 int StrippedQuery::MatchParameter(int start) const {

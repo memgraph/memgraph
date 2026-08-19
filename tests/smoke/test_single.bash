@@ -39,6 +39,15 @@ run_feature_tests "$IMAGE_TYPE" docker
 create_test_users
 run_auth_feature_tests
 
+# NOTE: Kerberos is deliberately outside run_feature_tests: SSO has to be
+# enabled at startup, so this brings up its own memgraph container (from the
+# same image) plus a throwaway KDC instead of reusing memgraph_smoke. It is
+# also why test_k8s.bash, which shares run_feature_tests, doesn't run it.
+# Setup is its own step so that this script's errexit stops on the exact
+# command that broke, rather than the feature having to police itself.
+test_kerberos_auth_setup
+test_kerberos_auth
+
 # End timing and calculate execution time
 END_TIME=$(date +%s)
 END_TIME_READABLE=$(date)

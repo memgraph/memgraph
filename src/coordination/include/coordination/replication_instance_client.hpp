@@ -78,7 +78,7 @@ class ReplicationInstanceClient {
       auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...);
 
       if (!stream.SendAndWait().arg_) {
-        spdlog::error("Received unsuccessful response to {}.", T::Request::kType.name);
+        spdlog::warn("Received unsuccessful response to {}.", T::Request::kType.name);
         RpcInfo<T>::fail_counter()->Increment();
         return false;
       }
@@ -86,7 +86,7 @@ class ReplicationInstanceClient {
       RpcInfo<T>::succ_counter()->Increment();
       return true;
     } catch (rpc::RpcFailedException const &e) {
-      spdlog::error("Failed to receive response to {}. Error occurred: {}", T::Request::kType.name, e.what());
+      spdlog::warn("Failed to receive response to {}. Error occurred: {}", T::Request::kType.name, e.what());
       RpcInfo<T>::fail_counter()->Increment();
       return false;
     }

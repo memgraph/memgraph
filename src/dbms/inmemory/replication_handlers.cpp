@@ -418,7 +418,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
         try {
           return repl_state.TryReadLock();
         } catch (utils::TryLockException const &) {
-          spdlog::info("Failed to take repl state read lock, cannot commit");
+          spdlog::warn("Failed to take repl state read lock, cannot commit");
           return std::nullopt;
         }
       });
@@ -707,7 +707,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     // blocked would tell the peer we are advancing when we are not.
     record_progress();
 
-    spdlog::trace("Clearing database {} before recovering from snapshot.", storage->name());
+    spdlog::info("Clearing database {} before recovering from snapshot.", storage->name());
 
     // Clear the database
     storage->Clear(record_progress);
@@ -731,7 +731,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
       storage->uuid().set(snapshot_info.uuid);
-      spdlog::trace("Set epoch to {} for db {}", snapshot_info.epoch_id, storage->name());
+      spdlog::info("Set epoch to {} for db {}", snapshot_info.epoch_id, storage->name());
       storage->repl_storage_state_.epoch_.SetEpoch(std::move(snapshot_info.epoch_id));
       storage->vertex_id_ = recovery_info.next_vertex_id;
       storage->edge_id_ = recovery_info.next_edge_id;
@@ -839,7 +839,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(
         try {
           return repl_state.TryReadLock();
         } catch (utils::TryLockException const &) {
-          spdlog::info("Failed to take repl state read lock, cannot apply WAL files");
+          spdlog::warn("Failed to take repl state read lock, cannot apply WAL files");
           return std::nullopt;
         }
       });
@@ -915,8 +915,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(
       }
       record_progress();
 
-      spdlog::trace("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
-                    storage->name());
+      spdlog::info("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
+                   storage->name());
       storage->Clear(record_progress);
     }
 
@@ -1002,7 +1002,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
         try {
           return repl_state.TryReadLock();
         } catch (utils::TryLockException const &) {
-          spdlog::info("Failed to take repl state read lock, cannot apply current WAL file");
+          spdlog::warn("Failed to take repl state read lock, cannot apply current WAL file");
           return std::nullopt;
         }
       });
@@ -1074,8 +1074,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
         return;
       }
       record_progress();
-      spdlog::trace("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
-                    storage->name());
+      spdlog::info("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
+                   storage->name());
       storage->Clear(record_progress);
     }
 
@@ -1160,7 +1160,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
 
   // We trust only WAL files which contain changes we are interested in (newer changes)
   if (auto &repl_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != repl_epoch.id()) {
-    spdlog::trace("Set epoch to {} for db {}", wal_info.epoch_id, storage->name());
+    spdlog::info("Set epoch to {} for db {}", wal_info.epoch_id, storage->name());
     storage->repl_storage_state_.SaveLatestHistory();
     repl_epoch.SetEpoch(wal_info.epoch_id);
   }

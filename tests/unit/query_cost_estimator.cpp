@@ -443,6 +443,104 @@ TEST_F(QueryCostEstimator, UnwindNoLiteral) {
           MiscParam::kUnwindNoLiteral);
 }
 
+namespace {
+// Helper to build the toSet(coalesce(list, [])) AST pattern produced by IN-to-Unwind lowering.
+Expression *MakeInUnwindExpression(AstStorage &storage, std::vector<Expression *> elements) {
+  auto *inner_list = storage.Create<ListLiteral>(std::move(elements));
+  auto *empty_list = storage.Create<ListLiteral>(std::vector<Expression *>{});
+  auto *coalesced = storage.Create<Coalesce>(std::vector<Expression *>{inner_list, empty_list});
+  auto *toset = storage.Create<Function>();
+  toset->function_name_ = "TOSET";
+  toset->arguments_ = {coalesced};
+  return toset;
+}
+}  // namespace
+
+TEST_F(QueryCostEstimator, UnwindInLowering) {
+  auto *expr = MakeInUnwindExpression(storage_, {Literal(1), Literal(2), Literal(3)});
+  TEST_OP(MakeOp<memgraph::query::plan::Unwind>(last_op_, expr, NextSymbol()), CostParam::kUnwind, 3);
+}
+
+// -- IN-list cardinality estimation tests --
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInList) {
+  AddVertices(100, 30, 20);
+  // IN [12]: 1 element, matches 1 vertex. Unwind factor = 1, scan sum = 1.
+  // Current estimate: 1 * 1 = 1 (no double-count for single element).
+  auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(12)});
+  auto *unwind_expr = MakeInUnwindExpression(storage_, {Literal(12)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr, NextSymbol());
+  auto *unwind_sym = storage_.Create<Identifier>("anon_sym");
+  MakeOp<ScanAllByLabelProperties>(last_op_,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::In(unwind_sym, list)});
+  // cost = CostParam::kUnwind + (1 * 1) * CostParam::kScanAllByLabelProperties
+  EXPECT_COST(CostParam::kUnwind + 1 * CostParam::kScanAllByLabelProperties);
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInListMultipleElements) {
+  AddVertices(100, 30, 20);
+  // IN [5, 10]: 2 elements, each matches 1 vertex. Unwind factor = 2, scan per-row = 1.
+  auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
+  auto *unwind_expr = MakeInUnwindExpression(storage_, {Literal(5), Literal(10)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr, NextSymbol());
+  auto *unwind_sym = storage_.Create<Identifier>("anon_sym");
+  MakeOp<ScanAllByLabelProperties>(last_op_,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::In(unwind_sym, list)});
+  // Scan returns per-row factor: S / n = 2 / 2 = 1. Cardinality = 2 * 1 = 2.
+  EXPECT_COST(CostParam::kUnwind + 2 * CostParam::kScanAllByLabelProperties);
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesInListNonexistentValue) {
+  AddVertices(100, 30, 20);
+  // IN [999]: 1 element, matches 0 vertices. Unwind factor = 1, scan sum = 0.
+  auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(999)});
+  auto *unwind_expr = MakeInUnwindExpression(storage_, {Literal(999)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr, NextSymbol());
+  auto *unwind_sym = storage_.Create<Identifier>("anon_sym");
+  MakeOp<ScanAllByLabelProperties>(last_op_,
+                                   NextSymbol(),
+                                   label,
+                                   std::vector{ms::PropertyPath{prop_a}},
+                                   std::vector{ExpressionRange::In(unwind_sym, list)});
+  // cardinality = 1 * 0 = 0, cost = min_cost + CostParam::kUnwind
+  EXPECT_COST(CostParam::kUnwind + CostParam::kMinimumCost);
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesMultipleInLists) {
+  AddVertices(100, 30, 20);
+  // Composite index on (prop_c, prop_a, prop_b). All three properties are set to the same
+  // value i for each vertex, so only diagonal entries (i,i,i) exist.
+  // prop_c = 5 (resolved), prop_a IN [5, 10] (unresolved), prop_b IN [5, 10] (unresolved).
+  // True matches: only (5,5,5). Independence estimate: S_a * S_b / T = 1 * 1 / 1 = 1.
+  // Unwind factors: 2 * 2 = 4. Scan per-row = 1 / 4 = 0.25. Final cardinality = 1.
+  auto *list_a = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
+  auto *list_b = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(5), Literal(10)});
+  // Chain two Unwinds (the real plan has two Unwinds for two IN clauses)
+  auto *unwind_expr_a = MakeInUnwindExpression(storage_, {Literal(5), Literal(10)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr_a, NextSymbol());
+  auto *unwind_expr_b = MakeInUnwindExpression(storage_, {Literal(5), Literal(10)});
+  MakeOp<memgraph::query::plan::Unwind>(last_op_, unwind_expr_b, NextSymbol());
+  auto *sym_a = storage_.Create<Identifier>("anon_a");
+  auto *sym_b = storage_.Create<Identifier>("anon_b");
+  MakeOp<ScanAllByLabelProperties>(
+      last_op_,
+      NextSymbol(),
+      label,
+      std::vector{ms::PropertyPath{prop_c}, ms::PropertyPath{prop_a}, ms::PropertyPath{prop_b}},
+      std::vector{
+          ExpressionRange::Equal(Literal(5)), ExpressionRange::In(sym_a, list_a), ExpressionRange::In(sym_b, list_b)});
+  // Unwind 1: cost += 1 * kUnwind, cardinality = 2
+  // Unwind 2: cost += 2 * kUnwind, cardinality = 4
+  // Scan: independence result = 1, unwind_factor = 4, per-row = 0.25. cardinality = 4 * 0.25 = 1.
+  EXPECT_COST(3 * CostParam::kUnwind + 1 * CostParam::kScanAllByLabelProperties);
+}
+
 #undef TEST_OP
 #undef EXPECT_COST
 
@@ -486,6 +584,20 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesDescSameCostAsAsc) {
   auto desc_cost = Cost();
 
   EXPECT_FLOAT_EQ(asc_cost, desc_cost);
+}
+
+TEST_F(QueryCostEstimator, ExtractListFromInUnwindNonMatching) {
+  EXPECT_EQ(ExtractListFromInUnwind(nullptr), nullptr);
+  EXPECT_EQ(ExtractListFromInUnwind(Literal(42)), nullptr);
+  auto *plain_list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(1)});
+  EXPECT_EQ(ExtractListFromInUnwind(plain_list), nullptr);
+}
+
+TEST_F(QueryCostEstimator, ExtractListFromInUnwindMatching) {
+  auto *expr = MakeInUnwindExpression(storage_, {Literal(1), Literal(2)});
+  auto *extracted = ExtractListFromInUnwind(expr);
+  ASSERT_NE(extracted, nullptr);
+  EXPECT_EQ(extracted->elements_.size(), 2);
 }
 
 // TODO test cost when ScanAll, Expand, Accumulate, Limit

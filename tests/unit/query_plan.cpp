@@ -2577,7 +2577,7 @@ TYPED_TEST(TestPlanner, LabelPropertyInListValidOptimization) {
               ExpectUnwind(),
               ExpectScanAllByLabelProperties(label,
                                              std::vector{ms::PropertyPath{property.second}},
-                                             std::vector{ExpressionRange::Equal(fake_identifier)}),
+                                             std::vector{ExpressionRange::In(fake_identifier, lit_list_a)}),
               ExpectProduce());
   }
 }
@@ -2595,13 +2595,13 @@ TYPED_TEST(TestPlanner, LabelPropertyInListParameter) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   auto fake_identifier = IDENT("fake");
-  CheckPlan(
-      planner.plan(),
-      symbol_table,
-      ExpectUnwind(),
-      ExpectScanAllByLabelProperties(
-          label, std::vector{ms::PropertyPath{property.second}}, std::vector{ExpressionRange::Equal(fake_identifier)}),
-      ExpectProduce());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectUnwind(),
+            ExpectScanAllByLabelProperties(label,
+                                           std::vector{ms::PropertyPath{property.second}},
+                                           std::vector{ExpressionRange::In(fake_identifier, nullptr)}),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, LabelPropertyInListWhereLabelPropertyOnLeftNotListOnRight) {
@@ -3010,7 +3010,7 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportDrivesLabelPropertyIndex) {
         new ExpectUnwind(),
         new ExpectScanAllByLabelProperties(label,
                                            std::vector{ms::PropertyPath{property.second}},
-                                           std::vector{ExpressionRange::Equal(fake_identifier)}),
+                                           std::vector{ExpressionRange::In(fake_identifier, nullptr)}),
         new ExpectProduce()};
     CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(branch), ExpectProduce());
     DeleteListContent(&branch);
@@ -5265,6 +5265,85 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnion) {
   DeleteListContent(&left_exists_part);
   DeleteListContent(&right_exists_part);
   DeleteListContent(&exists_union_plan);
+}
+
+// A body's RETURN is dropped inside an exists subquery, so a UNION of RETURN-only branches plans both sides to
+// nothing. Each part gets its own Once before the combinator merges them - substituting one on the branch root would
+// come too late, and GenUnion dereferences both operands for their output symbols.
+
+TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionOfEmptyBodies) {
+  // MATCH (n) WHERE EXISTS { RETURN 1 AS c UNION RETURN 2 AS c } RETURN n
+  FakeDbAccessor dba;
+
+  auto *exists_subquery =
+      QUERY(SINGLE_QUERY(RETURN(LITERAL(1), AS("c"))), UNION(SINGLE_QUERY(RETURN(LITERAL(2), AS("c")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> left_exists_part{new ExpectOnce()};
+  std::list<BaseOpChecker *> right_exists_part{new ExpectOnce()};
+  std::list<BaseOpChecker *> exists_union_plan{new ExpectUnion(left_exists_part, right_exists_part),
+                                               new ExpectDistinct(),
+                                               new ExpectLimit(),
+                                               new ExpectEvaluatePatternFilter()};
+
+  // The branch correlates to nothing, so the filter is satisfied before the scan and sits below it.
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{exists_union_plan}),
+            ExpectScanAll(),
+            ExpectProduce());
+
+  DeleteListContent(&left_exists_part);
+  DeleteListContent(&right_exists_part);
+  DeleteListContent(&exists_union_plan);
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionAllOfEmptyBodies) {
+  // MATCH (n) WHERE EXISTS { RETURN 1 AS c UNION ALL RETURN 2 AS c } RETURN n - UNION ALL drops the Distinct.
+  FakeDbAccessor dba;
+
+  auto *exists_subquery =
+      QUERY(SINGLE_QUERY(RETURN(LITERAL(1), AS("c"))), UNION_ALL(SINGLE_QUERY(RETURN(LITERAL(2), AS("c")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> left_exists_part{new ExpectOnce()};
+  std::list<BaseOpChecker *> right_exists_part{new ExpectOnce()};
+  std::list<BaseOpChecker *> exists_union_plan{
+      new ExpectUnion(left_exists_part, right_exists_part), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{exists_union_plan}),
+            ExpectScanAll(),
+            ExpectProduce());
+
+  DeleteListContent(&left_exists_part);
+  DeleteListContent(&right_exists_part);
+  DeleteListContent(&exists_union_plan);
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionOfEmptyBodiesInReturnProjection) {
+  // MATCH (n) RETURN EXISTS { RETURN 1 AS c UNION RETURN 2 AS c } AS h - the projection reaches the same branch
+  // through the forced fold, which has no Limit/EvaluatePatternFilter tail to hide a null root.
+  auto *exists_subquery =
+      QUERY(SINGLE_QUERY(RETURN(LITERAL(1), AS("c"))), UNION(SINGLE_QUERY(RETURN(LITERAL(2), AS("c")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(EXISTS_SUBQUERY(exists_subquery), AS("h"))));
+
+  std::list<BaseOpChecker *> left_exists_part{new ExpectOnce()};
+  std::list<BaseOpChecker *> right_exists_part{new ExpectOnce()};
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  Checkers branch{ExpectUnion{left_exists_part, right_exists_part}, ExpectDistinct{}};
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectExistsRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
+
+  DeleteListContent(&left_exists_part);
+  DeleteListContent(&right_exists_part);
 }
 
 // The forced bool fold: an EXISTS in a WITH/RETURN body is spliced onto the main chain as a RollUpApply, because

@@ -145,6 +145,17 @@ if [ "$PYBIN" != "python3" ]; then
     if [ -n "$libpython" ]; then
         ln -sf "$libpython" /usr/lib/memgraph/libpython3.so
     fi
+    # The reference auth modules are separate processes: memgraph execve()s the
+    # .py file itself (src/auth/module.cpp), so their `#!/usr/bin/python3`
+    # shebang — not $PYBIN — picks the interpreter that has to import the deps
+    # installed below. Repoint it for the same reason as the symlink above: on
+    # el9 the default python3 is 3.9, which has none of them, and a login via
+    # an SSO module then fails with "<dep> package not installed". Anchored on
+    # the shipped shebang, so re-running %%post is a no-op.
+    for auth_module in /usr/lib/memgraph/auth_module/*.py; do
+        [ -e "$auth_module" ] || continue
+        sed -i "1s|^#!/usr/bin/python3$|#!/usr/bin/$PYBIN|" "$auth_module"
+    done
 fi
 # MG_SKIP_PYTHON_DEPS=1 skips the pip phase entirely (matches the deb postinst
 # and the MAGE %%post) — for installs whose environment provides the deps by

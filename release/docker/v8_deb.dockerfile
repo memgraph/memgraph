@@ -40,7 +40,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
 COPY wheels /tmp/wheels
 
 USER memgraph
-RUN pip3 install --no-cache-dir --break-system-packages --find-links=/tmp/wheels -r /tmp/auth-module-requirements.txt && \
+RUN pip3 install --no-cache-dir --break-system-packages --find-links=/tmp/wheels --only-binary=gssapi -r /tmp/auth-module-requirements.txt && \
     pip3 install --no-cache-dir --break-system-packages numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 xmlsec==1.3.16
 
 ###############################################################################

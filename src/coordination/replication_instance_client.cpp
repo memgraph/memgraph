@@ -91,7 +91,7 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
     g.state_check_rpc_success->Increment();
     return res.arg_;
   } catch (rpc::RpcFailedException const &e) {
-    spdlog::error("Failed to receive response to StateCheckRpc. Error occurred: {}", e.what());
+    spdlog::warn("Failed to receive response to StateCheckRpc. Error occurred: {}", e.what());
     g.state_check_rpc_fail->Increment();
     return {};
   }
@@ -107,7 +107,7 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     g.get_database_histories_rpc_success->Increment();
     return res.arg_;
   } catch (const rpc::RpcFailedException &e) {
-    spdlog::error("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
+    spdlog::warn("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
     g.get_database_histories_rpc_fail->Increment();
     return {};
   }
@@ -124,7 +124,7 @@ auto ReplicationInstanceClient::SendGetReplicationLagRpc() const
     }
     return std::move(*res.arg_);
   } catch (const rpc::RpcFailedException &e) {
-    spdlog::error("Failed to receive response to ReplicationLagRpc. Error occurred: {}", e.what());
+    spdlog::warn("Failed to receive response to ReplicationLagRpc. Error occurred: {}", e.what());
     return std::unexpected{ReplicationLagStatus::MAIN_UNRESPONSIVE};
   }
 }

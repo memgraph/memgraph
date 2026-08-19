@@ -61,6 +61,25 @@ auto property_path_converter(TDbAccessor *db) {
 }
 }  // namespace
 
+// Sum the estimated vertex count for each element in an IN-list on a single
+// index slot. Resolves each element at plan time and calls VerticesCount with
+// pvrs[slot] set to that element's value. All other entries in pvrs must
+// already be resolved.
+template <typename TDbAccessor>
+auto EstimateInListSum(TDbAccessor *db, storage::LabelId label, std::vector<storage::PropertyPath> const &properties,
+                       ListLiteral const &list, size_t slot, std::vector<storage::PropertyValueRange> &pvrs,
+                       Parameters const &parameters) -> std::optional<double> {
+  auto *mapper = db->GetStorageAccessor()->GetNameIdMapper();
+  double sum = 0.0;
+  for (auto *elem : list.elements_) {
+    auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters, mapper);
+    if (!resolved) return std::nullopt;
+    pvrs[slot] = *resolved;
+    sum += db->VerticesCount(label, properties, pvrs);
+  }
+  return sum;
+}
+
 /// Holds a given query's index hints after sorting them by type
 struct IndexHints {
   IndexHints() = default;
@@ -1587,9 +1606,47 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
           return db_->VerticesCount(scan_op->label_, scan_op->properties_, propertyvalue_ranges);
         }
-        // no values, but we still have the label + properties
-        // use basic count without property ranges (ranges depend on runtime parameters)
-        return db_->VerticesCount(scan_op->label_, scan_op->properties_);
+        // Collect unresolved IN slots and batch-set to IsNotNull.
+        std::vector<size_t> in_slots;
+        for (size_t i = 0; i < scan_op->expression_ranges_.size(); ++i) {
+          if (maybe_propertyvalue_ranges[i] || !scan_op->expression_ranges_[i].membership_list_) continue;
+          in_slots.push_back(i);
+          maybe_propertyvalue_ranges[i] = storage::PropertyValueRange::IsNotNull();
+        }
+        if (in_slots.empty()) return db_->VerticesCount(scan_op->label_, scan_op->properties_) * CardParam::kFilter;
+        // If non-IN slots are still unresolved, fall back.
+        if (ranges::any_of(maybe_propertyvalue_ranges, [](auto const &pvr) { return pvr == std::nullopt; }))
+          return db_->VerticesCount(scan_op->label_, scan_op->properties_) * CardParam::kFilter;
+        auto pvrs = maybe_propertyvalue_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) |
+                    ranges::to_vector;
+        if (in_slots.size() == 1) {
+          auto sum = EstimateInListSum(db_,
+                                       scan_op->label_,
+                                       scan_op->properties_,
+                                       *scan_op->expression_ranges_[in_slots[0]].membership_list_,
+                                       in_slots[0],
+                                       pvrs,
+                                       parameters_);
+          return sum.value_or(db_->VerticesCount(scan_op->label_, scan_op->properties_) * CardParam::kFilter);
+        }
+        // Multiple IN slots: independence assumption.
+        auto const total = db_->VerticesCount(scan_op->label_, scan_op->properties_, pvrs);
+        if (total == 0) return 0.0;
+        double result = 1.0;
+        for (auto slot : in_slots) {
+          auto marginal = EstimateInListSum(db_,
+                                            scan_op->label_,
+                                            scan_op->properties_,
+                                            *scan_op->expression_ranges_[slot].membership_list_,
+                                            slot,
+                                            pvrs,
+                                            parameters_);
+          if (!marginal) return db_->VerticesCount(scan_op->label_, scan_op->properties_) * CardParam::kFilter;
+          result *= *marginal;
+          pvrs[slot] = storage::PropertyValueRange::IsNotNull();
+        }
+        result /= std::pow(static_cast<double>(total), static_cast<double>(in_slots.size() - 1));
+        return std::min(result, static_cast<double>(total));
       });
       return static_cast<double>(cardinality);
     }
@@ -1605,6 +1662,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           return static_cast<double>(db_->VerticesCount(scan_op->property_, pvr->lower_->value()));
         }
         return static_cast<double>(db_->VerticesCount(scan_op->property_, pvr->lower_, pvr->upper_));
+      }
+      if (auto *list = scan_op->expression_range_.membership_list_) {
+        double sum = 0.0;
+        for (auto *elem : list->elements_) {
+          auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters_, mapper);
+          if (!resolved) return static_cast<double>(db_->VerticesCount(scan_op->property_));
+          sum += db_->VerticesCount(scan_op->property_, resolved->lower_->value());
+        }
+        return sum;
       }
       return static_cast<double>(db_->VerticesCount(scan_op->property_));
     }
@@ -1699,10 +1765,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                estimated_count};
     }
     if (prop_filter.type_ == PropertyFilter::Type::IN) {
+      auto *membership_list = utils::Downcast<ListLiteral>(prop_filter.value_);
       auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_);
       return ScanByIndexResult{
-          std::make_shared<ScanAllByVertexProperty>(
-              std::move(unwound.op), node_symbol, best->property, ExpressionRange::Equal(unwound.element), view),
+          std::make_shared<ScanAllByVertexProperty>(std::move(unwound.op),
+                                                    node_symbol,
+                                                    best->property,
+                                                    ExpressionRange::In(unwound.element, membership_list),
+                                                    view),
           std::move(metadata),
           true,
           estimated_count};
@@ -1746,13 +1816,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return true;
     };
 
-    auto const to_expression_range = [&](auto &&filter) -> ExpressionRange {
+    auto const to_expression_range = [&](auto &&filter, ListLiteral *membership_list = nullptr) -> ExpressionRange {
       DMG_ASSERT(filter.property_filter);
       switch (filter.property_filter->type_) {
-        case PropertyFilter::Type::EQUAL:
-        case PropertyFilter::Type::IN: {
-          // Because of the unwind rewrite IN is the same as EQUAL
+        case PropertyFilter::Type::EQUAL: {
           return ExpressionRange::Equal(filter.property_filter->value_);
+        }
+        case PropertyFilter::Type::IN: {
+          return ExpressionRange::In(filter.property_filter->value_, membership_list);
         }
         case PropertyFilter::Type::REGEX_MATCH: {
           return ExpressionRange::RegexMatch();
@@ -1786,6 +1857,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         return cpy;
       }
       return filter_info;
+    };
+
+    auto const capture_membership_list = [](FilterInfo const &fi) -> ListLiteral * {
+      if (fi.property_filter && fi.property_filter->type_ == PropertyFilter::Type::IN)
+        return utils::Downcast<ListLiteral>(fi.property_filter->value_);
+      return nullptr;
     };
 
     ScanByIndexMetadata metadata;
@@ -1898,8 +1975,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       const bool has_in = std::ranges::any_of(found_index->filters, [](const FilterInfo &f) {
         return f.property_filter && f.property_filter->type_ == PropertyFilter::Type::IN;
       });
+      // Capture original IN list member expressions before make_unwinds
+      // replaces them with anonymous symbols
+      auto membership_lists =
+          found_index->filters | ranges::views::transform(capture_membership_list) | ranges::to_vector;
       auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
-      auto expr_ranges = value_expressions | ranges::views::transform(to_expression_range) | ranges::to_vector;
+      auto expr_ranges =
+          ranges::views::zip(value_expressions, membership_lists) |
+          ranges::views::transform([&](auto const &pair) { return to_expression_range(pair.first, pair.second); }) |
+          ranges::to_vector;
 
       auto op = std::make_unique<ScanAllByLabelProperties>(input,
                                                            node_symbol,
@@ -1970,9 +2054,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                 metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
               }
             }
+            auto or_membership_lists =
+                label_property_index.filters | ranges::views::transform(capture_membership_list) | ranges::to_vector;
             auto value_expressions =
                 label_property_index.filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
-            auto expr_ranges = value_expressions | ranges::views::transform(to_expression_range) | ranges::to_vector;
+            auto expr_ranges = ranges::views::zip(value_expressions, or_membership_lists) |
+                               ranges::views::transform(
+                                   [&](auto const &pair) { return to_expression_range(pair.first, pair.second); }) |
+                               ranges::to_vector;
             auto label_property_index_scan =
                 std::make_unique<ScanAllByLabelProperties>(input,
                                                            node_symbol,

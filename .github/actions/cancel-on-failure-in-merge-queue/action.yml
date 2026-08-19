@@ -1,6 +1,12 @@
 name: 'Cancel run on merge_group failure'
 description: 'Emits an error annotation naming the failing job, then cancels the current workflow run via the GitHub API to fail fast. The annotation makes the real culprit identifiable in the run summary even though cancellation marks every job as cancelled. The caller must gate this with `if: failure() && github.event_name == ''merge_group''` because composite actions cannot read the calling job''s runtime status.'
 
+inputs:
+  job-name:
+    description: 'Name used to identify the failing job in the annotation. Defaults to `github.job`, the job id, which is ambiguous when several reusable workflows in the same run share an id (e.g. the `core` job of every `diff_*` workflow) — pass a qualified name such as "Release / Core tests" in that case.'
+    required: false
+    default: ''
+
 runs:
   using: 'composite'
   steps:
@@ -10,7 +16,7 @@ runs:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
         RUN_ID: ${{ github.run_id }}
-        JOB: ${{ github.job }}
+        JOB: ${{ inputs.job-name != '' && inputs.job-name || github.job }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         set -euo pipefail
