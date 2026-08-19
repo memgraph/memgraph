@@ -520,13 +520,18 @@ class AnalyzeGraphInMulticommandTxException : public MulticommandTxException {
   SPECIALIZE_GET_EXCEPTION_NAME(AnalyzeGraphInMulticommandTxException)
 };
 
+// Shared by the aborted-transaction ReplicationException and the notification reported when the transaction is
+// committed on main but could not reach all SYNC replicas, so both report the failure with the same wording.
+inline auto ReplicationFailureMessage(std::string_view message) -> std::string {
+  return fmt::format("{} Check the status of the replicas using 'SHOW REPLICAS' query.", message);
+}
+
 class ReplicationException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
 
   explicit ReplicationException(const std::string &message)
-      : utils::BasicException("Replication Exception: {} Check the status of the replicas using 'SHOW REPLICAS' query.",
-                              message) {}
+      : utils::BasicException(fmt::format("Replication Exception: {}", ReplicationFailureMessage(message))) {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReplicationException)
 };
 

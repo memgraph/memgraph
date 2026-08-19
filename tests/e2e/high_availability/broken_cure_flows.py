@@ -329,10 +329,9 @@ def resolve_main_cursor(coord_cursor):
 def nudge_main_write(cursor, query, timeout=30):
     """Commit a single write on the main to advance its timestamp and trigger replica recovery.
 
-    Retries only while the main is transiently non-writeable right after a role change; treats a
-    'SYNC replica not reachable / not in sync' error as success, because the write IS committed on
-    the main (the broken replica will be recovered automatically). The write therefore lands at
-    most once, so it cannot double-insert."""
+    Retries only while the main is transiently non-writeable right after a role change. An unreachable SYNC
+    replica does not fail the write -- it commits on the main and the replica is reported through a
+    notification -- so the write lands at most once and cannot double-insert."""
     start = time.time()
     while True:
         try:
@@ -340,8 +339,6 @@ def nudge_main_write(cursor, query, timeout=30):
             return
         except Exception as e:
             msg = str(e)
-            if "Failed to replicate to SYNC replica" in msg:
-                return
             if "Write queries currently forbidden on the main instance" in msg and time.time() - start < timeout:
                 time.sleep(0.5)
                 continue

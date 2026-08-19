@@ -10140,10 +10140,12 @@ void Interpreter::BeginTransaction(QueryExtras const &extras) {
   prepared_query.query_handler(nullptr, {});
 }
 
-void Interpreter::CommitTransaction() {
+std::optional<Notification> Interpreter::CommitTransaction() {
   auto prepared_query = PrepareTransactionQuery(TransactionQuery::COMMIT);
   prepared_query.query_handler(nullptr, {});
+  auto notification = std::exchange(commit_notification_, std::nullopt);
   ResetInterpreter();
+  return notification;
 }
 
 void Interpreter::RollbackTransaction() {
@@ -11385,6 +11387,8 @@ void Interpreter::Commit() {
   }
 #endif
 
+  commit_notification_.reset();
+
   memgraph::logging::EmitSessionTraceEvent("Query commit started.");
   utils::OnScopeExit const commit_end([this]() {
     memgraph::logging::EmitSessionTraceEvent("Query commit ended.");
@@ -11557,15 +11561,18 @@ void Interpreter::Commit() {
   locked_repl_state.reset();
 
   std::optional<std::string> replication_error_msg;
+  bool replication_error_committed = false;
   if (!maybe_commit_error) {
     const auto &error = maybe_commit_error.error();
 
     std::visit(
         [&execution_db_accessor = current_db_.execution_db_accessor_,
-         &replication_error_msg]<typename T>(const T &arg) {
+         &replication_error_msg,
+         &replication_error_committed]<typename T>(const T &arg) {
           using ErrorType = std::remove_cvref_t<T>;
           if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
             replication_error_msg = storage::FormatReplicationError(arg);
+            replication_error_committed = arg.transaction_committed;
           } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
             const auto &constraint_violation = arg;
             auto &label_name = execution_db_accessor->LabelToName(constraint_violation.label);
@@ -11630,10 +11637,29 @@ void Interpreter::Commit() {
   SPDLOG_DEBUG("Finished committing the transaction");
 
   if (replication_error_msg) {
-    throw ReplicationException(*replication_error_msg);
+    if (!replication_error_committed) {
+      // The transaction was rolled back everywhere (a STRICT_SYNC cluster aborts the 2PC transaction), so the
+      // write did not happen and the client must be told with an error.
+      throw ReplicationException(*replication_error_msg);
+    }
+    // The transaction is committed on main and on every reachable replica; only some SYNC replicas are behind
+    // and will be recovered automatically. The write succeeded, so report it as a warning instead of an error.
+    commit_notification_.emplace(SeverityLevel::WARNING,
+                                 NotificationCode::SYNC_REPLICATION_FAILURE,
+                                 ReplicationFailureMessage(*replication_error_msg));
   }
 
   memgraph::logging::EmitSessionTraceEvent("Commit successfully finished!");
+}
+
+void Interpreter::AppendNotificationToSummary(const Notification &notification,
+                                              std::map<std::string, TypedValue> &summary) {
+  auto const it = summary.find("notifications");
+  if (it == summary.end()) {
+    summary.emplace("notifications", TypedValue{std::vector<TypedValue>{TypedValue{notification.ConvertToMap()}}});
+    return;
+  }
+  it->second.ValueList().emplace_back(notification.ConvertToMap());
 }
 
 void Interpreter::AdvanceCommand() {

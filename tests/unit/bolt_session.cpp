@@ -121,7 +121,10 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  void CommitTransaction() { md_.clear(); }
+  bolt_map_t CommitTransaction() {
+    md_.clear();
+    return {};
+  }
 
   void RollbackTransaction() { md_.clear(); }
 

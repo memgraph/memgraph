@@ -43,19 +43,6 @@ def ignore_elapsed_time_from_results(results: typing.List[tuple]) -> typing.List
     return [result[:-1] for result in results]
 
 
-def execute_and_ignore_dead_replica(cursor, query):
-    """
-    Ignores SYNC replica replication failure error
-    :param cursor: Cursor to the instance where you want to execute the query
-    :param query: Query to be executed
-    :return: nothing
-    """
-    try:
-        execute_and_fetch_all(cursor, query)
-    except Exception as e:
-        assert "Failed to replicate to SYNC replica" in str(e)
-
-
 def corrupt_snapshots(tenant_directory):
     """Corrupt the data (vertex/edge/index) region of every snapshot under `tenant_directory`
     while preserving the offsets block at the start and the metadata section at the end. This keeps
@@ -94,6 +81,9 @@ def wait_until_main_writeable(cursor, query):
     to execute the query and if succeeded, we return immediately. If an exception occurs, there are 3 possible situations.
     If the error message is that write query is forbidden on the main, then we will try once again execute the query.
     If not, we assert false and crash the program.
+
+    A SYNC replica that cannot be reached does not fail the query: the transaction commits on the main and the
+    failure is reported as a notification instead.
     """
     while True:
         try:
@@ -104,25 +94,6 @@ def wait_until_main_writeable(cursor, query):
                 continue
             print(f"Unexpected error occurred: {str(e)}")
             assert False
-
-
-def wait_until_main_writeable_assert_replica_down(cursor, query):
-    """
-    After becoming main, the instance can be in non-writeable state at the beginning. Therefore, we try
-    to execute the query and if succeed, we return immediately. If an exception occurs, there are 3 possible situations.
-    If the error message is that write query is forbidden on the main, then we will try once again execute the query.
-    If not, then the only allowed option is that one of SYNC replicas are down. Otherwise, we assert false and crash the
-    program.
-    """
-    while True:
-        try:
-            execute_and_fetch_all(cursor, query)
-            break
-        except Exception as e:
-            if "Write queries currently forbidden on the main instance" in str(e):
-                continue
-            assert "Failed to replicate to SYNC replica" in str(e)
-            break
 
 
 def show_instances(cursor):

@@ -642,9 +642,16 @@ void SessionHL::RollbackTransaction() {
   }
 }
 
-void SessionHL::CommitTransaction() {
+bolt_map_t SessionHL::CommitTransaction() {
   try {
-    interpreter_.CommitTransaction();
+    auto const notification = interpreter_.CommitTransaction();
+    if (!notification) return {};
+    // A commit can report a SYNC replication failure; deliver it the same way Pull delivers notifications.
+    using memgraph::query::TypedValue;
+    auto notifications = std::vector<TypedValue>{TypedValue{notification->ConvertToMap()}};
+    std::map<std::string, TypedValue> summary;
+    summary.emplace("notifications", TypedValue{std::move(notifications)});
+    return DecodeSummary(summary);
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {

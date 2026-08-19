@@ -279,12 +279,9 @@ def test_broken_replica_tenant_self_heals_from_main(test_name, recovery_path):
     instance_1_cursor = connect(host="localhost", port=7688).cursor()
 
     def nudge_and_check_healed():
-        try:
-            execute_and_fetch_all(main_cursor, "CREATE (:Heal)")
-        except Exception as e:
-            # A SYNC replica that is mid-recovery can transiently make the commit fail; tolerate only
-            # that specific error and let the next poll retry. Anything else is a real failure.
-            assert "Failed to replicate to SYNC replica" in str(e), f"Unexpected error while nudging main: {e}"
+        # A SYNC replica that is mid-recovery does not fail the commit: the write lands on the main and the
+        # replica that could not be reached is only reported through a notification.
+        execute_and_fetch_all(main_cursor, "CREATE (:Heal)")
         return tenant_health(instance_1_cursor).get(TENANT)
 
     # 5b: the replica self-heals to `ready`.
