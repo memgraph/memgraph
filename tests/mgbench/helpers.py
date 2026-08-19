@@ -285,8 +285,10 @@ class RecursiveDict:
 
 
 class Cache:
-    def __init__(self):
-        self._directory = os.path.join(SCRIPT_DIR, ".cache")
+    def __init__(self, directory=None):
+        # A directory outside the repo keeps query
+        # counts and downloaded datasets alive between runs.
+        self._directory = directory if directory else os.path.join(SCRIPT_DIR, ".cache")
         ensure_directory(self._directory)
         self._config = os.path.join(self._directory, "config.json")
 
@@ -303,9 +305,17 @@ class Cache:
     def load_config(self):
         if not os.path.isfile(self._config):
             return RecursiveDict()
-        with open(self._config) as f:
-            return RecursiveDict(json.load(f))
+        try:
+            with open(self._config) as f:
+                return RecursiveDict(json.load(f))
+        except (json.JSONDecodeError, OSError) as e:
+            # protect against reading a corrupted cache
+            log.warning("Ignoring unreadable cache config {}: {}".format(self._config, e))
+            return RecursiveDict()
 
     def save_config(self, config):
-        with open(self._config, "w") as f:
+        # Write and rename so readers never observe a half-written file.
+        tmp_config = self._config + ".tmp"
+        with open(tmp_config, "w") as f:
             json.dump(config.get_data(), f)
+        os.replace(tmp_config, self._config)
