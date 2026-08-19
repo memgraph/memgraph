@@ -16,10 +16,16 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
+#include <future>
+#include <latch>
+#include <mutex>
+#include <optional>
 #include <system_error>
 #include <thread>
+#include <utility>
 
 #include <nlohmann/json.hpp>
 
@@ -34,6 +40,7 @@
 #include "query/interpreter.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
 
 namespace {
@@ -62,6 +69,72 @@ bool WaitUntil(std::chrono::milliseconds timeout, Pred &&pred) {
   } while (std::chrono::steady_clock::now() < deadline);
   return pred();
 }
+
+// Runs `f` on its own thread and waits up to `timeout`. Returns {true, f()'s result} if it finished in
+// time. On timeout it detaches instead of joining -- the promise is heap-owned via shared_ptr, so a
+// detached thread finishing later (or never, e.g. it is itself wedged) is safe, not a dangling
+// reference -- and returns {false, std::nullopt}, so a hang FAILs only the calling assertion, never
+// the whole binary. Mirrors hot_cold_gatekeeper.cpp's DtorOfDrainingGatekeeperReturnsPromptly.
+template <typename F>
+auto RunBounded(std::chrono::milliseconds timeout, F f) -> std::pair<bool, std::optional<std::invoke_result_t<F>>> {
+  using T = std::invoke_result_t<F>;
+  auto prom = std::make_shared<std::promise<T>>();
+  auto fut = prom->get_future();
+  std::thread worker([f = std::move(f), prom]() mutable { prom->set_value(f()); });
+  const auto status = fut.wait_for(timeout);
+  if (status == std::future_status::ready) {
+    worker.join();
+    return {true, fut.get()};
+  }
+  worker.detach();
+  return {false, std::nullopt};
+}
+
+// Wedges a tenant's after-commit-trigger thread pool mid-task so a concurrent Delete()'s Phase 2
+// (Database::StopAllBackgroundTasks() -> ThreadPool::ShutDown() -> its jthread vector's destructor;
+// see dbms_handler.cpp's Delete_ Phase 2, database.cpp's StopAllBackgroundTasks, and
+// thread_pool.cpp's ShutDown/~ThreadPool) blocks on that jthread join for a bounded, test-controlled
+// window. This gives DRAINING (the window between Delete_'s Phase 1 RecordDetached_ and Phase 3's
+// PromoteDetachedPhase_ -- see the TenantPhase doc in dbms_handler.hpp) an actual, observable witness
+// instead of inferring it from sleep durations. AddTask()/thread_pool() are public Database API
+// (database.hpp), not a test-only seam.
+class PhaseTwoStall {
+ public:
+  explicit PhaseTwoStall(memgraph::dbms::DatabaseAccess &acc) {
+    acc->AddTask([this] {
+      {
+        std::lock_guard<std::mutex> set_running(mtx_);
+        running_ = true;
+      }
+      running_cv_.notify_all();
+      std::unique_lock<std::mutex> wait_lock(mtx_);
+      // 10s is a safety net only, in case a test forgets to call Release() (e.g. an early ASSERT
+      // return): every caller below releases well inside that bound.
+      released_cv_.wait_for(wait_lock, std::chrono::seconds(10), [this] { return released_; });
+    });
+  }
+
+  // False (not a hang) if the pool's single worker never dequeues the stalling task within `timeout`.
+  bool WaitUntilRunning(std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
+    std::unique_lock<std::mutex> lock(mtx_);
+    return running_cv_.wait_for(lock, timeout, [this] { return running_; });
+  }
+
+  void Release() {
+    {
+      std::lock_guard<std::mutex> lock(mtx_);
+      released_ = true;
+    }
+    released_cv_.notify_all();
+  }
+
+ private:
+  std::mutex mtx_;
+  std::condition_variable running_cv_;
+  std::condition_variable released_cv_;
+  bool running_ = false;
+  bool released_ = false;
+};
 }  // namespace
 
 // Global
@@ -699,6 +772,449 @@ TEST(DBMS_Handler, TwoDetachedTenantsCanShareANameAndAreCountedByUuid) {
 
   const auto statuses_after_drain = dbms.AllWithHotColdStatus();
   EXPECT_TRUE(std::ranges::none_of(statuses_after_drain, [](auto const &kv) { return kv.first == "detached_reuse"; }));
+}
+
+// PINS: MakeDatabaseProtectorFactory's DRAIN GUARANTEE (database_handler.hpp) -- TTL (ttl.cpp) and the
+// async indexer (async_indexer.cpp) both re-mint a DatabaseProtector via Storage::make_database_protector()
+// per work item; if a draining tenant stayed reachable through that factory, either could hold a live
+// DatabaseAccess indefinitely and the drain would never converge. Exercises the real seam
+// (Storage::make_database_protector(), storage.hpp) rather than a hand-rolled lookup.
+TEST(DBMS_Handler, DrainingTenantIsRefusedToTheProtectorFactory) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("protector_seam");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  // Held for the whole test: `storage` (and the Database it belongs to) stays alive across the drop
+  // below only because this accessor keeps DeferDelete's destruction deferred (count > 0).
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  auto *storage = acc->storage();
+
+  {
+    auto protector = storage->make_database_protector();
+    EXPECT_NE(protector, nullptr) << "a HOT tenant must still be protectable (TTL/async-indexer re-arm)";
+  }
+
+  PhaseTwoStall stall{acc};
+  ASSERT_TRUE(stall.WaitUntilRunning()) << "the stalling task must start before the drop begins";
+
+  auto del_prom = std::make_shared<std::promise<memgraph::dbms::DbmsHandler::DeleteResult>>();
+  auto del_fut = del_prom->get_future();
+  std::thread dropper([&dbms, del_prom] { del_prom->set_value(dbms.Delete("protector_seam")); });
+
+  bool cleaned_up = false;
+  auto cleanup = memgraph::utils::OnScopeExit{[&] {
+    if (cleaned_up) return;
+    stall.Release();
+    if (del_fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
+      dropper.join();
+    } else {
+      dropper.detach();
+    }
+  }};
+
+  const bool draining_seen = WaitUntil(std::chrono::seconds(5), [&] {
+    const auto statuses = dbms.AllWithHotColdStatus();
+    return std::ranges::any_of(statuses,
+                               [](auto const &kv) { return kv.first == "protector_seam" && kv.second == "DRAINING"; });
+  });
+  ASSERT_TRUE(draining_seen) << "the drop never reached the DRAINING window this test needs to probe";
+
+  auto protector_while_draining = storage->make_database_protector();
+  EXPECT_EQ(protector_while_draining, nullptr)
+      << "a draining tenant must not be re-armable via the protector factory -- TTL/the async indexer "
+         "would otherwise keep minting accessors and the drain would never converge";
+
+  stall.Release();
+  const auto del_status = del_fut.wait_for(std::chrono::seconds(5));
+  if (del_status == std::future_status::ready) {
+    dropper.join();
+  } else {
+    dropper.detach();
+  }
+  cleaned_up = true;
+  ASSERT_EQ(del_status, std::future_status::ready) << "the drop must complete once the stall is released";
+  EXPECT_TRUE(del_fut.get().has_value()) << "the drop itself must still succeed once its stall is released";
+
+  acc.reset();
+  const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(all_detached, [](auto const &d) { return d.name == "protector_seam"; });
+  });
+  EXPECT_TRUE(retired) << "protector_seam's row must retire once its accessor is released";
+}
+
+// PINS constraint C8 -- Delete_'s Phase 2 (StopAllBackgroundTasks/streams()->DropAll()) must run with
+// lock_ released, so an unrelated tenant's own exclusive-lock_ operation is never blocked behind this
+// drop's teardown. This is the reason the three-phase split (dbms_handler.cpp's Delete_ doc comment)
+// exists at all.
+TEST(DBMS_Handler, DropDoesNotHoldTheHandlerLockDuringTeardown) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("lock_teardown_target");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+
+  PhaseTwoStall stall{acc};
+  ASSERT_TRUE(stall.WaitUntilRunning()) << "the stalling task must start before the drop begins";
+  acc.reset();  // not needed as an external holder; the stall alone parks Phase 2
+
+  auto del_prom = std::make_shared<std::promise<memgraph::dbms::DbmsHandler::DeleteResult>>();
+  auto del_fut = del_prom->get_future();
+  std::thread dropper([&dbms, del_prom] { del_prom->set_value(dbms.Delete("lock_teardown_target")); });
+
+  bool cleaned_up = false;
+  auto cleanup = memgraph::utils::OnScopeExit{[&] {
+    if (cleaned_up) return;
+    stall.Release();
+    if (del_fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
+      dropper.join();
+    } else {
+      dropper.detach();
+    }
+  }};
+
+  const bool draining_seen = WaitUntil(std::chrono::seconds(5), [&] {
+    const auto statuses = dbms.AllWithHotColdStatus();
+    return std::ranges::any_of(
+        statuses, [](auto const &kv) { return kv.first == "lock_teardown_target" && kv.second == "DRAINING"; });
+  });
+  ASSERT_TRUE(draining_seen) << "the drop never reached the DRAINING window this test needs to probe";
+
+  // Prove -- not infer from timing -- that lock_ is free: New() (std::lock_guard{lock_}, exclusive) for
+  // a DIFFERENT tenant must complete well inside the stall's window while this drop sits in Phase 2.
+  auto [other_ready, other_result] =
+      RunBounded(std::chrono::seconds(2), [&] { return dbms.New("lock_teardown_other"); });
+  EXPECT_TRUE(other_ready) << "a different tenant's New() must not block on lock_ while this drop's Phase 2 "
+                              "(off-lock teardown) is in flight -- a regression re-holding lock_ across the "
+                              "teardown would hang this call instead of returning";
+  if (other_ready) {
+    ASSERT_TRUE(other_result.has_value());
+    EXPECT_TRUE(other_result->has_value()) << "the other tenant's creation must actually succeed";
+  }
+
+  stall.Release();
+  const auto del_status = del_fut.wait_for(std::chrono::seconds(5));
+  if (del_status == std::future_status::ready) {
+    dropper.join();
+  } else {
+    dropper.detach();
+  }
+  cleaned_up = true;
+  ASSERT_EQ(del_status, std::future_status::ready) << "the drop must complete once the stall is released";
+  EXPECT_TRUE(del_fut.get().has_value()) << "the drop itself must still succeed once its stall is released";
+}
+
+// PINS the ad88a52fe class of regression against the new three-phase drop: a concurrent SUSPEND and
+// DROP racing on the SAME tenant must never deadlock. Suspend_'s shared-lock_ phases and Delete_'s
+// exclusive-lock_ Phase 1 are mutually exclusive under lock_, so exactly one side must observe the
+// other's already-committed state and fail cleanly and retriably -- never block forever.
+TEST(DBMS_Handler, ConcurrentSuspendAgainstADrainingDropDoesNotDeadlock) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("suspend_drop_race");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  // Release: an outstanding accessor would make Suspend_'s try_begin_suspend() fail
+  // ACTIVE_CONNECTIONS regardless of the drop, which would defeat the race this test wants to force.
+  acc.reset();
+
+  std::latch start_gate{2};
+  auto del_prom = std::make_shared<std::promise<memgraph::dbms::DbmsHandler::DeleteResult>>();
+  auto susp_prom = std::make_shared<std::promise<memgraph::dbms::DbmsHandler::SuspendResult>>();
+  auto del_fut = del_prom->get_future();
+  auto susp_fut = susp_prom->get_future();
+
+  std::thread dropper([&dbms, &start_gate, del_prom] {
+    start_gate.arrive_and_wait();
+    del_prom->set_value(dbms.Delete("suspend_drop_race"));
+  });
+  std::thread suspender([&dbms, &start_gate, susp_prom] {
+    start_gate.arrive_and_wait();
+    susp_prom->set_value(dbms.Suspend("suspend_drop_race"));
+  });
+
+  constexpr auto kBound = std::chrono::seconds(5);
+  const auto del_status = del_fut.wait_for(kBound);
+  const auto susp_status = susp_fut.wait_for(kBound);
+
+  if (del_status == std::future_status::ready) {
+    dropper.join();
+  } else {
+    dropper.detach();
+  }
+  if (susp_status == std::future_status::ready) {
+    suspender.join();
+  } else {
+    suspender.detach();
+  }
+
+  ASSERT_EQ(del_status, std::future_status::ready)
+      << "DROP must return within " << kBound.count() << "s even racing a concurrent SUSPEND, not deadlock";
+  ASSERT_EQ(susp_status, std::future_status::ready)
+      << "SUSPEND must return within " << kBound.count() << "s even racing a concurrent DROP, not deadlock";
+
+  const auto del_result = del_fut.get();
+  const auto susp_result = susp_fut.get();
+  const bool del_won = del_result.has_value();
+  const bool susp_won = susp_result.has_value();
+
+  EXPECT_TRUE(del_won != susp_won) << "exactly one of DROP/SUSPEND must win the race for the same tenant (del="
+                                   << del_won << " susp=" << susp_won << ")";
+
+  if (!del_won) {
+    EXPECT_EQ(del_result.error(), memgraph::dbms::DeleteError::USING)
+        << "a DROP that loses to a concurrent SUSPEND must be retriable USING, not a hard failure";
+  }
+  if (!susp_won) {
+    EXPECT_EQ(susp_result.error(), memgraph::dbms::DbmsHandler::SuspendError::NON_EXISTENT)
+        << "a SUSPEND that loses to a concurrent DROP must see the (now-draining) tenant as gone "
+           "(NON_EXISTENT, drain-gated Get()), not deadlock or observe torn state";
+  }
+
+  // Whichever won, clean up so later tests are unaffected: a winning SUSPEND leaves a COLD shell
+  // (drop it here); a winning DROP with no external holder already retired inline (nothing to do).
+  if (susp_won) {
+    auto cold_drop = dbms.Delete("suspend_drop_race");
+    EXPECT_TRUE(cold_drop.has_value()) << "cleanup: dropping the now-COLD tenant must succeed";
+  }
+}
+
+// PINS the visibility/accounting guarantee AllWithHotColdStatus/TenantMemorySum/AllDetached give during
+// Phase 2 specifically (DRAINING) -- not just after full DETACHED, which
+// DetachedTenantMemoryStaysAttributableWhileUnaddressable above already covers. A regression that let a
+// draining tenant's plain access() succeed (see TenantMemorySum's comment, dbms_handler.hpp) would
+// double-count it here (once HOT, once detached) or drop it from both totals.
+TEST(DBMS_Handler, DrainingTenantIsVisibleAndCountedExactlyOnce) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("draining_visibility_probe");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  const auto tenant_uuid = acc->uuid();
+
+  constexpr size_t kNumVertices = 3000;
+  constexpr size_t kPropertyBytes = 1024;
+  const std::string blob(kPropertyBytes, 'd');
+  {
+    // DbArenaScope required -- see StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete above.
+    memgraph::memory::DbArenaScope db_arena_scope{acc.get()};
+    auto storage_acc = acc->Access();
+    ASSERT_TRUE(storage_acc);
+    const auto property = storage_acc->NameToProperty("payload");
+    for (size_t i = 0; i < kNumVertices; ++i) {
+      auto vertex = storage_acc->CreateVertex();
+      ASSERT_TRUE(vertex.SetProperty(property, memgraph::storage::PropertyValue(blob)).has_value());
+    }
+    ASSERT_TRUE(storage_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const int64_t footprint = acc->DbMemoryUsage();
+  ASSERT_GT(footprint, static_cast<int64_t>(kNumVertices * kPropertyBytes))
+      << "the footprint must be unambiguous before it is used as a tolerance baseline below";
+  const auto before = dbms.TenantMemorySum();
+  ASSERT_GE(before.hot, footprint);
+
+  PhaseTwoStall stall{acc};
+  ASSERT_TRUE(stall.WaitUntilRunning()) << "the stalling task must start before the drop begins";
+  acc.reset();
+
+  auto del_prom = std::make_shared<std::promise<memgraph::dbms::DbmsHandler::DeleteResult>>();
+  auto del_fut = del_prom->get_future();
+  std::thread dropper([&dbms, del_prom] { del_prom->set_value(dbms.Delete("draining_visibility_probe")); });
+
+  bool cleaned_up = false;
+  auto cleanup = memgraph::utils::OnScopeExit{[&] {
+    if (cleaned_up) return;
+    stall.Release();
+    if (del_fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
+      dropper.join();
+    } else {
+      dropper.detach();
+    }
+  }};
+
+  const bool draining_seen = WaitUntil(std::chrono::seconds(5), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::any_of(all_detached, [&](auto const &d) {
+      return d.uuid == tenant_uuid && d.phase == memgraph::dbms::DbmsHandler::TenantPhase::DRAINING;
+    });
+  });
+  ASSERT_TRUE(draining_seen) << "the drop never reached the DRAINING window this test needs to probe";
+
+  {
+    const auto statuses = dbms.AllWithHotColdStatus();
+    const auto draining_count = std::ranges::count_if(
+        statuses, [](auto const &kv) { return kv.first == "draining_visibility_probe" && kv.second == "DRAINING"; });
+    EXPECT_EQ(draining_count, 1) << "a draining tenant must be listed exactly once, as DRAINING";
+    EXPECT_TRUE(std::ranges::none_of(statuses, [](auto const &kv) {
+      return kv.first == "draining_visibility_probe" && kv.second == "HOT";
+    })) << "a draining tenant must not ALSO be reported HOT";
+  }
+  {
+    const auto during = dbms.TenantMemorySum();
+    const int64_t tolerance = footprint / 10;
+    EXPECT_LE(during.hot, before.hot - (footprint - tolerance))
+        << "a draining tenant's plain access() must be refused, so it must NOT contribute to the HOT half";
+    EXPECT_GE(during.detached, footprint - tolerance)
+        << "its bytes must be attributed via the detached half while draining, or they vanish from every total";
+  }
+  {
+    const auto all_detached = dbms.AllDetached();
+    const auto matches = std::ranges::count_if(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
+    ASSERT_EQ(matches, 1) << "exactly one detached row must exist for this tenant while it drains";
+    const auto it = std::ranges::find_if(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
+    EXPECT_EQ(it->phase, memgraph::dbms::DbmsHandler::TenantPhase::DRAINING);
+  }
+
+  stall.Release();
+  const auto del_status = del_fut.wait_for(std::chrono::seconds(5));
+  if (del_status == std::future_status::ready) {
+    dropper.join();
+  } else {
+    dropper.detach();
+  }
+  cleaned_up = true;
+  ASSERT_EQ(del_status, std::future_status::ready) << "the drop must complete once the stall is released";
+  EXPECT_TRUE(del_fut.get().has_value()) << "the drop itself must still succeed once its stall is released";
+
+  const bool retired = WaitUntil(std::chrono::seconds(10), [&] {
+    const auto all_detached = dbms.AllDetached();
+    return std::ranges::none_of(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
+  });
+  EXPECT_TRUE(retired) << "draining_visibility_probe's row must retire once the drop completes";
+}
+
+// PINS holders_at_detach's documented meaning ("holders OTHER than the dropper", DetachedTenant's doc
+// in dbms_handler.hpp) for the common idle case: an otherwise-unheld tenant's own drop must record 0,
+// not 1 (the drop's own drain_bypass mint counted as if it were a foreign holder) and not UINT64_MAX
+// (the saturating-clamp underflow the "holders" comment in Delete_, dbms_handler.cpp, guards against).
+TEST(DBMS_Handler, IdleTenantDropReportsNoForeignHolders) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("idle_holders_probe");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+  const auto tenant_uuid = acc->uuid();
+
+  PhaseTwoStall stall{acc};
+  ASSERT_TRUE(stall.WaitUntilRunning()) << "the stalling task must start before the drop begins";
+  // Idle: release our OWN accessor before dropping, so the only live accessor when Delete_'s Phase 1
+  // reads holder_count() is its own drain_bypass mint -- the case the "holders" subtraction documents.
+  acc.reset();
+
+  auto del_prom = std::make_shared<std::promise<memgraph::dbms::DbmsHandler::DeleteResult>>();
+  auto del_fut = del_prom->get_future();
+  std::thread dropper([&dbms, del_prom] { del_prom->set_value(dbms.Delete("idle_holders_probe")); });
+
+  bool cleaned_up = false;
+  auto cleanup = memgraph::utils::OnScopeExit{[&] {
+    if (cleaned_up) return;
+    stall.Release();
+    if (del_fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
+      dropper.join();
+    } else {
+      dropper.detach();
+    }
+  }};
+
+  std::optional<uint64_t> holders_at_detach;
+  const bool draining_seen = WaitUntil(std::chrono::seconds(5), [&] {
+    const auto all_detached = dbms.AllDetached();
+    const auto it = std::ranges::find_if(all_detached, [&](auto const &d) {
+      return d.uuid == tenant_uuid && d.phase == memgraph::dbms::DbmsHandler::TenantPhase::DRAINING;
+    });
+    if (it == all_detached.end()) return false;
+    holders_at_detach = it->holders_at_detach;
+    return true;
+  });
+  ASSERT_TRUE(draining_seen) << "the drop never reached the DRAINING window this test needs to probe";
+  ASSERT_TRUE(holders_at_detach.has_value()) << "the row must have been observed to record a value at all";
+  EXPECT_EQ(*holders_at_detach, 0u)
+      << "an idle tenant (no accessor besides the drop's own drain_bypass mint) must record zero foreign "
+         "holders, not 1 (the dropper's own accessor left uncorrected) and not UINT64_MAX (a clamp underflow)";
+
+  stall.Release();
+  const auto del_status = del_fut.wait_for(std::chrono::seconds(5));
+  if (del_status == std::future_status::ready) {
+    dropper.join();
+  } else {
+    dropper.detach();
+  }
+  cleaned_up = true;
+  ASSERT_EQ(del_status, std::future_status::ready) << "the drop must complete once the stall is released";
+  EXPECT_TRUE(del_fut.get().has_value()) << "the drop itself must still succeed once its stall is released";
+}
+
+// PINS 1a82eb021: the FORCE-drop overload (DbmsHandler::Delete(std::string_view, system::Transaction *)
+// -- the two-argument form DROP DATABASE ... FORCE calls, interpreter.cpp) must see a concurrently
+// DRAINING tenant as retriable USING, not NON_EXISTENT. Deleting the is_draining() guard immediately
+// above the GetConfig pre-check in that overload (dbms_handler.cpp) would make this call fall through
+// to GetConfig's !conf branch and reintroduce the "does not exist" misreport for a tenant that plainly
+// does.
+TEST(DBMS_Handler, ForceDropOfADrainingTenantIsRetriableNotMissing) {
+  auto &dbms = *TestEnvironment::get();
+
+  auto new_t = dbms.New("force_drop_race");
+  ASSERT_TRUE(new_t.has_value()) << (int)new_t.error();
+  memgraph::dbms::DatabaseAccess acc = std::move(new_t.value());
+
+  PhaseTwoStall stall{acc};
+  ASSERT_TRUE(stall.WaitUntilRunning()) << "the stalling task must start before the first drop begins";
+  acc.reset();  // not needed as an external holder; the stall alone parks Phase 2
+
+  // First drop: any overload's Phase 1 (begin_drain()) puts the tenant into the same DRAINING state,
+  // so the plain single-argument overload is enough to manufacture the race this test needs.
+  auto del_prom = std::make_shared<std::promise<memgraph::dbms::DbmsHandler::DeleteResult>>();
+  auto del_fut = del_prom->get_future();
+  std::thread dropper([&dbms, del_prom] { del_prom->set_value(dbms.Delete("force_drop_race")); });
+
+  bool cleaned_up = false;
+  auto cleanup = memgraph::utils::OnScopeExit{[&] {
+    if (cleaned_up) return;
+    stall.Release();
+    if (del_fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
+      dropper.join();
+    } else {
+      dropper.detach();
+    }
+  }};
+
+  const bool draining_seen = WaitUntil(std::chrono::seconds(5), [&] {
+    const auto statuses = dbms.AllWithHotColdStatus();
+    return std::ranges::any_of(statuses,
+                               [](auto const &kv) { return kv.first == "force_drop_race" && kv.second == "DRAINING"; });
+  });
+  ASSERT_TRUE(draining_seen) << "the first drop never reached the DRAINING window this test needs to probe";
+
+  // The call under test: the TWO-argument overload, Delete(std::string_view, system::Transaction *) --
+  // the one DROP DATABASE ... FORCE binds to. The single-argument Delete(std::string_view) used for the
+  // first drop above never had this bug (its Delete_ Phase 1 begin_drain() already returns USING), so
+  // calling it here instead would pass this assertion for the wrong reason. The explicit
+  // system::Transaction* cast on the second argument is belt-and-suspenders: Delete(utils::UUID) and
+  // Delete(std::string_view) both take exactly one argument, so a plain `nullptr` would already bind
+  // unambiguously to this two-argument overload -- the cast just makes that binding visible in the diff.
+  auto [force_ready, force_result] = RunBounded(std::chrono::seconds(2), [&] {
+    return dbms.Delete("force_drop_race", static_cast<memgraph::system::Transaction *>(nullptr));
+  });
+  ASSERT_TRUE(force_ready) << "a FORCE drop racing a DRAINING tenant must return promptly (the is_draining() "
+                              "check runs before Phase 2's lock_-released teardown), not block";
+  ASSERT_TRUE(force_result.has_value());
+  ASSERT_FALSE(force_result->has_value())
+      << "a FORCE drop racing a DRAINING tenant must fail, not silently succeed a second time";
+  EXPECT_EQ(force_result->error(), memgraph::dbms::DeleteError::USING)
+      << "regression: a DRAINING tenant reported via the FORCE-path Delete(name, transaction) overload must "
+         "be USING (retriable), not NON_EXISTENT (the pre-1a82eb021 misreport)";
+
+  stall.Release();
+  const auto del_status = del_fut.wait_for(std::chrono::seconds(5));
+  if (del_status == std::future_status::ready) {
+    dropper.join();
+  } else {
+    dropper.detach();
+  }
+  cleaned_up = true;
+  ASSERT_EQ(del_status, std::future_status::ready) << "the first drop must complete once the stall is released";
+  EXPECT_TRUE(del_fut.get().has_value()) << "the first drop itself must still succeed once its stall is released";
 }
 
 int main(int argc, char *argv[]) {
