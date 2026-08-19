@@ -225,14 +225,11 @@ def test_hops_count_3():
 
 
 def test_hops_count_kshortest_bounded_spur():
-    # A spur search after a deviation only needs the depth left over after the deviation, not the
-    # whole maximum depth. Every other KSHORTEST case here is unbounded or `..1`, where that is
-    # inert: unbounded leaves the spur bound unbounded too, and at `..1` only the deviation at
-    # index 0 exists, whose remaining depth is the full bound.
+    # A spur after a deviation only needs the depth left over, not the whole maximum. Every other
+    # KSHORTEST case here is unbounded or `..1`, where that is inert.
     execute_query("MATCH (n) DETACH DELETE n")
-    # a->b->c->t is the shortest path; a->b->m->t is the second. Deviating at c must not walk the
-    # dead-end c->p->q->r, which is only reachable within the *full* bound, never within what is
-    # left after two hops.
+    # a->b->c->t then a->b->m->t. Deviating at c must not walk the dead-end c->p->q->r, which fits
+    # the full bound but not what is left after two hops.
     execute_query(
         "CREATE (a:N {n: 'a'}), (b:N {n: 'b'}), (c:N {n: 'c'}), (t:N {n: 't'}), (m:N {n: 'm'}), "
         "       (p:N {n: 'p'}), (q:N {n: 'q'}), (r:N {n: 'r'}) "
@@ -243,18 +240,16 @@ def test_hops_count_kshortest_bounded_spur():
 
     prefix = "MATCH (a:N {n: 'a'}), (t:N {n: 't'}) WITH a, t MATCH (a)-[r:E *KSHORTEST"
 
-    # Both paths are found either way - only the hop budget differs, which is what makes this a
-    # hops test and not a results test. Bounding the spur by the full depth costs 9 here.
+    # Both paths are found either way; only the budget differs. The full-depth spur cost 9 here.
     summary = get_summary(f"{prefix} 1..3]->(t) RETURN r")
     assert summary["number_of_hops"] == 8
 
-    # A looser bound wastes more: the dead-end chain is three hops long, so the whole of it used to
-    # be walked. This cost 10 before.
+    # A looser bound wasted more - the whole three-hop dead end was walked. This cost 10 before.
     summary = get_summary(f"{prefix} 1..4]->(t) RETURN r")
     assert summary["number_of_hops"] == 8
 
-    # Control: with no upper bound there is nothing to subtract, so the count is unchanged. This
-    # pins that the two assertions above are about the bound and not about the graph.
+    # Control: nothing to subtract without an upper bound, so the assertions above are about the
+    # bound and not the graph.
     summary = get_summary(f"{prefix}]->(t) RETURN r")
     assert summary["number_of_hops"] == 10
 

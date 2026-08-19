@@ -3427,8 +3427,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         } else {
           // Other variable expands only have the filter lambda.
           edge->filter_lambda_ = visit_lambda(relationshipLambdas[0]);
-          // Bidirectional search reusing inner searches across deviations has no single
-          // well-defined path leading to the edge being tested.
+          // A bidirectional search reusing inner searches has no one path leading to the tested edge.
           if (edge->type_ == EdgeAtom::Type::KSHORTEST && edge->filter_lambda_.accumulated_path) {
             throw SemanticException("KSHORTEST expansion does not support the accumulated path in a filter lambda.");
           }
@@ -3534,8 +3533,7 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     --n_expressions;  // Last expression is the limit
     limit = std::any_cast<Expression *>(ctx->k->accept(this));
   }
-  // After discounting the limit: the grammar puts `| k` in the same `expression` list as the
-  // bounds, so `-[*KSHORTEST 1..3 |2]-` has three of them.
+  // Counted after discounting `| k`, which the grammar puts in the same `expression` list.
   DMG_ASSERT(n_expressions <= 2U, "Expected 0, 1 or 2 bounds in range literal.");
 
   if (n_expressions == 0U) {

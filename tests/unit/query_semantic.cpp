@@ -957,11 +957,10 @@ TYPED_TEST(TestSymbolGenerator, MatchKShortestLimitUsesEdgeSymbolError) {
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
-// `PreVisit(EdgeAtom &)` must not hold a `Scope &` across its children's `Accept` calls. A pattern
-// comprehension in a bound or in the `| k` limit pushes a scope of its own, and `scopes_` is built
-// with capacity 1, so the push reallocates. The writes after the child traversal then land in the
-// freed buffer, leaving `in_pattern_atom_identifier` unset on the live scope - the edge identifier
-// is resolved as a plain variable reference and a valid query answers "Unbound variable: r".
+// `PreVisit(EdgeAtom &)` must not hold a `Scope &` across its children's `Accept` calls: a pattern
+// comprehension in a bound or in `| k` pushes a scope, reallocating the capacity-1 `scopes_`, and the
+// writes after the traversal then miss the live scope. The edge identifier is left unbound, so a
+// valid query answers "Unbound variable: r".
 TYPED_TEST(TestSymbolGenerator, EdgeAtomChildScopePushKeepsTheEdgeBound) {
   // MATCH (n) -[r *BFS 1..size([(n)-[e]->(m) | m])]-> (o) RETURN r
   auto *bound_edge = IDENT("r");

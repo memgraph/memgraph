@@ -171,8 +171,7 @@ def test_kshortest_inline_property_filter():
     assert len(results) == 1, f"Expected 1 path, got {len(results)}"
     assert len(results[0]["r"]) == 2, f"Expected the two-hop matching path, got {len(results[0]['r'])} edges"
 
-    # Without a limit the answer was already correct, because the post-expansion filter got to see
-    # every path the search produced. Guard that it stayed correct.
+    # Already correct without a limit, since the post-expansion filter saw every path. Guard that.
     print("Test: inlined property map without a limit")
     results = execute_query(
         """

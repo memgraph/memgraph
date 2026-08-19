@@ -126,15 +126,13 @@ BENCHMARK_REGISTER_F(ExpansionBenchFixture, Expand)
     ->Range(1, 1 << 20)
     ->Unit(benchmark::kMillisecond);
 
-// A layered graph: every layer is fully connected to the next, so there are `width ^ kLayers`
-// distinct source-to-target paths - plenty of deviations for Yen's algorithm to chew through.
+// Layers fully connected to the next, so `width ^ kLayers` distinct paths - plenty of deviations.
 class KShortestBenchFixture : public benchmark::Fixture {
  protected:
   static constexpr int kLayers = 3;
 
-  // How many independent source/target components to build. One means a single input row, which
-  // measures the inner Yen search alone; more than one also exercises the per-row work - clearing
-  // the expansion memo and reusing the adjacency cache, neither of which is visible with one row.
+  // One component means a single input row, measuring the inner Yen search alone; more than one also
+  // prices the per-row work - clearing the memo and reusing the adjacency cache.
   virtual int PairCount() const { return 1; }
 
   std::optional<memgraph::system::System> system;
@@ -249,8 +247,7 @@ BENCHMARK_DEFINE_F(KShortestBenchFixture, KShortest)(benchmark::State &state) {
 
 BENCHMARK_REGISTER_F(KShortestBenchFixture, KShortest)->RangeMultiplier(2)->Range(2, 8)->Unit(benchmark::kMillisecond);
 
-// The same search with a filter lambda that accepts everything, so the difference against
-// `KShortest` above is the cost of evaluating (and memoising) the predicate.
+// The same search with an always-true lambda: the delta against `KShortest` is the predicate's cost.
 BENCHMARK_DEFINE_F(KShortestBenchFixture, KShortestFiltered)(benchmark::State &state) {
   RunQuery(state,
            "MATCH (s:Source), (t:Target) WITH s, t MATCH (s)-[*KSHORTEST |20 (r, n | n.id >= 0)]->(t) RETURN "
@@ -262,17 +259,15 @@ BENCHMARK_REGISTER_F(KShortestBenchFixture, KShortestFiltered)
     ->Range(2, 8)
     ->Unit(benchmark::kMillisecond);
 
-// Several independent source/target pairs through one cursor. KSHORTEST requires both endpoints
-// bound, so this - not the single-pair case above - is the shape a real query takes. It is also the
-// only way to price the per-row work: the expansion memo is cleared per row, while the adjacency
-// cache deliberately is not, and neither shows up with a single row.
+// Several pairs through one cursor - the shape a real query takes, and the only way to price the
+// per-row work: the memo is cleared per row while the adjacency cache is not.
 class KShortestMultiRowBenchFixture : public KShortestBenchFixture {
  protected:
   int PairCount() const override { return 6; }
 };
 
-// No path limit, so the search is identical on master and this branch and the two are comparable.
-// (`|k` is not: the limit is now per row, so this branch legitimately searches every row.)
+// No `|k`, so master and this branch do the same search; with a limit they would not, since it is
+// now per row.
 BENCHMARK_DEFINE_F(KShortestMultiRowBenchFixture, KShortestMultiRow)(benchmark::State &state) {
   RunQuery(state,
            "MATCH (s:Source), (t:Target) WHERE s.pair = t.pair WITH s, t "
@@ -281,8 +276,7 @@ BENCHMARK_DEFINE_F(KShortestMultiRowBenchFixture, KShortestMultiRow)(benchmark::
 
 BENCHMARK_REGISTER_F(KShortestMultiRowBenchFixture, KShortestMultiRow)->Arg(2)->Arg(4)->Unit(benchmark::kMillisecond);
 
-// The same rows with an always-true lambda: the delta against `KShortestMultiRow` is the predicate
-// plus building and tearing down the memo once per input row.
+// The delta against `KShortestMultiRow` is the predicate plus the memo, once per input row.
 BENCHMARK_DEFINE_F(KShortestMultiRowBenchFixture, KShortestMultiRowFiltered)(benchmark::State &state) {
   RunQuery(state,
            "MATCH (s:Source), (t:Target) WHERE s.pair = t.pair WITH s, t "

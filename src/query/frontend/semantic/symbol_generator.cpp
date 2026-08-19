@@ -930,8 +930,7 @@ bool SymbolGenerator::PostVisit(NodeAtom &) {
 }
 
 bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
-  // Not a `Scope &`: the `Accept` calls below can visit a pattern comprehension, which pushes
-  // onto `scopes_` and reallocates it. An index survives that, a reference does not.
+  // Not a `Scope &`: an `Accept` below can push onto `scopes_`, reallocating it.
   auto const scope_idx = scopes_.size() - 1;
   scopes_[scope_idx].visiting_edge = &edge_atom;
   if (scopes_[scope_idx].in_create || scopes_[scope_idx].in_merge) {
@@ -981,9 +980,8 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     if (edge_atom.upper_bound_) {
       edge_atom.upper_bound_->Accept(*this);
     }
-    // Visited here because this `PreVisit` returns false, suppressing the generic child traversal
-    // that would otherwise reach the `| k` limit. Without it the limit's identifiers keep
-    // `symbol_pos_ == -1`, which `DependantSymbolVisitor`'s always-on assert turns into an abort.
+    // This `PreVisit` returns false, so the generic traversal never reaches the limit and its
+    // identifiers would keep `symbol_pos_ == -1`.
     if (edge_atom.limit_) {
       edge_atom.limit_->Accept(*this);
     }

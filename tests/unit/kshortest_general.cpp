@@ -150,8 +150,7 @@ TEST_F(GeneralKShortestTestInMemory, KShortestWithLimit) {
   spdlog::info("KShortestTest: Testing with limit 5");
   db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 5);
 
-  // A lower bound with a limit: the top-up loop skips the paths below the bound before the limit is
-  // served, so the two interact. Every other limit case leaves the lower bound unset.
+  // The top-up loop skips paths below the bound before the limit is served, so the two interact.
   spdlog::info("KShortestTest: Testing lower bound 2 with limit 1");
   db_->KShortestTest(db_.get(), 2, -1, EdgeAtom::Direction::OUT, {}, 1);
 }
