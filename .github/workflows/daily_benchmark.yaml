@@ -18,17 +18,17 @@ jobs:
   release_benchmarks:
     name: "Daily benchmarks"
     runs-on: [self-hosted, Linux, benchmark]
-    timeout-minutes: 900
+    # TEMPORARY: only mgbench-ha runs, so the budget is that one suite. The figure below is an
+    # estimate, not a measurement, which is why the margin is generous. Restore the original 550 when
+    # the other steps are re-enabled, adjusted for whatever mgbench-ha turns out to cost.
+    timeout-minutes: 400
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
+    #  - mgbench-ha: 25 minutes (ESTIMATE, not yet measured: 10 queries at one five-process cluster
+    #    restart each, plus a pokec import that replicates synchronously to one replica, and no
+    #    authorization pass, which would double those restarts)
     #  - macro-benchmark: 3 minutes
-    #  - mgbench: 45 minutes (a single instance leg plus a high availability leg, see below)
-    #    The high availability leg runs inside the mgbench invocation above and is most of its
-    #    cost: 10 queries at one five-process cluster restart each, plus a pokec import that
-    #    replicates synchronously to one replica. It does not run the authorization pass, which would
-    #    double those restarts. Estimated at 25 of those 45 minutes; on run 32227509791 the step ran
-    #    past 58 minutes with the authorization pass still enabled on that leg, so this figure is an
-    #    extrapolation and not yet confirmed.
+    #  - mgbench: 20 minutes
     #  - extended planner improvements mgbench: 15 minutes
     #  - mgbench-supernode: 1.5 minute
     #  - mgbench-load-parquet: 4 minutes
@@ -36,9 +36,8 @@ jobs:
     #  - mgbench-vector-search-edge-index: 5 minutes
     #  - mgbench-text-search-index: 5 minutes
     #  - mgbench-text-search-edge-index: 5 minutes
-    #  10 iterations would take about 750 minutes, leaving 150 minutes to allow
-    #  for building memgraph and variations in benchmark times. The margin is wider than it used to be
-    #  because the high availability leg's cost is still an estimate.
+    #  10 iterations of mgbench-ha alone would take about 250 minutes, leaving 150 minutes to allow
+    #  for building memgraph and variations in benchmark times.
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"
@@ -47,8 +46,8 @@ jobs:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
-      # The high availability leg of the same mgbench invocation. Separate file, same upload: it
-      # becomes the ha_results field of one measurement rather than a second series.
+      # Results of the high availability suite, which runs on its own and so reports under its own
+      # benchmark name rather than as a field of the standalone measurement.
       DEFAULT_MGBENCH_HA_EXPORT_RESULTS_FILE: 'benchmark_result_ha.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
@@ -121,7 +120,24 @@ jobs:
           --cpuset-mems="0" \
           "mgbuild_${TOOLCHAIN}_${OS}"
 
+      # TEMPORARY: while the high availability benchmark is being brought up, it runs first and on
+      # its own, and every other benchmark step below is disabled with `if: false`. Re-enable them by
+      # deleting those lines.
+      - name: Run and upload mgbench-ha
+        id: mgbench-ha
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-ha \
+            mgbench-ha \
+            ${{ env.DEFAULT_MGBENCH_HA_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
       - name: Run and upload load_parquet benchmark
+        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: load-parquet
         continue-on-error: true
         run: |
@@ -134,6 +150,7 @@ jobs:
             $BRANCH_NAME
 
       - name: Run and upload mgbench-vector-search-index
+        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: mgbench-vector-search-index
         continue-on-error: true
         run: |
@@ -147,6 +164,7 @@ jobs:
             mgbench
 
       - name: Run and upload mgbench-vector-search-edge-index
+        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: mgbench-vector-search-edge-index
         continue-on-error: true
         run: |
@@ -160,6 +178,7 @@ jobs:
             mgbench
 
       - name: Run and upload mgbench-text-search-index
+        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: mgbench-text-search-index
         continue-on-error: true
         run: |
@@ -173,6 +192,7 @@ jobs:
             mgbench
 
       - name: Run and upload mgbench-text-search-edge-index
+        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: mgbench-text-search-edge-index
         continue-on-error: true
         run: |
@@ -186,6 +206,7 @@ jobs:
             mgbench
 
       - name: Run and upload macro benchmarks
+        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: macro-benchmark
         continue-on-error: true
         run: |
@@ -199,6 +220,7 @@ jobs:
             macro_benchmark
 
       - name: Run and upload mgbench-supernode
+        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: mgbench-supernode
         continue-on-error: true
         run: |
@@ -212,6 +234,7 @@ jobs:
             mgbench
 
       - name: Run and upload mgbench
+        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: mgbench
         continue-on-error: true
         run: |
@@ -222,10 +245,10 @@ jobs:
             ${{ github.run_id }} \
             ${{ github.run_number }} \
             $BRANCH_NAME \
-            mgbench \
-            ${{ env.DEFAULT_MGBENCH_HA_EXPORT_RESULTS_FILE }}
+            mgbench
 
       - name: Run extended planner optimizations mgbench
+        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: planner
         continue-on-error: true
         run: |
