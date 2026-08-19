@@ -106,6 +106,13 @@ DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector int
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_python_gc_cycle_sec, 180,
                         "Storage python full garbage collection interval (in seconds).", FLAG_IN_RANGE(1, 24UL * 3600));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_uint64(session_idle_accessor_release_sec, 0,
+                        "After this many seconds of inactivity, a Bolt session releases its database "
+                        "accessor so an idle tenant stops being pinned; the connection stays open and the "
+                        "next query re-acquires it. 0 disables. Requires "
+                        "--experimental-enabled=idle-session-reaper.",
+                        FLAG_IN_RANGE(0, 24UL * 3600));
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
