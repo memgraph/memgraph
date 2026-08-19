@@ -420,9 +420,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        .write_occurred = branch_sees_write()};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
-            // An EXISTS branch's rows are only counted, so neither operator buys anything here and both hurt: a
-            // PeriodicCommit would finalize the caller's transaction from inside an expression, and an Accumulate
-            // drains the branch below the fold, running a union-hole write once per matched row instead of once.
+            // GenReturn is denied both operators: a PeriodicCommit would finalize the caller's transaction from
+            // inside an expression, and an Accumulate would drain the branch below the fold, multiplying any write
+            // in it. No write can reach a body while every branch is clause-checked, so only the commit can fire.
             input_op = impl::GenReturn(*ret,
                                        std::move(input_op),
                                        *context.symbol_table,
@@ -453,8 +453,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                 pending_comprehensions,
                                 wrote_before_merge);
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
-            // Denied Accumulate for the same reason as GenReturn: it drains the branch below the fold. Unreachable
-            // while the allow-list keeps writes out of a body - kept so the planner does not depend on it holding.
+            // GenWith is denied Accumulate for the same reason. Also unreachable, and kept for the same one: the
+            // planner should not depend on a parse-time clause check, which has already had a hole once.
             input_op = impl::GenWith(*with,
                                      std::move(input_op),
                                      *context.symbol_table,
