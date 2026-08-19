@@ -217,6 +217,7 @@ print_help () {
   echo -e "  --dataset string              Specify dataset to benchmark (default \"pokec\")"
   echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
   echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
+  echo -e "  --no-authorization            Skip the fine-grained authorization run of each workload"
 
   echo -e "\ngenerate-memgraph-build-sbom options:"
   echo -e "  --conan-remote string         Specify conan remote (optional)"
@@ -1836,6 +1837,7 @@ test_memgraph() {
       local DATASET='pokec'
       local DATASET_SIZE='medium'
       local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
+      local NO_AUTHORIZATION=""
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -1851,48 +1853,63 @@ test_memgraph() {
             EXPORT_RESULTS_FILE="$2"
             shift 2
           ;;
+          --no-authorization)
+            NO_AUTHORIZATION="--no-authorization"
+            shift 1
+          ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench"
-            echo "Supported flags: --dataset, --size, --export-results-file"
+            echo "Supported flags: --dataset, --size, --export-results-file, --no-authorization"
             exit 1
           ;;
         esac
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION $DATASET/$DATASET_SIZE/*/*"
     ;;
     mgbench-supernode)
       shift 1
       local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
+      local NO_AUTHORIZATION=""
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --export-results-file)
             EXPORT_RESULTS_FILE="$2"
             shift 2
           ;;
+          --no-authorization)
+            NO_AUTHORIZATION="--no-authorization"
+            shift 1
+          ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE supernode"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION supernode"
     ;;
     mgbench-load-parquet)
       shift 1
       local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
+      local NO_AUTHORIZATION=""
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --export-results-file)
             EXPORT_RESULTS_FILE="$2"
             shift 2
           ;;
+          --no-authorization)
+            NO_AUTHORIZATION="--no-authorization"
+            shift 1
+          ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE load_parquet"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION load_parquet"
     ;;
     mgbench-vector-search-index)
       shift 1
       local export_results_file="$default_benchmark_result_file"
+      local no_authorization=""
       while [[ $# -gt 0 ]]; do
         local flag="$1"
         case "$flag" in
@@ -1900,19 +1917,24 @@ test_memgraph() {
             export_results_file="$2"
             shift 2
           ;;
+          --no-authorization)
+            no_authorization="--no-authorization"
+            shift 1
+          ;;
           *)
             echo "Error: Unknown flag '$flag' for mgbench-vector-search-index"
-            echo "Supported flags: --export-results-file"
+            echo "Supported flags: --export-results-file, --no-authorization"
             exit 1
           ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_index/default/vector/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_index/default/vector/*"
     ;;
     mgbench-vector-search-edge-index)
       shift 1
       local export_results_file="$default_benchmark_result_file"
+      local no_authorization=""
       while [[ $# -gt 0 ]]; do
         local flag="$1"
         case "$flag" in
@@ -1920,19 +1942,24 @@ test_memgraph() {
             export_results_file="$2"
             shift 2
           ;;
+          --no-authorization)
+            no_authorization="--no-authorization"
+            shift 1
+          ;;
           *)
             echo "Error: Unknown flag '$flag' for mgbench-vector-search-edge-index" >&2
-            echo "Supported flags: --export-results-file" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
             exit 1
           ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_edge_index/default/vector/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_edge_index/default/vector/*"
     ;;
     mgbench-text-search-index)
       shift 1
       local export_results_file="$default_benchmark_result_file"
+      local no_authorization=""
       while [[ $# -gt 0 ]]; do
         local flag="$1"
         case "$flag" in
@@ -1940,19 +1967,24 @@ test_memgraph() {
             export_results_file="$2"
             shift 2
           ;;
+          --no-authorization)
+            no_authorization="--no-authorization"
+            shift 1
+          ;;
           *)
             echo "Error: Unknown flag '$flag' for mgbench-text-search-index" >&2
-            echo "Supported flags: --export-results-file" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
             exit 1
           ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_index/default/text/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_index/default/text/*"
     ;;
     mgbench-text-search-edge-index)
       shift 1
       local export_results_file="$default_benchmark_result_file"
+      local no_authorization=""
       while [[ $# -gt 0 ]]; do
         local flag="$1"
         case "$flag" in
@@ -1960,15 +1992,19 @@ test_memgraph() {
             export_results_file="$2"
             shift 2
           ;;
+          --no-authorization)
+            no_authorization="--no-authorization"
+            shift 1
+          ;;
           *)
             echo "Error: Unknown flag '$flag' for mgbench-text-search-edge-index" >&2
-            echo "Supported flags: --export-results-file" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
             exit 1
           ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_edge_index/default/text/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_edge_index/default/text/*"
     ;;
     upload-to-bench-graph)
       shift 1

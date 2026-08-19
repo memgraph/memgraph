@@ -345,7 +345,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench --no-authorization --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench results
         run: |
@@ -370,7 +370,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench --dataset pokec_planner_optimizations --size medium --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench --no-authorization --dataset pokec_planner_optimizations --size medium --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload extended planner optimizations mgbench results
         run: |
@@ -395,7 +395,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench-vector-search-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench-vector-search-index --no-authorization --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-vector-search-index results
         run: |
@@ -420,7 +420,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench-vector-search-edge-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench-vector-search-edge-index --no-authorization --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-vector-search-edge-index results
         run: |
@@ -445,7 +445,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench-text-search-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench-text-search-index --no-authorization --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-text-search-index results
         run: |
@@ -470,7 +470,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench-text-search-edge-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench-text-search-edge-index --no-authorization --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-text-search-edge-index results
         run: |
@@ -495,7 +495,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench-supernode --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench-supernode --no-authorization --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload supernode results
         run: |
@@ -520,7 +520,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench-load-parquet  --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench-load-parquet --no-authorization --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload load parquet results
         run: |
