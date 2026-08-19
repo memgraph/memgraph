@@ -193,6 +193,15 @@ def parse_args():
     )
 
     benchmark_parser.add_argument(
+        "--ha-authorization",
+        action="store_true",
+        default=False,
+        help="Also run the fine-grained authorization pass on the high availability leg added by --run-ha, which "
+        "doubles that leg's measurements and so its cluster restarts. Off by default because the cost lands on the "
+        "slowest leg. Does not apply to --ha-only, where the cluster is the whole run and --authorization governs it.",
+    )
+
+    benchmark_parser.add_argument(
         "--ha-target-workload",
         action="append",
         default=None,
@@ -1021,6 +1030,9 @@ def run_ha_target_workloads(benchmark_context, ha_results):
     """
     ha_benchmark_context = deepcopy(benchmark_context)
     ha_benchmark_context.installation_type = BenchmarkInstallationType.HA
+    # Scoped to this leg only: the context is already a copy, so the single instance leg keeps whatever
+    # --authorization said while the cluster leg measures each query once unless asked otherwise.
+    ha_benchmark_context.authorization = benchmark_context.ha_authorization
     if benchmark_context.ha_target_workload:
         ha_benchmark_context.benchmark_target_workload = benchmark_context.ha_target_workload
 
@@ -1252,6 +1264,7 @@ if __name__ == "__main__":
         export_results_ha=args.export_results_ha,
         run_ha_leg=args.run_ha_leg,
         ha_target_workload=args.ha_target_workload,
+        ha_authorization=args.ha_authorization,
         temporary_directory=temp_dir.absolute(),
         workload_mixed=args.workload_mixed,
         workload_realistic=args.workload_realistic,

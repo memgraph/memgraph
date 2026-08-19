@@ -194,10 +194,15 @@ Stated plainly, because each one bounds how far the resulting numbers can be pus
   surfaced only in CI and only once the cluster leg existed, because the single-instance path never
   imports the runner. The import is now wrapped so the failure names the virtualenv rather than
   reporting a missing module several imports deep.
-- **The fine-grained authorization pass doubles the runtime.** It runs here exactly as it does for a
-  single instance, so every query is measured twice and the cluster is restarted for each of those
-  measurements. It also forced a change in the runner, because it is the one thing in a run that
-  makes the cluster stop accepting anonymous connections: it creates a user partway through and tells
+- **The fine-grained authorization pass doubles a leg's runtime, so the cluster leg skips it.**
+  On run 32227509791 the mgbench step ran past 58 minutes with the pass enabled on both legs, against
+  a 100 minute job budget shared with a dozen other benchmark steps. It is now off for the cluster leg
+  added by `--run-ha` and available through `--ha-authorization`, and the diff and nightly job timeouts
+  were raised to 130 and 900 minutes. Those figures are extrapolations from one over-budget run rather
+  than measurements.
+- **Authorization on a cluster works, it is just not on by default.** It forced a change in the
+  runner, because it is the one thing in a run that makes the cluster stop accepting anonymous
+  connections: it creates a user partway through and tells
   only the benchmark client the credentials, while the runner still needs to connect on its own
   account to check readiness. The probe therefore tries the credentials from the cluster description
   first and the benchmark's own second, and both states genuinely occur in one run, since the pass

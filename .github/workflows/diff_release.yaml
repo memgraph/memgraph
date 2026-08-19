@@ -258,7 +258,11 @@ jobs:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
     runs-on: [self-hosted, Linux, benchmark]
-    timeout-minutes: 100
+    # Raised from 100 when the mgbench step gained a high availability leg. Measured on run
+    # 32227509791: that step alone ran past 58 minutes with the cluster leg measuring each query twice.
+    # The cluster leg no longer runs the authorization pass, which halves its measurements, but the
+    # remaining benchmark steps still need about 45 minutes after it. Estimated, not yet confirmed.
+    timeout-minutes: 130
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
