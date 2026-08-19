@@ -1127,8 +1127,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCountSubquery(MemgraphCypher::CountSubqueryContext *ctx) override;
 
   /**
-   * The body shared by the two brace forms. `EXISTS { ... }` and `COUNT { ... }` differ only in the fold they
-   * carry and the construct their errors name; the grammar rules have the same shape, hence the template.
+   * The body shared by the two brace forms, which differ only in their fold and the construct their errors name.
+   * Templated because the two grammar rules have the same shape but distinct context types.
    *
    * @return Exists* (Expression)
    */

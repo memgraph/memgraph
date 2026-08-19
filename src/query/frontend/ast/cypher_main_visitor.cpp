@@ -3958,7 +3958,6 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, Exists::Fold fol
     }
   } else if (ctx->cypherQuery()) {
     // Curly-brace subquery form: { cypherQuery }
-    // Set the flag to indicate we are parsing a subquery body
     auto old_flag = parsing_exists_subquery_;
     // The body's clauses are its own, so the enclosing WITH's "everything must be aliased" rule does not reach them.
     auto old_in_with = std::exchange(in_with_, false);

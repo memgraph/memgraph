@@ -328,8 +328,7 @@ using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
 
-/// The deferred fold. @p Fold is checked, since the operator looks the same either way and a wrong one is a wrong
-/// value rather than a wrong shape.
+/// The deferred fold. @p Fold is checked because a wrong one is a wrong value, not a wrong shape.
 template <RollUpApply::Fold TFold>
 class ExpectEvaluatePatternFilterWithFold : public OpChecker<EvaluatePatternFilter> {
  public:

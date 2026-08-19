@@ -737,8 +737,8 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
 
   // Each form declares only its own variables, so each gets a scope; the pattern form's are named at parse time, so
   // leaving them outside redeclared them wherever one expression is reached twice, as a simple CASE reaches its test.
-  // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name. The fold name rides
-  // along so a diagnostic raised inside names the construct the user wrote.
+  // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name, and the fold name
+  // with it, so a diagnostic raised inside names the construct the user wrote.
   // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
   scopes_.emplace_back(Scope{.in_exists_pattern = exists.HasPattern(),
                              .in_exists_subquery = exists.HasSubquery(),
@@ -749,7 +749,6 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
 }
 
 bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
-  // Popping restores the outer scope's fold name too, so nothing has to be reset by hand.
   scopes_.pop_back();
   return true;
 }

@@ -17,10 +17,9 @@
 #include "query/frontend/semantic/symbol.hpp"
 
 namespace memgraph::query {
-/// A correlated subquery expression: a body evaluated per outer row, reduced to one value. Two axes vary
-/// independently - the body (@c content_: a pattern or a full subquery) and the fold (@c fold_). `EXISTS` is the
-/// bool fold, `COUNT` the count fold; they share every other part of the machinery, which is why one node carries
-/// both rather than there being a class per spelling.
+/// A correlated subquery expression: a body evaluated per outer row, reduced to one value. The body (@c content_)
+/// and the fold (@c fold_) vary independently - `EXISTS` is the bool fold, `COUNT` the count fold - and they share
+/// every other part of the machinery, which is why one node carries both instead of a class per spelling.
 class Exists : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;
@@ -48,7 +47,7 @@ class Exists : public memgraph::query::Expression {
   /// Symbol table position of the symbol this Aggregation is mapped to.
   int32_t symbol_pos_{-1};
 
-  /// The construct's name as written, for error messages that would otherwise say "Exists" about a COUNT.
+  /// The construct as written, so a diagnostic names the spelling the user reached for.
   const char *FoldName() const { return fold_ == Fold::kCount ? "COUNT" : "EXISTS"; }
 
   Exists *Clone(AstStorage *storage) const override {
