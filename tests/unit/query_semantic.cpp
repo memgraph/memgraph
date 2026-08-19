@@ -1678,7 +1678,7 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
           MATCH(PATTERN(NODE("n"))),
           RETURN(ALL("x", LIST(LITERAL(1)), WHERE(case_expr(exists_subquery(), LITERAL(true), LITERAL(false)))),
                  AS("h")))),
-      "Not yet implemented: Exists is not supported in this position yet!");
+      "Not yet implemented: EXISTS is not supported in this position yet!");
 
   // An aggregation inside a CASE is still refused; that gate is untouched.
   expect_semantic_message(
