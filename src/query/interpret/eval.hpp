@@ -916,7 +916,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(Exists &exists) override {
     TypedValue const &frame_exists_value = frame_->at(symbol_table_->at(exists));
     // A forced fold already wrote the answer - a bool for EXISTS, an integer for COUNT; a deferred one wrote the
-    // closure that computes it.
+    // closure that computes it. A fold lost on the way here would not raise - `true > 1` is Null - so assert it.
+    DMG_ASSERT(!frame_exists_value.IsBool() || exists.fold_ == Exists::Fold::kBool,
+               "a bool reached a COUNT's frame slot");
+    DMG_ASSERT(!frame_exists_value.IsInt() || exists.fold_ == Exists::Fold::kCount,
+               "an integer reached an EXISTS's frame slot");
     if (frame_exists_value.IsBool()) {
       return TypedValue(frame_exists_value.ValueBool(), ctx_->memory);
     }

@@ -135,9 +135,16 @@ struct MatchContext {
 
 namespace impl {
 
-/// The AST spells the fold as a surface construct, the operators as a reduction; this is the one place they meet.
-/// @c Exists::Fold has no list member - `COLLECT {}` does not parse yet - so the mapping is total.
-constexpr Fold ToOperatorFold(Exists::Fold fold) { return fold == Exists::Fold::kCount ? Fold::kCount : Fold::kBool; }
+/// Maps the AST's surface fold onto the operators' reduction. A switch, so a third @c Exists::Fold fails to
+/// compile here rather than silently folding to @c kBool.
+constexpr Fold ToOperatorFold(Exists::Fold fold) {
+  switch (fold) {
+    case Exists::Fold::kBool:
+      return Fold::kBool;
+    case Exists::Fold::kCount:
+      return Fold::kCount;
+  }
+}
 
 // These functions are an internal implementation of RuleBasedPlanner. To avoid
 // writing the whole code inline in this header file, they are declared here and
@@ -1749,7 +1756,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                     const std::unordered_set<Symbol> &bound_symbols) {
     // Outside an EXISTS branch the flag is false, which resolves to View::OLD.
     auto last_op = MakeExistsBranch(matching, symbol_table, storage, bound_symbols, exists_branch_after_write_);
-    // The count fold has to see every row, so the bool fold's one-row cap cannot sit above it.
+    // Dead weight under the bool fold, whose cursor pulls exactly once - but it would truncate a count's drain.
     if (matching.fold != Exists::Fold::kCount) {
       last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
     }

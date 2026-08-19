@@ -774,7 +774,8 @@ TYPED_TEST(OperatorToStringTest, EmptyResult) {
 }
 
 TYPED_TEST(OperatorToStringTest, EvaluatePatternFilter) {
-  std::shared_ptr<LogicalOperator> last_op = std::make_shared<EvaluatePatternFilter>(nullptr, this->GetSymbol("node"));
+  std::shared_ptr<LogicalOperator> last_op =
+      std::make_shared<EvaluatePatternFilter>(nullptr, this->GetSymbol("node"), RollUpApply::Fold::kBool);
 
   std::string expected_string{"EvaluatePatternFilter"};
   EXPECT_EQ(last_op->ToString(&this->dba), expected_string);

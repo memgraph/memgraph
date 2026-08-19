@@ -9382,8 +9382,7 @@ class RollUpApplyCursor : public Cursor {
         break;
       }
       case RollUpApply::Fold::kCount: {
-        // Count, do not materialise. Collecting the rows first and taking the length would allocate an N-element
-        // list per input row, which is exactly what a COUNT over a supernode exists to avoid.
+        // Count, do not materialise: a list per input row is the cost a COUNT over a supernode exists to avoid.
         int64_t rows = 0;
         while (list_collection_cursor_->Pull(frame, context)) {
           ++rows;
@@ -9394,7 +9393,6 @@ class RollUpApplyCursor : public Cursor {
       case RollUpApply::Fold::kList: {
         TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
         while (list_collection_cursor_->Pull(frame, context)) {
-          // collect values from the list collection branch
           result.ValueList().emplace_back(frame[self_.list_collection_symbol_]);
         }
         frame_writer.Write(self_.result_symbol_, result);
@@ -9450,6 +9448,7 @@ std::string RollUpApply::ToString(const DbAccessor * /*dba*/) const {
     case Fold::kList:
       return "RollUpApply";
   }
+  LOG_FATAL("Unhandled RollUpApply fold");
 }
 
 PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency)

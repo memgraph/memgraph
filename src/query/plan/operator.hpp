@@ -2444,9 +2444,8 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
 
   EvaluatePatternFilter() = default;
 
-  /// @param fold what the closure reduces the branch's rows to. Deferring is what buys the short-circuit: a
-  /// disjunct the evaluator never reaches costs nothing, which for @c kCount is a whole drain rather than one pull.
-  EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Fold fold = Fold::kBool);
+  /// @param fold what the closure reduces the branch's rows to.
+  EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Fold fold);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -3203,14 +3202,13 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  /// What the branch's rows are folded into. Spelled `RollUpApply::Fold::…` at most call sites.
+  /// What the branch's rows are folded into.
   using Fold = memgraph::query::plan::Fold;
 
   RollUpApply() = default;
   RollUpApply(std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&list_collection_branch,
               const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol, bool pass_input = false);
-  /// The column-less folds, @c kBool and @c kCount. They read no column off the branch's rows, only how many there
-  /// are, so they take no @p list_collection_symbols.
+  /// The column-less folds, @c kBool and @c kCount: they read no column, so they take no @p list_collection_symbols.
   RollUpApply(std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&branch, Symbol result_symbol,
               Fold fold);
 

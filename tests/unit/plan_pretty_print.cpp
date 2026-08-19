@@ -1503,7 +1503,8 @@ TYPED_TEST(PrintToJsonTest, Exists) {
                                false,
                                memgraph::storage::View::OLD);
   std::shared_ptr<LogicalOperator> limit = std::make_shared<Limit>(expand, LITERAL(1));
-  std::shared_ptr<LogicalOperator> evaluate_pattern_filter = std::make_shared<EvaluatePatternFilter>(limit, output);
+  std::shared_ptr<LogicalOperator> evaluate_pattern_filter =
+      std::make_shared<EvaluatePatternFilter>(limit, output, RollUpApply::Fold::kBool);
   last_op = std::make_shared<Filter>(last_op,
                                      std::vector<std::shared_ptr<LogicalOperator>>{evaluate_pattern_filter},
                                      EXISTS(PATTERN(NODE("x"),
@@ -1663,7 +1664,6 @@ TYPED_TEST(PrintToJsonTest, RollUpApplyCountFold) {
                                          false,
                                          memgraph::storage::View::OLD);
   auto input_op = std::make_shared<ScanAll>(nullptr, x);
-  // The column-less ctor: no collected column, so no list_collection_symbols.
   auto rollup_op = std::make_shared<RollUpApply>(
       std::move(input_op), std::move(branch), this->GetSymbol("output_symbol"), RollUpApply::Fold::kCount);
 

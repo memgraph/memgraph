@@ -131,15 +131,15 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   static_assert(static_cast<size_t>(BodyPosition::kWhere) + 1 == kBodyPositionCount,
                 "kBodyPositionCount must cover every BodyPosition - it sizes the branches_ array");
 
-  /// The correlated-subquery branches spliced at one body position. Both are kept in visit order, so the spliced
-  /// chain is deterministic rather than ordered by symbol hash.
   /// One planned EXISTS/COUNT branch, with the fold that decides which RollUpApply constructor it reaches.
   struct ExistsBranch {
     Symbol result_symbol;
     std::shared_ptr<LogicalOperator> op;
-    Fold fold;
+    Fold fold{Fold::kBool};
   };
 
+  /// The correlated-subquery branches spliced at one body position. Both are kept in visit order, so the spliced
+  /// chain is deterministic rather than ordered by symbol hash.
   struct BranchesAt {
     std::vector<PatternComprehensionData> comprehensions;
     std::vector<ExistsBranch> exists;
@@ -741,8 +741,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   /// Plans @p result_sym's EXISTS if it is still pending, into the bucket matching its position in the return body.
-  /// The bool fold is forced, so a projected value is a real bool rather than a closure and the branch runs once per
-  /// input row.
+  /// The fold is forced, so a projected value is a real bool or integer rather than a closure, and the branch runs
+  /// once per input row.
   void PlanExistsOnDemand(const Symbol &result_sym) {
     // No planning context (e.g. GetSubqueryBoundSymbols); the real planning pass handles them later.
     if (!subquery_ctx_ || !subquery_ctx_->planner) {
@@ -1007,18 +1007,15 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
       filters_it++;
     }
   }
-  // Join the filters so that any conjunct carrying a subquery branch goes last: the conjuncts before it
-  // get to decide the row first, and a deferred fold whose value is never read never runs its branch.
-  //
-  // Type::Pattern alone does not answer this. It is set only when the conjunct *is* an Exists, so a
-  // COUNT { ... } > 1 - an Exists wrapped in a comparison - is tagged Generic and would keep whatever
-  // position collection order gave it. exists_matchings is collected by walking the whole filter
-  // expression, so it sees the wrapped case too.
+  // A conjunct carrying a subquery branch goes last, so a cheaper one decides the row first and a deferred fold
+  // whose value is never read never runs its branch. Type::Pattern alone does not answer this - it is set only when
+  // the conjunct *is* an Exists, so `COUNT { ... } > 1` is tagged Generic - but exists_matchings comes from walking
+  // the whole expression, so it sees the wrapped case too.
   auto subquery_conjuncts = std::ranges::stable_partition(and_joinable_filters, [](const FilterInfo &filter_info) {
     return filter_info.type != FilterInfo::Type::Pattern && filter_info.exists_matchings.empty();
   });
-  // SplitExpression is a LIFO stack, so the moved conjuncts arrive reversed. Restore what the user wrote, or a cheap
-  // subquery conjunct lands behind an expensive one and pays its whole drain.
+  // They arrive reversed, SplitExpression being a LIFO stack; without this a cheap subquery conjunct lands behind
+  // an expensive one and pays its whole drain.
   std::ranges::reverse(subquery_conjuncts);
   for (auto &and_joinable_filter : and_joinable_filters) {
     filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, and_joinable_filter.expression);

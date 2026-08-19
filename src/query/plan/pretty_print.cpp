@@ -1634,6 +1634,7 @@ bool PlanToJsonVisitor::PreVisit(RollUpApply &op) {
       case RollUpApply::Fold::kList:
         return "list";
     }
+    LOG_FATAL("Unhandled RollUpApply fold");
   }();
   self["output_symbol"] = ToJson(op.result_symbol_);
 

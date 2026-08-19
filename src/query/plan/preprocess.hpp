@@ -546,7 +546,7 @@ struct QueryParts;
 /// those empty and carries a preprocessed body instead.
 struct ExistsMatching : Matching {
   /// Which spelling this was written as.
-  ExistsKind type;
+  ExistsKind type{ExistsKind::kPattern};
   /// What the branch's rows are reduced to - the other axis, independent of @c type.
   Exists::Fold fold{Exists::Fold::kBool};
   /// The frame slot the fold writes, and the expression reads.
@@ -696,7 +696,7 @@ struct SingleQueryPart {
 
   /// @brief @c ExistsMatching for each EXISTS found in a non-@c Match clause.
   ///
-  /// A MATCH's WHERE keeps its EXISTS on the owning @c FilterInfo, as a deferred bool fold inside a @c Filter. These
+  /// A MATCH's WHERE keeps its EXISTS on the owning @c FilterInfo, as a deferred fold inside a @c Filter. These
   /// are the ones a WITH/RETURN body evaluates, so they need a forced fold spliced onto the chain.
   std::vector<ExistsMatching> exists_matchings;
 
