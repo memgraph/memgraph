@@ -77,6 +77,8 @@ DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
 DEFAULT_MGDEPS_CACHE_PORT="80"
 DEFAULT_CCACHE_ENABLED="true"
 DEFAULT_CONAN_CACHE_ENABLED="true"
+DEFAULT_MGBENCH_CACHE_ENABLED="true"
+MGBENCH_CACHE_CONTAINER_DIR="/home/mg/.cache/mgbench"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
 DEFAULT_RUST_VERSION="1.89"
 
@@ -126,6 +128,8 @@ print_help () {
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
   echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\") -> this is required for run, stop and build-memgraph commands on the coverage build"
   echo -e "  --no-conan-cache              Disable conan cache volume mounting (default \"$DEFAULT_CONAN_CACHE_ENABLED\") -> this allows sharing conan cache between containers"
+  echo -e "  --no-mgbench-cache            Disable mgbench cache volume mounting (default \"$DEFAULT_MGBENCH_CACHE_ENABLED\") -> without it mgbench recalibrates query counts and re-downloads datasets every run"
+  echo -e "  --mgbench-cache-dir string    Specify host directory for the mgbench cache (default \"\$HOME/.cache/mgbench-ci\")"
   echo -e "  --enable-monitoring           Ship test metrics/logs to a remote monitoring stack (default \"false\"); requires --monitoring-host, --cluster-id and --cluster-env"
   echo -e "  --monitoring-host string      Hostname or IP of the remote monitoring stack (required with --enable-monitoring)"
   echo -e "  --cluster-id string           Cluster identifier label attached to exported metrics/logs (required with --enable-monitoring)"
@@ -376,7 +380,7 @@ version_lt() {
 setup_cache_override() {
   local compose_files="-f ${arch}-builders-${toolchain_version}.yml"
 
-  if [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]]; then
+  if [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]] || [[ "$mgbench_cache_enabled" == "true" ]]; then
     cat > cache-override.yml << EOF
 services:
 EOF
@@ -393,6 +397,9 @@ EOF
         if [[ "$conan_cache_enabled" == "true" ]]; then
           echo "      - $conan_cache_dir:/home/mg/.conan2" >> cache-override.yml
         fi
+        if [[ "$mgbench_cache_enabled" == "true" ]]; then
+          echo "      - $mgbench_cache_dir:$MGBENCH_CACHE_CONTAINER_DIR" >> cache-override.yml
+        fi
       done
     else
       # For specific OS, only add volume to the target service
@@ -404,6 +411,9 @@ EOF
       if [[ "$conan_cache_enabled" == "true" ]]; then
         echo "      - $conan_cache_dir:/home/mg/.conan2" >> cache-override.yml
       fi
+      if [[ "$mgbench_cache_enabled" == "true" ]]; then
+        echo "      - $mgbench_cache_dir:$MGBENCH_CACHE_CONTAINER_DIR" >> cache-override.yml
+      fi
     fi
     compose_files="$compose_files -f cache-override.yml"
   fi
@@ -412,7 +422,7 @@ EOF
 }
 
 cleanup_cache_override() {
-  if [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]]; then
+  if [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]] || [[ "$mgbench_cache_enabled" == "true" ]]; then
     rm -f cache-override.yml
   fi
 }
@@ -439,6 +449,17 @@ setup_host_cache_permissions() {
     chmod -R a+rwX $conan_cache_dir 2>/dev/null || true
 
     echo "Host conan cache directory permissions set to a+rwX (open access)"
+  fi
+
+  if [[ "$mgbench_cache_enabled" == "true" ]]; then
+    echo "Setting up host mgbench cache directory permissions..."
+    mkdir -pv $mgbench_cache_dir
+
+    # Set open permissions on the mgbench cache directory to allow cross-container access
+    # Suppress both errors and warnings about operations not permitted
+    chmod -R a+rwX $mgbench_cache_dir 2>/dev/null || true
+
+    echo "Host mgbench cache directory permissions set to a+rwX (open access)"
   fi
 }
 
@@ -1866,7 +1887,7 @@ test_memgraph() {
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION $DATASET/$DATASET_SIZE/*/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION $DATASET/$DATASET_SIZE/*/*"
     ;;
     mgbench-supernode)
       shift 1
@@ -1885,7 +1906,7 @@ test_memgraph() {
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION supernode"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION supernode"
     ;;
     mgbench-load-parquet)
       shift 1
@@ -1904,7 +1925,7 @@ test_memgraph() {
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION load_parquet"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION load_parquet"
     ;;
     mgbench-vector-search-index)
       shift 1
@@ -1929,7 +1950,7 @@ test_memgraph() {
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_index/default/vector/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_index/default/vector/*"
     ;;
     mgbench-vector-search-edge-index)
       shift 1
@@ -1954,7 +1975,7 @@ test_memgraph() {
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_edge_index/default/vector/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_edge_index/default/vector/*"
     ;;
     mgbench-text-search-index)
       shift 1
@@ -1979,7 +2000,7 @@ test_memgraph() {
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_index/default/text/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_index/default/text/*"
     ;;
     mgbench-text-search-edge-index)
       shift 1
@@ -2004,7 +2025,7 @@ test_memgraph() {
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_edge_index/default/text/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_edge_index/default/text/*"
     ;;
     upload-to-bench-graph)
       shift 1
@@ -2977,6 +2998,8 @@ mgdeps_cache_port=$DEFAULT_MGDEPS_CACHE_PORT
 ccache_enabled=$DEFAULT_CCACHE_ENABLED
 conan_cache_enabled=$DEFAULT_CONAN_CACHE_ENABLED
 conan_cache_dir=""
+mgbench_cache_enabled=$DEFAULT_MGBENCH_CACHE_ENABLED
+mgbench_cache_dir=""
 command=""
 build_container=""
 cugraph=false
@@ -3051,6 +3074,14 @@ while [[ $# -gt 0 ]]; do
       conan_cache_dir=$2
       shift 2
     ;;
+    --no-mgbench-cache)
+      mgbench_cache_enabled="false"
+      shift 1
+    ;;
+    --mgbench-cache-dir)
+      mgbench_cache_dir=$2
+      shift 2
+    ;;
     --enable-monitoring)
       enable_monitoring=true
       shift 1
@@ -3094,6 +3125,17 @@ fi
 
 if [[ -z "$conan_cache_dir" ]]; then
   conan_cache_dir="$HOME/.conan2-ci"
+fi
+
+if [[ -z "$mgbench_cache_dir" ]]; then
+  mgbench_cache_dir="$HOME/.cache/mgbench-ci"
+fi
+
+# Points mgbench at the mounted cache so query counts and datasets survive between runs.
+# Empty when disabled, which leaves mgbench using .cache inside the checkout.
+MGBENCH_CACHE_ARG=""
+if [[ "$mgbench_cache_enabled" == "true" ]]; then
+  MGBENCH_CACHE_ARG="--cache-directory $MGBENCH_CACHE_CONTAINER_DIR"
 fi
 
 if [[ "$os" != "all" ]]; then
@@ -3217,6 +3259,9 @@ case $command in
       compose_files=$(setup_cache_override)
       if [[ "$conan_cache_enabled" == "true" ]]; then
         echo "Setting conan cache directory: $conan_cache_dir"
+      fi
+      if [[ "$mgbench_cache_enabled" == "true" ]]; then
+        echo "Setting mgbench cache directory: $mgbench_cache_dir"
       fi
 
       # Set up host ccache permissions
