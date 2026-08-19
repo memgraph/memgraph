@@ -927,6 +927,68 @@ TYPED_TEST(TestSymbolGenerator, MatchBfsUsesLaterSymbolError) {
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
+TYPED_TEST(TestSymbolGenerator, MatchKShortestLimitUsesPreviousOuterSymbol) {
+  // Test MATCH (a) -[r *KSHORTEST|a.prop]-> (m) RETURN r
+  // `PreVisit(EdgeAtom &)` returns false, suppressing the generic child traversal, so the `| k`
+  // limit resolves only because it is visited explicitly.
+  auto prop = this->dba.NameToProperty("prop");
+  auto *node_a = NODE("a");
+  auto *limit = PROPERTY_LOOKUP(this->dba, "a", prop);
+  auto *kshortest =
+      this->storage.template Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::KSHORTEST, EdgeAtom::Direction::OUT);
+  kshortest->filter_lambda_.inner_edge = IDENT("e");
+  kshortest->filter_lambda_.inner_node = IDENT("n");
+  kshortest->limit_ = limit;
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a, kshortest, NODE("m"))), RETURN("r")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  EXPECT_EQ(symbol_table.at(*node_a->identifier_), symbol_table.at(*dynamic_cast<Identifier *>(limit->expression_)));
+}
+
+TYPED_TEST(TestSymbolGenerator, MatchKShortestLimitUsesEdgeSymbolError) {
+  // Test MATCH (n) -[r *KSHORTEST|r]-> (m) RETURN r
+  // The limit is visited inside the edge-range scope, so it cannot reference the edge list the
+  // expansion itself binds.
+  auto *kshortest =
+      this->storage.template Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::KSHORTEST, EdgeAtom::Direction::OUT);
+  kshortest->filter_lambda_.inner_edge = IDENT("e");
+  kshortest->filter_lambda_.inner_node = IDENT("n");
+  kshortest->limit_ = IDENT("r");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), kshortest, NODE("m"))), RETURN("r")));
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
+}
+
+// `PreVisit(EdgeAtom &)` must not hold a `Scope &` across its children's `Accept` calls: a pattern
+// comprehension in a bound or in `| k` pushes a scope, reallocating the capacity-1 `scopes_`, and the
+// writes after the traversal then miss the live scope. The edge identifier is left unbound, so a
+// valid query answers "Unbound variable: r".
+TYPED_TEST(TestSymbolGenerator, EdgeAtomChildScopePushKeepsTheEdgeBound) {
+  // MATCH (n) -[r *BFS 1..size([(n)-[e]->(m) | m])]-> (o) RETURN r
+  auto *bound_edge = IDENT("r");
+  auto *bfs =
+      this->storage.template Create<EdgeAtom>(bound_edge, EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
+  bfs->filter_lambda_.inner_edge = IDENT("inner_e");
+  bfs->filter_lambda_.inner_node = IDENT("inner_n");
+  bfs->lower_bound_ = LITERAL(1);
+  bfs->upper_bound_ =
+      FN("size", PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("e"), NODE("m")), nullptr, IDENT("m")));
+  auto *bound_query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("o"))), RETURN("r")));
+  auto bound_symbols = memgraph::query::MakeSymbolTable(bound_query);
+  EXPECT_EQ(bound_symbols.at(*bound_edge).type(), Symbol::Type::EDGE_LIST);
+
+  // MATCH (n) -[r *KSHORTEST|size([(n)-[e]->(m) | m])]-> (o) RETURN r
+  // The limit is the child this branch newly visits, so it pushes a scope from a fresh site.
+  auto *limit_edge = IDENT("r");
+  auto *kshortest =
+      this->storage.template Create<EdgeAtom>(limit_edge, EdgeAtom::Type::KSHORTEST, EdgeAtom::Direction::OUT);
+  kshortest->filter_lambda_.inner_edge = IDENT("inner_e");
+  kshortest->filter_lambda_.inner_node = IDENT("inner_n");
+  kshortest->limit_ =
+      FN("size", PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("e"), NODE("m")), nullptr, IDENT("m")));
+  auto *limit_query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), kshortest, NODE("o"))), RETURN("r")));
+  auto limit_symbols = memgraph::query::MakeSymbolTable(limit_query);
+  EXPECT_EQ(limit_symbols.at(*limit_edge).type(), Symbol::Type::EDGE_LIST);
+}
+
 TYPED_TEST(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   // MATCH ()-[*]-() RETURN 42 AS res
   auto ident_n = this->storage.template Create<Identifier>("anon_n", false);

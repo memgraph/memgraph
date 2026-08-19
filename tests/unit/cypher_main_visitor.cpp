@@ -55,6 +55,7 @@ using namespace memgraph::query;
 using namespace memgraph::query::frontend;
 using memgraph::query::TypedValue;
 using testing::ElementsAre;
+using testing::HasSubstr;
 using testing::NotNull;
 using testing::Pair;
 using testing::UnorderedElementsAre;
@@ -2867,15 +2868,58 @@ TEST_P(CypherMainVisitorTest, MatchKShortestReturn) {
 
 TEST_P(CypherMainVisitorTest, MatchKShortestWithFilterReturn) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n | e.prop = 42)]->() RETURN r"),
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n | e.prop = 42)]->() RETURN r"));
+  ASSERT_TRUE(query);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 2U);
+  auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+  ASSERT_TRUE(match);
+  auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(shortest);
+  EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+  EXPECT_EQ(shortest->filter_lambda_.inner_edge->name_, "e");
+  EXPECT_TRUE(shortest->filter_lambda_.inner_edge->user_declared_);
+  EXPECT_EQ(shortest->filter_lambda_.inner_node->name_, "n");
+  EXPECT_TRUE(shortest->filter_lambda_.inner_node->user_declared_);
+  EXPECT_TRUE(shortest->filter_lambda_.expression);
+  EXPECT_FALSE(shortest->filter_lambda_.accumulated_path);
+  EXPECT_FALSE(shortest->weight_lambda_.expression);
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, MatchKShortestWithLimitAndFilterReturn) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest 1..3 |2 (e, n | e.prop = 42)]->() RETURN r"));
+  ASSERT_TRUE(query);
+  auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+  ASSERT_TRUE(match);
+  auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(shortest);
+  EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+  EXPECT_TRUE(shortest->lower_bound_);
+  EXPECT_TRUE(shortest->upper_bound_);
+  EXPECT_TRUE(shortest->limit_);
+  EXPECT_TRUE(shortest->filter_lambda_.expression);
+}
+
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestWithTwoLambdas) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n | 1) (e, n | e.prop = 42)]->() RETURN r"),
                SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, MatchKShortestFilterByPathReturn) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH pth=()-[r:type1 *kShortest (e, n, p | startNode(relationships(e)[-1]) = "
-                                        "c:type3)]->(:type2) RETURN pth"),
-               SemanticException);
+  try {
+    ast_generator.ParseQuery(
+        "MATCH pth=()-[r:type1 *kShortest (e, n, p | startNode(relationships(e)[-1]) = "
+        "c:type3)]->(:type2) RETURN pth");
+    FAIL() << "Expected the accumulated path to be rejected for KSHORTEST";
+  } catch (const SemanticException &e) {
+    EXPECT_THAT(e.what(), HasSubstr("accumulated path"));
+  }
 }
 
 TEST_P(CypherMainVisitorTest, MatchKShortestFilterByPathWeightReturn) {

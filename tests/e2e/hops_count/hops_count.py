@@ -224,5 +224,35 @@ def test_hops_count_3():
     assert number_of_hops == 2  # scans by a and then expand to e
 
 
+def test_hops_count_kshortest_bounded_spur():
+    # A spur after a deviation only needs the depth left over, not the whole maximum. Every other
+    # KSHORTEST case here is unbounded or `..1`, where that is inert.
+    execute_query("MATCH (n) DETACH DELETE n")
+    # a->b->c->t then a->b->m->t. Deviating at c must not walk the dead-end c->p->q->r, which fits
+    # the full bound but not what is left after two hops.
+    execute_query(
+        "CREATE (a:N {n: 'a'}), (b:N {n: 'b'}), (c:N {n: 'c'}), (t:N {n: 't'}), (m:N {n: 'm'}), "
+        "       (p:N {n: 'p'}), (q:N {n: 'q'}), (r:N {n: 'r'}) "
+        "CREATE (a)-[:E]->(b), (b)-[:E]->(c), (c)-[:E]->(t), "
+        "       (b)-[:E]->(m), (m)-[:E]->(t), "
+        "       (c)-[:E]->(p), (p)-[:E]->(q), (q)-[:E]->(r)"
+    )
+
+    prefix = "MATCH (a:N {n: 'a'}), (t:N {n: 't'}) WITH a, t MATCH (a)-[r:E *KSHORTEST"
+
+    # Both paths are found either way; only the budget differs. The full-depth spur cost 9 here.
+    summary = get_summary(f"{prefix} 1..3]->(t) RETURN r")
+    assert summary["number_of_hops"] == 8
+
+    # A looser bound wasted more - the whole three-hop dead end was walked. This cost 10 before.
+    summary = get_summary(f"{prefix} 1..4]->(t) RETURN r")
+    assert summary["number_of_hops"] == 8
+
+    # Control: nothing to subtract without an upper bound, so the assertions above are about the
+    # bound and not the graph.
+    summary = get_summary(f"{prefix}]->(t) RETURN r")
+    assert summary["number_of_hops"] == 10
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

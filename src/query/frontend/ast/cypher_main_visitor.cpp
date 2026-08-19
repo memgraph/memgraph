@@ -3408,9 +3408,6 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         }
         break;
       case 1:
-        if (edge->type_ == EdgeAtom::Type::KSHORTEST) {
-          throw SemanticException("KSHORTEST expansion does not support filter lambda.");
-        }
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
             edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
           // For wShortest and allShortest, the first (and required) lambda is
@@ -3430,6 +3427,10 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         } else {
           // Other variable expands only have the filter lambda.
           edge->filter_lambda_ = visit_lambda(relationshipLambdas[0]);
+          // A bidirectional search reusing inner searches has no one path leading to the tested edge.
+          if (edge->type_ == EdgeAtom::Type::KSHORTEST && edge->filter_lambda_.accumulated_path) {
+            throw SemanticException("KSHORTEST expansion does not support the accumulated path in a filter lambda.");
+          }
           if (edge->filter_lambda_.accumulated_weight) {
             throw SemanticException(
                 "Accumulated weight in filter lambda can be used only with "
@@ -3514,8 +3515,6 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(MemgraphCypher::Relation
 }
 
 antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::VariableExpansionContext *ctx) {
-  DMG_ASSERT(ctx->expression().size() <= 2U, "Expected 0, 1 or 2 bounds in range literal.");
-
   EdgeAtom::Type edge_type = EdgeAtom::Type::DEPTH_FIRST;
   if (!ctx->getTokens(MemgraphCypher::BFS).empty())
     edge_type = EdgeAtom::Type::BREADTH_FIRST;
@@ -3534,6 +3533,8 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     --n_expressions;  // Last expression is the limit
     limit = std::any_cast<Expression *>(ctx->k->accept(this));
   }
+  // Counted after discounting `| k`, which the grammar puts in the same `expression` list.
+  DMG_ASSERT(n_expressions <= 2U, "Expected 0, 1 or 2 bounds in range literal.");
 
   if (n_expressions == 0U) {
     // Case -[*]-

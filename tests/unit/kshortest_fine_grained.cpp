@@ -46,13 +46,11 @@ class VertexDb : public Database {
     return db_->Access(memgraph::storage::WRITE);
   }
 
-  std::unique_ptr<LogicalOperator> MakeKShortestOperator(Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
-                                                         EdgeAtom::Direction direction,
-                                                         const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
-                                                         const std::shared_ptr<LogicalOperator> &input,
-                                                         bool existing_node, memgraph::query::Expression *lower_bound,
-                                                         memgraph::query::Expression *upper_bound,
-                                                         memgraph::query::Expression *limit) override {
+  std::unique_ptr<LogicalOperator> MakeKShortestOperator(
+      Symbol source_sym, Symbol sink_sym, Symbol edge_sym, EdgeAtom::Direction direction,
+      const std::vector<memgraph::storage::EdgeTypeId> &edge_types, const std::shared_ptr<LogicalOperator> &input,
+      bool existing_node, memgraph::query::Expression *lower_bound, memgraph::query::Expression *upper_bound,
+      const memgraph::query::plan::ExpansionLambda &filter_lambda, memgraph::query::Expression *limit) override {
     return std::make_unique<ExpandVariable>(input,
                                             source_sym,
                                             sink_sym,
@@ -64,7 +62,7 @@ class VertexDb : public Database {
                                             nullptr,
                                             upper_bound,
                                             existing_node,
-                                            memgraph::query::plan::ExpansionLambda{},
+                                            filter_lambda,
                                             std::nullopt,
                                             std::nullopt,
                                             limit);
@@ -106,9 +104,50 @@ class VertexDb : public Database {
 };
 
 #ifdef MG_ENTERPRISE
-class FineGrainedKShortestTestInMemory
-    : public ::testing::TestWithParam<
-          std::tuple<int, EdgeAtom::Direction, std::vector<std::string>, int, FineGrainedTestType>> {
+// One access-check case. `blocked_vertex` nullopt runs the access checks alone; 4 adds a filter
+// lambda blocking every edge into vertex 4 on top of them.
+struct FineGrainedCase {
+  int upper_bound;
+  EdgeAtom::Direction direction;
+  std::vector<std::string> edge_types;
+  int limit;
+  FineGrainedTestType test_type;
+  std::optional<int> blocked_vertex;
+};
+
+// Enumerated rather than combined so the combinations that cannot assert anything stay out: without
+// a lambda and without a limit the harness would compare the reference run to itself, and with
+// everything denied the result is empty whatever the lambda does.
+inline std::vector<FineGrainedCase> FineGrainedCases() {
+  static constexpr auto kTypes = std::array{FineGrainedTestType::ALL_GRANTED,
+                                            FineGrainedTestType::ALL_DENIED,
+                                            FineGrainedTestType::EDGE_TYPE_A_DENIED,
+                                            FineGrainedTestType::EDGE_TYPE_B_DENIED,
+                                            FineGrainedTestType::LABEL_0_DENIED,
+                                            FineGrainedTestType::LABEL_3_DENIED};
+  std::vector<FineGrainedCase> cases;
+  for (auto direction : {EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH}) {
+    for (auto limit : {-1, 3}) {
+      for (auto test_type : kTypes) {
+        for (std::optional<int> blocked : {std::optional<int>{}, std::optional<int>{4}}) {
+          if (!blocked && limit == -1) continue;
+          if (blocked && test_type == FineGrainedTestType::ALL_DENIED) continue;
+          cases.push_back({3, direction, {"a", "b"}, limit, test_type, blocked});
+        }
+      }
+    }
+  }
+  return cases;
+}
+
+// On disk only the cases without a lambda are worth repeating; see the smoke test below.
+inline std::vector<FineGrainedCase> FineGrainedCasesWithoutLambda() {
+  auto cases = FineGrainedCases();
+  std::erase_if(cases, [](const FineGrainedCase &c) { return c.blocked_vertex.has_value(); });
+  return cases;
+}
+
+class FineGrainedKShortestTestInMemory : public ::testing::TestWithParam<FineGrainedCase> {
  public:
   using StorageType = memgraph::storage::InMemoryStorage;
 
@@ -123,33 +162,25 @@ class FineGrainedKShortestTestInMemory
   static std::unique_ptr<VertexDb<StorageType>> db_;
 };
 
-TEST_P(FineGrainedKShortestTestInMemory, All) {
-  int upper_bound;
-  EdgeAtom::Direction direction;
-  std::vector<std::string> edge_types;
-  int k;
-  FineGrainedTestType fine_grained_test_type;
-
-  std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
-
+TEST_P(FineGrainedKShortestTestInMemory, AccessChecks) {
+  const auto &c = GetParam();
   this->db_->KShortestTestWithFineGrainedFiltering(
-      db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type);
+      db_.get(), c.upper_bound, c.direction, c.edge_types, c.limit, c.test_type, c.blocked_vertex);
 }
 
 std::unique_ptr<VertexDb<FineGrainedKShortestTestInMemory::StorageType>> FineGrainedKShortestTestInMemory::db_{nullptr};
 
-INSTANTIATE_TEST_SUITE_P(
-    FineGrained, FineGrainedKShortestTestInMemory,
-    testing::Combine(testing::Values(3),
-                     testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
-                     testing::Values(std::vector<std::string>{"a", "b"}), testing::Values(3),
-                     testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
-                                     FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
-                                     FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
+INSTANTIATE_TEST_SUITE_P(FineGrained, FineGrainedKShortestTestInMemory, testing::ValuesIn(FineGrainedCases()));
 
-class FineGrainedKShortestTestOnDisk
-    : public ::testing::TestWithParam<
-          std::tuple<int, EdgeAtom::Direction, std::vector<std::string>, int, FineGrainedTestType>> {
+TEST_F(FineGrainedKShortestTestInMemory, AccessCheckRunsBeforeFilterLambda) {
+  db_->KShortestTestAccessCheckBeforeFilterLambda(db_.get());
+}
+
+TEST_F(FineGrainedKShortestTestInMemory, MemoDistinguishesSearchDirections) {
+  db_->KShortestTestMemoDistinguishesSearchDirections(db_.get());
+}
+
+class FineGrainedKShortestTestOnDisk : public ::testing::TestWithParam<FineGrainedCase> {
  public:
   using StorageType = memgraph::storage::DiskStorage;
 
@@ -164,27 +195,22 @@ class FineGrainedKShortestTestOnDisk
   static std::unique_ptr<VertexDb<StorageType>> db_;
 };
 
-TEST_P(FineGrainedKShortestTestOnDisk, All) {
-  int upper_bound;
-  EdgeAtom::Direction direction;
-  std::vector<std::string> edge_types;
-  int k;
-  FineGrainedTestType fine_grained_test_type;
-
-  std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
-
+TEST_P(FineGrainedKShortestTestOnDisk, AccessChecks) {
+  const auto &c = GetParam();
   this->db_->KShortestTestWithFineGrainedFiltering(
-      db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type);
+      db_.get(), c.upper_bound, c.direction, c.edge_types, c.limit, c.test_type, c.blocked_vertex);
+}
+
+// One on-disk case for the lambda on top of the access checks; the matrix runs in memory, since
+// neither the cursor nor the auth checker has a storage-mode-specific path. All granted with no
+// limit is the arm that compares path for path.
+TEST_F(FineGrainedKShortestTestOnDisk, WithFilterLambda) {
+  db_->KShortestTestWithFineGrainedFiltering(
+      db_.get(), 3, EdgeAtom::Direction::BOTH, {"a", "b"}, -1, FineGrainedTestType::ALL_GRANTED, 4);
 }
 
 std::unique_ptr<VertexDb<FineGrainedKShortestTestOnDisk::StorageType>> FineGrainedKShortestTestOnDisk::db_{nullptr};
 
-INSTANTIATE_TEST_SUITE_P(
-    FineGrained, FineGrainedKShortestTestOnDisk,
-    testing::Combine(testing::Values(3),
-                     testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
-                     testing::Values(std::vector<std::string>{"a", "b"}), testing::Values(3),
-                     testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
-                                     FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
-                                     FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
+INSTANTIATE_TEST_SUITE_P(FineGrained, FineGrainedKShortestTestOnDisk,
+                         testing::ValuesIn(FineGrainedCasesWithoutLambda()));
 #endif
