@@ -3954,7 +3954,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, Exists::Fold fol
   if (ctx->forcePatternPart()) {
     exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
     if (exists->GetPattern()->identifier_) {
-      throw SyntaxException("Identifiers are not supported in exists(...).");
+      throw SyntaxException("Identifiers are not supported in a {} pattern.", construct);
     }
   } else if (ctx->cypherQuery()) {
     // Curly-brace subquery form: { cypherQuery }
@@ -4001,7 +4001,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, Exists::Fold fol
     // 5. No parallel execution. Only the enclosing query's directives are read, so the body's are silently dropped;
     // and the body is a sub-plan re-executed per outer row, which the parallel cursors' Reset() mishandles.
     if (cypher_query->pre_query_directives_.parallel_execution_) {
-      throw SyntaxException("EXISTS subqueries cannot use parallel execution.");
+      throw SyntaxException("{} subqueries cannot use parallel execution.", construct);
     }
   } else {
     throw SyntaxException("{} supports only a single relation or a subquery as its input.", construct);

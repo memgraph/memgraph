@@ -1249,8 +1249,9 @@ bool SubqueryMatchingCollector::PreVisit(Exists &op) {
         std::make_shared<QueryParts>(CollectQueryParts(symbol_table_, storage_, op.GetSubquery(), true));
   } else {
     throw SemanticException(
-        "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
-        "should not happen!");
+        "{} semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
+        "should not happen!",
+        op.FoldName());
   }
 
   exists_matchings_.push_back(std::move(exists_matching));

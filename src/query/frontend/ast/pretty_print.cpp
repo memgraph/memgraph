@@ -13,6 +13,7 @@
 
 #include "query/frontend/ast/query/aggregation.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
+#include "query/frontend/ast/query/exists.hpp"  // Visit(Exists&) reads the fold, so the definition is needed
 #include "query/frontend/ast/query/pattern_comprehension.hpp"
 
 #include <type_traits>
@@ -488,7 +489,7 @@ void ExpressionPrettyPrinter::Visit(Extract &op) {
   PrintOperator(out_, dba_, "Extract", op.identifier_, op.list_, op.expression_);
 }
 
-void ExpressionPrettyPrinter::Visit(Exists & /*op*/) { PrintOperator(out_, dba_, "Exists", "expression"); }
+void ExpressionPrettyPrinter::Visit(Exists &op) { PrintOperator(out_, dba_, op.FoldName(), "expression"); }
 
 void ExpressionPrettyPrinter::Visit(All &op) {
   PrintOperator(out_, dba_, "All", op.identifier_, op.list_expression_, op.where_->expression_);

@@ -8131,6 +8131,19 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
                                                "EXISTS supports only a single relation or a subquery as its input.");
 }
 
+TEST_P(CypherMainVisitorTest, SubqueryPatternRefusesAnIdentifierByConstruct) {
+  auto &ast_generator = *GetParam();
+
+  // The brace forms share one refusal, so it has to name the construct the user wrote - and neither of them is the
+  // `exists(...)` function whose own message ExistsThrow pins above.
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE EXISTS { p = (n)-[]->() } RETURN n;",
+                                               ast_generator,
+                                               "Identifiers are not supported in a EXISTS pattern.");
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) RETURN COUNT { p = (n)-[]->() } AS c;",
+                                               ast_generator,
+                                               "Identifiers are not supported in a COUNT pattern.");
+}
+
 TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
   auto &ast_generator = *GetParam();
 
@@ -8165,6 +8178,11 @@ TEST_P(CypherMainVisitorTest, ExistsBodyRefusesParallelExecution) {
       "MATCH (n) WHERE EXISTS { USING PARALLEL EXECUTION 4 MATCH (n)-[]->(m) RETURN m } RETURN n;",
       ast_generator,
       "EXISTS subqueries cannot use parallel execution.");
+  // Both folds share the body checks, so the message has to name the construct the user wrote.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COUNT { USING PARALLEL EXECUTION MATCH (n)-[]->(m) RETURN m } AS c;",
+      ast_generator,
+      "COUNT subqueries cannot use parallel execution.");
   // The outer query may still have one - only the body is refused.
   {
     const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(

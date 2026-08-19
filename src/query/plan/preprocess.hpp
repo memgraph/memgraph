@@ -124,8 +124,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
       }
     } else {
       throw SemanticException(
-          "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
-          "should not happen!");
+          "{} semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
+          "should not happen!",
+          exists.FoldName());
     }
 
     return false;

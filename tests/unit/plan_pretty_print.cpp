@@ -1512,7 +1512,7 @@ TYPED_TEST(PrintToJsonTest, Exists) {
 
   this->Check(last_op.get(), R"sep(
           {
-            "expression": "(Exists expression)",
+            "expression": "(EXISTS expression)",
             "input": {
               "input": {
                 "name": "Once"
