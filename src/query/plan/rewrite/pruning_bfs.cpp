@@ -218,7 +218,7 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     dedup_stack_ = std::move(saved_stack);
   }
 
- protected:
+ private:
   bool DefaultPreVisit() override {
     rewrite_blocked_ = true;
     return true;
@@ -235,8 +235,8 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 }  // namespace
 
 std::unique_ptr<LogicalOperator> RewriteWithPruningBFS(std::unique_ptr<LogicalOperator> root_op,
-                                                       SymbolTable const &symbol_table) {
-  auto rewriter = PruningBFSRewriter(symbol_table);
+                                                       SymbolTable const *symbol_table) {
+  auto rewriter = PruningBFSRewriter(*symbol_table);
   root_op->Accept(rewriter);
   return root_op;
 }

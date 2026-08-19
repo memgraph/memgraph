@@ -3107,10 +3107,6 @@ class PruningBFSCursor : public query::plan::Cursor {
   utils::pmr::vector<VertexAccessor> to_visit_next_;
 };
 
-}  // namespace
-
-namespace {
-
 void ValidateWeight(TypedValue current_weight) {
   if (current_weight.IsNull()) {
     return;

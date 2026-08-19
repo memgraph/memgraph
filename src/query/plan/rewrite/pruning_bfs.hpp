@@ -22,6 +22,6 @@ namespace memgraph::query::plan {
 class LogicalOperator;
 
 std::unique_ptr<LogicalOperator> RewriteWithPruningBFS(std::unique_ptr<LogicalOperator> root_op,
-                                                       SymbolTable const &symbol_table);
+                                                       SymbolTable const *symbol_table);
 
 }  // namespace memgraph::query::plan
