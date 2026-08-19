@@ -556,10 +556,47 @@ TYPED_TEST(InterpreterTest, UserWithAMemoryQuotaStillSkipsTheTransaction) {
     auto stream = this->Interpret(query);
     EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
   }
+}
+#endif
 
-  // Charged against the user, which is the point: without a tracker of its own this path used to
-  // allocate outside the quota entirely.
-  EXPECT_GT(quota->GetTransactionsMemory().first, 0U);
+#ifdef MG_ENTERPRISE
+// What a query is charged is returned when it ends. A query that opens no transaction has no commit or
+// abort to reconcile through, so its charge has to be settled elsewhere; if it is not, a session's usage
+// climbs with every query until the user is refused for memory nothing is holding.
+TYPED_TEST(InterpreterTest, GraphFreeQueriesDoNotAccumulateAgainstTheQuota) {
+  memgraph::license::global_license_checker.EnableTesting();
+  const memgraph::utils::OnScopeExit restore_license{
+      []() { memgraph::license::global_license_checker.DisableTesting(); }};
+  auto &interpreter = this->default_interpreter.interpreter;
+  auto quota = std::make_shared<memgraph::utils::UserResources>();
+  quota->SetTransactionsMemoryLimit(1024UL * 1024UL * 1024UL);
+  interpreter.SetUser(this->default_interpreter.auth_checker.GenQueryUser("alice", {}), quota);
+
+  // Ordering buffers every row, so the query still holds it when the last pull returns. Built from a
+  // parameter because the analysis admits no function, and `range` is one.
+  auto values = std::vector<memgraph::storage::ExternalPropertyValue>{};
+  values.reserve(50000);
+  for (auto i = 0; i < 50000; ++i) values.emplace_back(static_cast<int64_t>(i));
+  memgraph::storage::ExternalPropertyValue::map_t params;
+  params.emplace("values", memgraph::storage::ExternalPropertyValue(std::move(values)));
+
+  auto const run = [&] {
+    auto stream = this->Interpret("UNWIND $values AS x RETURN x ORDER BY x", params);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    return quota->GetTransactionsMemory().first;
+  };
+
+  auto const after_first = run();
+  EXPECT_EQ(after_first, 0U);
+  for (auto i = 0; i < 4; ++i) {
+    EXPECT_EQ(run(), 0U) << "usage grew on run " << i + 2;
+  }
+
+  // The quota is enforced on this path and not merely counted, which is also what stops the assertions
+  // above passing on a query that was never charged.
+  quota->SetTransactionsMemoryLimit(1024UL * 1024UL);
+  EXPECT_THROW(this->Interpret("UNWIND $values AS x RETURN x ORDER BY x", params), std::exception);
+  EXPECT_EQ(quota->GetTransactionsMemory().first, 0U) << "a refused query left its charge behind";
 }
 #endif
 
