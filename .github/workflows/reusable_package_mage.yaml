@@ -165,7 +165,7 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
       - name: "Checkout infra repository"
         # SBOM generation uses the scripts from the memgraph/infra repo.

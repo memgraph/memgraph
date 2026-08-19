@@ -108,6 +108,7 @@ jobs:
       os: 'ubuntu-24.04'
       run_core: ${{ needs.DiffSetup.outputs.run_community_core }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
 
   Coverage:
@@ -124,6 +125,7 @@ jobs:
       run_core: ${{ needs.DiffSetup.outputs.run_coverage_core }}
       run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_core }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
 
   Debug:
@@ -140,6 +142,7 @@ jobs:
       run_core: ${{ needs.DiffSetup.outputs.run_debug_core }}
       run_integration: ${{ needs.DiffSetup.outputs.run_debug_integration }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
 
   Jepsen:
@@ -153,6 +156,7 @@ jobs:
     with:
       run_core: ${{ needs.DiffSetup.outputs.run_jepsen_core }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
 
   Release:
@@ -172,6 +176,7 @@ jobs:
       run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
       run_query_modules: ${{ needs.DiffSetup.outputs.run_release_query_modules }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
 
   Malloc:
@@ -187,6 +192,7 @@ jobs:
       os: 'ubuntu-24.04'
       run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
 
   Mage:
@@ -202,6 +208,7 @@ jobs:
       run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
       run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
 
   MGCXX:
@@ -215,4 +222,5 @@ jobs:
     with:
       run_test: ${{ needs.DiffSetup.outputs.run_mgcxx_unit == 'true' }}
       run_id: "${{ matrix.run_no }}"
+      ref: ${{ github.sha }}
     secrets: inherit
