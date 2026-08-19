@@ -198,16 +198,13 @@ auto ExpansionAtoms(const std::vector<Expansion> &expansions, const SymbolTable 
   return graph_atoms;
 }
 
-SubqueryMatching ToSubqueryMatching(Matching &matching) {
-  SubqueryMatching subquery_matching;
-  subquery_matching.expansions = matching.expansions;
-  subquery_matching.edge_symbols = matching.edge_symbols;
-  subquery_matching.filters = matching.filters;
-  subquery_matching.atom_symbol_to_expansions = matching.atom_symbol_to_expansions;
-  subquery_matching.named_paths = matching.named_paths;
-  subquery_matching.expansion_symbols = matching.expansion_symbols;
-
-  return subquery_matching;
+/// Re-plans @p original around @p varied's expansion order. Only the @c Matching base varies, so assigning through
+/// the base slice keeps every field @c SubqueryMatching adds of its own - a new one needs no change here. Copying the
+/// base out field by field is what made that a hazard: @c VaryMatchingStart takes its @c Matching by value, so the
+/// derived fields are sliced off on the way in and nothing warns when the way back forgets one.
+SubqueryMatching ToSubqueryMatching(const Matching &varied, SubqueryMatching original) {
+  static_cast<Matching &>(original) = varied;
+  return original;
 }
 
 }  // namespace
@@ -388,12 +385,8 @@ void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
     new_matchings.reserve(matchings_size);
 
     for (auto i = 0; i < matchings_size; i++) {
-      new_matchings.push_back(ToSubqueryMatching(all_subquery_matchings[all_subquery_matchings_idx]));
-      new_matchings[i].symbol = filter.subquery_matchings[i].symbol;
-      new_matchings[i].type = filter.subquery_matchings[i].type;
-      new_matchings[i].fold = filter.subquery_matchings[i].fold;
-      new_matchings[i].subquery = filter.subquery_matchings[i].subquery;
-
+      new_matchings.push_back(
+          ToSubqueryMatching(all_subquery_matchings[all_subquery_matchings_idx], filter.subquery_matchings[i]));
       all_subquery_matchings_idx++;
     }
 
