@@ -240,6 +240,73 @@ def test_kshortest_limit_is_per_input_row():
     print("Per-input-row limit tests passed! ✅")
 
 
+def test_kshortest_limit_can_depend_on_the_input_row():
+    """A `|k` that reads a frame value is evaluated per row, against that row's frame.
+
+    The limit used to be evaluated once at the top of every `Pull`, before the input row was
+    pulled. A frame-dependent `|k` therefore read unbound nulls on the first pull, and thereafter
+    capped each row by the *previous* row's value. Three symptoms, all covered below: a plain
+    property limit failed outright; a limit that evaluated to 0 against the empty frame ended the
+    whole result stream silently; and a row whose own limit was 0 still emitted one path while the
+    row after it was dropped.
+    """
+    print("Testing that the kshortest limit may depend on the input row...")
+    execute_query("MATCH (n) DETACH DELETE n")
+    # Three disjoint pairs, two paths each, carrying their own limit.
+    for i, k in enumerate((0, 1, 2)):
+        execute_query(
+            f"""
+            CREATE (s:Src {{id: {i}, k: {k}}})
+            CREATE (m:Mid {{id: {i}}})
+            CREATE (t:Dst {{id: {i}}})
+            CREATE (s)-[:LINK]->(t)
+            CREATE (s)-[:LINK]->(m)
+            CREATE (m)-[:LINK]->(t)
+        """
+        )
+
+    # Each row is capped by its own `s.k`: 0 + 1 + 2 paths. Evaluating the limit before the input
+    # pull instead raised "Limit in KSHORTEST path expansion must be an int".
+    results = execute_query(
+        """
+        MATCH (s:Src),(t:Dst) WHERE s.id = t.id
+        WITH s, t MATCH (s)-[r:LINK *KSHORTEST|s.k]->(t) RETURN s.id AS id, r
+    """
+    )
+    per_row = {}
+    for record in results:
+        per_row[record["id"]] = per_row.get(record["id"], 0) + 1
+    print(f"  per-row counts for |s.k: {per_row}")
+    assert len(results) == 3, f"Expected 3 paths in total for |s.k, got {len(results)}"
+    assert per_row == {1: 1, 2: 2}, f"Expected row 1 to yield 1 path and row 2 to yield 2, got {per_row}"
+
+    # A limit that is 0 for one row must skip that row only, not end the stream. Reading the limit
+    # from a stale frame gave 3 rows here: the k=0 row emitted a path and the last row vanished.
+    results = execute_query(
+        """
+        UNWIND [2, 0, 2] AS k
+        MATCH (s:Src {id: 0}),(t:Dst {id: 0})
+        WITH k, s, t MATCH (s)-[r:LINK *KSHORTEST|k]->(t) RETURN k, r
+    """
+    )
+    print(f"  |k over UNWIND [2, 0, 2]: {len(results)} paths")
+    assert len(results) == 4, f"Expected 2 + 0 + 2 = 4 paths, got {len(results)}"
+    assert all(record["k"] == 2 for record in results), "The k=0 row must contribute no paths"
+
+    # A limit expression that evaluates to 0 only on an unbound frame must not silence the query.
+    results = execute_query(
+        """
+        MATCH (s:Src),(t:Dst) WHERE s.id = t.id
+        WITH s, t MATCH (s)-[r:LINK *KSHORTEST|(CASE WHEN s.k IS NULL THEN 0 ELSE 2 END)]->(t)
+        RETURN r
+    """
+    )
+    print(f"  CASE-guarded limit: {len(results)} paths")
+    assert len(results) == 6, f"Expected 6 paths (2 per row), got {len(results)}"
+
+    print("Row-dependent limit tests passed! ✅")
+
+
 def test_kshortest_depth_bounds():
     """A zero lower bound is legal; a negative one and a non-positive upper bound are not.
 
@@ -361,6 +428,7 @@ if __name__ == "__main__":
         test_kshortest_limit()
         test_kshortest_inline_property_filter()
         test_kshortest_limit_is_per_input_row()
+        test_kshortest_limit_can_depend_on_the_input_row()
         test_kshortest_depth_bounds()
         test_syntax_errors()
         print("\n🎉 All tests completed successfully!")

@@ -3746,19 +3746,10 @@ class KShortestPathsCursor : public Cursor {
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
-    limit_ = self_.limit_ ? EvaluateInt(evaluator, self_.limit_, "Limit in KSHORTEST path expansion")
-                          : std::numeric_limits<int64_t>::max();
-
     // Nothing to memoise without a lambda or access checks, so don't pay for the map. This is a
     // cost switch only: `ShouldExpand` computes the same verdict either way.
     fine_grained_access_check_enabled_ = FineGrainedAccessCheckEnabled(context);
     memoize_expansion_ = self_.filter_lambda_.expression != nullptr || fine_grained_access_check_enabled_;
-
-    if (limit_ < 0) {
-      throw QueryRuntimeException("Limit in KSHORTEST path expansion must not be negative.");
-    }
-    // Zero paths is a legal request, unlike a negative count, so serve it without searching.
-    if (limit_ == 0) return false;
 
     auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
       PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource(), context);
@@ -3800,6 +3791,17 @@ class KShortestPathsCursor : public Cursor {
 
       // Skip if source and target are the same vertex
       if (source_vertex == target_vertex) continue;
+
+      // Evaluated per row, not once per `Pull`: the count is per row (`ResetState` zeroes it), and a
+      // row-dependent `|k` reads this row's frame. Evaluating it before the input pull would read
+      // the previous row's values, or unbound nulls on the first pull.
+      limit_ = self_.limit_ ? EvaluateInt(evaluator, self_.limit_, "Limit in KSHORTEST path expansion")
+                            : std::numeric_limits<int64_t>::max();
+      if (limit_ < 0) {
+        throw QueryRuntimeException("Limit in KSHORTEST path expansion must not be negative.");
+      }
+      // Zero paths is a legal request, unlike a negative count, so skip this row without searching.
+      if (limit_ == 0) continue;
 
       lower_bound_ = self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in expansion") : 1;
       upper_bound_ = self_.upper_bound_ ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in expansion")
@@ -3845,7 +3847,7 @@ class KShortestPathsCursor : public Cursor {
       // `InitializeKShortestPaths` reset the per-row count above, and the top-up loop serves
       // nothing, so this row has spent none of its budget yet.
       DMG_ASSERT(n_returned_paths_ == 0, "KSHORTEST path count must be reset before a new input row is served");
-      if (unsent_paths_count() > 0) {
+      if (n_returned_paths_ < limit_ && unsent_paths_count() > 0) {
         push_next_path(frame, evaluator);
         return true;
       }
