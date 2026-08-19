@@ -45,12 +45,6 @@ namespace memgraph::query {
 
 class FineGrainedAuthChecker;
 struct CachedFineGrainedAuth;
-class CypherQuery;
-
-/// True if `query` reaches no graph, and so is a candidate for running without a storage transaction.
-/// Used for scheduling, where an approximation is enough; the Prepare dispatch decides for real, and
-/// applies a privilege condition this does not.
-bool IsGraphFreeQuery(const CypherQuery &query);
 
 struct QueryAllocator {
   explicit QueryAllocator(utils::MemoryTracker *db_query_tracker = nullptr)
@@ -624,6 +618,7 @@ class Interpreter final {
     /// Tracks this query's allocations when there is no storage transaction to do it. A transaction
     /// carries one of these for the same purpose; nothing about it needs the transaction, only the
     /// database's tracker to report to, and that may be absent too.
+    /// NOTE: before `prepared_query`, whose plan holds a pointer to this.
     utils::QueryMemoryTracker memory_tracker;
 
     std::optional<PreparedQuery> prepared_query;

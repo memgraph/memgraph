@@ -3723,30 +3723,29 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // and a user's quota are enforced either way.
   auto *memory_tracker =
       ctx_.db_accessor != nullptr ? &ctx_.db_accessor->GetTransactionMemoryTracker() : fallback_memory_tracker_;
-  // Single query memory limit
-  memory_tracker->SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
-  if (memory_limit_) memgraph::memory::StartTrackingCurrentThread(memory_tracker);
-#ifdef MG_ENTERPRISE
-  // User-specific resource monitoring
-  if (user_resource_ &&
-      user_resource_->GetTransactionsMemory().second != utils::TransactionsMemoryResource::kUnlimited) {
-    memgraph::memory::StartTrackingCurrentThread(memory_tracker);  // Needs the query tracker for accurate tracking
-    memgraph::memory::StartTrackingUserResource(user_resource_.get());
-  }
-#endif
+  DMG_ASSERT(memory_tracker != nullptr, "A pull without a transaction needs a tracker to stand in for it");
 
-  {  // Limiting scope of memory tracking
-    auto reset_query_limit = utils::OnScopeExit{[]() {
-      // Stopping tracking of transaction occurs in interpreter::pull
-      // Exception can occur so we need to handle that case there.
-      // We can't stop tracking here as there can be multiple pulls
-      // so we need to take care of that after everything was pulled
+  {  // Thread-local tracking is armed and disarmed together, for the length of this pull only.
+    auto stop_tracking = utils::OnScopeExit{[]() {
+      // Transaction-level tracking outlives this pull, since a query may be pulled repeatedly; it is
+      // stopped in Interpreter::Pull, which also has to handle the pull throwing.
       memgraph::memory::StopTrackingCurrentThread();
 #ifdef MG_ENTERPRISE
-      // User-specific resource monitoring
       memgraph::memory::StopTrackingUserResource();
 #endif
     }};
+
+    // Single query memory limit
+    memory_tracker->SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
+    if (memory_limit_) memgraph::memory::StartTrackingCurrentThread(memory_tracker);
+#ifdef MG_ENTERPRISE
+    // User-specific resource monitoring
+    if (user_resource_ &&
+        user_resource_->GetTransactionsMemory().second != utils::TransactionsMemoryResource::kUnlimited) {
+      memgraph::memory::StartTrackingCurrentThread(memory_tracker);  // Needs the query tracker for accurate tracking
+      memgraph::memory::StartTrackingUserResource(user_resource_.get());
+    }
+#endif
 
     // Returns true if a result was pulled.
     const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
@@ -4181,7 +4180,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 #endif
   );
   // The one way a client can tell; such a query is otherwise reported like any other.
-  if (skipped_transaction) summary->insert_or_assign("no_storage_access", true);
+  if (skipped_transaction) summary->insert_or_assign("graph_free", true);
 
   return PreparedQuery{
       .header = std::move(header),
@@ -4474,12 +4473,6 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
 }
 
 }  // namespace
-
-bool IsGraphFreeQuery(const CypherQuery &query) {
-  // Scheduling only, so it skips the privilege condition the dispatch applies: extracting privileges
-  // here would cost more than the sharper answer is worth.
-  return IsGraphFree(query);
-}
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
@@ -11231,7 +11224,7 @@ void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAcc
 }
 
 void Interpreter::OpenDeferredStorageTransaction(storage::StorageAccessType acc_type) {
-  MG_ASSERT(!current_db_.db_transactional_accessor_, "A storage transaction is already open");
+  DMG_ASSERT(!current_db_.db_transactional_accessor_, "A storage transaction is already open");
   current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), /*could_commit=*/true, acc_type);
 }
 

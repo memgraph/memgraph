@@ -6981,8 +6981,9 @@ class AggregateCursor : public Cursor {
     db_accessor_ = context->db_accessor;
     auth_checker_ = context->auth_checker;
     // Only the projecting aggregations build graph values; the scalar ones fold what they are given.
-    MG_ASSERT(db_accessor_ != nullptr || std::ranges::none_of(self_.aggregations_, ProjectsGraphValues),
-              "Aggregation expects a current DB transaction");
+    if (db_accessor_ == nullptr && std::ranges::any_of(self_.aggregations_, ProjectsGraphValues)) [[unlikely]] {
+      throw QueryRuntimeException("Aggregation expects a current DB transaction.");
+    }
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{frame, *context, storage::View::NEW, nullptr, &context->number_of_hops};
 

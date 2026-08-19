@@ -188,7 +188,8 @@ bool AnyReachesGraph(auto const &nodes) {
 }
 
 bool BodyReachesGraph(const ReturnBody &body) {
-  // `RETURN *` projects what is in scope without naming it, so there is nothing to check.
+  // `RETURN *` projects what is in scope without naming it, and what is in scope cannot be read from
+  // here, so it is rejected rather than guessed at.
   if (body.all_identifiers) return true;
   if (ReachesGraph(body.skip) || ReachesGraph(body.limit)) return true;
   if (AnyReachesGraph(body.named_expressions)) return true;

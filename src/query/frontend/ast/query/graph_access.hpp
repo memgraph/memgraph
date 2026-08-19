@@ -33,6 +33,7 @@ constexpr std::string_view ToString(GraphAccess access) {
     case GraphAccess::Write:
       return "write";
   }
+  return "unknown";
 }
 
 }  // namespace memgraph::query

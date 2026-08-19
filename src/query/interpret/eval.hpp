@@ -310,7 +310,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   storage::NameIdMapper *GetNameIdMapper() const {
-    RequireAccessor("Reading a property");
+    RequireAccessor("Resolving a name");
     return dba_->GetStorageAccessor()->GetNameIdMapper();
   }
 
