@@ -192,5 +192,152 @@ def test_edge_starts_with_null_returns_empty(memgraph, edge_graph):
     assert result == []
 
 
+# --- regression tests for defects found in review ---
+
+
+@pytest.fixture
+def cartesian_graph(memgraph):
+    memgraph.execute("CREATE INDEX ON :CA(t);")
+    memgraph.execute("CREATE INDEX ON :CB(t);")
+    memgraph.execute("FOREACH (x IN ['alpha', 'beta', 'gamma'] | CREATE (:CA {t: x}));")
+    memgraph.execute("FOREACH (x IN ['alpha', 'beta', 'gamma'] | CREATE (:CB {t: x}));")
+    yield memgraph
+    memgraph.execute("DROP INDEX ON :CA(t);")
+    memgraph.execute("DROP INDEX ON :CB(t);")
+
+
+def test_starts_with_across_cartesian_keeps_all_rows(memgraph, cartesian_graph):
+    # A Cartesian pulls its right branch once per pass, so a seek keyed on the left branch is only
+    # sound once the Cartesian has become an IndexedJoin. STARTS WITH keeps a post-filter, so the
+    # conversion cannot be driven by expression removal alone.
+    result = list(
+        memgraph.execute_and_fetch("MATCH (a:CA), (b:CB) WHERE b.t STARTS WITH a.t RETURN b.t AS t ORDER BY t")
+    )
+    assert [r["t"] for r in result] == ["alpha", "beta", "gamma"]
+
+
+def test_starts_with_across_two_matches_keeps_all_rows(memgraph, cartesian_graph):
+    result = list(
+        memgraph.execute_and_fetch("MATCH (a:CA) MATCH (b:CB) WHERE b.t STARTS WITH a.t RETURN b.t AS t ORDER BY t")
+    )
+    assert [r["t"] for r in result] == ["alpha", "beta", "gamma"]
+
+
+@pytest.fixture
+def global_index_graph(memgraph):
+    memgraph.execute("CREATE (:GI {gp: 'hello'}), (:GI {gp: 'world'}), (:GI {gp: 'help'});")
+    memgraph.execute("CREATE GLOBAL INDEX ON :(gp);")
+    yield memgraph
+    memgraph.execute("DROP GLOBAL INDEX ON :(gp);")
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        ("n.gp CONTAINS 'ell'", ["hello"]),
+        ("n.gp ENDS WITH 'lo'", ["hello"]),
+        ("n.gp STARTS WITH ''", ["hello", "help", "world"]),
+        ("n.gp STARTS WITH 'hel'", ["hello", "help"]),
+        ("n.gp =~ 'hel.*'", ["hello", "help"]),
+    ],
+)
+def test_global_property_index_string_predicates(memgraph, global_index_graph, predicate, expected):
+    # A whole-type-band range has a String lower bound and a List upper bound; the global property
+    # index must accept that pair rather than treating it as an empty range.
+    plan = get_plan(memgraph, f"MATCH (n:GI) WHERE {predicate} RETURN n.gp AS p")
+    assert "ScanAllByVertexProperty" in operator_names(plan), f"Expected the global index, got: {plan}"
+    result = list(memgraph.execute_and_fetch(f"MATCH (n:GI) WHERE {predicate} RETURN n.gp AS p ORDER BY p"))
+    assert [r["p"] for r in result] == expected
+
+
+def test_far_smaller_band_index_still_wins(memgraph):
+    # A far smaller index wins on cardinality even though its filter is a band scan: 5 entries read
+    # 5 rows where an equality seek on a 10000-entry index with two distinct values reads 5000.
+    memgraph.execute("CREATE INDEX ON :BAND(lo);")
+    memgraph.execute("CREATE INDEX ON :BAND(hi);")
+    memgraph.execute(
+        "FOREACH (i IN range(1, 10000) | CREATE (:BAND {lo: CASE WHEN i % 2 = 0 THEN 'A' ELSE 'B' END, "
+        "hi: CASE WHEN i <= 5 THEN 'match' + toString(i) ELSE null END}));"
+    )
+    plan = get_plan(memgraph, "MATCH (n:BAND) WHERE n.lo = 'A' AND n.hi CONTAINS 'atch' RETURN n")
+    assert any("{hi}" in line for line in plan), f"Expected the far smaller hi index to win, got: {plan}"
+    memgraph.execute("DROP INDEX ON :BAND(lo);")
+    memgraph.execute("DROP INDEX ON :BAND(hi);")
+
+
+def test_cross_type_range_on_global_index_returns_nothing(memgraph):
+    # `1 < ''` is null, so nothing qualifies. The global property index deletes the predicate rather
+    # than keeping a post-filter, so an incomparable bound pair has to be rejected as an empty range
+    # and must not be mistaken for the marker that spans a whole type.
+    memgraph.execute("CREATE (:XT {xp: 1}), (:XT {xp: 2}), (:XT {xp: 'aa'});")
+    without_index = list(memgraph.execute_and_fetch("MATCH (n:XT) WHERE n.xp >= 1 AND n.xp < '' RETURN n.xp AS v"))
+    memgraph.execute("CREATE GLOBAL INDEX ON :(xp);")
+    with_index = list(memgraph.execute_and_fetch("MATCH (n) WHERE n.xp >= 1 AND n.xp < '' RETURN n.xp AS v"))
+    memgraph.execute("DROP GLOBAL INDEX ON :(xp);")
+    assert without_index == []
+    assert with_index == []
+
+
+def test_cross_type_range_on_edge_index_returns_nothing(memgraph):
+    # An edge scan carries raw bounds and has no invalid-range marking, so the whole-type marker must
+    # not be admitted there: `-inf .. ''` is exactly that marker for numbers, but written by a user it
+    # is an incomparable range and nothing qualifies.
+    memgraph.execute("CREATE ()-[:EW {w: 1}]->();")
+    memgraph.execute("CREATE ()-[:EW {w: 2.5}]->();")
+    memgraph.execute("CREATE ()-[:EW {w: 'a'}]->();")
+    without_index = list(
+        memgraph.execute_and_fetch("MATCH ()-[e:EW]->() WHERE e.w >= -1.0/0.0 AND e.w < '' RETURN e.w AS v")
+    )
+    memgraph.execute("CREATE EDGE INDEX ON :EW(w);")
+    with_index = list(
+        memgraph.execute_and_fetch("MATCH ()-[e:EW]->() WHERE e.w >= -1.0/0.0 AND e.w < '' RETURN e.w AS v")
+    )
+    still_works = list(
+        memgraph.execute_and_fetch("MATCH ()-[e:EW]->() WHERE e.w >= 0 AND e.w < 3 RETURN e.w AS v ORDER BY v")
+    )
+    memgraph.execute("DROP EDGE INDEX ON :EW(w);")
+    assert without_index == []
+    assert with_index == []
+    assert [r["v"] for r in still_works] == [1, 2.5]
+
+
+def test_correlated_edge_predicate_still_answers_with_an_edge_index(memgraph):
+    # A correlated string predicate on an edge is not plannable as an edge-index seek: the source node
+    # gets absorbed into the scan that its own seek key then reads, and inside OPTIONAL the plan is
+    # refused. Both must fall back to an expansion rather than lose rows or fail to plan.
+    memgraph.execute("CREATE (:LC {r: 'aa'})-[:EC {w: 'aax'}]->(:MC);")
+    memgraph.execute("CREATE (:LC {r: 'bb'})-[:EC {w: 'bby'}]->(:MC);")
+    memgraph.execute("CREATE (:DC {s: 'aa'});")
+    absorbed = "MATCH (n:LC)-[e:EC]->() WHERE e.w STARTS WITH n.r RETURN e.w AS w ORDER BY w"
+    optional = "MATCH (a:DC) OPTIONAL MATCH ()-[e:EC]->() WHERE e.w STARTS WITH a.s RETURN e.w AS w ORDER BY w"
+    before_absorbed = [r["w"] for r in memgraph.execute_and_fetch(absorbed)]
+    before_optional = [r["w"] for r in memgraph.execute_and_fetch(optional)]
+    memgraph.execute("CREATE EDGE INDEX ON :EC(w);")
+    after_absorbed = [r["w"] for r in memgraph.execute_and_fetch(absorbed)]
+    after_optional = [r["w"] for r in memgraph.execute_and_fetch(optional)]
+    memgraph.execute("DROP EDGE INDEX ON :EC(w);")
+    assert before_absorbed == ["aax", "bby"]
+    assert after_absorbed == before_absorbed
+    assert after_optional == before_optional
+
+
+def test_non_string_property_does_not_depend_on_index(memgraph):
+    # The index excludes non-string values before any filter runs, so a non-string subject must not
+    # raise -- otherwise the same query errors without an index and returns rows with one.
+    memgraph.execute("CREATE (:MIX {v: 'alpha'}), (:MIX {v: 123}), (:MIX {v: true});")
+    without_index = list(memgraph.execute_and_fetch("MATCH (n:MIX) WHERE n.v STARTS WITH 'al' RETURN n.v AS v"))
+    memgraph.execute("CREATE INDEX ON :MIX(v);")
+    with_index = list(memgraph.execute_and_fetch("MATCH (n:MIX) WHERE n.v STARTS WITH 'al' RETURN n.v AS v"))
+    memgraph.execute("DROP INDEX ON :MIX(v);")
+    assert [r["v"] for r in without_index] == ["alpha"]
+    assert [r["v"] for r in with_index] == ["alpha"]
+
+
+def test_non_string_search_term_still_raises(memgraph):
+    memgraph.execute("CREATE (:TERM {v: 'alpha'});")
+    with pytest.raises(Exception):
+        list(memgraph.execute_and_fetch("MATCH (n:TERM) WHERE n.v STARTS WITH 1 RETURN n.v AS v"))
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
