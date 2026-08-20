@@ -223,6 +223,7 @@ print_help () {
   echo -e "\nmgbench-ha options:"
   echo -e "  --size string                 Specify dataset size: small, medium, large (default \"medium\")"
   echo -e "  --export-results-file string  Output file for results (default \"benchmark_result_ha.json\")"
+  echo -e "  --cluster-description string  Cluster description in tests/mgbench (default \"ha_cluster.yaml\"; ha_cluster_2_replicas.yaml for two replicas)"
   echo -e "  Measures only a main with one SYNC replica behind three coordinators. Needs an enterprise license."
 
   echo -e "\ngenerate-memgraph-build-sbom options:"
@@ -1872,7 +1873,9 @@ test_memgraph() {
     ;;
     mgbench-ha)
       # Measures only a coordinator-managed HA cluster: a main and one SYNC replica behind three
-      # coordinators. Covers every distinct pokec write shape plus two reads as a control; see
+      # coordinators, or whichever topology --cluster-description names: the target set is defined once
+      # here and the description chooses how many replicas the commits wait for.
+      # Covers every distinct pokec write shape plus one read as a control; see
       # specs/replication-benchmarks.md. The target set is deliberately small because every query
       # measured against a cluster restarts every instance in it, which is also why the create group
       # is named query by query rather than globbed: create/vertex and create/edge duplicate
@@ -1889,6 +1892,7 @@ test_memgraph() {
       shift 1
       local DATASET_SIZE='medium'
       local EXPORT_RESULTS_FILE="$default_benchmark_result_ha_file"
+      local CLUSTER_DESCRIPTION='ha_cluster.yaml'
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -1900,16 +1904,20 @@ test_memgraph() {
             EXPORT_RESULTS_FILE="$2"
             shift 2
           ;;
+          --cluster-description)
+            CLUSTER_DESCRIPTION="$2"
+            shift 2
+          ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench-ha"
-            echo "Supported flags: --size, --export-results-file"
+            echo "Supported flags: --size, --export-results-file, --cluster-description"
             exit 1
           ;;
         esac
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
     ;;
     mgbench-supernode)
       shift 1

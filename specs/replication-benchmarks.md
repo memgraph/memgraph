@@ -26,8 +26,11 @@ could not be trusted to be comparable.
   the C++ direct client would measure the driver, not the cluster.
 - **Network latency injection.** `tc`/netem shaping is deferred. Nothing in this design needs to
   change to accommodate it later; see [Future work](#future-work).
-- **Other replication modes and topologies.** ASYNC and STRICT_SYNC, more replicas, and multiple
-  data centres are out of scope for the first cut. They are YAML edits, not code changes.
+- **Other replication modes.** ASYNC and STRICT_SYNC are out of scope for the first cut. They are
+  YAML edits, not code changes — as a second replica turned out to be: `ha_cluster_2_replicas.yaml`
+  was added with no change to the runner, since the readiness contract derives the expected replica
+  count from the description. The nightly measures both topologies as separate suites, which makes the
+  cost of a second synchronous acknowledgement a difference between two series.
 - **Replica-side memory.** Only main is measured; see decision 1.
 
 ## Cluster topology

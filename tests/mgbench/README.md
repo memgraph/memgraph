@@ -169,6 +169,12 @@ the same thing in both.
 The cluster is a main and one SYNC replica behind three coordinators, all on localhost and
 distinguished by port. It is described by `ha_cluster.yaml`, which holds each instance's flags and
 the cluster setup queries, and is the file to edit to change the topology or the replication mode.
+`ha_cluster_2_replicas.yaml` is the same cluster with a second SYNC replica, so every commit waits for
+two acknowledgements instead of one; pass a description by name with
+`--vendor-specific ha-cluster-yaml=<file> --` (the trailing `--` matters, since that option takes
+several values and would otherwise swallow the positional workload arguments). The nightly runs both
+topologies as separate suites, `mgbench-ha` and `mgbench-ha-2-replicas`, so the difference between
+them is what a second synchronous acknowledgement costs.
 Data directories are not in that file: the runner assigns them, pinned for the duration of a run so
 the imported dataset survives the cluster restarts between phases, and fresh for the next run so no
 run ever benchmarks the previous one's data.
