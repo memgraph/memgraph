@@ -5481,8 +5481,13 @@ std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemor
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   std::vector<std::tuple<VertexAccessor, double, double>> result;
 
-  // we have to take vertices accessor to be sure no vertex is deleted while we are searching
-  auto acc = mem_storage->vertices_.access();
+  // The pin has to outlive the search, not just cover it. SearchNodes hands
+  // back raw Vertex*, we wrap them in VertexAccessors, and the caller reads
+  // through those long after this function has returned — while a pin scoped to
+  // this call is already gone and vertices_ is free to reclaim a node the
+  // moment its last accessor drops. Hold it on the storage accessor instead, so
+  // it covers the whole window in which the results are usable.
+  if (!vector_search_vertex_pin_) vector_search_vertex_pin_.emplace(mem_storage->MakeVertexPin());
   const auto search_results = storage_->indices_.vector_index_.SearchNodes(
       index_name, number_of_results, vector, mem_storage->name_id_mapper_.get());
   std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
@@ -5498,8 +5503,15 @@ std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryA
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   std::vector<std::tuple<EdgeAccessor, double, double>> result;
 
-  // we have to take edges accessor to be sure no edge is deleted while we are searching
-  auto acc = mem_storage->edges_.access();
+  // Same lifetime rule as the node search above. Both pins are needed: the
+  // EdgeAccessor holds the Edge and its two endpoint Vertex*, so pinning only
+  // edges_ would still let the endpoints be reclaimed underneath it. Take the
+  // edge pin via MakeEdgePin rather than edges_.access(): under
+  // storage_light_edge the edges are not in edges_ at all, and an accessor on
+  // it pins nothing — the graveyard drain frees light edges on the epoch the
+  // pin acquires.
+  if (!vector_search_edge_pin_) vector_search_edge_pin_.emplace(mem_storage->MakeEdgePin());
+  if (!vector_search_vertex_pin_) vector_search_vertex_pin_.emplace(mem_storage->MakeVertexPin());
   const auto search_results = storage_->indices_.vector_edge_index_.SearchEdges(index_name, number_of_results, vector);
   std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
     const auto &[entry, distance, score] = item;
