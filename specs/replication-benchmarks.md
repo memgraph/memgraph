@@ -26,11 +26,11 @@ could not be trusted to be comparable.
   the C++ direct client would measure the driver, not the cluster.
 - **Network latency injection.** `tc`/netem shaping is deferred. Nothing in this design needs to
   change to accommodate it later; see [Future work](#future-work).
-- **Other replication modes.** ASYNC and STRICT_SYNC are out of scope for the first cut. They are
-  YAML edits, not code changes — as a second replica turned out to be: `ha_cluster_2_replicas.yaml`
-  was added with no change to the runner, since the readiness contract derives the expected replica
-  count from the description. The nightly measures both topologies as separate suites, which makes the
-  cost of a second synchronous acknowledgement a difference between two series.
+- **Other replication modes** were out of scope for the first cut and are now in it, as predicted,
+  through the cluster description rather than code: `ha_cluster_2_replicas.yaml`,
+  `ha_cluster_async.yaml` and `ha_cluster_strict_sync.yaml` join the original, each a nightly suite
+  and series of its own. The readiness contract already derived the replica count from the
+  description, so the second replica needed nothing. ASYNC did need one addition, described below.
 - **Replica-side memory.** Only main is measured; see decision 1.
 
 ## Cluster topology
@@ -237,6 +237,43 @@ Stated plainly, because each one bounds how far the resulting numbers can be pus
   iterating on the HA suite alone ten extra five-process cluster restarts on every run. Resetting
   calibration is `rm tests/mgbench/.cache/config.json`, which leaves the cached datasets beside it
   untouched.
+
+## Replication mode combinations the cluster will accept
+
+Not every mix is legal, and the constraint is enforced at registration rather than discovered at
+runtime. `REGISTER INSTANCE` returns `STRICT_SYNC_AND_SYNC_FORBIDDEN` for a cluster holding both
+STRICT_SYNC and SYNC replicas: *"The valid cluster consists of either STRICT_SYNC and ASYNC or SYNC
+and ASYNC replicas."* So a description has to be internally consistent, and that includes the instance
+promoted to main — its mode is unused while it holds that role, but it is still registered, and it
+still counts towards the check.
+
+`ha_cluster_strict_sync.yaml` therefore registers **every** instance `AS STRICT_SYNC`. Leaving main on
+the default SYNC mode would have failed the second registration outright.
+
+`ha_cluster_async.yaml` deliberately does not follow suit: SYNC and ASYNC is a permitted combination,
+so main keeps the default, which also leaves a valid failover target — failover to an ASYNC replica is
+forbidden by default, so an all-ASYNC cluster would have none.
+
+## Measuring ASYNC
+
+ASYNC breaks an assumption the rest of the design leans on: that when the client's last query returns,
+the cluster has done the work. It has not — main never waited, so the replica can still be applying a
+backlog. Reporting that as a finished workload would credit the topology with throughput it has not
+actually replicated.
+
+So the runner waits for every instance to reach zero transactions behind main, read from a
+coordinator's `SHOW REPLICATION LAG`, before it stops the cluster. Two properties matter:
+
+- **It cannot affect the throughput.** `client.cpp` computes and returns its own summary before the
+  runner regains control, so anything the runner does afterwards is outside that measurement by
+  construction, not by careful accounting.
+- **It is still visible.** The wait is reported as its own line and counts towards wall clock, so the
+  cost of the backlog is observable rather than discarded.
+
+A replica that never drains fails the run, because the alternative is publishing a number for work
+that was never replicated. The wait is unconditional across topologies: for SYNC and STRICT_SYNC the
+replicas are caught up at commit, so it costs a single query and doubles as a check that they really
+were.
 
 ## Future work
 

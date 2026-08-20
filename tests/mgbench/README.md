@@ -169,12 +169,30 @@ the same thing in both.
 The cluster is a main and one SYNC replica behind three coordinators, all on localhost and
 distinguished by port. It is described by `ha_cluster.yaml`, which holds each instance's flags and
 the cluster setup queries, and is the file to edit to change the topology or the replication mode.
-`ha_cluster_2_replicas.yaml` is the same cluster with a second SYNC replica, so every commit waits for
-two acknowledgements instead of one; pass a description by name with
-`--vendor-specific ha-cluster-yaml=<file> --` (the trailing `--` matters, since that option takes
-several values and would otherwise swallow the positional workload arguments). The nightly runs both
-topologies as separate suites, `mgbench-ha` and `mgbench-ha-2-replicas`, so the difference between
-them is what a second synchronous acknowledgement costs.
+Four descriptions ship, differing only in the replica count and replication mode:
+
+| File | Topology | Nightly suite |
+|---|---|---|
+| `ha_cluster.yaml` | one SYNC replica | `mgbench-ha` |
+| `ha_cluster_2_replicas.yaml` | two SYNC replicas | `mgbench-ha-2-replicas` |
+| `ha_cluster_async.yaml` | one ASYNC replica | `mgbench-ha-async` |
+| `ha_cluster_strict_sync.yaml` | one STRICT_SYNC replica | `mgbench-ha-strict-sync` |
+
+Pass one by name with `--vendor-specific ha-cluster-yaml=<file> --`; the trailing `--` matters, since
+that option takes several values and would otherwise swallow the positional workload arguments. Each
+runs as its own nightly suite and series, so the cost of a second acknowledgement, of dropping the
+acknowledgement altogether, or of refusing to commit without it, is the difference between two series
+measured minutes apart on the same machine.
+
+**ASYNC is measured differently, on purpose.** Main does not wait for the replica at commit, so the
+throughput approaches a single instance's and the replication work shows up as lag instead. The runner
+therefore waits for the replica to drain before stopping the cluster — the workload is not finished
+while replication is still outstanding — but that wait happens *after* the client has computed and
+returned its throughput, so it never enters that number. It is reported separately, as
+`Replicas caught up in Ns, which is not counted in the throughput`, and it does count towards the
+run's wall clock. If a replica never drains, the run fails rather than reporting a finished workload.
+The wait is unconditional, and for SYNC and STRICT_SYNC it costs one query, since those are caught up
+at commit by definition.
 Data directories are not in that file: the runner assigns them, pinned for the duration of a run so
 the imported dataset survives the cluster restarts between phases, and fresh for the next run so no
 run ever benchmarks the previous one's data.
