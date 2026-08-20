@@ -5242,28 +5242,31 @@ bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, Exec
     OOMExceptionEnabler const oom_exception;
     input_cursor->Reset();
 
-    if (fold == Fold::kCount) {
-      // Count, do not materialise - same reason as the forced fold's kCount arm.
-      int64_t rows = 0;
-      while (input_cursor->Pull(frame, context)) {
-        ++rows;
+    switch (fold) {
+      case Fold::kCount: {
+        // Count, do not materialise - same reason as the forced fold's kCount arm.
+        int64_t rows = 0;
+        while (input_cursor->Pull(frame, context)) {
+          ++rows;
+        }
+        *return_value = TypedValue(rows, context.evaluation_context.memory);
+        return;
       }
-      *return_value = TypedValue(rows, context.evaluation_context.memory);
-      return;
-    }
-
-    if (fold == Fold::kList) {
-      // The whole point of the fold is the list, so this one does materialise - in the branch's own row order.
-      TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
-      while (input_cursor->Pull(frame, context)) {
-        result.ValueList().emplace_back(frame[list_symbol]);
+      case Fold::kList: {
+        // The whole point of the fold is the list, so this one does materialise - in the branch's own row order.
+        TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
+        while (input_cursor->Pull(frame, context)) {
+          result.ValueList().emplace_back(frame[list_symbol]);
+        }
+        *return_value = std::move(result);
+        return;
       }
-      *return_value = std::move(result);
-      return;
+      case Fold::kBool:
+        // One pull answers kBool - see the forced fold's arm.
+        *return_value = TypedValue(input_cursor->Pull(frame, context), context.evaluation_context.memory);
+        return;
     }
-
-    // One pull answers kBool - see the forced fold's arm.
-    *return_value = TypedValue(input_cursor->Pull(frame, context), context.evaluation_context.memory);
+    LOG_FATAL("Unhandled EvaluatePatternFilter fold");
   };
 
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
@@ -10042,7 +10045,7 @@ std::string RollUpApply::ToString(const DbAccessor * /*dba*/) const {
     case Fold::kCount:
       return "RollUpApply (count)";
     case Fold::kList:
-      return "RollUpApply";
+      return "RollUpApply (list)";
   }
   LOG_FATAL("Unhandled RollUpApply fold");
 }
