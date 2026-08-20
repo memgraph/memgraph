@@ -198,10 +198,8 @@ auto ExpansionAtoms(const std::vector<Expansion> &expansions, const SymbolTable 
   return graph_atoms;
 }
 
-/// Re-plans @p original around @p varied's expansion order. Only the @c Matching base varies, so assigning through
-/// the base slice keeps every field @c SubqueryMatching adds of its own - a new one needs no change here. Copying the
-/// base out field by field is what made that a hazard: @c VaryMatchingStart takes its @c Matching by value, so the
-/// derived fields are sliced off on the way in and nothing warns when the way back forgets one.
+/// Re-plans @p original around @p varied's expansion order. Only the @c Matching base varies, so assigning through the
+/// base slice keeps every field @c SubqueryMatching adds - a new one needs no change here.
 SubqueryMatching ToSubqueryMatching(const Matching &varied, SubqueryMatching original) {
   static_cast<Matching &>(original) = varied;
   return original;

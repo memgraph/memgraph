@@ -742,8 +742,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   /// Plans @p result_sym's EXISTS if it is still pending, into the bucket matching its position in the return body.
-  /// The fold is forced, so a projected value is a real bool or integer rather than a closure, and the branch runs
-  /// once per input row.
+  /// The fold is forced: a projected value is a real bool or integer, not a closure, and the branch runs per row.
   void PlanSubqueryOnDemand(const Symbol &result_sym) {
     // No planning context (e.g. GetSubqueryBoundSymbols); the real planning pass handles them later.
     if (!subquery_ctx_ || !subquery_ctx_->planner) {
@@ -1009,10 +1008,9 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
       filters_it++;
     }
   }
-  // A conjunct carrying a subquery branch goes last, so a cheaper one decides the row first and a deferred fold
-  // whose value is never read never runs its branch. Type::Pattern alone does not answer this - it is set only when
-  // the conjunct *is* an SubqueryExpression, so `COUNT { ... } > 1` is tagged Generic - but subquery_matchings comes
-  // from walking the whole expression, so it sees the wrapped case too.
+  // A conjunct carrying a subquery branch goes last, so a cheaper one decides the row first and a deferred fold whose
+  // value is never read never runs. Type::Pattern is set only when the conjunct *is* a SubqueryExpression, so
+  // `COUNT { ... } > 1` is tagged Generic; subquery_matchings walks the whole expression and sees the wrapped case.
   auto subquery_conjuncts = std::ranges::stable_partition(and_joinable_filters, [](const FilterInfo &filter_info) {
     return filter_info.type != FilterInfo::Type::Pattern && filter_info.subquery_matchings.empty();
   });

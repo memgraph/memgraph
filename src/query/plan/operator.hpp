@@ -236,9 +236,8 @@ class NamedLogicalOperator {
   NamedLogicalOperator &operator=(NamedLogicalOperator &&) noexcept = default;
 };
 
-/// What a correlated subquery's branch rows are reduced to. Orthogonal to *when* the reduction runs: @c RollUpApply
-/// forces it at its own Pull, @c EvaluatePatternFilter defers it into a closure the expression evaluator invokes.
-/// Declared here rather than nested, because both operators name it and @c RollUpApply is declared second.
+/// What a correlated subquery's branch rows are reduced to. Orthogonal to *when*: @c RollUpApply forces it at its own
+/// Pull, @c EvaluatePatternFilter defers it into a closure. Free-standing because both operators name it.
 enum class Fold : uint8_t {
   kList,   ///< every row's collected column, in order
   kBool,   ///< whether the branch produced a row at all

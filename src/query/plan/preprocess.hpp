@@ -696,8 +696,7 @@ struct SingleQueryPart {
 
   /// @brief @c SubqueryMatching for each EXISTS found in a non-@c Match clause.
   ///
-  /// A MATCH's WHERE keeps its EXISTS on the owning @c FilterInfo, as a deferred fold inside a @c Filter. These
-  /// are the ones a WITH/RETURN body evaluates, so they need a forced fold spliced onto the chain.
+  /// A MATCH's WHERE keeps its EXISTS on the owning @c FilterInfo instead; these need a forced fold on the chain.
   std::vector<SubqueryMatching> subquery_matchings;
 
   /// @brief All the remaining clauses (without @c Match).

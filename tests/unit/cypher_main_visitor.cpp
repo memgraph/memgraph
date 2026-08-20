@@ -8199,9 +8199,8 @@ TEST_P(CypherMainVisitorTest, SubqueryBodyRefusesUnsupportedClausesByConstruct) 
 TEST_P(CypherMainVisitorTest, CountSubqueryParsesToACountFold) {
   auto &ast_generator = *GetParam();
 
-  // Every other COUNT case here is a refusal, and the planner tests build the node with a macro - so nothing else
-  // reaches visitCountSubquery. The arm ordering in visitAtom is the risk: COUNT { ... } also satisfies the COUNT()
-  // arm below it, and losing that race would silently parse this as count(*).
+  // Nothing else reaches visitCountSubquery: every other COUNT case here is a refusal, and the planner tests use a
+  // macro. The risk is visitAtom's arm order - COUNT { ... } also satisfies the COUNT() arm, which would be count(*).
   auto count_fold_of = [&](const std::string &query_string) {
     const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_string));
     EXPECT_TRUE(query);
@@ -8243,7 +8242,6 @@ TEST_P(CypherMainVisitorTest, ExistsBodyRefusesParallelExecution) {
       "MATCH (n) WHERE EXISTS { USING PARALLEL EXECUTION 4 MATCH (n)-[]->(m) RETURN m } RETURN n;",
       ast_generator,
       "EXISTS subqueries cannot use parallel execution.");
-  // Both folds share the body checks, so the message has to name the construct the user wrote.
   TestInvalidQueryWithMessage<SyntaxException>(
       "MATCH (n) RETURN COUNT { USING PARALLEL EXECUTION MATCH (n)-[]->(m) RETURN m } AS c;",
       ast_generator,

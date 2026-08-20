@@ -5365,8 +5365,7 @@ TYPED_TEST(TestPlanner, ExistsSubqueryInReturnProjection) {
       query, this->storage, ExpectExistsRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
 }
 
-// COUNT { ... } reaches the same branch and the same splice points as EXISTS; only the fold differs. The plan-shape
-// discriminator is therefore the fold on the RollUpApply, not the presence of one.
+// COUNT reaches the same branch and splice points as EXISTS, so the fold - not the operator - is the discriminator.
 
 TYPED_TEST(TestPlanner, CountSubqueryInReturnProjection) {
   // MATCH (n) RETURN COUNT { MATCH (n)-[r]->(m) } AS c
@@ -5383,10 +5382,7 @@ TYPED_TEST(TestPlanner, CountSubqueryInReturnProjection) {
 
 TYPED_TEST(TestPlanner, CountSubqueryInMatchWhereUsesTheDeferredFold) {
   // MATCH (n) WHERE COUNT { MATCH (n)-[r]->(m) } > 1 RETURN n
-  //
-  // The deferred fold, as for EXISTS - so an untaken disjunct skips the branch entirely, which for a count is a whole
-  // drain rather than a single pull. No Limit above the branch: it would truncate the drain. The bool fold does plant
-  // one (BasicExistsSubquery asserts it), so its absence here is a decision rather than an omission.
+  // Deferred, as for EXISTS. No Limit above the branch: it would truncate the drain.
   FakeDbAccessor dba;
 
   auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
@@ -5408,8 +5404,7 @@ TYPED_TEST(TestPlanner, CountSubqueryInMatchWhereUsesTheDeferredFold) {
 
 TYPED_TEST(TestPlanner, CountSubqueryInsideAggregateArgument) {
   // MATCH (n) RETURN sum(COUNT { MATCH (n)-[r]->(m) }) AS c
-  // The pre-Aggregate splice loop is a separate site from splice_branches, and the fold has to survive it: a count
-  // collapsed to a bool would make the sum count matching rows rather than adding their counts.
+  // The pre-Aggregate loop is a separate splice site; a fold collapsed there would sum rows, not counts.
   FakeDbAccessor dba;
   auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
   auto *count = COUNT_SUBQUERY(count_subquery);
@@ -5434,10 +5429,8 @@ TYPED_TEST(TestPlanner, CountSubqueryInsideAggregateArgument) {
 }
 
 TYPED_TEST(TestPlanner, SubqueryConjunctIsJoinedLast) {
-  // ExtractFilters sorts the conjunct carrying a subquery branch last, and Type::Pattern does not answer that on its
-  // own: it is set only when the conjunct *is* an SubqueryExpression, so `COUNT { ... } > 1` is tagged Generic.
-  // BoolJoin is left-associative, so the conjunct joined last is the outermost AND's right operand. The COUNT is
-  // written second on purpose - collection order reverses, so that is the spelling which fails without the fix.
+  // BoolJoin is left-associative, so the conjunct sorted last is the outermost AND's right operand. The COUNT is
+  // written second on purpose: collection order reverses, so that is the spelling which fails without the fix.
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
 
@@ -5461,9 +5454,8 @@ TYPED_TEST(TestPlanner, SubqueryConjunctIsJoinedLast) {
       << "the cheap conjunct should be the one evaluated first";
 }
 
-// `VaryMatchingStart` takes its `Matching` by value, so an `SubqueryMatching` is sliced and the fold survives only
-// because `SetCurrentQueryPart` restores it by hand. No other test reaches that code: `PlannerTypes` is
-// `RuleBasedPlanner` alone, while the cost planner - on by default - plans through `VariableStartPlanner`.
+// `VaryMatchingStart` takes its `Matching` by value, so the fold survives only because `SetCurrentQueryPart` restores
+// it by hand. The only test reaching that code: `PlannerTypes` is `RuleBasedPlanner` alone.
 TYPED_TEST(TestPlanner, CountSubqueryKeepsItsFoldThroughPlanVariation) {
   FakeDbAccessor dba;
 
@@ -5490,8 +5482,8 @@ TYPED_TEST(TestPlanner, CountSubqueryKeepsItsFoldThroughPlanVariation) {
 }
 
 TYPED_TEST(TestPlanner, SubqueryConjunctsKeepAuthoringOrderAmongThemselves) {
-  // Sorting them last says nothing about their order relative to each other, and collection order reverses, so a
-  // cheap subquery conjunct would land behind an expensive one. The cheap one is written first: the failing spelling.
+  // Sorting them last says nothing about their order among themselves, and collection order reverses. The cheap one
+  // is written first: the failing spelling.
   FakeDbAccessor dba;
 
   auto *cheap = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r1"), NODE("m1")))));
@@ -5508,7 +5500,6 @@ TYPED_TEST(TestPlanner, SubqueryConjunctsKeepAuthoringOrderAmongThemselves) {
   auto *outer_and = memgraph::utils::Downcast<memgraph::query::AndOperator>(filter->expression_);
   ASSERT_NE(outer_and, nullptr) << "expected the two conjuncts joined by an AND";
 
-  // BoolJoin is left-associative, so the first-written conjunct is the outermost AND's left operand.
   auto *first = memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression1_);
   auto *second = memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression2_);
   ASSERT_NE(first, nullptr);

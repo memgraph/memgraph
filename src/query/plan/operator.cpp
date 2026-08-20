@@ -4797,7 +4797,7 @@ bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, Exec
           return;
         }
 
-        // One pull answers kBool: every predicate is pushed inside the branch, so any row that emerges is a witness.
+        // One pull answers kBool - see the forced fold's arm.
         *return_value = TypedValue(input_cursor->Pull(frame, context), context.evaluation_context.memory);
       };
 
@@ -9376,13 +9376,13 @@ class RollUpApplyCursor : public Cursor {
 
     switch (self_.fold_) {
       case RollUpApply::Fold::kBool: {
-        // One pull answers it: every predicate is pushed inside the branch, so any row that emerges is a witness.
+        // One pull answers it: every predicate is pushed inside the branch, so any row is a witness.
         const bool found = list_collection_cursor_->Pull(frame, context);
         frame_writer.Write(self_.result_symbol_, TypedValue(found, context.evaluation_context.memory));
         break;
       }
       case RollUpApply::Fold::kCount: {
-        // Count, do not materialise: a list per input row is the cost a COUNT over a supernode exists to avoid.
+        // Count, do not materialise: a list per input row is what a COUNT over a supernode exists to avoid.
         int64_t rows = 0;
         while (list_collection_cursor_->Pull(frame, context)) {
           ++rows;

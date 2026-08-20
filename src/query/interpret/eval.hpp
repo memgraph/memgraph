@@ -915,9 +915,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(SubqueryExpression &subquery) override {
     TypedValue const &frame_fold_value = frame_->at(symbol_table_->at(subquery));
-    // Which arm is live follows from where the node was spliced, so exactly one applies per node: a forced fold ran the
-    // branch and wrote the answer - a bool for EXISTS, an integer for COUNT - while a deferred one wrote the closure
-    // that computes it. Past all three means neither operator ran and the slot was never written.
+    // Exactly one arm applies per node: a forced fold wrote the answer, a deferred one wrote the closure that computes
+    // it. Past all three means neither operator ran and the slot was never written.
     if (frame_fold_value.IsBool()) {
       return TypedValue(frame_fold_value.ValueBool(), ctx_->memory);
     }

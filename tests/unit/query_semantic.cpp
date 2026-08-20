@@ -1355,11 +1355,8 @@ TYPED_TEST(TestSymbolGenerator, SubqueryExpression) {
 // The gate ladder: EXISTS is allowed only in the positions the planner has a splice point for, and the checks run in a
 // fixed order - so a refusal can change identity when an earlier rung moves. Every position gets a case, allowed or
 // refused, and the refused ones assert the message.
-// Run for both folds rather than duplicated per spelling: COUNT and EXISTS share the gate, so the position list is
-// one fact about two constructs. The positions below are spelled EXISTS in the comments; the second pass reruns every
-// one of them as COUNT. IsSupportedSubqueryPosition never reads the fold today, so that pass is a guard against a
-// future fold-specific gate rather than an independent fact - unlike SubqueryRefusedPositions, whose second pass does
-// discriminate, because it asserts the construct-named message.
+// Both folds share the gate, so the list is one fact about two constructs: the comments spell EXISTS, the second pass
+// reruns each as COUNT. The gate never reads the fold today, so that pass guards a future one.
 TYPED_TEST(TestSymbolGenerator, SubqueryAllowedPositions) {
   auto check_positions = [this](auto make_subquery) {
     auto subquery = [&] { return make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))))); };
@@ -1387,9 +1384,8 @@ TYPED_TEST(TestSymbolGenerator, SubqueryAllowedPositions) {
     MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COLLECT_LIST(subquery(), false), AS("c")))));
 
     // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { ... }) RETURN n
-    // A per-element lambda is refused in every forced-fold position, but a MATCH's WHERE is a deferred closure that
-    // evaluates where the expression sits, so it stays correct inside a lambda and stays allowed. Pinned because
-    // refusing it here would narrow behaviour that predates the projection work.
+    // Refused in every forced-fold position, but a MATCH's WHERE defers to where the expression sits - so it stays
+    // correct, and allowed, inside a lambda.
     EXPECT_NO_THROW(MakeSymbolTable(QUERY(
         SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(ALL("x", LIST(LITERAL(1)), WHERE(subquery()))), RETURN("n")))));
 
@@ -1401,8 +1397,7 @@ TYPED_TEST(TestSymbolGenerator, SubqueryAllowedPositions) {
                                                        RETURN("n")))));
 
     // MATCH (n) RETURN [(n)-[r2]->(m2) WHERE EXISTS { ... } | m2] AS l
-    // A comprehension's WHERE is rung one as well: the comprehension pushes its own scope, so the WHERE inside it does
-    // not read as a return body's. It is planned as a deferred fold on the comprehension's own Filter.
+    // The comprehension pushes its own scope, so its WHERE does not read as a return body's: a deferred fold again.
     EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(
         MATCH(PATTERN(NODE("n"))),
         RETURN(
@@ -1425,9 +1420,7 @@ TYPED_TEST(TestSymbolGenerator, SubqueryAllowedPositions) {
              AS("c")))));
 }
 
-// The pattern form refuses a node the outer query never bound, and the refusal names the construct. This is the only
-// reader of Scope::subquery_fold, so without it the field can be dropped from the scope initializer and a COUNT will
-// report itself as an EXISTS with nothing failing.
+// The only reader of Scope::subquery_fold: drop that field and a COUNT reports itself as an EXISTS, nothing failing.
 TYPED_TEST(TestSymbolGenerator, SubqueryPatternRefusesAnUnboundedVariableByConstruct) {
   auto expect_message = [](auto *query, std::string_view message) {
     try {
@@ -1496,8 +1489,7 @@ TYPED_TEST(TestSymbolGenerator, SubqueryRefusedPositions) {
     const std::string generic =
         fmt::format("Not yet implemented: {} is not supported in this position yet!", construct);
 
-    // SET n.prop = EXISTS { ... }. The dedicated in_set_property gate is gone: default-deny covers it, and the message
-    // identity changes to the generic one.
+    // SET n.prop = EXISTS { ... } - the in_set_property gate is gone; default-deny covers it, with the generic message.
     expect_message(QUERY(SINGLE_QUERY(
                        MATCH(PATTERN(NODE("n"))), SET(PROPERTY_LOOKUP(this->dba, "n", prop), subquery()), RETURN("n"))),
                    generic);
@@ -1518,8 +1510,7 @@ TYPED_TEST(TestSymbolGenerator, SubqueryRefusedPositions) {
     // RETURN n LIMIT EXISTS { ... } - the other half of the `!in_skip && !in_limit` conjunct.
     expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", LIMIT(subquery())))), generic);
 
-    // A per-element lambda body binds its variable outside the planner's reach, so the branch would be spliced once
-    // above the Produce and read an unbound element - a silently wrong bool. Refused in every such construct.
+    // The lambda binds its variable outside the planner's reach, so a forced splice would read an unbound element.
 
     // RETURN all(x IN [1] WHERE EXISTS { ... }) AS h
     expect_message(
@@ -1565,8 +1556,7 @@ TYPED_TEST(TestSymbolGenerator, SubqueryRefusedPositions) {
                            RETURN(REDUCE("acc", LITERAL(false), "x", LIST(LITERAL(1)), subquery()), AS("h")))),
         fmt::format("Not yet implemented: {} cannot be used within REDUCE!", construct));
 
-    // A CASE does not launder an unsupported position: the enclosing position still answers. Pinned so that dropping
-    // the CASE gate cannot be read as widening the position list - SET is still refused, wrapped or not.
+    // A CASE does not launder an unsupported position: SET is still refused, wrapped or not.
     auto case_expr = [this](Expression *condition, Expression *then_expr, Expression *else_expr) -> Expression * {
       return this->storage.template Create<memgraph::query::IfOperator>(condition, then_expr, else_expr);
     };
@@ -1580,8 +1570,8 @@ TYPED_TEST(TestSymbolGenerator, SubqueryRefusedPositions) {
   check_positions([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); }, "EXISTS");
   check_positions([this](auto *subquery) { return COUNT_SUBQUERY(subquery); }, "COUNT");
 
-  // The gate runs before either form is inspected, so the pattern form is refused identically, under either fold.
-  // Pinned once here rather than per position.
+  // The gate runs before either form is inspected, so the pattern form is refused identically. Pinned once, not per
+  // position.
   auto expect_refused = [](auto *query, std::string_view message) {
     try {
       MakeSymbolTable(query);
