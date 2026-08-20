@@ -10338,12 +10338,9 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
 struct QueryTransactionRequirements : QueryVisitor<void> {
   using QueryVisitor<void>::Visit;
 
-  QueryTransactionRequirements(bool is_schema_assert_query, bool is_cypher_read,
-                               std::optional<storage::StorageMode> storage_mode, bool is_graph_free_cypher)
-      : is_schema_assert_query_(is_schema_assert_query),
-        is_cypher_read_(is_cypher_read),
-        storage_mode_(storage_mode),
-        is_graph_free_cypher_(is_graph_free_cypher) {}
+  QueryTransactionRequirements(storage::StorageAccessType cypher_access,
+                               std::optional<storage::StorageMode> storage_mode)
+      : cypher_access_(cypher_access), storage_mode_(storage_mode) {}
 
   // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
   // case for use database which overwrites the current database)
@@ -10473,15 +10470,16 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Write access required
   void Visit(CypherQuery & /*unused*/) override {
-    // Leaving accessor_type_ unset means NO_ACCESS, so no storage transaction is opened.
-    if (is_graph_free_cypher_) {
-      return;
-    }
+    // NO_ACCESS opens no storage transaction, and so leaves nothing to commit.
+    if (cypher_access_ == storage::StorageAccessType::NO_ACCESS) return;
     could_commit_ = true;
-    accessor_type_ = cypher_access_type();
+    accessor_type_ = cypher_access_;
   }
 
-  void Visit(ProfileQuery & /*unused*/) override { accessor_type_ = cypher_access_type(); }
+  // Never NO_ACCESS: graph-freedom is decided for a CypherQuery, and this is not one, so a profiled query
+  // takes the access its own shape asks for. Which is right either way, since PROFILE reports what an
+  // execution did and so needs there to have been one.
+  void Visit(ProfileQuery & /*unused*/) override { accessor_type_ = cypher_access_; }
 
   void Visit(TriggerQuery &trigger_query) override {
     // Only CREATE TRIGGER needs storage access, and only READ: it plans the trigger statement
@@ -10545,22 +10543,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     accessor_type_ = storage_mode_ == storage::StorageMode::ON_DISK_TRANSACTIONAL ? UNIQUE : READ_ONLY;
   }
 
-  // helper methods
-  auto cypher_access_type() const -> storage::StorageAccessType {
-    using enum storage::StorageAccessType;
-    if (is_schema_assert_query_) {
-      return UNIQUE;
-    }
-    if (is_cypher_read_) {
-      return READ;
-    }
-    return WRITE;
-  }
-
-  bool const is_schema_assert_query_;
-  bool const is_cypher_read_;
+  storage::StorageAccessType const cypher_access_;
   std::optional<storage::StorageMode> storage_mode_;
-  bool const is_graph_free_cypher_;
 
   bool could_commit_ = false;
   // Whether storage_mode_ fed accessor_type_ or isolation_level_override_. Only then does the
@@ -10742,8 +10726,16 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto storage_mode = current_db_.db_acc_
                               ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
                               : std::nullopt;
-      auto transaction_requirements = QueryTransactionRequirements{
-          parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode, graph_free_candidate};
+      // One decision, one answer. The first two cannot both hold: asserting a schema is a procedure call
+      // that reaches the graph, so such a query is never graph-free. The order says which would win if
+      // that ever stopped being true, and taking the whole graph is the safe answer to have chosen.
+      auto const cypher_access = [&] {
+        using enum storage::StorageAccessType;
+        if (parse_info.parsed_query.using_schema_assert) return UNIQUE;
+        if (graph_free_candidate) return NO_ACCESS;
+        return parsed_query.is_cypher_read ? READ : WRITE;
+      }();
+      auto transaction_requirements = QueryTransactionRequirements{cypher_access, storage_mode};
       parsed_query.query->Accept(transaction_requirements);
 
       // Fail-closed gate for broken databases (those that failed durability recovery and
