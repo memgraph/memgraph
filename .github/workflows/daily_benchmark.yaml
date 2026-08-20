@@ -17,7 +17,11 @@ on:
 jobs:
   release_benchmarks:
     name: "Daily benchmarks"
-    runs-on: [self-hosted, Linux, benchmark]
+    # TEMPORARY: borrowed from the general build pool so the HA suite can be iterated on without
+    # waiting for the single benchmark runner. Nothing measured here is comparable to a real result:
+    # the pool is shared and not NUMA-pinned. Restore [self-hosted, Linux, benchmark] before trusting
+    # a number, together with the numa step below.
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     # TEMPORARY: only mgbench-ha runs, so the budget is that one suite. The figure below is an
     # estimate, not a measurement, which is why the margin is generous. Restore the original 550 when
     # the other steps are re-enabled, adjusted for whatever mgbench-ha turns out to cost.
@@ -112,6 +116,11 @@ jobs:
           fi
 
       - name: Force container into first numa group
+        # TEMPORARY: tolerated while the job runs on the borrowed build pool, where the node0 cpulist
+        # the script needs is not guaranteed. Pinning is pointless on a shared runner anyway, and a
+        # missing cpulist must not kill the job before a benchmark runs. Drop this with the runs-on
+        # change above.
+        continue-on-error: true
         run: |
           numagroup="$(./tools/ci/numa-0-cores.sh)"
           echo "Using numa group: $numagroup"
