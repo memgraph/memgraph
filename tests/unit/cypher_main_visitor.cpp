@@ -8167,6 +8167,71 @@ TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, SubqueryBodyRefusesUnsupportedClausesByConstruct) {
+  auto &ast_generator = *GetParam();
+
+  // The allowlist and the memory-limit check both take the construct by value, so hardcoding either back to EXISTS
+  // compiles. These are the only assertions on those two messages under either fold.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) WHERE EXISTS { CREATE (x:Tmp) } RETURN n;",
+      ast_generator,
+      "Only MATCH, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COUNT { CREATE (x:Tmp) } AS c;",
+      ast_generator,
+      "Only MATCH, WHERE, WITH, and RETURN clauses are allowed in COUNT subqueries.");
+  // Each UNION branch is validated separately, so a write hidden in a later branch is refused by the same message.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COUNT { MATCH (n)-[]->(m) RETURN m UNION CREATE (x:T) RETURN x } AS c;",
+      ast_generator,
+      "Only MATCH, WHERE, WITH, and RETURN clauses are allowed in COUNT subqueries.");
+
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) WHERE EXISTS { MATCH (n)-[]->(m) RETURN m QUERY MEMORY LIMIT 1MB } RETURN n;",
+      ast_generator,
+      "EXISTS subqueries cannot have a query memory limit.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COUNT { MATCH (n)-[]->(m) RETURN m QUERY MEMORY LIMIT 1MB } AS c;",
+      ast_generator,
+      "COUNT subqueries cannot have a query memory limit.");
+}
+
+TEST_P(CypherMainVisitorTest, CountSubqueryParsesToACountFold) {
+  auto &ast_generator = *GetParam();
+
+  // Every other COUNT case here is a refusal, and the planner tests build the node with a macro - so nothing else
+  // reaches visitCountSubquery. The arm ordering in visitAtom is the risk: COUNT { ... } also satisfies the COUNT()
+  // arm below it, and losing that race would silently parse this as count(*).
+  auto count_fold_of = [&](const std::string &query_string) {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_string));
+    EXPECT_TRUE(query);
+    const auto *single_query = query->single_query_;
+    const auto *ret = dynamic_cast<Return *>(single_query->clauses_.back());
+    EXPECT_TRUE(ret);
+    return dynamic_cast<SubqueryExpression *>(ret->body_.named_expressions[0]->expression_);
+  };
+
+  const auto *upper = count_fold_of("MATCH (n) RETURN COUNT { MATCH (n)-[]->(m) } AS c;");
+  ASSERT_NE(upper, nullptr) << "COUNT { ... } did not parse to a SubqueryExpression";
+  EXPECT_EQ(upper->fold_, SubqueryExpression::Fold::kCount);
+
+  // Lowercase is the spelling that collides with the aggregation.
+  const auto *lower = count_fold_of("MATCH (n) RETURN count { MATCH (n)-[]->(m) } AS c;");
+  ASSERT_NE(lower, nullptr) << "count { ... } did not parse to a SubqueryExpression";
+  EXPECT_EQ(lower->fold_, SubqueryExpression::Fold::kCount);
+
+  // ... and COUNT(*) must still reach the aggregation.
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) RETURN COUNT(*) AS c;"));
+    ASSERT_TRUE(query);
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_.back());
+    ASSERT_TRUE(ret);
+    const auto *aggregation = dynamic_cast<Aggregation *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_NE(aggregation, nullptr) << "COUNT(*) no longer parses as an aggregation";
+    EXPECT_EQ(aggregation->op_, Aggregation::Op::COUNT);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, ExistsBodyRefusesParallelExecution) {
   auto &ast_generator = *GetParam();
 

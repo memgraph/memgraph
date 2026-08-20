@@ -210,7 +210,7 @@ TYPED_TEST(ExpressionEvaluatorTest, ExistsReadsAForcedBoolFold) {
   }
 }
 
-TYPED_TEST(ExpressionEvaluatorTest, ExistsReadsAForcedCountFold) {
+TYPED_TEST(ExpressionEvaluatorTest, SubqueryReadsAForcedCountFold) {
   // The count fold writes an integer where the bool fold writes a bool, and both are read from the same slot by the
   // same visitor, so the integer arm needs its own case.
   auto *count = this->CreateSubqueryWithValue("anon1", TypedValue(int64_t{3}, this->ctx.memory));
@@ -222,11 +222,23 @@ TYPED_TEST(ExpressionEvaluatorTest, ExistsReadsAForcedCountFold) {
   EXPECT_EQ(this->Eval(zero).ValueInt(), 0);
 }
 
-TYPED_TEST(ExpressionEvaluatorTest, ExistsRefusesAnUnexpectedFrameValueByConstruct) {
-  // Neither a value nor a closure: the message names the construct the user wrote.
-  auto *count = this->CreateSubqueryWithValue("anon1", TypedValue("not a fold", this->ctx.memory));
-  count->fold_ = memgraph::query::SubqueryExpression::Fold::kCount;
-  EXPECT_THROW(this->Eval(count), QueryRuntimeException);
+TYPED_TEST(ExpressionEvaluatorTest, SubqueryRefusesAnUnexpectedFrameValueByConstruct) {
+  // Neither a value nor a closure. Asserting the type alone would pass with either fold, so the construct name in the
+  // message is the whole point of the test.
+  auto expect_named = [this](memgraph::query::SubqueryExpression::Fold fold, std::string_view construct) {
+    auto *subquery = this->CreateSubqueryWithValue("anon1", TypedValue("not a fold", this->ctx.memory));
+    subquery->fold_ = fold;
+    try {
+      this->Eval(subquery);
+      FAIL() << "expected a throw for " << construct;
+    } catch (const QueryRuntimeException &e) {
+      EXPECT_NE(std::string(e.what()).find(construct), std::string::npos)
+          << "the message should name " << construct << ", got: " << e.what();
+    }
+  };
+
+  expect_named(memgraph::query::SubqueryExpression::Fold::kCount, "COUNT");
+  expect_named(memgraph::query::SubqueryExpression::Fold::kBool, "EXISTS");
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, AndOperatorNull) {
