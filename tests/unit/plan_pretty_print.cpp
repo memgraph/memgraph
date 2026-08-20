@@ -1522,6 +1522,7 @@ TYPED_TEST(PrintToJsonTest, SubqueryExpression) {
             },
             "name": "Filter",
             "pattern_filter1": {
+              "fold": "bool",
               "input": {
                 "direction": "both",
                 "edge_symbol": "edge",

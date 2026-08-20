@@ -821,7 +821,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   // A planned branch, folded onto last_op: the list fold reads a column, the column-less folds do not, and that is
   // the whole difference between the two RollUpApply constructors.
   auto fold_onto = [&last_op](ReturnBodyContext::SubqueryBranch &branch) {
-    if (branch.collected_column) {
+    if (branch.fold == Fold::kList) {
       last_op = std::make_unique<RollUpApply>(
           std::move(last_op), std::move(branch.op), std::vector{*branch.collected_column}, branch.result_symbol);
       return;
