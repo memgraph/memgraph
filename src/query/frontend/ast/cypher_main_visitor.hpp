@@ -1117,23 +1117,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) override;
 
   /**
-   * @return SubqueryExpression* (Expression)
-   */
-  antlrcpp::Any visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) override;
-
-  /**
-   * @return SubqueryExpression* (Expression), carrying the count fold
-   */
-  antlrcpp::Any visitCountSubquery(MemgraphCypher::CountSubqueryContext *ctx) override;
-
-  /**
-   * The body shared by the two brace forms, which differ only in their fold - and the construct their errors name
-   * follows from it. Templated because the two grammar rules have the same shape but distinct context types.
+   * The body every brace form shares. The spellings differ only in their fold - and the construct their errors name
+   * follows from it - so the keyword is read at the `atom` level and passed in here.
    *
    * @return SubqueryExpression* (Expression)
    */
-  template <typename TContext>
-  Expression *BuildSubqueryFold(TContext *ctx, SubqueryExpression::Fold fold);
+  Expression *BuildSubqueryFold(MemgraphCypher::SubqueryBodyContext *ctx, SubqueryExpression::Fold fold);
 
   /**
    * @return pattern comprehension (Expression)
