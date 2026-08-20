@@ -182,15 +182,14 @@ binaries on this machine.
 To measure only a cluster:
 
 ```bash
-./benchmark.py --installation-type ha --num-workers-for-benchmark 6 \
-  --export-results benchmark_result_replication.json \
+./benchmark.py --ha-only --num-workers-for-benchmark 6 \
+  --export-results benchmark_result_ha.json \
   pokec/medium/create/pattern \
   pokec/medium/create/vertex_big \
   pokec/medium/arango/single_vertex_write \
   pokec/medium/arango/single_edge_write \
   pokec/medium/basic/single_vertex_property_update_update \
-  pokec/medium/arango/single_vertex_read \
-  pokec/medium/arango/aggregate
+  pokec/medium/arango/single_vertex_read
 ```
 
 In CI this runs as its own nightly suite, which is also how the build script drives it:
