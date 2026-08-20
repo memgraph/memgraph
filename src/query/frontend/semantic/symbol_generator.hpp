@@ -208,6 +208,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   // Refuses a WITH/RETURN item whose alias redeclares a name its subquery can already see.
   void CheckDoesNotShadow(const NamedExpression &named_expr, const Scope &scope) const;
+  void CheckPathDoesNotShadow(const std::string &name, const Scope &scope) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);

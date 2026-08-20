@@ -1785,6 +1785,15 @@ TYPED_TEST(TestSymbolGenerator, SubqueryBodyMayNotShadowAnOuterName) {
                 WHERE(make_subquery(QUERY(SINGLE_QUERY(WITH(NEXPR("q", LITERAL(1))), MATCH(PATTERN(NODE("z"))))))))))),
             RETURN("n"))),
         fmt::format("Variable 'q' in {} shadows a variable with the same name from the outer scope.", construct));
+
+    // A named path assigns its own path, so it declares the name:
+    // MATCH p = (n)-[r]->(m) WHERE EXISTS { MATCH p = (a)-[r2]->(b) } RETURN n
+    expect_message(
+        QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r"), NODE("m"))),
+                           WHERE(make_subquery(QUERY(SINGLE_QUERY(
+                               MATCH(NAMED_PATTERN("p", NODE("a"), EDGE("r2"), NODE("b"))), RETURN("a"))))),
+                           RETURN("n"))),
+        fmt::format("Variable 'p' in {} shadows a variable with the same name from the outer scope.", construct));
   };
 
   check_folds([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); }, "EXISTS");
@@ -1845,6 +1854,13 @@ TYPED_TEST(TestSymbolGenerator, SubqueryBodyMayStillUseAnOuterName) {
             WHERE(make_subquery(QUERY(SINGLE_QUERY(WITH(NEXPR("n", LITERAL(1))), MATCH(PATTERN(NODE("z"))))))),
             RETURN(IDENT("q"), AS("x"))))),
         RETURN("x"))));
+
+    // A named path under a name the outer query does not hold:
+    // MATCH p = (n)-[r]->(m) WHERE EXISTS { MATCH q = (a)-[r2]->(b) } RETURN n
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r"), NODE("m"))),
+                                       WHERE(make_subquery(QUERY(SINGLE_QUERY(
+                                           MATCH(NAMED_PATTERN("q", NODE("a"), EDGE("r2"), NODE("b"))), RETURN("a"))))),
+                                       RETURN("n"))));
   };
 
   check_folds([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); });

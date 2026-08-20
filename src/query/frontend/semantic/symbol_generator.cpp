@@ -519,6 +519,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   } else if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
     // If we are in the pattern, and outside of a node or an edge, the
     // identifier is the pattern name. Shadowed: declare here, as for node and edge atoms below.
+    // A named path assigns a path of its own, so it declares the name rather than referencing it.
+    CheckPathDoesNotShadow(ident.name_, scope);
     symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH)
                                 : GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
   } else if (scope.in_pattern && scope.in_pattern_atom_identifier) {
@@ -1136,6 +1138,17 @@ bool SymbolGenerator::ShadowsEnclosingName(const std::string &name, const Scope 
   auto const hi = std::max(lo, *scope.subquery_body_base);
   return std::ranges::any_of(std::views::iota(lo, hi),
                              [&](auto const idx) { return scopes_[idx].symbols.contains(name); });
+}
+
+void SymbolGenerator::CheckPathDoesNotShadow(const std::string &name, const Scope &scope) const {
+  if (scope.call_subquery_imports.contains(name)) {
+    throw SemanticException("Variable '{}' shadows the variable of the same name imported into this subquery.", name);
+  }
+  if (ShadowsEnclosingName(name, scope)) {
+    throw SemanticException("Variable '{}' in {} shadows a variable with the same name from the outer scope.",
+                            name,
+                            SubqueryExpression::FoldName(scope.subquery_fold));
+  }
 }
 
 void SymbolGenerator::CheckDoesNotShadow(const NamedExpression &named_expr, const Scope &scope) const {

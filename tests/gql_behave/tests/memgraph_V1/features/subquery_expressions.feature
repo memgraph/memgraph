@@ -2793,6 +2793,34 @@ Feature: Subquery expressions
           """
       Then an error should be raised
 
+  Scenario: Test EXISTS subquery body refuses to shadow an outer named path
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(d:Dog {name: 'Ozzy'})-[:HAS_TOY]->(:Toy {name: 'Ball'})
+          """
+      When executing query:
+          """
+          MATCH pp = (person:Person)-[:HAS_DOG]->(:Dog)
+          RETURN length(pp) AS L, EXISTS { MATCH pp = (a:Person)-[:HAS_DOG]->()-[:HAS_TOY]->(b:Toy) } AS e;
+          """
+      Then an error should be raised
+
+  Scenario: Test COUNT subquery body accepts a named path under a name of its own
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(d:Dog {name: 'Ozzy'})-[:HAS_TOY]->(:Toy {name: 'Ball'})
+          """
+      When executing query:
+          """
+          MATCH pp = (person:Person)-[:HAS_DOG]->(:Dog)
+          RETURN length(pp) AS L, COUNT { MATCH qq = (a:Person)-[:HAS_DOG]->()-[:HAS_TOY]->(b:Toy) } AS c;
+          """
+      Then the result should be:
+          | L | c |
+          | 1 | 1 |
+
   Scenario: Test a nested EXISTS subquery body refuses to shadow the enclosing body's variable
       Given an empty graph
       And having executed:
