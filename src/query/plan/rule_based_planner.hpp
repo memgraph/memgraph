@@ -143,7 +143,20 @@ constexpr Fold ToOperatorFold(SubqueryExpression::Fold fold) {
       return Fold::kBool;
     case SubqueryExpression::Fold::kCount:
       return Fold::kCount;
+    case SubqueryExpression::Fold::kList:
+      return Fold::kList;
   }
+}
+
+/// The one column a list fold collects from @p branch. The front end refuses a body that returns any other number, so
+/// a branch reaching here has exactly one output column - the throw says which invariant broke if it ever does not.
+inline Symbol CollectedColumn(const LogicalOperator &branch, const SymbolTable &symbol_table) {
+  auto columns = branch.OutputSymbols(symbol_table);
+  if (columns.size() != 1) {
+    throw QueryException("COLLECT collects one column, but its body returned {}. Please contact support.",
+                         columns.size());
+  }
+  return columns.front();
 }
 
 // These functions are an internal implementation of RuleBasedPlanner. To avoid
@@ -872,7 +885,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
   // Check if a clause is a write clause that HandleWriteClause can process.
-  /// An EXISTS body is read-only and carries no periodic commit: `visitExistsSubquery` allows only MATCH, WHERE,
+  /// A subquery body is read-only and carries no periodic commit: `BuildSubqueryFold` allows only MATCH, WHERE,
   /// WITH and RETURN - in every UNION branch - and rejects a body-level commit directive. Reaching either here means
   /// that validation has a hole. Throws rather than asserts, which would abort the process from an `EXPLAIN` alone.
   static void CheckSubqueryBodyInvariants(const TPlanningContext &context, Expression *commit_frequency) {
@@ -1755,8 +1768,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                       const std::unordered_set<Symbol> &bound_symbols) {
     // Outside an EXISTS branch the flag is false, which resolves to View::OLD.
     auto last_op = MakeSubqueryBranch(matching, symbol_table, storage, bound_symbols, subquery_branch_after_write_);
-    return std::make_unique<EvaluatePatternFilter>(
-        std::move(last_op), matching.symbol.value(), impl::ToOperatorFold(matching.fold));
+    auto const fold = impl::ToOperatorFold(matching.fold);
+    if (fold == Fold::kList) {
+      return std::make_unique<EvaluatePatternFilter>(
+          std::move(last_op), matching.symbol.value(), impl::CollectedColumn(*last_op, symbol_table));
+    }
+    return std::make_unique<EvaluatePatternFilter>(std::move(last_op), matching.symbol.value(), fold);
   }
 
   std::unique_ptr<LogicalOperator> MakePatternComprehensionFilter(const PatternComprehensionMatching &matching,

@@ -271,6 +271,7 @@ atom : listComprehension
      | ( EXISTS '(' existsExpression ')' )
      | ( EXISTS '{' subqueryBody '}' )
      | ( COUNT '{' subqueryBody '}' )
+     | ( COLLECT '{' subqueryBody '}' )
      | patternExpression
      | parenthesizedExpression
      | functionInvocation
@@ -394,6 +395,7 @@ cypherKeyword : ALL
               | CALL
               | CASE
               | COALESCE
+              | COLLECT
               | CONSTRAINT
               | CONTAINS
               | COUNT

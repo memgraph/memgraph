@@ -916,12 +916,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(SubqueryExpression &subquery) override {
     TypedValue const &frame_fold_value = frame_->at(symbol_table_->at(subquery));
     // Exactly one arm applies per node: a forced fold wrote the answer, a deferred one wrote the closure that computes
-    // it. Past all three means neither operator ran and the slot was never written.
+    // it. Past all four means neither operator ran and the slot was never written.
     if (frame_fold_value.IsBool()) {
       return TypedValue(frame_fold_value.ValueBool(), ctx_->memory);
     }
     if (frame_fold_value.IsInt()) {
       return TypedValue(frame_fold_value.ValueInt(), ctx_->memory);
+    }
+    if (frame_fold_value.IsList()) {
+      return TypedValue(frame_fold_value.ValueList(), ctx_->memory);
     }
     if (!frame_fold_value.IsFunction()) [[unlikely]] {
       throw QueryRuntimeException(
