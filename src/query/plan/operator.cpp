@@ -3002,6 +3002,7 @@ class PruningBFSCursor : public query::plan::Cursor {
 
         if (lower_bound_ > upper_bound_) continue;
 
+        ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
         auto const &vertex = vertex_value.ValueVertex();
 
         current_depth_ = 0;
