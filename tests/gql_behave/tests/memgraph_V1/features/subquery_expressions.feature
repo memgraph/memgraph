@@ -2749,63 +2749,6 @@ Feature: Subquery expressions
           | 1    | 1     | 0   |
           | 1    | 1     | 1   |
 
-  Scenario: Test EXISTS subquery body refuses to shadow an outer variable with a WITH alias
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
-          """
-      When executing query:
-          """
-          WITH 'Peter' AS name
-          MATCH (person:Person {name: name})
-          WHERE EXISTS { WITH 'Ozzy' AS name MATCH (person)-[:HAS_DOG]->(d:Dog) WHERE d.name = name }
-          RETURN person.name AS pn;
-          """
-      Then an error should be raised
-
-  Scenario: Test COUNT subquery body refuses to shadow an outer variable with a WITH alias
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
-          """
-      When executing query:
-          """
-          WITH 'Peter' AS name
-          MATCH (person:Person {name: name})
-          WHERE COUNT { WITH 'Ozzy' AS name MATCH (person)-[:HAS_DOG]->(d:Dog) WHERE d.name = name } = 1
-          RETURN person.name AS pn;
-          """
-      Then an error should be raised
-
-  Scenario: Test EXISTS subquery body refuses to shadow an outer variable with a RETURN alias
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
-          """
-      When executing query:
-          """
-          MATCH (person:Person)
-          WHERE EXISTS { MATCH (person)-[:HAS_DOG]->(d:Dog) RETURN d AS person }
-          RETURN person.name AS pn;
-          """
-      Then an error should be raised
-
-  Scenario: Test EXISTS subquery body refuses to shadow an outer named path
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(d:Dog {name: 'Ozzy'})-[:HAS_TOY]->(:Toy {name: 'Ball'})
-          """
-      When executing query:
-          """
-          MATCH pp = (person:Person)-[:HAS_DOG]->(:Dog)
-          RETURN length(pp) AS L, EXISTS { MATCH pp = (a:Person)-[:HAS_DOG]->()-[:HAS_TOY]->(b:Toy) } AS e;
-          """
-      Then an error should be raised
-
   Scenario: Test COUNT subquery body accepts a named path under a name of its own
       Given an empty graph
       And having executed:
@@ -2821,42 +2764,12 @@ Feature: Subquery expressions
           | L | c |
           | 1 | 1 |
 
-  Scenario: Test a nested EXISTS subquery body refuses to shadow the enclosing body's variable
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
-          """
-      When executing query:
-          """
-          MATCH (person:Person)
-          WHERE EXISTS { MATCH (person)-[:HAS_DOG]->(dog:Dog) WHERE EXISTS { WITH 'Ozzy' AS dog MATCH (z:Dog) WHERE z.name = dog } }
-          RETURN person.name AS pn;
-          """
-      Then an error should be raised
-
-  Scenario: Test EXISTS subquery body may declare a name the outer scope does not hold
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
-          """
-      When executing query:
-          """
-          WITH 'Peter' AS name
-          MATCH (person:Person {name: name})
-          WHERE EXISTS { WITH 'Ozzy' AS dogName MATCH (person)-[:HAS_DOG]->(d:Dog) WHERE d.name = dogName }
-          RETURN person.name AS pn;
-          """
-      Then the result should be:
-          | pn      |
-          | 'Peter' |
-
   Scenario: Test EXISTS subquery body may project an outer variable through unchanged
       Given an empty graph
       And having executed:
           """
-          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
+          CREATE (:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
+          CREATE (:Person {name: 'Alice'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
           """
       When executing query:
           """
@@ -2872,7 +2785,9 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
+          CREATE (:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
+          CREATE (a:Person {name: 'Alice'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          CREATE (a)-[:HAS_DOG]->(:Dog {name: 'Bo'})
           """
       When executing query:
           """
@@ -2888,7 +2803,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
+          CREATE (:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
           """
       When executing query:
           """
@@ -2901,39 +2816,11 @@ Feature: Subquery expressions
           | pn      | dn     |
           | 'Peter' | 'Ozzy' |
 
-  Scenario: Test a scoped CALL subquery body refuses to shadow an imported variable
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
-          """
-      When executing query:
-          """
-          MATCH (person:Person)
-          CALL (person) { WITH 1 AS person MATCH (d:Dog) RETURN d.name AS dn }
-          RETURN dn;
-          """
-      Then an error should be raised
-
-  Scenario: Test a scoped CALL subquery body refuses to return an imported variable's name
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
-          """
-      When executing query:
-          """
-          MATCH (person:Person)
-          CALL (person) { MATCH (person)-[:HAS_DOG]->(d:Dog) RETURN d.name AS person }
-          RETURN person;
-          """
-      Then an error should be raised
-
   Scenario: Test a CALL subquery body importing with WITH may redeclare the name afterwards
       Given an empty graph
       And having executed:
           """
-          CREATE (p:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
+          CREATE (:Person {name: 'Peter'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
           """
       When executing query:
           """
