@@ -91,7 +91,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    const bool is_ordinary_flow = in_exists_depth == 0 && in_pattern_comprehension_depth == 0;
+    const bool is_ordinary_flow = in_subquery_depth == 0 && in_pattern_comprehension_depth == 0;
     if (is_ordinary_flow) {
       symbols_.insert(symbol_table_.at(ident));
     } else if (ident.user_declared_) {
@@ -100,17 +100,17 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(Exists &exists) override {
-    ++in_exists_depth;
+  bool PreVisit(SubqueryExpression &subquery) override {
+    ++in_subquery_depth;
 
-    if (exists.HasPattern()) {
-      // We do not visit pattern identifier since we're in exists filter pattern
-      for (auto &atom : exists.GetPattern()->atoms_) {
+    if (subquery.HasPattern()) {
+      // We do not visit pattern identifier since we're in subquery filter pattern
+      for (auto &atom : subquery.GetPattern()->atoms_) {
         atom->Accept(*this);
       }
-    } else if (exists.HasSubquery()) {
+    } else if (subquery.HasSubquery()) {
       // For subqueries, we need to collect symbols from the subquery
-      auto *single_query = exists.GetSubquery()->single_query_;
+      auto *single_query = subquery.GetSubquery()->single_query_;
       if (single_query) {
         for (auto *clause : single_query->clauses_) {
           if (auto *match = utils::Downcast<Match>(clause)) {
@@ -124,15 +124,16 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
       }
     } else {
       throw SemanticException(
-          "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
-          "should not happen!");
+          "{} semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
+          "should not happen!",
+          subquery.FoldName());
     }
 
     return false;
   }
 
-  bool PostVisit(Exists & /*exists*/) override {
-    --in_exists_depth;
+  bool PostVisit(SubqueryExpression & /*subquery*/) override {
+    --in_subquery_depth;
     return true;
   }
 
@@ -160,9 +161,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
  protected:
   // Depths, not flags: a nested one's `PostVisit` would clear a flag and let the rest of the outer body collect
   // anonymous symbols. Both nest - a pattern's property maps and variable-length bounds may hold another
-  // comprehension, and an exists body may hold another exists. Protected so a subclass that walks the body itself
+  // comprehension, and a subquery body may hold another subquery. Protected so a subclass that walks the body itself
   // can enter without also triggering the base's walk.
-  int in_exists_depth{0};
+  int in_subquery_depth{0};
   int in_pattern_comprehension_depth{0};
 };
 
@@ -221,11 +222,11 @@ struct Expansion {
 enum class SplitExpressionMode { AND, OR };
 
 struct PatternComprehensionMatching;
-struct ExistsMatching;
+struct SubqueryMatching;
 using PatternComprehensionMatchings = std::vector<PatternComprehensionMatching>;
 
-/// Which spelling an EXISTS was written as: `exists(pattern)` or `EXISTS { ... }`.
-enum class ExistsKind : uint8_t { kPattern, kSubquery };
+/// Which body form was written: a bare pattern, or a full subquery. Independent of the fold.
+enum class SubqueryKind : uint8_t { kPattern, kSubquery };
 
 /// Collects pattern comprehensions and EXISTS patterns from any AST node.
 /// Uses HierarchicalTreeVisitor for automatic traversal of all expressions in all clause types.
@@ -246,9 +247,9 @@ class SubqueryMatchingCollector : public HierarchicalTreeVisitor {
   // Uses PreVisit to handle manually and prevent automatic traversal into pattern/filter
   bool PreVisit(PatternComprehension &op) override;
 
-  // Exists pattern filters
+  // SubqueryExpression pattern filters
   // Uses PreVisit to handle manually and prevent automatic traversal into pattern/subquery
-  bool PreVisit(Exists &op) override;
+  bool PreVisit(SubqueryExpression &op) override;
 
   // Leaf nodes - stop traversal (no children to visit)
   bool Visit(Identifier &) override { return true; }
@@ -259,13 +260,13 @@ class SubqueryMatchingCollector : public HierarchicalTreeVisitor {
 
   bool Visit(EnumValueAccess &) override { return true; }
 
-  std::vector<ExistsMatching> getExistsMatchings();
+  std::vector<SubqueryMatching> getSubqueryMatchings();
   PatternComprehensionMatchings getPatternComprehensionMatchings();
 
  private:
   SymbolTable &symbol_table_;
   AstStorage &storage_;
-  std::vector<ExistsMatching> exists_matchings_;
+  std::vector<SubqueryMatching> subquery_matchings_;
   PatternComprehensionMatchings pattern_comprehension_matchings_;
 };
 
@@ -388,7 +389,7 @@ struct FilterInfo {
   /// elements.
   enum class Type { Generic, Label, Property, Id, Pattern, Point, EdgeType };
 
-  // FilterInfo is tricky because ExistsMatching is not yet defined:
+  // FilterInfo is tricky because SubqueryMatching is not yet defined:
   //   * if no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
   //   * if any user-declared constructor -> non-aggregate type -> no designated initializers are possible
   //   * IMPORTANT: Matchings will always be initialized to an empty container.
@@ -418,8 +419,8 @@ struct FilterInfo {
   /// Information for Type::Id filtering.
   std::optional<IdFilter> id_filter{};
   /// The EXISTS this filter evaluates, in either spelling.
-  /// NOTE: The vector is not defined here because ExistsMatching is forward declared above.
-  std::vector<ExistsMatching> exists_matchings;
+  /// NOTE: The vector is not defined here because SubqueryMatching is forward declared above.
+  std::vector<SubqueryMatching> subquery_matchings;
   PatternComprehensionMatchings pattern_comprehension_matchings;
   /// Information for Type::Point filtering.
   std::optional<PointFilter> point_filter{};
@@ -543,12 +544,14 @@ struct QueryParts;
 
 /// One EXISTS, normalized. The pattern form fills in @c Matching's expansions and filters; the subquery form leaves
 /// those empty and carries a preprocessed body instead.
-struct ExistsMatching : Matching {
+struct SubqueryMatching : Matching {
   /// Which spelling this was written as.
-  ExistsKind type;
+  SubqueryKind type{SubqueryKind::kPattern};
+  /// What the branch's rows are reduced to - the other axis, independent of @c type.
+  SubqueryExpression::Fold fold{SubqueryExpression::Fold::kBool};
   /// The frame slot the fold writes, and the expression reads.
   std::optional<Symbol> symbol;
-  /// For @c ExistsKind::kSubquery, the body's own query parts.
+  /// For @c SubqueryKind::kSubquery, the body's own query parts.
   std::shared_ptr<QueryParts> subquery;
 };
 
@@ -691,11 +694,10 @@ struct SingleQueryPart {
   /// need to have access to other parts of the clause, such as pattern, filter clauses.
   PatternComprehensionMatchings pattern_comprehension_matchings;
 
-  /// @brief @c ExistsMatching for each EXISTS found in a non-@c Match clause.
+  /// @brief @c SubqueryMatching for each EXISTS found in a non-@c Match clause.
   ///
-  /// A MATCH's WHERE keeps its EXISTS on the owning @c FilterInfo, as a deferred bool fold inside a @c Filter. These
-  /// are the ones a WITH/RETURN body evaluates, so they need a forced fold spliced onto the chain.
-  std::vector<ExistsMatching> exists_matchings;
+  /// A MATCH's WHERE keeps its EXISTS on the owning @c FilterInfo instead; these need a forced fold on the chain.
+  std::vector<SubqueryMatching> subquery_matchings;
 
   /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses{};

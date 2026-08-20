@@ -1001,7 +1001,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         !add_prop_is_not_null_check(is_not)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
-  } else if (utils::Downcast<Exists>(expr)) {
+  } else if (utils::Downcast<SubqueryExpression>(expr)) {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Pattern));
   } else if (utils::Downcast<Function>(expr)) {
     // WHERE point.withinbbox()
@@ -1131,7 +1131,7 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
   for (auto &filter : matching.filters) {
     SubqueryMatchingCollector collector(symbol_table, storage);
     filter.expression->Accept(collector);
-    filter.exists_matchings = collector.getExistsMatchings();
+    filter.subquery_matchings = collector.getSubqueryMatchings();
     filter.pattern_comprehension_matchings = collector.getPatternComprehensionMatchings();
   }
 }
@@ -1164,7 +1164,7 @@ bool SubqueryMatchingCollector::PreVisit(PatternComprehension &op) {
   for (auto &filter : matching.filters) {
     SubqueryMatchingCollector nested_collector(symbol_table_, storage_);
     filter.expression->Accept(nested_collector);
-    filter.exists_matchings = nested_collector.getExistsMatchings();
+    filter.subquery_matchings = nested_collector.getSubqueryMatchings();
     filter.pattern_comprehension_matchings = nested_collector.getPatternComprehensionMatchings();
   }
 
@@ -1233,31 +1233,33 @@ bool SubqueryMatchingCollector::PreVisit(PatternComprehension &op) {
   return false;  // Don't auto-traverse, we handled it manually
 }
 
-bool SubqueryMatchingCollector::PreVisit(Exists &op) {
-  ExistsMatching exists_matching;
-  exists_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
+bool SubqueryMatchingCollector::PreVisit(SubqueryExpression &op) {
+  SubqueryMatching subquery_matching;
+  subquery_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
+  subquery_matching.fold = op.fold_;
 
   if (op.HasPattern()) {
     std::vector<Pattern *> patterns;
     patterns.push_back(op.GetPattern());
-    AddMatching(patterns, nullptr, symbol_table_, storage_, exists_matching);
-    exists_matching.type = ExistsKind::kPattern;
+    AddMatching(patterns, nullptr, symbol_table_, storage_, subquery_matching);
+    subquery_matching.type = SubqueryKind::kPattern;
   } else if (op.HasSubquery()) {
-    exists_matching.type = ExistsKind::kSubquery;
-    exists_matching.subquery =
+    subquery_matching.type = SubqueryKind::kSubquery;
+    subquery_matching.subquery =
         std::make_shared<QueryParts>(CollectQueryParts(symbol_table_, storage_, op.GetSubquery(), true));
   } else {
     throw SemanticException(
-        "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
-        "should not happen!");
+        "{} semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
+        "should not happen!",
+        op.FoldName());
   }
 
-  exists_matchings_.push_back(std::move(exists_matching));
+  subquery_matchings_.push_back(std::move(subquery_matching));
 
   return false;  // Don't auto-traverse, we handled it manually
 }
 
-std::vector<ExistsMatching> SubqueryMatchingCollector::getExistsMatchings() { return exists_matchings_; }
+std::vector<SubqueryMatching> SubqueryMatchingCollector::getSubqueryMatchings() { return subquery_matchings_; }
 
 PatternComprehensionMatchings SubqueryMatchingCollector::getPatternComprehensionMatchings() {
   return pattern_comprehension_matchings_;
@@ -1335,7 +1337,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         query_part->pattern_comprehension_matchings.push_back(std::move(matching));
       }
       // Keep the EXISTS matchings too - a WITH/RETURN body plans them on demand, keyed by result symbol.
-      query_part->exists_matchings.append_range(collector.getExistsMatchings());
+      query_part->subquery_matchings.append_range(collector.getSubqueryMatchings());
 
       // Handle query part boundaries
       if (utils::Downcast<With>(clause) || utils::Downcast<Unwind>(clause) ||
@@ -1434,7 +1436,7 @@ FilterInfo::FilterInfo(Type type, Expression *expression, std::unordered_set<Sym
       used_symbols(std::move(used_symbols)),
       property_filter(std::move(property_filter)),
       id_filter(std::move(id_filter)),
-      exists_matchings({}) {}
+      subquery_matchings({}) {}
 
 FilterInfo::FilterInfo(const FilterInfo &) = default;
 FilterInfo &FilterInfo::operator=(const FilterInfo &) = default;

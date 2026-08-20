@@ -2726,7 +2726,7 @@ TYPED_TEST(TestPlanner, Foreach) {
   }
 }
 
-TYPED_TEST(TestPlanner, Exists) {
+TYPED_TEST(TestPlanner, SubqueryExpression) {
   // MATCH (n) WHERE exists((n)-[]-())
   FakeDbAccessor dba;
   {
@@ -5220,9 +5220,9 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithMatchWhereOnVertexPropety) {
 TYPED_TEST(TestPlanner, ExistsSubqueryNested) {
   FakeDbAccessor dba;
 
-  auto *nested_exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("o")))));
+  auto *nested_subquery_body = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("o")))));
   auto *exists_subquery = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), WHERE(EXISTS_SUBQUERY(nested_exists_subquery))));
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), WHERE(EXISTS_SUBQUERY(nested_subquery_body))));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
@@ -5363,6 +5363,153 @@ TYPED_TEST(TestPlanner, ExistsSubqueryInReturnProjection) {
 
   CheckPlan<TypeParam>(
       query, this->storage, ExpectExistsRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
+}
+
+// COUNT reaches the same branch and splice points as EXISTS, so the fold - not the operator - is the discriminator.
+
+TYPED_TEST(TestPlanner, CountSubqueryInReturnProjection) {
+  // MATCH (n) RETURN COUNT { MATCH (n)-[r]->(m) } AS c
+  auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COUNT_SUBQUERY(count_subquery), AS("c"))));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  // Once, not ScanAll, below the Expand: the branch expands from the bound `n` instead of re-scanning it.
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectCountRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CountSubqueryInMatchWhereUsesTheDeferredFold) {
+  // MATCH (n) WHERE COUNT { MATCH (n)-[r]->(m) } > 1 RETURN n
+  // Deferred, as for EXISTS. No Limit above the branch: it would truncate the drain.
+  FakeDbAccessor dba;
+
+  auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(GREATER(COUNT_SUBQUERY(count_subquery), LITERAL(1))), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> filter_tree{new ExpectExpand(), new ExpectCountEvaluatePatternFilter()};
+
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{filter_tree}),
+            ExpectProduce());
+
+  DeleteListContent(&filter_tree);
+}
+
+TYPED_TEST(TestPlanner, CountSubqueryInsideAggregateArgument) {
+  // MATCH (n) RETURN sum(COUNT { MATCH (n)-[r]->(m) }) AS c
+  // The pre-Aggregate loop is a separate splice site; a fold collapsed there would sum rows, not counts.
+  FakeDbAccessor dba;
+  auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *count = COUNT_SUBQUERY(count_subquery);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(SUM(count, false), AS("c"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectCountRollUpApply{std::move(input), std::move(branch)},
+            OpChecker<Aggregate>(),
+            ExpectProduce());
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto *aggregate = dynamic_cast<Aggregate *>(produce->input_.get());
+  ASSERT_NE(aggregate, nullptr);
+  EXPECT_FALSE(std::ranges::contains(aggregate->remember_, symbol_table.at(*count)))
+      << "a COUNT inside an aggregate argument must not be remembered across the Aggregate";
+}
+
+TYPED_TEST(TestPlanner, SubqueryConjunctIsJoinedLast) {
+  // BoolJoin is left-associative, so the conjunct sorted last is the outermost AND's right operand. The COUNT is
+  // written second on purpose: collection order reverses, so that is the spelling which fails without the fix.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+
+  auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WHERE(AND(EQ(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(1)), GREATER(COUNT_SUBQUERY(count_subquery), LITERAL(1)))),
+      RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *filter = FindOpOfType<memgraph::query::plan::Filter>(&planner.plan());
+  ASSERT_NE(filter, nullptr);
+  auto *outer_and = memgraph::utils::Downcast<memgraph::query::AndOperator>(filter->expression_);
+  ASSERT_NE(outer_and, nullptr) << "expected the two conjuncts joined by an AND";
+
+  auto *count_conjunct = memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression2_);
+  ASSERT_NE(count_conjunct, nullptr) << "the COUNT conjunct was not joined last";
+  EXPECT_NE(memgraph::utils::Downcast<memgraph::query::SubqueryExpression>(count_conjunct->expression1_), nullptr);
+  EXPECT_NE(memgraph::utils::Downcast<memgraph::query::EqualOperator>(outer_and->expression1_), nullptr)
+      << "the cheap conjunct should be the one evaluated first";
+}
+
+// `VaryMatchingStart` takes its `Matching` by value, so the fold survives only because `SetCurrentQueryPart` restores
+// it by hand. The only test reaching that code: `PlannerTypes` is `RuleBasedPlanner` alone.
+TYPED_TEST(TestPlanner, CountSubqueryKeepsItsFoldThroughPlanVariation) {
+  FakeDbAccessor dba;
+
+  auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(GREATER(COUNT_SUBQUERY(count_subquery), LITERAL(1))), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planning_context = MakePlanningContext(&this->storage, &symbol_table, query, &dba);
+  auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
+
+  auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &planning_context);
+  auto plan_it = plans.begin();
+  ASSERT_NE(plan_it, plans.end());
+  auto plan = std::move(*plan_it);
+  ASSERT_TRUE(plan);
+
+  auto *filter = FindOpOfType<memgraph::query::plan::Filter>(plan.get());
+  ASSERT_NE(filter, nullptr);
+  ASSERT_EQ(filter->pattern_filters_.size(), 1U);
+  auto *deferred = dynamic_cast<EvaluatePatternFilter *>(filter->pattern_filters_[0].get());
+  ASSERT_NE(deferred, nullptr);
+  EXPECT_EQ(deferred->fold_, RollUpApply::Fold::kCount) << "the variable-start planner downgraded the count fold";
+  EXPECT_EQ(FindOpOfType<Limit>(deferred->input_.get()), nullptr) << "a Limit would truncate the count's drain";
+}
+
+TYPED_TEST(TestPlanner, SubqueryConjunctsKeepAuthoringOrderAmongThemselves) {
+  // Sorting them last says nothing about their order among themselves, and collection order reverses. The cheap one
+  // is written first: the failing spelling.
+  FakeDbAccessor dba;
+
+  auto *cheap = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r1"), NODE("m1")))));
+  auto *expensive = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r2"), NODE("m2")))));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WHERE(AND(GREATER(COUNT_SUBQUERY(cheap), LITERAL(1)), GREATER(COUNT_SUBQUERY(expensive), LITERAL(2)))),
+      RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *filter = FindOpOfType<memgraph::query::plan::Filter>(&planner.plan());
+  ASSERT_NE(filter, nullptr);
+  auto *outer_and = memgraph::utils::Downcast<memgraph::query::AndOperator>(filter->expression_);
+  ASSERT_NE(outer_and, nullptr) << "expected the two conjuncts joined by an AND";
+
+  auto *first = memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression1_);
+  auto *second = memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression2_);
+  ASSERT_NE(first, nullptr);
+  ASSERT_NE(second, nullptr);
+  auto *first_bound = memgraph::utils::Downcast<memgraph::query::PrimitiveLiteral>(first->expression2_);
+  auto *second_bound = memgraph::utils::Downcast<memgraph::query::PrimitiveLiteral>(second->expression2_);
+  ASSERT_NE(first_bound, nullptr);
+  ASSERT_NE(second_bound, nullptr);
+  EXPECT_EQ(first_bound->value_.ValueInt(), 1) << "the conjunct written first should still be evaluated first";
+  EXPECT_EQ(second_bound->value_.ValueInt(), 2);
 }
 
 TYPED_TEST(TestPlanner, ExistsPatternInReturnProjection) {
@@ -5518,7 +5665,7 @@ TYPED_TEST(TestPlanner, TwoExistsInOneProjectionSpliceInVisitOrder) {
 TYPED_TEST(TestPlanner, ExistsInsideAPatternComprehensionWhere) {
   // MATCH (n) RETURN [(n)-[r]->(m) WHERE EXISTS { MATCH (m)-[r2]->(k) } | m] AS l
   // A comprehension's WHERE is a WHERE outside a return body, so the EXISTS in it stays a deferred fold on the
-  // comprehension's own Filter - the only allowed position that reaches MakeExistsFilter from inside another branch.
+  // comprehension's own Filter - the only allowed position that reaches MakeSubqueryFilter from inside another branch.
   FakeDbAccessor dba;
   auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("k")))));
   auto *query = QUERY(SINGLE_QUERY(

@@ -774,10 +774,27 @@ TYPED_TEST(OperatorToStringTest, EmptyResult) {
 }
 
 TYPED_TEST(OperatorToStringTest, EvaluatePatternFilter) {
-  std::shared_ptr<LogicalOperator> last_op = std::make_shared<EvaluatePatternFilter>(nullptr, this->GetSymbol("node"));
+  std::shared_ptr<LogicalOperator> last_op =
+      std::make_shared<EvaluatePatternFilter>(nullptr, this->GetSymbol("node"), RollUpApply::Fold::kBool);
 
   std::string expected_string{"EvaluatePatternFilter"};
   EXPECT_EQ(last_op->ToString(&this->dba), expected_string);
+}
+
+TYPED_TEST(OperatorToStringTest, RollUpApply) {
+  // The fold picks the label, and EXPLAIN shows it - so a fold collapsed on the way to the operator is visible here
+  // and nowhere else in this suite.
+  Symbol result = this->GetSymbol("result");
+
+  RollUpApply bool_fold(nullptr, nullptr, result, RollUpApply::Fold::kBool);
+  EXPECT_EQ(bool_fold.ToString(&this->dba), "RollUpApply (exists)");
+
+  RollUpApply count_fold(nullptr, nullptr, result, RollUpApply::Fold::kCount);
+  EXPECT_EQ(count_fold.ToString(&this->dba), "RollUpApply (count)");
+
+  // The list fold is the pattern comprehension's, and carries no qualifier.
+  RollUpApply list_fold(nullptr, nullptr, std::vector<Symbol>{this->GetSymbol("item")}, result);
+  EXPECT_EQ(list_fold.ToString(&this->dba), "RollUpApply");
 }
 
 TYPED_TEST(OperatorToStringTest, Apply) {

@@ -116,7 +116,7 @@ target_sources(mg-query
     frontend/ast/query/aggregation.hpp
     frontend/ast/query/auth_query.hpp
     frontend/ast/query/binary_operator.hpp
-    frontend/ast/query/exists.hpp
+    frontend/ast/query/subquery_expression.hpp
     frontend/ast/query/expression.hpp
     frontend/ast/query/identifier.hpp
     frontend/ast/query/named_expression.hpp

@@ -659,7 +659,7 @@ class Interpreter final {
   // and deletion of a single query execution, i.e. when a query finishes,
   // we reset the corresponding unique_ptr.
   // TODO Figure out how this would work for multi-database
-  // Exists only during a single transaction (for now should be okay as is)
+  // SubqueryExpression only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
 
   // all queries that are run as part of the current transaction

@@ -8131,6 +8131,19 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
                                                "EXISTS supports only a single relation or a subquery as its input.");
 }
 
+TEST_P(CypherMainVisitorTest, SubqueryPatternRefusesAnIdentifierByConstruct) {
+  auto &ast_generator = *GetParam();
+
+  // The brace forms share one refusal, so it has to name the construct the user wrote - and neither of them is the
+  // `exists(...)` function whose own message ExistsThrow pins above.
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE EXISTS { p = (n)-[]->() } RETURN n;",
+                                               ast_generator,
+                                               "Identifiers are not supported in a EXISTS pattern.");
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) RETURN COUNT { p = (n)-[]->() } AS c;",
+                                               ast_generator,
+                                               "Identifiers are not supported in a COUNT pattern.");
+}
+
 TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
   auto &ast_generator = *GetParam();
 
@@ -8139,6 +8152,11 @@ TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
       "MATCH (n) WHERE EXISTS { USING PERIODIC COMMIT 1 MATCH (n)-[]->(m) RETURN m } RETURN n;",
       ast_generator,
       "EXISTS subqueries cannot have a periodic commit.");
+  // Both folds share the body checks, so the message has to name the construct the user wrote.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COUNT { USING PERIODIC COMMIT 1 MATCH (n)-[]->(m) RETURN m } AS c;",
+      ast_generator,
+      "COUNT subqueries cannot have a periodic commit.");
   // The outer query may still have one - only the body is refused.
   {
     const auto *query = dynamic_cast<CypherQuery *>(
@@ -8146,6 +8164,70 @@ TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
                                  "SET n.x = 1 RETURN n;"));
     ASSERT_TRUE(query);
     EXPECT_NE(query->pre_query_directives_.commit_frequency_, nullptr);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, SubqueryBodyRefusesUnsupportedClausesByConstruct) {
+  auto &ast_generator = *GetParam();
+
+  // The allowlist and the memory-limit check both take the construct by value, so hardcoding either back to EXISTS
+  // compiles. These are the only assertions on those two messages under either fold.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) WHERE EXISTS { CREATE (x:Tmp) } RETURN n;",
+      ast_generator,
+      "Only MATCH, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COUNT { CREATE (x:Tmp) } AS c;",
+      ast_generator,
+      "Only MATCH, WHERE, WITH, and RETURN clauses are allowed in COUNT subqueries.");
+  // Each UNION branch is validated separately, so a write hidden in a later branch is refused by the same message.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COUNT { MATCH (n)-[]->(m) RETURN m UNION CREATE (x:T) RETURN x } AS c;",
+      ast_generator,
+      "Only MATCH, WHERE, WITH, and RETURN clauses are allowed in COUNT subqueries.");
+
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) WHERE EXISTS { MATCH (n)-[]->(m) RETURN m QUERY MEMORY LIMIT 1MB } RETURN n;",
+      ast_generator,
+      "EXISTS subqueries cannot have a query memory limit.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COUNT { MATCH (n)-[]->(m) RETURN m QUERY MEMORY LIMIT 1MB } AS c;",
+      ast_generator,
+      "COUNT subqueries cannot have a query memory limit.");
+}
+
+TEST_P(CypherMainVisitorTest, CountSubqueryParsesToACountFold) {
+  auto &ast_generator = *GetParam();
+
+  // Nothing else reaches visitCountSubquery: every other COUNT case here is a refusal, and the planner tests use a
+  // macro. The risk is visitAtom's arm order - COUNT { ... } also satisfies the COUNT() arm, which would be count(*).
+  auto count_fold_of = [&](const std::string &query_string) {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_string));
+    EXPECT_TRUE(query);
+    const auto *single_query = query->single_query_;
+    const auto *ret = dynamic_cast<Return *>(single_query->clauses_.back());
+    EXPECT_TRUE(ret);
+    return dynamic_cast<SubqueryExpression *>(ret->body_.named_expressions[0]->expression_);
+  };
+
+  const auto *upper = count_fold_of("MATCH (n) RETURN COUNT { MATCH (n)-[]->(m) } AS c;");
+  ASSERT_NE(upper, nullptr) << "COUNT { ... } did not parse to a SubqueryExpression";
+  EXPECT_EQ(upper->fold_, SubqueryExpression::Fold::kCount);
+
+  // Lowercase is the spelling that collides with the aggregation.
+  const auto *lower = count_fold_of("MATCH (n) RETURN count { MATCH (n)-[]->(m) } AS c;");
+  ASSERT_NE(lower, nullptr) << "count { ... } did not parse to a SubqueryExpression";
+  EXPECT_EQ(lower->fold_, SubqueryExpression::Fold::kCount);
+
+  // ... and COUNT(*) must still reach the aggregation.
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) RETURN COUNT(*) AS c;"));
+    ASSERT_TRUE(query);
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_.back());
+    ASSERT_TRUE(ret);
+    const auto *aggregation = dynamic_cast<Aggregation *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_NE(aggregation, nullptr) << "COUNT(*) no longer parses as an aggregation";
+    EXPECT_EQ(aggregation->op_, Aggregation::Op::COUNT);
   }
 }
 
@@ -8160,6 +8242,10 @@ TEST_P(CypherMainVisitorTest, ExistsBodyRefusesParallelExecution) {
       "MATCH (n) WHERE EXISTS { USING PARALLEL EXECUTION 4 MATCH (n)-[]->(m) RETURN m } RETURN n;",
       ast_generator,
       "EXISTS subqueries cannot use parallel execution.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COUNT { USING PARALLEL EXECUTION MATCH (n)-[]->(m) RETURN m } AS c;",
+      ast_generator,
+      "COUNT subqueries cannot use parallel execution.");
   // The outer query may still have one - only the body is refused.
   {
     const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
@@ -8181,7 +8267,7 @@ TEST_P(CypherMainVisitorTest, ExistsBodyIsNotJudgedByTheEnclosingWith) {
     const auto *with = dynamic_cast<With *>(query->single_query_->clauses_[1]);
     ASSERT_TRUE(with);
     ASSERT_EQ(with->body_.named_expressions.size(), 2U);
-    EXPECT_TRUE(dynamic_cast<Exists *>(with->body_.named_expressions[1]->expression_));
+    EXPECT_TRUE(dynamic_cast<SubqueryExpression *>(with->body_.named_expressions[1]->expression_));
   }
   // `visitReturnBody` visits ORDER BY before the return items, both while the flag is set, so the body of an EXISTS
   // sorted on is judged by the same rule and was refused for the same reason.
@@ -8192,7 +8278,7 @@ TEST_P(CypherMainVisitorTest, ExistsBodyIsNotJudgedByTheEnclosingWith) {
     const auto *with = dynamic_cast<With *>(query->single_query_->clauses_[1]);
     ASSERT_TRUE(with);
     ASSERT_EQ(with->body_.order_by.size(), 1U);
-    EXPECT_TRUE(dynamic_cast<Exists *>(with->body_.order_by[0].expression));
+    EXPECT_TRUE(dynamic_cast<SubqueryExpression *>(with->body_.order_by[0].expression));
   }
   // Clearing the flag for the body does not disarm it for the body's own WITH, which has return items of its own.
   {
@@ -8210,14 +8296,14 @@ TEST_P(CypherMainVisitorTest, ExistsBodyIsNotJudgedByTheEnclosingWith) {
                                                  "Only variables can be non-aliased in WITH.");
 }
 
-TEST_P(CypherMainVisitorTest, Exists) {
+TEST_P(CypherMainVisitorTest, SubqueryExpression) {
   auto &ast_generator = *GetParam();
   {
     const auto *query =
         dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WHERE exists((n)-[]->()) RETURN n;"));
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
 
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
 
     ASSERT_TRUE(exists);
 
@@ -8239,7 +8325,7 @@ TEST_P(CypherMainVisitorTest, Exists) {
         dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WHERE exists((n)-[]->()-[]->()) RETURN n;"));
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
 
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
 
     ASSERT_TRUE(exists);
 
@@ -9197,7 +9283,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9228,7 +9314,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9254,7 +9340,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 3);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[1]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9280,7 +9366,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9306,7 +9392,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9332,7 +9418,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9358,7 +9444,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();
@@ -9372,7 +9458,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     const auto *subquery_where = dynamic_cast<Where *>(subquery_match->where_);
     ASSERT_NE(subquery_where, nullptr);
 
-    const auto *subquery_exists = dynamic_cast<Exists *>(subquery_where->expression_);
+    const auto *subquery_exists = dynamic_cast<SubqueryExpression *>(subquery_where->expression_);
     ASSERT_NE(subquery_exists, nullptr);
 
     const auto *nested_pattern = subquery_exists->GetPattern();
@@ -9398,7 +9484,7 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    const auto *exists = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
     const auto *pattern = exists->GetPattern();

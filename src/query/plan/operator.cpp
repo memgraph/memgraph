@@ -4746,8 +4746,11 @@ void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
 
-EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol)
-    : input_(input ? input : std::make_shared<Once>()), output_symbol_(std::move(output_symbol)) {}
+EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                             Fold fold)
+    : input_(input ? input : std::make_shared<Once>()), output_symbol_(std::move(output_symbol)), fold_(fold) {
+  MG_ASSERT(fold != Fold::kList, "EvaluatePatternFilter: the list fold has no column to read here.");
+}
 
 ACCEPT_WITH_INPUT(EvaluatePatternFilter);
 
@@ -4770,6 +4773,7 @@ std::unique_ptr<LogicalOperator> EvaluatePatternFilter::Clone(AstStorage *storag
   auto object = std::make_unique<EvaluatePatternFilter>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
+  object->fold_ = fold_;
   return object;
 }
 
@@ -4779,10 +4783,21 @@ bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, Exec
   AbortCheck(context);
 
   std::function<void(TypedValue *)> function =
-      [&frame, self = this->self_, input_cursor = this->input_cursor_.get(), &context](TypedValue *return_value) {
+      [&frame, fold = self_.fold_, input_cursor = this->input_cursor_.get(), &context](TypedValue *return_value) {
         OOMExceptionEnabler const oom_exception;
         input_cursor->Reset();
 
+        if (fold == Fold::kCount) {
+          // Count, do not materialise - same reason as the forced fold's kCount arm.
+          int64_t rows = 0;
+          while (input_cursor->Pull(frame, context)) {
+            ++rows;
+          }
+          *return_value = TypedValue(rows, context.evaluation_context.memory);
+          return;
+        }
+
+        // One pull answers kBool - see the forced fold's arm.
         *return_value = TypedValue(input_cursor->Pull(frame, context), context.evaluation_context.memory);
       };
 
@@ -9306,11 +9321,13 @@ RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input,
 }
 
 RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&branch,
-                         Symbol result_symbol)
+                         Symbol result_symbol, Fold fold)
     : input_(input ? std::move(input) : std::make_shared<Once>()),
       list_collection_branch_(std::move(branch)),
       result_symbol_(std::move(result_symbol)),
-      fold_(Fold::kBool) {}
+      fold_(fold) {
+  MG_ASSERT(fold != Fold::kList, "RollUpApply: the list fold reads a column, so it needs list_collection_symbols.");
+}
 
 std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
@@ -9357,17 +9374,30 @@ class RollUpApplyCursor : public Cursor {
       return false;
     }
 
-    if (self_.fold_ == RollUpApply::Fold::kBool) {
-      // One pull answers it: every predicate is pushed inside the branch, so any row that emerges is a witness.
-      const bool found = list_collection_cursor_->Pull(frame, context);
-      frame_writer.Write(self_.result_symbol_, TypedValue(found, context.evaluation_context.memory));
-    } else {
-      TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
-      while (list_collection_cursor_->Pull(frame, context)) {
-        // collect values from the list collection branch
-        result.ValueList().emplace_back(frame[self_.list_collection_symbol_]);
+    switch (self_.fold_) {
+      case RollUpApply::Fold::kBool: {
+        // One pull answers it: every predicate is pushed inside the branch, so any row is a witness.
+        const bool found = list_collection_cursor_->Pull(frame, context);
+        frame_writer.Write(self_.result_symbol_, TypedValue(found, context.evaluation_context.memory));
+        break;
       }
-      frame_writer.Write(self_.result_symbol_, result);
+      case RollUpApply::Fold::kCount: {
+        // Count, do not materialise: a list per input row is what a COUNT over a supernode exists to avoid.
+        int64_t rows = 0;
+        while (list_collection_cursor_->Pull(frame, context)) {
+          ++rows;
+        }
+        frame_writer.Write(self_.result_symbol_, TypedValue(rows, context.evaluation_context.memory));
+        break;
+      }
+      case RollUpApply::Fold::kList: {
+        TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
+        while (list_collection_cursor_->Pull(frame, context)) {
+          result.ValueList().emplace_back(frame[self_.list_collection_symbol_]);
+        }
+        frame_writer.Write(self_.result_symbol_, result);
+        break;
+      }
     }
     // The branch starts from a Once, so it has to be rewound for the next input row.
     list_collection_cursor_->Reset();
@@ -9410,7 +9440,15 @@ std::unique_ptr<LogicalOperator> RollUpApply::Clone(AstStorage *storage) const {
 }
 
 std::string RollUpApply::ToString(const DbAccessor * /*dba*/) const {
-  return fold_ == Fold::kBool ? "RollUpApply (exists)" : "RollUpApply";
+  switch (fold_) {
+    case Fold::kBool:
+      return "RollUpApply (exists)";
+    case Fold::kCount:
+      return "RollUpApply (count)";
+    case Fold::kList:
+      return "RollUpApply";
+  }
+  LOG_FATAL("Unhandled RollUpApply fold");
 }
 
 PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency)

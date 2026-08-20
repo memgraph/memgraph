@@ -3970,7 +3970,8 @@ class ExistsFixture : public testing::Test {
     }
 
     last_op = std::make_shared<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
-    last_op = std::make_shared<EvaluatePatternFilter>(std::move(last_op), symbol_table.at(*exists_expression));
+    last_op = std::make_shared<EvaluatePatternFilter>(
+        std::move(last_op), symbol_table.at(*exists_expression), RollUpApply::Fold::kBool);
 
     auto *total_expression = AND(storage.Create<LabelsTest>(scan_all.node_->identifier_, labels), exists_expression);
 
@@ -4030,12 +4031,14 @@ class ExistsFixture : public testing::Test {
     std::shared_ptr<LogicalOperator> last_op = std::make_shared<Expand>(
         nullptr, scan_all.sym_, dest_sym, edge_sym, direction, first_edge_type, false, memgraph::storage::View::OLD);
     last_op = std::make_shared<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
-    last_op = std::make_shared<EvaluatePatternFilter>(std::move(last_op), symbol_table.at(*exists_expression));
+    last_op = std::make_shared<EvaluatePatternFilter>(
+        std::move(last_op), symbol_table.at(*exists_expression), RollUpApply::Fold::kBool);
 
     std::shared_ptr<LogicalOperator> last_op2 = std::make_shared<Expand>(
         nullptr, scan_all.sym_, dest_sym2, edge_sym2, direction, second_edge_type, false, memgraph::storage::View::OLD);
     last_op2 = std::make_shared<Limit>(std::move(last_op2), storage.Create<PrimitiveLiteral>(1));
-    last_op2 = std::make_shared<EvaluatePatternFilter>(std::move(last_op2), symbol_table.at(*exists_expression2));
+    last_op2 = std::make_shared<EvaluatePatternFilter>(
+        std::move(last_op2), symbol_table.at(*exists_expression2), RollUpApply::Fold::kBool);
 
     Expression *total_expression = storage.Create<LabelsTest>(scan_all.node_->identifier_, labels);
 

@@ -2073,8 +2073,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
-  if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure &&
-      !parsing_exists_subquery_) {
+  if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure && !parsing_subquery_body_) {
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
@@ -3777,6 +3776,9 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return std::any_cast<Expression *>(ctx->existsExpression()->accept(this));
   } else if (ctx->existsSubquery()) {
     return std::any_cast<Expression *>(ctx->existsSubquery()->accept(this));
+  } else if (ctx->countSubquery()) {
+    // Ahead of the ctx->COUNT() arm below, which COUNT { ... } also satisfies - that arm is COUNT(*).
+    return std::any_cast<Expression *>(ctx->countSubquery()->accept(this));
   } else if (ctx->functionInvocation()) {
     return std::any_cast<Expression *>(ctx->functionInvocation()->accept(this));
   } else if (ctx->COALESCE()) {
@@ -3920,11 +3922,11 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
 }
 
 antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
-  auto *exists = storage_->Create<Exists>();
+  auto *subquery = storage_->Create<SubqueryExpression>();
   // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
-    exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-    if (exists->GetPattern()->identifier_) {
+    subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    if (subquery->GetPattern()->identifier_) {
       throw SyntaxException("Identifiers are not supported in exists(...).");
     }
   } else {
@@ -3932,48 +3934,50 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   }
 
   // Ensure only one of pattern_ or subquery_ is set
-  const bool has_pattern = exists->HasPattern();
-  const bool has_subquery = exists->HasSubquery();
+  const bool has_pattern = subquery->HasPattern();
+  const bool has_subquery = subquery->HasSubquery();
   if ((has_pattern && has_subquery) || (!has_pattern && !has_subquery)) {
     throw SyntaxException(
         "EXISTS must have exactly one of pattern or subquery set. Please contact Memgraph support as this scenario "
         "should not happen!");
   }
 
-  return static_cast<Expression *>(exists);
+  return static_cast<Expression *>(subquery);
 }
 
-antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) {
-  auto *exists = storage_->Create<Exists>();
+template <typename TContext>
+Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpression::Fold fold) {
+  auto const construct = SubqueryExpression::FoldName(fold);
+  auto *subquery = storage_->Create<SubqueryExpression>();
+  subquery->fold_ = fold;
   // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
-    exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-    if (exists->GetPattern()->identifier_) {
-      throw SyntaxException("Identifiers are not supported in exists(...).");
+    subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    if (subquery->GetPattern()->identifier_) {
+      throw SyntaxException("Identifiers are not supported in a {} pattern.", construct);
     }
   } else if (ctx->cypherQuery()) {
     // Curly-brace subquery form: { cypherQuery }
-    // Set the flag to indicate we are parsing an EXISTS subquery
-    auto old_flag = parsing_exists_subquery_;
+    auto old_flag = parsing_subquery_body_;
     // The body's clauses are its own, so the enclosing WITH's "everything must be aliased" rule does not reach them.
     auto old_in_with = std::exchange(in_with_, false);
-    parsing_exists_subquery_ = true;
+    parsing_subquery_body_ = true;
     auto *cypher_query = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
     in_with_ = old_in_with;
-    parsing_exists_subquery_ = old_flag;
-    exists->content_ = cypher_query;
+    parsing_subquery_body_ = old_flag;
+    subquery->content_ = cypher_query;
 
     // 1. There must be at least one clause, and 2. only MATCH, WHERE, WITH, RETURN. Per branch: a UNION's
     // further branches are each their own SingleQuery, and a clause forbidden in the first is not legal in them.
-    auto validate_branch = [](const SingleQuery *single_query) {
+    auto validate_branch = [construct](const SingleQuery *single_query) {
       if (!single_query || single_query->clauses_.empty()) {
-        throw SyntaxException("EXISTS subquery must contain at least one clause.");
+        throw SyntaxException("{} subquery must contain at least one clause.", construct);
       }
       for (const auto *clause : single_query->clauses_) {
         const auto &type = clause->GetTypeInfo();
         if (!(utils::IsSubtype(type, Match::kType) || utils::IsSubtype(type, Where::kType) ||
               utils::IsSubtype(type, With::kType) || utils::IsSubtype(type, Return::kType))) {
-          throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+          throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.", construct);
         }
       }
     };
@@ -3984,34 +3988,43 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
 
     // 3. No query memory limit
     if (cypher_query->memory_limit_ != nullptr) {
-      throw SyntaxException("EXISTS subqueries cannot have a query memory limit.");
+      throw SyntaxException("{} subqueries cannot have a query memory limit.", construct);
     }
 
     // 4. No periodic commit. The body's rows are only counted, so a commit point inside it has nothing to commit -
     // but it would run, finalizing the caller's transaction from inside an expression.
     if (cypher_query->pre_query_directives_.commit_frequency_ != nullptr) {
-      throw SyntaxException("EXISTS subqueries cannot have a periodic commit.");
+      throw SyntaxException("{} subqueries cannot have a periodic commit.", construct);
     }
 
     // 5. No parallel execution. Only the enclosing query's directives are read, so the body's are silently dropped;
     // and the body is a sub-plan re-executed per outer row, which the parallel cursors' Reset() mishandles.
     if (cypher_query->pre_query_directives_.parallel_execution_) {
-      throw SyntaxException("EXISTS subqueries cannot use parallel execution.");
+      throw SyntaxException("{} subqueries cannot use parallel execution.", construct);
     }
   } else {
-    throw SyntaxException("EXISTS supports only a single relation or a subquery as its input.");
+    throw SyntaxException("{} supports only a single relation or a subquery as its input.", construct);
   }
 
   // Ensure only one of pattern_ or subquery_ is set
-  const bool has_pattern = exists->HasPattern();
-  const bool has_subquery = exists->HasSubquery();
+  const bool has_pattern = subquery->HasPattern();
+  const bool has_subquery = subquery->HasSubquery();
   if ((has_pattern && has_subquery) || (!has_pattern && !has_subquery)) {
     throw SyntaxException(
-        "EXISTS must have exactly one of pattern or subquery set! Please contact Memgraph support as this scenario "
-        "should not happen!");
+        "{} must have exactly one of pattern or subquery set! Please contact Memgraph support as this scenario "
+        "should not happen!",
+        construct);
   }
 
-  return static_cast<Expression *>(exists);
+  return static_cast<Expression *>(subquery);
+}
+
+antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) {
+  return BuildSubqueryFold(ctx, SubqueryExpression::Fold::kBool);
+}
+
+antlrcpp::Any CypherMainVisitor::visitCountSubquery(MemgraphCypher::CountSubqueryContext *ctx) {
+  return BuildSubqueryFold(ctx, SubqueryExpression::Fold::kCount);
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::PatternComprehensionContext *ctx) {
@@ -4028,13 +4041,13 @@ antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::Patte
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternExpression(MemgraphCypher::PatternExpressionContext *ctx) {
-  auto *exists = storage_->Create<Exists>();
-  exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-  if (exists->GetPattern()->identifier_) {
+  auto *subquery = storage_->Create<SubqueryExpression>();
+  subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+  if (subquery->GetPattern()->identifier_) {
     throw SyntaxException("Identifiers are not supported in pattern expressions.");
   }
 
-  return static_cast<Expression *>(exists);
+  return static_cast<Expression *>(subquery);
 }
 
 antlrcpp::Any CypherMainVisitor::visitParenthesizedExpression(MemgraphCypher::ParenthesizedExpressionContext *ctx) {
