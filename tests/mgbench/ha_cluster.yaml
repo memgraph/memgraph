@@ -6,11 +6,8 @@
 # data_directory is deliberately absent: the runner injects one per instance so directories are
 # pinned for a whole run and fresh for the next one.
 #
-# Log level is TRACE on every instance, which is a deliberate trade against measurement accuracy:
-# logging on the commit path costs throughput and latency, so numbers taken with this setting are for
-# diagnosing the harness, not for publishing. Set it back to WARNING before trusting a result. It also
-# produces a large volume of log data under ha_logs/, since the pokec import alone is on the order of a
-# million commits per instance.
+# Log level stays at WARNING. Trace-level logging on the commit path would dominate the
+# measurement rather than the replication it is meant to expose.
 #
 # Each instance's console output is discarded, since a run restarts them all once per measurement and
 # every start would otherwise print a banner and a couple of notices. The log files are unaffected.
@@ -18,7 +15,7 @@
 
 instance_1:
   args:
-    - "--log-level=TRACE"
+    - "--log-level=WARNING"
     - "--bolt-port=7687"
     - "--management-port=10011"
     - "--data-recovery-on-startup=true"
@@ -28,7 +25,7 @@ instance_1:
 
 instance_2:
   args:
-    - "--log-level=TRACE"
+    - "--log-level=WARNING"
     - "--bolt-port=7688"
     - "--management-port=10012"
     - "--data-recovery-on-startup=true"
@@ -38,7 +35,7 @@ instance_2:
 
 coordinator_1:
   args:
-    - "--log-level=TRACE"
+    - "--log-level=WARNING"
     - "--bolt-port=7690"
     - "--coordinator-id=1"
     - "--coordinator-port=10111"
@@ -49,7 +46,7 @@ coordinator_1:
 
 coordinator_2:
   args:
-    - "--log-level=TRACE"
+    - "--log-level=WARNING"
     - "--bolt-port=7691"
     - "--coordinator-id=2"
     - "--coordinator-port=10112"
@@ -63,7 +60,7 @@ coordinator_2:
 # state for the whole run, so nothing is ever registered twice.
 coordinator_3:
   args:
-    - "--log-level=TRACE"
+    - "--log-level=WARNING"
     - "--bolt-port=7692"
     - "--coordinator-id=3"
     - "--coordinator-port=10113"

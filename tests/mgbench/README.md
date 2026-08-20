@@ -243,10 +243,7 @@ block-buffers stdout when it is not a terminal, so a run that spends several min
 waiting for a cluster to converge prints nothing at all and looks hung. The `mgbench-ha` suite command
 sets it for that reason.
 
-Instance logs go to `ha_logs/`, currently at `--log-level=TRACE` on every instance while the suite is
-being brought up. That is a trade, not a default: logging on the commit path costs throughput and
-latency on the very path being measured, and the volume is substantial. Set `ha_cluster.yaml` back to
-`WARNING` before trusting a number. Note that Memgraph uses a daily file sink, so the file on disk
+Instance logs go to `ha_logs/`. Note that Memgraph uses a daily file sink, so the file on disk
 carries a date suffix — `mgbench_ha_instance_1_2026-08-18.log` — and is opened in append mode, so
 every restart in a run adds to the same file. The instances' console output is discarded instead of
 inherited, because a run restarts every instance once per measurement and each start would otherwise
