@@ -3992,6 +3992,12 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
     if (cypher_query->pre_query_directives_.commit_frequency_ != nullptr) {
       throw SyntaxException("EXISTS subqueries cannot have a periodic commit.");
     }
+
+    // 5. No parallel execution. Only the enclosing query's directives are read, so the body's are silently dropped;
+    // and the body is a sub-plan re-executed per outer row, which the parallel cursors' Reset() mishandles.
+    if (cypher_query->pre_query_directives_.parallel_execution_) {
+      throw SyntaxException("EXISTS subqueries cannot use parallel execution.");
+    }
   } else {
     throw SyntaxException("EXISTS supports only a single relation or a subquery as its input.");
   }

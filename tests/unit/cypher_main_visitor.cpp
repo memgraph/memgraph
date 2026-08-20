@@ -8149,6 +8149,26 @@ TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, ExistsBodyRefusesParallelExecution) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) WHERE EXISTS { USING PARALLEL EXECUTION MATCH (n)-[]->(m) RETURN m } RETURN n;",
+      ast_generator,
+      "EXISTS subqueries cannot use parallel execution.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) WHERE EXISTS { USING PARALLEL EXECUTION 4 MATCH (n)-[]->(m) RETURN m } RETURN n;",
+      ast_generator,
+      "EXISTS subqueries cannot use parallel execution.");
+  // The outer query may still have one - only the body is refused.
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "USING PARALLEL EXECUTION MATCH (n) WHERE EXISTS { MATCH (n)-[]->(m) RETURN m } RETURN n;"));
+    ASSERT_TRUE(query);
+    EXPECT_TRUE(query->pre_query_directives_.parallel_execution_);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, ExistsBodyIsNotJudgedByTheEnclosingWith) {
   auto &ast_generator = *GetParam();
 
