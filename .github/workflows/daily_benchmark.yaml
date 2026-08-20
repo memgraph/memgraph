@@ -292,11 +292,30 @@ jobs:
 
       - name: Set Job Status
         run: |
-          success=${{ steps.macro-benchmark.outcome == 'success' && steps.mgbench-supernode.outcome == 'success' && steps.mgbench.outcome == 'success' && steps.planner.outcome == 'success' && steps.load-parquet.outcome == 'success' && steps.mgbench-vector-search-index.outcome == 'success' && steps.mgbench-vector-search-edge-index.outcome == 'success' && steps.mgbench-text-search-index.outcome == 'success' && steps.mgbench-text-search-edge-index.outcome == 'success' }}
-          echo "success=$success" >> $GITHUB_OUTPUT
-          if [ "$success" == "true" ]; then
-            echo "All benchmarks succeeded"
-          else
-            echo "Some benchmarks failed"
+          # Only an explicit failure fails the job. A step disabled with `if: false`, or never
+          # reached, reports "skipped" or nothing, and must not be read as a failed benchmark.
+          check() {
+            case "$2" in
+              failure) echo "FAILED   $1"; failed="$failed $1" ;;
+              success) echo "ok       $1" ;;
+              *)       echo "skipped  $1" ;;
+            esac
+          }
+          failed=""
+          check mgbench-ha                       "${{ steps.mgbench-ha.outcome }}"
+          check load-parquet                     "${{ steps.load-parquet.outcome }}"
+          check mgbench-vector-search-index      "${{ steps.mgbench-vector-search-index.outcome }}"
+          check mgbench-vector-search-edge-index "${{ steps.mgbench-vector-search-edge-index.outcome }}"
+          check mgbench-text-search-index        "${{ steps.mgbench-text-search-index.outcome }}"
+          check mgbench-text-search-edge-index   "${{ steps.mgbench-text-search-edge-index.outcome }}"
+          check macro-benchmark                  "${{ steps.macro-benchmark.outcome }}"
+          check mgbench-supernode                "${{ steps.mgbench-supernode.outcome }}"
+          check mgbench                          "${{ steps.mgbench.outcome }}"
+          check planner                          "${{ steps.planner.outcome }}"
+          if [ -n "$failed" ]; then
+            echo "success=false" >> $GITHUB_OUTPUT
+            echo "Failed benchmarks:$failed"
             exit 1
           fi
+          echo "success=true" >> $GITHUB_OUTPUT
+          echo "All benchmarks that ran succeeded"
