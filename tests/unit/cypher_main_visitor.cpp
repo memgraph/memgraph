@@ -8152,6 +8152,74 @@ TEST_P(CypherMainVisitorTest, SubqueryPatternRefusesAnIdentifierByConstruct) {
                                                "Identifiers are not supported in a COUNT pattern.");
 }
 
+TEST_P(CypherMainVisitorTest, CollectSubqueryNeedsExactlyOneReturnColumn) {
+  auto &ast_generator = *GetParam();
+
+  // Measured against Neo4j 2026.02.2: it refuses every shape below with `42N22 … A COLLECT subquery must end with a
+  // single return column`. `RETURN *` is refused there whatever the body binds - one variable included - so the check
+  // is a clause test and never has to count symbols.
+  const auto *const message = "COLLECT subquery must end with a RETURN of exactly one column.";
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { MATCH (n) } AS r;", ast_generator, message);
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { MATCH (n) RETURN * } AS r;", ast_generator, message);
+  // Neo4j refuses this one for its `RETURN *` too; here the body allow-list (§5) turns `UNWIND` away first. Same
+  // verdict, earlier check - so what is pinned is the refusal, not which of the two reaches it.
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { UNWIND [1] AS z RETURN * } AS r;",
+                                               ast_generator,
+                                               "Only MATCH, WHERE, WITH, and RETURN clauses are allowed in COLLECT "
+                                               "subqueries.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COLLECT { MATCH (n) RETURN n AS a, n AS b } AS r;", ast_generator, message);
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COLLECT { MATCH (n) WITH n AS v } AS r;", ast_generator, message);
+  // Every UNION branch is checked, not only the first: a branch is its own SingleQuery with its own RETURN.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COLLECT { MATCH (n) RETURN n AS v UNION MATCH (m) RETURN m AS v, m AS w } AS r;", ast_generator, message);
+  // A bare pattern has no column at all, so the list fold can never take one - the other two folds still can.
+  TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { (n)-[]->(m) } AS r;",
+                                               ast_generator,
+                                               "COLLECT needs a body returning a single column, and a bare pattern "
+                                               "returns none.");
+}
+
+TEST_P(CypherMainVisitorTest, CollectSubqueryCarriesTheListFold) {
+  auto &ast_generator = *GetParam();
+
+  // One column, so it parses - and it is the same AST node the other two spellings build, distinguished by its fold.
+  const auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN COLLECT { MATCH (n) RETURN n } AS r;"));
+  ASSERT_TRUE(query);
+  const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  ASSERT_TRUE(ret);
+  const auto *subquery = dynamic_cast<SubqueryExpression *>(ret->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(subquery);
+  EXPECT_EQ(subquery->fold_, SubqueryExpression::Fold::kList);
+  EXPECT_TRUE(subquery->HasSubquery());
+  // An ORDER BY / SKIP / LIMIT tail is part of the same RETURN, so it does not add a column.
+  EXPECT_NO_THROW(
+      ast_generator.ParseQuery("RETURN COLLECT { MATCH (n) RETURN n AS v ORDER BY v SKIP 1 LIMIT 2 } AS r;"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("RETURN COLLECT { MATCH (n) RETURN DISTINCT n.x AS v } AS r;"));
+}
+
+TEST_P(CypherMainVisitorTest, CollectKeywordStaysUsableAsAName) {
+  auto &ast_generator = *GetParam();
+
+  // `COLLECT` is a lexer token now, and `collect` is also the aggregation and a perfectly good identifier. It is in
+  // `cypherKeyword`, so all three keep parsing.
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) RETURN collect(n) AS c;"));
+    ASSERT_TRUE(query);
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+    ASSERT_TRUE(ret);
+    const auto *aggregation = dynamic_cast<Aggregation *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(aggregation);
+    EXPECT_EQ(aggregation->op_, Aggregation::Op::COLLECT_LIST);
+  }
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (collect) RETURN collect;"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("WITH 1 AS collect RETURN collect AS collect;"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (n) RETURN n.collect AS c;"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (n:collect) RETURN n;"));
+}
+
 TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
   auto &ast_generator = *GetParam();
 

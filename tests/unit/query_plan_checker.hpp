@@ -339,6 +339,7 @@ class ExpectEvaluatePatternFilterWithFold : public OpChecker<EvaluatePatternFilt
 
 using ExpectEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kBool>;
 using ExpectCountEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kCount>;
+using ExpectCollectEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kList>;
 using ExpectPeriodicCommit = OpChecker<PeriodicCommit>;
 using ExpectLoadCsv = OpChecker<LoadCsv>;
 using ExpectLoadParquet = OpChecker<LoadParquet>;

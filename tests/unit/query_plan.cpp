@@ -5474,6 +5474,74 @@ TYPED_TEST(TestPlanner, CountSubqueryInsideAggregateArgument) {
       << "a COUNT inside an aggregate argument must not be remembered across the Aggregate";
 }
 
+// COLLECT { ... } is the same node again, folded to a list. Unlike the other two it needs a column, so what these
+// pin is that the column the branch collects is the one its RETURN names.
+
+TYPED_TEST(TestPlanner, CollectSubqueryInReturnProjection) {
+  // MATCH (n) RETURN COLLECT { MATCH (n)-[r]->(m) RETURN m } AS c
+  auto *collect_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), RETURN("m")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COLLECT_SUBQUERY(collect_subquery), AS("c"))));
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  // Once, not ScanAll, below the Expand: the branch expands from the bound `n` instead of re-scanning it.
+  Checkers branch{ExpectOnce{}, ExpectExpand{}, ExpectProduce{}};
+
+  // The base checker's fold is kList, which is exactly what a COLLECT projection plans as.
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CollectSubqueryCollectsTheColumnItsBodyReturns) {
+  // The RollUpApply reads one frame slot per branch row. If it were handed the branch's *modified* symbols rather than
+  // its output column, a body with more than one bound variable would reach the "must be of size 1" throw.
+  FakeDbAccessor dba;
+
+  auto *collect_subquery =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), RETURN(IDENT("m"), AS("out"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COLLECT_SUBQUERY(collect_subquery), AS("c"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *roll_up = FindOpOfType<memgraph::query::plan::RollUpApply>(&planner.plan());
+  ASSERT_NE(roll_up, nullptr);
+  EXPECT_EQ(roll_up->fold_, RollUpApply::Fold::kList);
+  EXPECT_EQ(roll_up->list_collection_symbol_.name(), "out")
+      << "the branch's own RETURN column is what a list fold collects";
+}
+
+TYPED_TEST(TestPlanner, CollectSubqueryInMatchWhereUsesTheDeferredFold) {
+  // MATCH (n) WHERE size(COLLECT { MATCH (n)-[r]->(m) RETURN m }) > 1 RETURN n
+  //
+  // A MATCH's WHERE is the deferred position for every fold, so the list is built by the closure the
+  // EvaluatePatternFilter installs - which therefore needs the collected column too.
+  FakeDbAccessor dba;
+
+  auto *collect_subquery =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), RETURN(IDENT("m"), AS("out"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WHERE(GREATER(FN("size", COLLECT_SUBQUERY(collect_subquery)), LITERAL(1))),
+                                   RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> filter_tree{
+      new ExpectExpand(), new ExpectProduce(), new ExpectCollectEvaluatePatternFilter()};
+
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{filter_tree}),
+            ExpectProduce());
+
+  auto *filter = FindOpOfType<memgraph::query::plan::Filter>(&planner.plan());
+  ASSERT_NE(filter, nullptr);
+  ASSERT_EQ(filter->pattern_filters_.size(), 1U);
+  auto *deferred = dynamic_cast<EvaluatePatternFilter *>(filter->pattern_filters_[0].get());
+  ASSERT_NE(deferred, nullptr);
+  EXPECT_EQ(deferred->list_collection_symbol_.name(), "out");
+
+  DeleteListContent(&filter_tree);
+}
+
 TYPED_TEST(TestPlanner, SubqueryConjunctIsJoinedLast) {
   // BoolJoin is left-associative, so the conjunct sorted last is the outermost AND's right operand. The COUNT is
   // written second on purpose: collection order reverses, so that is the spelling which fails without the fix.
