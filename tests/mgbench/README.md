@@ -188,7 +188,6 @@ To measure only a cluster:
   pokec/medium/create/vertex_big \
   pokec/medium/arango/single_vertex_write \
   pokec/medium/arango/single_edge_write \
-  pokec/medium/arango/unwind_range_vertex_write \
   pokec/medium/basic/single_vertex_property_update_update \
   pokec/medium/arango/single_vertex_read \
   pokec/medium/arango/aggregate
