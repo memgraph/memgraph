@@ -21,7 +21,7 @@ jobs:
     # TEMPORARY: only mgbench-ha runs, so the budget is that one suite. The figure below is an
     # estimate, not a measurement, which is why the margin is generous. Restore the original 550 when
     # the other steps are re-enabled, adjusted for whatever mgbench-ha turns out to cost.
-    timeout-minutes: 650
+    timeout-minutes: 1200
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
     #  - mgbench-ha: 25 minutes (ESTIMATE, not yet measured: 6 queries at one five-process cluster
@@ -29,6 +29,10 @@ jobs:
     #    authorization pass, which would double those restarts)
     #  - mgbench-ha-2-replicas: 30 minutes (ESTIMATE: the same suite with a second replica, so six
     #    processes to restart and every commit waiting for two acknowledgements instead of one)
+    #  - mgbench-ha-async: 22 minutes (ESTIMATE: main does not wait at commit, so the measured part is
+    #    faster, plus the post-measurement wait for the replica to drain)
+    #  - mgbench-ha-strict-sync: 30 minutes (ESTIMATE: a commit that cannot reach the replica aborts
+    #    rather than committing locally)
     #  - macro-benchmark: 3 minutes
     #  - mgbench: 20 minutes
     #  - extended planner improvements mgbench: 15 minutes
@@ -38,9 +42,11 @@ jobs:
     #  - mgbench-vector-search-edge-index: 5 minutes
     #  - mgbench-text-search-index: 5 minutes
     #  - mgbench-text-search-edge-index: 5 minutes
-    #  10 iterations of the two high availability suites would take about 550 minutes, leaving 100
-    #  minutes to allow for building memgraph and variations in benchmark times. Both figures are
-    #  estimates rather than measurements.
+    #  10 iterations of the four high availability suites would take about 1070 minutes. That is
+    #  nearly 18 hours, which is longer than the interval between nightly runs, and with no concurrency
+    #  group two runs would overlap and collide on the cluster's fixed ports. While these suites are
+    #  being brought up, trigger them by hand with a small loop_count rather than relying on the cron.
+    #  Every figure above is an estimate rather than a measurement.
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"
@@ -55,6 +61,12 @@ jobs:
       # The same suite against a main with two SYNC replicas, so every commit waits for two
       # acknowledgements instead of one. Separate file and series, since the topology is what differs.
       DEFAULT_MGBENCH_HA_2_REPLICAS_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2_replicas.json'
+      # One ASYNC replica: main does not wait at commit, so throughput is near a single instance's and
+      # the cost appears as lag. The runner waits for the replica to drain after the measurement.
+      DEFAULT_MGBENCH_HA_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_async.json'
+      # One STRICT_SYNC replica: a commit that cannot reach the replica aborts instead of committing
+      # locally, so this is the strictest and most expensive single-replica topology.
+      DEFAULT_MGBENCH_HA_STRICT_SYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_strict_sync.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
       CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -155,6 +167,32 @@ jobs:
             "mgbench-ha --cluster-description ha_cluster_2_replicas.yaml" \
             mgbench-ha-2-replicas \
             ${{ env.DEFAULT_MGBENCH_HA_2_REPLICAS_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-async
+        id: mgbench-ha-async
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_async.yaml" \
+            mgbench-ha-async \
+            ${{ env.DEFAULT_MGBENCH_HA_ASYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-strict-sync
+        id: mgbench-ha-strict-sync
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_strict_sync.yaml" \
+            mgbench-ha-strict-sync \
+            ${{ env.DEFAULT_MGBENCH_HA_STRICT_SYNC_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
             ${{ github.run_number }} \
             $BRANCH_NAME \

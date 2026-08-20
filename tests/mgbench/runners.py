@@ -811,6 +811,7 @@ class MemgraphHA(BaseRunner):
     READY_TIMEOUT_SEC = 120
     READY_POLL_SEC = 0.5
     READY_REPORT_SEC = 10
+    CATCHUP_TIMEOUT_SEC = 600
     WRITE_PROBE_QUERY = "CREATE (n:__mgbench_ha_probe) DELETE n;"
 
     def __init__(self, benchmark_context: BenchmarkContext):
@@ -997,10 +998,72 @@ class MemgraphHA(BaseRunner):
             "The HA cluster did not become ready in {}s, last seen: {}".format(self.READY_TIMEOUT_SEC, problem)
         )
 
+    def _replication_lag(self):
+        """
+        Transactions each instance is behind main, from a coordinator's SHOW REPLICATION LAG, as
+        {instance: behind} summed over its databases. None when no coordinator can be reached.
+        """
+        for coordinator in self._coordinators:
+            try:
+                rows = self._fetch(coordinator, "SHOW REPLICATION LAG;")
+            except Exception:
+                continue
+            return {
+                instance: sum(db.get("num_txns_behind_main", 0) for db in databases.values())
+                for instance, databases in rows
+            }
+        return None
+
+    def _wait_for_replicas_to_catch_up(self):
+        """
+        Blocks until no instance is behind main. This runs after the measurement, so the wait is not
+        part of the throughput the client reported -- that number was computed and returned before we
+        got here -- but it is part of the run's wall clock, and it is reported so the cost is visible.
+
+        It matters most for ASYNC, where main does not wait at commit and the replica can still be
+        applying a backlog long after the client has finished. Without this the workload would be
+        called done while replication was still outstanding, and the next phase would start from an
+        unconverged cluster. For SYNC and STRICT_SYNC the replicas are already caught up at commit, so
+        this costs one query.
+        """
+        if self._main_name is None:
+            return
+
+        started_at = time.time()
+        deadline = started_at + self.CATCHUP_TIMEOUT_SEC
+        reported_at = 0.0
+        behind = self._replication_lag()
+        if behind is None:
+            log.warning("Could not read replication lag from any coordinator, not waiting for catch-up.")
+            return
+
+        while any(behind.values()):
+            if time.time() > deadline:
+                raise Exception(
+                    "Replicas were still behind main after {}s, by this many transactions: {}".format(
+                        self.CATCHUP_TIMEOUT_SEC, {k: v for k, v in behind.items() if v}
+                    )
+                )
+            if time.time() - reported_at >= self.READY_REPORT_SEC:
+                reported_at = time.time()
+                log.info(
+                    "Waiting for replicas to catch up ({:.0f}s): {}".format(
+                        time.time() - started_at, {k: v for k, v in behind.items() if v}
+                    )
+                )
+            time.sleep(self.READY_POLL_SEC)
+            behind = self._replication_lag() or behind
+
+        elapsed = time.time() - started_at
+        if elapsed >= 1.0:
+            log.info("Replicas caught up in {:.1f}s, which is not counted in the throughput.".format(elapsed))
+
     def _stop_cluster(self):
-        stopped_at = time.time()
-        # Read while the process is still alive, since the usage comes from /proc.
+        # Read the usage first, so main's peak memory covers the measured run rather than the
+        # catch-up that follows it.
         usage = self._main_usage()
+        self._wait_for_replicas_to_catch_up()
+        stopped_at = time.time()
         self._mg_runner.stop_all(keep_directories=True)
         self._main_name = None
         log.info("Stopped the HA cluster in {:.1f}s.".format(time.time() - stopped_at))
