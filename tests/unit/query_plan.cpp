@@ -5137,7 +5137,8 @@ TYPED_TEST(TestPlanner, ExistsSubqueryMatchWhere) {
   DeleteListContent(&filter_tree);
 }
 
-TYPED_TEST(TestPlanner, ExistsSubqueryMatchWhereOmitReturn) {
+TYPED_TEST(TestPlanner, ExistsSubqueryMatchWherePlansReturn) {
+  // The body's RETURN is planned, not discarded, so the branch gains its Produce.
   FakeDbAccessor dba;
 
   auto name = dba.Property("name");
@@ -5149,8 +5150,11 @@ TYPED_TEST(TestPlanner, ExistsSubqueryMatchWhereOmitReturn) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> filter_tree{
-      new ExpectExpand(), new ExpectFilter(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+  std::list<BaseOpChecker *> filter_tree{new ExpectExpand(),
+                                         new ExpectFilter(),
+                                         new ExpectProduce(),
+                                         new ExpectLimit(),
+                                         new ExpectEvaluatePatternFilter()};
 
   CheckPlan(planner.plan(),
             symbol_table,
@@ -5267,11 +5271,10 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnion) {
   DeleteListContent(&exists_union_plan);
 }
 
-// A body's RETURN is dropped inside an exists subquery, so a UNION of RETURN-only branches plans both sides to
-// nothing. Each part gets its own Once before the combinator merges them - substituting one on the branch root would
-// come too late, and GenUnion dereferences both operands for their output symbols.
+// A RETURN-only branch plans to a Produce over the Once its constructor substitutes, so each side of the UNION has
+// the real output symbols GenUnion dereferences both operands to read.
 
-TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionOfEmptyBodies) {
+TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionOfReturnOnlyBodies) {
   // MATCH (n) WHERE EXISTS { RETURN 1 AS c UNION RETURN 2 AS c } RETURN n
   FakeDbAccessor dba;
 
@@ -5281,8 +5284,8 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionOfEmptyBodies) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> left_exists_part{new ExpectOnce()};
-  std::list<BaseOpChecker *> right_exists_part{new ExpectOnce()};
+  std::list<BaseOpChecker *> left_exists_part{new ExpectOnce(), new ExpectProduce()};
+  std::list<BaseOpChecker *> right_exists_part{new ExpectOnce(), new ExpectProduce()};
   std::list<BaseOpChecker *> exists_union_plan{new ExpectUnion(left_exists_part, right_exists_part),
                                                new ExpectDistinct(),
                                                new ExpectLimit(),
@@ -5300,7 +5303,7 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionOfEmptyBodies) {
   DeleteListContent(&exists_union_plan);
 }
 
-TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionAllOfEmptyBodies) {
+TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionAllOfReturnOnlyBodies) {
   // MATCH (n) WHERE EXISTS { RETURN 1 AS c UNION ALL RETURN 2 AS c } RETURN n - UNION ALL drops the Distinct.
   FakeDbAccessor dba;
 
@@ -5310,8 +5313,8 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionAllOfEmptyBodies) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> left_exists_part{new ExpectOnce()};
-  std::list<BaseOpChecker *> right_exists_part{new ExpectOnce()};
+  std::list<BaseOpChecker *> left_exists_part{new ExpectOnce(), new ExpectProduce()};
+  std::list<BaseOpChecker *> right_exists_part{new ExpectOnce(), new ExpectProduce()};
   std::list<BaseOpChecker *> exists_union_plan{
       new ExpectUnion(left_exists_part, right_exists_part), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
 
@@ -5326,15 +5329,15 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionAllOfEmptyBodies) {
   DeleteListContent(&exists_union_plan);
 }
 
-TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionOfEmptyBodiesInReturnProjection) {
+TYPED_TEST(TestPlanner, ExistsSubqueryWithUnionOfReturnOnlyBodiesInReturnProjection) {
   // MATCH (n) RETURN EXISTS { RETURN 1 AS c UNION RETURN 2 AS c } AS h - the projection reaches the same branch
   // through the forced fold, which has no Limit/EvaluatePatternFilter tail to hide a null root.
   auto *exists_subquery =
       QUERY(SINGLE_QUERY(RETURN(LITERAL(1), AS("c"))), UNION(SINGLE_QUERY(RETURN(LITERAL(2), AS("c")))));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(EXISTS_SUBQUERY(exists_subquery), AS("h"))));
 
-  std::list<BaseOpChecker *> left_exists_part{new ExpectOnce()};
-  std::list<BaseOpChecker *> right_exists_part{new ExpectOnce()};
+  std::list<BaseOpChecker *> left_exists_part{new ExpectOnce(), new ExpectProduce()};
+  std::list<BaseOpChecker *> right_exists_part{new ExpectOnce(), new ExpectProduce()};
 
   Checkers input{ExpectOnce{}, ExpectScanAll{}};
   Checkers branch{ExpectUnion{left_exists_part, right_exists_part}, ExpectDistinct{}};

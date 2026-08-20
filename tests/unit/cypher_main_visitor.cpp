@@ -8131,6 +8131,44 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
                                                "EXISTS supports only a single relation or a subquery as its input.");
 }
 
+TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
+  auto &ast_generator = *GetParam();
+
+  // The body parses as a full cypherQuery, so it carries the pre-query directives with it.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) WHERE EXISTS { USING PERIODIC COMMIT 1 MATCH (n)-[]->(m) RETURN m } RETURN n;",
+      ast_generator,
+      "EXISTS subqueries cannot have a periodic commit.");
+  // The outer query may still have one - only the body is refused.
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("USING PERIODIC COMMIT 1 MATCH (n) WHERE EXISTS { MATCH (n)-[]->(m) RETURN m } "
+                                 "SET n.x = 1 RETURN n;"));
+    ASSERT_TRUE(query);
+    EXPECT_NE(query->pre_query_directives_.commit_frequency_, nullptr);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ExistsBodyRefusesParallelExecution) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) WHERE EXISTS { USING PARALLEL EXECUTION MATCH (n)-[]->(m) RETURN m } RETURN n;",
+      ast_generator,
+      "EXISTS subqueries cannot use parallel execution.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) WHERE EXISTS { USING PARALLEL EXECUTION 4 MATCH (n)-[]->(m) RETURN m } RETURN n;",
+      ast_generator,
+      "EXISTS subqueries cannot use parallel execution.");
+  // The outer query may still have one - only the body is refused.
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "USING PARALLEL EXECUTION MATCH (n) WHERE EXISTS { MATCH (n)-[]->(m) RETURN m } RETURN n;"));
+    ASSERT_TRUE(query);
+    EXPECT_TRUE(query->pre_query_directives_.parallel_execution_);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, ExistsBodyIsNotJudgedByTheEnclosingWith) {
   auto &ast_generator = *GetParam();
 

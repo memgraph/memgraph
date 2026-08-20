@@ -3963,24 +3963,40 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
     parsing_exists_subquery_ = old_flag;
     exists->content_ = cypher_query;
 
-    // 1. There must be at least one clause
-    auto *single_query = cypher_query->single_query_;
-    if (!single_query || single_query->clauses_.empty()) {
-      throw SyntaxException("EXISTS subquery must contain at least one clause.");
-    }
-
-    // 2. Only MATCH, WHERE, WITH, RETURN allowed
-    for (const auto *clause : single_query->clauses_) {
-      const auto &type = clause->GetTypeInfo();
-      if (!(utils::IsSubtype(type, Match::kType) || utils::IsSubtype(type, Where::kType) ||
-            utils::IsSubtype(type, With::kType) || utils::IsSubtype(type, Return::kType))) {
-        throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+    // 1. There must be at least one clause, and 2. only MATCH, WHERE, WITH, RETURN. Per branch: a UNION's
+    // further branches are each their own SingleQuery, and a clause forbidden in the first is not legal in them.
+    auto validate_branch = [](const SingleQuery *single_query) {
+      if (!single_query || single_query->clauses_.empty()) {
+        throw SyntaxException("EXISTS subquery must contain at least one clause.");
       }
+      for (const auto *clause : single_query->clauses_) {
+        const auto &type = clause->GetTypeInfo();
+        if (!(utils::IsSubtype(type, Match::kType) || utils::IsSubtype(type, Where::kType) ||
+              utils::IsSubtype(type, With::kType) || utils::IsSubtype(type, Return::kType))) {
+          throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+        }
+      }
+    };
+    validate_branch(cypher_query->single_query_);
+    for (const auto *cypher_union : cypher_query->cypher_unions_) {
+      validate_branch(cypher_union->single_query_);
     }
 
     // 3. No query memory limit
     if (cypher_query->memory_limit_ != nullptr) {
       throw SyntaxException("EXISTS subqueries cannot have a query memory limit.");
+    }
+
+    // 4. No periodic commit. The body's rows are only counted, so a commit point inside it has nothing to commit -
+    // but it would run, finalizing the caller's transaction from inside an expression.
+    if (cypher_query->pre_query_directives_.commit_frequency_ != nullptr) {
+      throw SyntaxException("EXISTS subqueries cannot have a periodic commit.");
+    }
+
+    // 5. No parallel execution. Only the enclosing query's directives are read, so the body's are silently dropped;
+    // and the body is a sub-plan re-executed per outer row, which the parallel cursors' Reset() mishandles.
+    if (cypher_query->pre_query_directives_.parallel_execution_) {
+      throw SyntaxException("EXISTS subqueries cannot use parallel execution.");
     }
   } else {
     throw SyntaxException("EXISTS supports only a single relation or a subquery as its input.");

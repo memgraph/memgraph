@@ -205,8 +205,7 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           SubqueryContext &subquery_ctx, Expression *commit_frequency,
-                                           bool in_exists_subquery);
+                                           SubqueryContext &subquery_ctx, Expression *commit_frequency);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
@@ -421,6 +420,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        .write_occurred = branch_sees_write()};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
+            CheckExistsBodyInvariants(context, query_parts.commit_frequency);
             input_op = impl::GenReturn(*ret,
                                        std::move(input_op),
                                        *context.symbol_table,
@@ -428,8 +428,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        context.bound_symbols,
                                        *context.ast_storage,
                                        subquery_ctx,
-                                       query_parts.commit_frequency,
-                                       context.in_exists_subquery);
+                                       query_parts.commit_frequency);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             // ON CREATE / ON MATCH comprehensions originate here too; GenMerge splices each onto the branch that
             // reads it, so this chain must not take them first.
@@ -452,6 +451,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                 pending_comprehensions,
                                 wrote_before_merge);
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
+            CheckExistsBodyInvariants(context, /*commit_frequency=*/nullptr);
             input_op = impl::GenWith(*with,
                                      std::move(input_op),
                                      *context.symbol_table,
@@ -597,22 +597,17 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
       }
 
-      // Is this the only situation that should be covered
-      // An exists body whose every clause is dropped (`EXISTS { RETURN 1 }`) leaves input_op null, so short-circuit
-      // on `in_exists_subquery` before dereferencing it. The null check after it is belt-and-braces: no other clause
-      // sequence is known to plan to nothing.
+      // An EXISTS branch must keep emitting its rows for the fold to read, so it never gets the EmptyResult wrapper.
       if (!context.in_exists_subquery && input_op && input_op->OutputSymbols(*context.symbol_table).empty()) {
         if (has_periodic_commit && is_root_query) {
-          // this periodic commit is from USING PERIODIC COMMIT
           input_op = std::make_unique<PeriodicCommit>(std::move(input_op), query_parts.commit_frequency);
         }
         input_op = std::make_unique<EmptyResult>(std::move(input_op));
       }
 
-      // A body whose clauses all dropped plans to nothing, yet still matches one (empty) row. Substituted per query
-      // part, not once on the branch root: each UNION branch is its own part, and the combinator below dereferences
-      // both operands. `in_exists_subquery` stays set across the recursive `Plan` calls this one makes, so this also
-      // catches a nested `CALL {}` body that plans to nothing - `HandleSubquery` dereferences that one too.
+      // A body that plans to nothing still matches one (empty) row. Defence only: no clause sequence has been found
+      // that plans to nothing, here or in a nested `CALL {}` body, but `HandleSubquery` dereferences that plan
+      // unguarded. Per query part, because each UNION branch is its own and the combinator dereferences both.
       if (context.in_exists_subquery && !input_op) {
         input_op = std::make_unique<Once>();
       }
@@ -867,6 +862,23 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
   // Check if a clause is a write clause that HandleWriteClause can process.
+  /// An EXISTS body is read-only and carries no periodic commit: `visitExistsSubquery` allows only MATCH, WHERE,
+  /// WITH and RETURN - in every UNION branch - and rejects a body-level commit directive. Reaching either here means
+  /// that validation has a hole. Throws rather than asserts, which would abort the process from an `EXPLAIN` alone.
+  static void CheckExistsBodyInvariants(const TPlanningContext &context, Expression *commit_frequency) {
+    if (!context.in_exists_subquery) return;
+    if (context.is_write_query) {
+      throw QueryException(
+          "A write clause reached the body of an EXISTS subquery, which may only read. Please contact Memgraph "
+          "support or submit a GitHub issue, as this scenario should not happen.");
+    }
+    if (commit_frequency != nullptr) {
+      throw QueryException(
+          "A periodic commit reached the body of an EXISTS subquery, which cannot commit. Please contact Memgraph "
+          "support or submit a GitHub issue, as this scenario should not happen.");
+    }
+  }
+
   static bool IsWriteClause(Clause *clause) {
     return utils::Downcast<Create>(clause) || utils::Downcast<query::Delete>(clause) ||
            utils::Downcast<query::SetProperty>(clause) || utils::Downcast<query::SetProperties>(clause) ||
@@ -1686,8 +1698,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
       // the branch has to correlate against.
       auto branch_bound_symbols = bound_symbols;
-      // in_exists_subquery drives three behaviours of the recursive plan: the body's RETURN is dropped, the
-      // EmptyResult wrapper is suppressed, and GenWith keeps outer-scope vertex/edge symbols across a body WITH.
+      // in_exists_subquery drives three behaviours of the recursive plan: the EmptyResult wrapper is suppressed, a
+      // null-planning query part gets a Once, and GenWith keeps outer-scope vertex/edge symbols across a body WITH.
+      // It also selects the read-only invariants CheckExistsBodyInvariants enforces.
       auto const restore = utils::OnScopeExit{[this,
                                                old_exists_subquery = context_->in_exists_subquery,
                                                old_after_write = exists_branch_after_write_,
