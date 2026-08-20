@@ -27,7 +27,6 @@
 #include "utils/priorities.hpp"
 #include "utils/system_info.hpp"
 #include "utils/thread.hpp"
-#include "utils/tsc.hpp"
 #include "utils/yielder.hpp"
 
 namespace {
@@ -316,12 +315,12 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
       continue;
     }
 
-    // Phase 3 - spin for a while waiting on work (available only if TSC is available)
-    const auto freq = utils::GetTSCFrequency();
-    if (freq) {
-      const utils::TSCTimer timer{freq};
-      yielder y;                         // NOLINT (misc-const-correctness)
-      while (timer.Elapsed() < 0.001) {  // 1ms
+    // Phase 3 - spin for a while waiting on work
+    {
+      constexpr auto kSpinDuration = std::chrono::milliseconds{1};
+      auto const spin_until = std::chrono::steady_clock::now() + kSpinDuration;
+      yielder y;  // NOLINT (misc-const-correctness)
+      while (std::chrono::steady_clock::now() < spin_until) {
         if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) break;
       }
     }
