@@ -912,27 +912,21 @@ class ExpectRollUpApply : public OpChecker<RollUpApply> {
   std::list<BaseOpChecker *> list_collection_branch_ptrs_;
 };
 
-/// A RollUpApply carrying the bool fold - what an EXISTS in a projection, an ORDER BY or a WITH's WHERE is planned as.
-class ExpectExistsRollUpApply : public ExpectRollUpApply {
+/// A RollUpApply carrying one of the column-less folds - what an EXISTS or a COUNT in a projection, an ORDER BY or a
+/// WITH's WHERE is planned as. @p TFold is checked because a wrong one is a wrong value, not a wrong shape.
+template <RollUpApply::Fold TFold>
+class ExpectRollUpApplyWithFold : public ExpectRollUpApply {
  public:
   /// Constrained so the pack cannot hijack this type's own copy/move construction.
   template <typename... TArgs>
-    requires(sizeof...(TArgs) != 1 || !(std::same_as<std::remove_cvref_t<TArgs>, ExpectExistsRollUpApply> || ...))
-  explicit ExpectExistsRollUpApply(TArgs &&...args) : ExpectRollUpApply(std::forward<TArgs>(args)...) {
-    expected_fold_ = RollUpApply::Fold::kBool;
+    requires(sizeof...(TArgs) != 1 || !(std::same_as<std::remove_cvref_t<TArgs>, ExpectRollUpApplyWithFold> || ...))
+  explicit ExpectRollUpApplyWithFold(TArgs &&...args) : ExpectRollUpApply(std::forward<TArgs>(args)...) {
+    expected_fold_ = TFold;
   }
 };
 
-/// A RollUpApply carrying the count fold - what a COUNT in a projection, an ORDER BY or a WITH's WHERE is planned as.
-class ExpectCountRollUpApply : public ExpectRollUpApply {
- public:
-  /// Constrained so the pack cannot hijack this type's own copy/move construction.
-  template <typename... TArgs>
-    requires(sizeof...(TArgs) != 1 || !(std::same_as<std::remove_cvref_t<TArgs>, ExpectCountRollUpApply> || ...))
-  explicit ExpectCountRollUpApply(TArgs &&...args) : ExpectRollUpApply(std::forward<TArgs>(args)...) {
-    expected_fold_ = RollUpApply::Fold::kCount;
-  }
-};
+using ExpectExistsRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kBool>;
+using ExpectCountRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kCount>;
 
 class ExpectPeriodicSubquery : public OpChecker<PeriodicSubquery> {
  public:

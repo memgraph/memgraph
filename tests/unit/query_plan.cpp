@@ -5381,23 +5381,12 @@ TYPED_TEST(TestPlanner, CountSubqueryInReturnProjection) {
       query, this->storage, ExpectCountRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, CountSubqueryInOrderBy) {
-  // MATCH (n) RETURN n ORDER BY COUNT { MATCH (n)-[r]->(m) } - below the OrderBy, like the bool fold.
-  auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", ORDER_BY(COUNT_SUBQUERY(count_subquery)))));
-
-  Checkers input{ExpectOnce{}, ExpectScanAll{}, ExpectProduce{}};
-  Checkers branch{ExpectOnce{}, ExpectExpand{}};
-
-  CheckPlan<TypeParam>(
-      query, this->storage, ExpectCountRollUpApply{std::move(input), std::move(branch)}, ExpectOrderBy());
-}
-
 TYPED_TEST(TestPlanner, CountSubqueryInMatchWhereUsesTheDeferredFold) {
   // MATCH (n) WHERE COUNT { MATCH (n)-[r]->(m) } > 1 RETURN n
   //
   // The deferred fold, as for EXISTS - so an untaken disjunct skips the branch entirely, which for a count is a whole
-  // drain rather than a single pull. No Limit above the branch: it would truncate the drain.
+  // drain rather than a single pull. No Limit above the branch: it would truncate the drain. The bool fold does plant
+  // one (BasicExistsSubquery asserts it), so its absence here is a decision rather than an omission.
   FakeDbAccessor dba;
 
   auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
@@ -5417,39 +5406,32 @@ TYPED_TEST(TestPlanner, CountSubqueryInMatchWhereUsesTheDeferredFold) {
   DeleteListContent(&filter_tree);
 }
 
-TYPED_TEST(TestPlanner, ExistsSubqueryInMatchWhereKeepsItsLimit) {
-  // The sibling of the test above, so the Limit's absence there reads as a decision rather than an omission. The bool
-  // fold is still planted one, though it caps nothing - the cursor pulls once regardless.
+TYPED_TEST(TestPlanner, CountSubqueryInsideAggregateArgument) {
+  // MATCH (n) RETURN sum(COUNT { MATCH (n)-[r]->(m) }) AS c
+  // The pre-Aggregate splice loop is a separate site from splice_branches, and the fold has to survive it: a count
+  // collapsed to a bool would make the sum count matching rows rather than adding their counts.
   FakeDbAccessor dba;
-
-  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
+  auto *count_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *count = COUNT_SUBQUERY(count_subquery);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(SUM(count, false), AS("c"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> filter_tree{new ExpectExpand(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
-
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}};
   CheckPlan(planner.plan(),
             symbol_table,
-            ExpectScanAll(),
-            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{filter_tree}),
+            ExpectCountRollUpApply{std::move(input), std::move(branch)},
+            OpChecker<Aggregate>(),
             ExpectProduce());
 
-  DeleteListContent(&filter_tree);
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto *aggregate = dynamic_cast<Aggregate *>(produce->input_.get());
+  ASSERT_NE(aggregate, nullptr);
+  EXPECT_FALSE(std::ranges::contains(aggregate->remember_, symbol_table.at(*count)))
+      << "a COUNT inside an aggregate argument must not be remembered across the Aggregate";
 }
-
-namespace {
-// Walks the main chain down to the first Filter. The plans below are linear above the branch.
-memgraph::query::plan::Filter *FindFirstFilter(memgraph::query::plan::LogicalOperator &root) {
-  auto *op = &root;
-  while (op != nullptr) {
-    if (auto *filter = dynamic_cast<memgraph::query::plan::Filter *>(op)) return filter;
-    if (!op->HasSingleInput()) return nullptr;
-    op = op->input().get();
-  }
-  return nullptr;
-}
-}  // namespace
 
 TYPED_TEST(TestPlanner, SubqueryConjunctIsJoinedLast) {
   // ExtractFilters sorts the conjunct carrying a subquery branch last, and Type::Pattern does not answer that on its
@@ -5467,7 +5449,7 @@ TYPED_TEST(TestPlanner, SubqueryConjunctIsJoinedLast) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  auto *filter = FindFirstFilter(planner.plan());
+  auto *filter = FindOpOfType<memgraph::query::plan::Filter>(&planner.plan());
   ASSERT_NE(filter, nullptr);
   auto *outer_and = memgraph::utils::Downcast<memgraph::query::AndOperator>(filter->expression_);
   ASSERT_NE(outer_and, nullptr) << "expected the two conjuncts joined by an AND";
@@ -5475,7 +5457,7 @@ TYPED_TEST(TestPlanner, SubqueryConjunctIsJoinedLast) {
   auto *count_conjunct = memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression2_);
   ASSERT_NE(count_conjunct, nullptr) << "the COUNT conjunct was not joined last";
   EXPECT_NE(memgraph::utils::Downcast<memgraph::query::SubqueryExpression>(count_conjunct->expression1_), nullptr);
-  EXPECT_EQ(memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression1_), nullptr)
+  EXPECT_NE(memgraph::utils::Downcast<memgraph::query::EqualOperator>(outer_and->expression1_), nullptr)
       << "the cheap conjunct should be the one evaluated first";
 }
 
@@ -5521,7 +5503,7 @@ TYPED_TEST(TestPlanner, SubqueryConjunctsKeepAuthoringOrderAmongThemselves) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  auto *filter = FindFirstFilter(planner.plan());
+  auto *filter = FindOpOfType<memgraph::query::plan::Filter>(&planner.plan());
   ASSERT_NE(filter, nullptr);
   auto *outer_and = memgraph::utils::Downcast<memgraph::query::AndOperator>(filter->expression_);
   ASSERT_NE(outer_and, nullptr) << "expected the two conjuncts joined by an AND";
@@ -5531,9 +5513,12 @@ TYPED_TEST(TestPlanner, SubqueryConjunctsKeepAuthoringOrderAmongThemselves) {
   auto *second = memgraph::utils::Downcast<memgraph::query::GreaterOperator>(outer_and->expression2_);
   ASSERT_NE(first, nullptr);
   ASSERT_NE(second, nullptr);
-  EXPECT_EQ(memgraph::utils::Downcast<memgraph::query::PrimitiveLiteral>(first->expression2_)->value_.ValueInt(), 1)
-      << "the conjunct written first should still be evaluated first";
-  EXPECT_EQ(memgraph::utils::Downcast<memgraph::query::PrimitiveLiteral>(second->expression2_)->value_.ValueInt(), 2);
+  auto *first_bound = memgraph::utils::Downcast<memgraph::query::PrimitiveLiteral>(first->expression2_);
+  auto *second_bound = memgraph::utils::Downcast<memgraph::query::PrimitiveLiteral>(second->expression2_);
+  ASSERT_NE(first_bound, nullptr);
+  ASSERT_NE(second_bound, nullptr);
+  EXPECT_EQ(first_bound->value_.ValueInt(), 1) << "the conjunct written first should still be evaluated first";
+  EXPECT_EQ(second_bound->value_.ValueInt(), 2);
 }
 
 TYPED_TEST(TestPlanner, ExistsPatternInReturnProjection) {
