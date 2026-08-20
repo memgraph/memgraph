@@ -1487,6 +1487,33 @@ TYPED_TEST(PrintToJsonTest, Foreach) {
           })sep");
 }
 
+TYPED_TEST(PrintToJsonTest, SubqueryExpressionFoldsNameThemselves) {
+  // The fold, and the column a list fold reads, are what let a JSON plan tell the three deferred folds apart.
+  Symbol x = this->GetSymbol("x");
+  Symbol output = this->GetSymbol("output_symbol");
+  Symbol collected = this->GetSymbol("collected");
+  std::shared_ptr<LogicalOperator> scan = std::make_shared<ScanAll>(nullptr, x);
+
+  auto pattern_filter_json = [&](std::shared_ptr<LogicalOperator> filter) {
+    auto root =
+        std::make_shared<Filter>(scan, std::vector<std::shared_ptr<LogicalOperator>>{std::move(filter)}, LITERAL(true));
+    return PlanToJson(this->dba, root.get())["pattern_filter1"];
+  };
+
+  auto bool_json =
+      pattern_filter_json(std::make_shared<EvaluatePatternFilter>(nullptr, output, RollUpApply::Fold::kBool));
+  EXPECT_EQ(bool_json["fold"], "bool");
+  EXPECT_FALSE(bool_json.contains("collected_symbol"));
+
+  auto count_json =
+      pattern_filter_json(std::make_shared<EvaluatePatternFilter>(nullptr, output, RollUpApply::Fold::kCount));
+  EXPECT_EQ(count_json["fold"], "count");
+
+  auto list_json = pattern_filter_json(std::make_shared<EvaluatePatternFilter>(nullptr, output, collected));
+  EXPECT_EQ(list_json["fold"], "list");
+  EXPECT_EQ(list_json["collected_symbol"], "collected");
+}
+
 TYPED_TEST(PrintToJsonTest, SubqueryExpression) {
   Symbol x = this->GetSymbol("x");
   Symbol e = this->GetSymbol("edge");
@@ -1567,6 +1594,7 @@ TYPED_TEST(PrintToJsonTest, RollUpApply) {
 
   this->Check(rollup_op.get(), R"sep(
           {
+            "collected_symbol": "node",
             "input": {
                 "input": {
                     "name": "Once"

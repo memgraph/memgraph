@@ -928,6 +928,7 @@ class ExpectRollUpApplyWithFold : public ExpectRollUpApply {
 
 using ExpectExistsRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kBool>;
 using ExpectCountRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kCount>;
+using ExpectCollectRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kList>;
 
 class ExpectPeriodicSubquery : public OpChecker<PeriodicSubquery> {
  public:

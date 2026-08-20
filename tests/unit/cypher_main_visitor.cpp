@@ -8147,6 +8147,11 @@ TEST_P(CypherMainVisitorTest, SubqueryPatternRefusesAnIdentifierByConstruct) {
 TEST_P(CypherMainVisitorTest, CollectSubqueryNeedsExactlyOneReturnColumn) {
   auto &ast_generator = *GetParam();
 
+  // An ORDER BY / SKIP / LIMIT tail is part of the same RETURN, so it does not add a column.
+  EXPECT_NO_THROW(
+      ast_generator.ParseQuery("RETURN COLLECT { MATCH (n) RETURN n AS v ORDER BY v SKIP 1 LIMIT 2 } AS r;"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("RETURN COLLECT { MATCH (n) RETURN DISTINCT n.x AS v } AS r;"));
+
   // Measured against Neo4j 2026.02.2: it refuses every shape below with `42N22 … A COLLECT subquery must end with a
   // single return column`. `RETURN *` is refused there whatever the body binds - one variable included - so the check
   // is a clause test and never has to count symbols.
@@ -8186,10 +8191,6 @@ TEST_P(CypherMainVisitorTest, CollectSubqueryCarriesTheListFold) {
   ASSERT_TRUE(subquery);
   EXPECT_EQ(subquery->fold_, SubqueryExpression::Fold::kList);
   EXPECT_TRUE(subquery->HasSubquery());
-  // An ORDER BY / SKIP / LIMIT tail is part of the same RETURN, so it does not add a column.
-  EXPECT_NO_THROW(
-      ast_generator.ParseQuery("RETURN COLLECT { MATCH (n) RETURN n AS v ORDER BY v SKIP 1 LIMIT 2 } AS r;"));
-  EXPECT_NO_THROW(ast_generator.ParseQuery("RETURN COLLECT { MATCH (n) RETURN DISTINCT n.x AS v } AS r;"));
 }
 
 TEST_P(CypherMainVisitorTest, CollectKeywordStaysUsableAsAName) {
@@ -8228,6 +8229,10 @@ TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
       "MATCH (n) RETURN COUNT { USING PERIODIC COMMIT 1 MATCH (n)-[]->(m) RETURN m } AS c;",
       ast_generator,
       "COUNT subqueries cannot have a periodic commit.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COLLECT { USING PERIODIC COMMIT 1 MATCH (n)-[]->(m) RETURN m } AS c;",
+      ast_generator,
+      "COLLECT subqueries cannot have a periodic commit.");
   // The outer query may still have one - only the body is refused.
   {
     const auto *query = dynamic_cast<CypherQuery *>(
@@ -8265,6 +8270,10 @@ TEST_P(CypherMainVisitorTest, SubqueryBodyRefusesUnsupportedClausesByConstruct) 
       "MATCH (n) RETURN COUNT { MATCH (n)-[]->(m) RETURN m QUERY MEMORY LIMIT 1MB } AS c;",
       ast_generator,
       "COUNT subqueries cannot have a query memory limit.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COLLECT { MATCH (n)-[]->(m) RETURN m QUERY MEMORY LIMIT 1MB } AS c;",
+      ast_generator,
+      "COLLECT subqueries cannot have a query memory limit.");
 }
 
 TEST_P(CypherMainVisitorTest, CountSubqueryParsesToACountFold) {
@@ -8317,6 +8326,10 @@ TEST_P(CypherMainVisitorTest, ExistsBodyRefusesParallelExecution) {
       "MATCH (n) RETURN COUNT { USING PARALLEL EXECUTION MATCH (n)-[]->(m) RETURN m } AS c;",
       ast_generator,
       "COUNT subqueries cannot use parallel execution.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COLLECT { USING PARALLEL EXECUTION MATCH (n)-[]->(m) RETURN m } AS c;",
+      ast_generator,
+      "COLLECT subqueries cannot use parallel execution.");
   // The outer query may still have one - only the body is refused.
   {
     const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(

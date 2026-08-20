@@ -1407,6 +1407,7 @@ TYPED_TEST(TestSymbolGenerator, SubqueryAllowedPositions) {
 
   check_positions([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); });
   check_positions([this](auto *subquery) { return COUNT_SUBQUERY(subquery); });
+  check_positions([this](auto *subquery) { return COLLECT_SUBQUERY(subquery); });
 
   // The pattern form takes the same positions, under either fold.
   MakeSymbolTable(QUERY(SINGLE_QUERY(
@@ -1569,6 +1570,7 @@ TYPED_TEST(TestSymbolGenerator, SubqueryRefusedPositions) {
 
   check_positions([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); }, "EXISTS");
   check_positions([this](auto *subquery) { return COUNT_SUBQUERY(subquery); }, "COUNT");
+  check_positions([this](auto *subquery) { return COLLECT_SUBQUERY(subquery); }, "COLLECT");
 
   // The gate runs before either form is inspected, so the pattern form is refused identically. Pinned once, not per
   // position.
