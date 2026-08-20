@@ -514,6 +514,39 @@ TYPED_TEST(InterpreterTest, GraphFreeProcedureCallIsReportedAsARead) {
   EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
 }
 
+// What storage access a Cypher query needs is one decision with four outcomes, and three of them are
+// reachable here (UNIQUE needs schema.assert, which is a module). Pinned through what each query reports
+// so that how the decision is encoded can change without the behaviour moving.
+TYPED_TEST(InterpreterTest, CypherQueriesTakeTheAccessTheyNeed) {
+  {
+    // A plan that touches nothing is RWType::NONE, which is reported as "rw" because the Neo4j drivers
+    // accept no other spelling. Unrelated to the transaction, and unchanged by skipping one.
+    SCOPED_TRACE("reaching no graph opens no transaction");
+    auto stream = this->Interpret("RETURN 1");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    EXPECT_EQ(stream.GetSummary().at("type").ValueString(), "rw");
+  }
+  {
+    SCOPED_TRACE("a read of the graph");
+    auto stream = this->Interpret("MATCH (n) RETURN n");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+    EXPECT_EQ(stream.GetSummary().at("type").ValueString(), "r");
+  }
+  {
+    SCOPED_TRACE("a write");
+    auto stream = this->Interpret("CREATE ()");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+    EXPECT_EQ(stream.GetSummary().at("type").ValueString(), "w");
+  }
+  {
+    // PROFILE shares the access decision with the query it profiles but never its transaction-free path:
+    // it reports what execution did, so there has to be an execution to report on.
+    SCOPED_TRACE("profiling a query that would otherwise reach no graph");
+    auto stream = this->Interpret("PROFILE RETURN 1");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+  }
+}
+
 // The graph-access analysis reads the query and the storage-access check reads the plan built from it.
 // Nothing makes them disagree today, so the disagreement is forced: a plan that scans is planted in the
 // plan cache under a graph-free query's key. Preparing that query must refuse it, because running a plan
