@@ -10726,14 +10726,13 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto storage_mode = current_db_.db_acc_
                               ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
                               : std::nullopt;
-      // One decision, one answer. The first two cannot both hold: asserting a schema is a procedure call
-      // that reaches the graph, so such a query is never graph-free. The order says which would win if
-      // that ever stopped being true, and taking the whole graph is the safe answer to have chosen.
+      // What the query does to the graph, and then whether it needs the graph to itself. The second is an
+      // escalation of the first rather than another answer to it: a schema assertion has a read or write
+      // nature of its own, which taking the whole graph subsumes.
       auto const cypher_access = [&] {
         using enum storage::StorageAccessType;
-        if (parse_info.parsed_query.using_schema_assert) return UNIQUE;
-        if (graph_free_candidate) return NO_ACCESS;
-        return parsed_query.is_cypher_read ? READ : WRITE;
+        auto const to_the_graph = graph_free_candidate ? NO_ACCESS : (parsed_query.is_cypher_read ? READ : WRITE);
+        return parse_info.parsed_query.using_schema_assert ? UNIQUE : to_the_graph;
       }();
       auto transaction_requirements = QueryTransactionRequirements{cypher_access, storage_mode};
       parsed_query.query->Accept(transaction_requirements);
