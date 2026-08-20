@@ -45,6 +45,13 @@ CMAKE_ARGS:
         -DUBSAN=ON              Enable Undefined Behavior Sanitizer
         -DCMAKE_CXX_FLAGS=...   Additional compiler flags
 
+    Compile and link steps are additionally capped so their peak memory fits
+    the machine (or the container's cgroup limit), whatever -j is used:
+        -DMG_COMPILE_JOBS=N     Pin concurrent compile steps
+        -DMG_LINK_JOBS=N        Pin concurrent link steps
+        -DMG_LIMIT_PARALLELISM_BY_MEMORY=OFF
+                                Remove the cap entirely
+
 EXAMPLES:
     # Standard release build
     ./build.sh

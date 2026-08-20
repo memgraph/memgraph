@@ -212,6 +212,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # custom function definitions
 include(functions)
 
+include(BuildParallelism)
+
 # Build the Memgraph database itself. Turn OFF (together with
 # -DMG_BUILD_MAGE=ON) for a MAGE-only build — the Conan side of that mode is
 # the `mage_only` option in conanfile.py, which trims the dependency graph
