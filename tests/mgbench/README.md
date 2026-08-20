@@ -184,7 +184,8 @@ To measure only a cluster:
 ```bash
 ./benchmark.py --installation-type ha --num-workers-for-benchmark 6 \
   --export-results benchmark_result_replication.json \
-  'pokec/medium/create/*' \
+  pokec/medium/create/pattern \
+  pokec/medium/create/vertex_big \
   pokec/medium/arango/single_vertex_write \
   pokec/medium/arango/single_edge_write \
   pokec/medium/arango/unwind_range_vertex_write \
