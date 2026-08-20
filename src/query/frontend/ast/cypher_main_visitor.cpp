@@ -3761,6 +3761,16 @@ antlrcpp::Any CypherMainVisitor::visitExpression2b(MemgraphCypher::Expression2bC
   return expression;
 }
 
+namespace {
+/// Which fold a brace form asks for. Every spelling shares one body rule, so the keyword on the `atom` alternative is
+/// the only thing left that says which construct was written.
+SubqueryExpression::Fold FoldOf(MemgraphCypher::AtomContext *ctx) {
+  if (ctx->EXISTS()) return SubqueryExpression::Fold::kBool;
+  if (ctx->COUNT()) return SubqueryExpression::Fold::kCount;
+  LOG_FATAL("A subquery body with no keyword to fold it - the atom rule admits no such alternative.");
+}
+}  // namespace
+
 antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
   if (ctx->literal()) {
     return ctx->literal()->accept(this);
@@ -3774,11 +3784,10 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return static_cast<Expression *>(storage_->Create<Identifier>(variable));
   } else if (ctx->existsExpression()) {
     return std::any_cast<Expression *>(ctx->existsExpression()->accept(this));
-  } else if (ctx->existsSubquery()) {
-    return std::any_cast<Expression *>(ctx->existsSubquery()->accept(this));
-  } else if (ctx->countSubquery()) {
-    // Ahead of the ctx->COUNT() arm below, which COUNT { ... } also satisfies - that arm is COUNT(*).
-    return std::any_cast<Expression *>(ctx->countSubquery()->accept(this));
+  } else if (ctx->subqueryBody()) {
+    // Ahead of the ctx->COUNT() arm below, which COUNT { ... } also satisfies - that arm is COUNT(*). One body rule
+    // serves every spelling, so the keyword is what picks the fold.
+    return BuildSubqueryFold(ctx->subqueryBody(), FoldOf(ctx));
   } else if (ctx->functionInvocation()) {
     return std::any_cast<Expression *>(ctx->functionInvocation()->accept(this));
   } else if (ctx->COALESCE()) {
@@ -3945,8 +3954,8 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   return static_cast<Expression *>(subquery);
 }
 
-template <typename TContext>
-Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpression::Fold fold) {
+Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyContext *ctx,
+                                                 SubqueryExpression::Fold fold) {
   auto const construct = SubqueryExpression::FoldName(fold);
   auto *subquery = storage_->Create<SubqueryExpression>();
   subquery->fold_ = fold;
@@ -4017,14 +4026,6 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpressi
   }
 
   return static_cast<Expression *>(subquery);
-}
-
-antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) {
-  return BuildSubqueryFold(ctx, SubqueryExpression::Fold::kBool);
-}
-
-antlrcpp::Any CypherMainVisitor::visitCountSubquery(MemgraphCypher::CountSubqueryContext *ctx) {
-  return BuildSubqueryFold(ctx, SubqueryExpression::Fold::kCount);
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::PatternComprehensionContext *ctx) {
