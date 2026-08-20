@@ -10729,11 +10729,13 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // What the query does to the graph, and then whether it needs the graph to itself. The second is an
       // escalation of the first rather than another answer to it: a schema assertion has a read or write
       // nature of its own, which taking the whole graph subsumes.
-      auto const cypher_access = [&] {
+      auto const to_the_graph = [&] {
         using enum storage::StorageAccessType;
-        auto const to_the_graph = graph_free_candidate ? NO_ACCESS : (parsed_query.is_cypher_read ? READ : WRITE);
-        return parse_info.parsed_query.using_schema_assert ? UNIQUE : to_the_graph;
+        if (graph_free_candidate) return NO_ACCESS;
+        return parsed_query.is_cypher_read ? READ : WRITE;
       }();
+      auto const cypher_access =
+          parse_info.parsed_query.using_schema_assert ? storage::StorageAccessType::UNIQUE : to_the_graph;
       auto transaction_requirements = QueryTransactionRequirements{cypher_access, storage_mode};
       parsed_query.query->Accept(transaction_requirements);
 
