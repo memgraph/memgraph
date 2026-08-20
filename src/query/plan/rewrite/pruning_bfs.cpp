@@ -60,9 +60,9 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Filter &op) override {
-    for (auto const &f : op.all_filters_) {
-      CollectSymbolsFromExpression(f.expression);
-    }
+    // The whole predicate is in expression_, which is what the cursor evaluates.
+    // all_filters_ describes it for the planner and is empty for some filters.
+    CollectSymbolsFromExpression(op.expression_);
     return true;
   }
 
@@ -148,6 +148,11 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(CallProcedure &op) override {
     CollectSymbolsFromExpressions(op.arguments_);
+    // A write procedure runs once per row, so how many rows reach it is part of
+    // what it does. A read procedure's results are collapsed along with the rows.
+    if (op.is_write_) {
+      deduplicates_ = false;
+    }
     return true;
   }
 
