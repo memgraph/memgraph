@@ -8210,6 +8210,9 @@ TEST_P(CypherMainVisitorTest, CollectKeywordStaysUsableAsAName) {
   EXPECT_NO_THROW(ast_generator.ParseQuery("WITH 1 AS collect RETURN collect AS collect;"));
   EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (n) RETURN n.collect AS c;"));
   EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (n:collect) RETURN n;"));
+  // A map projection on a variable named `collect` is the spelling the brace alternative competes with.
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (collect) RETURN collect {.name};"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (collect) RETURN collect {.*};"));
 }
 
 TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {
