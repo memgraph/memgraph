@@ -13,11 +13,14 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <unordered_set>
 #include <vector>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 
@@ -25,26 +28,34 @@ namespace memgraph::query::plan {
 
 namespace {
 
-/// Pruning BFS emits a vertex at its shortest distance from the source, whereas
-/// depth-first expansion emits it for every edge-unique walk. The two agree on
-/// which vertices are reachable only while the lower bound is at most one: above
-/// that, a vertex first discovered too shallow is marked visited and can never be
-/// emitted at a depth that would have qualified.
-///
-/// A written-out bound is not enough to decide this. Query stripping replaces it
-/// with a parameter and the plan cache is keyed on the stripped query, so a single
-/// plan serves every bound the user might write. Only a bound that survives into
-/// the plan can be trusted.
-bool LowerBoundIsAtMostOne(Expression *lower_bound) {
-  if (!lower_bound) return true;
-  auto const *literal = utils::Downcast<PrimitiveLiteral>(lower_bound);
-  if (!literal || !literal->value_.IsInt()) return false;
-  return literal->value_.ValueInt() <= 1;
+/// True when the bound is fixed by the plan alone, rather than by the parameters
+/// a particular execution supplies. Query stripping turns a written-out bound
+/// into a parameter, so most bounds are not.
+bool IsStaticallyKnown(Expression *lower_bound) {
+  return lower_bound == nullptr || utils::Downcast<PrimitiveLiteral>(lower_bound) != nullptr;
+}
+
+/// The bound's value, or nullopt when it cannot be settled before execution
+/// because it reads something only a frame supplies. An absent bound means one.
+std::optional<int64_t> ResolveLowerBound(Expression *lower_bound, Parameters const &parameters) {
+  if (!lower_bound) return 1;
+
+  auto const value = std::invoke([&]() -> std::optional<storage::ExternalPropertyValue> {
+    if (auto const *literal = utils::Downcast<PrimitiveLiteral>(lower_bound)) return literal->value_;
+    if (auto const *param = utils::Downcast<ParameterLookup>(lower_bound)) {
+      return parameters.AtTokenPosition(param->token_position_);
+    }
+    return std::nullopt;
+  });
+
+  if (!value || !value->IsInt()) return std::nullopt;
+  return value->ValueInt();
 }
 
 class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  explicit PruningBFSRewriter(SymbolTable const &symbol_table) : symbol_table_(symbol_table) {}
+  PruningBFSRewriter(SymbolTable const &symbol_table, Parameters const &parameters, bool *read_parameters)
+      : symbol_table_(symbol_table), parameters_(parameters), read_parameters_(read_parameters) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -224,7 +235,12 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (op.common_.existing_node) return true;
     if (op.filter_lambda_.accumulated_path_symbol) return true;
     if (op.weight_lambda_) return true;
-    if (!LowerBoundIsAtMostOne(op.lower_bound_)) return true;
+    // Reached only by an expansion that is otherwise eligible, so the plan is
+    // tied to these parameters whether or not the bound turns out to permit
+    // pruning: a plan cached for one bound would be served to the others.
+    if (!IsStaticallyKnown(op.lower_bound_)) *read_parameters_ = true;
+    auto const lower_bound = ResolveLowerBound(op.lower_bound_, parameters_);
+    if (!lower_bound || *lower_bound > 1) return true;
     // The source is left unmarked so that a closed walk can rediscover it. A
     // shortest closed walk is a simple cycle, and so uses each edge once, but
     // only when every step follows an edge's direction. Traversing both ways
@@ -293,6 +309,8 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 
  private:
   SymbolTable const &symbol_table_;
+  Parameters const &parameters_;
+  bool *read_parameters_;
   std::unordered_set<int64_t> used_symbols_;
   bool deduplicates_{false};
   bool rewrite_blocked_{false};
@@ -302,8 +320,9 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 }  // namespace
 
 std::unique_ptr<LogicalOperator> RewriteWithPruningBFS(std::unique_ptr<LogicalOperator> root_op,
-                                                       SymbolTable const *symbol_table) {
-  auto rewriter = PruningBFSRewriter(*symbol_table);
+                                                       SymbolTable const *symbol_table, Parameters const &parameters,
+                                                       bool *read_parameters) {
+  auto rewriter = PruningBFSRewriter(*symbol_table, parameters, read_parameters);
   root_op->Accept(rewriter);
   return root_op;
 }

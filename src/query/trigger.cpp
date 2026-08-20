@@ -206,12 +206,16 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
         identifiers, std::back_inserter(predefined_identifiers), [](auto &identifier) { return &identifier.first; });
 
     plan::v2::QueryPlannerContext planner_context;
+    // A trigger's parameters are fixed when its statement is parsed, so the plan
+    // this holds is only ever reused with the parameters it was planned against.
+    bool read_parameters = false;
     auto logical_plan = MakeLogicalPlan(std::move(ast_storage),
                                         utils::Downcast<CypherQuery>(parsed_statements_.query),
                                         parsed_statements_.parameters,
                                         db_accessor,
                                         predefined_identifiers,
-                                        planner_context);
+                                        planner_context,
+                                        &read_parameters);
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }

@@ -16,6 +16,7 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/pruning_bfs.hpp"
 
@@ -30,6 +31,8 @@ class PruningBFSRewriteTest : public ::testing::Test {
  protected:
   AstStorage storage;
   SymbolTable symbol_table;
+  Parameters parameters;
+  bool read_parameters = false;
 
   Symbol source_sym = symbol_table.CreateSymbol("source", true);
   Symbol target_sym = symbol_table.CreateSymbol("target", true);
@@ -66,7 +69,7 @@ class PruningBFSRewriteTest : public ::testing::Test {
 
   EdgeAtom::Type RewrittenType(
       std::function<std::shared_ptr<LogicalOperator>(std::shared_ptr<LogicalOperator>)> const &above) {
-    auto plan = RewriteWithPruningBFS(MakePlan(above), &symbol_table);
+    auto plan = RewriteWithPruningBFS(MakePlan(above), &symbol_table, parameters, &read_parameters);
     return expand->type_;
   }
 };

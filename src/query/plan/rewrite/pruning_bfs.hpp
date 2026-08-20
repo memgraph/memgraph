@@ -15,13 +15,20 @@
 
 namespace memgraph::query {
 class SymbolTable;
-}
+class Parameters;
+}  // namespace memgraph::query
 
 namespace memgraph::query::plan {
 
 class LogicalOperator;
 
+/// `read_parameters` is set when an expansion's shape was settled by reading a
+/// parameter, which leaves the plan correct only for the parameters it was
+/// planned with. The plan cache is keyed on the stripped query, where those
+/// values do not appear, so such a plan must not be stored there. It is only
+/// ever set, so one flag can span the candidate plans of a single query.
 std::unique_ptr<LogicalOperator> RewriteWithPruningBFS(std::unique_ptr<LogicalOperator> root_op,
-                                                       SymbolTable const *symbol_table);
+                                                       SymbolTable const *symbol_table, Parameters const &parameters,
+                                                       bool *read_parameters);
 
 }  // namespace memgraph::query::plan
