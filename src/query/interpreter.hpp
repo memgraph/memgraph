@@ -560,10 +560,6 @@ class Interpreter final {
   // being freed and re-grown each query.
   plan::v2::QueryPlannerContext &query_planner_context() { return query_planner_context_; }
 
-  /// Opens the storage transaction that Prepare decided this query would not need. Only for a query the
-  /// graph-access analysis reported as graph-free whose plan then turned out to reach storage.
-  void OpenDeferredStorageTransaction(storage::StorageAccessType acc_type);
-
  private:
   void MaybeEmitFailedQueryLog(std::string_view query, std::string_view error) const {
     // TLS guard absent => no bolt message is in flight (worker/GC/NuRaft thread); never emit.

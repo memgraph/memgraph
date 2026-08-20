@@ -515,10 +515,10 @@ TYPED_TEST(InterpreterTest, GraphFreeProcedureCallIsReportedAsARead) {
 }
 
 // The graph-access analysis reads the query and the storage-access check reads the plan built from it.
-// Nothing makes them disagree today, so the recovery path is reached by forcing the disagreement: a plan
-// that scans is planted in the plan cache under a graph-free query's key. Preparing that query must
-// notice, open the transaction it had skipped, and run rather than fail.
-TYPED_TEST(InterpreterTest, PlanThatReachesStorageOpensTheSkippedTransaction) {
+// Nothing makes them disagree today, so the disagreement is forced: a plan that scans is planted in the
+// plan cache under a graph-free query's key. Preparing that query must refuse it, because running a plan
+// that reaches storage with no transaction open is a crash rather than a wrong answer.
+TYPED_TEST(InterpreterTest, PlanThatReachesStorageIsRefused) {
   auto *plan_cache = this->db->plan_cache();
   ASSERT_NE(plan_cache, nullptr);
 
@@ -530,14 +530,16 @@ TYPED_TEST(InterpreterTest, PlanThatReachesStorageOpensTheSkippedTransaction) {
   ASSERT_TRUE(scanning_plan.has_value());
   plan_cache->WithLock([&](auto &cache) { cache.put(ping.stripped_query(), *scanning_plan); });
 
-  auto stream = this->Interpret("RETURN 1");
-  // The transaction was opened after the fact, so this is no longer an accessor-free execution.
+  EXPECT_THROW(this->Interpret("RETURN 1"), memgraph::query::QueryRuntimeException);
+
+  // The session is usable afterwards: the refusal is one query's, not the connection's.
+  auto stream = this->Interpret("MATCH (n) RETURN 1");
   EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
 }
 
 #ifdef MG_ENTERPRISE
-// A user's memory quota is charged through the transaction's memory tracker. A query that opened no
-// transaction is never charged, so a user who has a quota keeps every query on the transaction path.
+// A quota is charged through whichever tracker the query has, so having one no longer costs a user the
+// transaction-free path.
 TYPED_TEST(InterpreterTest, UserWithAMemoryQuotaStillSkipsTheTransaction) {
   // A user resource is only attached to a session under an enterprise license. The checker is process
   // state shared with every other test in this binary, so put it back.

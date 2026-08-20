@@ -4085,8 +4085,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (!current_db.db_acc_) {
     throw DatabaseContextRequiredException("Database required for query execution.");
   }
-  auto *dba = current_db.execution_db_accessor_ ? &*current_db.execution_db_accessor_ : nullptr;
-  bool skipped_transaction = dba == nullptr;
+  auto *const dba = current_db.execution_db_accessor_ ? &*current_db.execution_db_accessor_ : nullptr;
+  bool const skipped_transaction = dba == nullptr;
 
   const auto is_cacheable = parsed_query.is_cacheable;
   auto *plan_cache = is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
@@ -4100,22 +4100,14 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                 interpreter.query_planner_context(),
                                 parsed_query.module_generation);
 
-  // The plan is what runs, so it decides. No query is known to disagree with the analysis, but if one
-  // does, open the transaction that was skipped. The plan stays as planned: it is correct for this query,
-  // only its storage needs were mispredicted.
-  if (skipped_transaction && plan::PlanRequiresStorageAccess(plan->plan())) {
-    spdlog::error(
-        "Query '{}' was found to need no graph, but its plan reaches storage. The query still runs, with the "
-        "transaction opened late and unplanned for. Please report this query to Memgraph.",
+  // The plan is what runs, so it decides. Refusing the query is the whole of the response: reaching
+  // storage with no transaction open is a crash rather than a wrong answer, and a plan built without one
+  // was built without statistics, so carrying on would run a worse plan down a path already known to be
+  // mispredicted.
+  if (skipped_transaction && plan::PlanRequiresStorageAccess(plan->plan())) [[unlikely]] {
+    throw QueryRuntimeException(
+        "Query '{}' was found to need no graph, but its plan reaches storage. Please report this query to Memgraph.",
         parsed_query.stripped_query.stripped_query().str());
-    using RWType = plan::ReadWriteTypeChecker::RWType;
-    auto const plan_rw_type = plan->rw_type();
-    auto const access_type = (plan_rw_type == RWType::W || plan_rw_type == RWType::RW)
-                                 ? storage::StorageAccessType::WRITE
-                                 : storage::StorageAccessType::READ;
-    interpreter.OpenDeferredStorageTransaction(access_type);
-    dba = &*current_db.execution_db_accessor_;
-    skipped_transaction = false;
   }
 
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
@@ -11239,11 +11231,6 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
 
 void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAccessType acc_type) {
   current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, acc_type);
-}
-
-void Interpreter::OpenDeferredStorageTransaction(storage::StorageAccessType acc_type) {
-  DMG_ASSERT(!current_db_.db_transactional_accessor_, "A storage transaction is already open");
-  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), /*could_commit=*/true, acc_type);
 }
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
