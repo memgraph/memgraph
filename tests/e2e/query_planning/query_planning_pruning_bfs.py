@@ -25,6 +25,22 @@ def operator_names(plan):
     return [line.strip().removeprefix("* ").split(" ")[0] for line in plan]
 
 
+def fetch_pruning(memgraph, query):
+    """Run `query`, first asserting it really is planned as a pruning BFS."""
+    ops = operator_names(get_plan(memgraph, query))
+    assert "PruningBFSExpand" in ops, f"Expected a pruning BFS plan, got: {ops}"
+    return list(memgraph.execute_and_fetch(query))
+
+
+def fetch_depth_first(memgraph, query):
+    """Run `query`, first asserting the rewrite left it depth-first. Binding an
+    edge variable is not enough to block the rewrite; the query must read it."""
+    ops = operator_names(get_plan(memgraph, query))
+    assert "ExpandVariable" in ops, f"Expected a depth-first plan, got: {ops}"
+    assert "PruningBFSExpand" not in ops, f"Expected a depth-first plan, got: {ops}"
+    return list(memgraph.execute_and_fetch(query))
+
+
 @pytest.fixture(autouse=True)
 def setup_graph(memgraph):
     memgraph.execute(
@@ -219,8 +235,8 @@ def test_correctness_collect_distinct(memgraph):
 
 def test_correctness_bounded_depth(memgraph):
     """A bounded expansion must agree with DFS."""
-    pruning = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*1..2]->(b) RETURN DISTINCT b.id AS id"))
-    dfs = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[r*1..2]->(b) RETURN DISTINCT b.id AS id"))
+    pruning = fetch_pruning(memgraph, "MATCH (a:N {id: 'a'})-[*1..2]->(b) RETURN DISTINCT b.id AS id")
+    dfs = fetch_depth_first(memgraph, "MATCH p=(a:N {id: 'a'})-[*1..2]->(b) RETURN DISTINCT b.id AS id")
     assert {r["id"] for r in pruning} == {r["id"] for r in dfs}
 
 
@@ -369,8 +385,8 @@ def test_correctness_filter_lambda_matches_dfs(memgraph):
         "(a)-[:TO]->(d:N {id: 'd'})-[:TO]->(c);"
     )
     lam = "(e, n | n.id <> 'b')"
-    pruning = list(memgraph.execute_and_fetch(f"MATCH (a:N {{id: 'a'}})-[*..3 {lam}]->(x) RETURN DISTINCT x.id AS id"))
-    dfs = list(memgraph.execute_and_fetch(f"MATCH (a:N {{id: 'a'}})-[r*1..3 {lam}]->(x) RETURN DISTINCT x.id AS id"))
+    pruning = fetch_pruning(memgraph, f"MATCH (a:N {{id: 'a'}})-[*..3 {lam}]->(x) RETURN DISTINCT x.id AS id")
+    dfs = fetch_depth_first(memgraph, f"MATCH p=(a:N {{id: 'a'}})-[*1..3 {lam}]->(x) RETURN DISTINCT x.id AS id")
     assert {r["id"] for r in pruning} == {r["id"] for r in dfs} == {"c", "d"}, f"pruning={pruning} dfs={dfs}"
 
 
