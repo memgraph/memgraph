@@ -1676,6 +1676,9 @@ bool PlanToJsonVisitor::PreVisit(RollUpApply &op) {
   self["name"] = "RollUpApply";
   self["fold"] = FoldName(op.fold_);
   self["output_symbol"] = ToJson(op.result_symbol_);
+  if (op.fold_ == RollUpApply::Fold::kList) {
+    self["collected_symbol"] = ToJson(op.list_collection_symbol_);
+  }
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

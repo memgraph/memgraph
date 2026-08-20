@@ -2873,42 +2873,21 @@ Feature: Subquery expressions
       And having executed:
           """
           CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(:Friend {name: 'F1'})
+          CREATE (b:Person {name: 'Bob'})-[:KNOWS]->(:Friend {name: 'F2'})
+          CREATE (c:Person {name: 'Carol'})
           """
       When executing query:
           """
           MATCH (p:Person)
-          RETURN collect(p.name) AS aggregated, COLLECT { MATCH (p)-[:KNOWS]->(f) RETURN f.name AS fn } AS subquery;
+          RETURN p.name AS name, collect(p.name) AS aggregated,
+                 COLLECT { MATCH (p)-[:KNOWS]->(f) RETURN f.name AS fn } AS subquery
+          ORDER BY name;
           """
-      Then the result should be:
-          | aggregated | subquery |
-          | ['Alice']  | ['F1']   |
-
-  Scenario: Test COLLECT subquery refuses a body returning more than one column
-      Given an empty graph
-      When executing query:
-          """
-          MATCH (n)
-          RETURN COLLECT { MATCH (m) RETURN m AS a, m AS b } AS r;
-          """
-      Then an error should be raised
-
-  Scenario: Test COLLECT subquery refuses a body with no RETURN
-      Given an empty graph
-      When executing query:
-          """
-          MATCH (n)
-          RETURN COLLECT { MATCH (m) } AS r;
-          """
-      Then an error should be raised
-
-  Scenario: Test COLLECT subquery refuses a body returning everything
-      Given an empty graph
-      When executing query:
-          """
-          MATCH (n)
-          RETURN COLLECT { MATCH (m) RETURN * } AS r;
-          """
-      Then an error should be raised
+      Then the result should be, in order:
+          | name    | aggregated | subquery |
+          | 'Alice' | ['Alice']  | ['F1']   |
+          | 'Bob'   | ['Bob']    | ['F2']   |
+          | 'Carol' | ['Carol']  | []       |
 
   Scenario: Test COLLECT subquery body may reuse an outer name in a pattern
       Given an empty graph

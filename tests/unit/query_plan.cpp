@@ -5477,35 +5477,71 @@ TYPED_TEST(TestPlanner, CountSubqueryInsideAggregateArgument) {
 // COLLECT { ... } is the same node again, folded to a list. Unlike the other two it needs a column, so what these
 // pin is that the column the branch collects is the one its RETURN names.
 
-TYPED_TEST(TestPlanner, CollectSubqueryInReturnProjection) {
-  // MATCH (n) RETURN COLLECT { MATCH (n)-[r]->(m) RETURN m } AS c
-  auto *collect_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), RETURN("m")));
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COLLECT_SUBQUERY(collect_subquery), AS("c"))));
-
-  Checkers input{ExpectOnce{}, ExpectScanAll{}};
-  // Once, not ScanAll, below the Expand: the branch expands from the bound `n` instead of re-scanning it.
-  Checkers branch{ExpectOnce{}, ExpectExpand{}, ExpectProduce{}};
-
-  // The base checker's fold is kList, which is exactly what a COLLECT projection plans as.
-  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
-}
-
 TYPED_TEST(TestPlanner, CollectSubqueryCollectsTheColumnItsBodyReturns) {
-  // The RollUpApply reads one frame slot per branch row. If it were handed the branch's *modified* symbols rather than
-  // its output column, a body with more than one bound variable would reach the "must be of size 1" throw.
+  // MATCH (n) RETURN COLLECT { MATCH (n)-[r]->(m) RETURN m AS out } AS c
+  // The list fold is the only one that reads a column, so the symbol it collects is the discriminator - and Once
+  // below the Expand says the branch correlates instead of re-scanning.
   FakeDbAccessor dba;
-
   auto *collect_subquery =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), RETURN(IDENT("m"), AS("out"))));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COLLECT_SUBQUERY(collect_subquery), AS("c"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  auto *roll_up = FindOpOfType<memgraph::query::plan::RollUpApply>(&planner.plan());
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}, ExpectProduce{}};
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectCollectRollUpApply{std::move(input), std::move(branch)}, ExpectProduce());
+
+  auto *roll_up = FindOpOfType<RollUpApply>(&planner.plan());
+  ASSERT_NE(roll_up, nullptr);
+  EXPECT_EQ(roll_up->list_collection_symbol_.name(), "out");
+}
+
+TYPED_TEST(TestPlanner, CollectSubqueryCollectsThroughAnIntermediateWith) {
+  // MATCH (n) RETURN COLLECT { MATCH (n)-[r]->(m) WITH n, m RETURN m AS out } AS c
+  // An intermediate WITH puts a second Produce in the branch, so the column is read off the branch root rather than
+  // off the body's first projection.
+  FakeDbAccessor dba;
+  auto *collect_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                                              WITH(NEXPR("n", IDENT("n")), NEXPR("m", IDENT("m"))),
+                                              RETURN(IDENT("m"), AS("out"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COLLECT_SUBQUERY(collect_subquery), AS("c"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *roll_up = FindOpOfType<RollUpApply>(&planner.plan());
   ASSERT_NE(roll_up, nullptr);
   EXPECT_EQ(roll_up->fold_, RollUpApply::Fold::kList);
-  EXPECT_EQ(roll_up->list_collection_symbol_.name(), "out")
-      << "the branch's own RETURN column is what a list fold collects";
+  EXPECT_EQ(roll_up->list_collection_symbol_.name(), "out");
+}
+
+TYPED_TEST(TestPlanner, CollectSubqueryInsideAggregateArgument) {
+  // MATCH (n) RETURN collect(COLLECT { MATCH (n)-[r]->(m) RETURN m AS out }) AS c
+  // The pre-Aggregate loop is the other fold_onto call site, and the one where the list fold is otherwise
+  // unexercised. The branch runs per input row, so its result symbol must not be remembered across the Aggregate.
+  FakeDbAccessor dba;
+  auto *collect_subquery =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), RETURN(IDENT("m"), AS("out"))));
+  auto *collect = COLLECT_SUBQUERY(collect_subquery);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COLLECT_LIST(collect, false), AS("c"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  Checkers input{ExpectOnce{}, ExpectScanAll{}};
+  Checkers branch{ExpectOnce{}, ExpectExpand{}, ExpectProduce{}};
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectCollectRollUpApply{std::move(input), std::move(branch)},
+            OpChecker<Aggregate>(),
+            ExpectProduce());
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto *aggregate = dynamic_cast<Aggregate *>(produce->input_.get());
+  ASSERT_NE(aggregate, nullptr);
+  EXPECT_FALSE(std::ranges::contains(aggregate->remember_, symbol_table.at(*collect)))
+      << "a COLLECT inside an aggregate argument must not be remembered across the Aggregate";
 }
 
 TYPED_TEST(TestPlanner, CollectSubqueryInMatchWhereUsesTheDeferredFold) {
