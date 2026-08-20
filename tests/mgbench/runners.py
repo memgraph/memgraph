@@ -848,10 +848,11 @@ class MemgraphHA(BaseRunner):
     def _load_description(self):
         import yaml
 
-        path = self.benchmark_context.vendor_args.get(
-            self.CLUSTER_YAML_ARG,
-            os.path.join(os.path.dirname(os.path.realpath(__file__)), self.DEFAULT_CLUSTER_YAML),
-        )
+        # A relative path resolves against this directory rather than the working directory, so a
+        # caller can name a description by filename without knowing where it was invoked from.
+        path = self.benchmark_context.vendor_args.get(self.CLUSTER_YAML_ARG, self.DEFAULT_CLUSTER_YAML)
+        if not os.path.isabs(path):
+            path = os.path.join(os.path.dirname(os.path.realpath(__file__)), path)
         with open(path, "r") as description_file:
             description = yaml.safe_load(description_file)
         if not isinstance(description, dict) or not description:

@@ -21,12 +21,14 @@ jobs:
     # TEMPORARY: only mgbench-ha runs, so the budget is that one suite. The figure below is an
     # estimate, not a measurement, which is why the margin is generous. Restore the original 550 when
     # the other steps are re-enabled, adjusted for whatever mgbench-ha turns out to cost.
-    timeout-minutes: 400
+    timeout-minutes: 650
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
-    #  - mgbench-ha: 25 minutes (ESTIMATE, not yet measured: 10 queries at one five-process cluster
+    #  - mgbench-ha: 25 minutes (ESTIMATE, not yet measured: 6 queries at one five-process cluster
     #    restart each, plus a pokec import that replicates synchronously to one replica, and no
     #    authorization pass, which would double those restarts)
+    #  - mgbench-ha-2-replicas: 30 minutes (ESTIMATE: the same suite with a second replica, so six
+    #    processes to restart and every commit waiting for two acknowledgements instead of one)
     #  - macro-benchmark: 3 minutes
     #  - mgbench: 20 minutes
     #  - extended planner improvements mgbench: 15 minutes
@@ -36,8 +38,9 @@ jobs:
     #  - mgbench-vector-search-edge-index: 5 minutes
     #  - mgbench-text-search-index: 5 minutes
     #  - mgbench-text-search-edge-index: 5 minutes
-    #  10 iterations of mgbench-ha alone would take about 250 minutes, leaving 150 minutes to allow
-    #  for building memgraph and variations in benchmark times.
+    #  10 iterations of the two high availability suites would take about 550 minutes, leaving 100
+    #  minutes to allow for building memgraph and variations in benchmark times. Both figures are
+    #  estimates rather than measurements.
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"
@@ -49,6 +52,9 @@ jobs:
       # Results of the high availability suite, which runs on its own and so reports under its own
       # benchmark name rather than as a field of the standalone measurement.
       DEFAULT_MGBENCH_HA_EXPORT_RESULTS_FILE: 'benchmark_result_ha.json'
+      # The same suite against a main with two SYNC replicas, so every commit waits for two
+      # acknowledgements instead of one. Separate file and series, since the topology is what differs.
+      DEFAULT_MGBENCH_HA_2_REPLICAS_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2_replicas.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
       CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -136,6 +142,19 @@ jobs:
             mgbench-ha \
             mgbench-ha \
             ${{ env.DEFAULT_MGBENCH_HA_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-2-replicas
+        id: mgbench-ha-2-replicas
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_2_replicas.yaml" \
+            mgbench-ha-2-replicas \
+            ${{ env.DEFAULT_MGBENCH_HA_2_REPLICAS_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
             ${{ github.run_number }} \
             $BRANCH_NAME \
