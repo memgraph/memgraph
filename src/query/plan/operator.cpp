@@ -2959,6 +2959,7 @@ class PruningBFSCursor : public query::plan::Cursor {
       : self_(self),
         input_cursor_(self_.input()->MakeCursor(mem, metric_handles)),
         visited_(mem),
+        branches_(mem),
         to_visit_current_(mem),
         to_visit_next_(mem) {}
 
@@ -2992,6 +2993,7 @@ class PruningBFSCursor : public query::plan::Cursor {
         if (context.hops_limit.IsLimitReached()) return false;
 
         visited_.clear();
+        branches_.clear();
         source_decided_ = false;
         source_pending_ = false;
 
@@ -3015,7 +3017,18 @@ class PruningBFSCursor : public query::plan::Cursor {
 
         current_depth_ = 0;
         source_ = vertex;
-        visited_.emplace(vertex, Arrival{0, storage::kInvalidGid});
+        visited_.emplace(vertex);
+        if (crosses_both_ways_) {
+          branches_.emplace(vertex, Arrival{0, storage::kInvalidGid});
+        } else {
+          // Following edges one way, the source is met again only over an edge
+          // leading back into it. Settling that here rather than per edge keeps
+          // the search over an acyclic graph as cheap as it was.
+          auto const returning = self_.common_.direction == EdgeAtom::Direction::IN
+                                     ? vertex.OutDegree(storage::View::OLD)
+                                     : vertex.InDegree(storage::View::OLD);
+          if (returning && *returning == 0) source_decided_ = true;
+        }
 
         if (lower_bound_ <= 0) {
           source_decided_ = true;
@@ -3051,6 +3064,7 @@ class PruningBFSCursor : public query::plan::Cursor {
   void Reset() override {
     input_cursor_->Reset();
     visited_.clear();
+    branches_.clear();
     to_visit_current_.clear();
     to_visit_next_.clear();
     source_decided_ = false;
@@ -3060,52 +3074,62 @@ class PruningBFSCursor : public query::plan::Cursor {
  private:
   /// How the search first reached a vertex: its distance from the source, and the
   /// edge leaving the source that began the branch it was found on. Only the
-  /// source is at distance zero, and it has no such edge.
+  /// source is at distance zero, and it has no such edge. Tracked only where edges
+  /// may be crossed either way; a directed expansion needs neither.
   struct Arrival {
     int64_t depth;
     storage::Gid first_edge;
   };
 
-  /// Length of the closed walk through the source that reaching `seen` again over
-  /// `edge` would complete, or nothing when it completes none.
+  /// Length of the closed walk through the source that reaching `next_vertex`
+  /// again over `edge` would complete, or nothing when it completes none.
   ///
   /// The source is reachable from itself only over a closed walk, and depth-first
-  /// expansion rejects a walk that reuses an edge. Two branches of the search
-  /// meeting is exactly such a walk: each vertex has one parent, so branches that
-  /// leave the source by different edges can share no edge later, and the edge
-  /// joining them belongs to neither.
-  std::optional<int64_t> ClosedWalkLength(Arrival const &from, storage::Gid edge, Arrival const &seen) const {
+  /// expansion rejects a walk that reuses an edge. An edge back to the source
+  /// closes one, unless it is the edge that branch left the source by. Where edges
+  /// may be crossed either way, two branches meeting closes one as well: each
+  /// vertex has a single parent, so branches leaving the source by different edges
+  /// can share no edge, and the edge joining them belongs to neither.
+  std::optional<int64_t> ClosedWalkLength(storage::Gid from_first_edge, EdgeAccessor const &edge,
+                                          VertexAccessor const &next_vertex) const {
+    if (!crosses_both_ways_) {
+      // Following an edge's direction into the source can never be following the
+      // edge that left it, so the walk stands whenever it reaches the source.
+      if (!(next_vertex == *source_)) return std::nullopt;
+      return current_depth_ + 1;
+    }
+
+    auto const seen = branches_.at(next_vertex);
+    // A step out of the source belongs to the branch this very edge starts.
+    auto const branch = from_first_edge == storage::kInvalidGid ? edge.Gid() : from_first_edge;
     if (seen.depth == 0) {
       // Back at the source. Stepping over the edge this branch started with would
       // be walking that edge a second time.
-      if (from.depth > 0 && from.first_edge == edge) return std::nullopt;
-      return from.depth + 1;
+      if (current_depth_ > 0 && branch == edge.Gid()) return std::nullopt;
+      return current_depth_ + 1;
     }
-    // Joining two branches walks one of them backwards, which is a closed walk
-    // only where the expansion may cross an edge either way.
-    if (self_.common_.direction != EdgeAtom::Direction::BOTH) return std::nullopt;
-    // A step out of the source belongs to the branch this very edge starts.
-    auto const from_branch = from.depth == 0 ? edge : from.first_edge;
-    if (from_branch == seen.first_edge) return std::nullopt;
-    return from.depth + seen.depth + 1;
+    if (branch == seen.first_edge) return std::nullopt;
+    return current_depth_ + seen.depth + 1;
   }
 
   /// Whether reaching an already-seen vertex could still settle the source, using
   /// only what is known before the edge is admitted. Answering this first keeps
-  /// the filter lambda off every edge that leads back into the visited set.
-  bool MaySettleSource(Arrival const &from, storage::Gid edge, Arrival const &seen) const {
+  /// the access check and the filter lambda off every edge that leads back into
+  /// the visited set, which on a dense graph is most of them.
+  bool MaySettleSource(storage::Gid from_first_edge, EdgeAccessor const &edge,
+                       VertexAccessor const &next_vertex) const {
     if (source_decided_) return false;
-    auto const length = ClosedWalkLength(from, edge, seen);
+    auto const length = ClosedWalkLength(from_first_edge, edge, next_vertex);
     return length && *length >= lower_bound_ && *length <= upper_bound_;
   }
 
   void expand_from_vertex(VertexAccessor const &vertex, ExpressionEvaluator &evaluator, FrameWriter &frame_writer,
                           ExecutionContext &context) {
-    auto const from = visited_.at(vertex);
+    auto const from_first_edge =
+        crosses_both_ways_ && current_depth_ > 0 ? branches_.at(vertex).first_edge : storage::kInvalidGid;
     auto try_visit = [&](EdgeAccessor edge, VertexAccessor next_vertex) {
-      auto const seen = visited_.find(next_vertex);
-      auto const already_seen = seen != visited_.end();
-      if (already_seen && !MaySettleSource(from, edge.Gid(), seen->second)) return;
+      auto const already_seen = visited_.contains(next_vertex);
+      if (already_seen && !MaySettleSource(from_first_edge, edge, next_vertex)) return;
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(
@@ -3133,7 +3157,11 @@ class PruningBFSCursor : public query::plan::Cursor {
         source_pending_ = true;
         return;
       }
-      visited_.emplace(next_vertex, Arrival{from.depth + 1, from.depth == 0 ? edge.Gid() : from.first_edge});
+      visited_.emplace(next_vertex);
+      if (crosses_both_ways_) {
+        auto const branch = from_first_edge == storage::kInvalidGid ? edge.Gid() : from_first_edge;
+        branches_.emplace(next_vertex, Arrival{current_depth_ + 1, branch});
+      }
       to_visit_next_.emplace_back(next_vertex);
     };
 
@@ -3163,12 +3191,15 @@ class PruningBFSCursor : public query::plan::Cursor {
   int64_t current_depth_{};
 
   std::optional<VertexAccessor> source_;
+  bool crosses_both_ways_{self_.common_.direction == EdgeAtom::Direction::BOTH};
   // Whether the source's own membership is decided, and whether it still owes a row.
   bool source_decided_{false};
   bool source_pending_{false};
 
   // Per-source visited set: cleared on each new input row
-  utils::pmr::unordered_map<VertexAccessor, Arrival> visited_;
+  utils::pmr::unordered_set<VertexAccessor> visited_;
+  // How each vertex was reached, kept only where edges may be crossed either way
+  utils::pmr::unordered_map<VertexAccessor, Arrival> branches_;
   // BFS frontier: current depth level and next depth level
   utils::pmr::vector<VertexAccessor> to_visit_current_;
   utils::pmr::vector<VertexAccessor> to_visit_next_;
