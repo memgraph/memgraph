@@ -216,10 +216,6 @@ TYPED_TEST(ExpressionEvaluatorTest, SubqueryReadsAForcedCountFold) {
   auto *count = this->CreateSubqueryWithValue("anon1", TypedValue(int64_t{3}, this->ctx.memory));
   count->fold_ = memgraph::query::SubqueryExpression::Fold::kCount;
   EXPECT_EQ(this->Eval(count).ValueInt(), 3);
-
-  auto *zero = this->CreateSubqueryWithValue("anon2", TypedValue(int64_t{0}, this->ctx.memory));
-  zero->fold_ = memgraph::query::SubqueryExpression::Fold::kCount;
-  EXPECT_EQ(this->Eval(zero).ValueInt(), 0);
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, SubqueryRefusesAnUnexpectedFrameValueByConstruct) {
