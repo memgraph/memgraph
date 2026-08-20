@@ -1942,7 +1942,7 @@ test_memgraph() {
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/arango/unwind_range_vertex_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read pokec/$DATASET_SIZE/arango/aggregate"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read pokec/$DATASET_SIZE/arango/aggregate"
     ;;
     mgbench-supernode)
       shift 1
