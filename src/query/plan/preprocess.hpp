@@ -294,6 +294,15 @@ class PropertyFilter {
     return t == Type::REGEX_MATCH || t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH;
   }
 
+  /// True when the index seek key is built from this filter's value expression, rather than being a
+  /// constant span of the property's type. Such a scan can only run where that expression's symbols
+  /// are bound, so a Cartesian above it has to be converted into an IndexedJoin. Types that both
+  /// require a post-filter and seek on their value (STARTS_WITH) create that dependency without
+  /// their expression ever being removed, so removal alone cannot be used to detect it.
+  static constexpr bool SeeksOnValue(Type t) {
+    return t == Type::EQUAL || t == Type::RANGE || t == Type::IN || t == Type::STARTS_WITH;
+  }
+
   /// Construct with Expression being the equality or regex match check.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, Expression *, Type);
   /// Construct the range based filter.
