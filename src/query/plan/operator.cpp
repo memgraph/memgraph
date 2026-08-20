@@ -1650,6 +1650,11 @@ UniqueCursorPtr ScanAllByVertexProperty::MakeCursor(utils::MemoryResource *mem,
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
     auto range = expression_range_.Evaluate(evaluator);
 
+    // Bounds of incomparable types describe an empty range, not an unbounded one.
+    if (range.type_ == storage::PropertyRangeType::INVALID) {
+      return std::nullopt;
+    }
+
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
       return std::make_optional(db->Vertices(view_, property_));
     }
@@ -10755,6 +10760,12 @@ UniqueCursorPtr ScanParallelByVertexProperty::MakeCursor(utils::MemoryResource *
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
     auto range = expression_range_.Evaluate(evaluator);
+
+    // Bounds of incomparable types describe an empty range, not an unbounded one. Zero chunks is
+    // how this cursor says "no rows", matching the null-bound case below.
+    if (range.type_ == storage::PropertyRangeType::INVALID) {
+      return db->ChunkedVertices(view_, property_, std::nullopt, std::nullopt, 0);
+    }
 
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
       return db->ChunkedVertices(view_, property_, num_threads_);
