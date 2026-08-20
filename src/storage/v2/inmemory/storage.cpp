@@ -1915,6 +1915,12 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
 }
 
 void InMemoryStorage::InMemoryAccessor::DowngradeToReadIfValid() {
+  // Only transactional can let writers in for the population: they record deltas, so the populating
+  // scan still reads its own snapshot, and their stale index entries wait for GC. Analytical writes
+  // in place with no deltas to read past, and its index maintenance erases entries eagerly (see
+  // ActiveIndices::UpdateOnRemoveLabel), which would race the scan that is still filling the same
+  // skip list. Keep the READ_ONLY hold, which excludes writers and analytical GC alike.
+  if (transaction_.storage_mode != StorageMode::IN_MEMORY_TRANSACTIONAL) return;
   if (guard_.owns_lock() && guard_.type() == utils::ResourceLockGuard::READ_ONLY) {
     guard_.downgrade_to_read();
   }
