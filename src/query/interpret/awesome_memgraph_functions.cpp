@@ -1254,8 +1254,15 @@ TypedValue Rand(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 
 template <class TPredicate>
 TypedValue StringMatchOperator(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String>, Or<Null, String>>(TPredicate::name, args, nargs);
-  if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
+  // Only the search term is type-checked. An index scan restricts the subject to the string type
+  // segment before any filter runs, so on an indexed plan a non-string subject never reaches this
+  // function -- throwing on it would make the result depend on whether an index exists. Return Null
+  // instead, which is what RegexMatch already does for the same reason (see eval.cpp).
+  if (nargs != 2) {
+    throw QueryRuntimeException("'{}' requires exactly 2 arguments.", TPredicate::name);
+  }
+  FType<Or<Null, String>>(TPredicate::name, args + 1, nargs - 1, 2);
+  if (!args[0].IsString() || args[1].IsNull()) return TypedValue(ctx.memory);
   const auto &s1 = args[0].ValueString();
   const auto &s2 = args[1].ValueString();
   return TypedValue(TPredicate{}(s1, s2), ctx.memory);
