@@ -3767,6 +3767,7 @@ namespace {
 SubqueryExpression::Fold FoldOf(MemgraphCypher::AtomContext *ctx) {
   if (ctx->EXISTS()) return SubqueryExpression::Fold::kBool;
   if (ctx->COUNT()) return SubqueryExpression::Fold::kCount;
+  if (ctx->COLLECT()) return SubqueryExpression::Fold::kList;
   LOG_FATAL("A subquery body with no keyword to fold it - the atom rule admits no such alternative.");
 }
 }  // namespace
@@ -3961,6 +3962,10 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
   subquery->fold_ = fold;
   // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
+    // A bare pattern names no column, and the list fold has to collect one - so this shape can never work for it.
+    if (fold == SubqueryExpression::Fold::kList) {
+      throw SyntaxException("{} needs a body returning a single column, and a bare pattern returns none.", construct);
+    }
     subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
     if (subquery->GetPattern()->identifier_) {
       throw SyntaxException("Identifiers are not supported in a {} pattern.", construct);
@@ -3978,7 +3983,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
 
     // 1. There must be at least one clause, and 2. only MATCH, WHERE, WITH, RETURN. Per branch: a UNION's
     // further branches are each their own SingleQuery, and a clause forbidden in the first is not legal in them.
-    auto validate_branch = [construct](const SingleQuery *single_query) {
+    auto validate_branch = [construct, fold](const SingleQuery *single_query) {
       if (!single_query || single_query->clauses_.empty()) {
         throw SyntaxException("{} subquery must contain at least one clause.", construct);
       }
@@ -3988,6 +3993,16 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
               utils::IsSubtype(type, With::kType) || utils::IsSubtype(type, Return::kType))) {
           throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.", construct);
         }
+      }
+      // 5. The list fold collects one column per branch row, so the body has to name exactly one - and `RETURN *`
+      // names an unknown number, which the reference refuses too. Caught here, so a multi-column body is a syntax
+      // error instead of the "must be of size 1" internal error the operator would raise.
+      if (fold != SubqueryExpression::Fold::kList) {
+        return;
+      }
+      const auto *ret = utils::Downcast<const Return>(single_query->clauses_.back());
+      if (ret == nullptr || ret->body_.all_identifiers || ret->body_.named_expressions.size() != 1) {
+        throw SyntaxException("{} subquery must end with a RETURN of exactly one column.", construct);
       }
     };
     validate_branch(cypher_query->single_query_);

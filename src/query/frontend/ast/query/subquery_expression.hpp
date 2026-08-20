@@ -20,7 +20,7 @@
 
 namespace memgraph::query {
 /// A correlated subquery expression: a body evaluated per outer row, reduced to one value. The body (@c content_) and
-/// the fold (@c fold_) vary independently - `EXISTS` is the bool fold, `COUNT` the count fold.
+/// the fold (@c fold_) vary independently - `EXISTS` is the bool fold, `COUNT` the count fold, `COLLECT` the list one.
 class SubqueryExpression : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;
@@ -28,7 +28,7 @@ class SubqueryExpression : public memgraph::query::Expression {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   /// What the body's rows are reduced to, and hence which surface spelling this was written as.
-  enum class Fold : uint8_t { kBool, kCount };
+  enum class Fold : uint8_t { kBool, kCount, kList };
 
   SubqueryExpression() = default;
 
@@ -56,6 +56,8 @@ class SubqueryExpression : public memgraph::query::Expression {
         return "EXISTS";
       case Fold::kCount:
         return "COUNT";
+      case Fold::kList:
+        return "COLLECT";
     }
   }
 
