@@ -235,12 +235,6 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (op.common_.existing_node) return true;
     if (op.filter_lambda_.accumulated_path_symbol) return true;
     if (op.weight_lambda_) return true;
-    // The source is left unmarked so that a closed walk can rediscover it. A
-    // shortest closed walk is a simple cycle, and so uses each edge once, but
-    // only when every step follows an edge's direction. Traversing both ways
-    // lets the search return over the edge it arrived on, which reaches the
-    // source by reusing an edge that depth-first expansion would reject.
-    if (op.common_.direction == EdgeAtom::Direction::BOTH) return true;
     if (!deduplicates_ || rewrite_blocked_) return true;
     if (used_symbols_.contains(op.common_.edge_symbol.position())) return true;
 

@@ -102,21 +102,59 @@ def test_pruning_bfs_with_filter_lambda(memgraph):
     assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
 
 
-def test_no_rewrite_for_undirected(memgraph):
-    """Pruning BFS tracks visited vertices, not visited edges, so an undirected
-    expansion can walk back over the edge it arrived on."""
+def test_pruning_bfs_undirected(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*..3]-(b) RETURN DISTINCT b")
     ops = operator_names(plan)
-    assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
 
 
-def test_correctness_undirected_does_not_reach_source(memgraph):
-    """Returning to 'a' over the single edge would reuse it, which DFS forbids."""
+# === Undirected expansion: the source is reachable only over a real cycle ===
+#
+# Every other vertex is reached by a shortest path, which is simple and so uses
+# each edge once. Only the source needs a closed walk, and that walk must not
+# reuse an edge, which is what separates these cases.
+
+
+def test_correctness_undirected_single_edge_excludes_source(memgraph):
+    """Returning to 'a' would reuse the only edge, which DFS forbids."""
     memgraph.drop_database()
     memgraph.execute("CREATE (a:N {id: 'a'})-[:TO]->(b:N {id: 'b'});")
     results = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*..2]-(x) RETURN DISTINCT x.id AS id"))
     assert {r["id"] for r in results} == {"b"}, f"Expected {{'b'}}, got {[r['id'] for r in results]}"
+
+
+def test_correctness_undirected_path_excludes_source(memgraph):
+    memgraph.drop_database()
+    memgraph.execute("CREATE (a:N {id: 'a'})-[:TO]->(b:N {id: 'b'})-[:TO]->(c:N {id: 'c'});")
+    results = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*..3]-(x) RETURN DISTINCT x.id AS id"))
+    assert {r["id"] for r in results} == {"b", "c"}, f"Got {[r['id'] for r in results]}"
+
+
+def test_correctness_undirected_cycle_reaches_source(memgraph):
+    """A triangle gives a closed walk over three distinct edges."""
+    memgraph.drop_database()
+    memgraph.execute("CREATE (a:N {id: 'a'})-[:TO]->(b:N {id: 'b'})-[:TO]->(c:N {id: 'c'}), (c)-[:TO]->(a);")
+    results = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*..3]-(x) RETURN DISTINCT x.id AS id"))
+    assert {r["id"] for r in results} == {"a", "b", "c"}, f"Got {[r['id'] for r in results]}"
+
+
+def test_correctness_undirected_cycle_beyond_upper_bound(memgraph):
+    """The same triangle, but three hops is further than the query allows."""
+    memgraph.drop_database()
+    memgraph.execute("CREATE (a:N {id: 'a'})-[:TO]->(b:N {id: 'b'})-[:TO]->(c:N {id: 'c'}), (c)-[:TO]->(a);")
+    results = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*..2]-(x) RETURN DISTINCT x.id AS id"))
+    assert {r["id"] for r in results} == {"b", "c"}, f"Got {[r['id'] for r in results]}"
+
+
+def test_correctness_undirected_matches_depth_first(memgraph):
+    memgraph.drop_database()
+    memgraph.execute(
+        "CREATE (a:N {id: 'a'})-[:TO]->(b:N {id: 'b'})-[:TO]->(c:N {id: 'c'}), "
+        "(a)-[:TO]->(d:N {id: 'd'}), (d)-[:TO]->(c);"
+    )
+    pruning = fetch_pruning(memgraph, "MATCH (a:N {id: 'a'})-[*..3]-(x) RETURN DISTINCT x.id AS id")
+    dfs = fetch_depth_first(memgraph, "MATCH p=(a:N {id: 'a'})-[*1..3]-(x) RETURN DISTINCT x.id AS id")
+    assert {r["id"] for r in pruning} == {r["id"] for r in dfs}, f"pruning={pruning} dfs={dfs}"
 
 
 # === Plan shape tests: rewrite should NOT fire ===

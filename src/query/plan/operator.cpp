@@ -2974,6 +2974,12 @@ class PruningBFSCursor : public query::plan::Cursor {
     while (true) {
       AbortCheck(context);
 
+      if (source_pending_) {
+        source_pending_ = false;
+        frame_writer.Write(self_.common_.node_symbol, *source_);
+        return true;
+      }
+
       // advance to next depth level when current is exhausted
       if (to_visit_current_.empty()) {
         to_visit_current_.swap(to_visit_next_);
@@ -2986,6 +2992,8 @@ class PruningBFSCursor : public query::plan::Cursor {
         if (context.hops_limit.IsLimitReached()) return false;
 
         visited_.clear();
+        source_decided_ = false;
+        source_pending_ = false;
 
         auto const &vertex_value = frame[self_.input_symbol_];
         if (vertex_value.IsNull()) continue;
@@ -3006,9 +3014,11 @@ class PruningBFSCursor : public query::plan::Cursor {
         auto const &vertex = vertex_value.ValueVertex();
 
         current_depth_ = 0;
+        source_ = vertex;
+        visited_.emplace(vertex, Arrival{0, std::nullopt});
 
         if (lower_bound_ <= 0) {
-          visited_.emplace(vertex);
+          source_decided_ = true;
           frame_writer.Write(self_.common_.node_symbol, vertex);
           if (upper_bound_ > 0) {
             expand_from_vertex(vertex, evaluator, frame_writer, context);
@@ -3043,13 +3053,57 @@ class PruningBFSCursor : public query::plan::Cursor {
     visited_.clear();
     to_visit_current_.clear();
     to_visit_next_.clear();
+    source_decided_ = false;
+    source_pending_ = false;
   }
 
  private:
+  /// How the search first reached a vertex: its distance from the source, and the
+  /// edge leaving the source that began the branch it was found on. The source
+  /// itself has no such edge.
+  struct Arrival {
+    int64_t depth;
+    std::optional<storage::Gid> first_edge;
+  };
+
+  /// The source is reachable from itself only over a closed walk, and depth-first
+  /// expansion rejects a walk that reuses an edge. Two branches of the search
+  /// meeting is exactly such a walk: each vertex has one parent, so branches that
+  /// leave the source by different edges can share no edge later, and the edge
+  /// joining them belongs to neither. Its length is the two depths plus that edge.
+  void ConsiderClosedWalk(Arrival const &from, EdgeAccessor const &edge, Arrival const &seen) {
+    if (source_decided_) return;
+
+    auto const length = std::invoke([&]() -> int64_t {
+      if (!seen.first_edge) {
+        // Back at the source. Stepping over the edge this branch started with
+        // would be walking that edge a second time.
+        if (from.first_edge && *from.first_edge == edge.Gid()) return -1;
+        return from.depth + 1;
+      }
+      // Joining two branches walks one of them backwards, which is a closed walk
+      // only where the expansion may cross an edge either way.
+      if (self_.common_.direction != EdgeAtom::Direction::BOTH) return -1;
+      // A step out of the source belongs to the branch this very edge starts.
+      auto const from_branch = from.first_edge ? *from.first_edge : edge.Gid();
+      if (from_branch == *seen.first_edge) return -1;
+      return from.depth + seen.depth + 1;
+    });
+
+    if (length < lower_bound_ || length > upper_bound_) return;
+    source_decided_ = true;
+    source_pending_ = true;
+  }
+
   void expand_from_vertex(VertexAccessor const &vertex, ExpressionEvaluator &evaluator, FrameWriter &frame_writer,
                           ExecutionContext &context) {
+    auto const from = visited_.at(vertex);
     auto try_visit = [&](EdgeAccessor edge, VertexAccessor next_vertex) {
-      if (visited_.contains(next_vertex)) return;
+      auto const seen = visited_.find(next_vertex);
+      auto const already_seen = seen != visited_.end();
+      // A vertex already reached has nothing left to say once the source's own
+      // membership is settled, so skip the checks below in the common case.
+      if (already_seen && source_decided_) return;
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(
@@ -3072,7 +3126,12 @@ class PruningBFSCursor : public query::plan::Cursor {
             throw QueryRuntimeException("Expansion condition must evaluate to boolean or null.");
         }
       }
-      visited_.emplace(next_vertex);
+      if (already_seen) {
+        ConsiderClosedWalk(from, edge, seen->second);
+        return;
+      }
+      visited_.emplace(next_vertex,
+                       Arrival{from.depth + 1, from.first_edge ? from.first_edge : std::optional{edge.Gid()}});
       to_visit_next_.emplace_back(next_vertex);
     };
 
@@ -3101,8 +3160,13 @@ class PruningBFSCursor : public query::plan::Cursor {
   int64_t upper_bound_{};
   int64_t current_depth_{};
 
+  std::optional<VertexAccessor> source_;
+  // Whether the source's own membership is decided, and whether it still owes a row.
+  bool source_decided_{false};
+  bool source_pending_{false};
+
   // Per-source visited set: cleared on each new input row
-  utils::pmr::unordered_set<VertexAccessor> visited_;
+  utils::pmr::unordered_map<VertexAccessor, Arrival> visited_;
   // BFS frontier: current depth level and next depth level
   utils::pmr::vector<VertexAccessor> to_visit_current_;
   utils::pmr::vector<VertexAccessor> to_visit_next_;
