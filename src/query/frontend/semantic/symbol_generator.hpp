@@ -177,6 +177,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     // Index of the scope that opened the innermost enclosing `CALL {}`. A name resolving only below it belongs to
     // the enclosing query and needs an explicit import.
     std::optional<size_t> call_subquery_base;
+    // Index of the scope that opened the innermost enclosing subquery expression's body. A name resolving between
+    // `call_subquery_base` and it is one the body can already see, so the body may not redeclare it.
+    std::optional<size_t> subquery_body_base;
     // Identifiers found in property maps of patterns or as variable length path
     // bounds in a single Match clause. They need to be checked after visiting
     // Match. Identifiers created by naming vertices, edges and paths are *not*
@@ -198,6 +201,13 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   // Whether @p name resolves in any scope from @p from outwards; pass `call_subquery_base` to ask about a subquery.
   bool HasSymbol(const std::string &name, size_t from = 0) const;
+
+  // Whether @p name belongs to a scope the innermost enclosing subquery expression's body can see but did not
+  // declare - the shadowing Neo4j refuses with 42N07.
+  bool ShadowsEnclosingName(const std::string &name, const Scope &scope) const;
+
+  // Refuses a WITH/RETURN item whose alias redeclares a name its subquery can already see.
+  void CheckDoesNotShadow(const NamedExpression &named_expr, const Scope &scope) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
