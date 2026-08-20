@@ -739,6 +739,24 @@ Feature: WHERE exists
           """
       Then an error should be raised
 
+  Scenario: Test invalid parallel execution inside EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+            USING PARALLEL EXECUTION
+            MATCH (person)-[:HAS_DOG]->(dog:Dog)
+            RETURN dog
+          }
+          RETURN person.name AS name;
+          """
+      Then an error should be raised
+
   Scenario: Test invalid SET inside EXISTS
       Given an empty graph
       And having executed:
@@ -1777,7 +1795,6 @@ Feature: WHERE exists
           CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
           CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
           CREATE (a)-[:KNOWS]->(f1)
-          CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f2)
           CREATE (b)-[:KNOWS]->(f1)
           """
@@ -1800,7 +1817,6 @@ Feature: WHERE exists
           """
           CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
           CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
-          CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f2)
           CREATE (b)-[:KNOWS]->(f1)
@@ -1829,7 +1845,6 @@ Feature: WHERE exists
           CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
           CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
           CREATE (a)-[:KNOWS]->(f1)
-          CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f2)
           CREATE (b)-[:KNOWS]->(f1)
           """
@@ -1851,7 +1866,6 @@ Feature: WHERE exists
           """
           CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
           CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
-          CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f2)
           CREATE (b)-[:KNOWS]->(f1)
@@ -1875,7 +1889,6 @@ Feature: WHERE exists
           CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
           CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
           CREATE (a)-[:KNOWS]->(f1)
-          CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f2)
           CREATE (b)-[:KNOWS]->(f1)
           """
@@ -1891,7 +1904,8 @@ Feature: WHERE exists
           | 'Bob'   | false |
           | 'Carol' | false |
 
-  # Alice is the discriminating row: 3 rows, 2 distinct, so the SKIP clears the table only if DISTINCT was planned.
+  # Alice is the discriminating row: her doubled KNOWS edge to F1 makes 3 rows but 2 distinct, so the SKIP clears
+  # the table only if DISTINCT was planned. It is the one fixture here that needs a parallel edge.
   # Dave, with 3 distinct, keeps a row either way, so an all-false table cannot pass by accident.
   Scenario: Test EXISTS subquery whose body RETURN is DISTINCT
       Given an empty graph
@@ -1927,7 +1941,6 @@ Feature: WHERE exists
           CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
           CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
           CREATE (a)-[:KNOWS]->(f1)
-          CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f2)
           CREATE (b)-[:KNOWS]->(f1)
           """
@@ -1952,7 +1965,6 @@ Feature: WHERE exists
           CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
           CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
           CREATE (a)-[:KNOWS]->(f1)
-          CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f2)
           CREATE (b)-[:KNOWS]->(f1)
           """
@@ -1974,7 +1986,6 @@ Feature: WHERE exists
           """
           CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
           CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
-          CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f2)
           CREATE (b)-[:KNOWS]->(f1)
@@ -2000,7 +2011,6 @@ Feature: WHERE exists
           CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
           CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
           CREATE (a)-[:KNOWS]->(f1)
-          CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f2)
           CREATE (b)-[:KNOWS]->(f1)
           """
@@ -2022,7 +2032,6 @@ Feature: WHERE exists
           """
           CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Carol'})
           CREATE (f1:Friend {name: 'F1'}), (f2:Friend {name: 'F2'})
-          CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f1)
           CREATE (a)-[:KNOWS]->(f2)
           CREATE (b)-[:KNOWS]->(f1)
