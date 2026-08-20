@@ -235,22 +235,24 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (op.common_.existing_node) return true;
     if (op.filter_lambda_.accumulated_path_symbol) return true;
     if (op.weight_lambda_) return true;
-    // Reached only by an expansion that is otherwise eligible, so the plan is
-    // tied to these parameters whether or not the bound turns out to permit
-    // pruning: a plan cached for one bound would be served to the others.
-    if (!IsStaticallyKnown(op.lower_bound_)) *read_parameters_ = true;
-    auto const lower_bound = ResolveLowerBound(op.lower_bound_, parameters_);
-    if (!lower_bound || *lower_bound > 1) return true;
     // The source is left unmarked so that a closed walk can rediscover it. A
     // shortest closed walk is a simple cycle, and so uses each edge once, but
     // only when every step follows an edge's direction. Traversing both ways
     // lets the search return over the edge it arrived on, which reaches the
     // source by reusing an edge that depth-first expansion would reject.
     if (op.common_.direction == EdgeAtom::Direction::BOTH) return true;
+    if (!deduplicates_ || rewrite_blocked_) return true;
+    if (used_symbols_.contains(op.common_.edge_symbol.position())) return true;
 
-    if (deduplicates_ && !rewrite_blocked_ && !used_symbols_.contains(op.common_.edge_symbol.position())) {
-      op.type_ = EdgeAtom::Type::PRUNING_BFS;
-    }
+    // Everything else already permits pruning, so the bound is what settles this
+    // expansion, and reading it from the parameters ties the plan to them. That
+    // holds whether or not the bound then permits pruning, because caching the
+    // depth-first plan would serve it to the bounds that do permit it.
+    if (!IsStaticallyKnown(op.lower_bound_)) *read_parameters_ = true;
+    auto const lower_bound = ResolveLowerBound(op.lower_bound_, parameters_);
+    if (!lower_bound || *lower_bound > 1) return true;
+
+    op.type_ = EdgeAtom::Type::PRUNING_BFS;
     return true;
   }
 

@@ -42,6 +42,10 @@ class PruningBFSRewriteTest : public ::testing::Test {
 
   std::shared_ptr<ExpandVariable> expand;
 
+  /// Knobs the tests vary; defaults describe a plan the rewrite accepts.
+  Expression *lower_bound = nullptr;
+  bool deduplicates = true;
+
   /// Once -> ScanAll -> ExpandVariable -> `above` -> Distinct -> Produce, where
   /// `above` is built from the expansion by the caller.
   std::unique_ptr<LogicalOperator> MakePlan(
@@ -55,16 +59,27 @@ class PruningBFSRewriteTest : public ::testing::Test {
                                               EdgeAtom::Direction::OUT,
                                               std::vector<memgraph::storage::EdgeTypeId>{},
                                               false,
-                                              nullptr,
+                                              lower_bound,
                                               nullptr,
                                               false,
                                               ExpansionLambda{inner_edge_sym, inner_node_sym, nullptr},
                                               std::nullopt,
                                               std::nullopt,
                                               nullptr);
-    auto distinct = std::make_shared<Distinct>(above(expand), std::vector<Symbol>{target_sym});
+    std::shared_ptr<LogicalOperator> top = above(expand);
+    if (deduplicates) {
+      top = std::make_shared<Distinct>(std::move(top), std::vector<Symbol>{target_sym});
+    }
     auto *named = storage.Create<NamedExpression>("target", storage.Create<Identifier>("target")->MapTo(target_sym));
-    return std::make_unique<Produce>(distinct, std::vector<NamedExpression *>{named});
+    return std::make_unique<Produce>(std::move(top), std::vector<NamedExpression *>{named});
+  }
+
+  /// A bound that only the parameters of a particular execution settle, as query
+  /// stripping produces for a written-out bound.
+  Expression *SuppliedBound(int64_t value) {
+    constexpr int kTokenPosition = 0;
+    parameters.Add(kTokenPosition, memgraph::storage::ExternalPropertyValue{value});
+    return storage.Create<ParameterLookup>(kTokenPosition);
   }
 
   EdgeAtom::Type RewrittenType(
@@ -120,6 +135,38 @@ TEST_F(PruningBFSRewriteTest, RewritesBelowAReadProcedure) {
                                                                                            /*procedure_id=*/0));
   });
   EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
+}
+
+TEST_F(PruningBFSRewriteTest, ASuppliedBoundThatPermitsPruningTiesThePlanToIt) {
+  lower_bound = SuppliedBound(1);
+  auto const type = RewrittenType([](auto input) { return input; });
+  EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
+  EXPECT_TRUE(read_parameters);
+}
+
+TEST_F(PruningBFSRewriteTest, ASuppliedBoundThatDeniesPruningAlsoTiesThePlanToIt) {
+  // The plan is depth-first either way, but caching it would serve it to the
+  // bounds that do permit pruning.
+  lower_bound = SuppliedBound(2);
+  auto const type = RewrittenType([](auto input) { return input; });
+  EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
+  EXPECT_TRUE(read_parameters);
+}
+
+TEST_F(PruningBFSRewriteTest, ABoundIsNotReadWhenNothingElseAllowsPruning) {
+  // Nothing deduplicates, so the bound never decides anything and the plan is
+  // the one every execution of this query would get.
+  deduplicates = false;
+  lower_bound = SuppliedBound(1);
+  auto const type = RewrittenType([](auto input) { return input; });
+  EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
+  EXPECT_FALSE(read_parameters);
+}
+
+TEST_F(PruningBFSRewriteTest, AnAbsentBoundLeavesThePlanFitForTheCache) {
+  auto const type = RewrittenType([](auto input) { return input; });
+  EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
+  EXPECT_FALSE(read_parameters);
 }
 
 }  // namespace
