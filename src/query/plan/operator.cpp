@@ -194,7 +194,7 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
         return storage::PropertyValueRange::Bounded(utils::MakeBoundInclusive(storage::PropertyValue()), std::nullopt);
       }
       if (!typed_value.IsString()) {
-        throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
+        throw QueryRuntimeException("STARTS WITH search term must be a string, not '{}'.", typed_value.type());
       }
       auto const &prefix = typed_value.ValueString();
       auto lower_bound = utils::MakeBoundInclusive(storage::PropertyValue(prefix));

@@ -771,9 +771,17 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
         }
         return db_accessor_->VerticesCount(property) * CardParam::kFilter;
       }
+      case Type::STARTS_WITH: {
+        // The prefix upper bound only materialises once the range is resolved, so estimating from
+        // the raw bounds would count every value >= the prefix instead of just the prefix span.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        if (auto resolved = range.ResolveAtPlantime(parameters, mapper)) {
+          return db_accessor_->VerticesCount(property, resolved->lower_, resolved->upper_);
+        }
+        return EstimateVertexPropertyRangeCardinality(property, range.lower_, range.upper_);
+      }
       case Type::RANGE:
       case Type::REGEX_MATCH:
-      case Type::STARTS_WITH:
       case Type::CONTAINS:
       case Type::ENDS_WITH:
         return EstimateVertexPropertyRangeCardinality(property, range.lower_, range.upper_);
