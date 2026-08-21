@@ -34,6 +34,7 @@
 #include "query/plan/rewrite/parallel_rewrite.hpp"
 #include "query/plan/rewrite/periodic_delete.hpp"
 #include "query/plan/rewrite/plan_validator.hpp"
+#include "query/plan/rewrite/pruning_bfs.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -60,6 +61,9 @@ class PostProcessor final {
 
  public:
   IndexHints index_hints_{};
+  /// Set by a rewrite that read a parameter to settle the plan's shape. Only
+  /// ever set, so it spans every candidate plan considered for the query.
+  bool reads_parameters_{false};
 
   using ProcessedPlan = std::unique_ptr<LogicalOperator>;
 
@@ -84,7 +88,8 @@ class PostProcessor final {
            } |
            [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db, parallel_exec); } |
-           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); }
+           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); } |
+           [&](auto p) { return RewriteWithPruningBFS(std::move(p), symbol_table, parameters_, &reads_parameters_); }
 #ifdef MG_ENTERPRISE
            |
            // Keep at the end
@@ -130,6 +135,9 @@ auto MakeLogicalPlanForSingleQuery(QueryParts query_parts, PlanningContext<TDbAc
 struct MakeLogicalPlanResult {
   PostProcessor::ProcessedPlan plan;
   double cost;
+  /// Whether a rewrite settled the plan's shape by reading a parameter, leaving
+  /// it correct only for the parameters it was planned with.
+  bool reads_parameters;
 };
 
 /// Generates the LogicalOperator tree and returns the resulting plan.
@@ -214,6 +222,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
   return MakeLogicalPlanResult{
       .plan = std::move(*curr_plan),
       .cost = total_cost,
+      .reads_parameters = post_process->reads_parameters_,
   };
 }
 

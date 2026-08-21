@@ -5658,3 +5658,37 @@ TEST_P(IndexCreationHold, WritersOnlyDuringTransactionalPopulation) {
 
 INSTANTIATE_TEST_SUITE_P(InMemoryModes, IndexCreationHold,
                          ::testing::Values(StorageMode::IN_MEMORY_TRANSACTIONAL, StorageMode::IN_MEMORY_ANALYTICAL));
+
+TEST(PrefixSuccessor, ComputesSuccessorOfAsciiString) {
+  auto result = memgraph::storage::PrefixSuccessor("foo");
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(*result, "fop");
+}
+
+TEST(PrefixSuccessor, ComputesSuccessorOfSingleChar) {
+  auto result = memgraph::storage::PrefixSuccessor("a");
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(*result, "b");
+}
+
+TEST(PrefixSuccessor, ComputesSuccessorWhenTrailingByteIsCharMax) {
+  auto result = memgraph::storage::PrefixSuccessor(std::string("ab\xFF", 3));
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(*result, "ac");
+}
+
+TEST(PrefixSuccessor, ComputesSuccessorWhenMultipleTrailingCharMaxBytes) {
+  auto result = memgraph::storage::PrefixSuccessor(std::string("a\xFF\xFF", 3));
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(*result, "b");
+}
+
+TEST(PrefixSuccessor, ComputesSuccessorWhenAllCharMaxBytes) {
+  auto result = memgraph::storage::PrefixSuccessor(std::string("\xFF\xFF\xFF", 3));
+  EXPECT_FALSE(result.has_value());
+}
+
+TEST(PrefixSuccessor, ComputesNoSuccessorOnEmptyString) {
+  auto result = memgraph::storage::PrefixSuccessor("");
+  EXPECT_FALSE(result.has_value());
+}

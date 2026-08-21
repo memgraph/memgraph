@@ -277,7 +277,40 @@ class PropertyFilter {
 
   /// Depending on type, this PropertyFilter may be a value equality, regex
   /// matched value or a range with lower and (or) upper bounds, IN list filter.
-  enum class Type : uint8_t { EQUAL = 0, REGEX_MATCH = 1, RANGE = 2, IN = 3, IS_NOT_NULL = 4 };
+  enum class Type : uint8_t {
+    EQUAL = 0,
+    REGEX_MATCH = 1,
+    RANGE = 2,
+    IN = 3,
+    IS_NOT_NULL = 4,
+    STARTS_WITH = 5,
+    CONTAINS = 6,
+    ENDS_WITH = 7
+  };
+
+  /// True when the index scan is a superset and the original expression
+  /// must be retained as a post-filter.
+  static constexpr bool RequiresPostFilter(Type t) {
+    return t == Type::REGEX_MATCH || t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH;
+  }
+
+  /// True when the index seek key is built from this filter's value expression, rather than being a
+  /// constant span of the property's type. Such a scan can only run where that expression's symbols
+  /// are bound, so a Cartesian above it has to be converted into an IndexedJoin. Types that both
+  /// require a post-filter and seek on their value (STARTS_WITH) create that dependency without
+  /// their expression ever being removed, so removal alone cannot be used to detect it.
+  /// The three predicates this feature made index candidates. A correlated one -- whose value reads a
+  /// symbol other than the one being scanned -- is deliberately not indexed: on a node it turns a
+  /// Cartesian into an IndexedJoin that re-seeks the index once per outer row, and on an edge it is
+  /// not plannable at all. Before the feature they were plain filters over a scan, and a correlated
+  /// one stays that way.
+  static constexpr bool IsStringPredicate(Type t) {
+    return t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH;
+  }
+
+  static constexpr bool SeeksOnValue(Type t) {
+    return t == Type::EQUAL || t == Type::RANGE || t == Type::IN || t == Type::STARTS_WITH;
+  }
 
   /// Construct with Expression being the equality or regex match check.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, Expression *, Type);

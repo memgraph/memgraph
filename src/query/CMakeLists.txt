@@ -73,6 +73,7 @@ target_sources(mg-query
     plan/read_write_type_checker.cpp
     plan/rewrite/general.cpp
     plan/rewrite/index_lookup.cpp
+    plan/rewrite/pruning_bfs.cpp
     plan/rewrite/range.cpp
     plan/rule_based_planner.cpp
     plan/used_index_checker.cpp
