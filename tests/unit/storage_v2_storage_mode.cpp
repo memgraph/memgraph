@@ -205,6 +205,30 @@ TEST_F(StorageModeMultiTxTest, AnalyticalIndexCreationAccess) {
   }
 }
 
+// Dropping asks for read-only access too: an aborted drop restores the index as it was captured, so
+// no writer may run between the drop and the commit.
+TEST_F(StorageModeMultiTxTest, AnalyticalIndexDropAccess) {
+  main_interpreter.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
+  ASSERT_EQ(db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+  main_interpreter.Interpret("CREATE INDEX ON :Label1");
+
+  {
+    auto writer = db->storage()->Access(memgraph::storage::WRITE);
+    ASSERT_THROW(running_interpreter.Interpret("DROP INDEX ON :Label1"), memgraph::storage::ReadOnlyAccessTimeout);
+    writer->Abort();
+  }
+
+  {
+    auto reader = db->storage()->Access(memgraph::storage::READ);
+    running_interpreter.Interpret("DROP INDEX ON :Label1");
+    reader->Abort();
+  }
+
+  auto acc = db->storage()->Access(memgraph::storage::READ);
+  ASSERT_EQ(acc->ListAllIndices().label.size(), 0);
+  acc->Abort();
+}
+
 // nlohmann ADL hooks for StorageMode (storage_mode.hpp): integer wire encoding + range-checked read.
 // These back the durable hot/cold cold_stats JSON and SalientConfig, which both rely on plain
 // integer encoding — switching to a string form would break read-back of existing entries.

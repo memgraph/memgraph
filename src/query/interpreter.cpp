@@ -10434,15 +10434,16 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
     using enum storage::StorageAccessType;
     mode_dependent_ = true;
-    auto const creating = index_query.action_ == IndexQuery::Action::CREATE;
     if (storage_mode_ == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
-      accessor_type_ = creating ? READ_ONLY : READ;
+      accessor_type_ = (index_query.action_ == IndexQuery::Action::CREATE) ? READ_ONLY : READ;
     } else if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-      // Creation only has to exclude writers, so reads run alongside it; unlike transactional the
-      // hold is kept for the whole population (see DowngradeToReadIfValid). Dropping stays unique.
-      accessor_type_ = creating ? READ_ONLY : UNIQUE;
+      // Read-only either way, so reads run alongside: creation needs writers out for the whole
+      // population (see DowngradeToReadIfValid), and a drop takes effect at once but is undone by
+      // restoring the index exactly as captured, so a writer admitted before the commit would leave
+      // the restored index missing whatever it wrote.
+      accessor_type_ = READ_ONLY;
     } else {
       // ON_DISK_TRANSACTIONAL requires unique access
       accessor_type_ = UNIQUE;
@@ -10456,13 +10457,12 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
     using enum storage::StorageAccessType;
     mode_dependent_ = true;
-    auto const creating = edge_index_query.action_ == EdgeIndexQuery::Action::CREATE;
     if (storage_mode_ == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
-      accessor_type_ = creating ? READ_ONLY : READ;
+      accessor_type_ = (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) ? READ_ONLY : READ;
     } else if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-      accessor_type_ = creating ? READ_ONLY : UNIQUE;
+      accessor_type_ = READ_ONLY;
     } else {
       // ON_DISK_TRANSACTIONAL requires unique access
       accessor_type_ = UNIQUE;
@@ -10727,7 +10727,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
         // SET STORAGE MODE can land between the unlocked read of `storage_mode` and the accessor
         // taking its hold, leaving the access type chosen for a mode no longer in force: an index
-        // drop planned as transactional holds READ where analytical wants UNIQUE. Retrying
+        // drop planned as transactional holds READ where analytical wants READ_ONLY. Retrying
         // replans against the pinned mode. The throw unwinds into the catch below, releasing the
         // hold.
         if (transaction_requirements.mode_dependent_ &&

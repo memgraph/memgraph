@@ -2061,8 +2061,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
   // UNIQUE access will be done only through schema.assert
-  MG_ASSERT(type() == UNIQUE || type() == READ,
-            "Dropping label index requires a unique or read access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
+            "Dropping label index requires a unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
@@ -2090,8 +2090,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(
     LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order) {
   // UNIQUE access will be done only through schema.assert
-  MG_ASSERT(type() == UNIQUE || type() == READ,
-            "Dropping label-property index requires a unique or read access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
+            "Dropping label-property index requires a unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
@@ -2141,8 +2141,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type) {
   // UNIQUE access will be done only through schema.assert
-  MG_ASSERT(type() == UNIQUE || type() == READ,
-            "Dropping edge-type index requires a unique or read access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
+            "Dropping edge-type index requires a unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
@@ -2165,8 +2165,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type,
                                                                                               PropertyId property) {
   // UNIQUE access will be done only through schema.assert
-  MG_ASSERT(type() == UNIQUE || type() == READ,
-            "Dropping edge-type property index requires a unique or read access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
+            "Dropping edge-type property index requires a unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to drop the index, no properties on edges
@@ -2194,8 +2194,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
     PropertyId property) {
   // UNIQUE access will be done only through schema.assert
-  MG_ASSERT(type() == UNIQUE || type() == READ,
-            "Dropping global edge property index requires unique or read access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
+            "Dropping global edge property index requires unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
@@ -2223,8 +2223,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalVertexIndex(
     PropertyId property) {
-  MG_ASSERT(type() == UNIQUE || type() == READ,
-            "Dropping global vertex property index requires unique or read access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
+            "Dropping global vertex property index requires unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_vertex_property_index =
       static_cast<InMemoryVertexPropertyIndex *>(in_memory->indices_.vertex_property_index_.get());
