@@ -222,19 +222,6 @@ jobs:
             $BRANCH_NAME \
             mgbench
 
-      - name: Run and upload mgbench-ha-2-async
-        id: mgbench-ha-2-async
-        continue-on-error: true
-        run: |
-          ./tools/ci/loop-benchmark.sh \
-            "mgbench-ha --cluster-description ha_cluster_2_async.yaml" \
-            mgbench-ha-2-async \
-            ${{ env.DEFAULT_MGBENCH_HA_2_ASYNC_EXPORT_RESULTS_FILE }} \
-            ${{ github.run_id }} \
-            ${{ github.run_number }} \
-            $BRANCH_NAME \
-            mgbench
-
       - name: Run and upload mgbench-ha-sync-async
         id: mgbench-ha-sync-async
         continue-on-error: true
@@ -256,6 +243,19 @@ jobs:
             "mgbench-ha --cluster-description ha_cluster_strict_sync_async.yaml" \
             mgbench-ha-strict-sync-async \
             ${{ env.DEFAULT_MGBENCH_HA_STRICT_SYNC_ASYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-2-async
+        id: mgbench-ha-2-async
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_2_async.yaml" \
+            mgbench-ha-2-async \
+            ${{ env.DEFAULT_MGBENCH_HA_2_ASYNC_EXPORT_RESULTS_FILE }} \
             ${{ github.run_id }} \
             ${{ github.run_number }} \
             $BRANCH_NAME \
