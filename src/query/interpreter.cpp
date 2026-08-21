@@ -256,7 +256,9 @@ std::ostream &operator<<(std::ostream &os, const QueryLogWrapper &qlw) {
 #if MG_ENTERPRISE
   os << "[Run - " << qlw.db_name << "] ";
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    final_query = memgraph::logging::MaskSensitiveInformation(final_query.view());
+    if (auto masked = memgraph::logging::MaskSensitiveInformation(final_query.view())) {
+      final_query = *std::move(masked);
+    }
   }
 #else
   os << "[Run] ";
