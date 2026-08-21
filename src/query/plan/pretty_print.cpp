@@ -53,6 +53,8 @@ std::string ToString(EdgeAtom::Type type) {
       return "asp";
     case EdgeAtom::Type::KSHORTEST:
       return "shortest_first";
+    case EdgeAtom::Type::PRUNING_BFS:
+      return "pruning_bfs";
     case EdgeAtom::Type::SINGLE:
       return "single";
   }
