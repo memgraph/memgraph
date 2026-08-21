@@ -51,3 +51,23 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["query_planning/query_planning_in_list.py"]
     <<: *queries_cluster
+
+  - name: "Query planning string operators"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_string_operators.py"]
+    cluster:
+      main:
+        args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-properties-on-edges=TRUE"]
+        log_file: "query_planning.log"
+        setup_queries: []
+        validation_queries: []
+
+  - name: "Query planning string operators on disk"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_string_operators_on_disk.py"]
+    cluster:
+      main:
+        args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-properties-on-edges=TRUE"]
+        log_file: "query_planning.log"
+        setup_queries: []
+        validation_queries: []

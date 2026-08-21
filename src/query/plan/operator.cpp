@@ -145,6 +145,14 @@ auto ExpressionRange::In(Expression *runtime_value, ListLiteral *membership_list
 
 auto ExpressionRange::RegexMatch() -> ExpressionRange { return {Type::REGEX_MATCH, std::nullopt, std::nullopt}; }
 
+auto ExpressionRange::StartsWith(Expression *value) -> ExpressionRange {
+  return {Type::STARTS_WITH, utils::MakeBoundInclusive(value), std::nullopt};
+}
+
+auto ExpressionRange::Contains() -> ExpressionRange { return {Type::CONTAINS, std::nullopt, std::nullopt}; }
+
+auto ExpressionRange::EndsWith() -> ExpressionRange { return {Type::ENDS_WITH, std::nullopt, std::nullopt}; }
+
 auto ExpressionRange::Range(std::optional<utils::Bound<Expression *>> lower,
                             std::optional<utils::Bound<Expression *>> upper) -> ExpressionRange {
   return {Type::RANGE, std::move(lower), std::move(upper)};
@@ -172,10 +180,28 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       return storage::PropertyValueRange::Bounded(bounded_property_value, bounded_property_value);
     }
 
-    case Type::REGEX_MATCH: {
+    case Type::REGEX_MATCH:
+    case Type::CONTAINS:
+    case Type::ENDS_WITH: {
       auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
       auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
       return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
+    }
+
+    case Type::STARTS_WITH: {
+      auto const typed_value = lower_->value()->Accept(evaluator);
+      if (!typed_value.IsString()) {
+        // A non-string search term makes the predicate Null for every row, so nothing can match and
+        // there is no need to read the index at all.
+        return storage::PropertyValueRange::Empty();
+      }
+      auto const &prefix = typed_value.ValueString();
+      auto lower_bound = utils::MakeBoundInclusive(storage::PropertyValue(prefix));
+      auto successor = storage::PrefixSuccessor(prefix);
+      auto upper_bound =
+          successor ? std::make_optional(utils::MakeBoundExclusive(storage::PropertyValue(std::move(*successor))))
+                    : storage::UpperBoundForType(storage::PropertyValueType::String);
+      return storage::PropertyValueRange::Bounded(std::move(lower_bound), std::move(upper_bound));
     }
 
     case Type::RANGE: {
@@ -237,10 +263,27 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
                                                   std::get<obpv>(bounded_property_value));
     }
 
-    case Type::REGEX_MATCH: {
+    case Type::REGEX_MATCH:
+    case Type::CONTAINS:
+    case Type::ENDS_WITH: {
       auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
       auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
       return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
+    }
+
+    case Type::STARTS_WITH: {
+      auto maybe_lower = to_bounded_property_value(lower_);
+      if (std::holds_alternative<UnknownAtPlanTime>(maybe_lower)) return std::nullopt;
+      auto lower_bound = std::get<obpv>(maybe_lower);
+      // A non-string search term is known here to match nothing, which is a cardinality of zero
+      // rather than an unknown one.
+      if (!lower_bound || !lower_bound->value().IsString()) return storage::PropertyValueRange::Empty();
+      auto const &prefix = lower_bound->value().ValueString();
+      auto successor = storage::PrefixSuccessor(prefix);
+      auto upper_bound =
+          successor ? std::make_optional(utils::MakeBoundExclusive(storage::PropertyValue(std::move(*successor))))
+                    : storage::UpperBoundForType(storage::PropertyValueType::String);
+      return storage::PropertyValueRange::Bounded(std::move(lower_bound), std::move(upper_bound));
     }
 
     case Type::RANGE: {
@@ -1313,12 +1356,14 @@ std::optional<std::vector<storage::PropertyValueRange>> EvaluateExpressionRanges
   auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
   auto prop_value_ranges = expression_ranges | rv::transform(to_property_value_range) | ranges::to_vector;
 
-  auto const bound_is_null = [](auto &&range) {
-    return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
+  auto const matches_nothing = [](auto &&range) {
+    return range.type_ == storage::PropertyRangeType::INVALID || (range.lower_ && range.lower_->value().IsNull()) ||
+           (range.upper_ && range.upper_->value().IsNull());
   };
 
-  // If either upper or lower bounds are `null`, then nothing can satisfy the filter.
-  if (ranges::any_of(prop_value_ranges, bound_is_null)) {
+  // Every property has to be satisfied, so one that nothing can satisfy - a null bound, or a range
+  // already known to be empty - settles the whole composite.
+  if (ranges::any_of(prop_value_ranges, matches_nothing)) {
     return std::nullopt;
   }
 
@@ -1607,6 +1652,11 @@ UniqueCursorPtr ScanAllByVertexProperty::MakeCursor(utils::MemoryResource *mem,
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
     auto range = expression_range_.Evaluate(evaluator);
+
+    // Bounds of incomparable types describe an empty range, not an unbounded one.
+    if (range.type_ == storage::PropertyRangeType::INVALID) {
+      return std::nullopt;
+    }
 
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
       return std::make_optional(db->Vertices(view_, property_));
@@ -10713,6 +10763,12 @@ UniqueCursorPtr ScanParallelByVertexProperty::MakeCursor(utils::MemoryResource *
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
     auto range = expression_range_.Evaluate(evaluator);
+
+    // Bounds of incomparable types describe an empty range, not an unbounded one. Zero chunks is
+    // how this cursor says "no rows", matching the null-bound case below.
+    if (range.type_ == storage::PropertyRangeType::INVALID) {
+      return db->ChunkedVertices(view_, property_, std::nullopt, std::nullopt, 0);
+    }
 
     if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
       return db->ChunkedVertices(view_, property_, num_threads_);

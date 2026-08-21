@@ -41,9 +41,9 @@ struct LabelPropertyIndexAbortProcessor;
  *            both bounds to the same inclusive value, BOUNDED can also be used
  *            to check for exact property equality.
  * - IS_NOT_NULL: including every non-null value.
- * - INVALID: a range no property value can ever match, caused by different
- *            types for lower and upper bounds. For example:
- *            n.a > 42 and n.a < "hello".
+ * - INVALID: a range no property value can ever match. Bounds of different types
+ *            describe one, for example n.a > 42 and n.a < "hello", and so does a
+ *            predicate that is already known to hold for nothing.
  */
 enum class PropertyRangeType { BOUNDED, IS_NOT_NULL, INVALID };
 
@@ -54,6 +54,9 @@ struct PropertyValueRange {
     return {Type::INVALID, std::move(lower), std::move(upper)};
   };
 
+  /// A range for a predicate that no value satisfies, where no pair of bounds expresses it.
+  static auto Empty() -> PropertyValueRange { return {Type::INVALID, std::nullopt, std::nullopt}; }
+
   static auto Bounded(std::optional<utils::Bound<PropertyValue>> lower,
                       std::optional<utils::Bound<PropertyValue>> upper) -> PropertyValueRange {
     return {Type::BOUNDED, std::move(lower), std::move(upper)};
@@ -62,6 +65,9 @@ struct PropertyValueRange {
   static auto IsNotNull() -> PropertyValueRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
 
   bool IsValueInRange(PropertyValue const &value) const {
+    // A range nothing can match admits nothing, whatever its bounds happen to be: an empty one
+    // carries none at all, and reading those as unbounded would admit every value.
+    if (type_ == Type::INVALID) return false;
     if (lower_) {
       if (lower_->IsInclusive()) {
         if (value < lower_->value()) return false;

@@ -217,6 +217,19 @@ nlohmann::json ToJson(const ExpressionRange &expression_range, const DbAccessor 
       result["type"] = "Regex";
       break;
     }
+    case PropertyFilter::Type::STARTS_WITH: {
+      result["type"] = "StartsWith";
+      result["expression"] = ToJson(expression_range.lower_->value(), dba);
+      break;
+    }
+    case PropertyFilter::Type::CONTAINS: {
+      result["type"] = "Contains";
+      break;
+    }
+    case PropertyFilter::Type::ENDS_WITH: {
+      result["type"] = "EndsWith";
+      break;
+    }
     case PropertyFilter::Type::RANGE: {
       result["type"] = "Range";
       result["lower_bound"] = expression_range.lower_ ? ToJson(*expression_range.lower_, dba) : json();
