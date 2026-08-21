@@ -30,9 +30,9 @@ namespace memgraph::utils {
 bool IsAvailableTSC();
 
 namespace detail {
-/// Stops the compiler moving code across the counter read. The fences below
-/// constrain the processor only; without this the read could be scheduled
-/// outside the region at compile time.
+/// Stops the compiler moving code across a counter read. Emits no
+/// instructions, so it constrains only compile-time scheduling; the reads
+/// below are otherwise free to drift within the processor's execution window.
 inline void CompilerBarrier() noexcept { asm volatile("" ::: "memory"); }
 }  // namespace detail
 
@@ -52,47 +52,35 @@ inline uint64_t ReadTSC() noexcept {
 #endif
 }
 
-/// Read for the opening edge of a measured region: work preceding the region
-/// has completed before the counter is sampled, so it cannot be charged to the
-/// region.
+/// Read for the opening edge of a measured region. Ordered against the
+/// surrounding code at compile time only: the processor may still retire
+/// preceding work after the sample and charge a little of it to the region.
+/// Serialising the read costs more than an indicative profile is worth.
 inline uint64_t ReadTSCStart() noexcept {
-#if defined(__x86_64__) || defined(__i386__)
-  // LFENCE does not itself execute until everything before it has completed,
-  // and dispatches nothing after it until it does.
   detail::CompilerBarrier();
-  _mm_lfence();
-  auto const ticks = __rdtsc();
-  detail::CompilerBarrier();
-  return ticks;
-#elif defined(__aarch64__)
-  // A CNTVCT_EL0 read is not ordered against neighbouring instructions on its
-  // own; ISB is what the architecture offers to pin it down.
-  asm volatile("isb" ::: "memory");
   auto const ticks = ReadTSC();
   detail::CompilerBarrier();
   return ticks;
-#else
-  return 0;
-#endif
 }
 
-/// Read for the closing edge of a measured region: the region's work has
-/// completed before the counter is sampled, and work following the region
-/// cannot start before it.
+/// Read for the closing edge of a measured region. The region's own work has
+/// completed before the counter is sampled, so none of it escapes into
+/// whatever is measured next; work following the region may still be drawn in
+/// ahead of the sample.
 inline uint64_t ReadTSCEnd() noexcept {
 #if defined(__x86_64__) || defined(__i386__)
-  // RDTSCP supplies the leading half of the ordering by waiting on preceding
-  // instructions; LFENCE supplies the trailing half.
   detail::CompilerBarrier();
+  // RDTSCP, unlike RDTSC, does not execute until preceding instructions have.
   uint32_t processor_id = 0;
   auto const ticks = __rdtscp(&processor_id);
-  _mm_lfence();
   detail::CompilerBarrier();
   return ticks;
 #elif defined(__aarch64__)
+  // CNTVCT_EL0 has no counterpart that waits on preceding instructions, so the
+  // wait has to be spelled out.
   asm volatile("isb" ::: "memory");
   auto const ticks = ReadTSC();
-  asm volatile("isb" ::: "memory");
+  detail::CompilerBarrier();
   return ticks;
 #else
   return 0;
