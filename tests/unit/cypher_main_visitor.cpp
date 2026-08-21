@@ -8152,14 +8152,13 @@ TEST_P(CypherMainVisitorTest, CollectSubqueryNeedsExactlyOneReturnColumn) {
       ast_generator.ParseQuery("RETURN COLLECT { MATCH (n) RETURN n AS v ORDER BY v SKIP 1 LIMIT 2 } AS r;"));
   EXPECT_NO_THROW(ast_generator.ParseQuery("RETURN COLLECT { MATCH (n) RETURN DISTINCT n.x AS v } AS r;"));
 
-  // Measured against Neo4j 2026.02.2: it refuses every shape below with `42N22 … A COLLECT subquery must end with a
-  // single return column`. `RETURN *` is refused there whatever the body binds - one variable included - so the check
-  // is a clause test and never has to count symbols.
+  // `RETURN *` is refused whatever the body binds, one variable included, so the check is a clause test and never
+  // has to count symbols.
   const auto *const message = "COLLECT subquery must end with a RETURN of exactly one column.";
   TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { MATCH (n) } AS r;", ast_generator, message);
   TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { MATCH (n) RETURN * } AS r;", ast_generator, message);
-  // Neo4j refuses this one for its `RETURN *` too; here the body allow-list (§5) turns `UNWIND` away first. Same
-  // verdict, earlier check - so what is pinned is the refusal, not which of the two reaches it.
+  // The body allow-list turns `UNWIND` away before the arity check reaches it, so what is pinned is the refusal,
+  // not which of the two produces it.
   TestInvalidQueryWithMessage<SyntaxException>("RETURN COLLECT { UNWIND [1] AS z RETURN * } AS r;",
                                                ast_generator,
                                                "Only MATCH, WHERE, WITH, and RETURN clauses are allowed in COLLECT "
@@ -8196,8 +8195,8 @@ TEST_P(CypherMainVisitorTest, CollectSubqueryCarriesTheListFold) {
 TEST_P(CypherMainVisitorTest, CollectKeywordStaysUsableAsAName) {
   auto &ast_generator = *GetParam();
 
-  // `COLLECT` is a lexer token now, and `collect` is also the aggregation and a perfectly good identifier. It is in
-  // `cypherKeyword`, so all three keep parsing.
+  // `collect` is a lexer token, the aggregation, and a perfectly good identifier. It sits in `cypherKeyword`, so all
+  // three parse.
   {
     const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) RETURN collect(n) AS c;"));
     ASSERT_TRUE(query);
