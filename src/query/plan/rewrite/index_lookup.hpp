@@ -1180,6 +1180,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   using CandidateLabelPropertiesIndices =
       std::multimap<std::pair<LabelIx, std::vector<query::PropertyIxPath>>, LabelPropertiesIndexCandidate, std::less<>>;
 
+  // A correlated string predicate is left as a filter over a scan; see PropertyFilter::IsStringPredicate.
+  static bool IsCorrelatedStringPredicate(const Symbol &scanned_symbol, FilterInfo const &filter) {
+    if (!PropertyFilter::IsStringPredicate(filter.property_filter->type_)) return false;
+    return std::ranges::any_of(filter.used_symbols, [&scanned_symbol](Symbol const &s) { return s != scanned_symbol; });
+  }
+
   auto GetCandidateLabelPropertiesIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
       -> CandidateLabelPropertiesIndices {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
@@ -1207,7 +1213,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       //       scan+filter with index based scanby we remove the associated filter
       //       `n.a = 2 + n.b` would an example of a filter that could be enhanced by an index but does not
       //       remove the need for the filter
-      return !filter.property_filter->is_symbol_in_value_ && are_bound(filter.used_symbols);
+      return !filter.property_filter->is_symbol_in_value_ && are_bound(filter.used_symbols) &&
+             !IsCorrelatedStringPredicate(symbol, filter);
     };
     auto as_propertyIX = [&](auto const &filter) -> auto const & { return filter.property_filter->property_ids_; };
     auto as_property_path = [&](auto const &filter) -> storage::PropertyPath {
@@ -1732,7 +1739,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     for (auto const &filter : property_filters) {
       if (filter.property_filter->is_symbol_in_value_ ||
-          !std::ranges::all_of(filter.used_symbols, [&](auto const &s) { return bound_symbols.contains(s); }))
+          !std::ranges::all_of(filter.used_symbols, [&](auto const &s) { return bound_symbols.contains(s); }) ||
+          IsCorrelatedStringPredicate(node_symbol, filter))
         continue;
       if (filter.property_filter->property_ids_.path.size() != 1) continue;
       auto const &prop_ix = filter.property_filter->property_ids_.path[0];

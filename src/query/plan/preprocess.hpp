@@ -299,6 +299,15 @@ class PropertyFilter {
   /// are bound, so a Cartesian above it has to be converted into an IndexedJoin. Types that both
   /// require a post-filter and seek on their value (STARTS_WITH) create that dependency without
   /// their expression ever being removed, so removal alone cannot be used to detect it.
+  /// The three predicates this feature made index candidates. A correlated one -- whose value reads a
+  /// symbol other than the one being scanned -- is deliberately not indexed: on a node it turns a
+  /// Cartesian into an IndexedJoin that re-seeks the index once per outer row, and on an edge it is
+  /// not plannable at all. Before the feature they were plain filters over a scan, and a correlated
+  /// one stays that way.
+  static constexpr bool IsStringPredicate(Type t) {
+    return t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH;
+  }
+
   static constexpr bool SeeksOnValue(Type t) {
     return t == Type::EQUAL || t == Type::RANGE || t == Type::IN || t == Type::STARTS_WITH;
   }

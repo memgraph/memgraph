@@ -867,11 +867,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   // still break `=` and `>=` the same way, so rather than widen them, leave a correlated string
   // predicate as a Filter over an expansion -- which is what happened before the feature existed.
   static bool IsUnplannableCorrelatedStringFilter(const Symbol &edge_symbol, FilterInfo const &filter) {
-    auto const type = filter.property_filter->type_;
-    if (type != PropertyFilter::Type::STARTS_WITH && type != PropertyFilter::Type::CONTAINS &&
-        type != PropertyFilter::Type::ENDS_WITH) {
-      return false;
-    }
+    if (!PropertyFilter::IsStringPredicate(filter.property_filter->type_)) return false;
     return std::ranges::any_of(filter.used_symbols, [&edge_symbol](Symbol const &s) { return s != edge_symbol; });
   }
 
