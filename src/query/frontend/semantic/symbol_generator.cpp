@@ -215,8 +215,8 @@ bool SymbolGenerator::PreVisit(CypherUnion &) {
   // Currently only CALL and EXISTS subqueries can contain complete queries with UNION.
   next_scope.in_call_subquery = prev_scope.in_call_subquery;
   next_scope.in_subquery_body = prev_scope.in_subquery_body;
-  // This replaces the scope at its own index, so a boundary that scope opened has to come with it - a UNION branch
-  // is still the same body, and shadows the same names.
+  // This replaces the scope at its own index, so a boundary that scope opened comes with it: a UNION branch is
+  // still the same body.
   next_scope.boundary = prev_scope.boundary;
   next_scope.subquery_fold = prev_scope.subquery_fold;
   // Carry over explicit `CALL (v1, v2) { ... }` imports so each UNION branch
@@ -1133,8 +1133,8 @@ std::optional<size_t> SymbolGenerator::InnermostBoundary(Scope::Boundary kind) c
 bool SymbolGenerator::ShadowsEnclosingName(const std::string &name) const {
   auto const body = InnermostBoundary(Scope::Boundary::kSubqueryBody);
   if (!body) return false;
-  // A `CALL {}` bounds what the body can see: an un-imported name is out of reach, so redeclaring it shadows nothing.
-  // A `CALL {}` opened *inside* the body starts above it, leaving the range empty - the same conclusion.
+  // A `CALL {}` bounds what the body can see: an un-imported name is out of reach, so redeclaring it shadows
+  // nothing. One opened *inside* the body starts above it, leaving the range empty - the same conclusion.
   auto const lo = InnermostBoundary(Scope::Boundary::kCallImport).value_or(0);
   auto const hi = std::max(lo, *body);
   return std::ranges::any_of(std::views::iota(lo, hi),

@@ -3282,9 +3282,9 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportRestoredAfterNestedLegacySubquery) {
 }
 
 // A named expression may reproject an import under its own name; the import must stay suppressed, not coexist with
-// the new symbol. Plans identically before and after the fix - it guards `GenWith`'s shadow check, without
-// which `WITH *` projects `m` twice. Aliasing a *different* expression to `m` is refused by the symbol generator,
-// so projecting the import through is the only spelling that still reaches the guard.
+// the new symbol. Guards `GenWith`'s shadow check, without which `WITH *` projects `m` twice. Aliasing a *different*
+// expression to `m` is refused by the symbol generator, so projecting the import through is the only spelling that
+// reaches the guard.
 TYPED_TEST(TestPlanner, SubqueryScopedImportShadowedByNamedExpressionIsNotProjectedTwice) {
   // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a, m WITH * RETURN a } RETURN a
   FakeDbAccessor dba;

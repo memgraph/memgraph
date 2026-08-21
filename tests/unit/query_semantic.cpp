@@ -1735,9 +1735,8 @@ TYPED_TEST(TestSymbolGenerator, ExistsAsSimpleCaseTest) {
                                      RETURN(AND(simple_case(pattern_form()), simple_case(pattern_form())), AS("h")))));
 }
 
-// Measured against Neo4j 2026.02.2: a subquery expression's body sees the whole enclosing scope, so declaring a name
-// that scope already holds is refused (42N07) rather than silently answering about the inner binding. Both folds,
-// because they share the one AST node and the one gate.
+// A body sees the whole enclosing scope, so declaring a name that scope already holds is refused rather than
+// answering about the inner binding. Both folds, because they share the one AST node and the one gate.
 TYPED_TEST(TestSymbolGenerator, SubqueryBodyMayNotShadowAnOuterName) {
   auto expect_message = [](auto *query, std::string_view message) {
     try {
@@ -1826,8 +1825,8 @@ TYPED_TEST(TestSymbolGenerator, SubqueryBodyMayNotShadowAnOuterName) {
   check_folds([this](auto *subquery) { return COUNT_SUBQUERY(subquery); }, "COUNT");
 }
 
-// The accepted half, and the half that carries the regression risk: referencing an outer name is what correlation *is*,
-// and projecting one through under its own name declares nothing new. All measured accepted on Neo4j 2026.02.2.
+// The accepted half, and the half that carries the regression risk: referencing an outer name is what correlation
+// *is*, and projecting one through under its own name declares nothing new.
 TYPED_TEST(TestSymbolGenerator, SubqueryBodyMayStillUseAnOuterName) {
   auto check_folds = [&](auto make_subquery) {
     // MATCH (n) WHERE EXISTS { MATCH (n)-[r]->(m) } RETURN n - plain correlation.
@@ -1918,8 +1917,8 @@ TYPED_TEST(TestSymbolGenerator, SubqueryBodyMayStillUseAnOuterName) {
   check_folds([this](auto *subquery) { return COUNT_SUBQUERY(subquery); });
 }
 
-// `CALL {}` has a scope of its own, so what it can shadow is exactly what it imported - measured on Neo4j 2026.02.2,
-// where the `CALL { WITH v ... }` spelling shadows nothing at all and only `CALL (v) { ... }` refuses.
+// `CALL {}` has a scope of its own, so what it can shadow is exactly what it imported: the `CALL { WITH v ... }`
+// spelling shadows nothing, and only `CALL (v) { ... }` refuses.
 TYPED_TEST(TestSymbolGenerator, ScopedCallBodyMayNotShadowAnImport) {
   auto expect_message = [](auto *query, std::string_view message) {
     try {
@@ -1960,7 +1959,7 @@ TYPED_TEST(TestSymbolGenerator, ScopedCallBodyMayNotShadowAnImport) {
       "Variable 'm' shadows the variable of the same name imported into this subquery.");
 
   // The body's RETURN is refused whatever it projects, because the name it would reintroduce is already outside:
-  // MATCH (m) CALL (m) { MATCH (m)-[r]->(a) RETURN a AS m } RETURN m  - the base answered with the *outer* `m`.
+  // MATCH (m) CALL (m) { MATCH (m)-[r]->(a) RETURN a AS m } RETURN m
   expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
                                     scoped_on_m(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
                                                                    RETURN(IDENT("a"), AS("m"))))),

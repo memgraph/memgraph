@@ -174,8 +174,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     std::map<std::string, Symbol> symbols;
     // Symbols imported into a `CALL (v1, v2, ...) { ... }` subquery scope.
     std::map<std::string, Symbol> call_subquery_imports;
-    // Which visibility boundary this scope opens, if any. Both bounds of the shadowing range are derived by walking
-    // outwards, so a scope pushed inside one inherits the answer instead of carrying a copy of it.
+    // Which visibility boundary this scope opens, if any. Both bounds of the shadowing range are found by walking
+    // outwards, so a scope pushed inside one inherits the answer.
     enum class Boundary : uint8_t {
       kNone,
       kCallImport,    ///< a `CALL {}`: a name resolving only outside it needs an explicit import
@@ -205,7 +205,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool HasSymbol(const std::string &name, size_t from = 0) const;
 
   // Whether @p name belongs to a scope the innermost enclosing subquery expression's body can see but did not
-  // declare - the shadowing Neo4j refuses with 42N07.
+  // declare.
   bool ShadowsEnclosingName(const std::string &name) const;
   // Index of the innermost scope opening @p kind, if any.
   std::optional<size_t> InnermostBoundary(Scope::Boundary kind) const;
