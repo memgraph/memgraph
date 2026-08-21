@@ -3019,7 +3019,7 @@ class PruningBFSCursor : public query::plan::Cursor {
         source_ = vertex;
         visited_.emplace(vertex);
         if (crosses_both_ways_) {
-          branches_.emplace(vertex, Arrival{0, storage::kInvalidGid});
+          branches_.emplace(vertex, Arrival{.depth = 0, .first_edge = storage::kInvalidGid});
         } else {
           // Following edges one way, the source is met again only over an edge
           // leading back into it. Settling that here rather than per edge keeps
@@ -3160,7 +3160,7 @@ class PruningBFSCursor : public query::plan::Cursor {
       visited_.emplace(next_vertex);
       if (crosses_both_ways_) {
         auto const branch = from_first_edge == storage::kInvalidGid ? edge.Gid() : from_first_edge;
-        branches_.emplace(next_vertex, Arrival{current_depth_ + 1, branch});
+        branches_.emplace(next_vertex, Arrival{.depth = current_depth_ + 1, .first_edge = branch});
       }
       to_visit_next_.emplace_back(next_vertex);
     };
