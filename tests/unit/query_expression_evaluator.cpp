@@ -3106,20 +3106,16 @@ TYPED_TEST(FunctionTest, Date) {
   EXPECT_TRUE(this->EvaluateFunction("DATE", TypedValue()).IsNull());
 }
 
-TYPED_TEST(FunctionTest, DateRejectsOmittedSignificantComponent) {
-  // Components are given from most to least significant, so naming one fixes
-  // every component above it. Leaving one of those out would let a default
-  // decide part of the value the caller was in the middle of spelling out.
-  EXPECT_THROW(
-      this->EvaluateFunction(
-          "DATE", TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1984)}, {"day", TypedValue(5)}})),
-      QueryRuntimeException);
+TYPED_TEST(FunctionTest, DateRequiresTheYear) {
+  // Every other component is an offset within the year, so naming one without
+  // it leaves the value anchored nowhere.
   EXPECT_THROW(this->EvaluateFunction("DATE", TypedValue(std::map<std::string, TypedValue>{{"month", TypedValue(10)}})),
                QueryRuntimeException);
   EXPECT_THROW(this->EvaluateFunction("DATE", TypedValue(std::map<std::string, TypedValue>{{"day", TypedValue(5)}})),
                QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction("DATE", TypedValue(std::map<std::string, TypedValue>{})), QueryRuntimeException);
 
-  // A trailing run may still be omitted, and takes its lowest value.
+  // Any component below the year may be left out, and takes its lowest value.
   EXPECT_EQ(this->EvaluateFunction("DATE", TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1984)}}))
                 .ValueDate(),
             memgraph::utils::Date({1984, 1, 1}));
@@ -3128,18 +3124,23 @@ TYPED_TEST(FunctionTest, DateRejectsOmittedSignificantComponent) {
                                                                                 {"month", TypedValue(10)}}))
                 .ValueDate(),
             memgraph::utils::Date({1984, 10, 1}));
+
+  // Including one with a gap above it, which openCypher and Neo4j refuse.
+  EXPECT_EQ(
+      this->EvaluateFunction(
+              "DATE", TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1984)}, {"day", TypedValue(5)}}))
+          .ValueDate(),
+      memgraph::utils::Date({1984, 1, 5}));
 }
 
-TYPED_TEST(FunctionTest, LocalTimeRejectsOmittedSignificantComponent) {
+TYPED_TEST(FunctionTest, LocalTimeRequiresTheHour) {
   EXPECT_THROW(
       this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"minute", TypedValue(30)}})),
       QueryRuntimeException);
   EXPECT_THROW(
       this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"second", TypedValue(30)}})),
       QueryRuntimeException);
-  EXPECT_THROW(this->EvaluateFunction(
-                   "LOCALTIME",
-                   TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)}, {"second", TypedValue(3)}})),
+  EXPECT_THROW(this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{})),
                QueryRuntimeException);
 
   EXPECT_EQ(this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(10)}}))
@@ -3152,10 +3153,30 @@ TYPED_TEST(FunctionTest, LocalTimeRejectsOmittedSignificantComponent) {
             memgraph::utils::LocalTime({10, 5, 0, 0, 0}));
 }
 
+TYPED_TEST(FunctionTest, LocalTimeFillsComponentsLeftOutBelowTheHour) {
+  // A component may be named with coarser ones missing between it and the
+  // hour, each of those taking zero.
+  EXPECT_EQ(this->EvaluateFunction(
+                    "LOCALTIME",
+                    TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(5)}, {"second", TypedValue(32)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({5, 0, 32, 0, 0}));
+  EXPECT_EQ(
+      this->EvaluateFunction("LOCALTIME",
+                             TypedValue(std::map<std::string, TypedValue>{
+                                 {"hour", TypedValue(1)}, {"minute", TypedValue(2)}, {"microsecond", TypedValue(5)}}))
+          .ValueLocalTime(),
+      memgraph::utils::LocalTime({1, 2, 0, 0, 5}));
+  EXPECT_EQ(this->EvaluateFunction("LOCALTIME",
+                                   TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
+                                                                                {"millisecond", TypedValue(4)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({1, 0, 0, 4, 0}));
+}
+
 TYPED_TEST(FunctionTest, LocalTimeSubSecondComponentsShareOneLevel) {
-  // The sub-second fields share one level, so either may be given without the
-  // other. A microsecond given alone still counts as microseconds, the coarser
-  // scale defaulting to zero.
+  // Either sub-second field may be given without the other. A microsecond
+  // given alone still counts as microseconds, the coarser scale taking zero.
   EXPECT_EQ(this->EvaluateFunction("LOCALTIME",
                                    TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
                                                                                 {"minute", TypedValue(2)},
@@ -3170,18 +3191,6 @@ TYPED_TEST(FunctionTest, LocalTimeSubSecondComponentsShareOneLevel) {
                                                                                 {"millisecond", TypedValue(4)}}))
                 .ValueLocalTime(),
             memgraph::utils::LocalTime({1, 2, 3, 4, 0}));
-
-  // The level still sits below second, so the fraction cannot be given while
-  // the second it divides is missing.
-  EXPECT_THROW(
-      this->EvaluateFunction("LOCALTIME",
-                             TypedValue(std::map<std::string, TypedValue>{
-                                 {"hour", TypedValue(1)}, {"minute", TypedValue(2)}, {"microsecond", TypedValue(5)}})),
-      QueryRuntimeException);
-  EXPECT_THROW(this->EvaluateFunction("LOCALTIME",
-                                      TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
-                                                                                   {"millisecond", TypedValue(4)}})),
-               QueryRuntimeException);
 }
 
 TYPED_TEST(FunctionTest, LocalTimeSubSecondFieldsCarry) {

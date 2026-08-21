@@ -1662,35 +1662,21 @@ bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
   return has_mapped_any_field;
 }
 
-// Instant components are named from most to least significant, and an omitted
-// one takes its lowest value. That default only makes sense for a trailing run:
-// naming a component while a more significant one is missing would mix an
-// explicit value with a defaulted one above it.
+// An omitted component takes its lowest value. That default reads naturally for
+// every component but the most significant one, which is what the rest are
+// offsets from: a map naming only lesser components leaves the value anchored
+// nowhere, so it is a mistake rather than a terse spelling.
 //
-// Each level holds the names sharing one significance, and counts as supplied
-// when any name in it is. The sub-second fields share a level below second:
-// giving the fraction at a finer scale than another is ordinary, so an omission
-// among them does not signal the mistake an omitted hour or minute does.
+// Components between the most significant one and those named may be left out,
+// which openCypher does not allow and Neo4j rejects. The gap it forbids is not
+// ambiguous here, and refusing it costs callers more than it saves them.
 //
 // Call this after the components have been mapped, so that an unrecognised name
-// is reported as such rather than as a gap between the ones understood.
-void EnsureNoOmittedSignificantComponent(std::initializer_list<std::initializer_list<std::string_view>> levels,
-                                         const auto &input_parameters) {
-  const auto is_supplied = [&input_parameters](const std::string_view component) {
-    return std::ranges::any_of(input_parameters,
-                               [component](const auto &entry) { return std::string_view{entry.first} == component; });
-  };
-
-  std::string_view first_omitted;
-  for (const auto level : levels) {
-    const auto *const supplied = std::ranges::find_if(level, is_supplied);
-    if (supplied == level.end()) {
-      if (first_omitted.empty()) first_omitted = *level.begin();
-      continue;
-    }
-    if (!first_omitted.empty()) {
-      throw QueryRuntimeException("'{}' cannot be specified without '{}'.", *supplied, first_omitted);
-    }
+// is reported as such rather than as a missing component.
+void EnsureLeadingComponentSupplied(const std::string_view leading, const auto &input_parameters) {
+  const auto supplies_leading = [leading](const auto &entry) { return std::string_view{entry.first} == leading; };
+  if (!std::ranges::any_of(input_parameters, supplies_leading)) {
+    throw QueryRuntimeException("'{}' must be specified.", leading);
   }
 }
 
@@ -1732,7 +1718,7 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
                                            std::pair{"day"sv, &date_parameters.day}};
 
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
-  EnsureNoOmittedSignificantComponent({{"year"}, {"month"}, {"day"}}, args[0].ValueMap());
+  EnsureLeadingComponentSupplied("year", args[0].ValueMap());
   return TypedValue(utils::Date(date_parameters), ctx.memory);
 }
 
@@ -1782,8 +1768,7 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
   };
 
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
-  EnsureNoOmittedSignificantComponent({{"hour"}, {"minute"}, {"second"}, {"millisecond", "microsecond"}},
-                                      args[0].ValueMap());
+  EnsureLeadingComponentSupplied("hour", args[0].ValueMap());
   return TypedValue(utils::LocalTime(local_time_parameters), ctx.memory);
 }
 
