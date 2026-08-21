@@ -35,35 +35,77 @@ set(MG_MEMORY_RESERVE_FRACTION 10)
 set(MG_MEMORY_RESERVE_MIN_MB 1024)
 set(MG_MEMORY_RESERVE_MAX_MB 4096)
 
-# The memory this build may use, in MiB. Inside a container the host's RAM is
-# not what the build gets: the cgroup limit is, and exceeding it is what
-# triggers the OOM kill.
+# Every memory.max / memory.high / memory.limit_in_bytes that applies to this
+# process, as a list of file paths. A limit set on an ancestor cgroup binds
+# just as hard as one set on the leaf, and the leaf is only visible at the
+# filesystem root when the process is in its own cgroup namespace, which is
+# true of a container and false of a systemd scope.
+function(_mg_cgroup_limit_files out_var)
+    set(files "")
+    if(NOT EXISTS /proc/self/cgroup)
+        set(${out_var} "" PARENT_SCOPE)
+        return()
+    endif()
+    file(READ /proc/self/cgroup cgroup_lines)
+
+    # v2: a single unified hierarchy, written as "0::<path>".
+    if(cgroup_lines MATCHES "(^|\n)0::([^\n]*)")
+        _mg_cgroup_chain(v2_files /sys/fs/cgroup "${CMAKE_MATCH_2}" memory.max memory.high)
+        list(APPEND files ${v2_files})
+    endif()
+
+    # v1: one hierarchy per controller, written as "<id>:memory:<path>".
+    if(cgroup_lines MATCHES "(^|\n)[0-9]+:memory:([^\n]*)")
+        _mg_cgroup_chain(v1_files /sys/fs/cgroup/memory "${CMAKE_MATCH_2}" memory.limit_in_bytes)
+        list(APPEND files ${v1_files})
+    endif()
+
+    set(${out_var} "${files}" PARENT_SCOPE)
+endfunction()
+
+# The named limit files in <mount><path> and in each of its ancestors up to
+# <mount>.
+function(_mg_cgroup_chain out_var mount path)
+    set(files "")
+    string(REGEX REPLACE "/+$" "" dir "${mount}${path}")
+    while(dir MATCHES "^${mount}")
+        foreach(name IN LISTS ARGN)
+            if(EXISTS "${dir}/${name}")
+                list(APPEND files "${dir}/${name}")
+            endif()
+        endforeach()
+        if(dir STREQUAL "${mount}")
+            set(dir "")
+        else()
+            get_filename_component(parent "${dir}" DIRECTORY)
+            if(parent STREQUAL "${dir}")
+                set(dir "")
+            else()
+                set(dir "${parent}")
+            endif()
+        endif()
+    endwhile()
+    set(${out_var} "${files}" PARENT_SCOPE)
+endfunction()
+
+# The memory this build may use, in MiB. Under a cgroup limit the host's RAM is
+# not what the build gets: the limit is, and exceeding it is what triggers the
+# OOM kill.
 function(_mg_memory_budget_mb out_var)
     cmake_host_system_information(RESULT budget QUERY TOTAL_PHYSICAL_MEMORY)
 
-    set(cgroup_limits "")
-    foreach(limit_file
-            /sys/fs/cgroup/memory.max
-            /sys/fs/cgroup/memory.high
-            /sys/fs/cgroup/memory/memory.limit_in_bytes)
-        if(EXISTS "${limit_file}")
-            file(READ "${limit_file}" limit)
-            string(STRIP "${limit}" limit)
-            # "max" means unlimited; cgroup v1 spells that as a sentinel near
-            # the top of the 64-bit range, which the MiB conversion shrinks to
-            # something merely astronomical rather than something meaningful.
-            if(limit MATCHES "^[0-9]+$")
-                math(EXPR limit_mb "${limit} / 1048576")
-                if(limit_mb GREATER 0 AND limit_mb LESS 1048576)
-                    list(APPEND cgroup_limits ${limit_mb})
-                endif()
+    _mg_cgroup_limit_files(limit_files)
+    foreach(limit_file IN LISTS limit_files)
+        file(READ "${limit_file}" limit)
+        string(STRIP "${limit}" limit)
+        # "max" means unlimited; cgroup v1 spells that as a sentinel near the
+        # top of the 64-bit range, which the MiB conversion shrinks to
+        # something merely astronomical rather than something meaningful.
+        if(limit MATCHES "^[0-9]+$")
+            math(EXPR limit_mb "${limit} / 1048576")
+            if(limit_mb GREATER 0 AND limit_mb LESS 1048576 AND limit_mb LESS budget)
+                set(budget ${limit_mb})
             endif()
-        endif()
-    endforeach()
-
-    foreach(limit_mb IN LISTS cgroup_limits)
-        if(limit_mb LESS budget)
-            set(budget ${limit_mb})
         endif()
     endforeach()
 
