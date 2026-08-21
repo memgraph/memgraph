@@ -171,12 +171,22 @@ distinguished by port. It is described by `ha_cluster.yaml`, which holds each in
 the cluster setup queries, and is the file to edit to change the topology or the replication mode.
 Four descriptions ship, differing only in the replica count and replication mode:
 
-| File | Topology | Nightly suite |
-|---|---|---|
-| `ha_cluster.yaml` | one SYNC replica | `mgbench-ha` |
-| `ha_cluster_2_replicas.yaml` | two SYNC replicas | `mgbench-ha-2-replicas` |
-| `ha_cluster_async.yaml` | one ASYNC replica | `mgbench-ha-async` |
-| `ha_cluster_strict_sync.yaml` | one STRICT_SYNC replica | `mgbench-ha-strict-sync` |
+| File | Replicas | Main registered as | Nightly suite |
+|---|---|---|---|
+| `ha_cluster.yaml` | SYNC | SYNC | `mgbench-ha` |
+| `ha_cluster_2_replicas.yaml` | SYNC, SYNC | SYNC | `mgbench-ha-2-replicas` |
+| `ha_cluster_async.yaml` | ASYNC | SYNC | `mgbench-ha-async` |
+| `ha_cluster_strict_sync.yaml` | STRICT_SYNC | STRICT_SYNC | `mgbench-ha-strict-sync` |
+| `ha_cluster_2_strict_sync.yaml` | STRICT_SYNC, STRICT_SYNC | STRICT_SYNC | `mgbench-ha-2-strict-sync` |
+| `ha_cluster_2_async.yaml` | ASYNC, ASYNC | SYNC | `mgbench-ha-2-async` |
+| `ha_cluster_sync_async.yaml` | SYNC, ASYNC | SYNC | `mgbench-ha-sync-async` |
+| `ha_cluster_strict_sync_async.yaml` | STRICT_SYNC, ASYNC | STRICT_SYNC | `mgbench-ha-strict-sync-async` |
+
+The "main registered as" column is not decoration. A cluster cannot hold both STRICT_SYNC and SYNC
+replicas — `REGISTER INSTANCE` rejects it — and the instance promoted to main counts towards that
+check even though its own mode goes unused while it is main. So any description with a STRICT_SYNC
+replica registers main STRICT_SYNC too. Where no STRICT_SYNC is involved, main keeps the default,
+which also leaves a failover target, since failover to an ASYNC replica is forbidden by default.
 
 Pass one by name with `--vendor-specific ha-cluster-yaml=<file> --`; the trailing `--` matters, since
 that option takes several values and would otherwise swallow the positional workload arguments. Each

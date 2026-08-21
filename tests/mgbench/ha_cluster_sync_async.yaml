@@ -1,0 +1,92 @@
+# Cluster description for replication benchmarks: three coordinators, one main, one SYNC replica and
+# one ASYNC replica. The mixed topology a production cluster is most likely to run: commits wait for
+# one acknowledgement while a second replica trails behind.
+#
+# Registered modes are constrained: a cluster cannot hold both STRICT_SYNC and SYNC replicas, and the
+# instance promoted to main counts towards that check even though its own mode is unused while it is
+# main. Failover to an ASYNC replica is also forbidden by default. Consumed by the MemgraphHA runner
+# (--installation-type ha) in the shape tests/e2e/interactive_mg_runner.py accepts.
+#
+# Every top-level key is an instance name; coordinators are recognized by --coordinator-id.
+# data_directory is deliberately absent: the runner injects one per instance so directories are
+# pinned for a whole run and fresh for the next one.
+#
+# Log level stays at WARNING. Trace-level logging on the commit path would dominate the
+# measurement rather than the replication it is meant to expose.
+#
+# Each instance's console output is discarded, since a run restarts them all once per measurement and
+# every start would otherwise print a banner and a couple of notices. The log files are unaffected.
+# Set silence_output: false on an instance to watch it start.
+
+instance_1:
+  args:
+    - "--log-level=WARNING"
+    - "--bolt-port=7687"
+    - "--management-port=10011"
+    - "--data-recovery-on-startup=true"
+  log_file: "mgbench_ha_instance_1.log"
+  storage_snapshot_on_exit: true
+  setup_queries: []
+
+instance_2:
+  args:
+    - "--log-level=WARNING"
+    - "--bolt-port=7688"
+    - "--management-port=10012"
+    - "--data-recovery-on-startup=true"
+  log_file: "mgbench_ha_instance_2.log"
+  storage_snapshot_on_exit: true
+  setup_queries: []
+
+instance_3:
+  args:
+    - "--log-level=WARNING"
+    - "--bolt-port=7689"
+    - "--management-port=10013"
+    - "--data-recovery-on-startup=true"
+  log_file: "mgbench_ha_instance_3.log"
+  storage_snapshot_on_exit: true
+  setup_queries: []
+
+coordinator_1:
+  args:
+    - "--log-level=WARNING"
+    - "--bolt-port=7690"
+    - "--coordinator-id=1"
+    - "--coordinator-port=10111"
+    - "--management-port=10121"
+    - "--coordinator-hostname=localhost"
+  log_file: "mgbench_ha_coordinator_1.log"
+  setup_queries: []
+
+coordinator_2:
+  args:
+    - "--log-level=WARNING"
+    - "--bolt-port=7691"
+    - "--coordinator-id=2"
+    - "--coordinator-port=10112"
+    - "--management-port=10122"
+    - "--coordinator-hostname=localhost"
+  log_file: "mgbench_ha_coordinator_2.log"
+  setup_queries: []
+
+# The cluster-level setup runs from the last coordinator in this file, after every process is up.
+# Re-running it on a restart is expected to fail and is ignored: the coordinators keep their Raft
+# state for the whole run, so nothing is ever registered twice.
+coordinator_3:
+  args:
+    - "--log-level=WARNING"
+    - "--bolt-port=7692"
+    - "--coordinator-id=3"
+    - "--coordinator-port=10113"
+    - "--management-port=10123"
+    - "--coordinator-hostname=localhost"
+  log_file: "mgbench_ha_coordinator_3.log"
+  setup_queries:
+    - "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}"
+    - "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}"
+    - "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}"
+    - "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'}"
+    - "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'}"
+    - "REGISTER INSTANCE instance_3 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'}"
+    - "SET INSTANCE instance_1 TO MAIN"
