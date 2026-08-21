@@ -3359,6 +3359,29 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
                                                                       {"timezone", TypedValue("America/Los_Angeles")}});
   EXPECT_EQ(this->EvaluateFunction("DATETIME", map_param).ValueZonedDateTime(), zdt);
 
+  // A UTC offset is accepted for the timezone field, in the same forms the
+  // string constructor takes.
+  auto with_offset = [&](const char *timezone) {
+    return this
+        ->EvaluateFunction("DATETIME",
+                           TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(2024)},
+                                                                        {"month", TypedValue(6)},
+                                                                        {"day", TypedValue(22)},
+                                                                        {"hour", TypedValue(12)},
+                                                                        {"timezone", TypedValue(timezone)}}))
+        .ValueZonedDateTime();
+  };
+  EXPECT_EQ(with_offset("+01:00").GetTimezone(), memgraph::utils::Timezone(std::chrono::minutes{60}));
+  EXPECT_EQ(with_offset("-05:30").GetTimezone(), memgraph::utils::Timezone(std::chrono::minutes{-330}));
+  EXPECT_EQ(with_offset("+0100").GetTimezone(), memgraph::utils::Timezone(std::chrono::minutes{60}));
+  EXPECT_EQ(with_offset("Z").GetTimezone(), memgraph::utils::Timezone(std::chrono::minutes{0}));
+
+  // A timezone that cannot be understood is a problem with the argument, so it
+  // has to be reported as one rather than escaping as an internal error.
+  EXPECT_THROW(with_offset("not/a/zone"), memgraph::utils::BasicException);
+  EXPECT_THROW(with_offset("+99:00"), memgraph::utils::BasicException);
+  EXPECT_THROW(with_offset(""), memgraph::utils::BasicException);
+
   const auto one_sec_in_microseconds = 1'000'000;
   const auto today = memgraph::utils::CurrentZonedDateTime();
   EXPECT_NEAR(this->EvaluateFunction("DATETIME").ValueZonedDateTime().SysMicrosecondsSinceEpoch().count(),
