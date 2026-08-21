@@ -337,6 +337,7 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 
 include(SplitDebug)
+include(CompressDebug)
 
 #debug flags
 set(PREFERRED_DEBUGGER "gdb" CACHE STRING
