@@ -194,7 +194,13 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
         return storage::PropertyValueRange::Bounded(utils::MakeBoundInclusive(storage::PropertyValue()), std::nullopt);
       }
       if (!typed_value.IsString()) {
-        throw QueryRuntimeException("STARTS WITH search term must be a string, not '{}'.", typed_value.type());
+        // Raising here would raise before a single row is read, so an index would decide whether the
+        // query errors at all: it errored on an empty label where a plain scan answered, and it broke
+        // queries a plain scan answered outright, such as an OPTIONAL MATCH or a UNION branch that
+        // matched nothing. Hand every row with the property to the retained post-filter instead and
+        // let it raise exactly where the non-indexed plan does -- which also stays silent when the
+        // scan finds nothing.
+        return storage::PropertyValueRange::IsNotNull();
       }
       auto const &prefix = typed_value.ValueString();
       auto lower_bound = utils::MakeBoundInclusive(storage::PropertyValue(prefix));
