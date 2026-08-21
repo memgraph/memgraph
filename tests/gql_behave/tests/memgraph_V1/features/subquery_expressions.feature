@@ -1837,7 +1837,7 @@ Feature: Subquery expressions
   # grouping key, and a grouped aggregate emits no row at all on empty input, so Carol flips to false. The body's
   # column list therefore decides the row count. Neither of these two answers depends on this change - both hold with
   # the body's RETURN discarded - so this pair guards a future rewrite that prunes an unread projection column from
-  # silently turning the grouped answer into the ungrouped one. Both measured against the reference engine.
+  # silently turning the grouped answer into the ungrouped one.
   Scenario: Test EXISTS subquery whose body RETURN aggregates with a grouping key
       Given an empty graph
       And having executed:
@@ -2748,6 +2748,9 @@ Feature: Subquery expressions
           | star | named | sub |
           | 1    | 1     | 0   |
           | 1    | 1     | 1   |
+
+
+  # COLLECT { ... } is the third fold on the same node: the body's one column, per row, in the body's order.
 
   Scenario: Test COLLECT subquery collects its body's column per outer row
       Given an empty graph

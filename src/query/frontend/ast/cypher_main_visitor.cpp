@@ -3994,9 +3994,9 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
           throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.", construct);
         }
       }
-      // 5. The list fold collects one column per branch row, so the body has to name exactly one - and `RETURN *`
-      // names an unknown number, which the reference refuses too. Caught here, so a multi-column body is a syntax
-      // error instead of the "must be of size 1" internal error the operator would raise.
+      // 5. The list fold collects one column per branch row, so the body has to name exactly one, and `RETURN *`
+      // names an unknown number. Caught here, so a multi-column body is a syntax error rather than the operator's
+      // "must be of size 1".
       if (fold != SubqueryExpression::Fold::kList) {
         return;
       }
