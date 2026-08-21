@@ -22,6 +22,10 @@ def get_plan(memgraph, query, params=None):
     return [x[QUERY_PLAN] for x in memgraph.execute_and_fetch(*args)]
 
 
+def _count(memgraph, query):
+    return list(memgraph.execute_and_fetch(query))[0]["c"]
+
+
 def operator_names(plan):
     return [line.strip().lstrip("* ").split(" ")[0] for line in plan]
 
@@ -319,6 +323,40 @@ def test_correlated_edge_predicate_still_answers_with_an_edge_index(memgraph):
     assert before_absorbed == ["aax", "bby"]
     assert after_absorbed == before_absorbed
     assert after_optional == before_optional
+
+
+def test_non_string_search_term_raises_only_where_a_row_is_evaluated(memgraph):
+    # Evaluating the term at scan setup made an index decide whether the query errored at all: it
+    # raised on a label with no rows, and broke queries a plain scan answered.
+    memgraph.execute("CREATE INDEX ON :TS(p);")
+    memgraph.execute("CREATE (:TX {n: 1});")
+    memgraph.execute("CREATE (:TM {m: 1});")
+    # no :TS rows exist -- nothing is evaluated, so nothing may raise
+    assert list(memgraph.execute_and_fetch("MATCH (n:TS) WHERE n.p STARTS WITH 5 RETURN n.p AS v")) == []
+    union = "MATCH (n:TS) WHERE n.p STARTS WITH 5 RETURN 1 AS v UNION MATCH (m:TM) RETURN 2 AS v"
+    assert [r["v"] for r in memgraph.execute_and_fetch(union)] == [2]
+    optional = "MATCH (x:TX) OPTIONAL MATCH (n:TS) WHERE n.p STARTS WITH 5 RETURN x.n AS v"
+    assert [r["v"] for r in memgraph.execute_and_fetch(optional)] == [1]
+    # once a row reaches the predicate it must raise, exactly as it does without an index
+    memgraph.execute("CREATE (:TS {p: 'aa'});")
+    with pytest.raises(Exception):
+        list(memgraph.execute_and_fetch("MATCH (n:TS) WHERE n.p STARTS WITH 5 RETURN n.p AS v"))
+    memgraph.execute("DROP INDEX ON :TS(p);")
+
+
+def test_correlated_string_predicate_is_not_indexed(memgraph):
+    # Indexing a correlated string predicate turns a Cartesian into an IndexedJoin that re-seeks the
+    # index once per outer row. It stays a filter over a scan, as it was before the feature.
+    memgraph.execute("CREATE INDEX ON :CS(t);")
+    memgraph.execute("FOREACH (i IN range(1, 5) | CREATE (:CO {t: ''}));")
+    memgraph.execute("FOREACH (i IN range(1, 5) | CREATE (:CS {t: 'v' + toString(i)}));")
+    plan = get_plan(memgraph, "MATCH (a:CO), (b:CS) WHERE b.t STARTS WITH a.t RETURN b.t")
+    ops = operator_names(plan)
+    assert "ScanAllByLabelProperties" not in ops, f"A correlated prefix must not key an index seek: {plan}"
+    assert "IndexedJoin" not in ops, f"Expected the Cartesian to stand: {plan}"
+    rows = list(memgraph.execute_and_fetch("MATCH (a:CO), (b:CS) WHERE b.t STARTS WITH a.t RETURN count(*) AS c"))
+    assert rows[0]["c"] == 25
+    memgraph.execute("DROP INDEX ON :CS(t);")
 
 
 def test_non_string_property_does_not_depend_on_index(memgraph):
