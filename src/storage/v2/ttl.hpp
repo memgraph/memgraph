@@ -20,7 +20,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <nlohmann/json_fwd.hpp>
 
 #include "utils/exceptions.hpp"
