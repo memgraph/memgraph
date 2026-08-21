@@ -300,7 +300,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
-  storage::NameIdMapper *GetNameIdMapper() const { return dba_->GetStorageAccessor()->GetNameIdMapper(); }
+  /// A query that opened no storage transaction evaluates with no accessor. No vertex, edge or path can
+  /// exist in one, since those come from a scan, an expand, or a procedure holding a graph, so the sites
+  /// below are unreachable rather than merely unused. They check instead of relying on that.
+  void RequireAccessor(std::string_view what) const {
+    if (dba_ == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("{} requires a database accessor.", what);
+    }
+  }
+
+  storage::NameIdMapper *GetNameIdMapper() const {
+    RequireAccessor("Resolving a name");
+    return dba_->GetStorageAccessor()->GetNameIdMapper();
+  }
 
   void ResetPropertyLookupCache() { property_lookup_cache_.clear(); }
 
@@ -779,6 +791,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
+    // Implementations receive the accessor and are free to use it, so none may run without one.
+    if (dba_ == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("Function '{}' cannot be evaluated without a database accessor.",
+                                  function.function_name_);
+    }
     FunctionContext function_ctx{dba_,
                                  ctx_->memory,
                                  ctx_->timestamp,
@@ -1114,6 +1131,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(EnumValueAccess &enum_value_access) override {
+    // Enums are storage state, so there is nothing to resolve against without an accessor.
+    if (dba_ == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("Enum '{}' cannot be resolved without a database accessor.",
+                                  enum_value_access.enum_name_);
+    }
     auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
     if (!maybe_enum) [[unlikely]] {
       throw QueryRuntimeException(
@@ -1135,6 +1157,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
+    RequireAccessor("Reading a property");
     if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
@@ -1163,6 +1186,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
+    RequireAccessor("Reading a property");
     auto prop_id = dba_->NameToProperty(name);
     if (!IsPropertyAllowed(record_accessor, prop_id)) return storage::PropertyValue{};
     auto maybe_prop = record_accessor.GetProperty(view_, prop_id);

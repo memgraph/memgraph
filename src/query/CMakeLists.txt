@@ -49,6 +49,7 @@ target_sources(mg-query
     frontend/ast/cypher_main_visitor.cpp
     frontend/ast/pretty_print.cpp
     frontend/parsing.cpp
+    frontend/semantic/graph_free.cpp
     frontend/semantic/required_privileges.cpp
     frontend/semantic/rw_checker.cpp
     frontend/semantic/symbol_generator.cpp

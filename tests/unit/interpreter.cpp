@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <map>
 #include <set>
+#include <sstream>
 #include <thread>
 
 #include "communication/bolt/v1/value.hpp"
@@ -45,6 +46,7 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
 
 import memgraph.csv.parsing;
@@ -149,6 +151,595 @@ class InterpreterTest : public ::testing::Test {
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(InterpreterTest, StorageTypes);
+
+// Lab's connection-check / probe queries are constant RETURNs and take the accessor-free fast
+// path; presence of "graph_free" in the summary marks that no storage transaction was opened.
+// (The query is still planned and executed like any other, so it also records "plan_execution_time".)
+TYPED_TEST(InterpreterTest, ConstantReturnUsesAccessorFreeFastPath) {
+  {
+    auto stream = this->Interpret("RETURN 1 AS APP_INTERNAL_EXEC_VAR");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "APP_INTERNAL_EXEC_VAR");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN 1");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "1");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    // Multiple constants, mixed types, alias vs. no alias.
+    auto stream = this->Interpret("RETURN 1, 'x' AS s, true AS b");
+    ASSERT_EQ(stream.GetHeader().size(), 3U);
+    EXPECT_EQ(stream.GetHeader()[0], "1");
+    EXPECT_EQ(stream.GetHeader()[1], "s");
+    EXPECT_EQ(stream.GetHeader()[2], "b");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetResults()[0][1].ValueString(), "x");
+    EXPECT_EQ(stream.GetResults()[0][2].ValueBool(), true);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    // List/map built solely from constants are still constant.
+    auto stream = this->Interpret("RETURN [1, 2] AS l, {a: 1} AS m");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueList().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueList()[0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetResults()[0][1].ValueMap().at("a").ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+}
+
+// Queries that reach the graph take the normal, accessor-backed path, marked by the absence of
+// "graph_free" in the summary. A function call is the interesting control: it computes nothing
+// from the graph, but implementations receive the accessor, so the analysis will not admit one.
+TYPED_TEST(InterpreterTest, QueriesThatReachTheGraphTakeNormalPath) {
+  {
+    auto stream = this->Interpret("RETURN abs(-3) AS x");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+  }
+  {
+    auto stream = this->Interpret("MATCH (n) RETURN count(n) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+  }
+}
+
+// IsConstantExpression (interpreter.cpp) was broadened from literals-only to also recurse into
+// arithmetic/comparison/logical/unary operators, CASE (IfOperator) and coalesce; each of these must
+// now take the accessor-free fast path ("graph_free" present) and still return the right value.
+// `coalesce(...)` parses to a Coalesce AST node, not a Function call (see
+// cypher_main_visitor.cpp:3754), so it is fast-path eligible like the operators above.
+TYPED_TEST(InterpreterTest, ConstantExpressionReturnUsesAccessorFreeFastPath) {
+  {
+    auto stream = this->Interpret("RETURN 1 + 1 AS x");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN 2 > 1 AS b");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueBool(), true);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN CASE WHEN true THEN 10 ELSE 20 END AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 10);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN coalesce(null, 5) AS d");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 5);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN [1+1, 2*2] AS l");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueList().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueList()[0].ValueInt(), 2);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueList()[1].ValueInt(), 4);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN -5 AS n");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), -5);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN NOT false AS t");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueBool(), true);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+}
+
+// Parity: the accessor-free evaluator (PrimitiveLiteralExpressionEvaluator, dba=nullptr) must return
+// exactly what the normal, accessor-backed ExpressionEvaluator returns for the same expression. A
+// leading `WITH 1 AS ignored` makes the query multi-clause, which IsConstantReturnQuery's single-RETURN-
+// clause gate (interpreter.cpp) rejects, forcing the normal path -- giving an in-process baseline.
+// communication::bolt::Value has no operator== (see src/communication/bolt/v1/value.hpp), so the two
+// sides are compared via its operator<< string rendering instead.
+TYPED_TEST(InterpreterTest, ConstantExpressionFastPathMatchesNormalPath) {
+  auto render = [](const memgraph::communication::bolt::Value &value) {
+    std::ostringstream out;
+    out << value;
+    return out.str();
+  };
+  // One expression per duplicated node in the hand-copied PrimitiveLiteralExpressionEvaluator visitor
+  // surface (OrOperator, Exponentiation, IsNull, Coalesce, UnaryPlus and the full comparison set), plus
+  // null-operand cases that assert the two evaluators agree on null-propagation.
+  for (auto const *expr : {"1+1",
+                           "3*4-2",
+                           "7/2",
+                           "7%3",
+                           "2>1",
+                           "1=1",
+                           "1<>2",
+                           "1<2",
+                           "2<=2",
+                           "3>=1",
+                           "true AND false",
+                           "true OR false",
+                           "NOT false",
+                           "2 ^ 10",
+                           "null IS NULL",
+                           "coalesce(null, 2)",
+                           "+5",
+                           "-5",
+                           "null + 1",
+                           "1 = null",
+                           "CASE WHEN false THEN 1 ELSE 2 END"}) {
+    SCOPED_TRACE(expr);
+    auto fast = this->Interpret(std::string("RETURN ") + expr + " AS r");
+    // An explicit transaction is the control: the accessor is already open inside one, so the same query
+    // runs the transaction-backed path there whatever the graph-access analysis says about it.
+    this->Interpret("BEGIN");
+    auto normal = this->Interpret(std::string("RETURN ") + expr + " AS r");
+    this->Interpret("COMMIT");
+    ASSERT_EQ(fast.GetSummary().count("graph_free"), 1U);
+    ASSERT_EQ(normal.GetSummary().count("graph_free"), 0U);
+    ASSERT_EQ(fast.GetResults().size(), 1U);
+    ASSERT_EQ(normal.GetResults().size(), 1U);
+    EXPECT_EQ(render(fast.GetResults()[0][0]), render(normal.GetResults()[0][0]));
+  }
+
+  // Outcome parity on an expression that fails: skipping the transaction must not change whether a query
+  // throws or what it says. `capture()` returns the exception text if one is thrown, else the rendered
+  // value, so a single comparison covers both outcomes.
+  {
+    auto capture = [this, &render](const std::string &query) -> std::string {
+      try {
+        auto res = this->Interpret(query);
+        return res.GetResults().empty() ? "<no rows>" : render(res.GetResults()[0][0]);
+      } catch (const memgraph::query::QueryRuntimeException &e) {
+        return std::string("throw: ") + e.what();
+      }
+    };
+    const auto fast = capture("RETURN 1 / 0 AS r");
+    this->Interpret("BEGIN");
+    const auto normal = capture("RETURN 1 / 0 AS r");
+    this->Interpret("ROLLBACK");
+    EXPECT_EQ(fast, normal);
+  }
+}
+
+// Only implicit (autocommit) transactions are eligible for the accessor-free fast path. Inside an
+// explicit BEGIN...COMMIT block the accessor is already open, so `RETURN 1` must take the NORMAL path
+// (no "graph_free" marker) and leave the session mid-transaction.
+TYPED_TEST(InterpreterTest, ConstantReturnInExplicitTxTakesNormalPath) {
+  auto &interpreter = this->default_interpreter.interpreter;
+  this->Interpret("BEGIN");
+  auto stream = this->Interpret("RETURN 1");
+  // Normal path: an accessor-backed transaction was opened, so no "graph_free" marker is set.
+  EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  // Still inside the explicit transaction (fast-path autocommit would have cleared the id).
+  EXPECT_NE(interpreter.GetTransactionId(), std::nullopt);
+  this->Interpret("COMMIT");
+}
+
+// Lab's `CALL mg.procedures() YIELD *` and sibling mg.* introspection calls read only the module
+// registry, so they also take the accessor-free fast path.
+TYPED_TEST(InterpreterTest, BuiltinIntrospectionUsesAccessorFreeFastPath) {
+  {
+    // YIELD * exposes all result fields in the procedure's (alphabetical) map order.
+    auto stream = this->Interpret("CALL mg.procedures() YIELD *");
+    ASSERT_EQ(stream.GetHeader().size(), 5U);
+    EXPECT_EQ(stream.GetHeader()[0], "is_editable");
+    EXPECT_EQ(stream.GetHeader()[1], "is_write");
+    EXPECT_EQ(stream.GetHeader()[2], "name");
+    EXPECT_EQ(stream.GetHeader()[3], "path");
+    EXPECT_EQ(stream.GetHeader()[4], "signature");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    // mg.procedures must list itself, and it is a read procedure.
+    bool found_self = false;
+    for (auto &row : stream.GetResults()) {
+      if (row[2].ValueString() == "mg.procedures") {
+        found_self = true;
+        EXPECT_FALSE(row[1].ValueBool());
+      }
+    }
+    EXPECT_TRUE(found_self);
+  }
+  {
+    auto stream = this->Interpret("CALL mg.functions() YIELD name");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "name");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("CALL mg.procedures() YIELD name AS n");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "n");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+}
+
+// The accessor-free fast path must return exactly the rows the normal (planned) path would. A
+// trailing RETURN forces the normal path, giving a baseline to diff against.
+TYPED_TEST(InterpreterTest, BuiltinIntrospectionMatchesNormalPath) {
+  auto sorted_names = [](auto &stream) {
+    std::vector<std::string> out;
+    out.reserve(stream.GetResults().size());
+    for (auto &row : stream.GetResults()) out.push_back(row[0].ValueString());
+    std::sort(out.begin(), out.end());
+    return out;
+  };
+  auto fast = this->Interpret("CALL mg.procedures() YIELD name");
+  // Inside an explicit transaction the accessor is already open, so the same call runs the
+  // transaction-backed path.
+  this->Interpret("BEGIN");
+  auto normal = this->Interpret("CALL mg.procedures() YIELD name");
+  this->Interpret("COMMIT");
+  EXPECT_EQ(fast.GetSummary().count("graph_free"), 1U);
+  EXPECT_EQ(normal.GetSummary().count("graph_free"), 0U);
+  EXPECT_FALSE(sorted_names(fast).empty());
+  EXPECT_EQ(sorted_names(fast), sorted_names(normal));
+}
+
+// Column headers from the accessor-free path must be byte-identical to the normal path's (clients
+// rely on stable column names); the two paths derive them via different code (AST names vs. output
+// symbols), so this pins the cases where they could drift.
+TYPED_TEST(InterpreterTest, AccessorFreePathHeaderParity) {
+  using Headers = std::vector<std::string>;
+  auto header_of = [this](const std::string &query,
+                          const memgraph::storage::ExternalPropertyValue::map_t &params = {}) {
+    auto stream = this->Interpret(query, params);
+    // Guard that we actually exercised the accessor-free path, so this stays a fast-path parity test.
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U) << query;
+    return stream.GetHeader();
+  };
+  // Constant RETURN: unaliased literal keeps its stripped-query spelling; aliases and $param too.
+  EXPECT_EQ(header_of("RETURN 1"), Headers({"1"}));
+  EXPECT_EQ(header_of("RETURN 1 AS APP_INTERNAL_EXEC_VAR"), Headers({"APP_INTERNAL_EXEC_VAR"}));
+  EXPECT_EQ(header_of("RETURN 1, 'x' AS s, true AS b"), Headers({"1", "s", "b"}));
+  EXPECT_EQ(header_of("RETURN [1, 2] AS l, {a: 1} AS m"), Headers({"l", "m"}));
+  {
+    memgraph::storage::ExternalPropertyValue::map_t params;
+    params.emplace("p", memgraph::storage::ExternalPropertyValue(int64_t{7}));
+    EXPECT_EQ(header_of("RETURN $p", params), Headers({"$p"}));
+  }
+  // Introspection: YIELD * exposes the fields in the procedure's map order; explicit and aliased
+  // YIELD use the yielded names / aliases, in order.
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD *"),
+            Headers({"is_editable", "is_write", "name", "path", "signature"}));
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD name"), Headers({"name"}));
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD name AS n"), Headers({"n"}));
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD name, is_write, path"), Headers({"name", "is_write", "path"}));
+}
+
+// SetupInterpreterTransaction stamps a fresh transaction id / ACTIVE status for every autocommit
+// query, including accessor-free ones whose handler returns NOTHING; NOTHING must dispose that
+// tracking state itself (Commit/Abort do it for their paths) or the session is left permanently
+// mid-transaction.
+TYPED_TEST(InterpreterTest, AccessorFreePathClearsTransactionTracking) {
+  auto &interpreter = this->default_interpreter.interpreter;
+  for (auto const *query : {"RETURN 1",
+                            "RETURN 1 AS APP_INTERNAL_EXEC_VAR",
+                            "CALL mg.procedures() YIELD name",
+                            "CALL mg.functions() YIELD name"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    // Confirm we took the fast path, otherwise this isn't exercising the NOTHING cleanup at all.
+    ASSERT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    EXPECT_EQ(interpreter.GetTransactionId(), std::nullopt);
+  }
+}
+
+// Shapes the two hardcoded recognizers could not accept, now admitted by the graph-access analysis.
+TYPED_TEST(InterpreterTest, ComposedGraphFreeQueriesUseAccessorFreePath) {
+  for (auto const *query : {"UNWIND [1, 2, 3] AS x RETURN x",
+                            "WITH 1 AS x RETURN x",
+                            "WITH 1 AS x WHERE x > 0 RETURN x",
+                            "UNWIND [3, 1, 2] AS x RETURN DISTINCT x ORDER BY x SKIP 1 LIMIT 1",
+                            "UNWIND [1, 2, 3] AS x RETURN count(x) AS c",
+                            "RETURN 1 UNION RETURN 2",
+                            "CALL mg.procedures() YIELD name RETURN count(name) AS c"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+}
+
+TYPED_TEST(InterpreterTest, ComposedGraphFreeQueriesProduceTheSameResults) {
+  {
+    auto stream = this->Interpret("UNWIND [1, 2, 3] AS x RETURN x");
+    ASSERT_EQ(stream.GetResults().size(), 3U);
+    EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 3);
+  }
+  {
+    auto stream = this->Interpret("UNWIND [3, 1, 2] AS x RETURN DISTINCT x ORDER BY x SKIP 1 LIMIT 1");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+  {
+    auto stream = this->Interpret("UNWIND [1, 2, 3] AS x RETURN count(x) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3);
+  }
+  {
+    auto stream = this->Interpret("RETURN 1 UNION RETURN 2");
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+  }
+}
+
+// A privileged query stays on the transaction-backed path even when it reaches no graph, so that
+// privileged queries are audited one way.
+TYPED_TEST(InterpreterTest, PrivilegedGraphFreeQueryTakesNormalPath) {
+  auto stream = this->Interpret("CALL mg.get_module_files() YIELD path");
+  EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+}
+
+// A procedure that reaches no graph is still a read: the type reported to drivers and the read counter
+// must not change just because the query skipped its transaction.
+TYPED_TEST(InterpreterTest, GraphFreeProcedureCallIsReportedAsARead) {
+  auto stream = this->Interpret("CALL mg.procedures() YIELD name");
+  ASSERT_EQ(stream.GetSummary().count("type"), 1U);
+  EXPECT_EQ(stream.GetSummary().at("type").ValueString(), "r");
+  EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+}
+
+// What storage access a Cypher query needs is one decision with four outcomes, and three of them are
+// reachable here (UNIQUE needs schema.assert, which is a module). Pinned through what each query reports
+// so that how the decision is encoded can change without the behaviour moving.
+TYPED_TEST(InterpreterTest, CypherQueriesTakeTheAccessTheyNeed) {
+  {
+    // A plan that touches nothing is RWType::NONE, which is reported as "rw" because the Neo4j drivers
+    // accept no other spelling. Unrelated to the transaction, and unchanged by skipping one.
+    SCOPED_TRACE("reaching no graph opens no transaction");
+    auto stream = this->Interpret("RETURN 1");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    EXPECT_EQ(stream.GetSummary().at("type").ValueString(), "rw");
+  }
+  {
+    SCOPED_TRACE("a read of the graph");
+    auto stream = this->Interpret("MATCH (n) RETURN n");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+    EXPECT_EQ(stream.GetSummary().at("type").ValueString(), "r");
+  }
+  {
+    SCOPED_TRACE("a write");
+    auto stream = this->Interpret("CREATE ()");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+    EXPECT_EQ(stream.GetSummary().at("type").ValueString(), "w");
+  }
+  {
+    // PROFILE shares the access decision with the query it profiles but never its transaction-free path:
+    // it reports what execution did, so there has to be an execution to report on.
+    SCOPED_TRACE("profiling a query that would otherwise reach no graph");
+    auto stream = this->Interpret("PROFILE RETURN 1");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+  }
+}
+
+// The graph-access analysis reads the query and the storage-access check reads the plan built from it.
+// Nothing makes them disagree today, so the disagreement is forced: a plan that scans is planted in the
+// plan cache under a graph-free query's key. Preparing that query must refuse it, because running a plan
+// that reaches storage with no transaction open is a crash rather than a wrong answer.
+TYPED_TEST(InterpreterTest, PlanThatReachesStorageIsRefused) {
+  auto *plan_cache = this->db->plan_cache();
+  ASSERT_NE(plan_cache, nullptr);
+
+  this->Interpret("MATCH (n) RETURN 1");
+  const memgraph::query::frontend::StrippedQuery scanning{"MATCH (n) RETURN 1"};
+  const memgraph::query::frontend::StrippedQuery ping{"RETURN 1"};
+
+  auto scanning_plan = plan_cache->WithLock([&](auto &cache) { return cache.get(scanning.stripped_query()); });
+  ASSERT_TRUE(scanning_plan.has_value());
+  plan_cache->WithLock([&](auto &cache) { cache.put(ping.stripped_query(), *scanning_plan); });
+
+  EXPECT_THROW(this->Interpret("RETURN 1"), memgraph::query::QueryRuntimeException);
+
+  // The session is usable afterwards: the refusal is one query's, not the connection's.
+  auto stream = this->Interpret("MATCH (n) RETURN 1");
+  EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+}
+
+#ifdef MG_ENTERPRISE
+// A quota is charged through whichever tracker the query has, so having one no longer costs a user the
+// transaction-free path.
+TYPED_TEST(InterpreterTest, UserWithAMemoryQuotaStillSkipsTheTransaction) {
+  // A user resource is only attached to a session under an enterprise license. The checker is process
+  // state shared with every other test in this binary, so put it back.
+  memgraph::license::global_license_checker.EnableTesting();
+  const memgraph::utils::OnScopeExit restore_license{
+      []() { memgraph::license::global_license_checker.DisableTesting(); }};
+  auto &interpreter = this->default_interpreter.interpreter;
+  auto quota = std::make_shared<memgraph::utils::UserResources>();
+  quota->SetTransactionsMemoryLimit(1024UL * 1024UL * 1024UL);
+  interpreter.SetUser(this->default_interpreter.auth_checker.GenQueryUser("alice", {}), quota);
+
+  // The quota is charged through the tracker the query execution owns, so it no longer costs the user
+  // their transaction-free path.
+  for (auto const *query : {"RETURN 1", "CALL mg.procedures() YIELD name"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+}
+#endif
+
+#ifdef MG_ENTERPRISE
+// What a query is charged is returned when it ends. A query that opens no transaction has no commit or
+// abort to reconcile through, so its charge has to be settled elsewhere; if it is not, a session's usage
+// climbs with every query until the user is refused for memory nothing is holding.
+TYPED_TEST(InterpreterTest, GraphFreeQueriesDoNotAccumulateAgainstTheQuota) {
+  memgraph::license::global_license_checker.EnableTesting();
+  const memgraph::utils::OnScopeExit restore_license{
+      []() { memgraph::license::global_license_checker.DisableTesting(); }};
+  auto &interpreter = this->default_interpreter.interpreter;
+  auto quota = std::make_shared<memgraph::utils::UserResources>();
+  quota->SetTransactionsMemoryLimit(1024UL * 1024UL * 1024UL);
+  interpreter.SetUser(this->default_interpreter.auth_checker.GenQueryUser("alice", {}), quota);
+
+  // Ordering buffers every row, so the query still holds it when the last pull returns. Built from a
+  // parameter because the analysis admits no function, and `range` is one.
+  auto values = std::vector<memgraph::storage::ExternalPropertyValue>{};
+  values.reserve(50000);
+  for (auto i = 0; i < 50000; ++i) values.emplace_back(static_cast<int64_t>(i));
+  memgraph::storage::ExternalPropertyValue::map_t params;
+  params.emplace("values", memgraph::storage::ExternalPropertyValue(std::move(values)));
+
+  auto const run = [&] {
+    auto stream = this->Interpret("UNWIND $values AS x RETURN x ORDER BY x", params);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    return quota->GetTransactionsMemory().first;
+  };
+
+  auto const after_first = run();
+  EXPECT_EQ(after_first, 0U);
+  for (auto i = 0; i < 4; ++i) {
+    EXPECT_EQ(run(), 0U) << "usage grew on run " << i + 2;
+  }
+
+  // The quota is enforced on this path and not merely counted, which is also what stops the assertions
+  // above passing on a query that was never charged.
+  quota->SetTransactionsMemoryLimit(1024UL * 1024UL);
+  EXPECT_THROW(this->Interpret("UNWIND $values AS x RETURN x ORDER BY x", params), std::exception);
+  EXPECT_EQ(quota->GetTransactionsMemory().first, 0U) << "a refused query left its charge behind";
+}
+#endif
+
+#ifdef MG_ENTERPRISE
+// A query that skips its transaction must not disturb what the session has cached. The fine-grained
+// auth cache is keyed on the database and rebuilt from the accessor, so dropping it on every graph-free
+// query would make the next real query pay to rebuild it.
+TYPED_TEST(InterpreterTest, GraphFreeQueryLeavesTheAuthCacheWarm) {
+  using State = memgraph::query::CachedFineGrainedAuth::State;
+  auto &interpreter = this->default_interpreter.interpreter;
+  // The cache is only populated for a named user; the fixture's default user has no name.
+  interpreter.SetUser(this->default_interpreter.auth_checker.GenQueryUser("alice", {}));
+
+  this->Interpret("MATCH (n) RETURN n");
+  const auto warmed = interpreter.cached_fga_->state;
+  ASSERT_NE(warmed, State::EMPTY);
+
+  for (auto const *query : {"RETURN 1", "CALL mg.procedures() YIELD name", "UNWIND [1] AS x RETURN x"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    ASSERT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    EXPECT_EQ(interpreter.cached_fga_->state, warmed);
+  }
+}
+#endif
+
+// A session whose current database was dropped out from under it has no database to run against. Both a
+// graph-free query and a graph-touching one must report that, not abort the process.
+TYPED_TEST(InterpreterTest, CypherQueryWithoutCurrentDatabaseThrows) {
+  this->default_interpreter.interpreter.ResetDB();
+  for (auto const *query : {"RETURN 1", "CALL mg.procedures() YIELD name", "MATCH (n) RETURN n"}) {
+    SCOPED_TRACE(query);
+    EXPECT_THROW(this->Interpret(query), memgraph::query::DatabaseContextRequiredException);
+  }
+}
+
+// Modifier routing on the accessor-free path. The path now runs a real plan, so a per-call PROCEDURE
+// MEMORY LIMIT is carried by the CallProcedure operator and honoured on it. Modifiers that would need a
+// storage transaction or a graph-touching plan -- a YIELD ... WHERE, a query-level QUERY MEMORY LIMIT, or
+// USING pre-query directives -- instead fall through to the normal transaction path. "graph_free"
+// in the summary marks the accessor-free path; its absence marks the normal (transaction) path.
+TYPED_TEST(InterpreterTest, AccessorFreePathModifierRouting) {
+  {
+    // A YIELD ... WHERE whose predicate reaches no graph plans a Filter, which reaches no storage
+    // either, so it stays on the accessor-free path and still filters.
+    SCOPED_TRACE("graph-free YIELD ... WHERE stays on the accessor-free path");
+    auto unfiltered = this->Interpret("CALL mg.procedures() YIELD name");
+    EXPECT_EQ(unfiltered.GetSummary().count("graph_free"), 1U);
+    EXPECT_GT(unfiltered.GetResults().size(), 1U);
+
+    auto filtered = this->Interpret("CALL mg.procedures() YIELD name WHERE name = 'mg.procedures' RETURN name");
+    EXPECT_EQ(filtered.GetSummary().count("graph_free"), 1U);
+    ASSERT_EQ(filtered.GetResults().size(), 1U);
+    EXPECT_EQ(filtered.GetResults()[0][0].ValueString(), "mg.procedures");
+  }
+  {
+    // A predicate that reaches the graph pulls the whole query onto the transaction path.
+    SCOPED_TRACE("graph-touching YIELD ... WHERE takes the normal path");
+    auto stream = this->Interpret("CALL mg.procedures() YIELD name WHERE name STARTS WITH 'mg' RETURN name");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+    EXPECT_GT(stream.GetResults().size(), 1U);
+  }
+  {
+    // A per-call PROCEDURE MEMORY LIMIT is carried by the CallProcedure operator and installed by its
+    // cursor via thread-local tracking (no accessor needed), so the query stays on the accessor-free path
+    // with the limit honoured -- not dropped, and not forced onto the transaction path. (Enforcement is
+    // not asserted with a throw: the tracked-allocation size of mg.procedures relative to any small limit
+    // is environment-dependent, so a throw would be flaky; the dedicated procedure-memory-limit tests
+    // cover enforcement.)
+    SCOPED_TRACE("per-call PROCEDURE MEMORY LIMIT stays on the accessor-free path");
+    auto stream = this->Interpret("CALL mg.procedures() PROCEDURE MEMORY LIMIT 100 MB YIELD name");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    EXPECT_GT(stream.GetResults().size(), 1U);
+  }
+  {
+    // A memory limit is armed on the tracker the query execution owns, so it needs no transaction.
+    SCOPED_TRACE("query-level QUERY MEMORY LIMIT stays on the graph-free path");
+    auto stream = this->Interpret("RETURN 1 QUERY MEMORY LIMIT 1024 MB");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+  {
+    SCOPED_TRACE("USING pre-query directives take the normal path");
+    auto stream = this->Interpret("USING INDEX :Foo RETURN 1");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+}
+
+// The accessor-free path is gated on procedure metadata (graph_free AND no required privilege),
+// not on the procedure name.
+TYPED_TEST(InterpreterTest, AccessorFreePathRequiresDeclaredGraphFree) {
+  for (auto const *query :
+       {"CALL mg.procedures() YIELD name", "CALL mg.functions() YIELD name", "CALL mg.transformations() YIELD name"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+}
+
+// mg.get_module_files declares graph_free but requires MODULE_READ, so it is not accessor-free
+// eligible: the fast path would invoke the callback during Prepare, before the auth check.
+TYPED_TEST(InterpreterTest, AccessorFreePathExcludesPrivilegedProcedures) {
+  auto stream = this->Interpret("CALL mg.get_module_files() YIELD path");
+  EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+}
 
 TYPED_TEST(InterpreterTest, MultiplePulls) {
   {
@@ -1518,9 +2109,11 @@ TYPED_TEST(InterpreterTest, LoadCsvClause) {
 }
 
 TYPED_TEST(InterpreterTest, CacheableQueries) {
-  // This should be cached
+  // Accessor-free queries are planned and executed like any Cypher query (just without opening a storage
+  // transaction), so they populate both the AST cache and the plan cache -- which lets a repeated Lab ping
+  // reuse its cached plan instead of re-planning.
   {
-    SCOPED_TRACE("Cacheable query");
+    SCOPED_TRACE("Constant RETURN is AST- and plan-cached");
     this->Interpret("RETURN 1");
     EXPECT_EQ(this->AstCacheSize(), 1U);
     EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
@@ -2068,8 +2661,26 @@ TYPED_TEST(InterpreterTest, LoadCsvClauseNotification) {
   ASSERT_EQ(notification["description"].ValueString(), "");
 }
 
-TYPED_TEST(InterpreterTest, CypherQueryPriorityIsLow) {
+// Accessor-free fast-path shapes (constant RETURN / builtin mg.* introspection) are Lab's health-check
+// pings, so both PrepareConstantReturnQuery and PrepareBuiltinIntrospectionQuery mark them HIGH
+// (interpreter.cpp) -- a normal Cypher query that opens an accessor stays LOW.
+TYPED_TEST(InterpreterTest, ConstantReturnQueryPriorityIsHigh) {
   auto [stream, qid] = this->Prepare("RETURN 1");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, ConstantExpressionReturnQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("RETURN 1+1");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, BuiltinIntrospectionQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("CALL mg.procedures() YIELD *");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, NonAccessorFreeCypherQueryPriorityIsLow) {
+  auto [stream, qid] = this->Prepare("MATCH (n) RETURN n");
   EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
 }
 

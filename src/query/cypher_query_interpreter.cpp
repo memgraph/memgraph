@@ -280,6 +280,15 @@ auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameter
   return LogicalPlanResult{.plan = std::move(plan), .is_cacheable = is_cacheable};
 }
 
+namespace {
+
+bool RequiresNoIndices(storage::IndicesCollection const &indices) {
+  return indices.label_.empty() && indices.label_properties_.empty() && indices.edge_type_.empty() &&
+         indices.edge_type_properties_.empty() && indices.edge_property_.empty() && indices.vertex_property_.empty();
+}
+
+}  // namespace
+
 std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
                                                CypherQuery *query, const Parameters &parameters,
                                                PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
@@ -302,7 +311,10 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
       // validate the index usage
       auto &ptr = existing_plan.value();
 
-      auto const all_satisfied = db_accessor->CheckIndicesAreReady(ptr->required_indices());
+      // Index readiness cannot be checked without an accessor, so a cached plan is reusable without one
+      // only if it needs no indices.
+      auto const all_satisfied = db_accessor != nullptr ? db_accessor->CheckIndicesAreReady(ptr->required_indices())
+                                                        : RequiresNoIndices(ptr->required_indices());
       if (all_satisfied && IsFresh(ptr->ast_storage(), ptr->module_generation(), module_generation)) {
         return ptr;
       } else {

@@ -1,0 +1,13 @@
+graph_free_queries_cluster: &graph_free_queries_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "graph_free_queries.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Query on a dropped database"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["graph_free_queries/test_dropped_database.py"]
+    <<: *graph_free_queries_cluster

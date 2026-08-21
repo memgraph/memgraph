@@ -23,6 +23,7 @@
 #include "query/frontend/ast/ordering.hpp"
 #include "query/frontend/ast/query/binary_operator.hpp"
 #include "query/frontend/ast/query/expression.hpp"
+#include "query/frontend/ast/query/graph_access.hpp"
 #include "query/frontend/ast/query/identifier.hpp"
 #include "query/frontend/ast/query/named_expression.hpp"
 #include "query/frontend/ast/query/pattern.hpp"
@@ -2568,8 +2569,10 @@ class CallProcedure : public memgraph::query::Clause {
   std::vector<memgraph::query::Identifier *> result_identifiers_;
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
-  bool is_write_{false};
   bool void_procedure_{false};
+  /// Copied from the procedure's own declaration so that later phases need not take the registry lock
+  /// again.
+  memgraph::query::GraphAccess graph_access_{memgraph::query::GraphAccess::Read};
   memgraph::query::Where *where_{nullptr};
 
   CallProcedure *Clone(AstStorage *storage) const override {
@@ -2586,8 +2589,8 @@ class CallProcedure : public memgraph::query::Clause {
     }
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
-    object->is_write_ = is_write_;
     object->void_procedure_ = void_procedure_;
+    object->graph_access_ = graph_access_;
     object->where_ = where_ ? where_->Clone(storage) : nullptr;
     return object;
   }
