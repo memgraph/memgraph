@@ -1254,8 +1254,15 @@ TypedValue Rand(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 
 template <class TPredicate>
 TypedValue StringMatchOperator(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String>, Or<Null, String>>(TPredicate::name, args, nargs);
-  if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
+  // A non-string on either side compares to Null rather than raising. An index scan narrows the
+  // subject to the string type segment before any filter runs, so raising would let the presence
+  // of an index decide whether the query errors at all: it would raise on a property that holds a
+  // string and stay silent on one that holds none. Null keeps the answer the same either way, and
+  // makes the whole predicate answerable from the index alone.
+  if (nargs != 2) {
+    throw QueryRuntimeException("'{}' requires exactly 2 arguments.", TPredicate::name);
+  }
+  if (!args[0].IsString() || !args[1].IsString()) return TypedValue(ctx.memory);
   const auto &s1 = args[0].ValueString();
   const auto &s2 = args[1].ValueString();
   return TypedValue(TPredicate{}(s1, s2), ctx.memory);
@@ -1831,7 +1838,7 @@ utils::Timezone GetTimezone(const memgraph::query::TypedValue::TMap &input_param
   }
   const auto &value = input_parameters.at(timezone);
   if (value.IsString()) {
-    return utils::Timezone(value.ValueString());
+    return utils::ParseTimezoneFromUserString(value.ValueString());
   }
   if (value.IsInt()) {
     return utils::Timezone(std::chrono::minutes{value.ValueInt()});

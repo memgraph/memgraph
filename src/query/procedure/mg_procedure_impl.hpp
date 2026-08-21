@@ -316,7 +316,8 @@ struct mgp_zoned_date_time {
             MapDateParameters(parameters->date_parameters),
             MapLocalTimeParameters(parameters->local_time_parameters),
             parameters->is_named_timezone
-                ? memgraph::utils::Timezone{std::string_view{parameters->timezone_info.timezone_name}}
+                ? memgraph::utils::ParseTimezoneFromUserString(
+                      std::string_view{parameters->timezone_info.timezone_name})
                 : memgraph::utils::Timezone{std::chrono::minutes{parameters->timezone_info.offset_in_minutes}}}) {}
 
   mgp_zoned_date_time(const mgp_zoned_date_time &other, allocator_type alloc) noexcept

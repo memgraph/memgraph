@@ -44,7 +44,7 @@ Feature: String operators
             WHERE n.name STARTS WITH 1
             return n.name
             """
-        Then an error should be raised
+        Then the result should be empty
 
     Scenario: StartsWith test5
         Given an empty graph
@@ -58,7 +58,7 @@ Feature: String operators
             WHERE n.name STARTS WITH true
             return n.name
             """
-        Then an error should be raised
+        Then the result should be empty
 
 
     Scenario: EndsWith test1
@@ -106,7 +106,7 @@ Feature: String operators
             WHERE n.name ENDS WITH 1
             return n.name
             """
-        Then an error should be raised
+        Then the result should be empty
 
     Scenario: EndsWith test5
         Given an empty graph
@@ -120,7 +120,7 @@ Feature: String operators
             WHERE n.name ENDS WITH true
             return n.name
             """
-        Then an error should be raised
+        Then the result should be empty
 
 
     Scenario: Contains test1
@@ -167,7 +167,7 @@ Feature: String operators
             WHERE n.name CONTAINS 1
             return n.name
             """
-        Then an error should be raised
+        Then the result should be empty
 
 
     Scenario: Contains test5
@@ -182,4 +182,4 @@ Feature: String operators
             WHERE n.name CONTAINS true
             return n.name
             """
-        Then an error should be raised
+        Then the result should be empty

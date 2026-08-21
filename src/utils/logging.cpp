@@ -14,20 +14,66 @@
 #include <fmt/format.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <ctre.hpp>
+
 #include <iostream>
-#include <regex>
 
 namespace {
-constexpr std::string_view kRegexFmt = "$1****$3";
+constexpr std::string_view kRedaction = "****";
+
+// Matches only as far as the quote that opens the value. Every alternative
+// ends with that quote, so the last character of a match is the one that has
+// to close the value.
+//
+// The value itself is deliberately left unmatched: which character ends it
+// depends on the quote that opened it, and a regular expression cannot carry
+// that without a backreference.
+constexpr auto kCredentialClause = ctre::search<
+    R"(password\s*:\s*['"]|pas+word\s+to\s*['"]|re?pl?ac?e?\s*['"]|identified\s+by\s*['"]|pas+word\s+for\s+\w+\s+to\s*['"]|['"]?aws_access_key['"]?\s*[:=]\s*['"]|['"]?aws_secret_key['"]?\s*[:=]\s*['"]|['"]?aws[._\-]?access[._\-]?key['"]?\s+to\s*['"]|['"]?aws[._\-]?secret[._\-]?key['"]?\s+to\s*['"])",
+    ctre::case_insensitive>;
+
+// Offset of the quote closing a value that `quote` opened, or npos if it is
+// never closed. Only the same quote closes the value, and a backslash escapes
+// the character after it.
+size_t EndOfValue(std::string_view const value, char const quote) {
+  for (size_t i = 0; i < value.size(); ++i) {
+    if (value[i] == '\\') {
+      ++i;
+      continue;
+    }
+    if (value[i] == quote) return i;
+  }
+  return std::string_view::npos;
+}
 }  // namespace
 
-std::string memgraph::logging::MaskSensitiveInformation(std::string_view const input) {
-  static const std::regex re_all(
-      R"((password\s*:\s*['"]|pas+word\s+to\s*['"]|re?pl?ac?e?\s*['"]|identified\s+by\s*['"]|pas+word\s+for\s+\w+\s+to\s*['"]|['"]?aws_access_key['"]?\s*[:=]\s*['"]|['"]?aws_secret_key['"]?\s*[:=]\s*['"]|['"]?aws[._-]?access[._-]?key['"]?\s+to\s*['"]|['"]?aws[._-]?secret[._-]?key['"]?\s+to\s*['"])([^'"]*)(['"]))",
-      std::regex_constants::icase | std::regex_constants::optimize);
+std::optional<std::string> memgraph::logging::MaskSensitiveInformation(std::string_view const input) {
+  auto rest = input;
+  auto clause = kCredentialClause(rest);
+  if (!clause) return std::nullopt;
 
-  auto str = std::string{input};
-  return std::regex_replace(str, re_all, std::string{kRegexFmt});
+  std::string masked;
+  // A value can be shorter than the redaction replacing it.
+  masked.reserve(input.size() + kRedaction.size());
+
+  for (; clause; clause = kCredentialClause(rest)) {
+    auto const matched = clause.to_view();
+    auto const quote = matched.back();
+    auto const value_at = static_cast<size_t>(matched.data() - rest.data()) + matched.size();
+
+    masked.append(rest.substr(0, value_at));
+    masked.append(kRedaction);
+
+    auto const value = rest.substr(value_at);
+    auto const closing = EndOfValue(value, quote);
+    if (closing == std::string_view::npos) return masked;
+
+    masked.push_back(quote);
+    rest = value.substr(closing + 1);
+  }
+
+  masked.append(rest);
+  return masked;
 }
 
 // It is possible if using asynchronous logger that this log line won't be seen because there is no way force flush

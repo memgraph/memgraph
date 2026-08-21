@@ -94,8 +94,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     return id;
   }
 
-  Exists *CreateExistsWithValue(std::string name, TypedValue &&value) {
-    auto id = storage.template Create<Exists>();
+  SubqueryExpression *CreateSubqueryWithValue(std::string name, TypedValue &&value) {
+    auto id = storage.template Create<SubqueryExpression>();
     auto symbol = symbol_table.CreateSymbol(name, true);
     id->MapTo(symbol);
     auto frame_writer = FrameWriter(frame, nullptr, ctx.memory);
@@ -179,7 +179,7 @@ TYPED_TEST(ExpressionEvaluatorTest, AndExistsOperatorShortCircuit) {
 
     auto *op = this->storage.template Create<AndOperator>(
         this->storage.template Create<PrimitiveLiteral>(false),
-        this->CreateExistsWithValue("anon1", std::move(func_should_not_evaluate)));
+        this->CreateSubqueryWithValue("anon1", std::move(func_should_not_evaluate)));
     auto value = this->Eval(op);
     EXPECT_EQ(value.ValueBool(), false);
   }
@@ -191,7 +191,7 @@ TYPED_TEST(ExpressionEvaluatorTest, AndExistsOperatorShortCircuit) {
 
     auto *op =
         this->storage.template Create<AndOperator>(this->storage.template Create<PrimitiveLiteral>(true),
-                                                   this->CreateExistsWithValue("anon1", std::move(should_evaluate)));
+                                                   this->CreateSubqueryWithValue("anon1", std::move(should_evaluate)));
     auto value = this->Eval(op);
     EXPECT_EQ(value.ValueBool(), false);
   }
@@ -201,13 +201,40 @@ TYPED_TEST(ExpressionEvaluatorTest, ExistsReadsAForcedBoolFold) {
   // A deferred fold leaves a closure in the frame slot for the Filter to call; a forced one leaves the answer itself,
   // because the RollUpApply below already ran the branch. Both spellings have to evaluate.
   {
-    auto *exists = this->CreateExistsWithValue("anon1", TypedValue(true, this->ctx.memory));
+    auto *exists = this->CreateSubqueryWithValue("anon1", TypedValue(true, this->ctx.memory));
     EXPECT_EQ(this->Eval(exists).ValueBool(), true);
   }
   {
-    auto *exists = this->CreateExistsWithValue("anon2", TypedValue(false, this->ctx.memory));
+    auto *exists = this->CreateSubqueryWithValue("anon2", TypedValue(false, this->ctx.memory));
     EXPECT_EQ(this->Eval(exists).ValueBool(), false);
   }
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, SubqueryReadsAForcedCountFold) {
+  // The count fold writes an integer where the bool fold writes a bool, and both are read from the same slot by the
+  // same visitor, so the integer arm needs its own case.
+  auto *count = this->CreateSubqueryWithValue("anon1", TypedValue(int64_t{3}, this->ctx.memory));
+  count->fold_ = memgraph::query::SubqueryExpression::Fold::kCount;
+  EXPECT_EQ(this->Eval(count).ValueInt(), 3);
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, SubqueryRefusesAnUnexpectedFrameValueByConstruct) {
+  // Neither a value nor a closure. Asserting the type alone would pass with either fold, so the construct name in the
+  // message is the whole point of the test.
+  auto expect_named = [this](memgraph::query::SubqueryExpression::Fold fold, std::string_view construct) {
+    auto *subquery = this->CreateSubqueryWithValue("anon1", TypedValue("not a fold", this->ctx.memory));
+    subquery->fold_ = fold;
+    try {
+      this->Eval(subquery);
+      FAIL() << "expected a throw for " << construct;
+    } catch (const QueryRuntimeException &e) {
+      EXPECT_NE(std::string(e.what()).find(construct), std::string::npos)
+          << "the message should name " << construct << ", got: " << e.what();
+    }
+  };
+
+  expect_named(memgraph::query::SubqueryExpression::Fold::kCount, "COUNT");
+  expect_named(memgraph::query::SubqueryExpression::Fold::kBool, "EXISTS");
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, AndOperatorNull) {
@@ -2615,7 +2642,12 @@ TYPED_TEST(FunctionTest, Rand) {
 TYPED_TEST(FunctionTest, StartsWith) {
   EXPECT_THROW(this->EvaluateFunction(kStartsWith), QueryRuntimeException);
   EXPECT_TRUE(this->EvaluateFunction(kStartsWith, "a", TypedValue()).IsNull());
-  EXPECT_THROW(this->EvaluateFunction(kStartsWith, TypedValue(), 1.3), QueryRuntimeException);
+  // A non-string on either side compares to Null, so the answer cannot depend on whether an index
+  // narrowed the subject to strings before the comparison ran.
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, TypedValue(), 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, "abc", 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, 1.3, "abc").IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, true, "abc").IsNull());
   EXPECT_TRUE(this->EvaluateFunction(kStartsWith, "abc", "abc").ValueBool());
   EXPECT_TRUE(this->EvaluateFunction(kStartsWith, "abcdef", "abc").ValueBool());
   EXPECT_FALSE(this->EvaluateFunction(kStartsWith, "abcdef", "aBc").ValueBool());
@@ -2625,7 +2657,9 @@ TYPED_TEST(FunctionTest, StartsWith) {
 TYPED_TEST(FunctionTest, EndsWith) {
   EXPECT_THROW(this->EvaluateFunction(kEndsWith), QueryRuntimeException);
   EXPECT_TRUE(this->EvaluateFunction(kEndsWith, "a", TypedValue()).IsNull());
-  EXPECT_THROW(this->EvaluateFunction(kEndsWith, TypedValue(), 1.3), QueryRuntimeException);
+  EXPECT_TRUE(this->EvaluateFunction(kEndsWith, TypedValue(), 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kEndsWith, "abc", 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kEndsWith, 1.3, "abc").IsNull());
   EXPECT_TRUE(this->EvaluateFunction(kEndsWith, "abc", "abc").ValueBool());
   EXPECT_TRUE(this->EvaluateFunction(kEndsWith, "abcdef", "def").ValueBool());
   EXPECT_FALSE(this->EvaluateFunction(kEndsWith, "abcdef", "dEf").ValueBool());
@@ -2635,7 +2669,9 @@ TYPED_TEST(FunctionTest, EndsWith) {
 TYPED_TEST(FunctionTest, Contains) {
   EXPECT_THROW(this->EvaluateFunction(kContains), QueryRuntimeException);
   EXPECT_TRUE(this->EvaluateFunction(kContains, "a", TypedValue()).IsNull());
-  EXPECT_THROW(this->EvaluateFunction(kContains, TypedValue(), 1.3), QueryRuntimeException);
+  EXPECT_TRUE(this->EvaluateFunction(kContains, TypedValue(), 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kContains, "abc", 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kContains, 1.3, "abc").IsNull());
   EXPECT_TRUE(this->EvaluateFunction(kContains, "abc", "abc").ValueBool());
   EXPECT_TRUE(this->EvaluateFunction(kContains, "abcde", "bcd").ValueBool());
   EXPECT_FALSE(this->EvaluateFunction(kContains, "cde", "abcdef").ValueBool());
@@ -3331,6 +3367,29 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
                                                                       {"microsecond", TypedValue(0)},
                                                                       {"timezone", TypedValue("America/Los_Angeles")}});
   EXPECT_EQ(this->EvaluateFunction("DATETIME", map_param).ValueZonedDateTime(), zdt);
+
+  // A UTC offset is accepted for the timezone field, in the same forms the
+  // string constructor takes.
+  auto with_offset = [&](const char *timezone) {
+    return this
+        ->EvaluateFunction("DATETIME",
+                           TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(2024)},
+                                                                        {"month", TypedValue(6)},
+                                                                        {"day", TypedValue(22)},
+                                                                        {"hour", TypedValue(12)},
+                                                                        {"timezone", TypedValue(timezone)}}))
+        .ValueZonedDateTime();
+  };
+  EXPECT_EQ(with_offset("+01:00").GetTimezone(), memgraph::utils::Timezone(std::chrono::minutes{60}));
+  EXPECT_EQ(with_offset("-05:30").GetTimezone(), memgraph::utils::Timezone(std::chrono::minutes{-330}));
+  EXPECT_EQ(with_offset("+0100").GetTimezone(), memgraph::utils::Timezone(std::chrono::minutes{60}));
+  EXPECT_EQ(with_offset("Z").GetTimezone(), memgraph::utils::Timezone(std::chrono::minutes{0}));
+
+  // A timezone that cannot be understood is a problem with the argument, so it
+  // has to be reported as one rather than escaping as an internal error.
+  EXPECT_THROW(with_offset("not/a/zone"), memgraph::utils::BasicException);
+  EXPECT_THROW(with_offset("+99:00"), memgraph::utils::BasicException);
+  EXPECT_THROW(with_offset(""), memgraph::utils::BasicException);
 
   const auto one_sec_in_microseconds = 1'000'000;
   const auto today = memgraph::utils::CurrentZonedDateTime();

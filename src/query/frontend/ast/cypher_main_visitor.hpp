@@ -18,6 +18,7 @@
 #pragma pop_macro("EOF")  // bring EOF back
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/subquery_expression.hpp"  // BuildSubqueryFold names SubqueryExpression::Fold
 #include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -1111,14 +1112,28 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitParameter(MemgraphCypher::ParameterContext *ctx) override;
 
   /**
-   * @return Exists* (Expression)
+   * @return SubqueryExpression* (Expression)
    */
   antlrcpp::Any visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) override;
 
   /**
-   * @return Exists* (Expression)
+   * @return SubqueryExpression* (Expression)
    */
   antlrcpp::Any visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) override;
+
+  /**
+   * @return SubqueryExpression* (Expression), carrying the count fold
+   */
+  antlrcpp::Any visitCountSubquery(MemgraphCypher::CountSubqueryContext *ctx) override;
+
+  /**
+   * The body shared by the two brace forms, which differ only in their fold - and the construct their errors name
+   * follows from it. Templated because the two grammar rules have the same shape but distinct context types.
+   *
+   * @return SubqueryExpression* (Expression)
+   */
+  template <typename TContext>
+  Expression *BuildSubqueryFold(TContext *ctx, SubqueryExpression::Fold fold);
 
   /**
    * @return pattern comprehension (Expression)
@@ -1126,7 +1141,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitPatternComprehension(MemgraphCypher::PatternComprehensionContext *ctx) override;
 
   /**
-   * @return Exists* (Expression)
+   * @return SubqueryExpression* (Expression)
    * PatternExpression behaves the same way as ExistsExpression
    */
   antlrcpp::Any visitPatternExpression(MemgraphCypher::PatternExpressionContext *ctx) override;
@@ -1498,7 +1513,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // return.
   bool in_with_ = false;
   // Flag to indicate if we are parsing an EXISTS subquery
-  bool parsing_exists_subquery_ = false;
+  bool parsing_subquery_body_ = false;
   Parameters *parameters_;
 
   QueryInfo query_info_;

@@ -628,6 +628,14 @@ LocalTime CurrentLocalTime();
 LocalDateTime CurrentLocalDateTime();
 ZonedDateTime CurrentZonedDateTime();
 Timezone DefaultTimezone();
+
+/// Interpret a user-supplied timezone as either a UTC offset (`+01:00`,
+/// `+0100`, `+01`, or `Z`) or a name from the IANA time zone database.
+///
+/// Throws temporal::InvalidArgumentException for anything else. Constructing a
+/// Timezone from a name directly throws out of the standard library instead,
+/// which is not an error a query can report.
+Timezone ParseTimezoneFromUserString(std::string_view timezone);
 }  // namespace memgraph::utils
 
 namespace std {
