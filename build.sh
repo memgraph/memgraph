@@ -13,7 +13,7 @@ OPTIONS:
     --target TARGET...      CMake target(s) to build (default: all targets). Accepts
                             multiple targets in one sequence, e.g.
                             --target memgraph memgraph__unit
-    --reserve-cores N       Reserve N cores for other tasks (default: 0, uses all cores)
+    --reserve-cores N       Leave N cores free for other work (default: 0, uses all cores)
     --compile-jobs N        Pin concurrent compile steps (default: derived from memory)
     --link-jobs N           Pin concurrent link steps (default: derived from memory)
     --no-job-memory-cap     Do not cap concurrency by memory; -j alone decides
@@ -216,6 +216,14 @@ fi
 if [[ -n "$LINK_JOBS" ]]; then
     CMAKE_ARGS="$CMAKE_ARGS -DMG_LINK_JOBS=$LINK_JOBS"
 fi
+if [[ ! "$RESERVE_CORES" =~ ^[0-9]+$ ]]; then
+    echo "Error: --reserve-cores takes a non-negative integer (got '$RESERVE_CORES')" >&2
+    exit 1
+fi
+if [[ ! "$CMAKE_ARGS" =~ MG_RESERVE_CORES ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_RESERVE_CORES=$RESERVE_CORES"
+fi
+
 # Stated explicitly either way, so dropping --no-job-memory-cap restores the
 # cap instead of inheriting the previous configure's OFF. A raw -D for the same
 # variable stays authoritative.
@@ -463,7 +471,7 @@ if [[ "$config_only" = true ]]; then
 fi
 
 # Build command with optional target
-# Determine number of parallel jobs (reserve cores for system responsiveness)
+# Ninja's ceiling for steps no job pool covers, such as code generation.
 BUILD_JOBS=$(( $(nproc) - RESERVE_CORES ))
 if [[ $BUILD_JOBS -lt 1 ]]; then
     BUILD_JOBS=1

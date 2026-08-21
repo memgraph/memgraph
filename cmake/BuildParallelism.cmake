@@ -10,6 +10,7 @@
 #
 # Overrides, all at configure time:
 #   -DMG_COMPILE_JOBS=N / -DMG_LINK_JOBS=N   pin the pool sizes explicitly
+#   -DMG_RESERVE_CORES=N                     leave N cores free for other work
 #   -DMG_MEMORY_PER_COMPILE_JOB_MB=N         retune the per-job budgets
 #   -DMG_MEMORY_PER_LINK_JOB_MB=N
 #   -DMG_LIMIT_PARALLELISM_BY_MEMORY=OFF     no pools, `-j` alone decides
@@ -23,6 +24,8 @@ set(MG_MEMORY_PER_COMPILE_JOB_MB 4096 CACHE STRING
     "Memory budgeted for one compile step, in MiB")
 set(MG_MEMORY_PER_LINK_JOB_MB 6144 CACHE STRING
     "Memory budgeted for one link step, in MiB")
+set(MG_RESERVE_CORES 0 CACHE STRING
+    "Cores left free for other work, withheld from every pool")
 set(MG_COMPILE_JOBS 0 CACHE STRING
     "Concurrent compile steps; 0 derives it from available memory")
 set(MG_LINK_JOBS 0 CACHE STRING
@@ -147,6 +150,10 @@ elseif(MG_LIMIT_PARALLELISM_BY_MEMORY)
             "runs at whatever -j it is given and may exhaust memory.")
     else()
         cmake_host_system_information(RESULT mg_cores QUERY NUMBER_OF_LOGICAL_CORES)
+        math(EXPR mg_cores "${mg_cores} - ${MG_RESERVE_CORES}")
+        if(mg_cores LESS 1)
+            set(mg_cores 1)
+        endif()
         _mg_memory_budget_mb(mg_budget_mb)
 
         if(MG_COMPILE_JOBS GREATER 0)
@@ -169,6 +176,6 @@ elseif(MG_LIMIT_PARALLELISM_BY_MEMORY)
         set(CMAKE_JOB_POOL_LINK mg_link)
         message(STATUS
             "Build parallelism: ${mg_compile_jobs} compile / ${mg_link_jobs} link "
-            "(${mg_budget_mb} MiB usable, ${mg_cores} cores)")
+            "(${mg_budget_mb} MiB usable, ${mg_cores} cores usable)")
     endif()
 endif()
