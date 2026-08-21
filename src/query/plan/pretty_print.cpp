@@ -53,6 +53,8 @@ std::string ToString(EdgeAtom::Type type) {
       return "asp";
     case EdgeAtom::Type::KSHORTEST:
       return "shortest_first";
+    case EdgeAtom::Type::PRUNING_BFS:
+      return "pruning_bfs";
     case EdgeAtom::Type::SINGLE:
       return "single";
   }
@@ -213,6 +215,19 @@ nlohmann::json ToJson(const ExpressionRange &expression_range, const DbAccessor 
     }
     case PropertyFilter::Type::REGEX_MATCH: {
       result["type"] = "Regex";
+      break;
+    }
+    case PropertyFilter::Type::STARTS_WITH: {
+      result["type"] = "StartsWith";
+      result["expression"] = ToJson(expression_range.lower_->value(), dba);
+      break;
+    }
+    case PropertyFilter::Type::CONTAINS: {
+      result["type"] = "Contains";
+      break;
+    }
+    case PropertyFilter::Type::ENDS_WITH: {
+      result["type"] = "EndsWith";
       break;
     }
     case PropertyFilter::Type::RANGE: {

@@ -186,8 +186,37 @@ class PrometheusMetrics {
   PrometheusMetrics &operator=(PrometheusMetrics &&) = delete;
   ~PrometheusMetrics() = default;
 
-  DatabaseMetricHandles AddDatabase(utils::UUID const &uuid, std::string_view name);
-  void RemoveDatabase(utils::UUID const &uuid);
+  /// Owns one registration of a database's metrics and releases it on destruction. Move-only, so
+  /// exactly one object releases each registration. It releases the entry it registered rather than
+  /// one matching a uuid or a name, so a database that is renamed or rebound still releases its own.
+  class Registration {
+   public:
+    Registration() = default;
+    ~Registration();
+
+    Registration(Registration &&other) noexcept;
+    Registration &operator=(Registration &&other) noexcept;
+    Registration(Registration const &) = delete;
+    Registration &operator=(Registration const &) = delete;
+
+    DatabaseMetricHandles const &handles() const { return handles_; }
+
+    DatabaseMetricHandles &handles() { return handles_; }
+
+   private:
+    friend class PrometheusMetrics;
+
+    Registration(PrometheusMetrics *registry, uint64_t entry_id, DatabaseMetricHandles handles)
+        : registry_(registry), entry_id_(entry_id), handles_(std::move(handles)) {}
+
+    void Release() noexcept;
+
+    PrometheusMetrics *registry_{nullptr};
+    uint64_t entry_id_{0};
+    DatabaseMetricHandles handles_{};
+  };
+
+  [[nodiscard]] Registration AddDatabase(utils::UUID const &uuid, std::string_view name);
   void RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
   void UpdateGauges();
 
@@ -227,10 +256,19 @@ class PrometheusMetrics {
 
  private:
   struct DatabaseEntry {
+    // Identifies the entry for its whole life, unlike the uuid and the name, either of which can
+    // change while registrations are outstanding.
+    uint64_t id;
     utils::UUID uuid;
     std::string db_name;
     DatabaseMetricHandles handles;
+    // Registrations of one database share every handle, because a family returns the metric it
+    // already holds for a label set. The metrics go when the last registration does.
+    std::size_t registrations{1};
   };
+
+  /// Drops one registration of the entry, and the metrics with the last of them.
+  void ReleaseRegistration(uint64_t entry_id);
 
   StorageSnapshot ResolveStorageSnapshot(utils::UUID const &uuid) const;
 
@@ -239,6 +277,7 @@ class PrometheusMetrics {
   struct {
     mutable std::shared_mutex mutex;
     std::list<DatabaseEntry> entries;
+    uint64_t next_entry_id{1};
   } databases_;
 
   std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;

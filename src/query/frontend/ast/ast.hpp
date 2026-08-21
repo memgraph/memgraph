@@ -1811,6 +1811,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
     WEIGHTED_SHORTEST_PATH,
     ALL_SHORTEST_PATHS,
     KSHORTEST,
+    PRUNING_BFS,
   };
 
   enum class Direction : uint8_t { IN, OUT, BOTH };
@@ -1878,6 +1879,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
       case Type::WEIGHTED_SHORTEST_PATH:
       case Type::ALL_SHORTEST_PATHS:
       case Type::KSHORTEST:
+      case Type::PRUNING_BFS:
         return true;
       case Type::SINGLE:
         return false;

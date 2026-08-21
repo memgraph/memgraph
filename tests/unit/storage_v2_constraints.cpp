@@ -23,6 +23,7 @@
 #include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/small_vector.hpp"
 
 #include "disk_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -1518,6 +1519,79 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalData) {
     ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::LocalDateTime, 0})),
                  memgraph::query::QueryException);
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::Date, 0})));
+  }
+}
+
+// A zoned datetime is stored one of two ways depending on its timezone: a named zone or a
+// numeric offset. Both are ZonedDateTime values and both satisfy a ZONED DATE TIME constraint.
+TYPED_TEST(ConstraintsTest, TypeConstraintsZonedDateTimeWithOffsetTimezone) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Type constraints not implemented for on-disk";
+  }
+
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::ZONEDDATETIME);
+    ASSERT_NO_ERROR(res);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto const when = memgraph::utils::AsSysTime(1732145501);
+  auto const zoned = [&](memgraph::utils::Timezone timezone) {
+    return PropertyValue(ZonedTemporalData{ZonedTemporalType::ZonedDateTime, when, timezone});
+  };
+
+  {
+    auto acc1 = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex1 = acc1->CreateVertex();
+
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, zoned(memgraph::utils::Timezone("Etc/UTC"))));
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, zoned(memgraph::utils::Timezone(std::chrono::minutes{60}))));
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, zoned(memgraph::utils::Timezone(std::chrono::minutes{-330}))));
+
+    // A value that is not a zoned datetime is still rejected.
+    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue("problem")), memgraph::query::QueryException);
+    ASSERT_THROW((void)vertex1.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::LocalDateTime, 0})),
+                 memgraph::query::QueryException);
+  }
+
+  // The same holds when the label arrives after the property.
+  {
+    auto acc1 = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex1 = acc1->CreateVertex();
+
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, zoned(memgraph::utils::Timezone(std::chrono::minutes{60}))));
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+  }
+}
+
+// A list is held out of line when a vector index covers it, but it is still a list to the user
+// and still satisfies a LIST constraint. Validation that reads an already-stored record therefore
+// has to accept that encoding as well as the inline one.
+TYPED_TEST(ConstraintsTest, TypeConstraintsListHeldByVectorIndex) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Type constraints not implemented for on-disk";
+  }
+
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::LIST);
+    ASSERT_NO_ERROR(res);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc1 = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex1 = acc1->CreateVertex();
+    auto const held_by_index = PropertyValue(PropertyValue::VectorIndexIdData{
+        .ids = memgraph::utils::small_vector<uint64_t>{acc1->GetNameIdMapper()->NameToId("a_vector_index")},
+        .vector = memgraph::utils::small_vector<float>{1.0F, 2.0F}});
+
+    // The label arrives last so that the constraint is checked against the stored record rather
+    // than against the value being written.
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, held_by_index));
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
   }
 }
 
