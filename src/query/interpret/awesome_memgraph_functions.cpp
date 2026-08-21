@@ -1664,6 +1664,24 @@ bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
   return has_mapped_any_field;
 }
 
+// An omitted component takes its lowest value. That default reads naturally for
+// every component but the most significant one, which is what the rest are
+// offsets from: a map naming only lesser components leaves the value anchored
+// nowhere, so it is a mistake rather than a terse spelling.
+//
+// Components between the most significant one and those named may be left out,
+// which openCypher does not allow and Neo4j rejects. The gap it forbids is not
+// ambiguous here, and refusing it costs callers more than it saves them.
+//
+// Call this after the components have been mapped, so that an unrecognised name
+// is reported as such rather than as a missing component.
+void EnsureLeadingComponentSupplied(const std::string_view leading, const auto &input_parameters) {
+  const auto supplies_leading = [leading](const auto &entry) { return std::string_view{entry.first} == leading; };
+  if (!std::ranges::any_of(input_parameters, supplies_leading)) {
+    throw QueryRuntimeException("'{}' must be specified.", leading);
+  }
+}
+
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Optional<Or<Null, String, Map, struct Date, LocalDateTime, ZonedDateTime>>>("date", args, nargs);
   if (nargs == 0) {
@@ -1702,6 +1720,7 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
                                            std::pair{"day"sv, &date_parameters.day}};
 
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
+  EnsureLeadingComponentSupplied("year", args[0].ValueMap());
   return TypedValue(utils::Date(date_parameters), ctx.memory);
 }
 
@@ -1751,6 +1770,7 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
   };
 
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
+  EnsureLeadingComponentSupplied("hour", args[0].ValueMap());
   return TypedValue(utils::LocalTime(local_time_parameters), ctx.memory);
 }
 

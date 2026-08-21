@@ -3210,6 +3210,116 @@ TYPED_TEST(FunctionTest, Date) {
   EXPECT_TRUE(this->EvaluateFunction("DATE", TypedValue()).IsNull());
 }
 
+TYPED_TEST(FunctionTest, DateRequiresTheYear) {
+  // Every other component is an offset within the year, so naming one without
+  // it leaves the value anchored nowhere.
+  EXPECT_THROW(this->EvaluateFunction("DATE", TypedValue(std::map<std::string, TypedValue>{{"month", TypedValue(10)}})),
+               QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction("DATE", TypedValue(std::map<std::string, TypedValue>{{"day", TypedValue(5)}})),
+               QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction("DATE", TypedValue(std::map<std::string, TypedValue>{})), QueryRuntimeException);
+
+  // Any component below the year may be left out, and takes its lowest value.
+  EXPECT_EQ(this->EvaluateFunction("DATE", TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1984)}}))
+                .ValueDate(),
+            memgraph::utils::Date({1984, 1, 1}));
+  EXPECT_EQ(this->EvaluateFunction("DATE",
+                                   TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1984)},
+                                                                                {"month", TypedValue(10)}}))
+                .ValueDate(),
+            memgraph::utils::Date({1984, 10, 1}));
+
+  // Including one with a gap above it, which openCypher and Neo4j refuse.
+  EXPECT_EQ(
+      this->EvaluateFunction(
+              "DATE", TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1984)}, {"day", TypedValue(5)}}))
+          .ValueDate(),
+      memgraph::utils::Date({1984, 1, 5}));
+}
+
+TYPED_TEST(FunctionTest, LocalTimeRequiresTheHour) {
+  EXPECT_THROW(
+      this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"minute", TypedValue(30)}})),
+      QueryRuntimeException);
+  EXPECT_THROW(
+      this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"second", TypedValue(30)}})),
+      QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{})),
+               QueryRuntimeException);
+
+  EXPECT_EQ(this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(10)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({10, 0, 0, 0, 0}));
+  EXPECT_EQ(this->EvaluateFunction(
+                    "LOCALTIME",
+                    TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(10)}, {"minute", TypedValue(5)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({10, 5, 0, 0, 0}));
+}
+
+TYPED_TEST(FunctionTest, LocalTimeFillsComponentsLeftOutBelowTheHour) {
+  // A component may be named with coarser ones missing between it and the
+  // hour, each of those taking zero.
+  EXPECT_EQ(this->EvaluateFunction(
+                    "LOCALTIME",
+                    TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(5)}, {"second", TypedValue(32)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({5, 0, 32, 0, 0}));
+  EXPECT_EQ(
+      this->EvaluateFunction("LOCALTIME",
+                             TypedValue(std::map<std::string, TypedValue>{
+                                 {"hour", TypedValue(1)}, {"minute", TypedValue(2)}, {"microsecond", TypedValue(5)}}))
+          .ValueLocalTime(),
+      memgraph::utils::LocalTime({1, 2, 0, 0, 5}));
+  EXPECT_EQ(this->EvaluateFunction("LOCALTIME",
+                                   TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
+                                                                                {"millisecond", TypedValue(4)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({1, 0, 0, 4, 0}));
+}
+
+TYPED_TEST(FunctionTest, LocalTimeSubSecondComponentsShareOneLevel) {
+  // Either sub-second field may be given without the other. A microsecond
+  // given alone still counts as microseconds, the coarser scale taking zero.
+  EXPECT_EQ(this->EvaluateFunction("LOCALTIME",
+                                   TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
+                                                                                {"minute", TypedValue(2)},
+                                                                                {"second", TypedValue(3)},
+                                                                                {"microsecond", TypedValue(5)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({1, 2, 3, 0, 5}));
+  EXPECT_EQ(this->EvaluateFunction("LOCALTIME",
+                                   TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
+                                                                                {"minute", TypedValue(2)},
+                                                                                {"second", TypedValue(3)},
+                                                                                {"millisecond", TypedValue(4)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({1, 2, 3, 4, 0}));
+}
+
+TYPED_TEST(FunctionTest, LocalTimeSubSecondFieldsCarry) {
+  // A fraction may be written at whichever scale the caller has it in, so a
+  // count of microseconds beyond a millisecond is read as the time it names
+  // rather than refused.
+  EXPECT_EQ(this->EvaluateFunction("LOCALTIME",
+                                   TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
+                                                                                {"minute", TypedValue(2)},
+                                                                                {"second", TypedValue(3)},
+                                                                                {"microsecond", TypedValue(1500)}}))
+                .ValueLocalTime(),
+            memgraph::utils::LocalTime({1, 2, 3, 1, 500}));
+
+  // The fraction stops short of a whole second, which would otherwise carry
+  // into the second the caller gave.
+  EXPECT_THROW(
+      this->EvaluateFunction("LOCALTIME",
+                             TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
+                                                                          {"minute", TypedValue(2)},
+                                                                          {"second", TypedValue(3)},
+                                                                          {"microsecond", TypedValue(1'000'000)}})),
+      memgraph::utils::temporal::InvalidArgumentException);
+}
+
 TYPED_TEST(FunctionTest, LocalTime) {
   const auto local_time = memgraph::utils::LocalTime({13, 3, 2, 0, 0});
   EXPECT_EQ(this->EvaluateFunction("LOCALTIME", "130302").ValueLocalTime(), local_time);
