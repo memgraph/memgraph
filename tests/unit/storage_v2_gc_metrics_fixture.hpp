@@ -43,29 +43,21 @@ class StorageV2GcMetricsTest : public testing::Test {
   void TearDown() override {
     memgraph::metrics::Metrics().SetStorageSnapshotResolver({});
     storage.reset();
-    memgraph::metrics::Metrics().RemoveDatabase(uuid_);
-    handles_ = {};
+    registration_ = {};
     uuid_ = {};
-    registered_ = false;
   }
 
   void InitStorage(std::chrono::milliseconds interval) {
-    if (registered_) {
-      memgraph::metrics::Metrics().SetStorageSnapshotResolver({});
-      storage.reset();
-      memgraph::metrics::Metrics().RemoveDatabase(uuid_);
-      handles_ = {};
-      uuid_ = {};
-      registered_ = false;
-    }
+    memgraph::metrics::Metrics().SetStorageSnapshotResolver({});
+    storage.reset();
+    registration_ = {};
     memgraph::storage::Config config;
     config.salient.name = db_name_;
     config.gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = interval};
     uuid_ = memgraph::utils::UUID{};
-    handles_ = memgraph::metrics::Metrics().AddDatabase(uuid_, db_name_);
-    registered_ = true;
+    registration_ = memgraph::metrics::Metrics().AddDatabase(uuid_, db_name_);
     storage = std::make_unique<memgraph::storage::InMemoryStorage>(
-        config, std::nullopt, std::make_unique<memgraph::storage::PlanInvalidatorDefault>(), handles_);
+        config, std::nullopt, std::make_unique<memgraph::storage::PlanInvalidatorDefault>(), registration_.handles());
     memgraph::metrics::Metrics().SetStorageSnapshotResolver(
         [this](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
           if (uuid != uuid_ || !storage) return std::nullopt;
@@ -79,9 +71,11 @@ class StorageV2GcMetricsTest : public testing::Test {
   }
 
   std::unique_ptr<memgraph::storage::Storage> storage;
-  memgraph::metrics::DatabaseMetricHandles handles_{};
+
+  auto handles() -> memgraph::metrics::DatabaseMetricHandles & { return registration_.handles(); }
+
+  memgraph::metrics::PrometheusMetrics::Registration registration_{};
   memgraph::utils::UUID uuid_{};
-  bool registered_{false};
 
  private:
   std::string db_name_;

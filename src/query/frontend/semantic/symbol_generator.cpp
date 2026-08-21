@@ -207,7 +207,7 @@ bool SymbolGenerator::PreVisit(CypherUnion &) {
   // instead of requiring explicit WITH imports.
   // Currently only CALL and EXISTS subqueries can contain complete queries with UNION.
   next_scope.in_call_subquery = prev_scope.in_call_subquery;
-  next_scope.in_exists_subquery = prev_scope.in_exists_subquery;
+  next_scope.in_subquery_body = prev_scope.in_subquery_body;
   next_scope.call_subquery_base = prev_scope.call_subquery_base;
   // Carry over explicit `CALL (v1, v2) { ... }` imports so each UNION branch
   // within the subquery still sees the imported variables.
@@ -480,9 +480,10 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   const bool name_in_scope = HasSymbol(ident.name_, from);
   const bool shadows_outer_name = !name_in_scope && from != 0 && HasSymbol(ident.name_);
 
-  if (scope.in_exists_pattern && (scope.visiting_edge || scope.in_node_atom)) {
+  if (scope.in_subquery_pattern && (scope.visiting_edge || scope.in_node_atom)) {
     if (!name_in_scope && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
-      throw SemanticException("Unbounded variables are not allowed in exists!");
+      throw SemanticException("Unbounded variables are not allowed in {}!",
+                              SubqueryExpression::FoldName(scope.subquery_fold));
     }
   }
 
@@ -490,7 +491,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       scope.in_pattern_comprehension && scopes_.size() > 1 && scopes_[scopes_.size() - 2].in_where;
 
   Symbol symbol;
-  if ((scope.in_exists_subquery || is_in_pattern_comprehension_filter) && (scope.visiting_edge || scope.in_node_atom)) {
+  if ((scope.in_subquery_body || is_in_pattern_comprehension_filter) && (scope.visiting_edge || scope.in_node_atom)) {
     if (!name_in_scope) {
       ident.user_declared_ = false;
       auto const type = scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE;
@@ -695,7 +696,7 @@ bool SymbolGenerator::PostVisit(ListComprehension & /*list_comprehension*/) {
   return true;
 }
 
-bool SymbolGenerator::IsSupportedExistsPosition(const Scope &scope) {
+bool SymbolGenerator::IsSupportedSubqueryPosition(const Scope &scope) {
   // A WHERE outside a return body: a MATCH's filter or a pattern comprehension's. It becomes a deferred closure on
   // the owning Filter, evaluated where the expression sits, so a per-element lambda is fine here.
   if (scope.in_where && !scope.in_with && !scope.in_return) return true;
@@ -711,40 +712,44 @@ bool SymbolGenerator::IsSupportedExistsPosition(const Scope &scope) {
   return (scope.in_with || scope.in_return) && !scope.in_skip && !scope.in_limit;
 }
 
-bool SymbolGenerator::PreVisit(Exists &exists) {
+bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
   auto &scope = scopes_.back();
 
-  if (!exists.HasPattern() && !exists.HasSubquery()) {
+  if (!subquery.HasPattern() && !subquery.HasSubquery()) {
     throw SemanticException(
-        "EXISTS semantic hold neither pattern or subquery part! Please contact Memgraph support as this scenario "
-        "should not happen!");
+        "{} semantic hold neither pattern or subquery part! Please contact Memgraph support as this scenario "
+        "should not happen!",
+        subquery.FoldName());
   }
 
   // Narrowed refusals, kept ahead of the position check because they name a specific construct rather than a position.
   if (scope.in_reduce) {
-    throw utils::NotYetImplemented("Exists cannot be used within REDUCE!");
+    throw utils::NotYetImplemented("{} cannot be used within REDUCE!", subquery.FoldName());
   }
 
   // A CASE holds no position of its own, so it is not consulted here. num_if_operators still gates aggregations.
-  if (!IsSupportedExistsPosition(scope)) {
-    throw utils::NotYetImplemented("Exists is not supported in this position yet!");
+  // The fold does not change which positions work; only what is written into the frame slot differs.
+  if (!IsSupportedSubqueryPosition(scope)) {
+    throw utils::NotYetImplemented("{} is not supported in this position yet!", subquery.FoldName());
   }
 
   const auto &symbol = CreateAnonymousSymbol();
-  exists.MapTo(symbol);
+  subquery.MapTo(symbol);
 
   // Each form declares only its own variables, so each gets a scope; the pattern form's are named at parse time, so
   // leaving them outside redeclared them wherever one expression is reached twice, as a simple CASE reaches its test.
-  // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name.
+  // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name, and the fold name
+  // with it, so a diagnostic raised inside names the construct the user wrote.
   // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
-  scopes_.emplace_back(Scope{.in_exists_pattern = exists.HasPattern(),
-                             .in_exists_subquery = exists.HasSubquery(),
+  scopes_.emplace_back(Scope{.in_subquery_pattern = subquery.HasPattern(),
+                             .in_subquery_body = subquery.HasSubquery(),
+                             .subquery_fold = subquery.fold_,
                              .call_subquery_base = scope.call_subquery_base});
 
   return true;
 }
 
-bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
+bool SymbolGenerator::PostVisit(SubqueryExpression & /*subquery*/) {
   scopes_.pop_back();
   return true;
 }

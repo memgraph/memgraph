@@ -327,7 +327,18 @@ using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
-using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
+
+/// The deferred fold. @p Fold is checked because a wrong one is a wrong value, not a wrong shape.
+template <RollUpApply::Fold TFold>
+class ExpectEvaluatePatternFilterWithFold : public OpChecker<EvaluatePatternFilter> {
+ public:
+  void ExpectOp(EvaluatePatternFilter &op, const SymbolTable & /*symbol_table*/) override {
+    EXPECT_EQ(op.fold_, TFold) << "unexpected EvaluatePatternFilter fold";
+  }
+};
+
+using ExpectEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kBool>;
+using ExpectCountEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kCount>;
 using ExpectPeriodicCommit = OpChecker<PeriodicCommit>;
 using ExpectLoadCsv = OpChecker<LoadCsv>;
 using ExpectLoadParquet = OpChecker<LoadParquet>;
@@ -417,14 +428,14 @@ class ExpectFilter : public OpChecker<Filter> {
 
     auto it = filter_expressions.begin();
     for (; it != filter_expressions.end(); it++) {
-      if ((*it)->GetTypeInfo().name == query::Exists::kType.name) {
+      if ((*it)->GetTypeInfo().name == query::SubqueryExpression::kType.name) {
         break;
       }
     }
     while (it != filter_expressions.end()) {
-      ASSERT_TRUE((*it)->GetTypeInfo().name == query::Exists::kType.name)
-          << "Filter expression is '" << (*it)->GetTypeInfo().name << "' expected '" << query::Exists::kType.name
-          << "'!";
+      ASSERT_TRUE((*it)->GetTypeInfo().name == query::SubqueryExpression::kType.name)
+          << "Filter expression is '" << (*it)->GetTypeInfo().name << "' expected '"
+          << query::SubqueryExpression::kType.name << "'!";
       it++;
     }
   }
@@ -901,16 +912,21 @@ class ExpectRollUpApply : public OpChecker<RollUpApply> {
   std::list<BaseOpChecker *> list_collection_branch_ptrs_;
 };
 
-/// A RollUpApply carrying the bool fold - what an EXISTS in a projection, an ORDER BY or a WITH's WHERE is planned as.
-class ExpectExistsRollUpApply : public ExpectRollUpApply {
+/// A RollUpApply carrying one of the column-less folds - what an EXISTS or a COUNT in a projection, an ORDER BY or a
+/// WITH's WHERE is planned as. @p TFold is checked because a wrong one is a wrong value, not a wrong shape.
+template <RollUpApply::Fold TFold>
+class ExpectRollUpApplyWithFold : public ExpectRollUpApply {
  public:
   /// Constrained so the pack cannot hijack this type's own copy/move construction.
   template <typename... TArgs>
-    requires(sizeof...(TArgs) != 1 || !(std::same_as<std::remove_cvref_t<TArgs>, ExpectExistsRollUpApply> || ...))
-  explicit ExpectExistsRollUpApply(TArgs &&...args) : ExpectRollUpApply(std::forward<TArgs>(args)...) {
-    expected_fold_ = RollUpApply::Fold::kBool;
+    requires(sizeof...(TArgs) != 1 || !(std::same_as<std::remove_cvref_t<TArgs>, ExpectRollUpApplyWithFold> || ...))
+  explicit ExpectRollUpApplyWithFold(TArgs &&...args) : ExpectRollUpApply(std::forward<TArgs>(args)...) {
+    expected_fold_ = TFold;
   }
 };
+
+using ExpectExistsRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kBool>;
+using ExpectCountRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kCount>;
 
 class ExpectPeriodicSubquery : public OpChecker<PeriodicSubquery> {
  public:

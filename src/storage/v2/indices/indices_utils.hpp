@@ -365,8 +365,29 @@ inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction 
   return insertion_timestamp <= original_start_timestamp;
 }
 
+// A range covering a whole type is expressed as the type's own lower bound together with an
+// exclusive upper bound of the *following* type (see LowerBoundForType/UpperBoundForType), so that
+// one shape legitimately has bounds of differing types. Both ends must match for it to be that
+// marker rather than a user-written range that merely reaches the same boundary value; every other
+// type mismatch describes an empty range.
+inline bool AreComparableBounds(utils::Bound<PropertyValue> const &lower_bound,
+                                utils::Bound<PropertyValue> const &upper_bound) {
+  if (AreComparableTypes(lower_bound.value().type(), upper_bound.value().type())) return true;
+  if (upper_bound.IsInclusive() || !lower_bound.IsInclusive()) return false;
+  auto const lower_bound_for_type = LowerBoundForType(lower_bound.value().type());
+  auto const upper_bound_for_type = UpperBoundForType(lower_bound.value().type());
+  return lower_bound_for_type && upper_bound_for_type && lower_bound.value() == lower_bound_for_type->value() &&
+         upper_bound.value() == upper_bound_for_type->value();
+}
+
+// `allow_whole_type_span` admits the bound pair that marks an entire type (see AreComparableBounds).
+// Only pass it where the query layer has already discarded a user range whose bounds cannot be
+// compared -- a scan driven by an ExpressionRange, which is marked INVALID in that case. Scans that
+// carry raw bounds, i.e. every edge scan, have no such marking and must stay strict, or a range like
+// `e.p >= -inf AND e.p < ''` is mistaken for the marker and returns every number.
 inline bool ValidateBounds(std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                           std::optional<utils::Bound<PropertyValue>> &upper_bound) {
+                           std::optional<utils::Bound<PropertyValue>> &upper_bound,
+                           bool allow_whole_type_span = false) {
   // Handle the bounds that the user provided to us. If the user
   // provided only one bound we should make sure that only values of that type
   // are returned by the iterator. We ensure this by supplying either an
@@ -382,8 +403,10 @@ inline bool ValidateBounds(std::optional<utils::Bound<PropertyValue>> &lower_bou
 
   // Check whether the bounds are of comparable types if both are supplied.
   if (lower_bound && upper_bound) {
-    if (!AreComparableTypes(lower_bound->value().type(), upper_bound->value().type()) ||
-        lower_bound->value() > upper_bound->value()) {
+    auto const comparable = allow_whole_type_span
+                                ? AreComparableBounds(*lower_bound, *upper_bound)
+                                : AreComparableTypes(lower_bound->value().type(), upper_bound->value().type());
+    if (!comparable || lower_bound->value() > upper_bound->value()) {
       return false;
     }
   }
@@ -425,20 +448,9 @@ inline auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUppe
       upper_bound = std::nullopt;
     }
 
-    auto const are_comparable_ranges = [](auto const &lower_bound, auto const &upper_bound) {
-      if (AreComparableTypes(lower_bound.value().type(), upper_bound.value().type())) {
-        return true;
-      } else if (upper_bound.IsInclusive()) {
-        return false;
-      } else {
-        auto const upper_bound_for_lower_bound_type = storage::UpperBoundForType(lower_bound.value().type());
-        return upper_bound_for_lower_bound_type && upper_bound.value() == upper_bound_for_lower_bound_type->value();
-      };
-    };
-
     // If both bounds are set, but are incomparable types, then this is an
     // invalid range and will yield an empty result set.
-    if (lower_bound && upper_bound && !are_comparable_ranges(*lower_bound, *upper_bound)) {
+    if (lower_bound && upper_bound && !AreComparableBounds(*lower_bound, *upper_bound)) {
       return {std::nullopt, std::nullopt, false};
     }
 

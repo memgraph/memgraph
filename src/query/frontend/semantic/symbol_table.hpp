@@ -15,10 +15,10 @@
 #include <string>
 
 #include "query/frontend/ast/query/aggregation.hpp"
-#include "query/frontend/ast/query/exists.hpp"
 #include "query/frontend/ast/query/identifier.hpp"
 #include "query/frontend/ast/query/named_expression.hpp"
 #include "query/frontend/ast/query/pattern_comprehension.hpp"
+#include "query/frontend/ast/query/subquery_expression.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "utils/logging.hpp"
 
@@ -57,7 +57,7 @@ class SymbolTable final {
 
   const Symbol &at(const Aggregation &aggr) const { return table_.at(aggr.symbol_pos_); }
 
-  const Symbol &at(const Exists &exists) const { return table_.at(exists.symbol_pos_); }
+  const Symbol &at(const SubqueryExpression &subquery) const { return table_.at(subquery.symbol_pos_); }
 
   const Symbol &at(const PatternComprehension &pattern_comprehension) const {
     return table_.at(pattern_comprehension.symbol_pos_);

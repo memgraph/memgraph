@@ -5614,3 +5614,81 @@ TEST_F(NestedIndexAnalytical, NestedValueOverwrittenByANewNestedValue) {
   EXPECT_THAT(IndexedVertices(pvr::Equal(PropertyValue{6})), UnorderedElementsAre(gid));
   EXPECT_THAT(IndexedVertices(pvr::Equal(PropertyValue{5})), IsEmpty());
 }
+
+// Index creation is granted READ_ONLY access, which excludes writers. Transactional hands it back
+// as READ for the population, letting writers in; analytical keeps it, because its populating scan
+// has no deltas to read a snapshot through and its writers erase index entries eagerly.
+class IndexCreationHold : public testing::TestWithParam<StorageMode> {
+ protected:
+  void SetUp() override {
+    storage = std::make_unique<InMemoryStorage>(Config{});
+    storage->SetStorageMode(GetParam());
+    label = storage->NameToLabel("L");
+  }
+
+  std::unique_ptr<InMemoryStorage> storage;
+  LabelId label;
+};
+
+TEST_P(IndexCreationHold, ReadersAreAdmittedDuringPopulation) {
+  auto reader = storage->Access(READ);
+
+  auto creator = storage->ReadOnlyAccess();
+  ASSERT_NO_ERROR(creator->CreateIndex(label));
+  ASSERT_NO_ERROR(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  reader->Abort();
+
+  auto acc = storage->Access(READ);
+  EXPECT_THAT(acc->ListAllIndices().label, UnorderedElementsAre(label));
+  acc->Abort();
+}
+
+TEST_P(IndexCreationHold, WritersOnlyDuringTransactionalPopulation) {
+  auto creator = storage->ReadOnlyAccess();
+  ASSERT_NO_ERROR(creator->CreateIndex(label));
+
+  auto const transactional = GetParam() == StorageMode::IN_MEMORY_TRANSACTIONAL;
+  EXPECT_EQ(creator->type(), transactional ? READ : READ_ONLY);
+  auto writer = storage->TryAccess(WRITE);
+  EXPECT_EQ(writer != nullptr, transactional);
+
+  if (writer) writer->Abort();
+  ASSERT_NO_ERROR(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+}
+
+INSTANTIATE_TEST_SUITE_P(InMemoryModes, IndexCreationHold,
+                         ::testing::Values(StorageMode::IN_MEMORY_TRANSACTIONAL, StorageMode::IN_MEMORY_ANALYTICAL));
+
+TEST(PrefixSuccessor, ComputesSuccessorOfAsciiString) {
+  auto result = memgraph::storage::PrefixSuccessor("foo");
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(*result, "fop");
+}
+
+TEST(PrefixSuccessor, ComputesSuccessorOfSingleChar) {
+  auto result = memgraph::storage::PrefixSuccessor("a");
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(*result, "b");
+}
+
+TEST(PrefixSuccessor, ComputesSuccessorWhenTrailingByteIsCharMax) {
+  auto result = memgraph::storage::PrefixSuccessor(std::string("ab\xFF", 3));
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(*result, "ac");
+}
+
+TEST(PrefixSuccessor, ComputesSuccessorWhenMultipleTrailingCharMaxBytes) {
+  auto result = memgraph::storage::PrefixSuccessor(std::string("a\xFF\xFF", 3));
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(*result, "b");
+}
+
+TEST(PrefixSuccessor, ComputesSuccessorWhenAllCharMaxBytes) {
+  auto result = memgraph::storage::PrefixSuccessor(std::string("\xFF\xFF\xFF", 3));
+  EXPECT_FALSE(result.has_value());
+}
+
+TEST(PrefixSuccessor, ComputesNoSuccessorOnEmptyString) {
+  auto result = memgraph::storage::PrefixSuccessor("");
+  EXPECT_FALSE(result.has_value());
+}

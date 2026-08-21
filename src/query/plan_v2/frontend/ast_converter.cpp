@@ -144,7 +144,7 @@ auto SymEclassFor(LoweringCtx &ctx, AstNode &node) -> eclass {
   X(None)                    \
   X(ListComprehension)       \
   X(RegexMatch)              \
-  X(Exists)                  \
+  X(SubqueryExpression)      \
   X(PatternComprehension)    \
   X(EnumValueAccess)         \
   X(EdgeTypesTest)

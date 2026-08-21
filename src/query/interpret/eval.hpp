@@ -139,7 +139,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *
   UNSUCCESSFUL_VISIT(ListComprehension);
   UNSUCCESSFUL_VISIT(ParameterLookup);
   UNSUCCESSFUL_VISIT(RegexMatch);
-  UNSUCCESSFUL_VISIT(Exists);
+  UNSUCCESSFUL_VISIT(SubqueryExpression);
   UNSUCCESSFUL_VISIT(PatternComprehension);
   UNSUCCESSFUL_VISIT(EnumValueAccess);
 
@@ -266,7 +266,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(ListComprehension)
   INVALID_VISIT(Identifier)
   INVALID_VISIT(RegexMatch)
-  INVALID_VISIT(Exists)
+  INVALID_VISIT(SubqueryExpression)
   INVALID_VISIT(PatternComprehension)
   INVALID_VISIT(EnumValueAccess)
 
@@ -913,19 +913,25 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(std::move(result), ctx_->memory);
   }
 
-  TypedValue Visit(Exists &exists) override {
-    TypedValue const &frame_exists_value = frame_->at(symbol_table_->at(exists));
-    // A forced bool fold already wrote the answer; a deferred one wrote the closure that computes it.
-    if (frame_exists_value.IsBool()) {
-      return TypedValue(frame_exists_value.ValueBool(), ctx_->memory);
+  TypedValue Visit(SubqueryExpression &subquery) override {
+    TypedValue const &frame_fold_value = frame_->at(symbol_table_->at(subquery));
+    // Exactly one arm applies per node: a forced fold wrote the answer, a deferred one wrote the closure that computes
+    // it. Past all three means neither operator ran and the slot was never written.
+    if (frame_fold_value.IsBool()) {
+      return TypedValue(frame_fold_value.ValueBool(), ctx_->memory);
     }
-    if (!frame_exists_value.IsFunction()) [[unlikely]] {
+    if (frame_fold_value.IsInt()) {
+      return TypedValue(frame_fold_value.ValueInt(), ctx_->memory);
+    }
+    if (!frame_fold_value.IsFunction()) [[unlikely]] {
       throw QueryRuntimeException(
-          "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
-          frame_exists_value.type());
+          "Unexpected behavior: nothing evaluated this {}, so its frame slot holds {}. Please report the problem on "
+          "GitHub issues",
+          subquery.FoldName(),
+          frame_fold_value.type());
     }
     TypedValue result(ctx_->memory);
-    frame_exists_value.ValueFunction()(&result);
+    frame_fold_value.ValueFunction()(&result);
     return result;
   }
 
