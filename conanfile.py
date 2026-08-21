@@ -117,7 +117,6 @@ class Memgraph(ConanFile):
         self.requires("jemalloc/5.2.1-memgraph")
         self.requires("libbcrypt/1.0-memgraph")
         self.requires("librdkafka/2.6.1")
-        self.requires("librdtsc/0.3-memgraph")
         self.requires("libseccomp/2.6.0", options={"shared": True})
         self.requires("mgclient/1.8.0")
         self.requires("nuraft/2.1.0-memgraph")

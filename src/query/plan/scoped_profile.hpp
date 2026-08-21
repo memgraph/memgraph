@@ -56,7 +56,7 @@ class ScopedProfile {
 
     context_->stats_root = stats_;
     stats_->actual_hits++;
-    start_time_ = utils::ReadTSC();
+    start_time_ = utils::ReadTSCStart();
   }
 
   ScopedProfile(uint64_t key, const char *name, query::ExecutionContext *context) noexcept
@@ -87,12 +87,12 @@ class ScopedProfile {
 
     context_->stats_root = stats_;
     stats_->actual_hits++;
-    start_time_ = utils::ReadTSC();
+    start_time_ = utils::ReadTSCStart();
   }
 
   ~ScopedProfile() {
     DMG_ASSERT(context_->is_profile_query);
-    stats_->num_cycles += utils::ReadTSC() - start_time_;
+    stats_->num_cycles += utils::ReadTSCEnd() - start_time_;
 
     // Restore the old root ("pop")
     context_->stats_root = root_;

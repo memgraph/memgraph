@@ -467,6 +467,11 @@ add_unit_test(utils_hot_mask
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_tsc
+    SOURCES utils_tsc.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_priority_thread_pool
     SOURCES utils_priority_thread_pool.cpp
     LINK_TARGETS mg-utils
