@@ -148,7 +148,7 @@ print_help () {
   echo -e "  --ubsan                       Build with UBSAN"
   echo -e "  --disable-jemalloc            Build without jemalloc"
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
-  echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
+  echo -e "  --link-threads int            Pin the number of concurrent link steps (default 0: derived from the memory available to the container). Compile parallelism is unaffected."
   echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
   echo -e "  --mage MODE                   MAGE query modules: off (default), on (build alongside memgraph), only (just MAGE; trims the conan graph). Mirrors build.sh's --mage. Combine with global --cugraph for GPU modules."
   echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph)."
@@ -872,9 +872,9 @@ build_memgraph () {
     fi
   fi
 
-  # Cap link concurrency via Ninja job pools, leaving compile parallelism untouched.
+  # Pin link concurrency instead of deriving it from the container's memory.
   if [[ "$link_threads" -gt 0 ]]; then
-    additional_options="$additional_options -DCMAKE_JOB_POOLS=link=$link_threads -DCMAKE_JOB_POOL_LINK=link"
+    additional_options="$additional_options -DMG_LINK_JOBS=$link_threads"
   fi
 
   # Extract debug info into sidecar .debug files post-link (requires RWD/Debug).

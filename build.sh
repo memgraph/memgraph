@@ -13,7 +13,10 @@ OPTIONS:
     --target TARGET...      CMake target(s) to build (default: all targets). Accepts
                             multiple targets in one sequence, e.g.
                             --target memgraph memgraph__unit
-    --reserve-cores N       Reserve N cores for other tasks (default: 0, uses all cores)
+    --reserve-cores N       Leave N cores free for other work (default: 0, uses all cores)
+    --compile-jobs N        Pin concurrent compile steps (default: derived from memory)
+    --link-jobs N           Pin concurrent link steps (default: derived from memory)
+    --no-job-memory-cap     Do not cap concurrency by memory; -j alone decides
     --skip-os-deps          Skip OS dependency checks
     --keep-build            Keep existing build directory for incremental builds
     --config-only           Only configure CMake, don't build
@@ -44,6 +47,13 @@ CMAKE_ARGS:
         -DASAN=ON               Enable Address Sanitizer
         -DUBSAN=ON              Enable Undefined Behavior Sanitizer
         -DCMAKE_CXX_FLAGS=...   Additional compiler flags
+
+    Compile and link steps are capped so their peak memory fits the machine (or
+    the container's cgroup limit), whatever -j is used. --compile-jobs,
+    --link-jobs and --no-job-memory-cap override the derived caps; the memory
+    budgeted per step is retunable too:
+        -DMG_MEMORY_PER_COMPILE_JOB_MB=N
+        -DMG_MEMORY_PER_LINK_JOB_MB=N
 
 EXAMPLES:
     # Standard release build
@@ -92,6 +102,9 @@ offline=false
 update_lockfile=false
 graph_info=false
 RESERVE_CORES=0
+COMPILE_JOBS=""
+LINK_JOBS=""
+JOB_MEMORY_CAP=on
 SPLIT_DEBUG=off
 PROFILING=""
 MAGE=off
@@ -150,6 +163,18 @@ while [[ $# -gt 0 ]]; do
             RESERVE_CORES="$2"
             shift 2
             ;;
+        --compile-jobs)
+            COMPILE_JOBS="$2"
+            shift 2
+            ;;
+        --link-jobs)
+            LINK_JOBS="$2"
+            shift 2
+            ;;
+        --no-job-memory-cap)
+            JOB_MEMORY_CAP=off
+            shift
+            ;;
         --split-debug)
             SPLIT_DEBUG=on
             shift
@@ -176,6 +201,39 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Job pools are cache variables, so an omitted flag keeps whatever the previous
+# configure left behind; pass 0 to go back to the memory-derived default.
+for jobs in "$COMPILE_JOBS" "$LINK_JOBS"; do
+    if [[ -n "$jobs" && ! "$jobs" =~ ^[0-9]+$ ]]; then
+        echo "Error: --compile-jobs and --link-jobs take a non-negative integer (got '$jobs')" >&2
+        exit 1
+    fi
+done
+if [[ -n "$COMPILE_JOBS" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_COMPILE_JOBS=$COMPILE_JOBS"
+fi
+if [[ -n "$LINK_JOBS" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_LINK_JOBS=$LINK_JOBS"
+fi
+if [[ ! "$RESERVE_CORES" =~ ^[0-9]+$ ]]; then
+    echo "Error: --reserve-cores takes a non-negative integer (got '$RESERVE_CORES')" >&2
+    exit 1
+fi
+if [[ ! "$CMAKE_ARGS" =~ MG_RESERVE_CORES ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_RESERVE_CORES=$RESERVE_CORES"
+fi
+
+# Stated explicitly either way, so dropping --no-job-memory-cap restores the
+# cap instead of inheriting the previous configure's OFF. A raw -D for the same
+# variable stays authoritative.
+if [[ ! "$CMAKE_ARGS" =~ MG_LIMIT_PARALLELISM_BY_MEMORY ]]; then
+    if [[ "$JOB_MEMORY_CAP" == "off" ]]; then
+        CMAKE_ARGS="$CMAKE_ARGS -DMG_LIMIT_PARALLELISM_BY_MEMORY=OFF"
+    else
+        CMAKE_ARGS="$CMAKE_ARGS -DMG_LIMIT_PARALLELISM_BY_MEMORY=ON"
+    fi
+fi
 
 if [[ "$SPLIT_DEBUG" == "on" ]]; then
     CMAKE_ARGS="$CMAKE_ARGS -DMG_SPLIT_DEBUG=ON"
@@ -413,7 +471,7 @@ if [[ "$config_only" = true ]]; then
 fi
 
 # Build command with optional target
-# Determine number of parallel jobs (reserve cores for system responsiveness)
+# Ninja's ceiling for steps no job pool covers, such as code generation.
 BUILD_JOBS=$(( $(nproc) - RESERVE_CORES ))
 if [[ $BUILD_JOBS -lt 1 ]]; then
     BUILD_JOBS=1
