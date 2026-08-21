@@ -134,13 +134,13 @@ mkdir -p archives && pushd archives
 if [[ ! -f gcc-$GCC_VERSION.tar.gz ]]; then
     wget --https-only https://mirrorservice.org/sites/sourceware.org/pub/gcc/releases/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz
     wget --https-only https://mirrorservice.org/sites/sourceware.org/pub/gcc/releases/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz.sig
-    gpg --keyserver keyserver.ubuntu.com --recv-keys 6C35B99309B5FA62 7F74F97C103468EE5D750B583AB00996FC26A641
+    gpg --keyserver hkps://keyserver.ubuntu.com --recv-keys 6C35B99309B5FA62 7F74F97C103468EE5D750B583AB00996FC26A641
     gpg --verify gcc-$GCC_VERSION.tar.gz.sig gcc-$GCC_VERSION.tar.gz
 fi
 if [[ ! -f binutils-$BINUTILS_VERSION.tar.gz ]]; then
     wget --https-only https://sourceware.org/pub/binutils/releases/binutils-$BINUTILS_VERSION.tar.gz
     wget --https-only https://sourceware.org/pub/binutils/releases/binutils-$BINUTILS_VERSION.tar.gz.sig
-    gpg --keyserver keyserver.ubuntu.com --recv-keys 3A24BC1E8FB409FA9F14371813FCEF89DD9E3C4F
+    gpg --keyserver hkps://keyserver.ubuntu.com --recv-keys 3A24BC1E8FB409FA9F14371813FCEF89DD9E3C4F
     gpg --verify binutils-$BINUTILS_VERSION.tar.gz.sig binutils-$BINUTILS_VERSION.tar.gz
 fi
 if [[ ! -f gdb-$GDB_VERSION.tar.gz ]]; then
@@ -230,7 +230,7 @@ fi
 
 # verify all archives
 GPG="gpg --homedir .gnupg"
-KEYSERVER="hkp://keyserver.ubuntu.com"
+KEYSERVER="hkps://keyserver.ubuntu.com"
 mkdir -p .gnupg
 chmod 700 .gnupg
 
