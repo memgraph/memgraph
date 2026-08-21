@@ -934,14 +934,24 @@ StorageSnapshot PrometheusMetrics::ResolveStorageSnapshot(utils::UUID const &uui
   return StorageSnapshot{};
 }
 
-DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, std::string_view name) {
+PrometheusMetrics::Registration PrometheusMetrics::AddDatabase(utils::UUID const &uuid, std::string_view name) {
   std::lock_guard const lock{databases_.mutex};
   if (name == dbms::kDefaultDB) {
     default_db_uuid_ = uuid;
   }
+
+  auto const existing =
+      r::find_if(databases_.entries, [&uuid, name](auto const &e) { return e.uuid == uuid && e.db_name == name; });
+  if (existing != databases_.entries.end()) {
+    ++existing->registrations;
+    return Registration{this, existing->id, existing->handles};
+  }
+
   prometheus::Labels const labels{{"database", std::string(name)}, {"uuid", std::string(uuid)}};
+  auto const entry_id = databases_.next_entry_id++;
   databases_.entries.push_back(
       {
+          .id = entry_id,
           .uuid = uuid,
           .db_name = std::string(name),
           .handles =
@@ -1059,13 +1069,36 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .gc_index_sweeps = {&gc_index_sweeps_family_.Add(labels)},
               },
       });
-  return databases_.entries.back().handles;
+  return Registration{this, entry_id, databases_.entries.back().handles};
 }
 
-void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
+PrometheusMetrics::Registration::~Registration() { Release(); }
+
+PrometheusMetrics::Registration::Registration(Registration &&other) noexcept
+    : registry_(std::exchange(other.registry_, nullptr)),
+      entry_id_(std::exchange(other.entry_id_, 0)),
+      handles_(std::exchange(other.handles_, DatabaseMetricHandles{})) {}
+
+auto PrometheusMetrics::Registration::operator=(Registration &&other) noexcept -> Registration & {
+  if (this == &other) return *this;
+  Release();
+  registry_ = std::exchange(other.registry_, nullptr);
+  entry_id_ = std::exchange(other.entry_id_, 0);
+  handles_ = std::exchange(other.handles_, DatabaseMetricHandles{});
+  return *this;
+}
+
+void PrometheusMetrics::Registration::Release() noexcept {
+  if (registry_ == nullptr) return;
+  std::exchange(registry_, nullptr)->ReleaseRegistration(entry_id_);
+  handles_ = {};
+}
+
+void PrometheusMetrics::ReleaseRegistration(uint64_t entry_id) {
   std::lock_guard const lock{databases_.mutex};
-  auto it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
+  auto it = r::find_if(databases_.entries, [entry_id](auto const &e) { return e.id == entry_id; });
   if (it == databases_.entries.end()) return;
+  if (--it->registrations != 0) return;
   auto &h = it->handles;
   vertex_count_family_.Remove(h.vertex_count.get());
   edge_count_family_.Remove(h.edge_count.get());
@@ -1170,7 +1203,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   gc_latency_family_.Remove(h.gc_latency_seconds.get());
   gc_skiplist_cleanup_latency_family_.Remove(h.gc_skiplist_cleanup_latency_seconds.get());
   gc_index_sweeps_family_.Remove(h.gc_index_sweeps.get());
-  if (default_db_uuid_ && *default_db_uuid_ == uuid) {
+  if (default_db_uuid_ && *default_db_uuid_ == it->uuid) {
     default_db_uuid_.reset();
   }
   databases_.entries.erase(it);

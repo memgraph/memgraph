@@ -52,10 +52,10 @@ class StorageV2GcIndexSweepCountTest : public StorageV2GcMetricsTest {
   // eighth family joining the sweep without arming support breaks every expectation below, which
   // is the intent: it should not be possible to add one silently.
   uint64_t SweptByOnePass() {
-    auto const before = handles_.gc_index_sweeps.Value();
+    auto const before = handles().gc_index_sweeps.Value();
     auto *mem_storage = static_cast<ms::InMemoryStorage *>(storage.get());
     mem_storage->FreeMemory(UniqueGuard(storage->main_lock_), false);
-    return static_cast<uint64_t>(handles_.gc_index_sweeps.Value() - before);
+    return static_cast<uint64_t>(handles().gc_index_sweeps.Value() - before);
   }
 
   // Commit helpers come in two halves because one test needs a commit that is expected to fail.
