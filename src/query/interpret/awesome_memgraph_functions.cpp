@@ -1254,15 +1254,15 @@ TypedValue Rand(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 
 template <class TPredicate>
 TypedValue StringMatchOperator(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  // Only the search term is type-checked. An index scan restricts the subject to the string type
-  // segment before any filter runs, so on an indexed plan a non-string subject never reaches this
-  // function -- throwing on it would make the result depend on whether an index exists. Return Null
-  // instead, which is what RegexMatch already does for the same reason (see eval.cpp).
+  // A non-string on either side compares to Null rather than raising. An index scan narrows the
+  // subject to the string type segment before any filter runs, so raising would let the presence
+  // of an index decide whether the query errors at all: it would raise on a property that holds a
+  // string and stay silent on one that holds none. Null keeps the answer the same either way, and
+  // makes the whole predicate answerable from the index alone.
   if (nargs != 2) {
     throw QueryRuntimeException("'{}' requires exactly 2 arguments.", TPredicate::name);
   }
-  FType<Or<Null, String>>(TPredicate::name, args + 1, nargs - 1, 2);
-  if (!args[0].IsString() || args[1].IsNull()) return TypedValue(ctx.memory);
+  if (!args[0].IsString() || !args[1].IsString()) return TypedValue(ctx.memory);
   const auto &s1 = args[0].ValueString();
   const auto &s2 = args[1].ValueString();
   return TypedValue(TPredicate{}(s1, s2), ctx.memory);

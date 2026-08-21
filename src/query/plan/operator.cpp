@@ -190,17 +190,10 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
 
     case Type::STARTS_WITH: {
       auto const typed_value = lower_->value()->Accept(evaluator);
-      if (typed_value.IsNull()) {
-        return storage::PropertyValueRange::Bounded(utils::MakeBoundInclusive(storage::PropertyValue()), std::nullopt);
-      }
       if (!typed_value.IsString()) {
-        // Raising here would raise before a single row is read, so an index would decide whether the
-        // query errors at all: it errored on an empty label where a plain scan answered, and it broke
-        // queries a plain scan answered outright, such as an OPTIONAL MATCH or a UNION branch that
-        // matched nothing. Hand every row with the property to the retained post-filter instead and
-        // let it raise exactly where the non-indexed plan does -- which also stays silent when the
-        // scan finds nothing.
-        return storage::PropertyValueRange::IsNotNull();
+        // A non-string search term makes the predicate Null for every row, so nothing can match and
+        // there is no need to read the index at all.
+        return storage::PropertyValueRange::Empty();
       }
       auto const &prefix = typed_value.ValueString();
       auto lower_bound = utils::MakeBoundInclusive(storage::PropertyValue(prefix));
@@ -282,7 +275,9 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
       auto maybe_lower = to_bounded_property_value(lower_);
       if (std::holds_alternative<UnknownAtPlanTime>(maybe_lower)) return std::nullopt;
       auto lower_bound = std::get<obpv>(maybe_lower);
-      if (!lower_bound || !lower_bound->value().IsString()) return std::nullopt;
+      // A non-string search term is known here to match nothing, which is a cardinality of zero
+      // rather than an unknown one.
+      if (!lower_bound || !lower_bound->value().IsString()) return storage::PropertyValueRange::Empty();
       auto const &prefix = lower_bound->value().ValueString();
       auto successor = storage::PrefixSuccessor(prefix);
       auto upper_bound =
@@ -1361,12 +1356,14 @@ std::optional<std::vector<storage::PropertyValueRange>> EvaluateExpressionRanges
   auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
   auto prop_value_ranges = expression_ranges | rv::transform(to_property_value_range) | ranges::to_vector;
 
-  auto const bound_is_null = [](auto &&range) {
-    return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
+  auto const matches_nothing = [](auto &&range) {
+    return range.type_ == storage::PropertyRangeType::INVALID || (range.lower_ && range.lower_->value().IsNull()) ||
+           (range.upper_ && range.upper_->value().IsNull());
   };
 
-  // If either upper or lower bounds are `null`, then nothing can satisfy the filter.
-  if (ranges::any_of(prop_value_ranges, bound_is_null)) {
+  // Every property has to be satisfied, so one that nothing can satisfy - a null bound, or a range
+  // already known to be empty - settles the whole composite.
+  if (ranges::any_of(prop_value_ranges, matches_nothing)) {
     return std::nullopt;
   }
 

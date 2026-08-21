@@ -776,6 +776,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
         // the raw bounds would count every value >= the prefix instead of just the prefix span.
         auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
         if (auto resolved = range.ResolveAtPlantime(parameters, mapper)) {
+          // An empty range carries no bounds, which counted as unbounded would estimate the whole
+          // property rather than the nothing it matches.
+          if (resolved->type_ == storage::PropertyRangeType::INVALID) return 0.0;
           return db_accessor_->VerticesCount(property, resolved->lower_, resolved->upper_);
         }
         return EstimateVertexPropertyRangeCardinality(property, range.lower_, range.upper_);

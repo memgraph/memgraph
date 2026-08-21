@@ -1672,6 +1672,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto *scan_op = dynamic_cast<ScanAllByVertexProperty *>(op);
       auto *mapper = db_->GetStorageAccessor()->GetNameIdMapper();
       if (auto pvr = scan_op->expression_range_.ResolveAtPlantime(parameters_, mapper)) {
+        // An empty range carries no bounds, which counted as unbounded would estimate the whole
+        // property rather than the nothing it matches.
+        if (pvr->type_ == storage::PropertyRangeType::INVALID) return 0.0;
         if (pvr->type_ == storage::PropertyRangeType::IS_NOT_NULL) {
           return static_cast<double>(db_->VerticesCount(scan_op->property_));
         }

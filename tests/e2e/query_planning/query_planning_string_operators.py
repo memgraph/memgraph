@@ -325,22 +325,21 @@ def test_correlated_edge_predicate_still_answers_with_an_edge_index(memgraph):
     assert after_optional == before_optional
 
 
-def test_non_string_search_term_raises_only_where_a_row_is_evaluated(memgraph):
-    # Evaluating the term at scan setup made an index decide whether the query errored at all: it
-    # raised on a label with no rows, and broke queries a plain scan answered.
+def test_non_string_search_term_matches_nothing(memgraph):
+    # A non-string search term compares to Null, so it matches nothing and never raises. Were it to
+    # raise, an index would decide whether the query errored at all: it would raise on a label whose
+    # rows hold a string and stay silent on one whose rows do not.
     memgraph.execute("CREATE INDEX ON :TS(p);")
     memgraph.execute("CREATE (:TX {n: 1});")
     memgraph.execute("CREATE (:TM {m: 1});")
-    # no :TS rows exist -- nothing is evaluated, so nothing may raise
     assert list(memgraph.execute_and_fetch("MATCH (n:TS) WHERE n.p STARTS WITH 5 RETURN n.p AS v")) == []
     union = "MATCH (n:TS) WHERE n.p STARTS WITH 5 RETURN 1 AS v UNION MATCH (m:TM) RETURN 2 AS v"
     assert [r["v"] for r in memgraph.execute_and_fetch(union)] == [2]
     optional = "MATCH (x:TX) OPTIONAL MATCH (n:TS) WHERE n.p STARTS WITH 5 RETURN x.n AS v"
     assert [r["v"] for r in memgraph.execute_and_fetch(optional)] == [1]
-    # once a row reaches the predicate it must raise, exactly as it does without an index
+    # a row that does reach the predicate still matches nothing, and still does not raise
     memgraph.execute("CREATE (:TS {p: 'aa'});")
-    with pytest.raises(Exception):
-        list(memgraph.execute_and_fetch("MATCH (n:TS) WHERE n.p STARTS WITH 5 RETURN n.p AS v"))
+    assert list(memgraph.execute_and_fetch("MATCH (n:TS) WHERE n.p STARTS WITH 5 RETURN n.p AS v")) == []
     memgraph.execute("DROP INDEX ON :TS(p);")
 
 
@@ -371,10 +370,102 @@ def test_non_string_property_does_not_depend_on_index(memgraph):
     assert [r["v"] for r in with_index] == ["alpha"]
 
 
-def test_non_string_search_term_still_raises(memgraph):
-    memgraph.execute("CREATE (:TERM {v: 'alpha'});")
-    with pytest.raises(Exception):
-        list(memgraph.execute_and_fetch("MATCH (n:TERM) WHERE n.v STARTS WITH 1 RETURN n.v AS v"))
+@pytest.mark.parametrize("op", ["STARTS WITH", "CONTAINS", "ENDS WITH"])
+@pytest.mark.parametrize(
+    "rows",
+    [
+        pytest.param("CREATE (:{L} {{other: 1}}), (:{L} {{other: 2}});", id="property-absent"),
+        pytest.param("CREATE (:{L} {{v: 1}}), (:{L} {{v: 2}});", id="only-numbers"),
+        pytest.param("CREATE (:{L} {{v: 'abc'}});", id="strings"),
+    ],
+)
+def test_non_string_search_term_is_index_independent(memgraph, op, rows):
+    # The search term is the same for every row, but which rows an index hands to the filter is not.
+    # A non-string term therefore has to compare to Null rather than raise, or the presence of an
+    # index changes the outcome: raising on a property holding a string, silent on one holding none.
+    memgraph.execute(rows.format(L="NOIDX"))
+    memgraph.execute(rows.format(L="IDX"))
+    memgraph.execute("CREATE INDEX ON :IDX(v);")
+    q = "MATCH (n:{L}) WHERE n.v {op} 5 RETURN count(n) AS c"
+    without_index = list(memgraph.execute_and_fetch(q.format(L="NOIDX", op=op)))
+    with_index = list(memgraph.execute_and_fetch(q.format(L="IDX", op=op)))
+    memgraph.execute("DROP INDEX ON :IDX(v);")
+    assert without_index[0]["c"] == 0
+    assert with_index[0]["c"] == 0
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "n.a = 'k050' AND n.b = 50",
+        "n.a >= 'k050' AND n.b = 50",
+        "n.a STARTS WITH 'k05' AND n.b = 50",
+        "n.a STARTS WITH 'k05' AND n.b >= 50",
+        "n.a CONTAINS '05' AND n.b = 50",
+        "n.a ENDS WITH '50' AND n.b = 50",
+        "n.a STARTS WITH 'k05'",
+    ],
+)
+def test_composite_index_agrees_with_an_unindexed_scan(memgraph, predicate):
+    # A prefix range is a range, so it can key the leading slot of a composite index. Whatever the
+    # combination of predicate kinds, the index may change the plan but never the rows.
+    for label in ("KIDX", "KPLAIN"):
+        memgraph.execute(
+            f"FOREACH (i IN range(0,99) | FOREACH (j IN range(0,99) | "
+            f"CREATE (:{label} {{a:'k'+right('00'+toString(i),3), b:j}})));"
+        )
+    memgraph.execute("CREATE INDEX ON :KIDX(a, b);")
+    q = "MATCH (n:{L}) WHERE {p} RETURN n.a AS a, n.b AS b ORDER BY a, b"
+    indexed = [(r["a"], r["b"]) for r in memgraph.execute_and_fetch(q.format(L="KIDX", p=predicate))]
+    plain = [(r["a"], r["b"]) for r in memgraph.execute_and_fetch(q.format(L="KPLAIN", p=predicate))]
+    memgraph.execute("DROP INDEX ON :KIDX(a, b);")
+    assert indexed == plain
+    assert indexed
+
+
+UNICODE_VALUES = [
+    "a",
+    "é",
+    "éz",
+    "ÿ",
+    "ÿz",
+    "ÿÿ",
+    "߿",
+    "߿z",
+    "ࠀ",
+    "ࠀz",
+    "日",
+    "日本",
+    "日本語",
+    "🎈",
+    "🎉",
+    "🎉x",
+]
+
+
+@pytest.mark.parametrize("prefix", ["a", "é", "ÿ", "߿", "ࠀ", "日", "日本", "🎉", ""])
+def test_unicode_prefix_bounds_match_an_unindexed_scan(memgraph, prefix):
+    # The prefix upper bound is the prefix with its last BYTE incremented, which is only sound
+    # because the index orders strings bytewise -- for UTF-8 that is also codepoint order. These
+    # prefixes sit on the boundaries where that matters: a trailing 0xBF carrying into the next lead
+    # byte, codepoints either side of a change in encoded length, and four-byte characters.
+    for value in UNICODE_VALUES:
+        memgraph.execute("CREATE (:UIDX {s: $s}), (:UPLAIN {s: $s});", {"s": value})
+    memgraph.execute("CREATE INDEX ON :UIDX(s);")
+    q = "MATCH (n:{L}) WHERE n.s STARTS WITH $p RETURN n.s AS s ORDER BY s"
+    indexed = [r["s"] for r in memgraph.execute_and_fetch(q.format(L="UIDX"), {"p": prefix})]
+    plain = [r["s"] for r in memgraph.execute_and_fetch(q.format(L="UPLAIN"), {"p": prefix})]
+    memgraph.execute("DROP INDEX ON :UIDX(s);")
+    assert indexed == plain
+    assert all(s.startswith(prefix) for s in indexed)
+    assert sorted(indexed) == sorted(v for v in UNICODE_VALUES if v.startswith(prefix))
+
+
+@pytest.mark.parametrize("op", ["STARTS WITH", "CONTAINS", "ENDS WITH"])
+def test_non_string_subject_compares_to_null(memgraph, op):
+    memgraph.execute("CREATE (:SUBJ {v: 1}), (:SUBJ {v: true}), (:SUBJ {v: [1, 2]}), (:SUBJ {v: 'abc'});")
+    q = f"MATCH (n:SUBJ) WHERE n.v {op} 'zzz' RETURN count(n) AS c"
+    assert list(memgraph.execute_and_fetch(q))[0]["c"] == 0
 
 
 if __name__ == "__main__":
