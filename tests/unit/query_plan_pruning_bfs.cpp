@@ -32,7 +32,7 @@ class PruningBFSRewriteTest : public ::testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
   Parameters parameters;
-  bool read_parameters = false;
+  bool reads_parameters = false;
 
   Symbol source_sym = symbol_table.CreateSymbol("source", true);
   Symbol target_sym = symbol_table.CreateSymbol("target", true);
@@ -84,7 +84,7 @@ class PruningBFSRewriteTest : public ::testing::Test {
 
   EdgeAtom::Type RewrittenType(
       std::function<std::shared_ptr<LogicalOperator>(std::shared_ptr<LogicalOperator>)> const &above) {
-    auto plan = RewriteWithPruningBFS(MakePlan(above), &symbol_table, parameters, &read_parameters);
+    auto plan = RewriteWithPruningBFS(MakePlan(above), &symbol_table, parameters, &reads_parameters);
     return expand->type_;
   }
 };
@@ -141,7 +141,7 @@ TEST_F(PruningBFSRewriteTest, ASuppliedBoundThatPermitsPruningTiesThePlanToIt) {
   lower_bound = SuppliedBound(1);
   auto const type = RewrittenType([](auto input) { return input; });
   EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
-  EXPECT_TRUE(read_parameters);
+  EXPECT_TRUE(reads_parameters);
 }
 
 TEST_F(PruningBFSRewriteTest, ASuppliedBoundThatDeniesPruningAlsoTiesThePlanToIt) {
@@ -150,7 +150,7 @@ TEST_F(PruningBFSRewriteTest, ASuppliedBoundThatDeniesPruningAlsoTiesThePlanToIt
   lower_bound = SuppliedBound(2);
   auto const type = RewrittenType([](auto input) { return input; });
   EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
-  EXPECT_TRUE(read_parameters);
+  EXPECT_TRUE(reads_parameters);
 }
 
 TEST_F(PruningBFSRewriteTest, ABoundIsNotReadWhenNothingElseAllowsPruning) {
@@ -160,13 +160,13 @@ TEST_F(PruningBFSRewriteTest, ABoundIsNotReadWhenNothingElseAllowsPruning) {
   lower_bound = SuppliedBound(1);
   auto const type = RewrittenType([](auto input) { return input; });
   EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
-  EXPECT_FALSE(read_parameters);
+  EXPECT_FALSE(reads_parameters);
 }
 
 TEST_F(PruningBFSRewriteTest, AnAbsentBoundLeavesThePlanFitForTheCache) {
   auto const type = RewrittenType([](auto input) { return input; });
   EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
-  EXPECT_FALSE(read_parameters);
+  EXPECT_FALSE(reads_parameters);
 }
 
 }  // namespace

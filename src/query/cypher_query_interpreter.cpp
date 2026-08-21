@@ -230,7 +230,7 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
 
 auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
                      const std::vector<Identifier *> &predefined_identifiers,
-                     plan::v2::QueryPlannerContext &planner_context, bool *read_parameters)
+                     plan::v2::QueryPlannerContext &planner_context, bool *reads_parameters)
     -> std::unique_ptr<LogicalPlan> {
   // TODO: we need to make sure we decouple symbol position from frame position
   //       symbols are needed for debugging (a semantic name)
@@ -255,9 +255,9 @@ auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameter
       return ConvertToLogicalOperator(egraph, root, planner_context);
     }
     auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
-    auto [plan, cost, plan_read_parameters] =
+    auto [plan, cost, plan_reads_parameters] =
         plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
-    *read_parameters = plan_read_parameters;
+    *reads_parameters = plan_reads_parameters;
     return plan::v2::ExtractionResult{.plan = std::move(plan),
                                       .cost = cost,
                                       .ast_storage = std::move(ast_storage),
@@ -304,17 +304,21 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
     }
   }
 
-  bool read_parameters = false;
+  bool reads_parameters = false;
   auto logical_plan = MakeLogicalPlan(std::move(ast_storage),
                                       query,
                                       parameters,
                                       db_accessor,
                                       predefined_identifiers,
                                       planner_context,
-                                      &read_parameters);
+                                      &reads_parameters);
   auto plan = std::make_shared<PlanWrapper>(std::move(logical_plan), module_generation);
 
-  if (use_plan_cache && !read_parameters) {
+  // A plan whose shape was settled by reading a parameter is correct only for the
+  // parameters it was planned with, and the cache key does not carry them.
+  auto const is_cacheable_plan = !reads_parameters;
+
+  if (use_plan_cache && is_cacheable_plan) {
     plan_cache->WithLock([&](auto &cache) { cache.put(stripped_query.stripped_query(), plan); });
   }
 

@@ -54,8 +54,8 @@ std::optional<int64_t> ResolveLowerBound(Expression *lower_bound, Parameters con
 
 class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  PruningBFSRewriter(SymbolTable const &symbol_table, Parameters const &parameters, bool *read_parameters)
-      : symbol_table_(symbol_table), parameters_(parameters), read_parameters_(read_parameters) {}
+  PruningBFSRewriter(SymbolTable const &symbol_table, Parameters const &parameters, bool *reads_parameters)
+      : symbol_table_(symbol_table), parameters_(parameters), reads_parameters_(reads_parameters) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -242,7 +242,7 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     // expansion, and reading it from the parameters ties the plan to them. That
     // holds whether or not the bound then permits pruning, because caching the
     // depth-first plan would serve it to the bounds that do permit it.
-    if (!IsStaticallyKnown(op.lower_bound_)) *read_parameters_ = true;
+    if (!IsStaticallyKnown(op.lower_bound_)) *reads_parameters_ = true;
     auto const lower_bound = ResolveLowerBound(op.lower_bound_, parameters_);
     if (!lower_bound || *lower_bound > 1) return true;
 
@@ -306,7 +306,7 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
  private:
   SymbolTable const &symbol_table_;
   Parameters const &parameters_;
-  bool *read_parameters_;
+  bool *reads_parameters_;
   std::unordered_set<int64_t> used_symbols_;
   bool deduplicates_{false};
   bool rewrite_blocked_{false};
@@ -317,8 +317,8 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 
 std::unique_ptr<LogicalOperator> RewriteWithPruningBFS(std::unique_ptr<LogicalOperator> root_op,
                                                        SymbolTable const *symbol_table, Parameters const &parameters,
-                                                       bool *read_parameters) {
-  auto rewriter = PruningBFSRewriter(*symbol_table, parameters, read_parameters);
+                                                       bool *reads_parameters) {
+  auto rewriter = PruningBFSRewriter(*symbol_table, parameters, reads_parameters);
   root_op->Accept(rewriter);
   return root_op;
 }

@@ -164,7 +164,7 @@ using PlanCacheLRU = utils::Synchronized<PlanCache_t, utils::RWSpinLock>;
 
 auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
                      const std::vector<Identifier *> &predefined_identifiers,
-                     plan::v2::QueryPlannerContext &planner_context, bool *read_parameters)
+                     plan::v2::QueryPlannerContext &planner_context, bool *reads_parameters)
     -> std::unique_ptr<LogicalPlan>;
 
 /**
