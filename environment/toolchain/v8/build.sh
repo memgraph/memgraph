@@ -58,6 +58,10 @@ GLIBC_VERSION=2.31
 # Sysroot support libraries: needed by GDB / cmake / mgconsole. Installed into
 # $SYSROOT/usr so the toolchain GCC finds them via --with-sysroot.
 ZLIB_VERSION=1.3.2
+# zstd is what lets clang and lld write compressed DWARF. LLVM only turns that
+# on if it finds zstd at configure time, and its search is confined to the
+# sysroot, so it has to be installed there like the rest of these.
+ZSTD_VERSION=1.5.7
 NCURSES_VERSION=6.6
 OPENSSL_VERSION=3.6.3
 CURL_VERSION=8.21.0
@@ -187,6 +191,11 @@ if [[ ! -f zlib-$ZLIB_VERSION.tar.gz ]]; then
     wget --https-only https://zlib.net/zlib-$ZLIB_VERSION.tar.gz
     ZLIB_SHA256="bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
     echo "$ZLIB_SHA256  zlib-$ZLIB_VERSION.tar.gz" | sha256sum -c -
+fi
+if [[ ! -f zstd-$ZSTD_VERSION.tar.gz ]]; then
+    wget --https-only https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz
+    ZSTD_SHA256="eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3"
+    echo "$ZSTD_SHA256  zstd-$ZSTD_VERSION.tar.gz" | sha256sum -c -
 fi
 if [[ ! -f ncurses-$NCURSES_VERSION.tar.gz ]]; then
     wget --https-only https://invisible-island.net/archives/ncurses/ncurses-$NCURSES_VERSION.tar.gz
@@ -548,7 +557,7 @@ if [[ ! -f "$PREFIX/bin/ld" ]]; then
 fi
 
 # ----------------------------------------------------------------------------
-# Sysroot support libraries: zlib, ncurses, openssl, libcurl. Built with the
+# Sysroot support libraries: zlib, zstd, ncurses, openssl, libcurl. Built with the
 # toolchain GCC so they target the sysroot's glibc; installed into
 # $SYSROOT/usr so the toolchain GCC (and anything it links) find them by
 # default. Consumed by GDB / cmake / mgconsole.
@@ -565,6 +574,21 @@ if [[ ! -f "$SYSROOT/usr/lib/libz.a" ]]; then
     ./configure --prefix=/usr --static
     make -j$CPUS
     make install DESTDIR=$SYSROOT
+    popd
+fi
+
+# Host deps (apt): make.
+# Static only, matching zlib: nothing shipped by the toolchain should acquire a
+# runtime dependency on a libzstd.so that lives inside the sysroot.
+log_tool_name "zstd $ZSTD_VERSION (sysroot)"
+if [[ ! -f "$SYSROOT/usr/lib/libzstd.a" ]]; then
+    if [[ -d "zstd-$ZSTD_VERSION" ]]; then
+        rm -rf zstd-$ZSTD_VERSION
+    fi
+    tar -xzf ../archives/zstd-$ZSTD_VERSION.tar.gz
+    pushd "zstd-$ZSTD_VERSION"
+    make -j$CPUS -C lib libzstd.a
+    make -C lib install-static install-includes install-pc PREFIX=/usr DESTDIR=$SYSROOT
     popd
 fi
 
@@ -918,7 +942,7 @@ if [[ ! -d "swig-$SWIG_VERSION/install" ]]; then
 fi
 
 # Host deps (apt): make, python3 — cmake/gcc/binutils come from $PREFIX, swig
-# from the stage above, zlib/libffi from the sysroot (FIND_ROOT_PATH=ONLY).
+# from the stage above, zlib/zstd/libffi from the sysroot (FIND_ROOT_PATH=ONLY).
 log_tool_name "LLVM $LLVM_VERSION"
 if [[ ! -f "$PREFIX/bin/clang" ]]; then
     if [[ -d llvmorg-$LLVM_VERSION ]]; then
@@ -977,6 +1001,8 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
         -DLLVM_BUILD_LLVM_DYLIB=ON \
         -DLLVM_ENABLE_RTTI=ON \
         -DLLVM_ENABLE_FFI=ON \
+        -DLLVM_ENABLE_ZSTD=FORCE_ON \
+        -DLLVM_USE_STATIC_ZSTD=TRUE \
         -DLLVM_BINUTILS_INCDIR=$PREFIX/include/ \
         -DLLVM_INCLUDE_BENCHMARKS=OFF \
         -DLLVM_USE_PERF=yes \
