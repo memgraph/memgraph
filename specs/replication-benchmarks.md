@@ -248,7 +248,13 @@ promoted to main — its mode is unused while it holds that role, but it is stil
 still counts towards the check.
 
 `ha_cluster_strict_sync.yaml` therefore registers **every** instance `AS STRICT_SYNC`. Leaving main on
-the default SYNC mode would have failed the second registration outright.
+the default SYNC mode would have failed the second registration outright. The same applies to
+`ha_cluster_2_strict_sync.yaml` and `ha_cluster_strict_sync_async.yaml`: wherever a STRICT_SYNC replica
+appears, main is registered STRICT_SYNC as well.
+
+Eight descriptions now cover the combinations worth measuring — one and two replicas of each mode, and
+the two legal mixes with ASYNC. Each is a suite and a series of its own, so a mode's cost is the
+difference between two series rather than something inferred from one.
 
 `ha_cluster_async.yaml` deliberately does not follow suit: SYNC and ASYNC is a permitted combination,
 so main keeps the default, which also leaves a valid failover target — failover to an ASYNC replica is
