@@ -557,6 +557,34 @@ Feature: Subqueries
             | playerName | rating | team                     |
             | 'Player A' | 0.21   | (:Team {name: 'Team A'}) |
 
+    Scenario: Scoped CALL body may not return an imported variable
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (p:Player)
+            CALL (p) {
+              RETURN p LIMIT 1
+            }
+            RETURN p.name AS playerName
+            """
+        Then an error should be raised
+
+    Scenario: Scoped CALL body may return an imported variable under a name of its own
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (p:Player)
+            CALL (p) {
+              RETURN p AS pp LIMIT 1
+            }
+            RETURN pp.name AS playerName
+            ORDER BY playerName
+            LIMIT 1
+            """
+        Then the result should be:
+            | playerName |
+            | 'Player A' |
+
     Scenario: Scoped CALL with star imports every outer variable
         Given graph "subqueries"
         When executing query:

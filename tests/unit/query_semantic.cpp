@@ -1735,6 +1735,282 @@ TYPED_TEST(TestSymbolGenerator, ExistsAsSimpleCaseTest) {
                                      RETURN(AND(simple_case(pattern_form()), simple_case(pattern_form())), AS("h")))));
 }
 
+// A body sees the whole enclosing scope, so declaring a name that scope already holds is refused rather than
+// answering about the inner binding. Both folds, because they share the one AST node and the one gate.
+TYPED_TEST(TestSymbolGenerator, SubqueryBodyMayNotShadowAnOuterName) {
+  auto expect_message = [](auto *query, std::string_view message) {
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string_view{e.what()}, message);
+    }
+  };
+
+  auto check_folds = [&](auto make_subquery, std::string_view construct) {
+    // MATCH (n) WHERE EXISTS { WITH 1 AS n MATCH (m) } RETURN n - a WITH alias.
+    expect_message(
+        QUERY(SINGLE_QUERY(
+            MATCH(PATTERN(NODE("n"))),
+            WHERE(make_subquery(QUERY(SINGLE_QUERY(WITH(NEXPR("n", LITERAL(1))), MATCH(PATTERN(NODE("m"))))))),
+            RETURN("n"))),
+        fmt::format("Variable 'n' in {} shadows a variable with the same name from the outer scope.", construct));
+
+    // MATCH (n) WHERE EXISTS { MATCH (n)-[r]->(m) RETURN m AS n } RETURN n - a RETURN alias.
+    expect_message(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                           WHERE(make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                                                                  RETURN(IDENT("m"), AS("n")))))),
+                           RETURN("n"))),
+        fmt::format("Variable 'n' in {} shadows a variable with the same name from the outer scope.", construct));
+
+    // The name need not be one the body uses, and the body need not correlate at all:
+    // MATCH (n) WHERE EXISTS { MATCH (m) WITH m, 1 AS n RETURN m } RETURN n
+    expect_message(
+        QUERY(SINGLE_QUERY(
+            MATCH(PATTERN(NODE("n"))),
+            WHERE(make_subquery(QUERY(SINGLE_QUERY(
+                MATCH(PATTERN(NODE("m"))), WITH(NEXPR("m", IDENT("m")), NEXPR("n", LITERAL(1))), RETURN("m"))))),
+            RETURN("n"))),
+        fmt::format("Variable 'n' in {} shadows a variable with the same name from the outer scope.", construct));
+
+    // A name the *enclosing body* declared counts as outer to a nested one:
+    // MATCH (n) WHERE EXISTS { MATCH (n)-[r]->(q) WHERE EXISTS { WITH 1 AS q MATCH (z) } } RETURN n
+    expect_message(
+        QUERY(SINGLE_QUERY(
+            MATCH(PATTERN(NODE("n"))),
+            WHERE(make_subquery(QUERY(SINGLE_QUERY(
+                MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("q"))),
+                WHERE(make_subquery(QUERY(SINGLE_QUERY(WITH(NEXPR("q", LITERAL(1))), MATCH(PATTERN(NODE("z"))))))))))),
+            RETURN("n"))),
+        fmt::format("Variable 'q' in {} shadows a variable with the same name from the outer scope.", construct));
+
+    // A named path assigns its own path, so it declares the name:
+    // MATCH p = (n)-[r]->(m) WHERE EXISTS { MATCH p = (a)-[r2]->(b) } RETURN n
+    expect_message(
+        QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r"), NODE("m"))),
+                           WHERE(make_subquery(QUERY(SINGLE_QUERY(
+                               MATCH(NAMED_PATTERN("p", NODE("a"), EDGE("r2"), NODE("b"))), RETURN("a"))))),
+                           RETURN("n"))),
+        fmt::format("Variable 'p' in {} shadows a variable with the same name from the outer scope.", construct));
+
+    // A UNION branch is still the same body, so a later branch shadows what the first one does:
+    // MATCH (n) WHERE EXISTS { MATCH (z) RETURN z AS zz UNION MATCH (y) WITH 1 AS n, y RETURN y AS zz } RETURN n
+    // Put in the *second* branch on purpose - the first is already covered by the body scope itself.
+    expect_message(
+        QUERY(SINGLE_QUERY(
+            MATCH(PATTERN(NODE("n"))),
+            WHERE(make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("z"))), RETURN(IDENT("z"), AS("zz"))),
+                                      UNION(SINGLE_QUERY(MATCH(PATTERN(NODE("y"))),
+                                                         WITH(NEXPR("n", LITERAL(1)), NEXPR("y", IDENT("y"))),
+                                                         RETURN(IDENT("y"), AS("zz"))))))),
+            RETURN("n"))),
+        fmt::format("Variable 'n' in {} shadows a variable with the same name from the outer scope.", construct));
+
+    // A name declared inside an unscoped `CALL {}` body is outer to a subquery body nested in it:
+    // MATCH (q) CALL { WITH 1 AS nm MATCH (d) WHERE EXISTS { WITH 2 AS nm MATCH (z) } RETURN d AS x } RETURN x
+    expect_message(
+        QUERY(SINGLE_QUERY(
+            MATCH(PATTERN(NODE("q"))),
+            CALL_SUBQUERY(QUERY(SINGLE_QUERY(
+                WITH(NEXPR("nm", LITERAL(1))),
+                MATCH(PATTERN(NODE("d"))),
+                WHERE(make_subquery(QUERY(SINGLE_QUERY(WITH(NEXPR("nm", LITERAL(2))), MATCH(PATTERN(NODE("z"))))))),
+                RETURN(IDENT("d"), AS("x"))))),
+            RETURN("x"))),
+        fmt::format("Variable 'nm' in {} shadows a variable with the same name from the outer scope.", construct));
+  };
+
+  check_folds([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); }, "EXISTS");
+  check_folds([this](auto *subquery) { return COUNT_SUBQUERY(subquery); }, "COUNT");
+}
+
+// The accepted half, and the half that carries the regression risk: referencing an outer name is what correlation
+// *is*, and projecting one through under its own name declares nothing new.
+TYPED_TEST(TestSymbolGenerator, SubqueryBodyMayStillUseAnOuterName) {
+  auto check_folds = [&](auto make_subquery) {
+    // MATCH (n) WHERE EXISTS { MATCH (n)-[r]->(m) } RETURN n - plain correlation.
+    MakeSymbolTable(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                           WHERE(make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))))))),
+                           RETURN("n"))));
+
+    // A declaration of a name that is not outer.
+    MakeSymbolTable(QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(make_subquery(QUERY(SINGLE_QUERY(WITH(NEXPR("zzz", LITERAL(1))), MATCH(PATTERN(NODE("m"))))))),
+        RETURN("n"))));
+
+    // MATCH (n) WHERE EXISTS { MATCH (n)-[r]->(m) WITH n, m RETURN m } RETURN n - `n` projected through unchanged.
+    MakeSymbolTable(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                           WHERE(make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                                                                  WITH(NEXPR("n", IDENT("n")), NEXPR("m", IDENT("m"))),
+                                                                  RETURN("m"))))),
+                           RETURN("n"))));
+
+    // ... and returned unchanged: EXISTS { MATCH (n)-[r]->(m) RETURN n }
+    MakeSymbolTable(QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), RETURN("n"))))),
+        RETURN("n"))));
+
+    // Renaming an outer name to a fresh one: EXISTS { MATCH (n)-[r]->(m) WITH n AS p2, m RETURN m }
+    MakeSymbolTable(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                           WHERE(make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                                                                  WITH(NEXPR("p2", IDENT("n")), NEXPR("m", IDENT("m"))),
+                                                                  RETURN("m"))))),
+                           RETURN("n"))));
+
+    // Re-aliasing a *body-local* name twice: only names visible from outside the body are protected.
+    MakeSymbolTable(QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(make_subquery(QUERY(SINGLE_QUERY(
+            MATCH(PATTERN(NODE("m"))), WITH(NEXPR("q", IDENT("m"))), WITH(NEXPR("q", LITERAL(1))), RETURN("q"))))),
+        RETURN("n"))));
+
+    // An un-imported outer name is out of reach inside a `CALL {}`, so a body nested in one may declare it freely:
+    // MATCH (n) CALL { MATCH (q) WHERE EXISTS { WITH 1 AS n MATCH (z) } RETURN q AS x } RETURN x
+    MakeSymbolTable(QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        CALL_SUBQUERY(QUERY(SINGLE_QUERY(
+            MATCH(PATTERN(NODE("q"))),
+            WHERE(make_subquery(QUERY(SINGLE_QUERY(WITH(NEXPR("n", LITERAL(1))), MATCH(PATTERN(NODE("z"))))))),
+            RETURN(IDENT("q"), AS("x"))))),
+        RETURN("x"))));
+
+    // A named path under a name the outer query does not hold:
+    // MATCH p = (n)-[r]->(m) WHERE EXISTS { MATCH q = (a)-[r2]->(b) } RETURN n
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r"), NODE("m"))),
+                                       WHERE(make_subquery(QUERY(SINGLE_QUERY(
+                                           MATCH(NAMED_PATTERN("q", NODE("a"), EDGE("r2"), NODE("b"))), RETURN("a"))))),
+                                       RETURN("n"))));
+
+    // Accepting the spelling is half the rule; the body must still mean the outer variable. A fresh symbol here
+    // would decorrelate silently, which no accept-only check can see.
+    {
+      auto *outer_n = NODE("n");
+      auto *body_n = NODE("n");
+      auto symbol_table = MakeSymbolTable(QUERY(
+          SINGLE_QUERY(MATCH(PATTERN(outer_n)),
+                       WHERE(make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(body_n, EDGE("r"), NODE("m"))),
+                                                              WITH(NEXPR("n", IDENT("n")), NEXPR("m", IDENT("m"))),
+                                                              RETURN("m"))))),
+                       RETURN("n"))));
+      EXPECT_EQ(symbol_table.at(*outer_n->identifier_), symbol_table.at(*body_n->identifier_))
+          << "an identity projection must not decorrelate the body";
+    }
+    {
+      auto *outer_n = NODE("n");
+      auto *body_n = NODE("n");
+      auto symbol_table = MakeSymbolTable(
+          QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_n)),
+                             WHERE(make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(body_n, EDGE("r"), NODE("m"))))))),
+                             RETURN("n"))));
+      EXPECT_EQ(symbol_table.at(*outer_n->identifier_), symbol_table.at(*body_n->identifier_))
+          << "plain correlation must resolve to the outer symbol";
+    }
+  };
+
+  check_folds([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); });
+  check_folds([this](auto *subquery) { return COUNT_SUBQUERY(subquery); });
+}
+
+// `CALL {}` has a scope of its own, so what it can shadow is exactly what it imported: the `CALL { WITH v ... }`
+// spelling shadows nothing, and only `CALL (v) { ... }` refuses.
+TYPED_TEST(TestSymbolGenerator, ScopedCallBodyMayNotShadowAnImport) {
+  auto expect_message = [](auto *query, std::string_view message) {
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string_view{e.what()}, message);
+    }
+  };
+  auto scoped_on_m = [this](auto *subquery) { return CALL_SUBQUERY_SCOPED(subquery, std::vector<std::string>{"m"}); };
+  auto scoped_on_all = [this](auto *subquery) { return CALL_SUBQUERY_SCOPED_ALL(subquery); };
+
+  // `CALL (*) { ... }` imports every outer name, so it shadows the same way `CALL (m) { ... }` does:
+  // MATCH (m) CALL (*) { MATCH (q) WITH 1 AS m RETURN q AS x } RETURN x
+  expect_message(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                         scoped_on_all(QUERY(SINGLE_QUERY(
+                             MATCH(PATTERN(NODE("q"))), WITH(NEXPR("m", LITERAL(1))), RETURN(LITERAL(1), AS("x"))))),
+                         RETURN("x"))),
+      "Variable 'm' shadows the variable of the same name imported into this subquery.");
+
+  // A named path declares its name against the import too:
+  // MATCH pp = (m)-[r]->(b) CALL (pp) { MATCH pp = (c)-[r2]->(d) RETURN c AS x } RETURN x
+  expect_message(QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("pp", NODE("m"), EDGE("r"), NODE("b"))),
+                                    CALL_SUBQUERY_SCOPED(
+                                        QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("pp", NODE("c"), EDGE("r2"), NODE("d"))),
+                                                           RETURN(IDENT("c"), AS("x")))),
+                                        std::vector<std::string>{"pp"}),
+                                    RETURN("x"))),
+                 "Variable 'pp' shadows the variable of the same name imported into this subquery.");
+
+  // MATCH (m) CALL (m) { MATCH (q) WITH 1 AS m RETURN q AS x } RETURN x
+  expect_message(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                         scoped_on_m(QUERY(SINGLE_QUERY(
+                             MATCH(PATTERN(NODE("q"))), WITH(NEXPR("m", LITERAL(1))), RETURN(LITERAL(1), AS("x"))))),
+                         RETURN("x"))),
+      "Variable 'm' shadows the variable of the same name imported into this subquery.");
+
+  // The body's RETURN is refused whatever it projects, because the name it would reintroduce is already outside:
+  // MATCH (m) CALL (m) { MATCH (m)-[r]->(a) RETURN a AS m } RETURN m
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                                    scoped_on_m(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                                                   RETURN(IDENT("a"), AS("m"))))),
+                                    RETURN("m"))),
+                 "Variable 'm' in subquery already declared in outer scope!");
+
+  // ... including when it projects the import itself: CALL (m) { MATCH (m)-[r]->(a) RETURN m }
+  expect_message(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                         scoped_on_m(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))), RETURN("m")))),
+                         RETURN("m"))),
+      "Variable 'm' in subquery already declared in outer scope!");
+
+  // A subquery expression inside the body measures "outer" against the import, so this is refused:
+  // MATCH (m) CALL (m) { MATCH (m)-[r]->(a) WHERE EXISTS { WITH 1 AS m MATCH (z) } RETURN a AS x } RETURN x
+  expect_message(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                         scoped_on_m(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                                        WHERE(EXISTS_SUBQUERY(QUERY(SINGLE_QUERY(
+                                                            WITH(NEXPR("m", LITERAL(1))), MATCH(PATTERN(NODE("z"))))))),
+                                                        RETURN(IDENT("a"), AS("x"))))),
+                         RETURN("x"))),
+      "Variable 'm' in EXISTS shadows a variable with the same name from the outer scope.");
+
+  // Accepted: an intermediate WITH may carry the import through unchanged.
+  // MATCH (m) CALL (m) { MATCH (m)-[r]->(a) WITH m, a RETURN a AS x } RETURN x
+  MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                         scoped_on_m(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                                        WITH(NEXPR("m", IDENT("m")), NEXPR("a", IDENT("a"))),
+                                                        RETURN(IDENT("a"), AS("x"))))),
+                         RETURN("x"))));
+
+  // Accepted: a name the scope clause did not import is not visible inside, so declaring it shadows nothing.
+  // MATCH (m) MATCH (other) CALL (m) { MATCH (q) WITH 1 AS other RETURN other AS x } RETURN x
+  MakeSymbolTable(QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                   MATCH(PATTERN(NODE("other"))),
+                   scoped_on_m(QUERY(SINGLE_QUERY(
+                       MATCH(PATTERN(NODE("q"))), WITH(NEXPR("other", LITERAL(1))), RETURN(IDENT("other"), AS("x"))))),
+                   RETURN("x"))));
+
+  // Accepted: the `CALL { WITH v ... }` spelling imports inside the body, so a later clause may redeclare the name.
+  // MATCH (m) CALL { WITH m WITH 1 AS m MATCH (q) RETURN q AS x } RETURN x
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("m"))),
+      CALL_SUBQUERY(QUERY(SINGLE_QUERY(
+          WITH("m"), WITH(NEXPR("m", LITERAL(1))), MATCH(PATTERN(NODE("q"))), RETURN(IDENT("q"), AS("x"))))),
+      RETURN("x"))));
+}
+
 TYPED_TEST(TestSymbolGenerator, Subqueries) {
   // MATCH (n) CALL { MATCH (n) RETURN n } RETURN n
   // Yields exception because n in subquery is referenced in outer scope
