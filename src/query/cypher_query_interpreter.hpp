@@ -162,10 +162,16 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
 using PlanCache_t = utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>>;
 using PlanCacheLRU = utils::Synchronized<PlanCache_t, utils::RWSpinLock>;
 
+struct LogicalPlanResult {
+  std::unique_ptr<LogicalPlan> plan;
+  /// Whether the plan is correct for every set of parameters the stripped query
+  /// may later be served with, and so may be stored in the plan cache.
+  bool is_cacheable;
+};
+
 auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
                      const std::vector<Identifier *> &predefined_identifiers,
-                     plan::v2::QueryPlannerContext &planner_context, bool *reads_parameters)
-    -> std::unique_ptr<LogicalPlan>;
+                     plan::v2::QueryPlannerContext &planner_context) -> LogicalPlanResult;
 
 /**
  * Return the parsed *Cypher* query's AST cached logical plan, or create and
