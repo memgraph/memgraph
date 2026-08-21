@@ -792,9 +792,8 @@ TYPED_TEST(OperatorToStringTest, RollUpApply) {
   RollUpApply count_fold(nullptr, nullptr, result, RollUpApply::Fold::kCount);
   EXPECT_EQ(count_fold.ToString(&this->dba), "RollUpApply (count)");
 
-  // The list fold is the pattern comprehension's, and carries no qualifier.
   RollUpApply list_fold(nullptr, nullptr, std::vector<Symbol>{this->GetSymbol("item")}, result);
-  EXPECT_EQ(list_fold.ToString(&this->dba), "RollUpApply");
+  EXPECT_EQ(list_fold.ToString(&this->dba), "RollUpApply (list)");
 }
 
 TYPED_TEST(OperatorToStringTest, Apply) {

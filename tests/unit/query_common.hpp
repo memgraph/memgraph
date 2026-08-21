@@ -702,6 +702,14 @@ auto GetCountSubquery(AstStorage &storage, CypherQuery *subquery) {
   return count_subquery;
 }
 
+/// `COLLECT { subquery }` - the same node again, carrying the list fold.
+auto GetCollectSubquery(AstStorage &storage, CypherQuery *subquery) {
+  auto *collect_subquery = GetExistsSubquery(storage, subquery);
+  collect_subquery->fold_ = query::SubqueryExpression::Fold::kList;
+
+  return collect_subquery;
+}
+
 /// `COUNT { pattern }` - the pattern form of the count fold, the COUNT counterpart of the EXISTS macro.
 auto GetCountPattern(AstStorage &storage, Pattern *pattern) {
   auto *count_pattern = storage.Create<query::SubqueryExpression>(pattern);
@@ -867,6 +875,7 @@ auto GetCountPattern(AstStorage &storage, Pattern *pattern) {
 #define EXISTS_SUBQUERY(...) memgraph::query::test_common::GetExistsSubquery(this->storage, __VA_ARGS__)
 #define COUNT_SUBQUERY(...) memgraph::query::test_common::GetCountSubquery(this->storage, __VA_ARGS__)
 #define COUNT_PATTERN(pattern) memgraph::query::test_common::GetCountPattern(this->storage, pattern)
+#define COLLECT_SUBQUERY(...) memgraph::query::test_common::GetCollectSubquery(this->storage, __VA_ARGS__)
 #define AUTH_QUERY(action,                                           \
                    user,                                             \
                    role,                                             \

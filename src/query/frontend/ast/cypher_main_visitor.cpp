@@ -3761,6 +3761,17 @@ antlrcpp::Any CypherMainVisitor::visitExpression2b(MemgraphCypher::Expression2bC
   return expression;
 }
 
+namespace {
+/// Which fold a brace form asks for. Every spelling shares one body rule, so the keyword on the `atom` alternative is
+/// the only thing left that says which construct was written.
+SubqueryExpression::Fold FoldOf(MemgraphCypher::AtomContext *ctx) {
+  if (ctx->EXISTS()) return SubqueryExpression::Fold::kBool;
+  if (ctx->COUNT()) return SubqueryExpression::Fold::kCount;
+  if (ctx->COLLECT()) return SubqueryExpression::Fold::kList;
+  LOG_FATAL("A subquery body with no keyword to fold it - the atom rule admits no such alternative.");
+}
+}  // namespace
+
 antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
   if (ctx->literal()) {
     return ctx->literal()->accept(this);
@@ -3774,11 +3785,10 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return static_cast<Expression *>(storage_->Create<Identifier>(variable));
   } else if (ctx->existsExpression()) {
     return std::any_cast<Expression *>(ctx->existsExpression()->accept(this));
-  } else if (ctx->existsSubquery()) {
-    return std::any_cast<Expression *>(ctx->existsSubquery()->accept(this));
-  } else if (ctx->countSubquery()) {
-    // Ahead of the ctx->COUNT() arm below, which COUNT { ... } also satisfies - that arm is COUNT(*).
-    return std::any_cast<Expression *>(ctx->countSubquery()->accept(this));
+  } else if (ctx->subqueryBody()) {
+    // Ahead of the ctx->COUNT() arm below, which COUNT { ... } also satisfies - that arm is COUNT(*). One body rule
+    // serves every spelling, so the keyword is what picks the fold.
+    return BuildSubqueryFold(ctx->subqueryBody(), FoldOf(ctx));
   } else if (ctx->functionInvocation()) {
     return std::any_cast<Expression *>(ctx->functionInvocation()->accept(this));
   } else if (ctx->COALESCE()) {
@@ -3945,13 +3955,17 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   return static_cast<Expression *>(subquery);
 }
 
-template <typename TContext>
-Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpression::Fold fold) {
+Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyContext *ctx,
+                                                 SubqueryExpression::Fold fold) {
   auto const construct = SubqueryExpression::FoldName(fold);
   auto *subquery = storage_->Create<SubqueryExpression>();
   subquery->fold_ = fold;
   // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
+    // A bare pattern names no column, and the list fold has to collect one - so this shape can never work for it.
+    if (fold == SubqueryExpression::Fold::kList) {
+      throw SyntaxException("{} needs a body returning a single column, and a bare pattern returns none.", construct);
+    }
     subquery->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
     if (subquery->GetPattern()->identifier_) {
       throw SyntaxException("Identifiers are not supported in a {} pattern.", construct);
@@ -3969,7 +3983,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpressi
 
     // 1. There must be at least one clause, and 2. only MATCH, WHERE, WITH, RETURN. Per branch: a UNION's
     // further branches are each their own SingleQuery, and a clause forbidden in the first is not legal in them.
-    auto validate_branch = [construct](const SingleQuery *single_query) {
+    auto validate_branch = [construct, fold](const SingleQuery *single_query) {
       if (!single_query || single_query->clauses_.empty()) {
         throw SyntaxException("{} subquery must contain at least one clause.", construct);
       }
@@ -3979,6 +3993,16 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpressi
               utils::IsSubtype(type, With::kType) || utils::IsSubtype(type, Return::kType))) {
           throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.", construct);
         }
+      }
+      // 5. The list fold collects one column per branch row, so the body has to name exactly one, and `RETURN *`
+      // names an unknown number. Caught here, so a multi-column body is a syntax error rather than the operator's
+      // "must be of size 1".
+      if (fold != SubqueryExpression::Fold::kList) {
+        return;
+      }
+      const auto *ret = utils::Downcast<const Return>(single_query->clauses_.back());
+      if (ret == nullptr || ret->body_.all_identifiers || ret->body_.named_expressions.size() != 1) {
+        throw SyntaxException("{} subquery must end with a RETURN of exactly one column.", construct);
       }
     };
     validate_branch(cypher_query->single_query_);
@@ -4017,14 +4041,6 @@ Expression *CypherMainVisitor::BuildSubqueryFold(TContext *ctx, SubqueryExpressi
   }
 
   return static_cast<Expression *>(subquery);
-}
-
-antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) {
-  return BuildSubqueryFold(ctx, SubqueryExpression::Fold::kBool);
-}
-
-antlrcpp::Any CypherMainVisitor::visitCountSubquery(MemgraphCypher::CountSubqueryContext *ctx) {
-  return BuildSubqueryFold(ctx, SubqueryExpression::Fold::kCount);
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::PatternComprehensionContext *ctx) {

@@ -2443,8 +2443,10 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
 
   EvaluatePatternFilter() = default;
 
-  /// @param fold what the closure reduces the branch's rows to.
+  /// The fold picks the constructor: @c kBool and @c kCount read no column, the list fold reads the one it collects.
   EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Fold fold);
+  EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                        Symbol list_collection_symbol);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -2458,6 +2460,7 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Symbol output_symbol_;
   Fold fold_{Fold::kBool};
+  Symbol list_collection_symbol_{};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 

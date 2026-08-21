@@ -218,6 +218,25 @@ TYPED_TEST(ExpressionEvaluatorTest, SubqueryReadsAForcedCountFold) {
   EXPECT_EQ(this->Eval(count).ValueInt(), 3);
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, SubqueryReadsAForcedListFold) {
+  // COLLECT's forced fold writes a list into the same slot, so the visitor needs a list arm too - and the empty list
+  // has to come back as an empty list, which is what a body with no rows leaves there.
+  auto *collected = this->CreateSubqueryWithValue(
+      "anon1", TypedValue(std::vector<TypedValue>{TypedValue(int64_t{1}), TypedValue(int64_t{2})}, this->ctx.memory));
+  collected->fold_ = memgraph::query::SubqueryExpression::Fold::kList;
+  auto value = this->Eval(collected);
+  ASSERT_TRUE(value.IsList());
+  ASSERT_EQ(value.ValueList().size(), 2U);
+  EXPECT_EQ(value.ValueList()[0].ValueInt(), 1);
+  EXPECT_EQ(value.ValueList()[1].ValueInt(), 2);
+
+  auto *empty = this->CreateSubqueryWithValue("anon2", TypedValue(std::vector<TypedValue>{}, this->ctx.memory));
+  empty->fold_ = memgraph::query::SubqueryExpression::Fold::kList;
+  auto empty_value = this->Eval(empty);
+  ASSERT_TRUE(empty_value.IsList());
+  EXPECT_TRUE(empty_value.ValueList().empty());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, SubqueryRefusesAnUnexpectedFrameValueByConstruct) {
   // Neither a value nor a closure. Asserting the type alone would pass with either fold, so the construct name in the
   // message is the whole point of the test.
@@ -235,6 +254,7 @@ TYPED_TEST(ExpressionEvaluatorTest, SubqueryRefusesAnUnexpectedFrameValueByConst
 
   expect_named(memgraph::query::SubqueryExpression::Fold::kCount, "COUNT");
   expect_named(memgraph::query::SubqueryExpression::Fold::kBool, "EXISTS");
+  expect_named(memgraph::query::SubqueryExpression::Fold::kList, "COLLECT");
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, AndOperatorNull) {

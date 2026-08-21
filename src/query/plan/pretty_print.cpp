@@ -1582,10 +1582,28 @@ bool PlanToJsonVisitor::PreVisit(Foreach &op) {
   return false;
 }
 
+namespace {
+std::string_view FoldName(RollUpApply::Fold fold) {
+  switch (fold) {
+    case RollUpApply::Fold::kBool:
+      return "bool";
+    case RollUpApply::Fold::kCount:
+      return "count";
+    case RollUpApply::Fold::kList:
+      return "list";
+  }
+  LOG_FATAL("Unhandled RollUpApply fold");
+}
+}  // namespace
+
 bool PlanToJsonVisitor::PreVisit(EvaluatePatternFilter &op) {
   json self;
   self["name"] = "EvaluatePatternFilter";
+  self["fold"] = FoldName(op.fold_);
   self["output_symbol"] = ToJson(op.output_symbol_);
+  if (op.fold_ == RollUpApply::Fold::kList) {
+    self["collected_symbol"] = ToJson(op.list_collection_symbol_);
+  }
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
@@ -1625,18 +1643,11 @@ bool PlanToJsonVisitor::PreVisit(IndexedJoin &op) {
 bool PlanToJsonVisitor::PreVisit(RollUpApply &op) {
   json self;
   self["name"] = "RollUpApply";
-  self["fold"] = [&] {
-    switch (op.fold_) {
-      case RollUpApply::Fold::kBool:
-        return "bool";
-      case RollUpApply::Fold::kCount:
-        return "count";
-      case RollUpApply::Fold::kList:
-        return "list";
-    }
-    LOG_FATAL("Unhandled RollUpApply fold");
-  }();
+  self["fold"] = FoldName(op.fold_);
   self["output_symbol"] = ToJson(op.result_symbol_);
+  if (op.fold_ == RollUpApply::Fold::kList) {
+    self["collected_symbol"] = ToJson(op.list_collection_symbol_);
+  }
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
