@@ -347,7 +347,6 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph mgbench \
           --no-authorization \
-          --single-threaded-runtime-sec 5 \
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench results
@@ -375,7 +374,6 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph mgbench \
           --no-authorization \
-          --single-threaded-runtime-sec 5 \
           --dataset pokec_planner_optimizations \
           --size medium \
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
@@ -405,7 +403,6 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph mgbench-vector-search-index \
           --no-authorization \
-          --single-threaded-runtime-sec 5 \
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-vector-search-index results
@@ -433,7 +430,6 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph mgbench-vector-search-edge-index \
           --no-authorization \
-          --single-threaded-runtime-sec 5 \
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-vector-search-edge-index results
@@ -461,7 +457,6 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph mgbench-text-search-index \
           --no-authorization \
-          --single-threaded-runtime-sec 5 \
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-text-search-index results
@@ -489,7 +484,6 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph mgbench-text-search-edge-index \
           --no-authorization \
-          --single-threaded-runtime-sec 5 \
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-text-search-edge-index results
@@ -517,7 +511,6 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph mgbench-supernode \
           --no-authorization \
-          --single-threaded-runtime-sec 5 \
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload supernode results
@@ -545,7 +538,6 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph mgbench-load-parquet \
           --no-authorization \
-          --single-threaded-runtime-sec 5 \
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload load parquet results
