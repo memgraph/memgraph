@@ -162,3 +162,33 @@ TEST(MemoryTrackerTest, SetHardLimitClampsAgainstMaximum) {
   tracker.SetHardLimit(512);
   EXPECT_EQ(tracker.HardLimit(), 512);
 }
+
+// The over-limit predicate reads libstdc++'s exception-handling thread-local, which the dynamic
+// loader may satisfy by resizing the thread's DTV through the same tracked allocator. A nested
+// tracked allocation must therefore complete without consulting that predicate again.
+TEST(MemoryTrackerTest, ReentrantAllocIsTrackedRatherThanRefused) {
+  auto memory_tracker = MemoryTracker{};
+
+  static constexpr auto hard_limit = 10;
+  memory_tracker.SetHardLimit(hard_limit);
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+
+  const MemoryTracker::AllocatorReentrancyGuard outer;
+  ASSERT_FALSE(MemoryTracker::AllocatorReentrancyGuard::IsReentrant());
+  ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
+
+  const MemoryTracker::AllocatorReentrancyGuard inner;
+  ASSERT_TRUE(MemoryTracker::AllocatorReentrancyGuard::IsReentrant());
+  ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
+  ASSERT_EQ(memory_tracker.Amount(), hard_limit + 1);
+}
+
+TEST(MemoryTrackerTest, ReentrancyGuardUnwindsToThrowingAgain) {
+  {
+    const MemoryTracker::AllocatorReentrancyGuard outer;
+    const MemoryTracker::AllocatorReentrancyGuard inner;
+    ASSERT_TRUE(MemoryTracker::AllocatorReentrancyGuard::IsReentrant());
+  }
+  ASSERT_FALSE(MemoryTracker::AllocatorReentrancyGuard::IsReentrant());
+}

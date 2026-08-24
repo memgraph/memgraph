@@ -71,6 +71,10 @@ void *db_arena_alloc(extent_hooks_t *hooks, void *new_addr, size_t size, size_t 
   const bool requested_commit = *commit;
   // Pre-track if commit was requested (mandatory — base hook must return committed or fail).
   if (requested_commit) {
+    // Deciding whether to refuse this allocation can itself allocate through this hook, so a nested
+    // entry is tracked unconditionally instead of being asked again. Tracking it rather than
+    // skipping it keeps the accounting symmetric with the unconditional Free on the dalloc path.
+    const utils::MemoryTracker::AllocatorReentrancyGuard reentrancy_guard;
     if (tracker && !tracker->Alloc(static_cast<int64_t>(size))) {
       return nullptr;
     }
