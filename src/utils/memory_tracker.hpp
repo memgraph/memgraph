@@ -149,28 +149,6 @@ class MemoryTracker final {
     static thread_local uint64_t counter_ [[gnu::tls_model("initial-exec")]];
   };
 
-  // Marks a scope that is already executing inside the tracked allocator. Deciding whether an
-  // over-limit allocation may throw reads libstdc++'s exception-handling thread-local; on a thread
-  // whose DTV generation is stale, the dynamic loader satisfies that read by reallocating the DTV,
-  // which re-enters this allocator and asks the same question again. Reporting re-entrancy lets the
-  // nested allocation be tracked and returned without asking, which bounds the recursion.
-  class AllocatorReentrancyGuard final {
-   public:
-    AllocatorReentrancyGuard(const AllocatorReentrancyGuard &) = delete;
-    AllocatorReentrancyGuard &operator=(const AllocatorReentrancyGuard &) = delete;
-    AllocatorReentrancyGuard(AllocatorReentrancyGuard &&) = delete;
-    AllocatorReentrancyGuard &operator=(AllocatorReentrancyGuard &&) = delete;
-
-    AllocatorReentrancyGuard() { ++depth_; }
-
-    ~AllocatorReentrancyGuard() { --depth_; }
-
-    static bool IsReentrant() { return depth_ > 1; };
-
-   private:
-    static thread_local uint64_t depth_ [[gnu::tls_model("initial-exec")]];
-  };
-
  private:
   std::atomic<int64_t> amount_{0};
   std::atomic<int64_t> peak_{0};
@@ -193,13 +171,47 @@ extern constinit MemoryTracker total_memory_tracker;
 extern constinit MemoryTracker graph_memory_tracker;
 extern constinit MemoryTracker vector_index_memory_tracker;
 
-// Prevent memory tracker for throwing during the stack unwinding.
-// The operand order is load-bearing: std::uncaught_exceptions() is the only check here that can
-// allocate, so every thread-local check must get its chance to short-circuit ahead of it.
+namespace detail {
+
+// Guards the one part of MemoryTrackerCanThrow() that can allocate. Reading libstdc++'s
+// exception-handling thread-local goes through the dynamic loader, which on a thread whose
+// thread-local storage generation is stale satisfies the read by reallocating that thread's
+// storage vector. That allocation is tracked, so it asks whether it may throw, and at the limit
+// the answer never changes. Reporting the re-entry lets the nested question be answered without
+// asking libstdc++ again, which terminates the descent.
+class ThrowCheckReentrancyGuard final {
+ public:
+  ThrowCheckReentrancyGuard(const ThrowCheckReentrancyGuard &) = delete;
+  ThrowCheckReentrancyGuard &operator=(const ThrowCheckReentrancyGuard &) = delete;
+  ThrowCheckReentrancyGuard(ThrowCheckReentrancyGuard &&) = delete;
+  ThrowCheckReentrancyGuard &operator=(ThrowCheckReentrancyGuard &&) = delete;
+
+  ThrowCheckReentrancyGuard() { evaluating_ = true; }
+
+  ~ThrowCheckReentrancyGuard() { evaluating_ = false; }
+
+  static bool IsEvaluating() { return evaluating_; };
+
+ private:
+  static thread_local bool evaluating_ [[gnu::tls_model("initial-exec")]];
+};
+
+}  // namespace detail
+
+// Whether an allocation that exceeds the hard limit may be refused by throwing.
+// The order is the layering, not a micro-optimisation. Throwing is opt-in per thread, so a thread
+// that never opted in cannot be refused whatever the remaining checks say; asking them anyway
+// would put the allocating check below on every thread in the process, including third-party
+// threads we do not control. Each check is therefore cheaper and more owned than the one after it,
+// and std::uncaught_exceptions() comes last because it is purely defensive: it asks whether
+// throwing is safe at this instant, having already established that throwing is wanted.
 inline bool MemoryTrackerCanThrow() {
-  return !MemoryTracker::AllocatorReentrancyGuard::IsReentrant() &&
-         MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow() &&
-         !MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked() && !std::uncaught_exceptions();
+  if (!MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow()) return false;
+  if (MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked()) return false;
+  if (detail::ThrowCheckReentrancyGuard::IsEvaluating()) return false;
+
+  const detail::ThrowCheckReentrancyGuard guard;
+  return !std::uncaught_exceptions();
 }
 
 }  // namespace memgraph::utils

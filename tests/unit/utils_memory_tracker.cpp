@@ -163,32 +163,44 @@ TEST(MemoryTrackerTest, SetHardLimitClampsAgainstMaximum) {
   EXPECT_EQ(tracker.HardLimit(), 512);
 }
 
-// The over-limit predicate reads libstdc++'s exception-handling thread-local, which the dynamic
-// loader may satisfy by resizing the thread's DTV through the same tracked allocator. A nested
-// tracked allocation must therefore complete without consulting that predicate again.
-TEST(MemoryTrackerTest, ReentrantAllocIsTrackedRatherThanRefused) {
+// Answering whether an over-limit allocation may throw can itself allocate, re-entering the
+// tracker with the same question. The nested question must be answered without asking again,
+// which shows up as the nested allocation being tracked rather than refused.
+TEST(MemoryTrackerTest, ReentrantThrowCheckAllowsTheNestedAllocation) {
   auto memory_tracker = MemoryTracker{};
 
   static constexpr auto hard_limit = 10;
   memory_tracker.SetHardLimit(hard_limit);
 
   auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
-
-  const MemoryTracker::AllocatorReentrancyGuard outer;
-  ASSERT_FALSE(MemoryTracker::AllocatorReentrancyGuard::IsReentrant());
   ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
 
-  const MemoryTracker::AllocatorReentrancyGuard inner;
-  ASSERT_TRUE(MemoryTracker::AllocatorReentrancyGuard::IsReentrant());
-  ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
-  ASSERT_EQ(memory_tracker.Amount(), hard_limit + 1);
+  {
+    const memgraph::utils::detail::ThrowCheckReentrancyGuard guard;
+    ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
+    ASSERT_EQ(memory_tracker.Amount(), hard_limit + 1);
+  }
+
+  memory_tracker.Free(hard_limit + 1);
+  ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
 }
 
-TEST(MemoryTrackerTest, ReentrancyGuardUnwindsToThrowingAgain) {
+// A thread that never opted into out-of-memory exceptions cannot be refused, so the limit must be
+// decided without consulting anything beyond that opt-in.
+TEST(MemoryTrackerTest, ThreadWithoutEnablerIsNeverRefused) {
+  auto memory_tracker = MemoryTracker{};
+
+  static constexpr auto hard_limit = 10;
+  memory_tracker.SetHardLimit(hard_limit);
+
+  ASSERT_FALSE(memgraph::utils::MemoryTrackerCanThrow());
+  ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
+}
+
+TEST(MemoryTrackerTest, ThrowCheckGuardClearsOnScopeExit) {
   {
-    const MemoryTracker::AllocatorReentrancyGuard outer;
-    const MemoryTracker::AllocatorReentrancyGuard inner;
-    ASSERT_TRUE(MemoryTracker::AllocatorReentrancyGuard::IsReentrant());
+    const memgraph::utils::detail::ThrowCheckReentrancyGuard guard;
+    ASSERT_TRUE(memgraph::utils::detail::ThrowCheckReentrancyGuard::IsEvaluating());
   }
-  ASSERT_FALSE(MemoryTracker::AllocatorReentrancyGuard::IsReentrant());
+  ASSERT_FALSE(memgraph::utils::detail::ThrowCheckReentrancyGuard::IsEvaluating());
 }

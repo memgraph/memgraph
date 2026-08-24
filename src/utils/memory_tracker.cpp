@@ -28,7 +28,8 @@ constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionEnabler::coun
     [[gnu::tls_model("initial-exec")]] = 0;
 constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::counter_
     [[gnu::tls_model("initial-exec")]] = 0;
-constinit thread_local uint64_t MemoryTracker::AllocatorReentrancyGuard::depth_ [[gnu::tls_model("initial-exec")]] = 0;
+
+constinit thread_local bool detail::ThrowCheckReentrancyGuard::evaluating_ [[gnu::tls_model("initial-exec")]] = false;
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 constinit MemoryTracker total_memory_tracker{};
