@@ -9,26 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Regression test for QA-2026-07-16-TLS: an uncatchable abort() at the memory ceiling caused by
-// glibc's thread-local destructor registration.
+// Registering a thread-local destructor allocates inside glibc, and glibc cannot act on a refusal.
 //
-// Mechanism (verified against the source):
-//   * The first touch of a thread_local whose type has a NON-trivial destructor makes the compiler
-//     emit a call to __cxa_thread_atexit (libstdc++) -> __cxa_thread_atexit_impl (glibc) so the
-//     destructor can be run at thread exit.
-//   * __cxa_thread_atexit_impl performs a small internal allocation (calloc) to record the
-//     destructor node. Memgraph overrides calloc/malloc (src/memory/malloc_free.cpp) and routes
-//     them through the query memory tracker.
-//   * If the thread is query-tracked and already at its --memory-limit, that allocation is REFUSED
-//     (returns nullptr). glibc cannot propagate the failure (the ABI has no error path here), so it
-//     calls __libc_fatal -> abort(): a hard SIGABRT that bypasses Memgraph's graceful
-//     OutOfMemoryException path entirely.
+// The first touch of a thread_local whose type has a non-trivial destructor emits a call to
+// __cxa_thread_atexit -> __cxa_thread_atexit_impl, which callocs a node to record the destructor.
+// That calloc is routed through the query memory tracker like any other. Refusing it returns a
+// null the ABI has no way to report, so glibc calls __libc_fatal and aborts, bypassing the
+// OutOfMemoryException path. It is exempt because it is made outside any RefusalHandledScope.
 //
-// The fix (src/query/plan/operator.cpp) holds such per-thread state in a trivially destructible
-// wrapper (absl::NoDestructor), so NO __cxa_thread_atexit registration is emitted and the failing
-// allocation never happens. This test exercises the general mechanism:
-//   * RawThreadLocalWithDtorAbortsUnderPressure  -- reproduces the crash (death test).
-//   * NoDestructorWrappedTlsSurvivesUnderPressure -- the fix pattern survives the same pressure.
+// Both cases run against real glibc rather than the tracker in isolation: one where the
+// registration allocation happens and must not be refused, one where a trivially destructible
+// holder emits no registration and so never allocates.
 
 #include <gtest/gtest.h>
 
@@ -47,9 +38,8 @@ namespace {
 using memgraph::utils::MemoryTracker;
 using memgraph::utils::QueryMemoryTracker;
 
-// A type whose CONSTRUCTION allocates nothing, but whose user-provided destructor makes it
-// non-trivially destructible -- so a thread_local of this type triggers __cxa_thread_atexit on
-// first touch. This isolates the registration allocation as the only thing that can fail.
+// Constructing this allocates nothing, but the user-provided destructor makes it non-trivially
+// destructible, so the registration allocation is the only one that can fail.
 struct NonTrivialDtor {
   // NOLINTNEXTLINE(modernize-use-equals-default) -- must be user-provided to be non-trivial.
   ~NonTrivialDtor() {}
@@ -60,9 +50,8 @@ struct NonTrivialDtor {
 static_assert(!std::is_trivially_destructible_v<NonTrivialDtor>,
               "test premise: raw type must register a TLS destructor");
 
-// A trivially destructible holder that constructs T in place and never destroys it. This mirrors
-// the absl::NoDestructor used by the fix (src/query/plan/operator.cpp): because the holder itself is
-// trivially destructible, a thread_local of this type emits NO __cxa_thread_atexit registration.
+// Constructs T in place and never destroys it, so the holder stays trivially destructible and a
+// thread_local of this type emits no registration.
 template <typename T>
 struct NeverDestroyed {
   NeverDestroyed() { ::new (static_cast<void *>(&storage_)) T(); }
@@ -116,22 +105,17 @@ void RunOnFreshThreadUnderPressure(Fn fn) {
 
 }  // namespace
 
-// Reproduces the crash: a raw thread_local with a non-trivial destructor, first-touched at the
-// ceiling, aborts the process. Run as a death test so the SIGABRT happens in a forked child.
-TEST(TlsDestructorOomAbortDeathTest, RawThreadLocalWithDtorAbortsUnderPressure) {
+// Were the registration allocation refused, glibc would abort, taking down the whole test binary
+// rather than failing this assertion.
+TEST(TlsDestructorOomAbortTest, RawThreadLocalWithDtorSurvivesUnderPressure) {
 #if USE_JEMALLOC
-  // Assert the death is specifically glibc's TLS-destructor registration failure, not an unrelated
-  // abort. glibc 2.4x prints "failed to register TLS destructor" before calling abort().
-  EXPECT_DEATH({ RunOnFreshThreadUnderPressure(&TouchRawTlsWithDtor); }, "register TLS destructor");
+  EXPECT_NO_FATAL_FAILURE({ RunOnFreshThreadUnderPressure(&TouchRawTlsWithDtor); });
 #else
   GTEST_SKIP() << "Query memory tracking (and the malloc/calloc override) require USE_JEMALLOC.";
 #endif
 }
 
-// The fix pattern: the same per-thread state wrapped in absl::NoDestructor is trivially
-// destructible, so no __cxa_thread_atexit registration is emitted and nothing allocates on first
-// touch -- the thread survives the identical pressure. (If it did NOT survive, the abort would take
-// down the whole test binary, not merely fail this assertion.)
+// A trivially destructible holder emits no registration, so first touch allocates nothing.
 TEST(TlsDestructorOomAbortTest, NoDestructorWrappedTlsSurvivesUnderPressure) {
 #if USE_JEMALLOC
   EXPECT_NO_FATAL_FAILURE({ RunOnFreshThreadUnderPressure(&TouchNoDestructorWrappedTls); });

@@ -29,6 +29,8 @@ constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionEnabler::coun
 constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::counter_
     [[gnu::tls_model("initial-exec")]] = 0;
 
+constinit thread_local bool MemoryTracker::refusal_handled_ [[gnu::tls_model("initial-exec")]] = false;
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 constinit MemoryTracker total_memory_tracker{};
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -110,7 +112,7 @@ bool MemoryTracker::Alloc(int64_t const size) {
 
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
-  if (current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow()) [[unlikely]] {
+  if (current_hard_limit && will_be > current_hard_limit && MayRefuseAllocation()) [[unlikely]] {
     MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
 
     amount_.fetch_sub(size, std::memory_order_relaxed);
@@ -139,6 +141,8 @@ bool MemoryTracker::Alloc(int64_t const size) {
   return true;
 }
 
+// Throws at a point its caller chose rather than refusing an allocation, so it asks only whether
+// throwing is safe: no allocation is in flight for a refusal scope to have been declared around.
 void MemoryTracker::DoCheck() {
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
   const auto current_amount = amount_.load(std::memory_order_relaxed);
