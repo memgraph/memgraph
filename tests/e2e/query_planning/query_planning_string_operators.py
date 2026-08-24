@@ -468,5 +468,27 @@ def test_non_string_subject_compares_to_null(memgraph, op):
     assert list(memgraph.execute_and_fetch(q))[0]["c"] == 0
 
 
+@pytest.mark.parametrize(
+    "predicate,needle",
+    [
+        ("n.type CONTAINS 'lph'", "CONTAINS"),
+        ("n.type ENDS WITH 'ha'", "ENDS WITH"),
+        ("n.type =~ 'al.*'", "=~"),
+    ],
+)
+def test_is_not_null_upgraded_to_string_predicate(memgraph, predicate, needle):
+    """When IS NOT NULL and a string predicate target the same indexed property,
+    the planner upgrades to the string predicate so the skip-scan ValuePredicate
+    reaches the storage layer. The string predicate should not survive as a
+    separate Filter operator."""
+    query = f"MATCH (n:N) WHERE n.type IS NOT NULL AND {predicate} RETURN n"
+    plan = get_plan(memgraph, query)
+    ops = operator_names(plan)
+    assert "ScanAllByLabelProperties" in ops, f"Expected index scan, got: {plan}"
+    # The string predicate should be absorbed into the scan, not left as a post-filter.
+    filter_lines = [line for line in plan if "Filter" in line and needle in line]
+    assert not filter_lines, f"String predicate should not remain as a post-filter: {plan}"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
