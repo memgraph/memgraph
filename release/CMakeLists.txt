@@ -25,6 +25,15 @@ elseif(${MG_ARCH} STREQUAL "ARM64")
     set(MG_ARCH_EXTENSION_DEB "arm64")
 endif()
 
+# Normalised "ON"/"OFF" copy, CPACK_-prefixed so it is serialized into
+# CPackConfig.cmake: the deb postinst template and the rpm spec's %post read
+# it to skip the libpython symlink and pip phases in Python-less builds.
+if(MG_PYTHON_SUPPORT)
+    set(CPACK_MG_PYTHON_SUPPORT "ON")
+else()
+    set(CPACK_MG_PYTHON_SUPPORT "OFF")
+endif()
+
 # DEB specific
 # Instead of using "name <email>" format, we use "email (name)" to prevent
 # errors due to full stop, '.' at the end of "Ltd". (See: RFC 822)
@@ -32,13 +41,22 @@ set(CPACK_DEBIAN_PACKAGE_MAINTAINER "tech@memgraph.com (Memgraph Ltd.)")
 set(CPACK_DEBIAN_PACKAGE_SECTION non-free/database)
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE https://memgraph.com)
 set(CPACK_DEBIAN_PACKAGE_VERSION "${MEMGRAPH_VERSION_DEB}")
+# postinst is templated: its libpython symlink + pip phases are skipped when
+# the build has MG_PYTHON_SUPPORT=OFF (see CPACK_MG_PYTHON_SUPPORT above).
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst.in
+    ${CMAKE_CURRENT_BINARY_DIR}/debian/postinst
+    @ONLY
+    FILE_PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE)
 set(CPACK_DEBIAN_MEMGRAPH_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/conffiles;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/copyright;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/preinst;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;"
-    "${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;")
+    "${CMAKE_CURRENT_BINARY_DIR}/debian/postinst;")
 # Auto-shlibdeps is OFF: dpkg-shlibdeps reads the build host's libc6.symbols
 # (which has `Build-Depends-Package: libc6-dev` forcing minimum to whatever
 # libc6 the build host ships), so building on Ubuntu 24.04 results in
@@ -52,6 +70,11 @@ set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
  Contains Memgraph, the graph database. It aims to deliver developers the
  speed, simplicity and scale required to build the next generation of
  applications driver by real-time connected data.")
+if(NOT MG_PYTHON_SUPPORT)
+    string(APPEND CPACK_DEBIAN_PACKAGE_DESCRIPTION "
+ Built without the embedded Python interpreter: Python query modules are
+ unavailable, only C/C++ (.so) query modules can be loaded.")
+endif()
 
 # Explicit runtime deps. Format:
 #   libc6 (>= 2.31)           — matches the toolchain sysroot glibc floor.
@@ -82,8 +105,15 @@ set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
 #                                jammy also carries 3.11 in universe — newest
 #                                first would embed 3.11 while pip fills 3.10's
 #                                site-packages, breaking the python modules).
+#
+# Everything from python3 onwards exists for the embedded interpreter and the
+# postinst pip phase, so it is only declared when MG_PYTHON_SUPPORT=ON.
 set(CPACK_DEBIAN_PACKAGE_DEPENDS
-    "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, libatomic1, openssl (>= 1.1.0), python3 (>= 3.5.0), python3-pip, ca-certificates, libxmlsec1 | libxmlsec1-1, libkrb5-3, libpython3.10 | libpython3.11 | libpython3.12 | libpython3.13 | libpython3.14")
+    "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, libatomic1, openssl (>= 1.1.0)")
+if(MG_PYTHON_SUPPORT)
+    string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS
+        ", python3 (>= 3.5.0), python3-pip, ca-certificates, libxmlsec1 | libxmlsec1-1, libkrb5-3, libpython3.10 | libpython3.11 | libpython3.12 | libpython3.13 | libpython3.14")
+endif()
 
 # Setting architecture extension for rpm packages
 set(MG_ARCH_EXTENSION_RPM "noarch")
@@ -115,6 +145,11 @@ set(CPACK_RPM_PACKAGE_AUTOREQ " no")
 set(CPACK_RPM_PACKAGE_DESCRIPTION "Contains Memgraph, the graph database.
 It aims to deliver developers the speed, simplicity and scale required to build
 the next generation of applications driver by real-time connected data.")
+if(NOT MG_PYTHON_SUPPORT)
+    string(APPEND CPACK_RPM_PACKAGE_DESCRIPTION "
+Built without the embedded Python interpreter: Python query modules are
+unavailable, only C/C++ (.so) query modules can be loaded.")
+endif()
 
 # Add `openssl` package to dependencies list. Used to generate SSL certificates.
 # We also depend on `python3` because we embed it in Memgraph. `libatomic` is a
@@ -123,7 +158,14 @@ the next generation of applications driver by real-time connected data.")
 # python3-pip + util-linux (runuser) serve the %post pip install of the
 # query-module deps; xmlsec1/krb5-libs are the system libs behind the pip
 # xmlsec and gssapi packages (SAML / Kerberos SSO).
-set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, python3-pip, logrotate, libatomic, util-linux, xmlsec1, krb5-libs")
+set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, logrotate, libatomic")
+# The el9 python3.12 rich dependency lives in the spec template as a whole
+# line, so it can be dropped entirely for Python-less builds.
+set(CPACK_MG_RPM_PYTHON_REQUIRES "")
+if(MG_PYTHON_SUPPORT)
+    string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python3 >= 3.5.0, python3-pip, util-linux, xmlsec1, krb5-libs")
+    set(CPACK_MG_RPM_PYTHON_REQUIRES "Requires:       ((python3.12 and python3.12-pip) if system-release(releasever) = 9)")
+endif()
 
 # When memgraph is built against an explicit Python (currently CentOS Stream 9,
 # where it embeds python 3.12 instead of the distro-default 3.9 — see
@@ -132,7 +174,7 @@ set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, pytho
 # interpreter memgraph actually embeds. CPACK_-prefixed copy so the value is
 # serialized into CPackConfig.cmake and substituted into the spec template.
 set(CPACK_MG_PYTHON_VERSION "${MG_PYTHON_VERSION}")
-if(NOT "${MG_PYTHON_VERSION}" STREQUAL "")
+if(MG_PYTHON_SUPPORT AND NOT "${MG_PYTHON_VERSION}" STREQUAL "")
     set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "${CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES}, python${MG_PYTHON_VERSION}, python${MG_PYTHON_VERSION}-pip")
 endif()
 

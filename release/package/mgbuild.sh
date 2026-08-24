@@ -152,6 +152,7 @@ print_help () {
   echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
   echo -e "  --mage MODE                   MAGE query modules: off (default), on (build alongside memgraph), only (just MAGE; trims the conan graph). Mirrors build.sh's --mage. Combine with global --cugraph for GPU modules."
   echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph)."
+  echo -e "  --no-python                   Build memgraph without the embedded Python interpreter (maps to -DMG_PYTHON_SUPPORT=OFF; the package then has no libpython/python3/pip dependencies)."
   echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
   echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
@@ -580,6 +581,7 @@ build_memgraph () {
   local python_build_version=""
   local python_build_version_flag=""
   local python_runtime_version=""
+  local python_support_flag=""
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -658,6 +660,10 @@ build_memgraph () {
         python_build_version="$2"
         python_build_version_flag="-DMG_PYTHON_VERSION=$2"
         shift 2
+      ;;
+      --no-python)
+        python_support_flag="-DMG_PYTHON_SUPPORT=OFF"
+        shift 1
       ;;
       --python-runtime-version)
         python_runtime_version="$2"
@@ -852,7 +858,7 @@ build_memgraph () {
 
   # Add additional CMake options if any are specified
   local additional_options=""
-  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag" "$python_build_version_flag")
+  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag" "$python_build_version_flag" "$python_support_flag")
 
   for flag in "${flags[@]}"; do
     if [[ -n "$flag" ]]; then
