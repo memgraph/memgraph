@@ -453,11 +453,11 @@ setup_host_cache_permissions() {
 
   if [[ "$mgbench_cache_enabled" == "true" ]]; then
     echo "Setting up host mgbench cache directory permissions..."
-    mkdir -pv $mgbench_cache_dir
+    mkdir -pv -- "$mgbench_cache_dir"
 
     # Set open permissions on the mgbench cache directory to allow cross-container access
     # Suppress both errors and warnings about operations not permitted
-    chmod -R a+rwX $mgbench_cache_dir 2>/dev/null || true
+    chmod -R a+rwX -- "$mgbench_cache_dir" 2>/dev/null || true
 
     echo "Host mgbench cache directory permissions set to a+rwX (open access)"
   fi
@@ -1903,6 +1903,11 @@ test_memgraph() {
             NO_AUTHORIZATION="--no-authorization"
             shift 1
           ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench-supernode" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
+            exit 1
+          ;;
         esac
       done
 
@@ -1921,6 +1926,11 @@ test_memgraph() {
           --no-authorization)
             NO_AUTHORIZATION="--no-authorization"
             shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench-load-parquet" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
+            exit 1
           ;;
         esac
       done

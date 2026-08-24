@@ -580,8 +580,12 @@ def get_query_cache_count(
     config_key = [workload.NAME, workload.get_variant(), group, query]
     # Generators seed on their own name, so the first query they produce is stable across runs
     # and changes only when the query itself is edited. Parameters are meant to vary, so only
-    # the query text takes part in the hash.
+    # the query text takes part in the hash. Every get_queries call reseeds, so restoring the
+    # RNG state is not needed today - it keeps this from becoming a trap for whoever adds a
+    # randomness consumer after this point.
+    rng_state = random.getstate()
     query_hash = hashlib.sha256(get_queries(func, 1, benchmark_context)[0][0].encode()).hexdigest()[:16]
+    random.setstate(rng_state)
     cached_count = config.get_value(*config_key)
     if cached_count is not None and cached_count.get(QUERY_HASH) != query_hash:
         log.log("Cached query count for {} is stale (query changed), recalibrating.".format(query))
