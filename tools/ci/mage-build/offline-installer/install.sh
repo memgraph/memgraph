@@ -27,6 +27,23 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 
+# Verbose output from dpkg goes to this log rather than the terminal. dpkg's
+# multi-pass install (see step 1) legitimately prints "dpkg: error processing
+# ..." on its early passes and recovers on the next one, which reads as a
+# failed install to anyone watching. Keep the noise here and surface it only
+# when a phase genuinely fails.
+INSTALL_LOG="${INSTALL_LOG:-/var/log/memgraph-offline-install.log}"
+: > "$INSTALL_LOG" 2>/dev/null || INSTALL_LOG=/tmp/memgraph-offline-install.log
+: > "$INSTALL_LOG"
+
+die() {
+  echo "Error: $1" >&2
+  echo "--- last 50 lines of $INSTALL_LOG ---" >&2
+  tail -n 50 "$INSTALL_LOG" >&2 || true
+  echo "--- full log: $INSTALL_LOG ---" >&2
+  exit 1
+}
+
 # ---------------------------------------------------------------------------
 # 1. Install apt dependencies directly from the bundled .deb files.
 # ---------------------------------------------------------------------------
@@ -65,21 +82,24 @@ if [[ ${#APT_DEBS[@]} -eq 0 ]]; then
   exit 1
 fi
 
+echo "    installing ${#APT_DEBS[@]} packages, this takes a minute (log: $INSTALL_LOG)"
 for attempt in 1 2 3; do
-  if dpkg -i "${APT_DEBS[@]}"; then
+  if dpkg -i "${APT_DEBS[@]}" >>"$INSTALL_LOG" 2>&1; then
     break
   fi
-  echo "==> dpkg pass $attempt left packages half-installed, running --configure -a"
+  echo "    resolving dependency order (pass $attempt) ..."
   # `|| true` is critical here: the configure pass *will* fail until enough
   # packages are unpacked (e.g. python3-pip can't configure until python3 is
   # there). We need to let the loop iterate so the next dpkg -i can unpack
   # the packages whose Pre-Depends are now satisfied. set -euo pipefail would
-  # otherwise kill the script after this line.
-  dpkg --configure -a || true
+  # otherwise kill the script after this line. The dpkg errors these passes
+  # emit are expected and stay in $INSTALL_LOG.
+  dpkg --configure -a >>"$INSTALL_LOG" 2>&1 || true
 done
 # Final verification: any half-configured package here is a real bug, not an
-# ordering glitch, so let the script die.
-dpkg --configure -a
+# ordering glitch, so fail loudly and show what dpkg said.
+dpkg --configure -a >>"$INSTALL_LOG" 2>&1 \
+  || die "apt dependencies could not be configured"
 
 # Match install_runtime_requirements.sh: provide the libaio.so.1 symlink some
 # of the python modules link against.
@@ -93,10 +113,13 @@ fi
 # ---------------------------------------------------------------------------
 echo "==> Creating memgraph user"
 if ! getent group memgraph >/dev/null; then
-  groupadd -g 103 memgraph
+  groupadd -g 103 memgraph >>"$INSTALL_LOG" 2>&1 || die "could not create the memgraph group"
 fi
 if ! id memgraph >/dev/null 2>&1; then
-  useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph
+  # Output to the log: the fixed uid/gid (matching Dockerfile.release) is below
+  # useradd's UID_MIN, so it warns every time. That is deliberate, not a fault.
+  useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph \
+    >>"$INSTALL_LOG" 2>&1 || die "could not create the memgraph user"
 fi
 
 # ---------------------------------------------------------------------------
@@ -131,14 +154,20 @@ chown -R memgraph:memgraph "$WHEELS_DIR" "$REQS_DIR"
 # *.whl` instead would fail because the wheel cache contains multiple
 # versions of some packages (e.g. cryptography 46 from auth-module pin +
 # cryptography 48 from oracledb's looser >=3.2.1 constraint).
-su - memgraph -c "python3 -m pip install --no-cache-dir \
+# --no-warn-script-location: pip otherwise emits a WARNING for each of the ~20
+# console scripts it lays down in /home/memgraph/.local/bin, none of which are
+# meant to be run from a shell — memgraph imports these packages as libraries.
+# It has to be a command-line flag: as a pip.conf key it silently does nothing,
+# because pip assigns config values straight to the option's dest and this one
+# is a store_false (`no-warn-script-location = true` would *enable* warnings).
+su - memgraph -c "python3 -m pip install --no-cache-dir --no-warn-script-location \
   -r $REQS_DIR/mage-requirements.txt \
   -r $REQS_DIR/auth-module-requirements.txt"
 
 # Now the PyG / DGL extras that don't appear in any requirements file
 # (install_python_requirements.sh installs them by S3 URL). Resolved by
 # name from the wheel cache via pip.conf's find-links.
-su - memgraph -c "python3 -m pip install --no-cache-dir \
+su - memgraph -c "python3 -m pip install --no-cache-dir --no-warn-script-location \
   torch-cluster torch-geometric torch-scatter torch-sparse torch-spline-conv dgl"
 
 # ---------------------------------------------------------------------------
@@ -165,12 +194,19 @@ if [[ -z "$MAGE_DEB" ]]; then
   exit 1
 fi
 
-# MEMGRAPH_OFFLINE_INSTALL=1 propagates into the postinst environment and
-# tells it to tolerate install_python_requirements.sh failing (it tries to
-# curl/pip-install from the internet, which doesn't work offline — but the
-# wheels are already installed by step 3). Without this env var the postinst
-# treats the failure as hard so normal online apt/dpkg installs don't
-# silently leave MAGE broken.
+# MG_SKIP_PYTHON_DEPS=1 tells both postinsts (memgraph's and MAGE's) to skip
+# their pip phase outright. Step 3 already installed every python dep from the
+# bundled wheels, so that phase has nothing left to do — but it installs some
+# packages by explicit https URL, which pip attempts regardless of what is
+# already present. Offline that means ~8 DNS retries per package and a pair of
+# alarming "ERROR: Could not install packages due to an OSError" blocks before
+# it gives up. Skipping is both quieter and considerably faster.
+export MG_SKIP_PYTHON_DEPS=1
+# Belt and braces: should a future postinst grow another network-dependent
+# step, MEMGRAPH_OFFLINE_INSTALL=1 tells it to treat the failure as a warning
+# instead of a hard error. Unset for normal online apt/dpkg installs, so a
+# genuine pip failure there still fails loudly rather than silently leaving
+# MAGE broken.
 export MEMGRAPH_OFFLINE_INSTALL=1
 
 # All Depends: from these debs (openssl, python3, libcurl4, etc.) were
@@ -178,13 +214,16 @@ export MEMGRAPH_OFFLINE_INSTALL=1
 # so install order matters; loop with --configure -a between passes in case
 # of any Pre-Depends/ordering quirks (same pattern as step 1).
 for attempt in 1 2 3; do
-  if dpkg -i "$MEMGRAPH_DEB" "$MAGE_DEB"; then
+  if dpkg -i "$MEMGRAPH_DEB" "$MAGE_DEB" >>"$INSTALL_LOG" 2>&1; then
     break
   fi
-  dpkg --configure -a || true
+  echo "    resolving dependency order (pass $attempt) ..."
+  dpkg --configure -a >>"$INSTALL_LOG" 2>&1 || true
 done
-dpkg --configure -a
+dpkg --configure -a >>"$INSTALL_LOG" 2>&1 \
+  || die "memgraph + memgraph-mage could not be configured"
 
 echo
 echo "Memgraph + MAGE installed successfully."
 echo "Start with: systemctl start memgraph"
+echo "Installation log: $INSTALL_LOG"
