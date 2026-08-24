@@ -417,6 +417,58 @@ TEST(Scheduler, CronSpecificDateTimeWTZ) {
 }
 #endif
 
+TEST(Scheduler, PauseAndWaitIdleScheduler) {
+  memgraph::utils::Scheduler scheduler;
+  ASSERT_NO_THROW(scheduler.PauseAndWait());
+  ASSERT_NO_THROW(scheduler.Resume());
+}
+
+TEST(Scheduler, PauseAndWaitDrainsInflight) {
+  std::atomic<int> exec_count{0};
+  std::atomic<bool> in_callback{false};
+  std::atomic<bool> may_exit{false};
+
+  memgraph::utils::Scheduler scheduler;
+  scheduler.SetInterval(std::chrono::milliseconds(10));
+  scheduler.Run("Test", [&] {
+    exec_count.fetch_add(1);
+    in_callback.store(true);
+    in_callback.notify_all();
+    may_exit.wait(false);
+  });
+
+  // Wait for the callback to start executing.
+  in_callback.wait(false);
+
+  // Let the callback finish, then PauseAndWait from another thread
+  // to avoid any ordering ambiguity.
+  std::atomic<bool> pause_done{false};
+  std::jthread pauser([&] {
+    scheduler.PauseAndWait();
+    pause_done.store(true);
+    pause_done.notify_all();
+  });
+
+  // PauseAndWait should be blocked because callback is still running.
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  EXPECT_FALSE(pause_done.load());
+
+  // Now let the callback finish.
+  may_exit.store(true);
+  may_exit.notify_all();
+
+  // PauseAndWait should return promptly.
+  pause_done.wait(false);
+  EXPECT_TRUE(pause_done.load());
+
+  // No further executions while paused.
+  auto const count_after = exec_count.load();
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  EXPECT_EQ(exec_count.load(), count_after);
+
+  scheduler.Resume();
+}
+
 TEST(Scheduler, SkipSlowExecutions) {
   std::atomic<int> x{0};
   std::atomic_bool executed{false};
