@@ -272,6 +272,7 @@ jobs:
       package_mage: "default"
       upload_debug_symbols: true
       generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
+      build_offline_installer: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
     secrets: inherit
 
   AggregateMAGEBuildTests:
