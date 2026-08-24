@@ -5,7 +5,9 @@ on:
     inputs:
       loop_count:
         type: number
-        description: "Number of times to run the benchmarks. Default is 10."
+        description: "Number of times to run the benchmarks. Default is 10. Not applied to the high
+          availability suites: each of those runs once however this is set, because a single iteration
+          already restarts a cluster per measurement and eight of them take hours."
         default: 10
   schedule:
     - cron: "0 1 * * *"
@@ -21,7 +23,7 @@ jobs:
     # TEMPORARY: only mgbench-ha runs, so the budget is that one suite. The figure below is an
     # estimate, not a measurement, which is why the margin is generous. Restore the original 550 when
     # the other steps are re-enabled, adjusted for whatever mgbench-ha turns out to cost.
-    timeout-minutes: 600
+    timeout-minutes: 400
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
     #  - mgbench-ha: 25 minutes (ESTIMATE, not yet measured: 6 queries at one five-process cluster
@@ -46,12 +48,11 @@ jobs:
     #  - mgbench-vector-search-edge-index: 5 minutes
     #  - mgbench-text-search-index: 5 minutes
     #  - mgbench-text-search-edge-index: 5 minutes
-    #  The eight high availability suites come to about 224 minutes for a single iteration, so the
-    #  loop count is what decides whether this job is feasible at all: at 10 it would be roughly 37
-    #  hours, far longer than the interval between nightly runs, and with no concurrency group the runs
-    #  would overlap and collide on the cluster's fixed ports. The default is 2 while these suites are
-    #  being brought up, which is about 450 minutes. Restoring the other benchmark steps, or raising the
-    #  loop count, needs this arithmetic redone. Every figure above is an estimate, not a measurement.
+    #  The eight high availability suites come to about 224 minutes and do not scale with loop_count,
+    #  since each is pinned to a single iteration. That is the whole of this job's cost while the other
+    #  benchmark steps are disabled. Re-enabling them brings back a cost that does scale with
+    #  loop_count, so this arithmetic needs redoing at that point. Every figure above is an estimate,
+    #  not a measurement.
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"
@@ -78,7 +79,7 @@ jobs:
       DEFAULT_MGBENCH_HA_2_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2_async.json'
       DEFAULT_MGBENCH_HA_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_sync_async.json'
       DEFAULT_MGBENCH_HA_STRICT_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_strict_sync_async.json'
-      LOOP_COUNT: ${{ inputs.loop_count || 2 }}
+      LOOP_COUNT: ${{ inputs.loop_count || 10 }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
       CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
       CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
@@ -160,6 +161,9 @@ jobs:
       - name: Run and upload mgbench-ha
         id: mgbench-ha
         continue-on-error: true
+        # A single iteration regardless of loop_count; see that input's description.
+        env:
+          LOOP_COUNT: 1
         run: |
           ./tools/ci/loop-benchmark.sh \
             mgbench-ha \
@@ -173,6 +177,9 @@ jobs:
       - name: Run and upload mgbench-ha-2-replicas
         id: mgbench-ha-2-replicas
         continue-on-error: true
+        # A single iteration regardless of loop_count; see that input's description.
+        env:
+          LOOP_COUNT: 1
         run: |
           ./tools/ci/loop-benchmark.sh \
             "mgbench-ha --cluster-description ha_cluster_2_replicas.yaml" \
@@ -186,6 +193,9 @@ jobs:
       - name: Run and upload mgbench-ha-async
         id: mgbench-ha-async
         continue-on-error: true
+        # A single iteration regardless of loop_count; see that input's description.
+        env:
+          LOOP_COUNT: 1
         run: |
           ./tools/ci/loop-benchmark.sh \
             "mgbench-ha --cluster-description ha_cluster_async.yaml" \
@@ -199,6 +209,9 @@ jobs:
       - name: Run and upload mgbench-ha-strict-sync
         id: mgbench-ha-strict-sync
         continue-on-error: true
+        # A single iteration regardless of loop_count; see that input's description.
+        env:
+          LOOP_COUNT: 1
         run: |
           ./tools/ci/loop-benchmark.sh \
             "mgbench-ha --cluster-description ha_cluster_strict_sync.yaml" \
@@ -212,6 +225,9 @@ jobs:
       - name: Run and upload mgbench-ha-2-strict-sync
         id: mgbench-ha-2-strict-sync
         continue-on-error: true
+        # A single iteration regardless of loop_count; see that input's description.
+        env:
+          LOOP_COUNT: 1
         run: |
           ./tools/ci/loop-benchmark.sh \
             "mgbench-ha --cluster-description ha_cluster_2_strict_sync.yaml" \
@@ -225,6 +241,9 @@ jobs:
       - name: Run and upload mgbench-ha-sync-async
         id: mgbench-ha-sync-async
         continue-on-error: true
+        # A single iteration regardless of loop_count; see that input's description.
+        env:
+          LOOP_COUNT: 1
         run: |
           ./tools/ci/loop-benchmark.sh \
             "mgbench-ha --cluster-description ha_cluster_sync_async.yaml" \
@@ -238,6 +257,9 @@ jobs:
       - name: Run and upload mgbench-ha-strict-sync-async
         id: mgbench-ha-strict-sync-async
         continue-on-error: true
+        # A single iteration regardless of loop_count; see that input's description.
+        env:
+          LOOP_COUNT: 1
         run: |
           ./tools/ci/loop-benchmark.sh \
             "mgbench-ha --cluster-description ha_cluster_strict_sync_async.yaml" \
@@ -251,6 +273,9 @@ jobs:
       - name: Run and upload mgbench-ha-2-async
         id: mgbench-ha-2-async
         continue-on-error: true
+        # A single iteration regardless of loop_count; see that input's description.
+        env:
+          LOOP_COUNT: 1
         run: |
           ./tools/ci/loop-benchmark.sh \
             "mgbench-ha --cluster-description ha_cluster_2_async.yaml" \

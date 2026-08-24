@@ -188,6 +188,11 @@ check even though its own mode goes unused while it is main. So any description 
 replica registers main STRICT_SYNC too. Where no STRICT_SYNC is involved, main keeps the default,
 which also leaves a failover target, since failover to an ASYNC replica is forbidden by default.
 
+Each runs once per nightly job rather than repeating: the workflow's `loop_count` input does not apply
+to them, since one iteration already restarts a cluster per measurement and eight suites take hours.
+That is worth knowing when reading the series — a point is a single sample, not an average, so
+run-to-run variance is visible rather than smoothed.
+
 Pass one by name with `--vendor-specific ha-cluster-yaml=<file> --`; the trailing `--` matters, since
 that option takes several values and would otherwise swallow the positional workload arguments. Each
 runs as its own nightly suite and series, so the cost of a second acknowledgement, of dropping the
