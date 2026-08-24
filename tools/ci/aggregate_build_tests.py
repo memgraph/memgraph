@@ -65,6 +65,7 @@ def parse_file_os_arch(file, image_type):
         # slot (memgraph-mage[-debuginfo]-<ver>-1.<os>.<arch>[<suffix>].rpm).
         is_deb = file.endswith(".deb")
         is_rpm = file.endswith(".rpm")
+        is_run = file.endswith(".run")
 
         # rpms use `aarch64`, debs/docker tarballs use `arm64`
         if "aarch64" in file or "arm64" in file:
@@ -93,6 +94,8 @@ def parse_file_os_arch(file, image_type):
             os = "RPM"
         elif is_deb:
             os = "DEB"
+        elif is_run:
+            os = "Offline Installer"
         else:
             os = f"Docker ({base_arch})"
 
