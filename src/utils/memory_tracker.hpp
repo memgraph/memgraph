@@ -149,6 +149,31 @@ class MemoryTracker final {
     static thread_local uint64_t counter_ [[gnu::tls_model("initial-exec")]];
   };
 
+  // Marks a scope whose caller turns a refused allocation into an exception. Refusing is only
+  // meaningful to a caller that can act on it; the dynamic loader, and C libraries generally, have
+  // no path back from a null return, and for the loader a null return is fatal. Outside such a
+  // scope an over-limit allocation is therefore tracked and allowed, and the limit is enforced at
+  // the next allocation that does come through one.
+  class RefusalHandledScope final {
+   public:
+    RefusalHandledScope(const RefusalHandledScope &) = delete;
+    RefusalHandledScope &operator=(const RefusalHandledScope &) = delete;
+    RefusalHandledScope(RefusalHandledScope &&) = delete;
+    RefusalHandledScope &operator=(RefusalHandledScope &&) = delete;
+
+    // Saved and restored rather than cleared, because these scopes nest: an allocation made while
+    // handling one is not itself covered by it.
+    RefusalHandledScope() : previous_{handled_} { handled_ = true; }
+
+    ~RefusalHandledScope() { handled_ = previous_; }
+
+    static bool IsRefusalHandled() { return handled_; };
+
+   private:
+    bool previous_;
+    static thread_local bool handled_ [[gnu::tls_model("initial-exec")]];
+  };
+
  private:
   std::atomic<int64_t> amount_{0};
   std::atomic<int64_t> peak_{0};

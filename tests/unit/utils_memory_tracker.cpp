@@ -33,11 +33,13 @@ TEST(MemoryTrackerTest, ExceptionEnabler) {
     while (!enabler_created);
 
     auto thread_notifier = memgraph::utils::OnScopeExit{[&] { can_continue = true; }};
+    const MemoryTracker::RefusalHandledScope refusal_handled;
     ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
   }};
 
   auto throwing_thread = std::jthread{[&] {
     auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+    const MemoryTracker::RefusalHandledScope refusal_handled;
     enabler_created = true;
     ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
 
@@ -52,6 +54,7 @@ TEST(MemoryTrackerTest, ExceptionBlocker) {
   memory_tracker.SetHardLimit(hard_limit);
 
   auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
   {
     auto exception_blocker = MemoryTracker::OutOfMemoryExceptionBlocker{};
 
@@ -101,6 +104,7 @@ TEST(EmbeddingTrackingTest, ParentLimitBlocksChildAllocAndRollsBackChildAmount) 
 
   parent.SetHardLimit(100);
   auto enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
 
   ASSERT_TRUE(child.Alloc(50));
   ASSERT_FALSE(child.Alloc(100));
@@ -115,6 +119,7 @@ TEST(EmbeddingTrackingTest, ChildOwnLimitBlocksAllocationIndependentlyOfParent) 
 
   child.SetHardLimit(100);
   auto enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
 
   ASSERT_TRUE(child.Alloc(50));
   ASSERT_FALSE(child.Alloc(100));
@@ -174,6 +179,7 @@ TEST(MemoryTrackerTest, ReentrantThrowCheckAllowsTheNestedAllocation) {
   memory_tracker.SetHardLimit(hard_limit);
 
   auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
   ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
 
   {
@@ -217,6 +223,7 @@ TEST(MemoryTrackerTest, ParentChainDoesNotRefuseWhileThrowCheckIsBeingEvaluated)
   parent.SetHardLimit(hard_limit);
 
   auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
   ASSERT_FALSE(child.Alloc(hard_limit + 1));
 
   const memgraph::utils::detail::ThrowCheckReentrancyGuard guard;
@@ -233,4 +240,48 @@ TEST(MemoryTrackerTest, TransactionsResourceDoesNotRefuseWhileThrowCheckIsBeingE
 
   const memgraph::utils::detail::ThrowCheckReentrancyGuard guard;
   ASSERT_TRUE(transactions_memory.Allocate(limit + 1));
+}
+
+// An allocation whose caller cannot act on a refusal must be tracked and allowed even over the
+// limit. The dynamic loader resizing a thread's storage vector is such a caller: it has no path
+// back from a null return, so refusing it ends the process rather than the query.
+TEST(MemoryTrackerTest, OverLimitAllocIsAllowedWhereRefusalIsNotHandled) {
+  auto memory_tracker = MemoryTracker{};
+
+  static constexpr auto hard_limit = 10;
+  memory_tracker.SetHardLimit(hard_limit);
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+
+  ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
+  EXPECT_EQ(memory_tracker.Amount(), hard_limit + 1);
+}
+
+TEST(MemoryTrackerTest, OverLimitAllocIsRefusedWhereRefusalIsHandled) {
+  auto memory_tracker = MemoryTracker{};
+
+  static constexpr auto hard_limit = 10;
+  memory_tracker.SetHardLimit(hard_limit);
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+
+  const MemoryTracker::RefusalHandledScope refusal_handled;
+  ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
+  EXPECT_EQ(memory_tracker.Amount(), 0);
+}
+
+// The scopes nest: an allocation made while handling a refusal is not itself covered by the
+// handler, so the loader's allocation stays exempt even underneath one.
+TEST(MemoryTrackerTest, RefusalHandledScopeRestoresRatherThanClears) {
+  ASSERT_FALSE(MemoryTracker::RefusalHandledScope::IsRefusalHandled());
+  {
+    const MemoryTracker::RefusalHandledScope outer;
+    ASSERT_TRUE(MemoryTracker::RefusalHandledScope::IsRefusalHandled());
+    {
+      const MemoryTracker::RefusalHandledScope inner;
+      ASSERT_TRUE(MemoryTracker::RefusalHandledScope::IsRefusalHandled());
+    }
+    ASSERT_TRUE(MemoryTracker::RefusalHandledScope::IsRefusalHandled());
+  }
+  ASSERT_FALSE(MemoryTracker::RefusalHandledScope::IsRefusalHandled());
 }

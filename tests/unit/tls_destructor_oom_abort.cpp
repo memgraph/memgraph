@@ -9,8 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Regression test for QA-2026-07-16-TLS: an uncatchable abort() at the memory ceiling caused by
-// glibc's thread-local destructor registration.
+// Regression test for an uncatchable abort() at the memory ceiling caused by glibc's thread-local
+// destructor registration.
 //
 // Mechanism (verified against the source):
 //   * The first touch of a thread_local whose type has a NON-trivial destructor makes the compiler
@@ -24,11 +24,18 @@
 //     calls __libc_fatal -> abort(): a hard SIGABRT that bypasses Memgraph's graceful
 //     OutOfMemoryException path entirely.
 //
-// The fix (src/query/plan/operator.cpp) holds such per-thread state in a trivially destructible
-// wrapper (absl::NoDestructor), so NO __cxa_thread_atexit registration is emitted and the failing
-// allocation never happens. This test exercises the general mechanism:
-//   * RawThreadLocalWithDtorAbortsUnderPressure  -- reproduces the crash (death test).
-//   * NoDestructorWrappedTlsSurvivesUnderPressure -- the fix pattern survives the same pressure.
+// Refusing that allocation is what makes it fatal, and glibc is not a caller that can act on a
+// refusal. The tracker therefore only refuses inside a MemoryTracker::RefusalHandledScope, which
+// covers the boundaries that turn a refusal into an OutOfMemoryException; glibc's registration
+// allocation reaches the tracker outside any such scope, so it is tracked and allowed.
+//
+// Holding such per-thread state in a trivially destructible wrapper (absl::NoDestructor, as
+// src/query/plan/operator.cpp does) emits no registration at all, so it never allocates here. That
+// remains worth doing on a hot path, but it is no longer what keeps the process alive.
+//
+// This test exercises both against real glibc rather than the tracker in isolation:
+//   * RawThreadLocalWithDtorSurvivesUnderPressure  -- the registration allocation is not refused.
+//   * NoDestructorWrappedTlsSurvivesUnderPressure  -- no registration allocation is made at all.
 
 #include <gtest/gtest.h>
 
@@ -116,22 +123,20 @@ void RunOnFreshThreadUnderPressure(Fn fn) {
 
 }  // namespace
 
-// Reproduces the crash: a raw thread_local with a non-trivial destructor, first-touched at the
-// ceiling, aborts the process. Run as a death test so the SIGABRT happens in a forked child.
-TEST(TlsDestructorOomAbortDeathTest, RawThreadLocalWithDtorAbortsUnderPressure) {
+// A raw thread_local with a non-trivial destructor, first-touched at the ceiling, registers its
+// destructor with glibc and survives. Were the registration allocation refused, glibc would print
+// "failed to register TLS destructor" and abort, taking down the whole test binary rather than
+// merely failing this assertion.
+TEST(TlsDestructorOomAbortTest, RawThreadLocalWithDtorSurvivesUnderPressure) {
 #if USE_JEMALLOC
-  // Assert the death is specifically glibc's TLS-destructor registration failure, not an unrelated
-  // abort. glibc 2.4x prints "failed to register TLS destructor" before calling abort().
-  EXPECT_DEATH({ RunOnFreshThreadUnderPressure(&TouchRawTlsWithDtor); }, "register TLS destructor");
+  EXPECT_NO_FATAL_FAILURE({ RunOnFreshThreadUnderPressure(&TouchRawTlsWithDtor); });
 #else
   GTEST_SKIP() << "Query memory tracking (and the malloc/calloc override) require USE_JEMALLOC.";
 #endif
 }
 
-// The fix pattern: the same per-thread state wrapped in absl::NoDestructor is trivially
-// destructible, so no __cxa_thread_atexit registration is emitted and nothing allocates on first
-// touch -- the thread survives the identical pressure. (If it did NOT survive, the abort would take
-// down the whole test binary, not merely fail this assertion.)
+// The same per-thread state wrapped in absl::NoDestructor is trivially destructible, so no
+// __cxa_thread_atexit registration is emitted and nothing allocates on first touch.
 TEST(TlsDestructorOomAbortTest, NoDestructorWrappedTlsSurvivesUnderPressure) {
 #if USE_JEMALLOC
   EXPECT_NO_FATAL_FAILURE({ RunOnFreshThreadUnderPressure(&TouchNoDestructorWrappedTls); });

@@ -29,6 +29,8 @@ constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionEnabler::coun
 constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::counter_
     [[gnu::tls_model("initial-exec")]] = 0;
 
+constinit thread_local bool MemoryTracker::RefusalHandledScope::handled_ [[gnu::tls_model("initial-exec")]] = false;
+
 constinit thread_local bool detail::ThrowCheckReentrancyGuard::evaluating_ [[gnu::tls_model("initial-exec")]] = false;
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -112,7 +114,8 @@ bool MemoryTracker::Alloc(int64_t const size) {
 
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
-  if (current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow()) [[unlikely]] {
+  if (current_hard_limit && will_be > current_hard_limit && RefusalHandledScope::IsRefusalHandled() &&
+      MemoryTrackerCanThrow()) [[unlikely]] {
     MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
 
     amount_.fetch_sub(size, std::memory_order_relaxed);
