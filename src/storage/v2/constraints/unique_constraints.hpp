@@ -14,6 +14,7 @@
 #include <memory>
 #include <set>
 
+#include "metrics/metric_handles.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/interesting_ids.hpp"
 #include "storage/v2/vertex.hpp"
@@ -94,6 +95,8 @@ class UniqueConstraints {
   };
 
   virtual void Clear() = 0;
+
+  virtual void SetGauge(metrics::GaugeHandle gauge) = 0;
 
  protected:
   static DeletionStatus CheckPropertiesBeforeDeletion(const std::set<PropertyId> &properties) {

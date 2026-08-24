@@ -48,6 +48,8 @@ class InMemoryLabelIndex : public LabelIndex {
  public:
   explicit InMemoryLabelIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
+  void SetGauge(metrics::GaugeHandle gauge) { gauge_ = gauge; }
+
   struct IndividualIndex {
     explicit IndividualIndex() : skiplist{} {}
 

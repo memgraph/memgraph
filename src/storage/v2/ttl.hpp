@@ -218,6 +218,8 @@ class TTL final {
    */
   void Pause() { ttl_.Pause(); }
 
+  void PauseAndWait() { ttl_.PauseAndWait(); }
+
   /**
    * @brief Use Resume() to restart once MAIN.
    *
@@ -230,6 +232,11 @@ class TTL final {
    * @param check_fn Function that returns true if this is a main instance, false if replica
    */
   void SetUserCheck(std::function<bool()> check_fn) { user_check_.Update(std::move(check_fn)); }
+
+  void RebindMetricHandles(metrics::CounterHandle deleted_nodes, metrics::CounterHandle deleted_edges) {
+    deleted_nodes_ = deleted_nodes;
+    deleted_edges_ = deleted_edges;
+  }
 
  private:
   utils::Scheduler ttl_;  //!< background thread
@@ -308,6 +315,8 @@ class TTL final {
 
   void Pause() {}
 
+  void PauseAndWait() {}
+
   void Resume() {}
 
   bool Enabled() const { return false; }
@@ -328,6 +337,8 @@ class TTL final {
                    std::optional<std::chrono::system_clock::time_point> = std::nullopt) {}
 
   void SetUserCheck(std::function<bool()>) {}
+
+  void RebindMetricHandles(metrics::CounterHandle, metrics::CounterHandle) {}
 
   bool Restore() { return false; }
 };
