@@ -1,5 +1,9 @@
 name: Daily Benchmark
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 on:
   workflow_dispatch:
     inputs:
@@ -50,9 +54,10 @@ jobs:
     #  to absorb them being wrong rather than because the estimate calls for it. Every figure above is
     #  an estimate rather than a measurement.
     #
-    #  Note what 20 hours implies for the schedule: the cron fires daily and there is no concurrency
-    #  group, so a run that uses most of its budget will still be going when the next one starts, and
-    #  the two will collide on the cluster's fixed ports.
+    #  Note what 20 hours implies for the schedule: the cron fires daily, so a run that uses most of
+    #  its budget will still be going when the next one is due. The concurrency group is what keeps
+    #  that safe, queueing the next run rather than letting two overlap and collide on the cluster's
+    #  fixed ports, at the cost of a nightly being skipped in effect.
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"
