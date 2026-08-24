@@ -52,6 +52,13 @@ def test_starts_with_uses_label_property_scan(memgraph):
     assert "ScanAll" not in ops, f"ScanAll should not appear, got: {plan}"
 
 
+def test_starts_with_filter_is_consumed_by_index(memgraph):
+    """The [prefix, PrefixSuccessor) range is exact, so no post-filter should remain."""
+    plan = get_plan(memgraph, "MATCH (n:N) WHERE n.type STARTS WITH 'al' RETURN n")
+    filters = [line for line in plan if "Filter" in line]
+    assert filters == [], f"STARTS WITH should not leave a post-filter, got: {plan}"
+
+
 def test_ends_with_uses_label_property_scan(memgraph):
     plan = get_plan(memgraph, "MATCH (n:N) WHERE n.type ENDS WITH 'ha' RETURN n")
     ops = operator_names(plan)
