@@ -648,13 +648,8 @@ jobs:
           echo "offline_run_arm=${offline_run_arm}" >> $GITHUB_ENV
           echo "s3_input_offline_amd=s3://${rc_bucket}/${mage_rc_dir}/${offline_run_amd}" >> $GITHUB_ENV
           echo "s3_input_offline_arm=s3://${rc_bucket}/${mage_rc_dir}/${offline_run_arm}" >> $GITHUB_ENV
-          if [[ "${{ github.event.inputs.test }}" == "true" ]]; then
-            offline_dest_root="offline-installer-test"
-          else
-            offline_dest_root="offline-installer"
-          fi
-          echo "s3_output_offline_amd=s3://${rc_bucket}/${offline_dest_root}/v${RELEASE_VERSION}/${offline_run_amd}" >> $GITHUB_ENV
-          echo "s3_output_offline_arm=s3://${rc_bucket}/${offline_dest_root}/v${RELEASE_VERSION}/${offline_run_arm}" >> $GITHUB_ENV
+          echo "s3_output_offline_amd=s3://${release_bucket}/${mage_release_dir}/deb/${offline_run_amd}" >> $GITHUB_ENV
+          echo "s3_output_offline_arm=s3://${release_bucket}/${mage_release_dir}/deb/${offline_run_arm}" >> $GITHUB_ENV
 
       - name: Check if RC offline installers for this build exist
         run: |
