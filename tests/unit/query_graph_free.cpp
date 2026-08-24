@@ -136,6 +136,9 @@ TEST_F(GraphFreeTest, ExpressionsThatReachStorage) {
   ExpectNeedsGraph("RETURN [x IN [1, 2] | x] AS l");
   ExpectNeedsGraph("RETURN all(x IN [1, 2] WHERE x > 0) AS b");
   ExpectNeedsGraph("RETURN reduce(acc = 0, x IN [1, 2] | acc + x) AS r");
+  // A subquery expression carries a whole query, so it reaches the graph however constant its surroundings.
+  ExpectNeedsGraph("RETURN COUNT { MATCH (n) RETURN n } AS c");
+  ExpectNeedsGraph("WITH 1 AS x WHERE EXISTS { MATCH (n) RETURN n } RETURN x");
 }
 
 TEST_F(GraphFreeTest, ProjectingEverythingNeedsTheGraph) { ExpectNeedsGraph("WITH 1 AS x RETURN *"); }

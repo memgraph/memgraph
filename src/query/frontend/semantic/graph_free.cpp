@@ -129,7 +129,7 @@ class GraphReachChecker final : public ExpressionVisitor<void> {
 
   void Visit(EdgeTypesTest & /*unused*/) override { Reject(); }
 
-  void Visit(Exists & /*unused*/) override { Reject(); }
+  void Visit(SubqueryExpression & /*unused*/) override { Reject(); }
 
   void Visit(PatternComprehension & /*unused*/) override { Reject(); }
 

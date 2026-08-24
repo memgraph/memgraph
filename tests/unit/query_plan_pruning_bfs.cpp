@@ -116,7 +116,7 @@ TEST_F(PruningBFSRewriteTest, DoesNotRewriteBelowAWriteProcedure) {
                                                                                            std::vector<Symbol>{},
                                                                                            nullptr,
                                                                                            1UL,
-                                                                                           /*is_write=*/true,
+                                                                                           GraphAccess::Write,
                                                                                            /*procedure_id=*/0));
   });
   EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
@@ -131,7 +131,7 @@ TEST_F(PruningBFSRewriteTest, RewritesBelowAReadProcedure) {
                                                                                            std::vector<Symbol>{},
                                                                                            nullptr,
                                                                                            1UL,
-                                                                                           /*is_write=*/false,
+                                                                                           GraphAccess::Read,
                                                                                            /*procedure_id=*/0));
   });
   EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
