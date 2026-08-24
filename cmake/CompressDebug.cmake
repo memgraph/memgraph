@@ -49,9 +49,26 @@ if(NOT MG_COMPRESS_DEBUG_FORMAT STREQUAL "none")
     # Debug info only exists in build types that ask for it, and -gz on a
     # build with no -g is a no-op, so this needs no per-config guard.
     add_compile_options(-gz=${MG_COMPRESS_DEBUG_FORMAT})
+
     # The linker rewrites the merged .debug_* sections itself, so it has to be
-    # told the format independently of the compiler.
-    add_link_options(-gz=${MG_COMPRESS_DEBUG_FORMAT})
+    # told the format independently of the compiler -- but only when the debug
+    # info is meant to stay in the binary.
+    #
+    # mg_split_debug() moves it into a sidecar with objcopy, and objcopy copies
+    # an already-compressed section straight through instead of redoing it. The
+    # sidecar would then carry the linker's compression, which is tuned for link
+    # speed and is measurably weaker than what objcopy produces, so the shipped
+    # debuginfo would grow. Which format the sidecar ends up in would also
+    # depend on which objcopy CMake found: llvm-objcopy copies a zstd section
+    # through, while GNU objcopy cannot read one at all and fails the build.
+    # Leaving the link uncompressed lets objcopy compress the sidecar.
+    if(MG_SPLIT_DEBUG)
+        message(STATUS
+            "MG_COMPRESS_DEBUG: link-time compression disabled; "
+            "MG_SPLIT_DEBUG compresses the sidecar instead")
+    else()
+        add_link_options(-gz=${MG_COMPRESS_DEBUG_FORMAT})
+    endif()
 endif()
 
 message(STATUS "MG_COMPRESS_DEBUG: ${MG_COMPRESS_DEBUG} -> ${MG_COMPRESS_DEBUG_FORMAT}")
