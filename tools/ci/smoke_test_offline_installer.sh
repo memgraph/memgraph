@@ -106,10 +106,11 @@ run_in_container() {
     fail "memgraph never accepted Bolt connections"
   fi
 
-  if [[ -n "${MEMGRAPH_ENTERPRISE_LICENSE:-}" ]]; then
+  if [[ -n "${MEMGRAPH_ENTERPRISE_LICENSE:-}" && -n "${MEMGRAPH_ORGANIZATION_NAME:-}" ]]; then
     check_license
   else
-    echo "No MEMGRAPH_ENTERPRISE_LICENSE set — skipping the license check."
+    echo "Both MEMGRAPH_ENTERPRISE_LICENSE and MEMGRAPH_ORGANIZATION_NAME must be set" \
+         "for memgraph to pick up a license — skipping the license check."
   fi
 
   check_count 'CALL mg.procedures() YIELD * RETURN count(*) AS cnt;' "$expected_procedures" "loaded procedures"
