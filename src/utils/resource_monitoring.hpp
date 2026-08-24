@@ -67,7 +67,7 @@ class Resource {
 
     const auto limit =
         limit_.load(std::memory_order_relaxed);  // Could miss updates to limit, but allowing stale values for now
-    if (current <= limit) {
+    if (current <= limit) [[likely]] {
       return {true, current, limit};
     }
 
