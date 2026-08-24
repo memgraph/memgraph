@@ -658,8 +658,10 @@ TYPED_TEST(InterpreterTest, GraphFreeQueryLeavesTheAuthCacheWarm) {
 }
 #endif
 
+#ifdef MG_ENTERPRISE
 // A session whose current database was dropped out from under it has no database to run against. Both a
-// graph-free query and a graph-touching one must report that, not abort the process.
+// graph-free query and a graph-touching one must report that, not abort the process. Only a deployment
+// that can hold more than one database can drop the one a session is on.
 TYPED_TEST(InterpreterTest, CypherQueryWithoutCurrentDatabaseThrows) {
   this->default_interpreter.interpreter.ResetDB();
   for (auto const *query : {"RETURN 1", "CALL mg.procedures() YIELD name", "MATCH (n) RETURN n"}) {
@@ -667,6 +669,7 @@ TYPED_TEST(InterpreterTest, CypherQueryWithoutCurrentDatabaseThrows) {
     EXPECT_THROW(this->Interpret(query), memgraph::query::DatabaseContextRequiredException);
   }
 }
+#endif
 
 // Modifier routing on the accessor-free path. The path now runs a real plan, so a per-call PROCEDURE
 // MEMORY LIMIT is carried by the CallProcedure operator and honoured on it. Modifiers that would need a

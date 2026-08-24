@@ -33,6 +33,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
+#include "query/plan/read_write_type_checker.hpp"
 #include "query/plan/rewrite/balanced_union.hpp"
 #include "query/plan/used_index_checker.hpp"
 
