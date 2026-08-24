@@ -15,6 +15,7 @@
 
 #include <utils/memory_tracker.hpp>
 #include <utils/on_scope_exit.hpp>
+#include <utils/resource_monitoring.hpp>
 
 using memgraph::utils::MemoryTracker;
 using memgraph::utils::OutOfMemoryException;
@@ -203,4 +204,33 @@ TEST(MemoryTrackerTest, ThrowCheckGuardClearsOnScopeExit) {
     ASSERT_TRUE(memgraph::utils::detail::ThrowCheckReentrancyGuard::IsEvaluating());
   }
   ASSERT_FALSE(memgraph::utils::detail::ThrowCheckReentrancyGuard::IsEvaluating());
+}
+
+// Once the throw check is being evaluated, the allocations it makes for its own internal state must
+// all be permitted. Refusing any of them hands the dynamic loader a null pointer for memory it
+// cannot do without, which is fatal, so every tracker in the chain has to fall through.
+TEST(MemoryTrackerTest, ParentChainDoesNotRefuseWhileThrowCheckIsBeingEvaluated) {
+  auto parent = MemoryTracker{};
+  auto child = MemoryTracker{&parent};
+
+  static constexpr auto hard_limit = 10;
+  parent.SetHardLimit(hard_limit);
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  ASSERT_FALSE(child.Alloc(hard_limit + 1));
+
+  const memgraph::utils::detail::ThrowCheckReentrancyGuard guard;
+  ASSERT_TRUE(child.Alloc(hard_limit + 1));
+  EXPECT_EQ(parent.Amount(), hard_limit + 1);
+}
+
+TEST(MemoryTrackerTest, TransactionsResourceDoesNotRefuseWhileThrowCheckIsBeingEvaluated) {
+  static constexpr auto limit = 10;
+  auto transactions_memory = memgraph::utils::TransactionsMemoryResource{limit};
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  ASSERT_FALSE(transactions_memory.Allocate(limit + 1));
+
+  const memgraph::utils::detail::ThrowCheckReentrancyGuard guard;
+  ASSERT_TRUE(transactions_memory.Allocate(limit + 1));
 }
