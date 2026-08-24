@@ -26,44 +26,6 @@ jobs:
     name: "Daily benchmarks"
     runs-on: [self-hosted, Linux, benchmark]
     timeout-minutes: 1200
-    #  The timeout above is calculated based on a previous run where the loop count was 100
-    #  Rough times per test:
-    #  - mgbench-ha: 25 minutes (ESTIMATE, not yet measured: 6 queries at one five-process cluster
-    #    restart each, plus a pokec import that replicates synchronously to one replica, and no
-    #    authorization pass, which would double those restarts)
-    #  - mgbench-ha-2-replicas: 30 minutes (ESTIMATE: the same suite with a second replica, so six
-    #    processes to restart and every commit waiting for two acknowledgements instead of one)
-    #  - mgbench-ha-async: 22 minutes (ESTIMATE: main does not wait at commit, so the measured part is
-    #    faster, plus the post-measurement wait for the replica to drain)
-    #  - mgbench-ha-strict-sync: 30 minutes (ESTIMATE: a commit that cannot reach the replica aborts
-    #    rather than committing locally)
-    #  - mgbench-ha-2-strict-sync: 35 minutes (ESTIMATE: as above, and it must reach both replicas)
-    #  - mgbench-ha-2-async: 24 minutes (ESTIMATE: main waits for neither, plus draining both)
-    #  - mgbench-ha-sync-async: 28 minutes (ESTIMATE: one acknowledgement, one replica trailing)
-    #  - mgbench-ha-strict-sync-async: 32 minutes (ESTIMATE)
-    #  - macro-benchmark: 3 minutes
-    #  - mgbench: 20 minutes
-    #  - extended planner improvements mgbench: 15 minutes
-    #  - mgbench-supernode: 1.5 minute
-    #  - mgbench-load-parquet: 4 minutes
-    #  - mgbench-vector-search-index: 5 minutes
-    #  - mgbench-vector-search-edge-index: 5 minutes
-    #  - mgbench-text-search-index: 5 minutes
-    #  - mgbench-text-search-edge-index: 5 minutes
-    #  The job has two parts that scale differently. The eight high availability suites come to about
-    #  226 minutes and are fixed, since each is pinned to a single iteration whatever loop_count says.
-    #  Everything else is about 63 minutes per iteration and does scale, so the total is roughly
-    #  226 + 63 * loop_count on a Sunday, when the four ASYNC topologies run, and 120 + 63 * loop_count
-    #  on the other six days without them: about 861 and 750 minutes at the default loop count. The timeout
-    #  below is 20 hours, which covers the default of 10 with a wide margin over that 861: the high
-    #  availability figures have never been confirmed against a completed run, so the headroom is there
-    #  to absorb them being wrong rather than because the estimate calls for it. Every figure above is
-    #  an estimate rather than a measurement.
-    #
-    #  Note what 20 hours implies for the schedule: the cron fires daily, so a run that uses most of
-    #  its budget will still be going when the next one is due. The concurrency group is what keeps
-    #  that safe, queueing the next run rather than letting two overlap and collide on the cluster's
-    #  fixed ports, at the cost of a nightly being skipped in effect.
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"
