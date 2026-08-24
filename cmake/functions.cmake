@@ -142,6 +142,10 @@ endfunction()
 # are cached, and the underlying CMake helper script is a no-op when the
 # binary already has an unversioned libpython dependency.
 function(mg_apply_python_abi3_rewrite target_name)
+    # MG_PYTHON_SUPPORT=OFF links no libpython, so there is nothing to rewrite.
+    if(DEFINED MG_PYTHON_SUPPORT AND NOT MG_PYTHON_SUPPORT)
+        return()
+    endif()
     if(NOT DEFINED CACHE{MG_PYTHON_REWRITE_DT_NEEDED})
         option(MG_PYTHON_REWRITE_DT_NEEDED
                "Rewrite memgraph binaries' DT_NEEDED libpython entry to the abi3 SONAME"

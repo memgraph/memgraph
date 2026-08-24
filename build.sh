@@ -30,6 +30,8 @@ OPTIONS:
                               only = build just MAGE, not Memgraph itself
                                      (trims the conan dependency graph)
     --cugraph               Also build MAGE cuGraph GPU modules (implies --mage on)
+    --no-python             Build memgraph without the embedded Python interpreter
+                            (Python query modules are unavailable; no libpython dependency)
     --profiling MODES       Comma-separated profiling build modes (e.g. --profiling fp,mem):
                               fp  = retain frame pointers for low-overhead 'perf' (MG_PROFILE)
                               mem = memory-profiling build, disables jemalloc (MG_MEMORY_PROFILE)
@@ -80,6 +82,9 @@ EXAMPLES:
     # MAGE-only with GPU modules against a prebuilt cuGraph
     ./build.sh --mage only --cugraph -DMG_CUGRAPH_ROOT=/opt/conda
 
+    # Build without the embedded Python interpreter
+    ./build.sh --no-python
+
     # Configure only, don't build
     ./build.sh --config-only
 
@@ -109,6 +114,7 @@ SPLIT_DEBUG=off
 PROFILING=""
 MAGE=off
 CUGRAPH=off
+PYTHON_SUPPORT=on
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -187,6 +193,10 @@ while [[ $# -gt 0 ]]; do
             CUGRAPH=on
             shift
             ;;
+        --no-python)
+            PYTHON_SUPPORT=off
+            shift
+            ;;
         --profiling)
             PROFILING="$2"
             shift 2
@@ -237,6 +247,14 @@ fi
 
 if [[ "$SPLIT_DEBUG" == "on" ]]; then
     CMAKE_ARGS="$CMAKE_ARGS -DMG_SPLIT_DEBUG=ON"
+fi
+
+if [[ ! "$CMAKE_ARGS" =~ MG_PYTHON_SUPPORT ]]; then
+    if [[ "$PYTHON_SUPPORT" == "off" ]]; then
+        CMAKE_ARGS="$CMAKE_ARGS -DMG_PYTHON_SUPPORT=OFF"
+    else
+        CMAKE_ARGS="$CMAKE_ARGS -DMG_PYTHON_SUPPORT=ON"
+    fi
 fi
 
 if [[ "$MAGE" != "off" && "$MAGE" != "on" && "$MAGE" != "only" ]]; then
