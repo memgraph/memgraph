@@ -594,7 +594,9 @@ TYPED_TEST(InterpreterTest, UserWithAMemoryQuotaStillSkipsTheTransaction) {
 }
 #endif
 
-#ifdef MG_ENTERPRISE
+// Charging runs on the jemalloc hooks, so without them nothing is charged and every assertion here
+// holds vacuously.
+#if defined(MG_ENTERPRISE) && USE_JEMALLOC
 // What a query is charged is returned when it ends. A query that opens no transaction has no commit or
 // abort to reconcile through, so its charge has to be settled elsewhere; if it is not, a session's usage
 // climbs with every query until the user is refused for memory nothing is holding.
@@ -633,7 +635,7 @@ TYPED_TEST(InterpreterTest, GraphFreeQueriesDoNotAccumulateAgainstTheQuota) {
   EXPECT_THROW(this->Interpret("UNWIND $values AS x RETURN x ORDER BY x", params), std::exception);
   EXPECT_EQ(quota->GetTransactionsMemory().first, 0U) << "a refused query left its charge behind";
 }
-#endif
+#endif  // MG_ENTERPRISE && USE_JEMALLOC
 
 #ifdef MG_ENTERPRISE
 // A query that skips its transaction must not disturb what the session has cached. The fine-grained
