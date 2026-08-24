@@ -81,7 +81,8 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
       // An ASYNC replica which is part of 2PC finalizes with the 2nd-phase decision instead.
       if (!should_run_2pc) {
         // Even if it fails, we don't care, it's ASYNC
-        (void)raw_client->FinalizeTransactionReplication(
+        // NOLINTNEXTLINE(bugprone-unused-return-value)
+        raw_client->FinalizeTransactionReplication(
             db_acc, std::move(replica_stream), durability_commit_timestamp, commit_num_committed_txns_);
       }
       continue;
@@ -172,7 +173,8 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
   for (auto &[client, commit_result] : decisions) {
     auto const commit_res = commit_result.get();
     if (!commit_res) {
-      finalize_failures_.push_back({std::string{client->Name()}, "STRICT_SYNC", ReplicaFailureReason::RPC_ERROR});
+      finalize_failures_.push_back(
+          {.name = std::string{client->Name()}, .mode = "STRICT_SYNC", .reason = ReplicaFailureReason::RPC_ERROR});
     }
     strict_sync_replicas_succ &= commit_res;
   }
