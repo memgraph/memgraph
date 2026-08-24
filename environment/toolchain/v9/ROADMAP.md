@@ -1,108 +1,159 @@
-# Toolchain v9 kickoff
+# Toolchain v9
 
-This directory starts as a copy of v8 with the version markers bumped and two
-changes already applied. Everything else below is a candidate, gathered from
-branches that carry unmerged build work, so the decisions can be made in one
-place rather than rediscovered.
+v9 is the first toolchain produced by a restructured build. The LLVM and GCC
+bumps come after that restructure, not with it.
 
-## Already applied here
+That ordering is the whole plan: the current build is a 1700-line sequential
+bash script with no caching, so every change costs a full rebuild. Bumping LLVM
+on top of that means iterating on a multi-hour feedback loop. Restructuring
+first makes the bump cheap, and doing them separately means a failure has one
+candidate cause instead of two.
 
-**zstd in the sysroot, required in LLVM.** v8 was not built against libzstd, so
-`-gz=zstd` fails: clang only warns, lld hard-errors. The LLVM stage sets
-`CMAKE_FIND_ROOT_PATH_MODE_*=ONLY`, so its `find_package` only ever sees the
-sysroot, and `LLVM_ENABLE_ZSTD` defaults to ON meaning *auto-detect*, so it
-silently disabled itself. zstd is now built static into `$SYSROOT/usr` next to
-zlib, and `LLVM_ENABLE_ZSTD=FORCE_ON` makes a missing zstd a configure error
-instead of a silent downgrade. v4 built zstd; v5 dropped it.
+## What the toolchain build actually needs
 
-This was built and verified in a container against v8: `LLVMConfig.cmake` gets
-`LLVM_ENABLE_ZSTD TRUE`, and `-gz=zstd` produces sections with `ch_type=2`
-(`ELFCOMPRESS_ZSTD`) that gdb and llvm-dwarfdump both read.
+Measured against v8 rather than assumed, because most of these contradicted the
+first guess:
 
-**Signing keys fetched over hkps.** The script asked for keys from a bare
-`keyserver.ubuntu.com`, which means plain HKP on port 11371. From inside a
-build container that port accepts the TCP connection and then never answers,
-and gpg applies no timeout, so the build wedges silently on the very first key
-fetch with no output. `hkps://` moves it to 443.
+- **The tree already relocates.** GCC resolves its sysroot from `argv[0]`
+  (`bin/../sysroot`), because `--with-sysroot` points inside `$PREFIX`. `gcc`
+  and `g++` carry no RPATH; `clang`, `clang++` and `ld.lld` carry
+  `[/opt/toolchain-v8/lib64:$ORIGIN/../lib]`, so they fall back correctly. From
+  a copy at an unrelated path, both compilers built and linked working C++20
+  binaries with no references back to the original prefix.
+- **gdb is the one exception.** Its RUNPATH is
+  `[/opt/toolchain-v8/sysroot/usr/lib:/opt/toolchain-v8/lib]` with no `$ORIGIN`
+  entry, so from a moved tree it reaches back into the original prefix and dies
+  on `GLIBC_2.38 not found`. That needs an `$ORIGIN`-relative rpath.
+- **Stage outputs are already isolable.** Every sysroot stage installs with
+  `DESTDIR=$SYSROOT`, and the `$PREFIX` stages are autotools/cmake which honour
+  `DESTDIR` too. Composing stages does not require re-plumbing the recipes.
+- **The tools we thought we needed are mostly present.** `llvm-dwp` and
+  `llvm-profdata` already ship, so split DWARF and PGO are repo-side flag
+  decisions, not toolchain work. `llvm-bolt` is genuinely absent. libc++ is
+  already a supported switch (`TOOLCHAIN_STDCXX`) that nobody has flipped.
+- **The toolchain runs natively on the host.** Its binaries need at most
+  `GLIBC_2.30` (gdb; clang and lld need 2.14). Building in a container and
+  extracting a tarball to `/opt` is the existing, working model.
 
-## Version bumps to decide
+## Decisions
 
-Left at v8's values deliberately, so this directory builds as-is and the bumps
-are a separate, reviewable step:
+**Docker multi-stage with BuildKit is the build engine.** It provides
+content-addressed stage caching, `COPY --from=` composition, parallel
+scheduling of independent stages, and a shared remote cache - all of which a
+bespoke driver would have to reimplement. `container-build.sh` already builds
+in a container; today it runs the whole monolith in a single `docker exec`, so
+the image caches apt deps and nothing else.
 
-| | v8 | v9 |
-|---|---|---|
-| LLVM | 22.1.8 | 23.x - the reason for v9 |
-| GCC | 16.2.0 | ? |
-| binutils | 2.47 | ? |
-| GDB | 17.2 | ? |
-| CMake | 4.4.1 | ? |
-| glibc | 2.31 | ? |
+**One script file per tool**, with per-stage version variables. A stage may
+depend on exactly four things: its base stage, the artifacts it explicitly
+`COPY --from`s, its own version and checksum variables, and its own recipe
+text. The build context is this directory, never the repository root -
+otherwise editing `src/query/plan.cpp` invalidates GCC. The shared version
+block at the top of `build.sh` has to be split for the same reason, or the
+first LLVM bump invalidates every stage.
 
-Note that binutils' `objcopy` cannot read zstd-compressed sections at all, and
-GNU `ld` rejects `-gz=zstd`. Neither is on our path today (the toolchain file
-pins `CMAKE_OBJCOPY` to `llvm-objcopy` and we link with lld), but a bump that
-changes either default would matter.
+**A justfile is the entry point**, wrapping `docker buildx`. It has no
+content-addressed invalidation of its own, so it complements BuildKit rather
+than competing with it.
 
-## Build-process candidates
+**The native build path is deleted.** Keeping it means two implementations that
+drift, and it carries the more dangerous failure mode: a native build on a
+modern host links the toolchain against that host's glibc, silently producing
+an artifact that will not run on older targets. It also writes directly into
+the live `/opt/toolchain-vN` with no override, and its file-existence guards
+skip stages whose configuration changed - a change to the LLVM stage is ignored
+because `bin/clang` already exists.
 
-These are changes to the repository's CMake, not to the toolchain. They are
-listed here because they interact with the toolchain and with each other, and
-because several are already written and stalled.
+**Both glibc floors are declared adjacently and enforced.** There are two, and
+they are currently conflated because both are 2.31: the sysroot glibc, which
+sets where *memgraph* runs, and the build container's glibc, which sets where
+the *toolchain* runs. Today the invariant tying them lives in a comment while
+the two values live in different files. A verification stage walks every ELF in
+the assembled prefix and fails the build if anything exceeds its declared
+floor - cheap, and it turns a silent portability break into an error. Derive
+glibc's `--enable-kernel` from the kernel headers version rather than repeating
+"5.4" as a literal.
 
-### LTO has never actually been on
+**Artifact-level reproducibility, measured rather than mandated.** The shipped
+tarball is currently nondeterministic in four ways: no `--sort=name`, no
+`--mtime`, no `--numeric-owner` or pax `delete=atime,delete=ctime`, and `z`
+invokes gzip without `-n`. Fix those, set `SOURCE_DATE_EPOCH`, pin the base
+image by digest and the apt packages by version. Then build twice and report
+what fraction of the 20,765 files differ. Bit-for-bit reproducibility of GCC
+and LLVM is a real project and must not become a gate on this one.
 
-`CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release` and `_RelWithDebInfo` use
-mixed-case config names. CMake only reads the upper-case `_RELEASE` /
-`_RELWITHDEBINFO` forms, so the target property is never set and no `-flto`
-reaches any translation unit - despite `check_ipo_supported` being a hard
-configure-time error, which is what makes it look enabled. Fixed on
-`2026_05_01_split_dwarf` (PR #4102, draft).
+**The cache is registry-backed, `mode=max`, and only CI writes to it.** A
+compiler cache is a supply-chain surface: anyone who can publish a layer can
+publish a backdoored `cc1plus` that every later build silently uses without
+rebuilding or inspecting it. Developers read from it and keep full local
+caching for their own iteration. Expect tens of GB per version, so retention is
+not optional.
 
-Turning it on is what surfaced the rest: lld defaults `--thinlto-jobs` to
-`nproc`, and each codegen job wants 1-3 GB, so a single link can OOM a shared
-runner. Master's job pools (`cmake/BuildParallelism.cmake`) bound how many
-links run at once but not the parallelism *inside* one link, so the cap is
-still needed.
+**Toolchain selection is configurable, with no hardcoded names.** The Conan
+profile is properly templated on `MG_TOOLCHAIN_ROOT`, and then `build.sh`
+throws that away by hardcoding `/opt/toolchain-v8` in four places and naming
+`memgraph_toolchain_v8` directly. This is independent of everything above and
+can land first.
 
-### Debug info
+**libc++ ships as a capability, not a supported configuration.** The stdlib
+choice belongs in the Conan profile, which already carries
+`compiler.libcxx=libstdc++11` as a package-ID input - never baked into clang as
+a default. Baking it would let Conan reuse libstdc++-built dependencies while
+clang compiled memgraph against libc++, which is an ABI mismatch that surfaces
+as a link error at best. The expensive part is not building the runtime; it is
+that flipping the setting changes every package ID and requires a parallel set
+of dependency binaries.
 
-| item | where | note |
-|---|---|---|
-| compressed DWARF (`-gz`) | PR #4640 | merging; `auto` probes and falls back zstd -> zlib -> none |
-| split DWARF (`-gsplit-dwarf` + `.dwp`) | PR #4102 | lld numbers `.dwo` files by task ID from 1 per link, so a shared `dwo_dir` lets concurrent test links truncate-overwrite memgraph's; must be per-target |
-| `--gdb-index` | PR #4102 | prebuilt index |
-| `-frecord-command-line` | PR #4102 | recovers build flags from a crash artifact |
-| `-ffile-prefix-map` | PR #4102 | reproducible paths, ccache hits across checkouts; needs an identity rule for `CMAKE_BINARY_DIR` after the source rule, or skeleton CUs get relative `DW_AT_GNU_dwo_name` that `llvm-dwp` cannot resolve |
-| split debug sidecars | in master | `cmake/SplitDebug.cmake` |
+## Stages
 
-`-gz` and split DWARF overlap: both attack the same duplicated DWARF. Worth
-deciding whether they are complementary or whether one supersedes the other
-before landing both.
+### Stage 1: configurable toolchain selection
+**Goal**: select a toolchain by name, with no hardcoded versions anywhere.
+**Includes**: replace the four hardcoded `/opt/toolchain-v8` occurrences and
+the profile name in `build.sh`; add `conan_config/profiles/memgraph_toolchain_v9`.
+**Success**: building against a different installed toolchain requires no edit
+to a tracked file.
+**Independent of every later stage.**
 
-### Optimisation
+### Stage 2: feature-free port
+**Goal**: reproduce v8 exactly, from Docker multi-stage, adding nothing.
+**Includes**: per-tool scripts, per-stage versions, cache mounts for `archives/`
+and ccache, deterministic tarball, digest-pinned base, pinned apt, deleted
+native path, the floor gate.
+**Excludes**: every output-changing change. `llvm-bolt`, libc++, the gdb rpath
+fix and zstd all wait for stage 4. The floor gate is the sole exception because
+it is a check that alters no output.
+**Success**: empty structural diff and identical capability fingerprint against
+the reference, and memgraph builds and its unit tests pass.
 
-| item | where | blocker |
-|---|---|---|
-| PGO (`MG_PGO=generate\|use`) | PR #4325 | experiment, needs a training workload story |
-| BOLT | `facebook-bolt` | no PR; needs non-PIE |
-| precompiled headers (`REUSE_FROM`) | PR #4055 | experiment |
-| drop librdtsc | PR #4637 | in review |
+### Stage 3: prove equivalence
+**Goal**: an oracle that is trustworthy rather than approximate.
+**Reference**: rebuild v8 *with the existing bash script* against the
+digest-pinned base, and use that tree - not the tarball built in August, whose
+base image has since drifted, which would give diffs we cannot attribute.
+**Compare**: the sorted relative file list (20,765 entries), the capability
+fingerprint (`gcc -v`, `clang -v`, `-print-sysroot`, `-dumpmachine`,
+`-print-resource-dir`, LLVMConfig feature flags, per-executable RUNPATH, both
+floors), and an end-to-end memgraph build plus unit tests.
+**Also**: build twice through the new driver and record the determinism number.
 
-### Build shape
+### Stage 4: features, each landing separately
+So that each fingerprint delta is readable. Adding `llvm-bolt` should show one
+new executable and nothing else; if it shows more, that is a finding.
+- zstd in the sysroot, `LLVM_ENABLE_ZSTD=FORCE_ON` (written, verified against v8)
+- `llvm-bolt` in `LLVM_ENABLE_PROJECTS`
+- libc++ runtime plus a profile, no CI job
+- gdb `$ORIGIN`-relative rpath
 
-- **Remove PIE.** `facebook-bolt` does this. Also unblocks shared libraries for
-  the unit tests: `mg-*` objects are `-fPIE`, so they cannot go into a `.so`.
-- **Shared libraries for unit tests.** The unit-test tree duplicates library
-  DWARF across ~214 executables. Blocked by four dependency cycles
-  (flags/license/requests; replication/rpc/communication/auth/system;
-  replication_handler/dbms/query/coordination; dbms/query) - CMake permits
-  cycles only among static libraries - plus the PIE problem above, plus wanting
-  memgraph itself to stay statically linked. `feat/break-deps` starts on the
-  cycles.
-- **Conan 2.24.0** - `update-conan`.
-- **macOS native build** - `exp/macos-native-build`.
-- **libc++ instead of libstdc++** - `compile-with-llvm-stdlib` is from 2022 and
-  stale, but worth reconsidering: GCC 16's libstdc++ doubled `std::regex` cost
-  and that showed up as a query-throughput regression.
-- **C++ modules** - `feat/improve-modules-build-time`.
+### Stage 5: version bumps
+LLVM 23 and GCC, on a build already proven equivalent, so a failure is
+unambiguously a version problem. Needs `compiler.version` updated in the Conan
+profile alongside.
+
+## Not in scope
+
+Split DWARF, PGO, precompiled headers, BOLT wiring, LTO, removing PIE and
+shared-library unit tests are all repo-side build changes, not toolchain
+changes. They are tracked with the branches that carry them. LTO in particular
+has never actually been enabled - `CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release`
+uses a mixed-case config name that CMake never reads - and turning it on
+surfaces ThinLTO link OOM, which is why that work stalled.
