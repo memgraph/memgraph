@@ -242,3 +242,22 @@ TEST(MemoryTrackerTest, SessionLimitIsEnforcedWithoutARefusalScope) {
   ASSERT_TRUE(resources.IncrementSessions());
   ASSERT_FALSE(resources.IncrementSessions());
 }
+
+// Answering whether a refusal may be delivered can itself allocate, so it is asked only once the
+// limit has been exceeded rather than on every increment.
+TEST(MemoryTrackerTest, IncrementAsksWhetherToRefuseOnlyWhenOverLimit) {
+  static constexpr auto limit = 10;
+  auto resource = memgraph::utils::Resource<size_t>{limit};
+
+  auto asked = 0;
+  auto may_refuse = [&asked] {
+    ++asked;
+    return true;
+  };
+
+  ASSERT_TRUE(resource.Increment(limit, may_refuse).success);
+  EXPECT_EQ(asked, 0);
+
+  ASSERT_FALSE(resource.Increment(1, may_refuse).success);
+  EXPECT_EQ(asked, 1);
+}

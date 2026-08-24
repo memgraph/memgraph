@@ -53,23 +53,30 @@ class Resource {
   // Should this fail?
   void UpdateLimit(T limit) { limit_.store(limit, std::memory_order_release); }
 
-  IncrementResult Increment(T size, bool may_refuse = true) {
-    auto current = allocated_.fetch_add(size, std::memory_order_acq_rel) + size;
+  IncrementResult Increment(T size) {
+    return Increment(size, [] { return true; });
+  }
 
-    if (!may_refuse) {
-      // A caller that cannot act on a refusal is still accounted for, but is never held to the
-      // limit: refusing it would fail something that has no way to recover.
-      return {true, current, {}};
-    }
+  // may_refuse is a predicate rather than a value because answering it can be expensive, and it is
+  // only consulted once the limit has already been exceeded. A caller that cannot act on a refusal
+  // is still accounted for but never held to the limit: refusing it would fail something that has
+  // no way to recover.
+  template <typename MayRefuse>
+  IncrementResult Increment(T size, MayRefuse &&may_refuse) {
+    auto current = allocated_.fetch_add(size, std::memory_order_acq_rel) + size;
 
     const auto limit =
         limit_.load(std::memory_order_relaxed);  // Could miss updates to limit, but allowing stale values for now
-    if (current > limit) {
-      allocated_.fetch_sub(size, std::memory_order_acq_rel);  // Rollback increment
-      return {false, current, limit};
+    if (current <= limit) {
+      return {true, current, limit};
     }
 
-    return {true, current, limit};
+    if (!may_refuse()) {
+      return {true, current, {}};
+    }
+
+    allocated_.fetch_sub(size, std::memory_order_acq_rel);  // Rollback increment
+    return {false, current, limit};
   }
 
   // Decrementing cannot fail
