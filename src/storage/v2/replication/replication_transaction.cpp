@@ -11,13 +11,16 @@
 
 #include "storage/v2/replication/replication_transaction.hpp"
 
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/commit_args.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/atomic_utils.hpp"
 #include "utils/variant_helpers.hpp"
 
 #include <algorithm>
+#include <exception>
 #include <string>
+#include <utility>
 
 namespace memgraph::storage {
 
@@ -61,34 +64,51 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
 
   auto const &db_acc = commit_args.database_protector();
   bool const should_run_2pc = ShouldRunTwoPC();
+
+  using ShipResult = std::expected<void, io::network::ClientCommunicationError>;
+  std::vector<std::pair<ReplicationStorageClient *, std::future<ShipResult>>> awaited;
+  awaited.reserve(locked_clients->size());
+
   for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-    client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
-                                   replica_stream);
-    // NOLINTNEXTLINE
-    auto finalized = std::invoke([&]() -> std::expected<void, io::network::ClientCommunicationError> {
+    auto *raw_client = client.get();
+
+    // ASYNC is fire-and-forget: ship the transaction end here and let the client's worker await the
+    // response. This stays on the commit thread because nothing keeps the stream alive for an
+    // unawaited task once this object is destroyed.
+    if (raw_client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
+      raw_client->IfStreamingTransaction(
+          [&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); }, replica_stream);
+      // An ASYNC replica which is part of 2PC finalizes with the 2nd-phase decision instead.
+      if (!should_run_2pc) {
+        // Even if it fails, we don't care, it's ASYNC
+        (void)raw_client->FinalizeTransactionReplication(
+            db_acc, std::move(replica_stream), durability_commit_timestamp, commit_num_committed_txns_);
+      }
+      continue;
+    }
+
+    auto *stream_ptr = &replica_stream;
+    awaited.emplace_back(raw_client, raw_client->ScheduleTask([&, raw_client, stream_ptr]() -> ShipResult {
+      const memory::DbArenaScope db_arena_scope{arena_pool_};
+      raw_client->IfStreamingTransaction(
+          [&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); }, *stream_ptr);
       // If I am STRICT SYNC replica, ship deltas as part of the 1st phase and preserve replica stream.
-      // NOLINTNEXTLINE
-      if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
-        // NOLINTNEXTLINE
-        return client->FinalizePrepareCommitPhase(replica_stream, durability_commit_timestamp);
+      if (raw_client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
+        return raw_client->FinalizePrepareCommitPhase(*stream_ptr, durability_commit_timestamp);
       }
       // If there are no STRICT_SYNC replicas, shipping deltas means finalizing the transaction
       // RPC stream gets destroyed => RPC lock released.
       if (!should_run_2pc) {
-        // NOLINTNEXTLINE
-        auto const res = client->FinalizeTransactionReplication(
-            db_acc, std::move(replica_stream), durability_commit_timestamp, commit_num_committed_txns_);
-        // Even if fails, we don't care, it's ASYNC
-        if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
-          return {};
-        }
-        return res;
+        return raw_client->FinalizeTransactionReplication(
+            db_acc, std::move(*stream_ptr), durability_commit_timestamp, commit_num_committed_txns_);
       }
-      // If ASYNC replica which is part of 2PC, just skip this
       // SYNC replica cannot be part of 2PC
       return {};
-    });
+    }));
+  }
 
+  for (auto &[client, ship_result] : awaited) {
+    auto const finalized = ship_result.get();
     if (!finalized.has_value()) {
       auto const client_name = std::string{client->Name()};
       // StartTransactionReplication may have already recorded a failure for this replica;
@@ -119,16 +139,22 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
 auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUID const &storage_uuid,
                                                  DatabaseProtector const &protector,
                                                  uint64_t const durability_commit_timestamp) -> bool {
-  bool strict_sync_replicas_succ{true};
+  std::vector<std::pair<ReplicationStorageClient *, std::future<bool>>> decisions;
 
   for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
     if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
-      auto const commit_res =
-          client->SendFinalizeCommitRpc(decision, storage_uuid, durability_commit_timestamp, std::move(replica_stream));
-      if (!commit_res) {
-        finalize_failures_.push_back({std::string{client->Name()}, "STRICT_SYNC", ReplicaFailureReason::RPC_ERROR});
-      }
-      strict_sync_replicas_succ &= commit_res;
+      auto *raw_client = client.get();
+      decisions.emplace_back(raw_client,
+                             raw_client->ScheduleTask([this,
+                                                       raw_client,
+                                                       decision,
+                                                       storage_uuid,
+                                                       durability_commit_timestamp,
+                                                       stream = std::move(replica_stream)]() mutable {
+                               const memory::DbArenaScope db_arena_scope{arena_pool_};
+                               return raw_client->SendFinalizeCommitRpc(
+                                   decision, storage_uuid, durability_commit_timestamp, std::move(stream));
+                             }));
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
       if (decision) {
         // NOLINTNEXTLINE(bugprone-unused-return-value)
@@ -141,7 +167,33 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
       }
     }
   }
+
+  bool strict_sync_replicas_succ{true};
+  for (auto &[client, commit_result] : decisions) {
+    auto const commit_res = commit_result.get();
+    if (!commit_res) {
+      finalize_failures_.push_back({std::string{client->Name()}, "STRICT_SYNC", ReplicaFailureReason::RPC_ERROR});
+    }
+    strict_sync_replicas_succ &= commit_res;
+  }
   return strict_sync_replicas_succ;
+}
+
+void TransactionReplication::WaitEncodeDone() {
+  std::exception_ptr first_error;
+  for (auto &encode_done : encode_futures_) {
+    try {
+      encode_done.get();
+    } catch (...) {
+      if (!first_error) {
+        first_error = std::current_exception();
+      }
+    }
+  }
+  encode_futures_.clear();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
 }
 
 auto TransactionReplication::CollectAllFailures() -> std::vector<ReplicaFailure> {
@@ -178,6 +230,7 @@ void TransactionReplication::UpdateCommitTsInfo() {
 TransactionReplication::TransactionReplication(uint64_t const durability_commit_timestamp, Storage *storage,
                                                CommitArgs const &commit_args, ReplicationStorageClientList &clients)
     : locked_clients{clients.ReadLock()},
+      arena_pool_{storage->DbArenaPool()},
       durability_commit_timestamp_{durability_commit_timestamp},
       // This transaction is the next one main commits, so its absolute committed-txn count is main's current count
       // + 1. Captured here (under engine_lock_, before FinalizeCommitPhase bumps main) so every up-to-date replica

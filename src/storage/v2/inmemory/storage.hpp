@@ -52,6 +52,7 @@
 #include "utils/resource_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/thread_pool.hpp"
 
 import memgraph.utils.aws;
 
@@ -1037,6 +1038,11 @@ class InMemoryStorage final : public Storage {
 
   memory::ArenaAwareUniquePtr<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
+
+  // Writes each committing transaction to the WAL file. The single worker preserves the order in
+  // which commits enqueue their task under engine_lock_, and every commit waits for its task before
+  // publishing the commit timestamp, so at most one task ever touches wal_file_ at a time.
+  utils::ThreadPool wal_worker_{1};
 
   utils::FileRetainer file_retainer_;
 

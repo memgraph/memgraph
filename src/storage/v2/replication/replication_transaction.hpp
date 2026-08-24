@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <future>
 #include <optional>
 #include <unordered_set>
 #include <vector>
@@ -38,36 +39,22 @@ class TransactionReplication {
 
   ~TransactionReplication() = default;
 
-  template <typename... Args>
-  void AppendDelta(Args &&...args) {
+  // Schedules `encode` on every streaming replica's worker. The single worker per replica keeps this
+  // task ordered before the transaction-end task ShipDeltas schedules later. The caller must keep
+  // everything `encode` references alive until WaitEncodeDone returns.
+  template <InvocableWithStream F>
+  void ScheduleEncode(F encode) {
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-      client->IfStreamingTransaction(
-          [&...args = std::forward<Args>(args)](auto &stream) { stream.AppendDelta(std::forward<Args>(args)...); },
-          replica_stream);
+      auto *raw_client = client.get();
+      auto *stream_ptr = &replica_stream;
+      encode_futures_.push_back(raw_client->ScheduleTask(
+          [raw_client, stream_ptr, encode]() { raw_client->IfStreamingTransaction(encode, *stream_ptr); }));
     }
   }
 
-  void AppendTransactionStart(uint64_t timestamp, bool commit, StorageAccessType access_type) {
-    for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-      client->IfStreamingTransaction(
-          [timestamp, commit, access_type](auto &stream) {
-            stream.AppendTransactionStart(timestamp, commit, access_type);
-          },
-          replica_stream);
-    }
-  }
-
-  template <typename Func>
-  void EncodeToReplicas(Func &&func) {
-    for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-      client->IfStreamingTransaction(
-          [&](auto &stream) {
-            auto encoder = stream.encoder();
-            func(encoder);
-          },
-          replica_stream);
-    }
-  }
+  // Waits for every scheduled encode task; rethrows the first failure only after all of them finished,
+  // so no worker is left referencing the caller's frame.
+  void WaitEncodeDone();
 
   // RPC stream won't be destroyed at the end of this function.
   // Returns true if all SYNC/STRICT_SYNC replicas succeeded, false otherwise.
@@ -92,8 +79,11 @@ class TransactionReplication {
 
  private:
   std::vector<std::optional<ReplicaStream>> streams;
+  std::vector<std::future<void>> encode_futures_;
   utils::Synchronized<std::vector<std::unique_ptr<ReplicationStorageClient>>, utils::RWSpinLock>::ReadLockedPtr
       locked_clients;
+  // The database's arena pool, installed on replica workers for the tasks scheduled by this transaction.
+  memory::ArenaPool *arena_pool_{nullptr};
   bool run_two_phase_commit{false};
   // Replicas that failed start-txn or ship/finalize (excludes ASYNC — fire-and-forget).
   // Populated by the constructor and ShipDeltas. Returned by CollectAllFailures.

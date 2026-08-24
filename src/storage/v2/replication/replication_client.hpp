@@ -26,6 +26,7 @@
 
 #include <concepts>
 #include <expected>
+#include <future>
 #include <optional>
 #include <string>
 
@@ -184,6 +185,16 @@ class ReplicationStorageClient {
       });
       LogRpcFailure();
     }
+  }
+
+  // Runs `task` on this client's background worker and returns its result through a future.
+  // The single worker executes tasks in schedule order, which keeps per-replica transactions FIFO.
+  template <std::invocable F>
+  auto ScheduleTask(F task) const -> std::future<std::invoke_result_t<F>> {
+    std::packaged_task<std::invoke_result_t<F>()> wrapped{std::move(task)};
+    auto future = wrapped.get_future();
+    client_.thread_pool_.AddTask(std::move(wrapped));
+    return future;
   }
 
   [[nodiscard]] auto FinalizePrepareCommitPhase(std::optional<ReplicaStream> &replica_stream,
