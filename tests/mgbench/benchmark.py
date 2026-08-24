@@ -12,6 +12,7 @@
 # licenses/APL.txt.
 
 import argparse
+import hashlib
 import json
 import multiprocessing
 import os
@@ -145,6 +146,12 @@ def parse_args():
         action="store_true",
         default=False,
         help="disable storing of cached query counts",
+    )
+    benchmark_parser.add_argument(
+        "--cache-directory",
+        default=None,
+        help="Directory holding cached query counts and datasets. Point this at a location that "
+        "persists between runs to skip recalibration and dataset downloads. Defaults to .cache next to this script.",
     )
 
     benchmark_parser.add_argument(
@@ -571,7 +578,18 @@ def get_query_cache_count(
         f"Determining query count for benchmark based on --single-threaded-runtime argument = {benchmark_context.single_threaded_runtime_sec}s"
     )
     config_key = [workload.NAME, workload.get_variant(), group, query]
+    # Generators seed on their own name, so the first query they produce is stable across runs
+    # and changes only when the query itself is edited. Parameters are meant to vary, so only
+    # the query text takes part in the hash. Every get_queries call reseeds, so restoring the
+    # RNG state is not needed today - it keeps this from becoming a trap for whoever adds a
+    # randomness consumer after this point.
+    rng_state = random.getstate()
+    query_hash = hashlib.sha256(get_queries(func, 1, benchmark_context)[0][0].encode()).hexdigest()[:16]
+    random.setstate(rng_state)
     cached_count = config.get_value(*config_key)
+    if cached_count is not None and cached_count.get(QUERY_HASH) != query_hash:
+        log.log("Cached query count for {} is stale (query changed), recalibrating.".format(query))
+        cached_count = None
     if cached_count is None:
         vendor.start_db(CACHE)
         client.execute(queries=queries, num_workers=1)
@@ -594,14 +612,12 @@ def get_query_cache_count(
 
         vendor.stop_db(CACHE)
 
-        if count < benchmark_context.query_count_lower_bound:
-            count = benchmark_context.query_count_lower_bound
-
         config.set_value(
             *config_key,
             value={
                 COUNT: count,
                 DURATION: benchmark_context.single_threaded_runtime_sec,
+                QUERY_HASH: query_hash,
             },
         )
     else:
@@ -611,6 +627,9 @@ def get_query_cache_count(
             ),
         )
         count = int(cached_count[COUNT] * benchmark_context.single_threaded_runtime_sec / cached_count[DURATION])
+
+    if count < benchmark_context.query_count_lower_bound:
+        count = benchmark_context.query_count_lower_bound
     return count
 
 
@@ -1101,7 +1120,7 @@ if __name__ == "__main__":
     log_benchmark_arguments(benchmark_context)
     check_benchmark_requirements(benchmark_context)
 
-    cache = helpers.Cache()
+    cache = helpers.Cache(args.cache_directory)
     log.log("Creating cache folder for dataset, configurations, indexes and results.")
     log.log("Cache folder in use: " + cache.get_default_cache_directory())
     config = setup_cache_config(benchmark_context, cache)
