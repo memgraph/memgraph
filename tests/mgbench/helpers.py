@@ -45,16 +45,28 @@ def get_binary_path(path, base=""):
 
 
 def download_file(url, path):
-    ret = subprocess.run(
-        ["wget", "-nv", "--content-disposition", "--no-check-certificate", url],
-        stderr=subprocess.PIPE,
-        cwd=path,
-        check=True,
-    )
-    data = ret.stderr.decode("utf-8")
-    tmp = data.split("->")[1]
-    name = tmp[tmp.index('"') + 1 : tmp.rindex('"')]
-    return os.path.join(path, name)
+    # Download into a scratch directory and move the finished file into place, so an
+    # interrupted download leaves nothing behind. wget refuses to overwrite, so a
+    # surviving partial file would make the retry land on "<name>.1", which
+    # unpack_gz_and_move_file does not recognise as compressed and would cache as-is.
+    scratch = os.path.join(path, ".download")
+    shutil.rmtree(scratch, ignore_errors=True)
+    os.makedirs(scratch)
+    try:
+        ret = subprocess.run(
+            ["wget", "-nv", "--content-disposition", "--no-check-certificate", url],
+            stderr=subprocess.PIPE,
+            cwd=scratch,
+            check=True,
+        )
+        data = ret.stderr.decode("utf-8")
+        tmp = data.split("->")[1]
+        name = tmp[tmp.index('"') + 1 : tmp.rindex('"')]
+        final = os.path.join(path, name)
+        os.replace(os.path.join(scratch, name), final)
+        return final
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 def unpack_gz_and_move_file(input_path, output_path):
