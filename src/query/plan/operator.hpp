@@ -59,10 +59,10 @@ struct ExpressionRange {
 
   static auto Equal(Expression *value) -> ExpressionRange;
   static auto In(Expression *runtime_value, ListLiteral *membership_list) -> ExpressionRange;
-  static auto RegexMatch() -> ExpressionRange;
+  static auto RegexMatch(Expression *value) -> ExpressionRange;
   static auto StartsWith(Expression *value) -> ExpressionRange;
-  static auto Contains() -> ExpressionRange;
-  static auto EndsWith() -> ExpressionRange;
+  static auto Contains(Expression *value) -> ExpressionRange;
+  static auto EndsWith(Expression *value) -> ExpressionRange;
   static auto Range(std::optional<utils::Bound<Expression *>> lower, std::optional<utils::Bound<Expression *>> upper)
       -> ExpressionRange;
   static auto IsNotNull() -> ExpressionRange;

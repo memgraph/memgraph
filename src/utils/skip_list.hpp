@@ -1021,6 +1021,18 @@ class SkipList final : detail::SkipListNode_base {
       return skiplist_->find_equal_or_greater(key);
     }
 
+    /// Finds the first key strictly greater than the given key.
+    template <typename TKey>
+    Iterator find_greater(const TKey &key) {
+      return skiplist_->find_greater(key);
+    }
+
+    /// Finds the first key strictly greater than the given key.
+    template <typename TKey>
+    ConstIterator find_greater(const TKey &key) const {
+      return skiplist_->find_greater(key);
+    }
+
     /// Estimates the number of items that are contained in the list that are
     /// identical to the key determined using the equality operator. The default
     /// layer is chosen to optimize duration vs. precision. The lower the layer
@@ -1168,6 +1180,11 @@ class SkipList final : detail::SkipListNode_base {
     template <typename TKey>
     ConstIterator find_equal_or_greater(const TKey &key) const {
       return skiplist_->find_equal_or_greater(key);
+    }
+
+    template <typename TKey>
+    ConstIterator find_greater(const TKey &key) const {
+      return skiplist_->find_greater(key);
     }
 
     template <typename TKey>
@@ -1450,6 +1467,36 @@ class SkipList final : detail::SkipListNode_base {
   }
 
   template <typename TKey>
+  void find_node_strict_greater(const TKey &key, std::array<TNode *, kSkipListMaxHeight> &preds,
+                                std::array<TNode *, kSkipListMaxHeight> &succs) const {
+    TNode *pred = head_;
+    for (int layer = kSkipListMaxHeight - 1; layer >= 0; --layer) {
+      TNode *curr = pred->nexts[layer].load(std::memory_order_acquire);
+      while (curr != nullptr && curr->obj <= key) {
+        pred = curr;
+        curr = pred->nexts[layer].load(std::memory_order_acquire);
+      }
+      preds[layer] = pred;
+      succs[layer] = curr;
+    }
+  }
+
+  template <typename TKey>
+  Iterator find_greater_(const TKey &key) const {
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
+    find_node_strict_greater(key, preds, succs);
+    while (true) {
+      if (!succs[0]) return Iterator{nullptr};
+      auto valid =
+          succs[0]->fully_linked.load(std::memory_order_acquire) && !succs[0]->marked.load(std::memory_order_acquire);
+      if (valid) return Iterator{succs[0]};
+      // Entry was marked/not fully linked; advance linearly to the next valid node
+      succs[0] = succs[0]->nexts[0].load(std::memory_order_acquire);
+    }
+  }
+
+  template <typename TKey>
   Iterator find_equal_or_greater_(const TKey &key, std::array<TNode *, kSkipListMaxHeight> &preds,
                                   std::array<TNode *, kSkipListMaxHeight> &succs) const {
     while (true) {
@@ -1482,6 +1529,16 @@ class SkipList final : detail::SkipListNode_base {
   template <typename TKey>
   ConstIterator find_equal_or_greater(const TKey &key) const {
     return ConstIterator{find_equal_or_greater_(key)};
+  }
+
+  template <typename TKey>
+  Iterator find_greater(const TKey &key) {
+    return Iterator{find_greater_(key)};
+  }
+
+  template <typename TKey>
+  ConstIterator find_greater(const TKey &key) const {
+    return ConstIterator{find_greater_(key)};
   }
 
   template <typename TKey>

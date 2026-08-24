@@ -326,6 +326,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> upper_bound_;
+    std::vector<PropertyValueRange::ValuePredicate> value_predicates_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;

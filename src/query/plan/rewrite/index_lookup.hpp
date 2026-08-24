@@ -1786,13 +1786,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto const make_string_range = [&]() -> std::optional<ExpressionRange> {
       switch (prop_filter.type_) {
         case PropertyFilter::Type::REGEX_MATCH:
-          return ExpressionRange::RegexMatch();
+          return ExpressionRange::RegexMatch(prop_filter.value_);
         case PropertyFilter::Type::STARTS_WITH:
           return ExpressionRange::StartsWith(prop_filter.value_);
         case PropertyFilter::Type::CONTAINS:
-          return ExpressionRange::Contains();
+          return ExpressionRange::Contains(prop_filter.value_);
         case PropertyFilter::Type::ENDS_WITH:
-          return ExpressionRange::EndsWith();
+          return ExpressionRange::EndsWith(prop_filter.value_);
         default:
           return std::nullopt;
       }
@@ -1866,16 +1866,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           return ExpressionRange::In(filter.property_filter->value_, membership_list);
         }
         case PropertyFilter::Type::REGEX_MATCH: {
-          return ExpressionRange::RegexMatch();
+          return ExpressionRange::RegexMatch(filter.property_filter->value_);
         }
         case PropertyFilter::Type::STARTS_WITH: {
           return ExpressionRange::StartsWith(filter.property_filter->value_);
         }
         case PropertyFilter::Type::CONTAINS: {
-          return ExpressionRange::Contains();
+          return ExpressionRange::Contains(filter.property_filter->value_);
         }
         case PropertyFilter::Type::ENDS_WITH: {
-          return ExpressionRange::EndsWith();
+          return ExpressionRange::EndsWith(filter.property_filter->value_);
         }
         case PropertyFilter::Type::RANGE: {
           return ExpressionRange::Range(filter.property_filter->lower_bound_, filter.property_filter->upper_bound_);
@@ -2006,6 +2006,20 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.
         (!max_vertex_count || *max_vertex_count >= found_index->vertex_count) && or_labels.empty()) {
+      // When a selected filter is IS_NOT_NULL but a string predicate (CONTAINS/ENDS_WITH/REGEX)
+      // exists for the same property, upgrade to the string predicate. Both scan the same index
+      // range, but the string predicate attaches a ValuePredicate enabling index skip scan.
+      for (auto &filter_info : found_index->filters) {
+        if (filter_info.property_filter->type_ != PropertyFilter::Type::IS_NOT_NULL) continue;
+        for (auto const &candidate : filters_.PropertyFilters(node_symbol)) {
+          if (candidate.property_filter->property_ids_ != filter_info.property_filter->property_ids_) continue;
+          if (!PropertyFilter::IsStringPredicate(candidate.property_filter->type_)) continue;
+          if (candidate.property_filter->is_symbol_in_value_) continue;
+          filter_info = candidate;
+          break;
+        }
+      }
+
       // Collect metadata for filter cleanup
       for (auto const &filter_info : found_index->filters) {
         const PropertyFilter prop_filter = *filter_info.property_filter;

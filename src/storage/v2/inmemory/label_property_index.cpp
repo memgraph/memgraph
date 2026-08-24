@@ -1151,21 +1151,50 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::operator++() {
 template <typename EntryT>
 void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid() {
   constexpr bool is_desc = EntryT::kOrder == IndexOrder::DESC;
-  AdvanceUntilValid_(index_iterator_,
-                     self_->index_accessor_.end(),
-                     current_vertex_,
-                     current_vertex_accessor_,
-                     self_->storage_,
-                     self_->transaction_,
-                     self_->view_,
-                     self_->label_,
-                     self_->lower_bound_,
-                     self_->upper_bound_,
-                     self_->permutation_helper_,
-                     self_->max_gid_,
-                     match_scratch_,
-                     /*use_cache=*/true,
-                     /*reverse_iteration=*/is_desc);
+  auto const &predicates = self_->value_predicates_;
+  auto const has_predicates = std::ranges::any_of(predicates, [](auto const &p) { return !!p; });
+
+  while (true) {
+    AdvanceUntilValid_(index_iterator_,
+                       self_->index_accessor_.end(),
+                       current_vertex_,
+                       current_vertex_accessor_,
+                       self_->storage_,
+                       self_->transaction_,
+                       self_->view_,
+                       self_->label_,
+                       self_->lower_bound_,
+                       self_->upper_bound_,
+                       self_->permutation_helper_,
+                       self_->max_gid_,
+                       match_scratch_,
+                       /*use_cache=*/true,
+                       /*reverse_iteration=*/is_desc);
+
+    if (!has_predicates || index_iterator_ == self_->index_accessor_.end()) break;
+
+    // Test value predicates on the found entry's leading value.
+    // If rejected, seek past the entire value group and retry.
+    auto const &leading_value = index_iterator_->values[0];
+    bool accepted = true;
+    for (auto const &predicate : predicates) {
+      if (predicate && !predicate(leading_value)) {
+        accepted = false;
+        break;
+      }
+    }
+    if (accepted) break;
+
+    // Advance one entry. If the next entry has the same value, the group
+    // is large enough to warrant an O(log n) seek; otherwise the iterator
+    // is already past the group.
+    ++index_iterator_;
+    if (index_iterator_ != self_->index_accessor_.end() && index_iterator_->values[0] == leading_value) {
+      std::vector<PropertyValue> seek_key{leading_value};
+      index_iterator_ = self_->index_accessor_.find_greater(seek_key);
+    }
+    current_vertex_ = nullptr;
+  }
 }
 
 template <typename EntryT>
@@ -1185,6 +1214,10 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListD
       transaction_(transaction),
       max_gid_(max_gid) {
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
+  value_predicates_.reserve(ranges.size());
+  for (auto const &range : ranges) {
+    value_predicates_.push_back(range.GetValuePredicate());
+  }
 }
 
 template <typename EntryT>

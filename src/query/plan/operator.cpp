@@ -23,6 +23,7 @@
 #include <optional>
 #include <queue>
 #include <ranges>
+#include <regex>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -143,15 +144,21 @@ auto ExpressionRange::In(Expression *runtime_value, ListLiteral *membership_list
   return er;
 }
 
-auto ExpressionRange::RegexMatch() -> ExpressionRange { return {Type::REGEX_MATCH, std::nullopt, std::nullopt}; }
+auto ExpressionRange::RegexMatch(Expression *value) -> ExpressionRange {
+  return {Type::REGEX_MATCH, utils::MakeBoundInclusive(value), std::nullopt};
+}
 
 auto ExpressionRange::StartsWith(Expression *value) -> ExpressionRange {
   return {Type::STARTS_WITH, utils::MakeBoundInclusive(value), std::nullopt};
 }
 
-auto ExpressionRange::Contains() -> ExpressionRange { return {Type::CONTAINS, std::nullopt, std::nullopt}; }
+auto ExpressionRange::Contains(Expression *value) -> ExpressionRange {
+  return {Type::CONTAINS, utils::MakeBoundInclusive(value), std::nullopt};
+}
 
-auto ExpressionRange::EndsWith() -> ExpressionRange { return {Type::ENDS_WITH, std::nullopt, std::nullopt}; }
+auto ExpressionRange::EndsWith(Expression *value) -> ExpressionRange {
+  return {Type::ENDS_WITH, utils::MakeBoundInclusive(value), std::nullopt};
+}
 
 auto ExpressionRange::Range(std::optional<utils::Bound<Expression *>> lower,
                             std::optional<utils::Bound<Expression *>> upper) -> ExpressionRange {
@@ -185,7 +192,32 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     case Type::ENDS_WITH: {
       auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
       auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
-      return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
+      auto range = storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
+
+      if (lower_) {
+        auto const typed_value = lower_->value()->Accept(evaluator);
+        if (typed_value.IsString()) {
+          auto const &search_term = typed_value.ValueString();
+          if (type_ == Type::CONTAINS) {
+            range.SetValuePredicate([s = std::string(search_term)](storage::PropertyValue const &v) {
+              return v.IsString() && v.ValueString().find(s) != std::string::npos;
+            });
+          } else if (type_ == Type::ENDS_WITH) {
+            range.SetValuePredicate([s = std::string(search_term)](storage::PropertyValue const &v) {
+              if (!v.IsString()) return false;
+              auto const &vs = v.ValueString();
+              return vs.size() >= s.size() && vs.compare(vs.size() - s.size(), s.size(), s) == 0;
+            });
+          } else {
+            auto re = std::regex(search_term);
+            range.SetValuePredicate([re = std::move(re)](storage::PropertyValue const &v) {
+              return v.IsString() && std::regex_match(v.ValueString(), re);
+            });
+          }
+        }
+      }
+
+      return range;
     }
 
     case Type::STARTS_WITH: {
