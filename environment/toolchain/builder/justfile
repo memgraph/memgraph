@@ -1,0 +1,63 @@
+# Toolchain build entry point.
+#
+# This is a front door, not a build engine: BuildKit owns the dependency graph,
+# the caching and the scheduling. Everything here just assembles arguments.
+#
+#   just build              build the toolchain and write the archive to output/
+#   just stage llvm         build up to one stage, for iterating on it
+#   just shell llvm         open a shell in a stage, to debug a failure
+#   just fingerprint        describe an installed toolchain, for comparing two
+#   just clean              drop the local build cache for this toolchain
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+here := justfile_directory()
+output := here / "output"
+
+# Registry-backed cache. Only CI writes to it: a compiler cache is a
+# supply-chain surface, and a cache hit means nobody rebuilds or inspects the
+# thing that compiles everything else.
+cache_ref := env_var_or_default("TC_CACHE_REF", "")
+
+_cache_from := if cache_ref == "" { "" } else { "--cache-from=type=registry,ref=" + cache_ref }
+_cache_to := if env_var_or_default("TC_CACHE_WRITE", "") == "" { "" } else { "--cache-to=type=registry,ref=" + cache_ref + ",mode=max" }
+
+# Build the toolchain archive.
+build *args:
+    mkdir -p "{{ output }}"
+    docker buildx build "{{ here }}" \
+        --target artifact \
+        --output "type=local,dest={{ output }}" \
+        {{ _cache_from }} {{ _cache_to }} \
+        {{ args }}
+    @echo
+    @ls -lh "{{ output }}"/*.tar.gz
+
+# Build up to one stage only. Everything before it comes from cache.
+stage name *args:
+    docker buildx build "{{ here }}" \
+        --target "s-{{ name }}" \
+        {{ _cache_from }} \
+        {{ args }}
+
+# Open a shell inside a stage, for working out why it failed.
+shell name *args:
+    docker buildx build "{{ here }}" \
+        --target "s-{{ name }}" \
+        --load -t "mg-toolchain-stage-{{ name }}" \
+        {{ _cache_from }} {{ args }}
+    docker run --rm -it "mg-toolchain-stage-{{ name }}" bash
+
+# Describe an installed toolchain. Two of these are what an equivalence check
+# compares; see verify/fingerprint.sh for what it covers and what it cannot.
+fingerprint prefix="/opt/toolchain-v8":
+    "{{ here }}/verify/fingerprint.sh" "{{ prefix }}"
+
+# Build the same thing twice and report how much of it is not reproducible.
+# A measurement, not a gate: bit-for-bit reproducible GCC and LLVM is a project
+# of its own and must not block this one.
+determinism:
+    "{{ here }}/verify/determinism.sh"
+
+clean:
+    docker buildx prune --filter=label=toolchain --force

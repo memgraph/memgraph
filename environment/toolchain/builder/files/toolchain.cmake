@@ -14,7 +14,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if (DEFINED ENV{MG_TOOLCHAIN_ROOT})
     set(MG_TOOLCHAIN_ROOT "$ENV{MG_TOOLCHAIN_ROOT}")
 else()
-    set(MG_TOOLCHAIN_ROOT "/opt/toolchain-v9")
+    set(MG_TOOLCHAIN_ROOT "/opt/toolchain-v8")
 endif()
 message(STATUS "Toolchain directory: ${MG_TOOLCHAIN_ROOT}")
 
@@ -44,7 +44,7 @@ set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
 
-set(MG_TOOLCHAIN_VERSION 9)
+set(MG_TOOLCHAIN_VERSION 8)
 
 # Set compiler
 set(CMAKE_C_COMPILER   "${MG_TOOLCHAIN_ROOT}/bin/clang"   CACHE STRING "" FORCE)
@@ -96,7 +96,7 @@ list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_SYSROOT}/usr/lib64/cmake/OpenSSL")
 # (so the resulting binary matches whatever Python the deploy distro ships),
 # so we exclude the sysroot Python install paths from find_package(Python3)
 # / find_path / find_library results. Keep these in sync with the
-# PYTHON_MAJMIN value in environment/toolchain/v9/build.sh when bumping.
+# PYTHON_MAJMIN value in environment/toolchain/v8/build.sh when bumping.
 set(MG_TOOLCHAIN_PYTHON_MAJMIN "3.12")
 list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_SYSROOT}/usr/bin/python3")
 list(APPEND CMAKE_IGNORE_PATH "${MG_TOOLCHAIN_SYSROOT}/usr/bin/python${MG_TOOLCHAIN_PYTHON_MAJMIN}")

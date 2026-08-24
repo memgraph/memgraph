@@ -116,14 +116,27 @@ to a tracked file.
 
 ### Stage 2: feature-free port
 **Goal**: reproduce v8 exactly, from Docker multi-stage, adding nothing.
-**Includes**: per-tool scripts, per-stage versions, cache mounts for `archives/`
-and ccache, deterministic tarball, digest-pinned base, pinned apt, deleted
-native path, the floor gate.
-**Excludes**: every output-changing change. `llvm-bolt`, libc++, the gdb rpath
-fix and zstd all wait for stage 4. The floor gate is the sole exception because
-it is a check that alters no output.
+Lives in `builder/`; `v8/build.sh` stays, because stage 3 needs it to generate
+the reference tree.
+
+**Landed**: one script per tool with the recipes moved verbatim, one version
+file per stage, `archives/` cache mount, deterministic tarball, base image
+pinned by digest, the glibc floor gate, and the fingerprint and determinism
+tools stage 3 needs.
+
+**Excluded on purpose**: every output-changing change. `llvm-bolt`, libc++, the
+gdb rpath fix and zstd all wait for stage 4. The floor gate is the sole
+exception, being a check that alters nothing it inspects.
+
+**Deferred, and not yet true**: apt packages are still unpinned, so the builder
+can drift even though the image cannot - a snapshot archive closes that. There
+is no ccache mount; adding one changes the compiler invocation, which is a poor
+thing to do while trying to prove the output unchanged. Stages are chained
+rather than fanned out, so the independent leaves do not yet run in parallel.
+
 **Success**: empty structural diff and identical capability fingerprint against
-the reference, and memgraph builds and its unit tests pass.
+the reference, and memgraph builds and its unit tests pass. Not yet run - that
+is stage 3.
 
 ### Stage 3: prove equivalence
 **Goal**: an oracle that is trustworthy rather than approximate.
