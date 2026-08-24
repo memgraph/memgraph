@@ -236,6 +236,10 @@ class Database {
 
   metrics::DatabaseMetricHandles *metric_handles() { return &metrics_.handles(); }
 
+  void RebindMetrics(utils::UUID const &uuid, metrics::DatabaseMetricHandles const &handles) {
+    metrics_.Rebind(uuid, handles);
+  }
+
  private:
   // Declared first so it is released last: the storage's garbage collector writes to these metrics
   // until it is joined, which happens while the storage is being destroyed.

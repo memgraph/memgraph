@@ -243,24 +243,33 @@ class DbmsHandler {
 
     spdlog::debug("Different UUIDs");
 
-    // TODO: Fix this hack
+    // The default DB cannot be deleted and recreated (its storage directory is the root data
+    // directory), so we mutate the UUID in place. This only runs during SystemRecovery on a
+    // replica; DemoteMainToReplica has already executed, so no new write transactions can
+    // start, and the DBMS write lock (held by Update) serializes against other DBMS operations.
     if (*name_view == kDefaultDB) {
       const memory::DbArenaScope db_arena_scope{db.get()};
       auto *storage = db->storage();
-      spdlog::debug("Last commit timestamp for DB {} is {}",
-                    kDefaultDB,
-                    storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
-      // This seems correct, if database made progress
       if (storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ !=
-          storage::kTimestampInitialId) {
+          storage::kTimestampInitialId) [[unlikely]] {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
-        return std::unexpected{NewError::GENERIC};  // Update error
+        return std::unexpected{NewError::GENERIC};
       }
-      spdlog::debug("Updated default db's UUID");
-      // Default db cannot be deleted and remade, have to just update the UUID
+      auto const old_uuid = storage->config_.salient.uuid;
       storage->config_.salient.uuid = config.uuid;
-      metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
-      UpdateDurability(storage->config_, ".");
+      try {
+        UpdateDurability(storage->config_, ".");
+      } catch (...) {
+        storage->config_.salient.uuid = old_uuid;
+        throw;
+      }
+      if (storage->config_.register_metrics) {
+        storage->RebindMetricHandles({});
+        auto new_handles = metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
+        storage->RebindMetricHandles(new_handles);
+        db->RebindMetrics(config.uuid, new_handles);
+      }
+
       return db;
     }
 
