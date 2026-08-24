@@ -205,6 +205,7 @@ class PrometheusMetrics {
 
     /// Points this entry at `new_uuid`. The metric objects and the handles into them stay put.
     void Rebind(utils::UUID const &new_uuid);
+    void Rebind(utils::UUID const &uuid, DatabaseMetricHandles const &handles) { handles_ = handles; }
 
    private:
     friend class PrometheusMetrics;
@@ -220,7 +221,14 @@ class PrometheusMetrics {
   };
 
   [[nodiscard]] Registration AddDatabase(utils::UUID const &uuid, std::string_view name);
-  void RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
+
+  /// Removes the metrics associated with the pre-cluster default database,
+  /// and replaces them with metrics labelled with the UUID of the new
+  /// default database.
+  DatabaseMetricHandles RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
+
+  /// Refresh any gauges whose values are pulled from current storage state,
+  /// rather than updated at point of use.
   void UpdateGauges();
 
   /// Thread-safe update of the global peak_memory_res_bytes gauge.
@@ -274,6 +282,12 @@ class PrometheusMetrics {
   void ReleaseRegistration(uint64_t entry_id);
 
   void RebindRegistration(uint64_t entry_id, utils::UUID const &new_uuid);
+
+  // Caller must hold databases_.mutex.
+  DatabaseMetricHandles CreateHandles(std::string_view name, utils::UUID const &uuid);
+  void RemoveHandlesFromFamilies(DatabaseMetricHandles const &h);
+  void RemoveEntryAt(std::list<DatabaseEntry>::iterator it);
+  DatabaseMetricHandles AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name);
 
   StorageSnapshot ResolveStorageSnapshot(utils::UUID const &uuid) const;
 
