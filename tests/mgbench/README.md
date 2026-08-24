@@ -333,9 +333,6 @@ When reading the output, the control reads come first: they should show close to
 systematic delta on `single_vertex_read` or `aggregate` means something other than replication is
 being measured, and the write numbers should not be trusted until that is understood.
 
-The design, the decisions behind it and its limitations are recorded in
-`specs/replication-benchmarks.md`.
-
 ### Comparing results
 
 Once the benchmark has been run for a single vendor, all the results are saved in appropriately named `.json` files. A summary file is also created for that vendor and it contains all results combined. These summary files are used to compare results against other vendor results via the `compare_results.py` script:

@@ -1908,8 +1908,8 @@ test_memgraph() {
       # Measures only a coordinator-managed HA cluster: a main and one SYNC replica behind three
       # coordinators, or whichever topology --cluster-description names: the target set is defined once
       # here and the description chooses how many replicas the commits wait for.
-      # Covers every distinct pokec write shape plus one read as a control; see
-      # specs/replication-benchmarks.md. The target set is deliberately small because every query
+      # Covers every distinct pokec write shape plus one read as a control. The target set is
+      # deliberately small because every query
       # measured against a cluster restarts every instance in it, which is also why the create group
       # is named query by query rather than globbed: create/vertex and create/edge duplicate
       # arango/single_vertex_write and arango/single_edge_write.
