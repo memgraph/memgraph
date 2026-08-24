@@ -75,8 +75,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     friend bool operator==(BasicEntry const &, BasicEntry const &) = default;
 
     bool operator<(std::vector<PropertyValue> const &rhs) const;
+    bool operator<(std::span<PropertyValue const> rhs) const;
     bool operator==(std::vector<PropertyValue> const &rhs) const;
+    bool operator==(std::span<PropertyValue const> rhs) const;
     bool operator<=(std::vector<PropertyValue> const &rhs) const;
+    bool operator<=(std::span<PropertyValue const> rhs) const;
   };
 
   template <std::size_t N = std::dynamic_extent>
