@@ -189,7 +189,8 @@ replica registers main STRICT_SYNC too. Where no STRICT_SYNC is involved, main k
 which also leaves a failover target, since failover to an ASYNC replica is forbidden by default.
 
 Each runs once per nightly job rather than repeating: the workflow's `loop_count` input does not apply
-to them, since one iteration already restarts a cluster per measurement and eight suites take hours.
+to them, since one iteration already restarts a cluster per measurement and eight suites take hours,
+while the rest of that job does scale with it.
 That is worth knowing when reading the series — a point is a single sample, not an average, so
 run-to-run variance is visible rather than smoothed.
 

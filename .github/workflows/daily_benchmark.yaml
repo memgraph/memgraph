@@ -20,10 +20,7 @@ jobs:
     # the pool is shared and not NUMA-pinned. Restore [self-hosted, Linux, benchmark] before trusting
     # a number, together with the numa step below.
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    # TEMPORARY: only mgbench-ha runs, so the budget is that one suite. The figure below is an
-    # estimate, not a measurement, which is why the margin is generous. Restore the original 550 when
-    # the other steps are re-enabled, adjusted for whatever mgbench-ha turns out to cost.
-    timeout-minutes: 400
+    timeout-minutes: 1000
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
     #  - mgbench-ha: 25 minutes (ESTIMATE, not yet measured: 6 queries at one five-process cluster
@@ -48,11 +45,13 @@ jobs:
     #  - mgbench-vector-search-edge-index: 5 minutes
     #  - mgbench-text-search-index: 5 minutes
     #  - mgbench-text-search-edge-index: 5 minutes
-    #  The eight high availability suites come to about 224 minutes and do not scale with loop_count,
-    #  since each is pinned to a single iteration. That is the whole of this job's cost while the other
-    #  benchmark steps are disabled. Re-enabling them brings back a cost that does scale with
-    #  loop_count, so this arithmetic needs redoing at that point. Every figure above is an estimate,
-    #  not a measurement.
+    #  The job has two parts that scale differently. The eight high availability suites come to about
+    #  226 minutes and are fixed, since each is pinned to a single iteration whatever loop_count says.
+    #  Everything else is about 63 minutes per iteration and does scale, so the total is roughly
+    #  226 + 63 * loop_count: about 290 minutes at 1, 353 at 2, 544 at 5 and 861 at 10. The timeout
+    #  below covers the default of 10 with room for the build and for variation. Every figure above is
+    #  an estimate rather than a measurement, and the high availability ones have never been confirmed
+    #  against a completed run.
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"
@@ -155,9 +154,8 @@ jobs:
           --cpuset-mems="0" \
           "mgbuild_${TOOLCHAIN}_${OS}"
 
-      # TEMPORARY: while the high availability benchmark is being brought up, it runs first and on
-      # its own, and every other benchmark step below is disabled with `if: false`. Re-enable them by
-      # deleting those lines.
+      # The high availability suites run first, before the rest, so that the longest and newest work
+      # is not left until the end of an already long job.
       - name: Run and upload mgbench-ha
         id: mgbench-ha
         continue-on-error: true
@@ -287,7 +285,6 @@ jobs:
             mgbench
 
       - name: Run and upload load_parquet benchmark
-        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: load-parquet
         continue-on-error: true
         run: |
@@ -300,7 +297,6 @@ jobs:
             $BRANCH_NAME
 
       - name: Run and upload mgbench-vector-search-index
-        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: mgbench-vector-search-index
         continue-on-error: true
         run: |
@@ -314,7 +310,6 @@ jobs:
             mgbench
 
       - name: Run and upload mgbench-vector-search-edge-index
-        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: mgbench-vector-search-edge-index
         continue-on-error: true
         run: |
@@ -328,7 +323,6 @@ jobs:
             mgbench
 
       - name: Run and upload mgbench-text-search-index
-        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: mgbench-text-search-index
         continue-on-error: true
         run: |
@@ -342,7 +336,6 @@ jobs:
             mgbench
 
       - name: Run and upload mgbench-text-search-edge-index
-        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: mgbench-text-search-edge-index
         continue-on-error: true
         run: |
@@ -356,7 +349,6 @@ jobs:
             mgbench
 
       - name: Run and upload macro benchmarks
-        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: macro-benchmark
         continue-on-error: true
         run: |
@@ -370,7 +362,6 @@ jobs:
             macro_benchmark
 
       - name: Run and upload mgbench-supernode
-        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: mgbench-supernode
         continue-on-error: true
         run: |
@@ -384,7 +375,6 @@ jobs:
             mgbench
 
       - name: Run and upload mgbench
-        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: mgbench
         continue-on-error: true
         run: |
@@ -398,7 +388,6 @@ jobs:
             mgbench
 
       - name: Run extended planner optimizations mgbench
-        if: false  # TEMPORARY: disabled while the HA benchmark is brought up
         id: planner
         continue-on-error: true
         run: |
