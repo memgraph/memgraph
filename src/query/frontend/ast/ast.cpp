@@ -473,6 +473,9 @@ constexpr utils::TypeInfo query::TenantProfileQuery::kType{
     .id = utils::TypeId::AST_TENANT_PROFILE_QUERY, .name = "TenantProfileQuery", .superclass = &query::Query::kType};
 
 namespace query {
+
+void AstStorage::Adopt(std::unique_ptr<Tree> node) { storage_.emplace_back(std::move(node)); }
+
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue *>);
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue const *>);

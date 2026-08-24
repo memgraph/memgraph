@@ -96,10 +96,13 @@ class AstStorage {
   template <typename T, typename... Args>
   T *Create(Args &&...args) {
     T *ptr = new T(std::forward<Args>(args)...);
-    std::unique_ptr<T> tmp(ptr);
-    storage_.emplace_back(std::move(tmp));
+    Adopt(std::unique_ptr<Tree>(ptr));
     return ptr;
   }
+
+  // Taking ownership through the base pointer keeps the vector's allocator
+  // machinery out of Create, which is instantiated once per node type.
+  void Adopt(std::unique_ptr<Tree> node);
 
   LabelIx GetLabelIx(const std::string &name) { return LabelIx{name, FindOrAddName(name, &labels_)}; }
 
