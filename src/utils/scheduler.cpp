@@ -180,7 +180,16 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
       }
     }
 
+    {
+      auto lk = std::unique_lock{mutex_};
+      is_executing_ = true;
+    }
     f();
+    {
+      auto lk = std::unique_lock{mutex_};
+      is_executing_ = false;
+    }
+    condition_variable_.notify_one();
   }
 }
 
@@ -204,6 +213,12 @@ void Scheduler::Pause() {
   // Lock needs to be held when modifying cv even if atomic
   auto lk = std::unique_lock{mutex_};
   is_paused_ = true;
+}
+
+void Scheduler::PauseAndWait() {
+  auto lk = std::unique_lock{mutex_};
+  is_paused_ = true;
+  condition_variable_.wait(lk, [&] { return !is_executing_; });
 }
 
 // Sets atomic is_paused_ to false and notifies thread
