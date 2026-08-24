@@ -62,7 +62,14 @@ bool DirExists(const std::filesystem::path &dir);
 /// Deletes everything from the given directory including the directory.
 bool DeleteDir(const std::filesystem::path &dir) noexcept;
 
-auto GetFilesFromDir(std::filesystem::path const &dir) -> std::vector<std::filesystem::path>;
+/// Lists a directory's entries, skipping the ".old" archive sub-directory. Never throws; a missing
+/// directory reads as an empty one, and nullopt reports a directory that exists but could not be
+/// (fully) listed -- for callers whose correctness depends on the listing being complete.
+auto TryGetFilesFromDir(std::filesystem::path const &dir) noexcept -> std::optional<std::vector<std::filesystem::path>>;
+
+/// TryGetFilesFromDir for callers that only act on what was listed: an error reads as an empty
+/// directory.
+auto GetFilesFromDir(std::filesystem::path const &dir) noexcept -> std::vector<std::filesystem::path>;
 
 /// Deletes just the specified file. Symlinks are not followed.
 bool DeleteFile(const std::filesystem::path &file) noexcept;

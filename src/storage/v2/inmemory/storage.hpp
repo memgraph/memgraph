@@ -15,9 +15,12 @@
 #include <cstdint>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <ranges>
+#include <semaphore>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
 #include "replication_coordination_glue/role.hpp"
@@ -930,7 +933,24 @@ class InMemoryStorage final : public Storage {
   // directory, or deletes it when --storage-backup-dir-enabled=false. Leaves `keep_snapshot` as the only
   // snapshot and the WAL directory empty. Returns whether the WAL directory really did end up empty:
   // restarting the WAL sequence numbering is only safe once no pre-existing file can collide with it.
-  bool ArchiveSupersededDurabilityFiles(std::filesystem::path const &keep_snapshot);
+  // noexcept because it runs between the mode switch's ldt publication and its storage_mode_ store,
+  // where an escaping exception would leave the switch half-applied; any internal failure degrades
+  // to "superseded files stay where they are" via the return value.
+  bool ArchiveSupersededDurabilityFiles(std::filesystem::path const &keep_snapshot) noexcept;
+
+  /// The tail of an analytical -> transactional switch, run under the UNIQUE hold that
+  /// `unique_accessor` owns: publish the exit snapshot as the new durability base and store the
+  /// mode. `snapshot_path`/`snapshot_ldt` describe the snapshot prepared under READ_ONLY, and the
+  /// switch aborts (returns false, storage analytical and unchanged, for the user to repeat)
+  /// unless that snapshot still covers everything: the unique transaction's id must be exactly
+  /// `expected_transaction_id` (no unique-access operation ran in between) and the index
+  /// definitions this hold sees must match `expected_index_definitions` (no analytical index DDL,
+  /// which runs under READ_ONLY and is invisible to the id check, committed in between). The
+  /// caller owns the transition permit and releases it after this returns.
+  bool CompleteAnalyticalToTransactionalSwitch(std::unique_ptr<Accessor> unique_accessor,
+                                               std::filesystem::path snapshot_path, uint64_t snapshot_ldt,
+                                               uint64_t expected_transaction_id,
+                                               IndicesInfo expected_index_definitions);
 
   StorageInfo GetBaseInfo() override;
   StorageInfo GetInfo() override;
@@ -1029,6 +1049,18 @@ class InMemoryStorage final : public Storage {
   std::atomic_bool snapshot_running_{false};
   std::atomic_bool abort_snapshot_{false};
   SnapshotProgress snapshot_progress_;
+
+  // Serializes storage mode transitions. A semaphore rather than a mutex because the
+  // analytical -> transactional direction can finish on a background thread after SetStorageMode
+  // returns, and that thread must be the one to release the permit; a mutex cannot be unlocked
+  // from a thread other than its locker. While a transition holds the permit, storage_mode_ is
+  // pinned: the permit holder owns the only code path that writes it.
+  std::binary_semaphore storage_mode_transition_permit_{1};
+  // Completes a contended analytical -> transactional switch once running readers drain. Guarded
+  // by mode_switch_thread_mutex_: the previous flip releases the transition permit from this
+  // thread, so a new transition can reach the assignment while the old thread is still unwinding.
+  std::mutex mode_switch_thread_mutex_;
+  std::jthread mode_switch_thread_;
 
   std::shared_ptr<utils::Observer<utils::SchedulerInterval>> snapshot_periodic_observer_;
 

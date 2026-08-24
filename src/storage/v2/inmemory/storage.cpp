@@ -71,6 +71,7 @@
 #include "utils/scheduler.hpp"
 #include "utils/stat.hpp"
 #include "utils/temporal.hpp"
+#include "utils/thread.hpp"
 #include "utils/variant_helpers.hpp"
 
 import memgraph.utils.aws;
@@ -546,6 +547,19 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
 }
 
 InMemoryStorage::~InMemoryStorage() {
+  // A pending analytical -> transactional flip runs on mode_switch_thread_ and touches members torn
+  // down below (snapshot runner, WAL machinery, replication state); let it finish before any of that.
+  {
+    auto thread_guard = std::scoped_lock{mode_switch_thread_mutex_};
+    if (mode_switch_thread_.joinable()) {
+      // The flip cannot be completed at any cost here: it may be parked behind unbounded in-flight
+      // readers, and joining without the stop request would hold shutdown hostage to them. The
+      // thread abandons the switch on the next slice instead.
+      mode_switch_thread_.request_stop();
+      mode_switch_thread_.join();
+    }
+  }
+
   flags::run_time::SnapshotPeriodicDetach(snapshot_periodic_observer_);
 
   stop_source.request_stop();
@@ -2908,138 +2922,357 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           metric_handles_.unreleased_delta_objects};
 }
 
+namespace {
+
+/// The index families whose analytical-mode DDL runs under READ_ONLY access, extracted through the
+/// accessor's transaction-pinned view and sorted so two captures compare by content. READ_ONLY is
+/// compatible with the READ_ONLY hold the mode-change exit snapshot is written under, so only these
+/// families can change concurrently with that snapshot; every other index kind (text, point,
+/// vector) still requires UNIQUE access, which the transaction-id check covers.
+IndicesInfo SortedIndexDefinitions(Storage::Accessor &accessor) {
+  auto info = accessor.ListAllIndices();
+  std::ranges::sort(info.label);
+  std::ranges::sort(info.label_properties);
+  std::ranges::sort(info.edge_type);
+  std::ranges::sort(info.edge_type_property);
+  std::ranges::sort(info.edge_property);
+  std::ranges::sort(info.vertex_property);
+  return info;
+}
+
+bool ReadOnlyMutableIndexDefinitionsEqual(IndicesInfo const &lhs, IndicesInfo const &rhs) {
+  return lhs.label == rhs.label && lhs.label_properties == rhs.label_properties && lhs.edge_type == rhs.edge_type &&
+         lhs.edge_type_property == rhs.edge_type_property && lhs.edge_property == rhs.edge_property &&
+         lhs.vertex_property == rhs.vertex_property;
+}
+
+}  // namespace
+
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
-  // Drain before UNIQUE: worker holds AsyncIndexer::mutex_ while waiting on
-  // main_lock_, so draining under UNIQUE would deadlock.
-  if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL && storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+  MG_ASSERT(new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL ||
+            new_storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL);
+
+  // One transition at a time, waiting rather than failing, so back-to-back calls keep behaving as
+  // if executed one by one: the analytical -> transactional direction can still be finishing on a
+  // background thread when the next call arrives.
+  storage_mode_transition_permit_.acquire();
+  bool handed_off = false;
+  const utils::OnScopeExit release_permit{[&] {
+    if (!handed_off) storage_mode_transition_permit_.release();
+  }};
+
+  // Pinned while the permit is held (the holder owns the only path that writes it), so this read
+  // cannot go stale.
+  const auto current_mode = storage_mode_.load();
+  MG_ASSERT(current_mode == StorageMode::IN_MEMORY_ANALYTICAL || current_mode == StorageMode::IN_MEMORY_TRANSACTIONAL);
+  if (current_mode == new_storage_mode) return;
+
+  if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+    // Drain before UNIQUE: worker holds AsyncIndexer::mutex_ while waiting on
+    // main_lock_, so draining under UNIQUE would deadlock.
     spdlog::info("SetStorageMode: draining async indexer before transition to IN_MEMORY_ANALYTICAL");
     async_indexer_.CompleteRemaining();
     spdlog::info("SetStorageMode: async indexer drained");
-  }
 
-  auto unique_accessor = UniqueAccess();
-  MG_ASSERT(
-      (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
-      (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL ||
-       new_storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
-  if (storage_mode_ != new_storage_mode) {
-    // Snapshot thread is already running, but setup periodic execution only if enabled
-    if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-      auto active_constraints = GetActiveConstraints();
-      // Constraints violation require deltas so we can abort. Hence in analytical can not support any constraint
-      if (active_constraints && !active_constraints->empty()) {
-        throw utils::BasicException(
-            "Constraints are not supported in analytical storage mode. Please drop them before "
-            "changing storage mode to analytical or use transactional mode.");
-      }
-      // Anything enqueued in the gap between drain and UNIQUE can't be drained here without deadlock.
-      if (!async_indexer_.IsIdle()) {
-        throw utils::BasicException(
-            "Cannot switch to IN_MEMORY_ANALYTICAL: an async index creation task (from CREATE INDEX "
-            "or ENABLE TTL) was enqueued concurrently with the storage mode change. Wait for pending "
-            "index creation to finish and retry.");
-      }
-      // Analytical writes are never appended to the WAL, so a replica attached across the switch would
-      // silently miss the whole episode. Refuse and store the mode under the clients' own lock, which is
-      // the same lock replica registration inserts under: "analytical with a live client" is then
-      // unrepresentable rather than merely a narrow race.
-      repl_storage_state_.replication_storage_clients_.WithLock([this](auto const &clients) {
-        if (!clients.empty()) {
-          throw utils::BasicException(
-              "Cannot switch to IN_MEMORY_ANALYTICAL while {} replica(s) replicate from this database. Analytical "
-              "writes are not replicated; unregister every replica first.",
-              clients.size());
-        }
-        storage_mode_ = StorageMode::IN_MEMORY_ANALYTICAL;
-      });
-
-      // Finalize the WAL so the episode leaves a file-level signature: the pre-import file's [from, to]
-      // range then ends before the switch-back snapshot's timestamp, which is how GetRecoverySteps
-      // detects that no WAL can reproduce the imported data. Placed after every check that throws, so a
-      // rejected switch has no side effect, and under engine_lock_ because GetRecoverySteps holds that
-      // lock specifically to read wal_file_. Lock order main_lock_ -> engine_lock_ is respected, since
-      // the UNIQUE hold above is on main_lock_.
-      {
-        std::unique_lock const engine_guard(engine_lock_);
-        if (wal_file_) {
-          wal_file_->FinalizeWal();
-          wal_file_.reset();
-          wal_unsynced_transactions_ = 0;
-        }
-      }
-      snapshot_runner_.Pause();
-    } else {
-      // No need to resume async indexer, it is always running.
-      // As IN_MEMORY_TRANSACTIONAL we will now start giving it new work.
-      // The txn's last_durable_ts_ was captured at unique-acc construction
-      // from the pre-analytical-mode ldt; analytical-mode writes don't bump
-      // ldt, so without this the snapshot's durable_timestamp would lag its
-      // contents and consumers would skip it as "not newer".
-      auto *txn = unique_accessor->GetTransaction();
-      txn->last_durable_ts_ = txn->start_timestamp;
-      const auto snapshot_path = durability::CreateSnapshot(this,
-                                                            txn,
-                                                            recovery_.snapshot_directory_,
-                                                            recovery_.wal_directory_,
-                                                            &vertices_,
-                                                            &edges_,
-                                                            uuid(),
-                                                            repl_storage_state_.epoch_.id(),
-                                                            repl_storage_state_.history,
-                                                            &file_retainer_,
-                                                            &abort_snapshot_,
-                                                            &snapshot_progress_,
-                                                            "storage_mode_change");
-      if (!snapshot_path) {
-        // Analytical writes never reached a WAL, so this snapshot is the only durable record the episode
-        // will ever have. Completing the switch without it would leave the data live in memory but absent
-        // from durability, and the next recovery would silently drop it. Stay analytical instead: the
-        // mode, the cached ldt and every durability file are still untouched at this point, so the user
-        // can fix the cause and retry. CreateSnapshot has already removed whatever partial file it wrote.
-        throw utils::BasicException(
-            "Failed to create the snapshot required to leave IN_MEMORY_ANALYTICAL. The database is still in "
-            "analytical mode and its data is unchanged; check the logs for the cause and retry.");
-      }
-
-      // Publish the snapshot's timestamp as the cached ldt. Analytical writes never reach
-      // FinalizeCommitPhase, so without this main keeps advertising the pre-analytical ldt and a replica
-      // registered afterwards is judged up to date by the heartbeat comparison -- recovery would never
-      // run and the imported data would never reach it. num_committed_txns_ is deliberately left alone:
-      // the snapshot records the same unchanged counter, so main and a recovering replica stay
-      // consistent. Advance-only, since concurrent commits are barred by the UNIQUE main_lock_ hold but
-      // the field is shared with the replication clients.
-      atomic_struct_update<CommitTsInfo>(repl_storage_state_.commit_ts_info_,
-                                         [ldt = *txn->last_durable_ts_](CommitTsInfo const &old_info) {
-                                           return CommitTsInfo{.ldt_ = std::max(old_info.ldt_, ldt),
-                                                               .num_committed_txns_ = old_info.num_committed_txns_};
-                                         });
-
-      // The switch-back snapshot is a new durability base, not an increment on the old one: an analytical
-      // episode leaves a timestamp hole no WAL can fill, so nothing written before it can be chained onto
-      // it. Archive the superseded files and restart the WAL numbering at 0 -- the two go together.
-      // Wiping alone would break recovery, since a chain whose first file has a non-zero sequence number
-      // is accepted only when some WAL predates the snapshot, and every such WAL is what was just wiped.
-      // Restarting alone would be worse: the surviving files carry this same UUID, so the new numbers
-      // would collide with theirs, and a duplicate sequence number is caught by no check anywhere.
-      DMG_ASSERT(!wal_file_, "Analytical mode must not leave an open WAL file.");
-      if (ArchiveSupersededDurabilityFiles(*snapshot_path)) {
-        wal_seq_num_ = 0;
-      } else {
-        spdlog::warn(
-            "Superseded WAL files could not be archived, so WAL sequence numbering continues from {} to stay "
-            "collision-free.",
-            wal_seq_num_);
-      }
-      snapshot_runner_.Resume();
-      // Under the clients' lock for symmetry with the analytical store above, so replica registration's
-      // in-lock read of storage_mode_ is serialized against every mode change, not just one direction.
-      repl_storage_state_.replication_storage_clients_.WithLock(
-          [this](auto const & /*clients*/) { storage_mode_ = StorageMode::IN_MEMORY_TRANSACTIONAL; });
+    auto unique_accessor = UniqueAccess();
+    auto active_constraints = GetActiveConstraints();
+    // Constraints violation require deltas so we can abort. Hence in analytical can not support any constraint
+    if (active_constraints && !active_constraints->empty()) {
+      throw utils::BasicException(
+          "Constraints are not supported in analytical storage mode. Please drop them before "
+          "changing storage mode to analytical or use transactional mode.");
     }
+    // Anything enqueued in the gap between drain and UNIQUE can't be drained here without deadlock.
+    if (!async_indexer_.IsIdle()) {
+      throw utils::BasicException(
+          "Cannot switch to IN_MEMORY_ANALYTICAL: an async index creation task (from CREATE INDEX "
+          "or ENABLE TTL) was enqueued concurrently with the storage mode change. Wait for pending "
+          "index creation to finish and retry.");
+    }
+    // Analytical writes are never appended to the WAL, so a replica attached across the switch would
+    // silently miss the whole episode. Refuse and store the mode under the clients' own lock, which is
+    // the same lock replica registration inserts under: "analytical with a live client" is then
+    // unrepresentable rather than merely a narrow race.
+    repl_storage_state_.replication_storage_clients_.WithLock([this](auto const &clients) {
+      if (!clients.empty()) {
+        throw utils::BasicException(
+            "Cannot switch to IN_MEMORY_ANALYTICAL while {} replica(s) replicate from this database. Analytical "
+            "writes are not replicated; unregister every replica first.",
+            clients.size());
+      }
+      storage_mode_ = StorageMode::IN_MEMORY_ANALYTICAL;
+    });
+
+    // Finalize the WAL so the episode leaves a file-level signature: the pre-import file's [from, to]
+    // range then ends before the switch-back snapshot's timestamp, which is how GetRecoverySteps
+    // detects that no WAL can reproduce the imported data. Placed after every check that throws, so a
+    // rejected switch has no side effect, and under engine_lock_ because GetRecoverySteps holds that
+    // lock specifically to read wal_file_. Lock order main_lock_ -> engine_lock_ is respected, since
+    // the UNIQUE hold above is on main_lock_.
+    {
+      std::unique_lock const engine_guard(engine_lock_);
+      if (wal_file_) {
+        wal_file_->FinalizeWal();
+        wal_file_.reset();
+        wal_unsynced_transactions_ = 0;
+      }
+    }
+    snapshot_runner_.Pause();
     // Hand off the same lock unique_accessor already holds; adopting main_lock_ into a second
     // lock would give the one hold two owners and release it twice.
     FreeMemory(unique_accessor->ReleaseGuard(), false);
+    return;
   }
+
+  // IN_MEMORY_ANALYTICAL -> IN_MEMORY_TRANSACTIONAL. The exit snapshot dominates the switch, so it
+  // is written under READ_ONLY -- writers stay excluded but readers keep running -- instead of
+  // under the UNIQUE hold the flip itself needs. A pending-UNIQUE registration taken while
+  // READ_ONLY is still held then gates every new accessor, so nothing that could invalidate the
+  // snapshot is admitted before the flip: the flip either completes right here (lock free, the
+  // common case) or on a background thread once the already-admitted readers drain, without
+  // stalling this call behind them.
+
+  std::unique_ptr<utils::UniquePendingScope> pending_unique;
+  std::filesystem::path snapshot_path;
+  uint64_t snapshot_ldt{};
+  uint64_t expected_transaction_id{};
+  IndicesInfo expected_index_definitions;
+  {
+    // The snapshot machinery (progress, abort flag) is single-flight; since readers -- and with
+    // them manual CREATE SNAPSHOT, which runs under READ_ONLY in analytical mode -- stay admitted
+    // while ours is written, take the same exclusion the CreateSnapshot member takes. Scoped to
+    // the write itself: SHOW SNAPSHOTS takes snapshot_lock_ from under a query's READ hold, so
+    // holding it while waiting for UNIQUE below would invert that order.
+    auto snapshot_expected = false;
+    if (!snapshot_running_.compare_exchange_strong(snapshot_expected, true, std::memory_order_acq_rel)) {
+      throw utils::BasicException(
+          "Cannot switch to IN_MEMORY_TRANSACTIONAL: a snapshot is currently being created. Retry once it completes.");
+    }
+    const utils::OnScopeExit clear_snapshot_running{[this] {
+      snapshot_running_.store(false, std::memory_order_release);
+      snapshot_progress_.Reset();
+    }};
+    snapshot_progress_.Start();
+    const auto snapshot_guard = std::unique_lock{snapshot_lock_};
+
+    auto read_only_accessor = ReadOnlyAccess();
+    auto *txn = read_only_accessor->GetTransaction();
+    // The txn's last_durable_ts_ was captured at construction from the pre-analytical-mode ldt;
+    // analytical-mode writes don't bump ldt, so without this the snapshot's durable_timestamp would
+    // lag its contents and consumers would skip it as "not newer".
+    txn->last_durable_ts_ = txn->start_timestamp;
+    const auto maybe_snapshot_path = durability::CreateSnapshot(this,
+                                                                txn,
+                                                                recovery_.snapshot_directory_,
+                                                                recovery_.wal_directory_,
+                                                                &vertices_,
+                                                                &edges_,
+                                                                uuid(),
+                                                                repl_storage_state_.epoch_.id(),
+                                                                repl_storage_state_.history,
+                                                                &file_retainer_,
+                                                                &abort_snapshot_,
+                                                                &snapshot_progress_,
+                                                                "storage_mode_change");
+    if (!maybe_snapshot_path) {
+      // Analytical writes never reached a WAL, so this snapshot is the only durable record the episode
+      // will ever have. Completing the switch without it would leave the data live in memory but absent
+      // from durability, and the next recovery would silently drop it. Stay analytical instead: the
+      // mode, the cached ldt and every durability file are still untouched at this point, so the user
+      // can fix the cause and retry. CreateSnapshot has already removed whatever partial file it wrote.
+      throw utils::BasicException(
+          "Failed to create the snapshot required to leave IN_MEMORY_ANALYTICAL. The database is still in "
+          "analytical mode and its data is unchanged; check the logs for the cause and retry.");
+    }
+    snapshot_path = *maybe_snapshot_path;
+    snapshot_ldt = *txn->last_durable_ts_;
+    // The index definitions the snapshot recorded: ListAllIndices reads the same transaction-pinned
+    // view (active_indices_ at start_timestamp) the snapshot writer serialized. The flip compares
+    // its own view against this to catch analytical index DDL, which runs under READ_ONLY access
+    // and can therefore commit concurrently with this snapshot without tripping the transaction-id
+    // check below.
+    expected_index_definitions = SortedIndexDefinitions(*read_only_accessor);
+
+    // Registered while READ_ONLY is still held, so no accessor of any kind is admitted between the
+    // snapshot and the flip's UNIQUE hold -- except another unique access, which a pending
+    // registration does not gate. Those are detected instead of excluded: from here on, only a
+    // transaction created under UNIQUE can obtain an id, so unless the flip's own unique transaction
+    // gets exactly the id captured below, something ran in between and the switch aborts.
+    pending_unique = std::make_unique<utils::UniquePendingScope>(main_lock_);
+    {
+      auto engine_guard = std::scoped_lock{engine_lock_};
+      expected_transaction_id = transaction_id_;
+    }
+  }
+
+  // Give in-flight readers a short grace to drain and finish synchronously, keeping the contract
+  // that an uncontended (or briefly contended) SetStorageMode returns with the mode already
+  // switched. The wait itself registers as a pending UNIQUE too, so the gate never drops. Only a
+  // long-running reader pushes the flip onto the background thread.
+  constexpr auto kSynchronousFlipGrace = std::chrono::milliseconds(100);
+  auto unique_guard = utils::ResourceLockGuard{main_lock_, utils::ResourceLockGuard::UNIQUE, std::defer_lock};
+  if (unique_guard.try_lock_for(kSynchronousFlipGrace)) {
+    pending_unique.reset();
+    auto unique_accessor = std::unique_ptr<Accessor>{new InMemoryAccessor{this, std::nullopt, std::move(unique_guard)}};
+    if (!CompleteAnalyticalToTransactionalSwitch(std::move(unique_accessor),
+                                                 std::move(snapshot_path),
+                                                 snapshot_ldt,
+                                                 expected_transaction_id,
+                                                 std::move(expected_index_definitions))) {
+      throw utils::BasicException(
+          "Another operation took exclusive storage access while the switch to IN_MEMORY_TRANSACTIONAL was being "
+          "prepared, so the prepared snapshot may not include its effects. The database is still in analytical mode "
+          "and its data is unchanged; repeat the storage mode change.");
+    }
+    return;
+  }
+
+  // Readers are still draining; hand the flip to a background thread so this call does not stall
+  // behind them. The pending registration moves with it and keeps the gate up until the flip owns
+  // UNIQUE, so everything admitted after this point waits for the flip and starts transactional.
+  {
+    auto thread_guard = std::scoped_lock{mode_switch_thread_mutex_};
+    mode_switch_thread_ = std::jthread{[this,
+                                        snapshot = std::move(snapshot_path),
+                                        snapshot_ldt,
+                                        expected_transaction_id,
+                                        expected_indices = std::move(expected_index_definitions),
+                                        pending = std::move(pending_unique)](std::stop_token stop_token) mutable {
+      utils::ThreadSetName("mg_mode_switch");
+      const utils::OnScopeExit release_permit{[this] { storage_mode_transition_permit_.release(); }};
+      try {
+        spdlog::info(
+            "Storage mode change to IN_MEMORY_TRANSACTIONAL is waiting on unique storage access; it proceeds once "
+            "running transactions finish.");
+        // Wait in slices rather than in one non-cancellable block: the readers being drained are
+        // unbounded, and the destructor joins this thread, so a blocking wait would hold shutdown
+        // hostage to them. The pending registration keeps gating admissions across the slices.
+        constexpr auto kStopCheckPeriod = std::chrono::milliseconds(100);
+        auto unique_guard = utils::ResourceLockGuard{main_lock_, utils::ResourceLockGuard::UNIQUE, std::defer_lock};
+        while (!unique_guard.try_lock_for(kStopCheckPeriod)) {
+          if (stop_token.stop_requested()) {
+            spdlog::warn(
+                "Storage mode change to IN_MEMORY_TRANSACTIONAL abandoned: the storage is shutting down. The "
+                "database stays in analytical mode and its data is unchanged; repeat the storage mode change.");
+            return;
+          }
+        }
+        spdlog::info("Storage mode change to IN_MEMORY_TRANSACTIONAL acquired unique storage access.");
+        auto unique_accessor =
+            std::unique_ptr<Accessor>{new InMemoryAccessor{this, std::nullopt, std::move(unique_guard)}};
+        // UNIQUE itself is held now; the registration has done its gating.
+        pending.reset();
+        if (!CompleteAnalyticalToTransactionalSwitch(std::move(unique_accessor),
+                                                     std::move(snapshot),
+                                                     snapshot_ldt,
+                                                     expected_transaction_id,
+                                                     std::move(expected_indices))) {
+          spdlog::error(
+              "Another operation took exclusive storage access while the switch to IN_MEMORY_TRANSACTIONAL was "
+              "being prepared, so the prepared snapshot may not include its effects. The database stays in "
+              "analytical mode and its data is unchanged; repeat the storage mode change.");
+        }
+      } catch (const std::exception &e) {
+        spdlog::error("Storage mode change to IN_MEMORY_TRANSACTIONAL failed in the background: {}", e.what());
+      } catch (...) {
+        spdlog::error("Storage mode change to IN_MEMORY_TRANSACTIONAL failed in the background.");
+      }
+    }};
+  }
+  handed_off = true;
+  spdlog::info(
+      "Storage mode change to IN_MEMORY_TRANSACTIONAL prepared; it completes in the background once running "
+      "transactions finish. New transactions wait for it and start in IN_MEMORY_TRANSACTIONAL.");
+}
+
+bool InMemoryStorage::CompleteAnalyticalToTransactionalSwitch(std::unique_ptr<Accessor> unique_accessor,
+                                                              std::filesystem::path snapshot_path,
+                                                              uint64_t snapshot_ldt, uint64_t expected_transaction_id,
+                                                              IndicesInfo expected_index_definitions) {
+  auto *txn = unique_accessor->GetTransaction();
+  if (txn->transaction_id != expected_transaction_id) {
+    // A unique-access operation (point/vector/text index DDL, DROP GRAPH, FREE MEMORY, ...) won the
+    // lock between the prepared snapshot and this hold, so that snapshot may no longer cover
+    // everything. Publishing it anyway would make it a stale durability base whose missing effects
+    // the next recovery silently drops; abort the switch instead and leave the switch state
+    // untouched -- mode and cached ldt -- so the user can simply repeat the operation. The one
+    // side effect that does remain is the prepared snapshot file itself: it is not published (no
+    // ldt advance, no archival of the files it would supersede) but it stays on disk as a valid
+    // image of the analytical state at its timestamp, so a crash while still analytical now
+    // recovers to that point instead of to the pre-analytical state. A repeated switch writes a
+    // fresh snapshot that supersedes it, and the archival step then moves it aside with the rest.
+    spdlog::error(
+        "Aborting the storage mode change to IN_MEMORY_TRANSACTIONAL: a unique-access operation ran after the "
+        "prepared snapshot (expected transaction id {}, got {}). The database stays in analytical mode; repeat the "
+        "storage mode change.",
+        expected_transaction_id,
+        txn->transaction_id);
+    return false;
+  }
+  if (!ReadOnlyMutableIndexDefinitionsEqual(SortedIndexDefinitions(*unique_accessor), expected_index_definitions)) {
+    // Analytical index DDL on most index families runs under READ_ONLY access, compatible with the
+    // hold the exit snapshot was written under, so such a commit is invisible to the transaction-id
+    // check: its transaction can predate both the snapshot and the capture. Compare the definitions
+    // themselves instead -- this hold's view against what the snapshot recorded -- and abort the
+    // same way when they diverge, since the snapshot misses (or wrongly contains) that index.
+    spdlog::error(
+        "Aborting the storage mode change to IN_MEMORY_TRANSACTIONAL: concurrent index DDL committed after the "
+        "prepared snapshot. The database stays in analytical mode; repeat the storage mode change.");
+    return false;
+  }
+
+  // Publish the snapshot's timestamp as the cached ldt. Analytical writes never reach
+  // FinalizeCommitPhase, so without this main keeps advertising the pre-analytical ldt and a replica
+  // registered afterwards is judged up to date by the heartbeat comparison -- recovery would never
+  // run and the imported data would never reach it. num_committed_txns_ is deliberately left alone:
+  // the snapshot records the same unchanged counter, so main and a recovering replica stay
+  // consistent. Advance-only, since concurrent commits are barred by the UNIQUE main_lock_ hold but
+  // the field is shared with the replication clients.
+  atomic_struct_update<CommitTsInfo>(
+      repl_storage_state_.commit_ts_info_, [ldt = snapshot_ldt](CommitTsInfo const &old_info) {
+        return CommitTsInfo{.ldt_ = std::max(old_info.ldt_, ldt), .num_committed_txns_ = old_info.num_committed_txns_};
+      });
+
+  // The switch-back snapshot is a new durability base, not an increment on the old one: an analytical
+  // episode leaves a timestamp hole no WAL can fill, so nothing written before it can be chained onto
+  // it. Archive the superseded files and restart the WAL numbering at 0 -- the two go together.
+  // Wiping alone would break recovery, since a chain whose first file has a non-zero sequence number
+  // is accepted only when some WAL predates the snapshot, and every such WAL is what was just wiped.
+  // Restarting alone would be worse: the surviving files carry this same UUID, so the new numbers
+  // would collide with theirs, and a duplicate sequence number is caught by no check anywhere.
+  DMG_ASSERT(!wal_file_, "Analytical mode must not leave an open WAL file.");
+  if (ArchiveSupersededDurabilityFiles(snapshot_path)) {
+    wal_seq_num_ = 0;
+  } else {
+    spdlog::warn(
+        "Superseded WAL files could not be archived, so WAL sequence numbering continues from {} to stay "
+        "collision-free.",
+        wal_seq_num_);
+  }
+  snapshot_runner_.Resume();
+  // Under the clients' lock for symmetry with the analytical store in SetStorageMode, so replica
+  // registration's in-lock read of storage_mode_ is serialized against every mode change, not just
+  // one direction.
+  repl_storage_state_.replication_storage_clients_.WithLock(
+      [this](auto const & /*clients*/) { storage_mode_ = StorageMode::IN_MEMORY_TRANSACTIONAL; });
+  // Hand off the same lock unique_accessor already holds; adopting main_lock_ into a second
+  // lock would give the one hold two owners and release it twice. The switch is complete at this
+  // point, so a GC throw (CollectGarbage allocates and logs) must not report it as failed -- to
+  // the client on the synchronous path or the log on the background one; periodic GC redoes the
+  // pass anyway.
+  try {
+    FreeMemory(unique_accessor->ReleaseGuard(), false);
+  } catch (const std::exception &e) {
+    spdlog::warn(
+        "The storage mode change to IN_MEMORY_TRANSACTIONAL completed, but its garbage collection pass failed: {}. "
+        "Periodic garbage collection will redo it.",
+        e.what());
+  } catch (...) {
+    spdlog::warn(
+        "The storage mode change to IN_MEMORY_TRANSACTIONAL completed, but its garbage collection pass failed. "
+        "Periodic garbage collection will redo it.");
+  }
+  return true;
 }
 
 void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic) {
@@ -3766,7 +3999,7 @@ void InMemoryStorage::FinalizeWalFile() {
   }
 }
 
-bool InMemoryStorage::ArchiveSupersededDurabilityFiles(std::filesystem::path const &keep_snapshot) {
+bool InMemoryStorage::ArchiveSupersededDurabilityFiles(std::filesystem::path const &keep_snapshot) noexcept try {
   auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
 
   // A leftover .old from an earlier archival describes a state even older than the one being archived
@@ -3820,9 +4053,26 @@ bool InMemoryStorage::ArchiveSupersededDurabilityFiles(std::filesystem::path con
   archive_dir(recovery_.snapshot_directory_, &keep_snapshot);
   archive_dir(recovery_.wal_directory_, nullptr);
 
-  // Deletions and renames are deferred while a file is locked (SHOW SNAPSHOTS, a replica recovery), so
-  // the directory is re-read rather than assumed empty.
-  return !utils::DirExists(recovery_.wal_directory_) || utils::GetFilesFromDir(recovery_.wal_directory_).empty();
+  // Deletions and renames are deferred while a file is locked (SHOW SNAPSHOTS, a replica recovery),
+  // so the directory is re-read rather than assumed empty. Read directly rather than through
+  // GetFilesFromDir, whose errors read as an empty directory: here a wrong "empty" restarts the
+  // sequence numbering into a collision, while a wrong "non-empty" only keeps the old numbering.
+  if (!utils::DirExists(recovery_.wal_directory_)) return true;
+  std::error_code error_code;
+  auto dir_it = std::filesystem::directory_iterator(recovery_.wal_directory_, error_code);
+  for (; !error_code && dir_it != std::filesystem::directory_iterator{}; dir_it.increment(error_code)) {
+    if (dir_it->path().filename() != kOldDurabilityDir) return false;
+  }
+  return !error_code;
+} catch (...) {
+  // Not everything above is nothrow: the file retainer's RenameFile calls throwing filesystem
+  // overloads, and the path compositions allocate. An exception here must not escape: the
+  // mode-switch caller has already published the new ldt, so a throw before its storage_mode_
+  // store would leave the switch half-applied -- invisibly so on the background path, which
+  // swallows exceptions. Degrade to the same contract as any other failure here: superseded files
+  // stay where they are, and the report of a non-empty WAL directory keeps the caller's sequence
+  // numbering collision-free.
+  return false;
 }
 
 auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,

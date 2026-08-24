@@ -39,7 +39,14 @@ def _flip_storage_mode(stop_event: threading.Event, errors: list) -> None:
     try:
         while not stop_event.is_set():
             execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_ANALYTICAL;")
-            execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL;")
+            try:
+                execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL;")
+            except Exception as exc:  # noqa: BLE001
+                # The switch aborts by design when another operation races the prepared exit
+                # snapshot, telling the caller to repeat it; the next iteration is that repeat.
+                # Anything else is a genuine failure.
+                if "repeat the storage mode change" not in str(exc):
+                    raise
     except Exception as exc:  # noqa: BLE001 - any exception here is itself the failure signal
         errors.append(("storage-mode-flipper", repr(exc)))
     finally:
