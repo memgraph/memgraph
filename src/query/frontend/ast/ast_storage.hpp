@@ -115,7 +115,7 @@ class AstStorage {
   int64_t FindOrAddCallProcedure(const std::string &name) { return FindOrAddName(name, &call_procedures_); }
 
   /// True when building this AST read the query-module registry, so facts taken from it
-  /// (a procedure's result fields, is_write and required privilege; whether a function
+  /// (a procedure's result fields, graph access and required privilege; whether a function
   /// name resolves at all) are baked in here and go stale when a module is reloaded.
   bool DependsOnModules() const { return !user_functions_.empty() || !call_procedures_.empty(); }
 

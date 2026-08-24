@@ -3448,4 +3448,59 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
   EXPECT_TRUE(this->EvaluateFunction("DATETIME", TypedValue()).IsNull());
 }
 
+// A query that opened no storage transaction evaluates its expressions with no accessor. Whatever it
+// evaluates must either succeed without one or say so; it must never reach through the null accessor.
+class NoAccessorEvaluatorTest : public ::testing::Test {
+ protected:
+  AstStorage storage;
+  memgraph::utils::MonotonicBufferResource mem{1024};
+  ExecutionContext execution_context{
+      .db_accessor = nullptr, .evaluation_context = {.memory = &mem, .timestamp = memgraph::query::QueryTimestamp()}};
+  Frame frame{128};
+  ExpressionEvaluator eval{&frame, execution_context, memgraph::storage::View::OLD};
+};
+
+TEST_F(NoAccessorEvaluatorTest, ArithmeticEvaluates) {
+  auto *expr = storage.Create<memgraph::query::AdditionOperator>(storage.Create<memgraph::query::PrimitiveLiteral>(2),
+                                                                 storage.Create<memgraph::query::PrimitiveLiteral>(3));
+  EXPECT_EQ(expr->Accept(eval).ValueInt(), 5);
+}
+
+TEST_F(NoAccessorEvaluatorTest, FunctionCallThrows) {
+  auto *expr = storage.Create<memgraph::query::Function>(
+      "TOSTRING", std::vector<memgraph::query::Expression *>{storage.Create<memgraph::query::PrimitiveLiteral>(1)});
+  EXPECT_THROW(expr->Accept(eval), QueryRuntimeException);
+}
+
+// A record cannot exist without an accessor, so the paths that read a property off one are unreachable
+// on a query that opened no transaction. They refuse rather than rely on that: the value here is a real
+// vertex, put in the frame by hand, which is the state the guard exists for.
+TYPED_TEST(ExpressionEvaluatorTest, RecordPropertyWithoutAccessorThrows) {
+  auto vertex = this->dba.InsertVertex();
+  ASSERT_TRUE(vertex.SetProperty(this->dba.NameToProperty("prop"), memgraph::storage::PropertyValue(1)));
+
+  auto *identifier = this->CreateIdentifierWithValue("n", TypedValue(vertex));
+
+  ExecutionContext no_accessor_context{
+      .db_accessor = nullptr,
+      .symbol_table = this->symbol_table,
+      .evaluation_context = {.memory = &this->mem, .timestamp = memgraph::query::QueryTimestamp()}};
+  ExpressionEvaluator no_accessor_eval{&this->frame, no_accessor_context, memgraph::storage::View::OLD};
+
+  // n["prop"] resolves the property name at run time, so the name never reaches the AST's property list.
+  auto *by_string = this->storage.template Create<memgraph::query::SubscriptOperator>(
+      identifier, this->storage.template Create<memgraph::query::PrimitiveLiteral>("prop"));
+  EXPECT_THROW(by_string->Accept(no_accessor_eval), QueryRuntimeException);
+
+  // n.prop names the property at parse time and takes the other path into the same accessor.
+  auto *by_name =
+      this->storage.template Create<memgraph::query::PropertyLookup>(identifier, this->storage.GetPropertyIx("prop"));
+  EXPECT_THROW(by_name->Accept(no_accessor_eval), QueryRuntimeException);
+}
+
+TEST_F(NoAccessorEvaluatorTest, EnumValueAccessThrows) {
+  auto *expr = storage.Create<memgraph::query::EnumValueAccess>("Color", "RED");
+  EXPECT_THROW(expr->Accept(eval), QueryRuntimeException);
+}
+
 }  // namespace

@@ -161,7 +161,7 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     CollectSymbolsFromExpressions(op.arguments_);
     // A write procedure runs once per row, so how many rows reach it is part of
     // what it does. A read procedure's results are collapsed along with the rows.
-    if (op.is_write_) {
+    if (op.graph_access_ == GraphAccess::Write) {
       deduplicates_ = false;
     }
     return true;

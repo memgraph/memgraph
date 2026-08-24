@@ -80,6 +80,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/frontend/semantic/graph_free.hpp"
 #include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
@@ -3601,8 +3602,9 @@ struct TxTimeout {
 struct PullPlan {
   explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                    storage::DatabaseProtectorPtr protector, metrics::DatabaseMetricHandles &metric_handles,
+                    utils::QueryMemoryTracker *fallback_memory_tracker, std::shared_ptr<QueryUserOrRole> user_or_role,
+                    StoppingContext stopping_context, storage::DatabaseProtectorPtr protector,
+                    metrics::DatabaseMetricHandles &metric_handles,
                     FineGrainedAuthChecker const *auth_checker = nullptr,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
@@ -3618,6 +3620,24 @@ struct PullPlan {
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
                                                         std::map<std::string, TypedValue> *summary);
+
+  /// A transaction settles what it charged a user's quota when it commits or aborts. A query that opened
+  /// none has neither to reconcile through, so it returns its own charge here, on every way out
+  /// including a throw. Without this a session's usage climbs by one query's peak per query, until the
+  /// user is refused for memory nothing is holding.
+  ~PullPlan() {
+#ifdef MG_ENTERPRISE
+    if (ctx_.db_accessor == nullptr && user_resource_ && fallback_memory_tracker_ != nullptr) {
+      auto const charged = fallback_memory_tracker_->Amount();
+      if (charged > 0) user_resource_->DecrementTransactionsMemory(charged);
+    }
+#endif
+  }
+
+  PullPlan(const PullPlan &) = delete;
+  PullPlan(PullPlan &&) = delete;
+  PullPlan &operator=(const PullPlan &) = delete;
+  PullPlan &operator=(PullPlan &&) = delete;
 
  private:
   std::shared_ptr<PlanWrapper> plan_ = nullptr;
@@ -3641,16 +3661,17 @@ struct PullPlan {
   // manually by using this flag.
   bool has_unsent_results_ = false;
   metrics::DatabaseMetricHandles *metric_handles_;
+  utils::QueryMemoryTracker *fallback_memory_tracker_;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                   std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                   storage::DatabaseProtectorPtr protector, metrics::DatabaseMetricHandles &metric_handles,
-                   FineGrainedAuthChecker const *auth_checker, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
-                   const std::optional<int64_t> hops_limit, utils::PriorityThreadPool *worker_pool,
-                   memory::ArenaPool *db_arena_pool
+                   utils::QueryMemoryTracker *fallback_memory_tracker, std::shared_ptr<QueryUserOrRole> user_or_role,
+                   StoppingContext stopping_context, storage::DatabaseProtectorPtr protector,
+                   metrics::DatabaseMetricHandles &metric_handles, FineGrainedAuthChecker const *auth_checker,
+                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
+                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
+                   utils::PriorityThreadPool *worker_pool, memory::ArenaPool *db_arena_pool
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
@@ -3665,7 +3686,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       user_resource_{std::move(user_resource)}
 #endif
       ,
-      metric_handles_(&metric_handles) {
+      metric_handles_(&metric_handles),
+      fallback_memory_tracker_(fallback_memory_tracker) {
   ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
   ctx_.metric_handles = &metric_handles;
   if (hops_limit) {
@@ -3687,9 +3709,12 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
   ctx_.evaluation_context.parameters = parameters;
-  ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
-  ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
-  ctx_.evaluation_context.edgetypes = NamesToEdgeTypes(plan->ast_storage().edge_types_, dba);
+  // Nothing a plan without an accessor can evaluate resolves an id, so there is nothing to resolve.
+  if (dba != nullptr) {
+    ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
+    ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
+    ctx_.evaluation_context.edgetypes = NamesToEdgeTypes(plan->ast_storage().edge_types_, dba);
+  }
   ctx_.evaluation_context.resolved_user_functions = ResolveUserFunctions(plan->ast_storage().user_functions_);
   ctx_.user_or_role = user_or_role;  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
@@ -3712,31 +3737,33 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
-  auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
-  // Single query memory limit
-  memory_tracker.SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
-  if (memory_limit_) memgraph::memory::StartTrackingCurrentThread(&memory_tracker);
-#ifdef MG_ENTERPRISE
-  // User-specific resource monitoring
-  if (user_resource_ &&
-      user_resource_->GetTransactionsMemory().second != utils::TransactionsMemoryResource::kUnlimited) {
-    memgraph::memory::StartTrackingCurrentThread(&memory_tracker);  // Needs the query tracker for accurate tracking
-    memgraph::memory::StartTrackingUserResource(user_resource_.get());
-  }
-#endif
+  // A transaction carries a tracker; without one the query execution's own stands in, so a memory limit
+  // and a user's quota are enforced either way.
+  auto *memory_tracker =
+      ctx_.db_accessor != nullptr ? &ctx_.db_accessor->GetTransactionMemoryTracker() : fallback_memory_tracker_;
+  DMG_ASSERT(memory_tracker != nullptr, "A pull without a transaction needs a tracker to stand in for it");
 
-  {  // Limiting scope of memory tracking
-    auto reset_query_limit = utils::OnScopeExit{[]() {
-      // Stopping tracking of transaction occurs in interpreter::pull
-      // Exception can occur so we need to handle that case there.
-      // We can't stop tracking here as there can be multiple pulls
-      // so we need to take care of that after everything was pulled
+  {  // Thread-local tracking is armed and disarmed together, for the length of this pull only.
+    auto stop_tracking = utils::OnScopeExit{[]() {
+      // Transaction-level tracking outlives this pull, since a query may be pulled repeatedly; it is
+      // stopped in Interpreter::Pull, which also has to handle the pull throwing.
       memgraph::memory::StopTrackingCurrentThread();
 #ifdef MG_ENTERPRISE
-      // User-specific resource monitoring
       memgraph::memory::StopTrackingUserResource();
 #endif
     }};
+
+    // Single query memory limit
+    memory_tracker->SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
+    if (memory_limit_) memgraph::memory::StartTrackingCurrentThread(memory_tracker);
+#ifdef MG_ENTERPRISE
+    // User-specific resource monitoring
+    if (user_resource_ &&
+        user_resource_->GetTransactionsMemory().second != utils::TransactionsMemoryResource::kUnlimited) {
+      memgraph::memory::StartTrackingCurrentThread(memory_tracker);  // Needs the query tracker for accurate tracking
+      memgraph::memory::StartTrackingUserResource(user_resource_.get());
+    }
+#endif
 
     // Returns true if a result was pulled.
     const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
@@ -4010,7 +4037,9 @@ void CheckParallelExecution(std::optional<size_t> &parallel_execution, plan::Log
 
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                 utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
+                                 utils::MemoryResource *execution_memory,
+                                 utils::QueryMemoryTracker *fallback_memory_tracker,
+                                 std::vector<Notification> *notifications,
                                  std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                                  Interpreter &interpreter, FrameChangeCollector *frame_change_collector = nullptr
 #ifdef MG_ENTERPRISE
@@ -4051,10 +4080,13 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
   }
 
-  MG_ASSERT(current_db.execution_db_accessor_, "Cypher query expects a current DB transaction");
-  auto *dba =
-      &*current_db
-            .execution_db_accessor_;  // todo pass the full current_db into planner...make plan optimisation optional
+  // Opening a transaction is what checks the session still has a database, and a session can lose one
+  // mid-flight when it is dropped from under it. A query that opens none has to check for itself.
+  if (!current_db.db_acc_) {
+    throw DatabaseContextRequiredException("Database required for query execution.");
+  }
+  auto *const dba = current_db.execution_db_accessor_ ? &*current_db.execution_db_accessor_ : nullptr;
+  bool const skipped_transaction = dba == nullptr;
 
   const auto is_cacheable = parsed_query.is_cacheable;
   auto *plan_cache = is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
@@ -4068,6 +4100,16 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                 interpreter.query_planner_context(),
                                 parsed_query.module_generation);
 
+  // The plan is what runs, so it decides. Refusing the query is the whole of the response: reaching
+  // storage with no transaction open is a crash rather than a wrong answer, and a plan built without one
+  // was built without statistics, so carrying on would run a worse plan down a path already known to be
+  // mispredicted.
+  if (skipped_transaction && plan::PlanRequiresStorageAccess(plan->plan())) [[unlikely]] {
+    throw QueryRuntimeException(
+        "Query '{}' was found to need no graph, but its plan reaches storage. Please report this query to Memgraph.",
+        parsed_query.stripped_query.stripped_query().str());
+  }
+
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
@@ -4076,7 +4118,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
   if (memgraph::logging::IsSessionTraceEnabled()) {
     std::stringstream printed_plan;
-    plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
+    plan::PrettyPrint(dba, &plan->plan(), &printed_plan);
     memgraph::logging::EmitSessionTraceEvent("Explain plan:\n{}", printed_plan.str());
   }
 
@@ -4087,7 +4129,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (flags::run_time::GetEffectiveLogMinDurationMs(*interpreter.GetLogContext()) >= 0) {
     slow_query_plan_renderer = [plan, dba]() {
       std::stringstream printed_plan;
-      plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
+      plan::PrettyPrint(dba, &plan->plan(), &printed_plan);
       return printed_plan.str();
     };
   }
@@ -4099,7 +4141,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (memgraph::logging::IsSessionTraceEnabled()) {
     is_profile_query = true;
   }
-  AccessorCompliance(*plan, *dba);
+  // Only reads the accessor for write plans, and a plan running without one writes nothing.
+  if (dba != nullptr) AccessorCompliance(*plan, *dba);
   const auto rw_type = plan->rw_type();
 
 #ifdef MG_ENTERPRISE
@@ -4128,6 +4171,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               dba,
                                               interpreter_context,
                                               execution_memory,
+                                              fallback_memory_tracker,
                                               std::move(user_or_role),
                                               std::move(stopping_context),
                                               dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
@@ -4145,19 +4189,25 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               user_resource
 #endif
   );
+  // The one way a client can tell; such a query is otherwise reported like any other.
+  if (skipped_transaction) summary->insert_or_assign("graph_free", true);
+
   return PreparedQuery{
       .header = std::move(header),
       .privileges = std::move(parsed_query.required_privileges),
-      .query_handler = [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+      // Nothing to commit, and NOTHING is what disposes of the tracking instead.
+      .query_handler =
+          [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary, skipped_transaction](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->Pull(stream, n, output_symbols, summary)) {
-          return QueryHandlerResult::COMMIT;
+          return skipped_transaction ? QueryHandlerResult::NOTHING : QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
       },
       .rw_type = rw_type,
       .db = current_db.db_acc_->get()->name(),
-      .priority = utils::Priority::LOW,  // Default to LOW priority for all Cypher queries
+      // Short, and usually a client's health check, so it does not queue behind data queries.
+      .priority = skipped_transaction ? utils::Priority::HIGH : utils::Priority::LOW,
       .slow_query_plan_renderer = std::move(slow_query_plan_renderer)};
 }
 
@@ -4230,6 +4280,12 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
         return std::nullopt;
       },
       .rw_type = RWType::NONE};
+}
+
+// The privilege condition is policy, not safety: privileges are validated on either path, but keeping
+// privileged queries on one of them means their auditing has one shape.
+bool IsGraphFreeCandidate(const CypherQuery &query, const std::vector<AuthQuery::Privilege> &privileges) {
+  return privileges.empty() && IsGraphFree(query);
 }
 
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -4361,6 +4417,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         dba,
                                         interpreter_context,
                                         execution_memory,
+                                        nullptr,
                                         std::move(user_or_role),
                                         std::move(stopping_context),
                                         dbms::DatabaseProtector{db_acc}.clone(),
@@ -10281,9 +10338,9 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
 struct QueryTransactionRequirements : QueryVisitor<void> {
   using QueryVisitor<void>::Visit;
 
-  QueryTransactionRequirements(bool is_schema_assert_query, bool is_cypher_read,
+  QueryTransactionRequirements(storage::StorageAccessType cypher_access,
                                std::optional<storage::StorageMode> storage_mode)
-      : is_schema_assert_query_(is_schema_assert_query), is_cypher_read_(is_cypher_read), storage_mode_(storage_mode) {}
+      : cypher_access_(cypher_access), storage_mode_(storage_mode) {}
 
   // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
   // case for use database which overwrites the current database)
@@ -10413,11 +10470,16 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Write access required
   void Visit(CypherQuery & /*unused*/) override {
+    // NO_ACCESS opens no storage transaction, and so leaves nothing to commit.
+    if (cypher_access_ == storage::StorageAccessType::NO_ACCESS) return;
     could_commit_ = true;
-    accessor_type_ = cypher_access_type();
+    accessor_type_ = cypher_access_;
   }
 
-  void Visit(ProfileQuery & /*unused*/) override { accessor_type_ = cypher_access_type(); }
+  // Never NO_ACCESS: graph-freedom is decided for a CypherQuery, and this is not one, so a profiled query
+  // takes the access its own shape asks for. Which is right either way, since PROFILE reports what an
+  // execution did and so needs there to have been one.
+  void Visit(ProfileQuery & /*unused*/) override { accessor_type_ = cypher_access_; }
 
   void Visit(TriggerQuery &trigger_query) override {
     // Only CREATE TRIGGER needs storage access, and only READ: it plans the trigger statement
@@ -10481,20 +10543,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     accessor_type_ = storage_mode_ == storage::StorageMode::ON_DISK_TRANSACTIONAL ? UNIQUE : READ_ONLY;
   }
 
-  // helper methods
-  auto cypher_access_type() const -> storage::StorageAccessType {
-    using enum storage::StorageAccessType;
-    if (is_schema_assert_query_) {
-      return UNIQUE;
-    }
-    if (is_cypher_read_) {
-      return READ;
-    }
-    return WRITE;
-  }
-
-  bool const is_schema_assert_query_;
-  bool const is_cypher_read_;
+  storage::StorageAccessType const cypher_access_;
   std::optional<storage::StorageMode> storage_mode_;
 
   bool could_commit_ = false;
@@ -10666,12 +10715,28 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 #endif
 
+    // Inside BEGIN...COMMIT the accessor is already open, so there is nothing to skip.
+    bool graph_free_candidate = false;
+    if (!in_explicit_transaction_) {
+      if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
+        graph_free_candidate = IsGraphFreeCandidate(*cypher_query, parsed_query.required_privileges);
+      }
+    }
     if (!in_explicit_transaction_) {
       auto storage_mode = current_db_.db_acc_
                               ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
                               : std::nullopt;
-      auto transaction_requirements = QueryTransactionRequirements{
-          parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
+      // What the query does to the graph, and then whether it needs the graph to itself. The second is an
+      // escalation of the first rather than another answer to it: a schema assertion has a read or write
+      // nature of its own, which taking the whole graph subsumes.
+      auto const to_the_graph = [&] {
+        using enum storage::StorageAccessType;
+        if (graph_free_candidate) return NO_ACCESS;
+        return parsed_query.is_cypher_read ? READ : WRITE;
+      }();
+      auto const cypher_access =
+          parse_info.parsed_query.using_schema_assert ? storage::StorageAccessType::UNIQUE : to_the_graph;
+      auto transaction_requirements = QueryTransactionRequirements{cypher_access, storage_mode};
       parsed_query.query->Accept(transaction_requirements);
 
       // Fail-closed gate for broken databases (those that failed durability recovery and
@@ -10768,7 +10833,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (current_db_.execution_db_accessor_ && interpreter_context_->auth_checker && user_or_role_ && *user_or_role_) {
       auto *dba = &*current_db_.execution_db_accessor_;
       cached_fga_->Refresh(*interpreter_context_->auth_checker, *user_or_role_, dba, dba->DatabaseName());
-    } else {
+    } else if (!graph_free_candidate) {
+      // No accessor to rebuild from, and nothing read that the cache protects. Dropping it would make
+      // the session's next real query pay for the rebuild.
       cached_fga_->Reset();
     }
 #endif
@@ -10779,6 +10846,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                           interpreter_context_,
                                           current_db_,
                                           memory_resource,
+                                          &query_execution->memory_tracker,
                                           &query_execution->notifications,
                                           user_or_role_,
                                           make_stopping_context(),
@@ -11167,6 +11235,28 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
   session_log_ctx_.SetTxId(tx_id);
   metadata_ = GenOptional(extras.metadata_pv);
+}
+
+void Interpreter::FinishAutocommitNothing() {
+  // Returning NOTHING skips the Commit()/Abort() that would dispose of the tracking, so do it here.
+  //
+  // Every transition is a compare-exchange from an observed state, never a store: ShowTransactions takes
+  // ownership by CAS-ing to VERIFYING and reads the fields cleared below while it holds it, and a store
+  // would drop that ownership underneath it. TERMINATED is retried rather than waited on, the result
+  // having already been produced.
+  auto expected = TransactionStatus::ACTIVE;
+  while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+    if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
+      // compare_exchange_weak has already loaded the observed state into `expected`; retry from it.
+      continue;
+    }
+    expected = TransactionStatus::ACTIVE;
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  // Status is now IDLE, so no concurrent ShowTransactions reader holds these fields.
+  current_transaction_.reset();
+  metadata_ = std::nullopt;
+  session_log_ctx_.ClearTxId();
 }
 
 std::vector<TypedValue> Interpreter::GetQueries() {

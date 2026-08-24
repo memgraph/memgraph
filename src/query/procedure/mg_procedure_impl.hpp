@@ -25,6 +25,7 @@
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
+#include "query/frontend/ast/query/graph_access.hpp"
 #include "query/procedure/cypher_type_ptr.hpp"
 #include "query/typed_value.hpp"
 #include "query/virtual_graph.hpp"
@@ -658,7 +659,7 @@ struct mgp_vertex {
   using VertexImpl = std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor,
                                   memgraph::query::VirtualNode>;
 
-  // dispatches on graph->impl: real arms use VertexAccessor / SubgraphVertexAccessor,
+  // dispatches on graph->CheckedImpl(): real arms use VertexAccessor / SubgraphVertexAccessor,
   // virtual arm wraps tv.ValueVirtualNode().
   static mgp_vertex *FromTypedValue(const memgraph::query::TypedValue &tv, mgp_graph *graph, allocator_type alloc);
 
@@ -836,12 +837,41 @@ struct mgp_graph {
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
 
-  [[nodiscard]] memgraph::query::DbAccessor *getImpl() const {
+  /// Null for the graph handed to a procedure that declared it needs none.
+  [[nodiscard]] memgraph::query::DbAccessor *TryGetImpl() const {
     return std::visit(
         memgraph::utils::Overloaded{[](memgraph::query::DbAccessor *impl) { return impl; },
                                     [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor(); },
                                     [](memgraph::query::VirtualGraphDbAccessor *impl) { return impl->GetAccessor(); }},
         this->impl);
+  }
+
+  /// The variant itself, once there is known to be an accessor behind it. Reading `impl` directly skips
+  /// that check, and most of the C API reads it directly to tell the three accessor kinds apart.
+  [[nodiscard]] auto const &CheckedImpl() const {
+    RequireGraph();
+    return impl;
+  }
+
+  [[nodiscard]] memgraph::query::DbAccessor *getImpl() const {
+    RequireGraph();
+    return TryGetImpl();
+  }
+
+  void RequireGraph() const {
+    if (TryGetImpl() == nullptr) [[unlikely]] {
+      throw std::logic_error{"Procedure reached for the graph, but it declared that it needs none."};
+    }
+  }
+
+  /// A stand-in for the graph a procedure declared it does not need, so that one can run with no storage
+  /// transaction open. It is a workaround, not the shape this should have: a procedure needing no graph
+  /// should not be handed one at all, which means changing what its callback is passed and so breaking
+  /// the module ABI. Until that happens the argument is present but empty, and reaching through it
+  /// reports a logic error rather than reading through nothing.
+  static mgp_graph GraphlessGraph(memgraph::storage::View view, memgraph::query::ExecutionContext &ctx,
+                                  memgraph::storage::StorageMode storage_mode) {
+    return mgp_graph{static_cast<memgraph::query::DbAccessor *>(nullptr), view, &ctx, storage_mode};
   }
 
   static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
@@ -954,7 +984,7 @@ struct mgp_properties_iterator {
           [this](const auto *impl) {
             return memgraph::utils::pmr::string(impl->PropertyToName(current_it->first), alloc);
           },
-          graph->impl);
+          graph->CheckedImpl());
 
       current.emplace(value,
                       mgp_value(current_it->second, graph->getImpl()->GetStorageAccessor()->GetNameIdMapper(), alloc));
@@ -1010,7 +1040,7 @@ struct mgp_vertices_iterator {
   using virtual_node_map_t =
       memgraph::utils::pmr::unordered_map<memgraph::storage::Gid, std::shared_ptr<const memgraph::query::VirtualNode>>;
 
-  // single-valued cursor; chosen once at ctor based on graph->impl's variant arm.
+  // single-valued cursor; chosen once at ctor based on graph->CheckedImpl()'s variant arm.
   // monostate is the default; the ctor assigns one of the two live arms.
   struct RealCursor {
     memgraph::query::VerticesIterable vertices;
@@ -1043,7 +1073,7 @@ struct mgp_type {
 };
 
 struct ProcedureInfo {
-  bool is_write{false};
+  memgraph::query::GraphAccess graph_access{memgraph::query::GraphAccess::Read};
   bool is_batched{false};
   std::optional<memgraph::query::AuthQuery::Privilege> required_privilege = std::nullopt;
 };

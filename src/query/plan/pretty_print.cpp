@@ -611,7 +611,13 @@ void PlanPrinter::Branch(query::plan::LogicalOperator &op, const std::string &br
 }
 
 void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out) {
-  PlanPrinter printer(&dba, out);
+  PrettyPrint(&dba, plan_root, out);
+}
+
+void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out) {
+  // dba may be null: ToString resolves it only to name a label, property or edge type, and a plan that
+  // runs without an accessor contains no operator that names one.
+  PlanPrinter printer(dba, out);
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }

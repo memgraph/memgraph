@@ -39,6 +39,7 @@
 #include "metrics/prometheus_metrics.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/semantic/graph_free.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
 #include "utils/event_map.hpp"
@@ -238,12 +239,14 @@ utils::Priority SessionHL::ApproximateQueryPriority() const {
                           },
                           [](const query::Interpreter::ParseInfo &parse_info) {
                             // Many variants of queries
-                            // Cypher -> low
+                            // Cypher -> low, except graph-free shapes (health-check pings) -> high
                             // all others -> high
                             const auto &query = parse_info.parsed_query.query;
                             // Most often query type
-                            if (utils::Downcast<query::CypherQuery>(query)) [[likely]]
-                              return utils::Priority::LOW;
+                            if (auto *cypher_query = utils::Downcast<query::CypherQuery>(query)) [[likely]]
+                              // Approximate on purpose: the privilege condition the Prepare dispatch also
+                              // applies is not known here, and a priority does not need it.
+                              return query::IsGraphFree(*cypher_query) ? utils::Priority::HIGH : utils::Priority::LOW;
                             // For now return HIGH only for hand-picked queries (non-system and non-db queries)
                             auto high_priority = utils::Downcast<query::ShowConfigQuery>(query) ||
                                                  utils::Downcast<query::ShowQueryCallableMappingsQuery>(query) ||

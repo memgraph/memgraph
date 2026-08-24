@@ -128,6 +128,11 @@ class MgpGraphTest : public ::testing::Test {
                      memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   }
 
+  /// The stand-in handed to a procedure that declared it needs no graph.
+  mgp_graph CreateGraphlessGraph(const memgraph::storage::View view = memgraph::storage::View::NEW) {
+    return mgp_graph::GraphlessGraph(view, *ctx_, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  }
+
   std::array<memgraph::storage::Gid, 2> CreateEdge() {
     std::array<memgraph::storage::Gid, 2> vertex_ids{};
     auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
@@ -805,4 +810,39 @@ TYPED_TEST(MgpGraphTest, GetStartTimestamp) {
   int64_t start_ts_again{0};
   EXPECT_SUCCESS(mgp_graph_get_start_timestamp(&graph, &start_ts_again));
   EXPECT_EQ(start_ts, start_ts_again);
+}
+
+// A procedure that declared it needs no graph is still handed one, because not handing it one would
+// change what its callback is passed and so break the module ABI. Every route through that stand-in has
+// to report rather than read through nothing, and the routes are not all the same: most of the C API
+// reads the variant directly to tell the three accessor kinds apart, and never touches the accessor
+// whose own check would have caught this.
+TYPED_TEST(MgpGraphTest, GraphlessGraphRefusesEveryRouteToTheGraph) {
+  mgp_graph graph = this->CreateGraphlessGraph();
+
+  // Through the accessor.
+  int64_t start_ts{0};
+  EXPECT_EQ(mgp_graph_get_start_timestamp(&graph, &start_ts), mgp_error::MGP_ERROR_LOGIC_ERROR);
+
+  // Through the variant, which is the wider set.
+  mgp_vertex *vertex{nullptr};
+  EXPECT_EQ(mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{0}, &this->memory, &vertex),
+            mgp_error::MGP_ERROR_LOGIC_ERROR);
+  mgp_vertices_iterator *vertices{nullptr};
+  EXPECT_EQ(mgp_graph_iter_vertices(&graph, &this->memory, &vertices), mgp_error::MGP_ERROR_LOGIC_ERROR);
+  size_t count{0};
+  EXPECT_EQ(mgp_graph_approximate_vertex_count(&graph, &count), mgp_error::MGP_ERROR_LOGIC_ERROR);
+
+  // Writing through it is refused by the same check rather than by mutability.
+  mgp_vertex *created{nullptr};
+  EXPECT_EQ(mgp_graph_create_vertex(&graph, &this->memory, &created), mgp_error::MGP_ERROR_LOGIC_ERROR);
+}
+
+// The check is on reaching the graph, not on holding the argument: what a procedure can answer without
+// one it still answers.
+TYPED_TEST(MgpGraphTest, GraphlessGraphStillAnswersWhatNeedsNoGraph) {
+  mgp_graph graph = this->CreateGraphlessGraph();
+  int is_transactional{0};
+  EXPECT_SUCCESS(mgp_graph_is_transactional(&graph, &is_transactional));
+  EXPECT_NE(is_transactional, 0);
 }
