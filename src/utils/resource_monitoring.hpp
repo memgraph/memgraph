@@ -53,11 +53,12 @@ class Resource {
   // Should this fail?
   void UpdateLimit(T limit) { limit_.store(limit, std::memory_order_release); }
 
-  IncrementResult Increment(T size, bool can_throw = true) {
+  IncrementResult Increment(T size, bool may_refuse = true) {
     auto current = allocated_.fetch_add(size, std::memory_order_acq_rel) + size;
 
-    if (!can_throw) {
-      // NOTE: This is needed because we have paths that block exceptions
+    if (!may_refuse) {
+      // A caller that cannot act on a refusal is still accounted for, but is never held to the
+      // limit: refusing it would fail something that has no way to recover.
       return {true, current, {}};
     }
 

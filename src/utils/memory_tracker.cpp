@@ -114,8 +114,7 @@ bool MemoryTracker::Alloc(int64_t const size) {
 
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
-  if (current_hard_limit && will_be > current_hard_limit && RefusalHandledScope::IsRefusalHandled() &&
-      MemoryTrackerCanThrow()) [[unlikely]] {
+  if (current_hard_limit && will_be > current_hard_limit && MayRefuseAllocation()) [[unlikely]] {
     MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
 
     amount_.fetch_sub(size, std::memory_order_relaxed);
@@ -144,6 +143,9 @@ bool MemoryTracker::Alloc(int64_t const size) {
   return true;
 }
 
+// Unlike a refused allocation this throws directly at a point its caller chose, so it asks only
+// whether throwing is safe. MayRefuseAllocation() would be wrong here: it additionally requires the
+// allocator's refusal scope, which nothing holds on this path, so the check would never fire.
 void MemoryTracker::DoCheck() {
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
   const auto current_amount = amount_.load(std::memory_order_relaxed);

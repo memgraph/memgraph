@@ -239,4 +239,11 @@ inline bool MemoryTrackerCanThrow() {
   return !std::uncaught_exceptions();
 }
 
+// Whether an allocation that exceeds the hard limit may be refused. Refusing is only meaningful
+// where the caller turns it into an exception, and only safe where throwing is. Every refusal
+// site answers this one question, so they agree on which allocations are exempt.
+inline bool MayRefuseAllocation() {
+  return MemoryTracker::RefusalHandledScope::IsRefusalHandled() && MemoryTrackerCanThrow();
+}
+
 }  // namespace memgraph::utils

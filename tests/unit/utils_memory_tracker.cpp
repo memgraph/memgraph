@@ -236,6 +236,7 @@ TEST(MemoryTrackerTest, TransactionsResourceDoesNotRefuseWhileThrowCheckIsBeingE
   auto transactions_memory = memgraph::utils::TransactionsMemoryResource{limit};
 
   auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
   ASSERT_FALSE(transactions_memory.Allocate(limit + 1));
 
   const memgraph::utils::detail::ThrowCheckReentrancyGuard guard;
@@ -284,4 +285,35 @@ TEST(MemoryTrackerTest, RefusalHandledScopeRestoresRatherThanClears) {
     ASSERT_TRUE(MemoryTracker::RefusalHandledScope::IsRefusalHandled());
   }
   ASSERT_FALSE(MemoryTracker::RefusalHandledScope::IsRefusalHandled());
+}
+
+// The transactions resource is a refusal site in its own right, reached from the allocator on a
+// query-tracked thread. It has to respect the same boundary as the trackers, or glibc's
+// allocations stay refusable through it.
+TEST(MemoryTrackerTest, TransactionsResourceIsAllowedWhereRefusalIsNotHandled) {
+  static constexpr auto limit = 10;
+  auto transactions_memory = memgraph::utils::TransactionsMemoryResource{limit};
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+
+  ASSERT_TRUE(transactions_memory.Allocate(limit + 1));
+}
+
+TEST(MemoryTrackerTest, TransactionsResourceIsRefusedWhereRefusalIsHandled) {
+  static constexpr auto limit = 10;
+  auto transactions_memory = memgraph::utils::TransactionsMemoryResource{limit};
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+
+  const MemoryTracker::RefusalHandledScope refusal_handled;
+  ASSERT_FALSE(transactions_memory.Allocate(limit + 1));
+}
+
+// A session count is not an allocation, so nothing about the allocator's refusal boundary applies
+// to it and its limit is enforced wherever it is checked.
+TEST(MemoryTrackerTest, SessionLimitIsEnforcedWithoutARefusalScope) {
+  auto resources = memgraph::utils::UserResources{1, memgraph::utils::TransactionsMemoryResource::kUnlimited};
+
+  ASSERT_TRUE(resources.IncrementSessions());
+  ASSERT_FALSE(resources.IncrementSessions());
 }
