@@ -14,7 +14,12 @@ on:
           already restarts a cluster per measurement and eight of them take hours."
         default: 10
   schedule:
-    - cron: "0 1 * * *"
+    # Two entries at the same time rather than one, so that a step can tell which day it is: the
+    # schedule that triggered a run is readable as github.event.schedule, the weekday is not. The
+    # Sunday entry is matched by string in the ASYNC steps' if: conditions, so editing it here without
+    # editing them there stops those suites running on any schedule, silently.
+    - cron: "0 1 * * 1-6"
+    - cron: "0 1 * * 0"
 
 jobs:
   release_benchmarks:
@@ -48,7 +53,8 @@ jobs:
     #  The job has two parts that scale differently. The eight high availability suites come to about
     #  226 minutes and are fixed, since each is pinned to a single iteration whatever loop_count says.
     #  Everything else is about 63 minutes per iteration and does scale, so the total is roughly
-    #  226 + 63 * loop_count: about 290 minutes at 1, 353 at 2, 544 at 5 and 861 at 10. The timeout
+    #  226 + 63 * loop_count on a Sunday, when the four ASYNC topologies run, and 120 + 63 * loop_count
+    #  on the other six days without them: about 861 and 750 minutes at the default loop count. The timeout
     #  below is 20 hours, which covers the default of 10 with a wide margin over that 861: the high
     #  availability figures have never been confirmed against a completed run, so the headroom is there
     #  to absorb them being wrong rather than because the estimate calls for it. Every figure above is
@@ -191,6 +197,10 @@ jobs:
 
       - name: Run and upload mgbench-ha-async
         id: mgbench-ha-async
+        # Weekly rather than nightly: Sunday's schedule, or any manual run. Draining a replica
+        # after every measurement is what makes these the slow ones, and the four together are
+        # about 106 of the high availability suites' 226 minutes.
+        if: github.event_name != 'schedule' || github.event.schedule == '0 1 * * 0'
         continue-on-error: true
         # A single iteration regardless of loop_count; see that input's description.
         env:
@@ -239,6 +249,10 @@ jobs:
 
       - name: Run and upload mgbench-ha-sync-async
         id: mgbench-ha-sync-async
+        # Weekly rather than nightly: Sunday's schedule, or any manual run. Draining a replica
+        # after every measurement is what makes these the slow ones, and the four together are
+        # about 106 of the high availability suites' 226 minutes.
+        if: github.event_name != 'schedule' || github.event.schedule == '0 1 * * 0'
         continue-on-error: true
         # A single iteration regardless of loop_count; see that input's description.
         env:
@@ -255,6 +269,10 @@ jobs:
 
       - name: Run and upload mgbench-ha-strict-sync-async
         id: mgbench-ha-strict-sync-async
+        # Weekly rather than nightly: Sunday's schedule, or any manual run. Draining a replica
+        # after every measurement is what makes these the slow ones, and the four together are
+        # about 106 of the high availability suites' 226 minutes.
+        if: github.event_name != 'schedule' || github.event.schedule == '0 1 * * 0'
         continue-on-error: true
         # A single iteration regardless of loop_count; see that input's description.
         env:
@@ -271,6 +289,10 @@ jobs:
 
       - name: Run and upload mgbench-ha-2-async
         id: mgbench-ha-2-async
+        # Weekly rather than nightly: Sunday's schedule, or any manual run. Draining a replica
+        # after every measurement is what makes these the slow ones, and the four together are
+        # about 106 of the high availability suites' 226 minutes.
+        if: github.event_name != 'schedule' || github.event.schedule == '0 1 * * 0'
         continue-on-error: true
         # A single iteration regardless of loop_count; see that input's description.
         env:

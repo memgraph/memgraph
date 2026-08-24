@@ -191,6 +191,11 @@ which also leaves a failover target, since failover to an ASYNC replica is forbi
 Each runs once per nightly job rather than repeating: the workflow's `loop_count` input does not apply
 to them, since one iteration already restarts a cluster per measurement and eight suites take hours,
 while the rest of that job does scale with it.
+
+The four topologies containing an ASYNC replica run **weekly**, on Sunday, at the same hour as every
+other night. They are the slow ones — draining a replica after each measurement is what costs — and
+together they are about 106 of the eight suites' 226 minutes. A manual `workflow_dispatch` runs them
+whatever the day.
 That is worth knowing when reading the series — a point is a single sample, not an average, so
 run-to-run variance is visible rather than smoothed.
 
