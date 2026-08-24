@@ -294,6 +294,11 @@ class Storage {
 
   virtual ~Storage() = default;
 
+  /// Replace all stored metric handles (metric_handles_, indices, constraints,
+  /// TTL) with @p new_handles. Caller must ensure no concurrent access (e.g.
+  /// via Gatekeeper suspend).
+  virtual void RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) = 0;
+
   std::string name() const { return config_.salient.name.str(); }
 
   auto name_view() const { return config_.salient.name.str_view(); }
