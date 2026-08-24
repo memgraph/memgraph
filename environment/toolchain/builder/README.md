@@ -57,17 +57,32 @@ stage, with no overlaps.
 
 ## Floors
 
-Two glibc floors, independent of each other, both enforced before packaging:
+The toolchain promises binaries that run on old systems. Three floors carry
+that promise, and `verify/floors.sh` fails the build before packaging if any is
+exceeded:
 
-- the **sysroot** glibc decides where binaries built *by* this toolchain run
-- the **base image** glibc decides where the toolchain's own binaries run
+- the **sysroot glibc** decides where binaries built *by* this toolchain run
+- the **base image glibc** decides where the toolchain's own binaries run
+- the **kernel** floor applies to both, and comes from the headers version
 
-`verify/glibc-floor.sh` fails the build if either is exceeded. It carries an
-explicit exemption list, currently binutils' gprofng collector libraries: those
-are built against the host glibc rather than the sysroot and reference the 2.32
-and 2.34 pthread and dl consolidations, so they will not load on an older
-target. They are recorded rather than ignored, the check stays enforcing for
-everything else, and a stale exemption is itself an error.
+All three break silently otherwise. A binary needing a newer glibc or kernel
+does not fail at build time; it fails to start on a machine nobody tested on.
+
+Kernel conformance is read from `.note.ABI-tag`, which records the oldest
+kernel an executable will run on and is put there by glibc's
+`--enable-kernel`. That setting is derived from `LINUX_HEADERS_VERSION` rather
+than written out separately, since the two have to agree and a duplicated
+literal is exactly how they drift. Shared objects carry no such note, so an
+absent one is not a finding. A note *older* than the floor is not a break
+either -- it runs in more places -- but it means the link missed the sysroot's
+startup files, so it is counted and reported.
+
+The glibc check carries an explicit exemption list, currently binutils'
+gprofng collector libraries: those are built against the host glibc rather than
+the sysroot and reference the 2.32 and 2.34 pthread and dl consolidations, so
+they will not load on an older target. They are recorded rather than ignored,
+the check stays enforcing for everything else, and a stale exemption is itself
+an error.
 
 ## What is not done here
 

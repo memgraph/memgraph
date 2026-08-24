@@ -44,15 +44,19 @@ if [[ ! -f "$SYSROOT/lib64/libc.so.6" && ! -f "$SYSROOT/lib/libc.so.6" ]]; then
         glibc_target=x86_64-linux-gnu
     fi
     # Built with the host compiler (system gcc + binutils). --enable-kernel
-    # drops glibc's compatibility code for kernels older than 5.4.
+    # drops glibc's compatibility code for kernels older than this, and so sets
+    # the oldest kernel anything built with this toolchain will run on. Derived
+    # from the headers version rather than written out again, because the two
+    # have to agree and a duplicated literal is what lets them drift apart.
     # --disable-werror covers the spurious warnings glibc 2.31 emits under
     # newer host compilers.
+    KERNEL_FLOOR="${LINUX_HEADERS_VERSION%.*}"
     ../configure \
         --prefix=/usr \
         --build=$glibc_target \
         --host=$glibc_target \
         --with-headers=$SYSROOT/usr/include \
-        --enable-kernel=5.4 \
+        --enable-kernel=$KERNEL_FLOOR \
         --disable-werror \
         --disable-profile \
         libc_cv_slibdir=/lib64

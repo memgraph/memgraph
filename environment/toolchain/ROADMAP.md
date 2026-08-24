@@ -64,15 +64,21 @@ the live `/opt/toolchain-vN` with no override, and its file-existence guards
 skip stages whose configuration changed - a change to the LLVM stage is ignored
 because `bin/clang` already exists.
 
-**Both glibc floors are declared adjacently and enforced.** There are two, and
-they are currently conflated because both are 2.31: the sysroot glibc, which
-sets where *memgraph* runs, and the build container's glibc, which sets where
-the *toolchain* runs. Today the invariant tying them lives in a comment while
-the two values live in different files. A verification stage walks every ELF in
-the assembled prefix and fails the build if anything exceeds its declared
-floor - cheap, and it turns a silent portability break into an error. Derive
-glibc's `--enable-kernel` from the kernel headers version rather than repeating
-"5.4" as a literal.
+**The floors are declared adjacently and enforced.** There are three. Two are
+glibc and are currently conflated because both are 2.31: the sysroot glibc,
+which sets where *memgraph* runs, and the build container's glibc, which sets
+where the *toolchain* runs. The third is the kernel, which applies to both.
+Today the invariant tying the glibc pair lives in a comment while the two
+values live in different files, and the kernel floor is written out twice -
+once as `LINUX_HEADERS_VERSION`, once as a bare "5.4" in glibc's
+`--enable-kernel`. Derive the second from the first; a duplicated literal is
+how they drift apart.
+
+A verification stage walks every ELF in the assembled prefix and fails the
+build if anything exceeds a declared floor. Kernel conformance comes from
+`.note.ABI-tag`, which records the oldest kernel an executable runs on. All of
+these break silently otherwise: nothing errors at build time, and the failure
+surfaces on an older machine as a binary that will not start.
 
 **Artifact-level reproducibility, measured rather than mandated.** The shipped
 tarball is currently nondeterministic in four ways: no `--sort=name`, no

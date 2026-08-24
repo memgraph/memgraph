@@ -197,7 +197,7 @@ RUN /tc/stages/heaptrack.sh
 
 FROM s-heaptrack AS s-verify
 COPY verify/ /tc/verify/
-RUN /tc/verify/glibc-floor.sh
+RUN /tc/verify/floors.sh
 
 FROM s-verify AS s-package
 COPY stages/package.sh /tc/stages/
