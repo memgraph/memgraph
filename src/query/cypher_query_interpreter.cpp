@@ -259,11 +259,10 @@ auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameter
       return ConvertToLogicalOperator(egraph, root, planner_context);
     }
     auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
-    auto [plan, cost, reads_parameters] =
-        plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
-    // Reading a parameter settles the plan's shape against the values it was
-    // planned with, which the stripped cache key does not carry.
-    is_cacheable = !reads_parameters;
+    auto [plan, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
+    // A v1 plan's shape follows the stripped query, which is what the cache is
+    // keyed on, so the values a particular execution supplies cannot change it.
+    is_cacheable = true;
     return plan::v2::ExtractionResult{.plan = std::move(plan),
                                       .cost = cost,
                                       .ast_storage = std::move(ast_storage),

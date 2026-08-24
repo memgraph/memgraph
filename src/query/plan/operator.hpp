@@ -1253,8 +1253,16 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   /// Limit for the number of paths returned in kshortest path expansion.
   Expression *limit_;
 
-  std::string_view OperatorName() const;
+  /// Names the expansion. Given the parameters an execution supplies, names the
+  /// walk the bound calls for; without them, the one the plan permits.
+  std::string_view OperatorName(Parameters const *parameters = nullptr) const;
 
+  /// The plan line, naming the walk the bound calls for.
+  std::string ToStringWithParameters(const DbAccessor *dba, Parameters const &parameters) const;
+
+  /// The plan line under a name the caller settles, for a walk that knows which
+  /// of the two it is where the plan only knows which it permits.
+  std::string ToStringNamed(const DbAccessor *dba, std::string_view operator_name) const;
   std::string ToString(const DbAccessor *dba) const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;

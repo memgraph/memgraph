@@ -16,6 +16,7 @@
 
 #include <nlohmann/json_fwd.hpp>
 
+#include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 
 namespace memgraph::query {
@@ -28,10 +29,14 @@ class LogicalOperator;
 /// DbAccessor is needed for resolving label and property names.
 /// Note that `plan_root` isn't modified, but we can't take it as a const
 /// because we don't have support for visiting a const LogicalOperator.
-void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out);
+/// `parameters`, where an execution supplies them, let an operator whose shape
+/// is settled during execution name what it will do rather than what it may.
+void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out,
+                 Parameters const *parameters = nullptr);
 
 // Pointer overload tolerating a null accessor, for a plan that runs without one.
-void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out);
+void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out,
+                 Parameters const *parameters = nullptr);
 
 /// Convert a `LogicalOperator` plan to a JSON representation.
 /// DbAccessor is needed for resolving label and property names.
@@ -42,7 +47,7 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
 
-  PlanPrinter(const DbAccessor *dba, std::ostream *out);
+  PlanPrinter(const DbAccessor *dba, std::ostream *out, Parameters const *parameters = nullptr);
 
   bool DefaultPreVisit() override;
 
@@ -152,6 +157,7 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   int64_t depth_{0};
   const DbAccessor *dba_{nullptr};
   std::ostream *out_{nullptr};
+  Parameters const *parameters_{nullptr};
   bool is_parallel_{false};
 };
 

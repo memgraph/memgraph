@@ -63,7 +63,6 @@ class PostProcessor final {
   IndexHints index_hints_{};
   /// Set by a rewrite that read a parameter to settle the plan's shape. Only
   /// ever set, so it spans every candidate plan considered for the query.
-  bool reads_parameters_{false};
 
   using ProcessedPlan = std::unique_ptr<LogicalOperator>;
 
@@ -89,7 +88,7 @@ class PostProcessor final {
            [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db, parallel_exec); } |
            [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); } |
-           [&](auto p) { return RewriteWithPruningBFS(std::move(p), symbol_table, parameters_, &reads_parameters_); }
+           [&](auto p) { return RewriteWithPruningBFS(std::move(p), symbol_table); }
 #ifdef MG_ENTERPRISE
            |
            // Keep at the end
@@ -137,7 +136,6 @@ struct MakeLogicalPlanResult {
   double cost;
   /// Whether a rewrite settled the plan's shape by reading a parameter, leaving
   /// it correct only for the parameters it was planned with.
-  bool reads_parameters;
 };
 
 /// Generates the LogicalOperator tree and returns the resulting plan.
@@ -222,7 +220,6 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
   return MakeLogicalPlanResult{
       .plan = std::move(*curr_plan),
       .cost = total_cost,
-      .reads_parameters = post_process->reads_parameters_,
   };
 }
 

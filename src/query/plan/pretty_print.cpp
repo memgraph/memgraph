@@ -364,7 +364,8 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
 
 }  // namespace impl
 
-PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), out_(out) {}
+PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out, Parameters const *parameters)
+    : dba_(dba), out_(out), parameters_(parameters) {}
 
 // NOLINTBEGIN(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
 #define PRE_VISIT(TOp)                                                       \
@@ -463,8 +464,14 @@ bool PlanPrinter::PreVisit(ParallelMerge & /*unused*/) {
 }
 
 PRE_VISIT_TS(Expand);
-PRE_VISIT_TS(ExpandVariable);
 PRE_VISIT_TS(Produce);
+
+bool PlanPrinter::PreVisit(ExpandVariable &op) {
+  WithPrintLn([this, &op](auto &out) {
+    out << StartSymbol() << " " << (parameters_ ? op.ToStringWithParameters(dba_, *parameters_) : op.ToString(dba_));
+  });
+  return true;
+}
 
 PRE_VISIT(ConstructNamedPath);
 PRE_VISIT(SetProperty);
@@ -610,14 +617,16 @@ void PlanPrinter::Branch(query::plan::LogicalOperator &op, const std::string &br
   --depth_;
 }
 
-void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out) {
-  PrettyPrint(&dba, plan_root, out);
+void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out,
+                 Parameters const *parameters) {
+  PrettyPrint(&dba, plan_root, out, parameters);
 }
 
-void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out) {
+void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out,
+                 Parameters const *parameters) {
   // dba may be null: ToString resolves it only to name a label, property or edge type, and a plan that
   // runs without an accessor contains no operator that names one.
-  PlanPrinter printer(dba, out);
+  PlanPrinter printer(dba, out, parameters);
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }

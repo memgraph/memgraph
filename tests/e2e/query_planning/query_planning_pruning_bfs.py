@@ -108,6 +108,56 @@ def test_pruning_bfs_undirected(memgraph):
     assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
 
 
+# === A lower bound above one is walked depth-first ===
+
+
+def test_lower_bound_above_every_path_finds_nothing(memgraph):
+    """No path out of 'a' runs to three edges, so the bound excludes them all."""
+    results = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*3..3]->(x) RETURN DISTINCT x.id AS id"))
+    assert results == [], f"Expected no rows, got {[r['id'] for r in results]}"
+
+
+# === A bound the plan cannot read is left to the walk ===
+
+
+def test_malformed_bound_stays_quiet_where_nothing_expands(memgraph):
+    for bound in ["'x'", "null", "1.5"]:
+        query = f"MATCH (a:Absent)-[*{bound}..2]->(x) RETURN DISTINCT x.id AS id"
+        assert list(memgraph.execute_and_fetch(query)) == [], f"Expected no rows for a bound of {bound}"
+
+
+def test_malformed_bound_is_reported_where_something_expands(memgraph):
+    for bound in ["'x'", "null"]:
+        query = f"MATCH (a:N {{id: 'a'}})-[*{bound}..2]->(x) RETURN DISTINCT x.id AS id"
+        with pytest.raises(Exception):
+            list(memgraph.execute_and_fetch(query))
+
+
+# === Re-expanding: the walk survives being reset ===
+
+
+def test_expansion_reset_once_per_outer_row(memgraph):
+    """An Apply resets its subtree for every row it feeds, so the expansion is
+    reset between sources rather than built afresh for each."""
+    plan = get_plan(
+        memgraph,
+        "MATCH (a:N) CALL { WITH a MATCH (a)-[*1..2]->(x:N) RETURN DISTINCT x } RETURN a.id, x.id",
+    )
+    # The expansion sits on the Apply's branch, which operator_names does not
+    # reach past, so the raw lines are what carry it.
+    assert any("PruningBFSExpand" in line for line in plan), f"Expected a pruning plan, got: {plan}"
+
+    results = list(
+        memgraph.execute_and_fetch(
+            "MATCH (a:N) CALL { WITH a MATCH (a)-[*1..2]->(x:N) RETURN DISTINCT x } "
+            "RETURN a.id + '->' + x.id AS pair"
+        )
+    )
+    found = {r["pair"] for r in results}
+    expected = {"a->b", "a->c", "a->d", "a->e", "b->c", "d->c", "d->e"}
+    assert found == expected, f"Got {sorted(found)}"
+
+
 # === Undirected expansion: the source is reachable only over a real cycle ===
 #
 # Every other vertex is reached by a shortest path, which is simple and so uses
@@ -303,11 +353,49 @@ def diamond_graph(memgraph):
     return memgraph
 
 
+def test_one_cached_plan_serves_every_bound(diamond_graph):
+    """One plan serves every bound, so the same query text run again with a
+    different bound must get the walk that bound calls for. The bounds are
+    revisited out of order, where a walk held over would show up."""
+    query = "MATCH (a:N {id: 'a'})-[*$lo..3]->(b) RETURN DISTINCT b.id AS id"
+    expected = {1: {"x", "y"}, 2: {"x"}, 3: set()}
+
+    for lo in [1, 2, 3, 3, 2, 1, 2, 1, 3]:
+        found = {r["id"] for r in diamond_graph.execute_and_fetch(query, parameters={"lo": lo})}
+        assert found == expected[lo], f"For a lower bound of {lo}, expected {expected[lo]}, got {found}"
+
+
 def test_correctness_lower_bound_above_one(diamond_graph):
     """A vertex first reached below the lower bound must still be emitted at a
     qualifying depth. Pruning BFS marks it visited on discovery, so it cannot."""
     results = list(diamond_graph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*2..2]->(b) RETURN DISTINCT b.id AS id"))
     assert {r["id"] for r in results} == {"x"}, f"Expected {{'x'}} via a->y->x, got {[r['id'] for r in results]}"
+
+
+def test_the_plan_names_the_walk_that_runs(memgraph):
+    """The bound decides the walk twice over: once to name it in a plan, once to
+    run it. Were the two to disagree, a plan would report a walk other than the
+    one taken, so hold them together across the bounds either may see."""
+    for bounds in ["*", "*1", "*..2", "*0..2", "*1..2", "*1..5", "*2..2", "*2..3", "*3..5"]:
+        query = f"MATCH (a:N {{id: 'a'}})-[{bounds}]->(b:N) RETURN DISTINCT b.id AS id"
+
+        planned = [op for op in operator_names(get_plan(memgraph, query)) if "Expand" in op]
+        profiled = [
+            row["OPERATOR"].strip().removeprefix("* ").split(" ")[0]
+            for row in memgraph.execute_and_fetch(f"PROFILE {query}")
+            if "Expand" in row["OPERATOR"]
+        ]
+        assert planned == profiled, f"For {bounds}, the plan says {planned} and the profile says {profiled}"
+
+
+def test_pruning_bfs_with_lower_bound_of_zero(memgraph):
+    """A walk of no edges reaches only its own source, which a pruning BFS emits
+    as readily, so a bound below one permits pruning just as a bound of one does."""
+    plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*0..2]->(b) RETURN DISTINCT b")
+    assert "PruningBFSExpand" in operator_names(plan), f"Expected a pruning plan, got: {plan}"
+
+    results = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*0..2]->(x) RETURN DISTINCT x.id AS id"))
+    assert {r["id"] for r in results} == {"a", "b", "c", "d", "e"}, f"Got {sorted(r['id'] for r in results)}"
 
 
 def test_no_rewrite_with_lower_bound_above_one(memgraph):
@@ -318,8 +406,8 @@ def test_no_rewrite_with_lower_bound_above_one(memgraph):
 
 
 def test_pruning_bfs_with_written_lower_bound_of_one(memgraph):
-    """Stripping turns a written-out bound into a parameter, which the rewrite
-    resolves at plan time."""
+    """Stripping turns a written-out bound into a parameter, which the cursor
+    resolves rather than the plan."""
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*1..3]->(b) RETURN DISTINCT b")
     ops = operator_names(plan)
     assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
