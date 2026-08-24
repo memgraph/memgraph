@@ -2009,15 +2009,23 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // When a selected filter is IS_NOT_NULL but a string predicate (CONTAINS/ENDS_WITH/REGEX)
       // exists for the same property, upgrade to the string predicate. Both scan the same index
       // range, but the string predicate attaches a ValuePredicate enabling index skip scan.
+      std::vector<FilterInfo> superseded_filters;
       for (auto &filter_info : found_index->filters) {
         if (filter_info.property_filter->type_ != PropertyFilter::Type::IS_NOT_NULL) continue;
         for (auto const &candidate : filters_.PropertyFilters(node_symbol)) {
           if (candidate.property_filter->property_ids_ != filter_info.property_filter->property_ids_) continue;
-          if (!PropertyFilter::IsStringPredicate(candidate.property_filter->type_)) continue;
+          auto const ct = candidate.property_filter->type_;
+          if (ct != PropertyFilter::Type::CONTAINS && ct != PropertyFilter::Type::ENDS_WITH &&
+              ct != PropertyFilter::Type::REGEX_MATCH)
+            continue;
           if (candidate.property_filter->is_symbol_in_value_) continue;
+          superseded_filters.push_back(filter_info);
           filter_info = candidate;
           break;
         }
+      }
+      for (auto const &f : superseded_filters) {
+        metadata.filters_to_erase.push_back(f);
       }
 
       // Collect metadata for filter cleanup

@@ -209,10 +209,14 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
               return vs.size() >= s.size() && vs.compare(vs.size() - s.size(), s.size(), s) == 0;
             });
           } else {
-            auto re = std::regex(search_term);
-            range.SetValuePredicate([re = std::move(re)](storage::PropertyValue const &v) {
-              return v.IsString() && std::regex_match(v.ValueString(), re);
-            });
+            try {
+              auto re = std::regex(search_term);
+              range.SetValuePredicate([re = std::move(re)](storage::PropertyValue const &v) {
+                return v.IsString() && std::regex_match(v.ValueString(), re);
+              });
+            } catch (std::regex_error const &e) {
+              throw QueryRuntimeException("Regex error in '{}': {}", search_term, e.what());
+            }
           }
         }
       }
