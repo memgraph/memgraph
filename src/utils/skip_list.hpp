@@ -1585,15 +1585,19 @@ class SkipList final : detail::SkipListNode_base {
     std::array<TNode *, kSkipListMaxHeight> succs{};
     int layer_found = -1;
     if (lower) {
+      // find_node reports the layer holding the key, or -1 when the list has no such key. It fills
+      // the predecessors either way, and those -- the last node before the bound at each layer --
+      // are all the walk below needs. A range is described by where its bounds fall between the
+      // keys, so a bound matching no element still has elements above it to count.
       layer_found = find_node(lower->value(), preds, succs);
+      if (layer_found == -1) {
+        layer_found = kSkipListMaxHeight - 1;
+      }
     } else {
       for (auto &pred : preds) {
         pred = head_;
       }
       layer_found = kSkipListMaxHeight - 1;
-    }
-    if (layer_found == -1) {
-      return 0;
     }
 
     uint64_t count = 0;
