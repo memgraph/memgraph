@@ -517,6 +517,43 @@ TYPED_TEST(QueryPlanTest, AggregateCountIdentifierSkipsNull) {
   EXPECT_EQ(2, count(true)) << "Nulls skipped before dedup, and the repeated 2 counted once";
 }
 
+// An aggregation with no grouping key holds on to its single accumulator rather than looking it
+// up per row. A reset clears the map that accumulator lives in, so the next pull has to build a
+// fresh one: accumulating through the old one would count the second pass on top of the first.
+TYPED_TEST(QueryPlanTest, AggregateNoGroupKeyStartsOverAfterReset) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  SymbolTable symbol_table;
+
+  // UNWIND [1, 2, 3] AS x RETURN count(x)
+  auto input_expr = this->storage.template Create<PrimitiveLiteral>(
+      std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue(1),
+                                                            memgraph::storage::ExternalPropertyValue(2),
+                                                            memgraph::storage::ExternalPropertyValue(3)});
+
+  auto x = symbol_table.CreateSymbol("x", true);
+  auto unwind = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
+  auto produce = this->MakeAggregationProduce(
+      unwind, symbol_table, {IDENT("x")->MapTo(x)}, {Aggregation::Op::COUNT}, {}, {}, false);
+
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  auto const result_symbol = context.symbol_table.at(*produce->named_expressions_[0]);
+
+  Frame frame(context.symbol_table.max_position());
+  auto cursor = produce->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+
+  auto count_once = [&]() -> int64_t {
+    EXPECT_TRUE(cursor->Pull(frame, context));
+    auto const value = frame[result_symbol];
+    EXPECT_FALSE(cursor->Pull(frame, context)) << "no grouping key means exactly one group";
+    return value.ValueInt();
+  };
+
+  EXPECT_EQ(3, count_once());
+  cursor->Reset();
+  EXPECT_EQ(3, count_once()) << "the accumulator from before the reset must not be added to";
+}
+
 // SUM and AVG accumulate into the value they already hold, so the type of the running total has
 // to follow the same rules addition does: integers stay integers until a double joins them, and
 // from then on the total is a double whatever arrives after it.
