@@ -182,7 +182,7 @@ struct Gatekeeper {
     friend Gatekeeper;
 
    private:
-    explicit Accessor(Gatekeeper *owner) : owner_{owner->pimpl_.get()} { ++owner_->count_; }
+    explicit Accessor(GKInternals<T> *internals) : owner_{internals} { ++owner_->count_; }
 
    public:
     // CONTRACT: copying bumps count_ but does NOT re-check state_. Copying the *sole* live accessor
@@ -290,16 +290,17 @@ struct Gatekeeper {
     // Completely invalidates the accessor if it returns true.
     //
     // ~T runs AFTER mutex_ is released (see the pointer move below), never under it: ~T (e.g.
-    // ~Database -> ~InMemoryStorage -> StopAllBackgroundTasks()) joins background threads (async
-    // indexer, TTL scheduler) that re-enter this gatekeeper through access() to mint their own
-    // Accessor. If the destroying thread still held mutex_ here, that mint would block on the very
-    // mutex the joiner is holding while it waits for the join -- an AB-BA deadlock reachable from a
-    // plain, non-FORCE DROP DATABASE. Do NOT move the destruction back under the lock.
+    // ~Database -> ~InMemoryStorage -> StopAllBackgroundTasks()) blocks until background threads
+    // (async indexer, TTL scheduler) exit, and those threads re-enter this gatekeeper through
+    // access_via()/access() to mint their own Accessor before exiting. If the destroying thread
+    // still held mutex_ here, that mint would block on the very mutex the destroyer holds while
+    // waiting for them to exit -- an AB-BA deadlock reachable from a plain, non-FORCE DROP DATABASE.
+    // Do NOT move the destruction back under the lock.
     template <typename Func = decltype([](T &) { return true; })>
     [[nodiscard]] bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100),
                                   Func &&predicate = {}) {
       if (!owner_) return false;
-      std::unique_ptr<T> dying;  // destroyed at scope exit below, AFTER mutex_ is released
+      std::unique_ptr<T> dying;
       {
         // Prevent new access
         auto guard = std::unique_lock{owner_->mutex_};
@@ -317,7 +318,7 @@ struct Gatekeeper {
       }  // <-- mutex_ released here
       // Opt-in lifetime guard around object destruction.
       [[maybe_unused]] typename GatekeeperGuardFor<T>::type arena_guard;
-      dying.reset();  // ~T runs unlocked; its thread joins can now complete
+      dying.reset();  // ~T runs unlocked; the background threads blocked on it can now exit
       return true;
     }
 
@@ -348,11 +349,12 @@ struct Gatekeeper {
   };
 
  private:
-  // Shared mint condition for both access() overloads below; caller must hold pimpl_->mutex_.
-  // Factored out so the plain and drain_bypass_t overloads cannot drift apart.
-  std::optional<Accessor> access_locked(bool bypass_drain) {
-    if (pimpl_->value_ && pimpl_->state_ == GatekeeperState::HOT && (bypass_drain || !pimpl_->draining_)) {
-      return Accessor{this};
+  // Shared mint condition for access(), access(drain_bypass_t), and access_via() below; caller must
+  // hold internals->mutex_. Factored out so the plain, drain_bypass_t, and by-handle routes cannot
+  // drift apart — the draining_ gate has exactly one definition.
+  static std::optional<Accessor> mint_locked(GKInternals<T> *internals, bool bypass_drain) {
+    if (internals->value_ && internals->state_ == GatekeeperState::HOT && (bypass_drain || !internals->draining_)) {
+      return Accessor{internals};
     }
     return std::nullopt;
   }
@@ -367,11 +369,12 @@ struct Gatekeeper {
     // waiting ~Gatekeeper proceeds. Adding a marked check here is NOT a correctness requirement.
     //
     // draining_ is different: it IS a hard refusal, not advisory. It is the single choke point that
-    // stops the database-protector factory (dbms::DatabaseHandler::MakeDatabaseProtectorFactory ->
-    // Handler::Get -> here) from re-arming TTL and async-index work on a tenant that is being dropped
-    // — without this refusal the drain would never converge, because freshly-minted work would keep
-    // the tenant HOT and its own Accessor count above the drop's single-flight expectations forever.
-    return access_locked(/*bypass_drain=*/false);
+    // stops the database-protector factory (dbms::DatabaseHandler::MakeDatabaseProtectorFactory's
+    // closure -> access_via() below, which shares this same mint_locked gate) from re-arming TTL and
+    // async-index work on a tenant that is being dropped — without this refusal the drain would never
+    // converge, because freshly-minted work would keep the tenant HOT and its own Accessor count above
+    // the drop's single-flight expectations forever.
+    return mint_locked(pimpl_.get(), /*bypass_drain=*/false);
   }
 
   // Bypasses the draining_ refusal above. Restricted to deletion/teardown machinery:
@@ -386,7 +389,25 @@ struct Gatekeeper {
   // that is exactly why Handler<T>::TryDelete stays gated on the non-bypass overload above.
   std::optional<Accessor> access(drain_bypass_t /*tag*/) {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    return access_locked(/*bypass_drain=*/true);
+    return mint_locked(pimpl_.get(), /*bypass_drain=*/true);
+  }
+
+  // By-handle mint route: takes a GKInternals<T>* directly instead of a Gatekeeper&, so a caller
+  // living INSIDE internals->value_ (T itself, or something T owns — concretely
+  // dbms::Database's storage-owned database-protector factory) can mint its own accessor without
+  // looking itself up in any container. That removes an unsynchronized container read from
+  // background threads (e.g. TTL, async indexing); it does not add a lock beyond mutex_ itself.
+  //
+  // PRECONDITION, and the only thing that makes `internals` safe to dereference here: the caller's
+  // own lifetime must be nested inside internals->value_. value_ being alive is what proves
+  // *internals is alive. A caller that can outlive value_ MUST NOT use this.
+  //
+  // Deliberately the plain drain-gated route, never drain_bypass: a draining tenant must stay
+  // unmintable through this route, because re-arming background work on a tenant being dropped
+  // would hold the accessor count above zero and stop the drain from converging.
+  static std::optional<Accessor> access_via(GKInternals<T> *internals) {
+    auto guard = std::unique_lock{internals->mutex_};
+    return mint_locked(internals, /*bypass_drain=*/false);
   }
 
   std::optional<bool> is_marked_for_deletion() const {
@@ -396,6 +417,17 @@ struct Gatekeeper {
     }
     return std::nullopt;
   }
+
+  // Hands the stable GKInternals<T> handle to a nested owner (see access_via() above) for later use
+  // there. The returned pointer must not be stored by anything that can outlive value_.
+  //
+  // Survives move-CONSTRUCTION of this Gatekeeper (a unique_ptr pointer transfer — see
+  // Handler<T>::Rename at src/dbms/handler.hpp:295-297) but is INVALIDATED by move-ASSIGNMENT
+  // (operator=(Gatekeeper&&) resets the old pimpl_, destroying the old GKInternals — see the
+  // load-bearing note on that operator, and the RESUME publish `*gk = std::move(fresh)` at
+  // src/dbms/dbms_handler.cpp:1584, whose target is a COLD/RESUMING shell with value_ == nullopt, so
+  // no live nested owner can hold a handle to the GKInternals destroyed there).
+  GKInternals<T> *internals() { return pimpl_.get(); }
 
   // Returns the current lifecycle state (locks mutex_).
   GatekeeperState state() const {
@@ -423,9 +455,8 @@ struct Gatekeeper {
     auto guard = std::unique_lock{pimpl_->mutex_};
     // draining_ is refused upfront, alongside the HOT check, NOT folded into the wait_for predicate
     // below (which must stay count_ == 1 only): a tenant already accepted for deletion must not be
-    // frozen out from under the drop by a competing suspend. value_ is refused too: try_delete()
-    // briefly holds count_ == 1 / state_ == HOT / draining_ == false while ~T runs unlocked after
-    // moving value_ out, and a gatekeeper with nothing to suspend must not enter SUSPENDING.
+    // frozen out from under the drop by a competing suspend. value_ is refused too: see
+    // try_exclusively() above -- a gatekeeper with nothing to suspend must not enter SUSPENDING.
     if (!pimpl_->value_ || pimpl_->state_ != GatekeeperState::HOT || pimpl_->draining_) return false;
     if (!pimpl_->cv_.wait_for(guard, timeout, [this] { return pimpl_->count_ == 1; })) {
       return false;
@@ -467,15 +498,16 @@ struct Gatekeeper {
       // open a window where a concurrent begin_resume() starts reading the directory while
       // the old Database is still writing its final WAL segment.
       //
-      // INVARIANT (load-bearing, CALLER precondition): ~Database -> ~InMemoryStorage DOES reach a
-      // gatekeeper path -- StopAllBackgroundTasks() joins the TTL scheduler and async indexer, and
-      // those threads call make_database_protector() -> Handler::Get() -> Gatekeeper::access(),
-      // which needs pimpl_->mutex_. Destroying value_ under this non-recursive mutex is safe ONLY
-      // because the suspend caller (Suspend_) has already run StopAllBackgroundTasks() OUTSIDE this
-      // mutex, before finish_suspend(): those two threads are joined by now, so the in-destructor
-      // join is a no-op. (try_delete() destroys the same chain UNLOCKED precisely because it has no
-      // such pre-stop.) If you remove the caller's pre-stop, or add a destruction-time hook that
-      // calls access()/try_*(), this self-deadlocks.
+      // PRECONDITION (load-bearing): callers MUST have already joined this value's background tasks
+      // BEFORE calling finish_suspend(), with pimpl_->mutex_ unheld. This is NOT a "no gatekeeper
+      // path in the destructor" situation: ~Database -> ~InMemoryStorage -> StopAllBackgroundTasks()
+      // joins the TTL / async-indexer threads, and those threads call access_via() on this same
+      // gatekeeper. pimpl_->mutex_ is non-recursive and held here, so if such a join had to actually
+      // wait for a thread that then re-entered the gatekeeper, it would self-deadlock. The reset()
+      // below is safe ONLY because Suspend_ pre-joins via StopAllBackgroundTasks() (mutex unheld)
+      // before it calls us, which makes the in-destructor join a no-op. Anyone reaching this state
+      // without pre-joining, or adding a destruction-time DBMS callback that re-enters the
+      // gatekeeper, breaks this.
       DMG_ASSERT(pimpl_->count_ == 0, "finish_suspend() must not destroy value_ while accessors are live");
       pimpl_->value_.reset();
     }
@@ -527,7 +559,7 @@ struct Gatekeeper {
   // drop or a mid-transition tenant is a legal race that the caller turns into a retriable error.
   bool begin_drain() {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    // value_ term: see try_begin_suspend() above -- you cannot drain a gatekeeper that holds nothing.
+    // value_ term: see try_exclusively() above -- you cannot drain a gatekeeper that holds nothing.
     if (!pimpl_->value_ || pimpl_->state_ != GatekeeperState::HOT || pimpl_->draining_) return false;
     pimpl_->draining_ = true;
     pimpl_->cv_.notify_all();
