@@ -3022,7 +3022,10 @@ class PruningBFSCursor : public query::plan::Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler const oom_exception;
-    SCOPED_PROFILE_OP("PruningBFSExpand");
+    if (!profile_name_ && context.is_profile_query) {
+      profile_name_ = self_.ToStringNamed(context.db_accessor, "PruningBFSExpand");
+    }
+    SCOPED_PROFILE_OP(profile_name_ ? profile_name_->c_str() : "PruningBFSExpand");
 
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
@@ -3242,6 +3245,7 @@ class PruningBFSCursor : public query::plan::Cursor {
 
   const ExpandVariable &self_;
   const UniqueCursorPtr input_cursor_;
+  std::optional<std::string> profile_name_;
 
   int64_t lower_bound_{};
   int64_t upper_bound_{};
