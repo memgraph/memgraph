@@ -48,12 +48,6 @@ enum class TransactionStatus {
   TERMINATED,
   STARTED_COMMITTING,
   STARTED_ROLLBACK,
-  // Query-entry claim state (idle-session reaper only): the session CAS-es IDLE->PREPARING at the top
-  // of Prepare, before it touches current_db_.db_acc_, then SetupInterpreterTransaction transitions
-  // PREPARING->ACTIVE once current_transaction_ is published. Distinct from ACTIVE so a concurrent
-  // SHOW TRANSACTIONS (TryAcquireForVerification) does NOT engage the interpreter while it is still
-  // writing current_transaction_/start-time. Excludes the reaper too (it claims REAPING only from IDLE).
-  PREPARING,
   // Transient exclusive-ownership state entered by the idle-session reaper (from IDLE only) while it
   // releases this interpreter's connection-scoped db_acc_. The session honors it by spin-waiting at
   // query entry. Reached only when the idle-session-reaper experiment is enabled.

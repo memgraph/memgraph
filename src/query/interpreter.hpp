@@ -545,14 +545,6 @@ class Interpreter final {
   // Returns true iff it reaped.
   bool TryReapIdleDbAccessor(uint64_t now_ns, uint64_t idle_timeout_ns);
 
-  // Session thread, top of Prepare. Claims the IDLE window (CAS IDLE->PREPARING) to exclude the reaper.
-  // Returns true iff it claimed; false if already owned (ACTIVE, e.g. inside an explicit transaction).
-  bool TryClaimForQueryEntry();
-
-  // Prepare-exit counterpart: if we claimed but no transaction was set up, restore IDLE so the session
-  // does not leak the claim (Bolt's HandleFailure does not Abort()). No-op once a transaction is ACTIVE.
-  void ReleaseEntryClaimIfUnused(bool claimed) noexcept;
-
   // Re-acquire db_acc_ if the reaper released it while parked. No-op if held or db-less; on a
   // recycled/dropped tenant falls back to a db-less session.
   void EnsureDbAccessForQuery();
@@ -778,14 +770,6 @@ class Interpreter final {
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
                                                     std::optional<int> qid) {
-#ifdef MG_ENTERPRISE
-  // On the explicit-BEGIN path SetupInterpreterTransaction is deferred to Pull time, so status is still
-  // IDLE when we read db_acc_ below — the reaper's release window. Claim it out first. Any other query
-  // is already ACTIVE here so the claim is a no-op.
-  const bool reaper_armed = flags::AreExperimentsEnabled(flags::Experiments::IDLE_SESSION_REAPER);
-  const bool entry_claimed = reaper_armed && TryClaimForQueryEntry();
-  utils::OnScopeExit release_entry_claim{[this, entry_claimed]() { ReleaseEntryClaimIfUnused(entry_claimed); }};
-#endif
   // Update the TLS arena index used to route allocations to the correct database arena.
   // The previous arena is restored on scope exit so pool threads are unaffected.
   std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;
