@@ -559,11 +559,10 @@ class DbmsHandler {
     auto dg = std::lock_guard{detached_lock_};
     for (auto const &[_, d] : detached_) {
       if (std::ranges::none_of(out, [&](auto const &kv) { return kv.first == d.name; })) {
-        // A DRAINING row's gatekeeper is still IN db_handler_, but prepare_for_deletion() already
+        // A detached row's gatekeeper may still be IN db_handler_, but prepare_for_deletion() already
         // marked it, so the HOT loop above never listed it (db_handler_.All() skips a marked-for-
-        // deletion entry) -- this dedup still resolves to exactly one row, just with the phase-
-        // appropriate label instead of always "DETACHED".
-        out.emplace_back(d.name, d.phase == TenantPhase::DRAINING ? "DRAINING" : "DETACHED");
+        // deletion entry) -- this dedup still resolves to exactly one row.
+        out.emplace_back(d.name, "DETACHED");
       }
     }
     return out;
@@ -573,22 +572,13 @@ class DbmsHandler {
   // a live Accessor's Gatekeeper to a drain thread instead of deleting it inline.
   enum class DetachReason : uint8_t { DROP };
 
-  // Lifecycle phase of a deferred-destruction row (see DetachedTenant below). Delete_ publishes a row
-  // as DRAINING in its Phase 1 (still under lock_, before the off-lock teardown window) and promotes
-  // it to DETACHED in Phase 3, via PromoteDetachedPhase_, once DeferDelete has actually erased the
-  // gatekeeper from db_handler_.
-  //   DRAINING — accepted for deletion, still IN db_handler_ (is_marked_for_deletion + draining_ both
-  //              set, so it's unaddressable for new work but not yet unaddressable by name/iteration).
-  //   DETACHED — handed to a drain thread (or already destroyed inline); erased from db_handler_.
-  enum class TenantPhase : uint8_t { DRAINING, DETACHED };
-
   /**
    * @brief Metadata for a tenant whose destruction is deferred.
    *
-   * Not every row is unaddressable by name: a DRAINING row's gatekeeper is still IN db_handler_ (see
-   * TenantPhase above) — only once it reaches DETACHED has db_handler_ actually erased it (see
-   * Handler<T>::DeferDelete), the point after which its Database — and its bytes in
-   * utils::graph_memory_tracker — stays alive purely via this row until the drain thread's last
+   * Not every row is unaddressable by name: a detached row's gatekeeper may still be IN db_handler_
+   * during the drain window — only once db_handler_ has actually erased it (see
+   * Handler<T>::DeferDelete) does its Database — and its bytes in
+   * utils::graph_memory_tracker — stay alive purely via this row until the drain thread's last
    * accessor releases it.
    *
    * memory_at_detach is an AS-OF-DETACH snapshot, not a live figure: a live read would need a raw
@@ -602,7 +592,6 @@ class DbmsHandler {
     utils::UUID uuid;  //!< identity; unique, survives name reuse
     std::chrono::system_clock::time_point detached_at;
     DetachReason reason;
-    TenantPhase phase;  //!< DRAINING until PromoteDetachedPhase_ runs in Delete_'s Phase 3
     uint64_t holders_at_detach;
     int64_t memory_at_detach;
   };
@@ -631,10 +620,10 @@ class DbmsHandler {
    * db_handler_ the same access()-gated way ForEach does (a COLD shell's access() is nullopt and
    * contributes 0 — a COLD tenant has no in-memory storage, so that is correct, not an omission).
    *
-   * A DRAINING tenant (still IN db_handler_, see TenantPhase) is likewise not double-counted: its
+   * A detached tenant still IN db_handler_ during its drain window is likewise not double-counted: its
    * gatekeeper's plain access() is refused while draining_ is set (Gatekeeper::access()'s hard
    * refusal), so the HOT half contributes 0 for it and its bytes come solely from its detached_ row —
-   * exactly one count, whether the row is DRAINING or DETACHED.
+   * exactly one count.
    */
   TenantMemorySums TenantMemorySum() {  // NOT const: the HOT half mints (and drops) accessors
     auto rd = std::shared_lock{lock_};
@@ -1094,15 +1083,6 @@ class DbmsHandler {
   void ForgetDetached_(const utils::UUID &uuid) {
     auto dg = std::lock_guard{detached_lock_};
     detached_.erase(uuid);
-  }
-
-  /// DRAINING -> DETACHED. Caller MUST hold lock_ exclusive (Delete_'s Phase 3 does, right after
-  /// re-validating the drain is still live); takes ONLY detached_lock_ itself, same contract as
-  /// RecordDetached_/ForgetDetached_. No-op if the row is already gone.
-  void PromoteDetachedPhase_(const utils::UUID &uuid) {
-    auto dg = std::lock_guard{detached_lock_};
-    auto it = std::ranges::find_if(detached_, [&](DetachedTenant const &d) { return d.uuid == uuid; });
-    if (it != detached_.end()) it->phase = TenantPhase::DETACHED;
   }
 
   // Refresh the global cold-databases gauge from the live suspended_ size. Caller MUST hold lock_
