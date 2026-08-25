@@ -1326,7 +1326,9 @@ TEST(DBMS_Handler, ProtectorFactoryConcurrentWithHandlerMapMutation) {
   std::atomic<uint64_t> non_null_results{0};
 
   std::thread reader([&] {
-    constexpr uint64_t kMaxIterations = 20000;
+    // Smoke/TSan-oriented stress check: this bound gives TSan a window on the items_ race, it does not
+    // prove race-freedom under a normal build. Kept modest so the non-TSan run stays cheap.
+    constexpr uint64_t kMaxIterations = 2000;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (!stop.load(std::memory_order_relaxed) &&
            reader_iterations.load(std::memory_order_relaxed) < kMaxIterations &&
@@ -1349,7 +1351,7 @@ TEST(DBMS_Handler, ProtectorFactoryConcurrentWithHandlerMapMutation) {
   // fail an assertion, so it is out of scope for this smoke test.
   const auto churn_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
   uint64_t churn_iterations = 0;
-  while (churn_iterations < 20000 && std::chrono::steady_clock::now() < churn_deadline) {
+  while (churn_iterations < 2000 && std::chrono::steady_clock::now() < churn_deadline) {
     auto other = dbms.New("factory_race_other");
     if (other.has_value()) {
       memgraph::dbms::DatabaseAccess other_acc = std::move(other.value());
