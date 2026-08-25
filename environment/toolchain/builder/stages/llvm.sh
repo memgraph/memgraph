@@ -53,6 +53,11 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
     # activate swig
     export PATH=$DIR/build/swig-$SWIG_VERSION/install/bin:$PATH
     # influenced by: https://buildd.debian.org/status/fetch.php?pkg=llvm-toolchain-7&arch=amd64&ver=1%3A7.0.1%7E%2Brc2-1%7Eexp1&stamp=1541506173&raw=0
+    # No -fuse-ld=gold. binutils dropped gold, so this toolchain ships none and
+    # the flag was silently selecting the *host's* gold -- an old one, outside
+    # the sysroot. It also fails outright on BOLT: gold 1.16 hits an internal
+    # error in do_layout linking merge-fdata. Without the flag the link uses the
+    # toolchain's own ld, which is what the rest of the build already uses.
     cmake -S llvm -B build -G "Unix Makefiles" \
         -DCMAKE_INSTALL_PREFIX="$PREFIX" \
         -DCMAKE_SYSROOT="$SYSROOT" \
@@ -66,8 +71,8 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
         -DCMAKE_INSTALL_PREFIX=$PREFIX \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -DNDEBUG" \
-        -DCMAKE_CXX_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
-        -DCMAKE_C_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
+        -DCMAKE_CXX_FLAGS=' -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
+        -DCMAKE_C_FLAGS=' -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
         -DLLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS" \
         -DLLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES" \
         -DRUNTIMES_CMAKE_ARGS="-DCMAKE_C_FLAGS=--gcc-toolchain=$PREFIX;-DCMAKE_CXX_FLAGS=--gcc-toolchain=$PREFIX;-DLIBOMP_OMPD_SUPPORT=OFF;-DLIBOMP_OMPD_GDB_SUPPORT=OFF" \
