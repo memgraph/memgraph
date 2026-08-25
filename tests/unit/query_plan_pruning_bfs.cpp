@@ -158,8 +158,8 @@ TEST_F(PruningBFSRewriteTest, LeavesAnExpansionWhoseBoundTheRowSupplies) {
 TEST_F(PruningBFSRewriteTest, LeavesAnExpansionWhoseBoundIsANonTrivialExpression) {
   // An addition of two literals reads no symbol but is neither a literal nor a
   // parameter, so ConstExternalPropertyValue cannot resolve it.
-  auto *lhs = storage.Create<PrimitiveLiteral>(storage::ExternalPropertyValue{static_cast<int64_t>(0)}, 0);
-  auto *rhs = storage.Create<PrimitiveLiteral>(storage::ExternalPropertyValue{static_cast<int64_t>(1)}, 0);
+  auto *lhs = storage.Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue{static_cast<int64_t>(0)}, 0);
+  auto *rhs = storage.Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue{static_cast<int64_t>(1)}, 0);
   auto *add = storage.Create<AdditionOperator>();
   add->expression1_ = lhs;
   add->expression2_ = rhs;

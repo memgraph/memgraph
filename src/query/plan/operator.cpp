@@ -3305,7 +3305,7 @@ class PruningBFSDispatchCursor : public query::plan::Cursor {
   /// expansions that find nothing to expand.
   /// Must agree with ExpandVariable::OperatorName(Parameters*), which answers
   /// the same question for EXPLAIN output.
-  bool BoundPermitsPruning(Frame &frame, ExecutionContext &context) {
+  bool BoundPermitsPruning(Frame &frame, ExecutionContext &context) const {
     if (!self_.lower_bound_) return true;
     ExpressionEvaluator evaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
     TypedValue const bound = self_.lower_bound_->Accept(evaluator);
