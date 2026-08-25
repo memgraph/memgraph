@@ -107,7 +107,8 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
             return ReplicaFailureReason::RPC_ERROR;
         }
       }();
-      replication_failures_.push_back({client_name, ReplicationModeToString(client->Mode()), reason});
+      replication_failures_.push_back(
+          {.name = client_name, .mode = ReplicationModeToString(client->Mode()), .reason = reason});
     }
   };
 

@@ -41,7 +41,6 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
@@ -4398,6 +4397,7 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   auto const collect_workers = utils::OnScopeExit{[&]() noexcept {
     try {
       replicating_txn.WaitEncodeDone();
+      // NOLINTNEXTLINE(bugprone-empty-catch)
     } catch (...) {
     }
     if (wal_result.valid()) {
