@@ -131,6 +131,128 @@ check_config_files() {
     log_info "All configuration files found"
 }
 
+# Delete leftover load balancers, ENIs and security groups that keep a VPC
+# (and therefore its CloudFormation stack) from being deleted.
+cleanup_vpc_dependencies() {
+    local vpc_id="$1"
+    local aws_args=(--region "$CLUSTER_REGION" --output text)
+    log_info "Cleaning up dependencies of VPC $vpc_id..."
+
+    local arn
+    for arn in $(aws elbv2 describe-load-balancers "${aws_args[@]}" \
+            --query "LoadBalancers[?VpcId=='$vpc_id'].LoadBalancerArn" 2>/dev/null); do
+        log_info "  Deleting load balancer $arn"
+        aws elbv2 delete-load-balancer --region "$CLUSTER_REGION" --load-balancer-arn "$arn" || true
+    done
+    local lb
+    for lb in $(aws elb describe-load-balancers "${aws_args[@]}" \
+            --query "LoadBalancerDescriptions[?VPCId=='$vpc_id'].LoadBalancerName" 2>/dev/null); do
+        log_info "  Deleting classic load balancer $lb"
+        aws elb delete-load-balancer --region "$CLUSTER_REGION" --load-balancer-name "$lb" || true
+    done
+
+    # ENIs linger for a few minutes after their LB/instance is gone.
+    local deadline=$((SECONDS + 600))
+    while true; do
+        local enis
+        enis=$(aws ec2 describe-network-interfaces "${aws_args[@]}" \
+            --filters "Name=vpc-id,Values=$vpc_id" \
+            --query 'NetworkInterfaces[].[NetworkInterfaceId,Status,Attachment.AttachmentId]' 2>/dev/null) || true
+        [[ -z "$enis" ]] && break
+        if (( SECONDS > deadline )); then
+            log_warn "  Timed out waiting for ENIs to clear:"
+            echo "$enis"
+            break
+        fi
+        while read -r eni status attachment; do
+            [[ -z "$eni" ]] && continue
+            if [[ "$status" != "available" && -n "$attachment" && "$attachment" != "None" ]]; then
+                aws ec2 detach-network-interface --region "$CLUSTER_REGION" --attachment-id "$attachment" --force 2>/dev/null || true
+            fi
+            if [[ "$status" == "available" ]]; then
+                log_info "  Deleting network interface $eni"
+                aws ec2 delete-network-interface --region "$CLUSTER_REGION" --network-interface-id "$eni" 2>/dev/null || true
+            fi
+        done <<< "$enis"
+        sleep 15
+    done
+
+    # Revoke all rules first so cross-referencing groups can be deleted.
+    local sgs sg
+    sgs=$(aws ec2 describe-security-groups "${aws_args[@]}" \
+        --filters "Name=vpc-id,Values=$vpc_id" \
+        --query "SecurityGroups[?GroupName!='default'].GroupId" 2>/dev/null) || true
+    for sg in $sgs; do
+        local perms
+        perms=$(aws ec2 describe-security-groups --region "$CLUSTER_REGION" --group-ids "$sg" \
+            --query 'SecurityGroups[0].IpPermissions' --output json 2>/dev/null) || true
+        [[ -n "$perms" && "$perms" != "[]" ]] && \
+            aws ec2 revoke-security-group-ingress --region "$CLUSTER_REGION" --group-id "$sg" --ip-permissions "$perms" &>/dev/null || true
+        perms=$(aws ec2 describe-security-groups --region "$CLUSTER_REGION" --group-ids "$sg" \
+            --query 'SecurityGroups[0].IpPermissionsEgress' --output json 2>/dev/null) || true
+        [[ -n "$perms" && "$perms" != "[]" ]] && \
+            aws ec2 revoke-security-group-egress --region "$CLUSTER_REGION" --group-id "$sg" --ip-permissions "$perms" &>/dev/null || true
+    done
+    for sg in $sgs; do
+        log_info "  Deleting security group $sg"
+        aws ec2 delete-security-group --region "$CLUSTER_REGION" --group-id "$sg" 2>/dev/null || true
+    done
+}
+
+# Remove eksctl CloudFormation stacks left behind when the EKS cluster itself
+# is gone (typically DELETE_FAILED on the VPC). Returns 1 if a stack remains.
+cleanup_orphaned_cluster_stack() {
+    local cluster_stack="eksctl-${CLUSTER_NAME}-cluster"
+    local status
+    status=$(aws cloudformation describe-stacks --region "$CLUSTER_REGION" \
+        --stack-name "$cluster_stack" --query 'Stacks[0].StackStatus' --output text 2>/dev/null) || true
+    if [[ -z "$status" || "$status" == "None" || "$status" == "DELETE_COMPLETE" ]]; then
+        return 0
+    fi
+
+    if eksctl get cluster --name "$CLUSTER_NAME" --region "$CLUSTER_REGION" &> /dev/null; then
+        log_error "Stack $cluster_stack is $status but EKS cluster $CLUSTER_NAME still exists; refusing to clean up"
+        return 1
+    fi
+
+    log_warn "Found orphaned CloudFormation stack $cluster_stack ($status) with no EKS cluster"
+
+    if [[ "$status" == *_IN_PROGRESS && "$status" != "DELETE_IN_PROGRESS" ]]; then
+        log_error "Stack $cluster_stack is $status; another operation is running"
+        return 1
+    fi
+
+    # Nodegroup stacks depend on the cluster stack and must go first.
+    local ng_stack
+    for ng_stack in $(aws cloudformation list-stacks --region "$CLUSTER_REGION" --output text \
+            --stack-status-filter CREATE_COMPLETE CREATE_FAILED ROLLBACK_COMPLETE ROLLBACK_FAILED DELETE_FAILED UPDATE_COMPLETE \
+            --query "StackSummaries[?starts_with(StackName, 'eksctl-${CLUSTER_NAME}-nodegroup-')].StackName" 2>/dev/null); do
+        log_info "Deleting orphaned nodegroup stack $ng_stack..."
+        aws cloudformation delete-stack --region "$CLUSTER_REGION" --stack-name "$ng_stack"
+        aws cloudformation wait stack-delete-complete --region "$CLUSTER_REGION" --stack-name "$ng_stack" || true
+    done
+
+    local vpc_id
+    vpc_id=$(aws cloudformation describe-stack-resources --region "$CLUSTER_REGION" \
+        --stack-name "$cluster_stack" \
+        --query "StackResources[?LogicalResourceId=='VPC'].PhysicalResourceId" --output text 2>/dev/null) || true
+    if [[ -n "$vpc_id" && "$vpc_id" != "None" ]]; then
+        cleanup_vpc_dependencies "$vpc_id"
+    fi
+
+    log_info "Deleting stack $cluster_stack..."
+    aws cloudformation delete-stack --region "$CLUSTER_REGION" --stack-name "$cluster_stack"
+    if ! aws cloudformation wait stack-delete-complete --region "$CLUSTER_REGION" --stack-name "$cluster_stack"; then
+        log_error "Stack $cluster_stack still could not be deleted:"
+        aws cloudformation describe-stack-events --region "$CLUSTER_REGION" --stack-name "$cluster_stack" \
+            --query 'StackEvents[?ResourceStatus==`DELETE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
+            --output text 2>/dev/null || true
+        return 1
+    fi
+
+    log_info "Orphaned stack $cluster_stack deleted"
+}
+
 create_cluster() {
     log_info "Creating EKS cluster: $CLUSTER_NAME in $CLUSTER_REGION..."
 
@@ -140,6 +262,12 @@ create_cluster() {
         log_info "Updating kubeconfig..."
         aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$CLUSTER_REGION"
         return 0
+    fi
+
+    # A stack left behind by a failed teardown makes eksctl fail with AlreadyExistsException.
+    if ! cleanup_orphaned_cluster_stack; then
+        log_error "Cannot create cluster while a conflicting CloudFormation stack exists"
+        exit 1
     fi
 
     # Create the cluster
@@ -681,10 +809,14 @@ destroy_cluster() {
     kubectl get svc --no-headers -o name 2>/dev/null | grep "memgraph-" | xargs -r kubectl delete --ignore-not-found 2>/dev/null || true
 
     log_info "Deleting EKS cluster (this may take 10-15 minutes)..."
-    eksctl delete cluster --name "$CLUSTER_NAME" --region "$CLUSTER_REGION"
+    # --wait: without it the cluster stack is deleted asynchronously and a
+    # DELETE_FAILED (e.g. VPC still referenced by LB ENIs) goes unnoticed.
+    if ! eksctl delete cluster --name "$CLUSTER_NAME" --region "$CLUSTER_REGION" --wait; then
+        log_warn "eksctl delete cluster failed; checking for leftover CloudFormation stacks"
+    fi
 
-    if [[ $? -ne 0 ]]; then
-        log_error "Failed to delete cluster"
+    if ! cleanup_orphaned_cluster_stack; then
+        log_error "Failed to fully delete cluster $CLUSTER_NAME"
         exit 1
     fi
 
