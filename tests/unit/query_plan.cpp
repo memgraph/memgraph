@@ -2273,7 +2273,7 @@ TYPED_TEST(TestPlanner, FilterRegexMatchIndex) {
   CheckPlan(planner.plan(),
             symbol_table,
             ExpectScanAllByLabelProperties(
-                label, std::vector{ms::PropertyPath{prop}}, std::vector{ExpressionRange::RegexMatch()}),
+                label, std::vector{ms::PropertyPath{prop}}, std::vector{ExpressionRange::RegexMatch(LITERAL("regex"))}),
             ExpectFilter(),
             ExpectProduce());
 }
