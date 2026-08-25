@@ -101,6 +101,11 @@ add_unit_test(query_plan_distinct_key
     LINK_TARGETS mg-query
 )
 
+add_unit_test(query_plan_distinct_removal
+    SOURCES query_plan_distinct_removal.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(query_plan_distinct_semantics
     SOURCES query_plan_distinct_semantics.cpp
     LINK_TARGETS mg-query
