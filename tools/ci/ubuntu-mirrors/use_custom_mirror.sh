@@ -45,13 +45,19 @@ this build, "false" otherwise.
 EOF
 }
 
+need_value() {
+  echo "Error: $1 requires a value" >&2
+  print_help >&2
+  exit 2
+}
+
 os=""
 arch=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --os) os="${2:-}"; shift 2 ;;
-    --arch) arch="${2:-}"; shift 2 ;;
+    --os) [[ $# -ge 2 ]] || need_value "$1"; os="$2"; shift 2 ;;
+    --arch) [[ $# -ge 2 ]] || need_value "$1"; arch="$2"; shift 2 ;;
     -h|--help) print_help; exit 0 ;;
     *)
       echo "Error: unknown argument '$1'" >&2
