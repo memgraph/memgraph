@@ -867,10 +867,9 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
     if (!lock.owns_lock()) lock.lock();
     // Fresh by-name lookup, never the Phase 1 `gk` pointer above: the off-lock Phase 2 window could
     // have let a concurrent structural change invalidate it. is_draining() guards abort_drain()'s own
-    // DMG_ASSERT -- load-bearing, not defensive fluff: the Phase 3 re-validation failure path below
-    // (gk3 gone, or found but no longer draining) intentionally does NOT call abort_drain() there
-    // (nothing to abort), and this guard still fires on that path's `return` to retire the registry
-    // row, so it must not blindly re-call abort_drain() into that same non-draining state.
+    // DMG_ASSERT -- load-bearing, not defensive fluff: on a throwing unwind the gatekeeper may already
+    // be gone or no longer draining, so this guard must not blindly re-call abort_drain() into a
+    // non-draining state while it retires the registry row.
     if (auto *g = db_handler_.GetGatekeeper(name); g && g->is_draining()) g->abort_drain();
     if (detached_row_uuid) ForgetDetached_(*detached_row_uuid);
   }};
@@ -907,13 +906,12 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   const auto holders = std::max<uint64_t>(gk->holder_count(), 1) - 1;
 
   // Publish BEFORE releasing `lock`: visibility must not blink. A reader arriving between
-  // begin_drain() and this line would otherwise see neither a HOT/DRAINING status nor a DETACHED row
+  // begin_drain() and this line would otherwise see neither a HOT status nor a DETACHED row
   // for a tenant that has, in fact, already been accepted for deletion.
   RecordDetached_(DetachedTenant{.name = name,
                                  .uuid = tenant_uuid,
                                  .detached_at = std::chrono::system_clock::now(),
                                  .reason = DetachReason::DROP,
-                                 .phase = TenantPhase::DRAINING,
                                  .holders_at_detach = holders,
                                  .memory_at_detach = memory_at_detach});
   // A row now exists to retire -- arm `rollback_drain`'s ForgetDetached_ half. Placed only after
@@ -933,21 +931,11 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
   acc.reset();  // release the drop's own accessor so Phase 3's DeferDelete -> try_delete() can win
   lock.lock();
 
-  // Re-validate; do not trust the Phase 1 pointer or guards. DeferDelete is void and silently no-ops
-  // on a name miss, so a lost/renamed node here would otherwise let us promote the registry row (and
-  // return success) for a tenant that Phase 2's off-lock window let something else destroy or rename
-  // out from under us.
+  // Re-validate the drain marker survived the off-lock window before proceeding.
   auto *gk3 = db_handler_.GetGatekeeper(name);
-  if (!gk3 || !gk3->is_draining()) {
-    spdlog::error(R"(Lost the drain marker for database "{}" while its teardown ran off-lock; aborting the drop.)",
-                  name);
-    // No explicit ForgetDetached_ here: this `return` runs `rollback_drain`'s destructor, which
-    // retires the row via `detached_row_uuid` on its own. It correctly skips abort_drain() too --
-    // gk3 is already gone or already not draining, and the guard's fresh lookup sees the same
-    // state, so its is_draining() check leaves abort_drain() uncalled here exactly as this comment
-    // requires: there is nothing left to abort.
-    return std::unexpected{DeleteError::FAIL};
-  }
+  MG_ASSERT(gk3 && gk3->is_draining(),
+            "drain marker must survive the off-lock window: draining_ has a single clearer (this "
+            "thread's rollback guard) and every db_handler_ mutation is drain-gated");
 
   // Remove from durability list
   if (durability_) durability_->Delete(Durability::GenKey(name));
@@ -959,16 +947,13 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name, std::un
     [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(name);
   }
 
-  PromoteDetachedPhase_(tenant_uuid);  // DRAINING -> DETACHED
-
-  // The row is already DETACHED; if constructing the deferred closure or DeferDelete itself throws
-  // before the Gatekeeper is actually handed off, undo BOTH the promotion and the drain, or the
-  // tenant's *name* is wedged forever: a fresh CREATE would see EXISTS (still in db_handler_) and a
-  // retried DROP would see USING (begin_drain()'s own draining_ check) — even though DeferDelete never
-  // actually ran. This is the same undo commit 62e2c9711 added, now widened for a second failure mode:
-  // the double-count it was originally guarding against no longer exists (a draining tenant's plain
-  // access() is refused, so TenantMemorySum's HOT half already excludes it — see TenantMemorySum's
-  // comment), but the retryability half of that fix still matters. Phase 2's teardown
+  // If constructing the deferred closure or DeferDelete itself throws before the Gatekeeper is
+  // actually handed off, undo the drain, or the tenant's *name* is wedged forever: a fresh CREATE
+  // would see EXISTS (still in db_handler_) and a retried DROP would see USING (begin_drain()'s own
+  // draining_ check) — even though DeferDelete never actually ran. This is the same undo commit
+  // 62e2c9711 added: the double-count it was originally guarding against no longer exists (a draining
+  // tenant's plain access() is refused, so TenantMemorySum's HOT half already excludes it — see
+  // TenantMemorySum's comment), but the retryability half of that fix still matters. Phase 2's teardown
   // (StopAllBackgroundTasks/streams()->DropAll()) is NOT undone here, exactly as it wasn't before.
   // No local try/catch: `rollback_drain` already does exactly this (fresh-lookup abort_drain guarded
   // by is_draining(), then ForgetDetached_) on unwind, so a second copy here would just be a duplicate

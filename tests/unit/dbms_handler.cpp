@@ -94,8 +94,8 @@ auto RunBounded(std::chrono::milliseconds timeout, F f) -> std::pair<bool, std::
 // (Database::StopAllBackgroundTasks() -> ThreadPool::ShutDown() -> its jthread vector's destructor;
 // see dbms_handler.cpp's Delete_ Phase 2, database.cpp's StopAllBackgroundTasks, and
 // thread_pool.cpp's ShutDown/~ThreadPool) blocks on that jthread join for a bounded, test-controlled
-// window. This gives DRAINING (the window between Delete_'s Phase 1 RecordDetached_ and Phase 3's
-// PromoteDetachedPhase_ -- see the TenantPhase doc in dbms_handler.hpp) an actual, observable witness
+// window. This gives the drain window (between Delete_'s Phase 1 RecordDetached_ and the DeferDelete
+// handoff that erases the gatekeeper from db_handler_) an actual, observable witness
 // instead of inferring it from sleep durations. AddTask()/thread_pool() are public Database API
 // (database.hpp), not a test-only seam.
 class PhaseTwoStall {
@@ -834,7 +834,7 @@ TEST(DBMS_Handler, DrainingTenantIsRefusedToTheProtectorFactory) {
   const bool draining_seen = WaitUntil(std::chrono::seconds(5), [&] {
     const auto statuses = dbms.AllWithHotColdStatus();
     return std::ranges::any_of(statuses,
-                               [](auto const &kv) { return kv.first == "protector_seam" && kv.second == "DRAINING"; });
+                               [](auto const &kv) { return kv.first == "protector_seam" && kv.second == "DETACHED"; });
   });
   ASSERT_TRUE(draining_seen) << "the drop never reached the DRAINING window this test needs to probe";
 
@@ -895,7 +895,7 @@ TEST(DBMS_Handler, DropDoesNotHoldTheHandlerLockDuringTeardown) {
   const bool draining_seen = WaitUntil(std::chrono::seconds(5), [&] {
     const auto statuses = dbms.AllWithHotColdStatus();
     return std::ranges::any_of(
-        statuses, [](auto const &kv) { return kv.first == "lock_teardown_target" && kv.second == "DRAINING"; });
+        statuses, [](auto const &kv) { return kv.first == "lock_teardown_target" && kv.second == "DETACHED"; });
   });
   ASSERT_TRUE(draining_seen) << "the drop never reached the DRAINING window this test needs to probe";
 
@@ -998,8 +998,9 @@ TEST(DBMS_Handler, ConcurrentSuspendAgainstADrainingDropDoesNotDeadlock) {
   }
 }
 
-// PINS the visibility/accounting guarantee AllWithHotColdStatus/TenantMemorySum/AllDetached give during
-// Phase 2 specifically (DRAINING) -- not just after full DETACHED, which
+// PINS the visibility/accounting guarantee AllWithHotColdStatus/TenantMemorySum/AllDetached give while
+// the tenant is still draining (Phase 2, draining_ set, gatekeeper still IN db_handler_) -- not just
+// after db_handler_ has erased it, which
 // DetachedTenantMemoryStaysAttributableWhileUnaddressable above already covers. A regression that let a
 // draining tenant's plain access() succeed (see TenantMemorySum's comment, dbms_handler.hpp) would
 // double-count it here (once HOT, once detached) or drop it from both totals.
@@ -1054,17 +1055,15 @@ TEST(DBMS_Handler, DrainingTenantIsVisibleAndCountedExactlyOnce) {
 
   const bool draining_seen = WaitUntil(std::chrono::seconds(5), [&] {
     const auto all_detached = dbms.AllDetached();
-    return std::ranges::any_of(all_detached, [&](auto const &d) {
-      return d.uuid == tenant_uuid && d.phase == memgraph::dbms::DbmsHandler::TenantPhase::DRAINING;
-    });
+    return std::ranges::any_of(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
   });
   ASSERT_TRUE(draining_seen) << "the drop never reached the DRAINING window this test needs to probe";
 
   {
     const auto statuses = dbms.AllWithHotColdStatus();
     const auto draining_count = std::ranges::count_if(
-        statuses, [](auto const &kv) { return kv.first == "draining_visibility_probe" && kv.second == "DRAINING"; });
-    EXPECT_EQ(draining_count, 1) << "a draining tenant must be listed exactly once, as DRAINING";
+        statuses, [](auto const &kv) { return kv.first == "draining_visibility_probe" && kv.second == "DETACHED"; });
+    EXPECT_EQ(draining_count, 1) << "a draining tenant must be listed exactly once, as DETACHED";
     EXPECT_TRUE(std::ranges::none_of(statuses, [](auto const &kv) {
       return kv.first == "draining_visibility_probe" && kv.second == "HOT";
     })) << "a draining tenant must not ALSO be reported HOT";
@@ -1081,8 +1080,6 @@ TEST(DBMS_Handler, DrainingTenantIsVisibleAndCountedExactlyOnce) {
     const auto all_detached = dbms.AllDetached();
     const auto matches = std::ranges::count_if(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
     ASSERT_EQ(matches, 1) << "exactly one detached row must exist for this tenant while it drains";
-    const auto it = std::ranges::find_if(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
-    EXPECT_EQ(it->phase, memgraph::dbms::DbmsHandler::TenantPhase::DRAINING);
   }
 
   stall.Release();
@@ -1139,9 +1136,7 @@ TEST(DBMS_Handler, IdleTenantDropReportsNoForeignHolders) {
   std::optional<uint64_t> holders_at_detach;
   const bool draining_seen = WaitUntil(std::chrono::seconds(5), [&] {
     const auto all_detached = dbms.AllDetached();
-    const auto it = std::ranges::find_if(all_detached, [&](auto const &d) {
-      return d.uuid == tenant_uuid && d.phase == memgraph::dbms::DbmsHandler::TenantPhase::DRAINING;
-    });
+    const auto it = std::ranges::find_if(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
     if (it == all_detached.end()) return false;
     holders_at_detach = it->holders_at_detach;
     return true;
@@ -1201,7 +1196,7 @@ TEST(DBMS_Handler, ForceDropOfADrainingTenantIsRetriableNotMissing) {
   const bool draining_seen = WaitUntil(std::chrono::seconds(5), [&] {
     const auto statuses = dbms.AllWithHotColdStatus();
     return std::ranges::any_of(statuses,
-                               [](auto const &kv) { return kv.first == "force_drop_race" && kv.second == "DRAINING"; });
+                               [](auto const &kv) { return kv.first == "force_drop_race" && kv.second == "DETACHED"; });
   });
   ASSERT_TRUE(draining_seen) << "the first drop never reached the DRAINING window this test needs to probe";
 
