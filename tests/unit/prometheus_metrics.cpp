@@ -215,7 +215,7 @@ TEST(PrometheusMetrics, RebindDefaultDatabaseUUIDUpdatesUuidLabel) {
   memgraph::utils::UUID const uuid_a{};
   memgraph::utils::UUID const uuid_b{};
 
-  pm.AddDatabase(uuid_a, "memgraph");
+  auto reg = pm.AddDatabase(uuid_a, "memgraph");
   pm.RebindDefaultDatabaseUUID(uuid_b);
 
   auto const families = pm.registry().Collect();
