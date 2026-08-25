@@ -1,0 +1,36 @@
+# Builder dependencies, CentOS Stream 9 package names.
+#
+# Derived from what the stages actually invoke rather than from
+# environment/os/centos-9.sh, whose TOOLCHAIN_BUILD_DEPS predates several of
+# these: it has no rsync (the kernel headers install needs it), no boost or
+# elfutils (heaptrack), and no gawk, m4, perl or autoconf.
+ca-certificates
+coreutils-common
+gcc
+gcc-c++
+make
+file
+wget
+gnupg2
+tar
+gzip
+bzip2
+xz
+unzip
+git
+rsync
+gawk
+bison
+python3
+m4
+perl
+pkgconf-pkg-config
+autoconf
+automake
+libtool
+zlib-devel
+bzip2-devel
+xz-devel
+libzstd-devel
+elfutils-devel
+boost-devel

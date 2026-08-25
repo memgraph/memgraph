@@ -17,25 +17,29 @@
 #
 # Build with the justfile rather than by hand; it passes the arguments below.
 
-ARG BASE_IMAGE=ubuntu@sha256:8feb4d8ca5354def3d8fce243717141ce31e2c428701f6682bd2fafe15388214
+# CentOS Stream 9, because its glibc is 2.34 and that is the oldest of any
+# distro we package for. The toolchain's own binaries link against the base
+# image's glibc, so the base decides where the toolchain can run: anything
+# newer here (Ubuntu 22.04 is already 2.35) produces a toolchain that will not
+# start on a CentOS Stream 9 target, which is one of the containers our own
+# packages are built in.
+ARG BASE_IMAGE=quay.io/centos/centos@sha256:64e5a212e4f2e7b706dbd822968914bb8def7de0a7fdfd3bf248241f8758101c
 
 FROM ${BASE_IMAGE} AS base
-ENV DEBIAN_FRONTEND=noninteractive \
-    TZ=Etc/UTC \
+ENV TZ=Etc/UTC \
     LANG=C.UTF-8 \
     LC_ALL=C
 
-# Mirrors TOOLCHAIN_BUILD_DEPS in environment/os/ubuntu-20.04.sh.
+# The base image is pinned by digest, but dnf still resolves against the live
+# repositories, so the package versions here can move even when the image does
+# not. That is the one remaining source of drift in the build environment.
 #
-# The base image is pinned by digest, but apt still resolves against the live
-# archive, so the package versions here can move even when the image does not.
-# That is the one remaining source of drift in the build environment, and it is
-# what a snapshot archive would close; until then a rebuild months apart can
-# pick up different builder packages.
-COPY apt-packages.txt /tc/apt-packages.txt
-RUN apt-get update && \
-    xargs -a /tc/apt-packages.txt apt-get install -y --no-install-recommends && \
-    rm -rf /var/lib/apt/lists/*
+# texinfo is deliberately absent: it only builds info documentation, which the
+# toolchain does not ship, and it is the one package of this set that is not in
+# the default repositories.
+COPY packages.txt /tc/packages.txt
+RUN dnf -y install $(grep -vE '^\s*(#|$)' /tc/packages.txt | tr '\n' ' ') && \
+    dnf clean all && rm -rf /var/cache/dnf
 
 # $DIR in the recipes: holds archives/, build/, and the version's own
 # activate.in and toolchain.cmake.
@@ -46,8 +50,8 @@ COPY lib/ /tc/lib/
 # Cross-target and the builder's glibc, both build arguments so they are part
 # of every stage's cache key rather than detected at run time.
 ARG TC_FOR_ARM=false
-ARG TC_DISTRO=ubuntu-20.04
-ARG TC_BUILDER_GLIBC_FLOOR=2.31
+ARG TC_DISTRO=centos-9
+ARG TC_BUILDER_GLIBC_FLOOR=2.34
 ENV TC_FOR_ARM=${TC_FOR_ARM} \
     TC_DISTRO=${TC_DISTRO} \
     TC_BUILDER_GLIBC_FLOOR=${TC_BUILDER_GLIBC_FLOOR} \

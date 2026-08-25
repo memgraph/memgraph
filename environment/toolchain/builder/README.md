@@ -18,9 +18,12 @@ tar -xvzf output/toolchain-v8-binaries-x86_64.tar.gz -C /opt
 source /opt/toolchain-v8/activate
 ```
 
-Docker is the build environment, never the runtime. The toolchain's binaries
-need at most glibc 2.30, which is why the base image is Ubuntu 20.04 -- it sets
-the floor for where the toolchain itself can run.
+Docker is the build environment, never the runtime. The base image is CentOS
+Stream 9 because the toolchain's own binaries link against the base image's
+glibc, so the base decides where the toolchain can run -- and CentOS Stream 9's
+2.34 is the oldest glibc of any distro we package for. Anything newer, Ubuntu
+22.04 included at 2.35, would produce a toolchain that cannot start in the
+CentOS Stream 9 container our own packages are built in.
 
 ## Layout
 
@@ -77,12 +80,21 @@ absent one is not a finding. A note *older* than the floor is not a break
 either -- it runs in more places -- but it means the link missed the sysroot's
 startup files, so it is counted and reported.
 
-The glibc check carries an explicit exemption list, currently binutils'
-gprofng collector libraries: those are built against the host glibc rather than
-the sysroot and reference the 2.32 and 2.34 pthread and dl consolidations, so
-they will not load on an older target. They are recorded rather than ignored,
-the check stays enforcing for everything else, and a stale exemption is itself
-an error.
+The glibc check can carry an exemption list, and it is currently empty. An
+entry there is a promise the toolchain does not keep, so a stale one is itself
+an error rather than something to leave lying around.
+
+## Where the floors come from
+
+`verify/supported-floors.sh` answers that from the distros we package for: it
+reads the target list from `SUPPORTED_OS_V8` so it cannot disagree with what CI
+builds, and reads glibc and the packaged kernel from the distro images rather
+than a published table -- one such table gives Rocky 10.2 as glibc 2.44 where
+the image has 2.39. CentOS Stream 9 is the oldest on both counts, at glibc 2.34
+and kernel 5.14, and that is what the sysroot and the base image are set to.
+
+There is no reason to build below that. It buys compatibility for systems
+nobody supports, and it is what previously pinned the builder to Ubuntu 20.04.
 
 ## What is not done here
 

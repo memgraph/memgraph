@@ -168,14 +168,22 @@ LLVM 23 and GCC, on a build already proven equivalent, so a failure is
 unambiguously a version problem. Needs `compiler.version` updated in the Conan
 profile alongside.
 
-Raise the floors here too. They are currently set by the builder base rather
-than by anything we support, and they are three glibc releases and ten kernel
-releases more conservative than they need to be:
+The floors are raised as part of this, on `build/toolchain-raise-floors`. They
+had been set by the builder base rather than by anything we support, and were
+three glibc releases and ten kernel releases more conservative than needed:
 
 | | glibc | kernel |
 |---|---|---|
-| toolchain builds for | 2.31 | 5.4 |
-| oldest supported target (CentOS Stream 9) | 2.34 | 5.14 |
+| was | 2.31 | 5.4 |
+| now, matching CentOS Stream 9 | 2.34 | 5.14 |
+
+Both the sysroot and the base image move, and they move for different reasons.
+The sysroot decides where memgraph runs; the base image decides where the
+toolchain runs, and it has to stay no newer than the oldest distro anyone runs
+the toolchain on. That rules out Ubuntu 22.04 at glibc 2.35 and makes CentOS
+Stream 9 the base, since our own packages are built in a CentOS Stream 9
+container. Raising the builder floor to 2.34 also retires the gprofng exemption
+without fixing gprofng: those libraries sit above 2.31 but not above 2.34.
 
 Read from the distro images rather than a published table, because the tables
 disagree with reality: one gave Rocky 10.2 as glibc 2.44 when the image has

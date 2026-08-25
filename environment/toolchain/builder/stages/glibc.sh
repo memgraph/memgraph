@@ -9,7 +9,6 @@ source "$TC_VERSIONS/linux-headers.env"
 pushd "$TC_ARCHIVES"
 if [[ ! -f glibc-$GLIBC_VERSION.tar.xz ]]; then
     wget --https-only https://ftp.gnu.org/gnu/glibc/glibc-$GLIBC_VERSION.tar.xz
-    GLIBC_SHA256="9246fe44f68feeec8c666bb87973d590ce0137cca145df014c72ec95be9ffd17"
     echo "$GLIBC_SHA256  glibc-$GLIBC_VERSION.tar.xz" | sha256sum -c -
 fi
 popd

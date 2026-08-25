@@ -60,5 +60,5 @@ TOOLCHAIN_STDCXX="${TOOLCHAIN_STDCXX:-libstdc++}"
 # Names the build environment, so it has to describe the base image: binutils
 # keys a gprofng workaround off it, and the generated README points at that
 # distro's run-dependency list.
-DISTRO="${TC_DISTRO:-ubuntu-20.04}"
+DISTRO="${TC_DISTRO:-centos-9}"
 ENV_SCRIPT_RELATIVE="environment/os/$DISTRO.sh"

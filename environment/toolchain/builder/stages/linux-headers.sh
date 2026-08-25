@@ -8,7 +8,6 @@ source "$TC_VERSIONS/linux-headers.env"
 pushd "$TC_ARCHIVES"
 if [[ ! -f linux-$LINUX_HEADERS_VERSION.tar.xz ]]; then
     wget --https-only https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-$LINUX_HEADERS_VERSION.tar.xz
-    LINUX_HEADERS_SHA256="ae6a3207f12aa4d6cfb0fa793ec9da4a6fcdfdcb57d869d63d6b77e3a8c1423d"
     echo "$LINUX_HEADERS_SHA256  linux-$LINUX_HEADERS_VERSION.tar.xz" | sha256sum -c -
 fi
 popd
