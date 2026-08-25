@@ -24,6 +24,11 @@ default_storage_info_dict = {
     "memory_limit": "",  # machine dependent
     "license_memory_limit": "",  # license dependent
     "query+graph_memory_tracked": "",  # machine dependent
+    # Enterprise-only instance-level tenant fields (always present in an enterprise build,
+    # #ifdef MG_ENTERPRISE — e2e always builds enterprise). Runtime/machine dependent.
+    "tenant_memory_tracked_total": "",  # machine dependent
+    "detached_tenant_memory_tracked": "",  # machine dependent
+    "detached_tenant_count": 0,  # machine dependent
     "vector_index_memory_tracked": "",  # machine dependent
     "global_isolation_level": "SNAPSHOT_ISOLATION",
     "session_isolation_level": "",
@@ -50,6 +55,9 @@ def test_does_default_config_match():
         "license_memory_limit",
         "vm_max_map_count",
         "query+graph_memory_tracked",
+        "tenant_memory_tracked_total",
+        "detached_tenant_memory_tracked",
+        "detached_tenant_count",
         "vector_index_memory_tracked",
     ]
     # Number of different data-points returned by SHOW STORAGE INFO
