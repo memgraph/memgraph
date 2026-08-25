@@ -3298,6 +3298,8 @@ class PruningBFSDispatchCursor : public query::plan::Cursor {
   /// as, so a bound above one goes to the depth-first walk, as does one of the
   /// wrong type. That walk reads its bounds only once it holds a row, so
   /// rejecting a bad one stays off the expansions that find nothing to expand.
+  /// Must agree with ExpandVariable::OperatorName(Parameters*), which answers
+  /// the same question for EXPLAIN output.
   bool BoundPermitsPruning(Frame &frame, ExecutionContext &context) {
     if (!self_.lower_bound_) return true;
     ExpressionEvaluator evaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
@@ -4812,6 +4814,8 @@ std::string_view ExpandVariable::OperatorName(Parameters const *parameters) cons
     case Type::PRUNING_BFS: {
       // Which walk runs is settled from the bound, so naming one before the
       // bound can be read would name a walk that may not be the one taken.
+      // Must agree with PruningBFSDispatchCursor::BoundPermitsPruning, which
+      // makes the runtime decision.
       if (!parameters || !lower_bound_) return "PruningBFSExpand"sv;
       auto const bound = ConstExternalPropertyValue(lower_bound_, *parameters);
       if (bound && bound->IsInt() && bound->ValueInt() > 1) return "ExpandVariable"sv;
