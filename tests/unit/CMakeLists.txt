@@ -96,6 +96,11 @@ add_unit_test(interpreter
     LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
 )
 
+add_unit_test(query_plan_distinct_key
+    SOURCES query_plan_distinct_key.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(query_plan_pruning_bfs
     SOURCES query_plan_pruning_bfs.cpp
     LINK_TARGETS mg-query
