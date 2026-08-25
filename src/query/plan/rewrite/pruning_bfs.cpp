@@ -25,11 +25,14 @@ namespace memgraph::query::plan {
 
 namespace {
 
-bool ReadsAnySymbol(Expression *bound, SymbolTable const &symbol_table) {
-  if (!bound) return false;
-  UsedSymbolsCollector collector(symbol_table);
-  bound->Accept(collector);
-  return !collector.symbols_.empty();
+/// True when the cursor can settle the bound's value and OperatorName can name
+/// the walk it calls for: null (absent), a literal, or a parameter lookup.
+/// Anything else (a function call, an arithmetic expression) is out of
+/// ConstExternalPropertyValue's reach, which would leave OperatorName unable to
+/// agree with the cursor on which walk runs.
+bool BoundIsResolvable(Expression *bound) {
+  if (!bound) return true;
+  return utils::Downcast<PrimitiveLiteral>(bound) || utils::Downcast<ParameterLookup>(bound);
 }
 
 class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
@@ -217,12 +220,10 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (!deduplicates_ || rewrite_blocked_) return true;
     if (used_symbols_.contains(op.common_.edge_symbol.position())) return true;
 
-    // The bound's value is out of reach: stripping leaves a written-out bound a
-    // parameter, and a plan that read one would hold only for the execution that
-    // supplied it, which is not what the cache is keyed on. Whether the bound
-    // reads a symbol is a property of the plan alone, and it is all the cursor
-    // needs to read the value itself.
-    if (ReadsAnySymbol(op.lower_bound_, symbol_table_)) return true;
+    // The cursor settles the bound, but OperatorName must be able to agree on
+    // which walk it calls for. Only literals and parameter lookups are in
+    // ConstExternalPropertyValue's reach; anything else is left as depth-first.
+    if (!BoundIsResolvable(op.lower_bound_)) return true;
 
     op.type_ = EdgeAtom::Type::PRUNING_BFS;
     return true;
