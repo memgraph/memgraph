@@ -27,6 +27,7 @@ _cache_to := if env_var_or_default("TC_CACHE_WRITE", "") == "" { "" } else { "--
 # otherwise surface hours in rather than at the mistake.
 check:
     "{{ here }}/verify/stage-vars.py"
+    "{{ here }}/verify/stage-order.py"
     @for f in "{{ here }}"/stages/*.sh "{{ here }}"/lib/*.sh "{{ here }}"/verify/*.sh; do bash -n "$f" || exit 1; done
     @echo "stage scripts parse"
 

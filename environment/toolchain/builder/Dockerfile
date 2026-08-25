@@ -178,7 +178,15 @@ RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/llvm.sh
 # Built with the finished toolchain rather than bootstrapping it.
 # --------------------------------------------------------------------------
 
-FROM s-llvm AS s-mgconsole
+# The activation script has to exist before the stages below, which build
+# against the finished toolchain and source it through clang-env.sh. In the
+# original script that ordering was implicit in the line order.
+FROM s-llvm AS s-activate
+COPY versions/activate.env /tc/versions/
+COPY stages/activate.sh /tc/stages/
+RUN /tc/stages/activate.sh
+
+FROM s-activate AS s-mgconsole
 COPY versions/mgconsole.env /tc/versions/
 COPY lib/clang-env.sh /tc/lib/
 COPY stages/mgconsole.sh /tc/stages/
