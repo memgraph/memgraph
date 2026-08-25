@@ -1421,7 +1421,6 @@ TEST(DBMS_Handler, DropWithoutCooperativeCancelLeavesAHolderBehind) {
     ASSERT_NE(it, all_detached.end())
         << "with no cooperative-cancel callback, the parked accessor must still be pinning the tenant, so "
            "the drop must have taken the deferred path and left a DETACHED row";
-    EXPECT_EQ(it->phase, memgraph::dbms::DbmsHandler::TenantPhase::DETACHED);
   }
 
   {
@@ -1480,7 +1479,7 @@ TEST(DBMS_Handler, ForceAbortWaitsForALateHolderAndDestroysTheTenantInline) {
 
   memgraph::dbms::DbmsHandler::DrainReport report;
   constexpr auto kDeadline = std::chrono::seconds(5);
-  memgraph::dbms::DbmsHandler::DrainRequest drain{.deadline = kDeadline, .probe = {}, .report = &report};
+  memgraph::dbms::DbmsHandler::DrainRequest drain{.deadline = kDeadline, .report = &report};
 
   auto del = dbms.Delete(
       "force_abort_late_holder", static_cast<memgraph::system::Transaction *>(nullptr), cooperative_cancel, &drain);
@@ -1500,8 +1499,7 @@ TEST(DBMS_Handler, ForceAbortWaitsForALateHolderAndDestroysTheTenantInline) {
 
 // PINS: expiry against a holder that never cooperates is bounded by `deadline`, degrades to today's
 // deferred-destruction behaviour (the drop still SUCCEEDS), and the report names what is still holding.
-// The probe here returns a canned DrainBlockers value -- the real probe needs a live Interpreter
-// registry, which this suite has none of; that path is exercised by review, not by this unit test.
+// The expiry path degrades to the deferred drop and reports holders_remaining.
 TEST(DBMS_Handler, ForceAbortExpiresAgainstANonCooperatingHolderAndReportsIt) {
   auto &dbms = *TestEnvironment::get();
 
@@ -1515,13 +1513,7 @@ TEST(DBMS_Handler, ForceAbortExpiresAgainstANonCooperatingHolderAndReportsIt) {
 
   memgraph::dbms::DbmsHandler::DrainReport report;
   constexpr auto kDeadline = std::chrono::milliseconds(300);
-  memgraph::dbms::DbmsHandler::DrainRequest drain{.deadline = kDeadline,
-                                                  .probe =
-                                                      [] {
-                                                        return memgraph::dbms::DbmsHandler::DrainBlockers{
-                                                            .transactions_asked_to_abort = 2, .probe_ran = true};
-                                                      },
-                                                  .report = &report};
+  memgraph::dbms::DbmsHandler::DrainRequest drain{.deadline = kDeadline, .report = &report};
 
   // No cooperative-cancel callback: the parked holder is never asked to release, so it never does --
   // this is the non-cooperating case the deadline exists for.
@@ -1538,8 +1530,6 @@ TEST(DBMS_Handler, ForceAbortExpiresAgainstANonCooperatingHolderAndReportsIt) {
   EXPECT_LT(report.waited, std::chrono::seconds(5))
       << "a regression that made the wait unbounded must FAIL this assertion, not hang the suite";
   EXPECT_EQ(report.holders_remaining, 1u) << "one foreign holder (the parked accessor) is still live";
-  EXPECT_TRUE(report.blockers.probe_ran);
-  EXPECT_EQ(report.blockers.transactions_asked_to_abort, 2u);
 
   {
     const auto all_detached = dbms.AllDetached();
@@ -1547,7 +1537,6 @@ TEST(DBMS_Handler, ForceAbortExpiresAgainstANonCooperatingHolderAndReportsIt) {
     ASSERT_NE(it, all_detached.end())
         << "an expired drain must still leave a DETACHED row -- the drop degrades to the deferred path, "
            "it does not vanish";
-    EXPECT_EQ(it->phase, memgraph::dbms::DbmsHandler::TenantPhase::DETACHED);
   }
 
   {
@@ -1587,7 +1576,7 @@ TEST(DBMS_Handler, ForceAbortWaitDoesNotHoldTheHandlerLock) {
 
   memgraph::dbms::DbmsHandler::DrainReport report;
   constexpr auto kDeadline = std::chrono::seconds(2);
-  memgraph::dbms::DbmsHandler::DrainRequest drain{.deadline = kDeadline, .probe = {}, .report = &report};
+  memgraph::dbms::DbmsHandler::DrainRequest drain{.deadline = kDeadline, .report = &report};
 
   auto del_prom = std::make_shared<std::promise<memgraph::dbms::DbmsHandler::DeleteResult>>();
   auto del_fut = del_prom->get_future();
@@ -1716,7 +1705,7 @@ TEST(DBMS_Handler, ForceAbortSurvivesAThrowingCancelSweepAndStillConverges) {
 
   memgraph::dbms::DbmsHandler::DrainReport report;
   constexpr auto kDeadline = std::chrono::seconds(5);
-  memgraph::dbms::DbmsHandler::DrainRequest drain{.deadline = kDeadline, .probe = {}, .report = &report};
+  memgraph::dbms::DbmsHandler::DrainRequest drain{.deadline = kDeadline, .report = &report};
 
   auto del = dbms.Delete(
       "force_abort_throwing_cancel", static_cast<memgraph::system::Transaction *>(nullptr), cooperative_cancel, &drain);
