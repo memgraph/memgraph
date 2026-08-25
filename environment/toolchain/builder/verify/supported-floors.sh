@@ -59,7 +59,10 @@ for t in "${targets[@]}"; do
     fi
 
     read -r g k < <(docker run --rm "$img" sh -c '
-        g=$(ldd --version 2>&1 | head -1 | grep -oE "[0-9]+\.[0-9]+$")
+        # Take the first two components after the name: a development build
+        # reports three ("2.43.9000"), and anchoring on the end picks the
+        # wrong two.
+        g=$(ldd --version 2>&1 | head -1 | sed -nE "s/.*\) ([0-9]+\.[0-9]+).*/\1/p")
         if command -v apt-get >/dev/null 2>&1; then
             apt-get update -qq >/dev/null 2>&1
             k=$(apt-cache policy linux-image-amd64 linux-image-generic 2>/dev/null \
