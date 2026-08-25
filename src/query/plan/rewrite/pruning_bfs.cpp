@@ -13,8 +13,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <functional>
-#include <optional>
 #include <unordered_set>
 #include <vector>
 
