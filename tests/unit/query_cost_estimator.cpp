@@ -609,6 +609,7 @@ class QueryCostEstimatorStringPredicates : public ::testing::Test {
   std::optional<std::unique_ptr<ms::Storage::Accessor>> storage_dba;
   std::optional<memgraph::query::DbAccessor> dba;
   ms::PropertyId prop = db->NameToProperty("s");
+  ms::PropertyId mixed = db->NameToProperty("mixed");
 
   std::shared_ptr<LogicalOperator> last_op_ = std::make_shared<Once>();
   AstStorage storage_;
@@ -622,6 +623,7 @@ class QueryCostEstimatorStringPredicates : public ::testing::Test {
     {
       auto unique_acc = db->UniqueAccess();
       ASSERT_TRUE(unique_acc->CreateGlobalVertexIndex(prop).has_value());
+      ASSERT_TRUE(unique_acc->CreateGlobalVertexIndex(mixed).has_value());
       ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     storage_dba.emplace(db->Access(memgraph::storage::WRITE));
@@ -632,6 +634,12 @@ class QueryCostEstimatorStringPredicates : public ::testing::Test {
       auto vertex = dba->InsertVertex();
       auto value = std::string(1, static_cast<char>('a' + i % 26)) + std::to_string(i);
       ASSERT_TRUE(vertex.SetProperty(prop, ms::PropertyValue(std::move(value))).has_value());
+    }
+    // A property whose values are mostly numbers: a string predicate reads only the tail of it.
+    for (int i = 0; i < kStringCount; ++i) {
+      auto vertex = dba->InsertVertex();
+      auto value = i % 10 == 0 ? ms::PropertyValue(std::to_string(i)) : ms::PropertyValue(i);
+      ASSERT_TRUE(vertex.SetProperty(mixed, std::move(value)).has_value());
     }
     dba->AdvanceCommand();
   }
@@ -650,8 +658,10 @@ class QueryCostEstimatorStringPredicates : public ::testing::Test {
     return storage_.Create<ParameterLookup>(token_position);
   }
 
-  double CostOf(ExpressionRange range) {
-    last_op_ = std::make_shared<ScanAllByVertexProperty>(nullptr, NextSymbol(), prop, range);
+  double CostOf(ExpressionRange range) { return CostOfProperty(prop, range); }
+
+  double CostOfProperty(ms::PropertyId property, ExpressionRange range) {
+    last_op_ = std::make_shared<ScanAllByVertexProperty>(nullptr, NextSymbol(), property, range);
     CostEstimator<memgraph::query::DbAccessor> cost_estimator(
         &*dba, symbol_table_, parameters_, memgraph::query::plan::IndexHints());
     last_op_->Accept(cost_estimator);
@@ -677,6 +687,15 @@ TEST_F(QueryCostEstimatorStringPredicates, EstimateCoversTheStringsTheScanReads)
   auto const whole_property = CostOf(ExpressionRange::IsNotNull());
   ASSERT_GT(whole_property, 0.0);
   EXPECT_GT(CostOf(ExpressionRange::Contains(Literal("a"))), whole_property / 2);
+}
+
+TEST_F(QueryCostEstimatorStringPredicates, EstimateNarrowsToTheStringsWhenMostValuesAreNot) {
+  // A string predicate reads the property's string values, not the numbers sorted below them, and
+  // the band those occupy is the same whatever the search term is.
+  auto const whole_property = CostOfProperty(mixed, ExpressionRange::IsNotNull());
+  auto const string_band = CostOfProperty(mixed, ExpressionRange::Contains(Literal("a")));
+  EXPECT_LT(string_band, whole_property / 2);
+  EXPECT_GT(string_band, CostParam::kMinimumCost);
 }
 
 TEST_F(QueryCostEstimatorStringPredicates, StartsWithStillNarrowsToItsPrefix) {
