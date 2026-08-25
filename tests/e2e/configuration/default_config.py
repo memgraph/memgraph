@@ -232,6 +232,13 @@ startup_config_dict = {
         "Controls whether .old dir will be used to store latest snapshot and WAL files.",
     ),
     "strict_flag_check": ("true", "true", "If true, error and exit when suspicious positional arguments are detected."),
+    "session_idle_accessor_release_sec": (
+        "0",
+        "0",
+        "After this many seconds of inactivity, a Bolt session releases its database accessor so an idle tenant "
+        "stops being pinned; the connection stays open and the next query re-acquires it. 0 disables. Requires "
+        "--experimental-enabled=idle-session-reaper.",
+    ),
     "storage_access_timeout_sec": ("1", "1", "Query's storage level access timeout in seconds."),
     "storage_gc_aggressive": ("false", "false", "Enable aggressive garbage collection."),
     "storage_omit_vector_index_properties_on_return": (
