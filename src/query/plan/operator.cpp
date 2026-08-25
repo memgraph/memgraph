@@ -6768,6 +6768,17 @@ void DefaultAggregation(ExecutionContext &context, const std::vector<Aggregate::
 }
 
 inline size_t align_forward(size_t ptr, size_t alignment) { return (ptr + (alignment - 1)) & ~(alignment - 1); }
+
+/// Whether a container leaves each element where it is for as long as that element is in it.
+///
+/// True of the associative containers that hold each element in its own node, which the standard
+/// requires to keep references and pointers good through any rehash. False by default, so a
+/// container that has not said it keeps addresses is treated as one that does not.
+template <typename>
+inline constexpr bool kKeepsElementAddresses = false;
+
+template <typename Key, typename T, typename Hash, typename Pred, typename Alloc>
+inline constexpr bool kKeepsElementAddresses<std::unordered_map<Key, T, Hash, Pred, Alloc>> = true;
 }  // namespace
 
 #ifdef MG_ENTERPRISE
@@ -6785,8 +6796,8 @@ class AggregateCursor : public Cursor {
         aggregation_(mem),
         reused_group_by_(self.group_by_.size(), mem) {
     // Which aggregations are a COUNT over a plain identifier, and so can be answered from the
-    // frame slot the identifier names. Worked out once here rather than per row, which is what
-    // takes the virtual dispatch out of the row loop as well as the value it would have built.
+    // frame slot that identifier names. Settling it once for the cursor keeps both the question
+    // and the dispatch that answering it per row would take out of the row loop.
     count_from_frame_slot_.reserve(self.aggregations_.size());
     for (auto const &aggregation : self.aggregations_) {
       auto const *identifier = (aggregation.op == Aggregation::Op::COUNT && aggregation.arg1 != nullptr)
@@ -6829,8 +6840,7 @@ class AggregateCursor : public Cursor {
 
   void Reset() override {
     input_cursor_->Reset();
-    aggregation_.clear();
-    single_group_ = nullptr;
+    ResetAggregation();
     aggregation_it_ = aggregation_.begin();
     pulled_all_input_ = false;
   }
@@ -6971,22 +6981,44 @@ class AggregateCursor : public Cursor {
     }
   };
 
+  // Accumulated groups: keyed by the vector of group-by values, holding an AggregationValue.
+  using AggregationMap =
+      utils::pmr::unordered_map<utils::pmr::vector<TypedValue>, CompactAggregationValue,
+                                // use FNV collection hashing specialized for a
+                                // vector of TypedValues
+                                utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
+                                // custom equality
+                                TypedValueVectorEqual>;
+
+  // `single_group_` keeps the address of a mapped value for as long as rows keep arriving, so the
+  // container has to be one that leaves its elements where they are as it grows. A map that stores
+  // its elements in nodes does; one that stores them in an open-addressed array moves them on
+  // rehash, which would leave that address naming a slot the map no longer owns.
+  static_assert(kKeepsElementAddresses<AggregationMap>,
+                "AggregateCursor holds a pointer to a mapped value, which this container would move");
+
+  /// Gives `aggregation_` the contents of `replacement`, or no contents when given none.
+  ///
+  /// `single_group_` names an element of that map and is dropped here, because an alias cannot
+  /// outlive what it names. This is the only place the map's contents change, so the two cannot
+  /// come apart.
+  void ResetAggregation(AggregationMap *replacement = nullptr) {
+    if (replacement == nullptr) {
+      aggregation_.clear();
+    } else {
+      aggregation_ = std::move(*replacement);
+    }
+    single_group_ = nullptr;
+  }
+
   const Aggregate &self_;
   const UniqueCursorPtr input_cursor_;
-  // storage for aggregated data
-  // map key is the vector of group-by values
-  // map value is an AggregationValue struct
-  utils::pmr::unordered_map<utils::pmr::vector<TypedValue>, CompactAggregationValue,
-                            // use FNV collection hashing specialized for a
-                            // vector of TypedValues
-                            utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
-                            // custom equality
-                            TypedValueVectorEqual>
-      aggregation_;
+  AggregationMap aggregation_;
   // this is a for object reuse, to avoid re-allocating this buffer
   utils::pmr::vector<TypedValue> reused_group_by_;
-  // The single group of an aggregation with no grouping key, once it exists. Null whenever
-  // `aggregation_` is empty or has been replaced.
+  // The one group of an aggregation with no grouping key, once it exists, and null until then.
+  // It names an element of `aggregation_`, so `ResetAggregation` is what may change that map's
+  // contents: an alias must not outlive the element it names.
   CompactAggregationValue *single_group_{nullptr};
   // Per aggregation: the frame slot a COUNT over a plain identifier reads, or -1 when the
   // aggregation is anything else. Parallel to `self_.aggregations_`.
@@ -7066,10 +7098,10 @@ class AggregateCursor : public Cursor {
     reused_group_by_.clear();
     evaluator->ResetPropertyLookupCache();
 
-    // An aggregation with no grouping key has exactly one group, so every row after the first
-    // hashes an empty key to find the entry it found last time. Holding that entry instead is
-    // what keeps a bare `count(*)` from paying a hash table probe per row. The pointer stays
-    // valid because nothing is inserted or erased once the single group exists.
+    // An aggregation with no grouping key has exactly one group, so holding it spares every row
+    // after the first a hash and a probe that can have only one answer. The held group keeps its
+    // address because the map is one that leaves elements where they are, nothing erases it, and
+    // the map's contents only change through `ResetAggregation`, which lets go of it.
     if (self_.group_by_.empty()) {
       if (single_group_ == nullptr) {
         auto *mem = aggregation_.get_allocator().resource();
@@ -7131,8 +7163,8 @@ class AggregateCursor : public Cursor {
         continue;
       }
 
-      // COUNT only asks whether there is a value, which the frame slot answers on its own when
-      // the argument is a plain identifier. Building the value to ask is what this skips.
+      // COUNT asks only whether there is a value, and for a plain identifier the frame slot
+      // answers that without the value having to be built to be asked.
       if (auto const slot = count_from_frame_slot_[pos]; slot >= 0) {
         DMG_ASSERT(static_cast<size_t>(slot) < frame.elems().size(), "Identifier names no frame slot");
         auto const &slot_value = frame.elems()[slot];
@@ -7451,11 +7483,14 @@ class AggregateCursor : public Cursor {
 
   /** Checks if the given TypedValue is legal in AVG and SUM. If not
    * an appropriate exception is thrown. */
-  /// Adds `addend` into the running total `total`, in place where the two agree on a numeric
-  /// type. Both have been through `EnsureOkForAvgSum`, so both are an integer or a double, and
-  /// `operator+` on that pair is an addition and the type rules around it: integers stay integers
-  /// until a double joins them, and the total is a double from then on. Doing it here keeps the
-  /// per-row addition from building a result to move-assign over the total and throwing it away.
+  /// Adds `addend` into the running total `total`, in place where the two are the same kind of
+  /// number.
+  ///
+  /// `EnsureOkForAvgSum` admits only an integer or a double as an addend, and the total starts as
+  /// an integer and only ever takes one of those, so both are integers or doubles here. Where they
+  /// agree, the sum is the one `operator+` gives and can be written straight into the total,
+  /// sparing a result value per row. Addition owns the rule for the pair that disagrees, where an
+  /// integer total meets a double and stops being an integer, so that pair is handed to it.
   static void AddInto(TypedValue &total, const TypedValue &addend) {
     if (total.IsDouble()) {
       total.ValueDouble() +=
@@ -7466,7 +7501,6 @@ class AggregateCursor : public Cursor {
       total.ValueInt() += addend.UnsafeValueInt();
       return;
     }
-    // An integer total meeting a double: the total changes type, which is the general addition.
     total = total + addend;
   }
 
@@ -11686,9 +11720,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
         }
         // Reuse already completed section if available
         if (complete_aggregation != nullptr) {
-          static_cast<AggregateCursor *>(cursor)->aggregation_ = std::move(*complete_aggregation);
-          // The single-group shortcut points into the map that was just replaced.
-          static_cast<AggregateCursor *>(cursor)->single_group_ = nullptr;
+          static_cast<AggregateCursor *>(cursor)->ResetAggregation(complete_aggregation);
         }
       };
       auto post_pull_func = [&branch_aggregations_mutex, &aggregations, &branch_aggregations](Cursor *cursor,
