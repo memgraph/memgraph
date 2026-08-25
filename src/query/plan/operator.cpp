@@ -7145,12 +7145,25 @@ class AggregateCursor : public Cursor {
     }
   }
 
+  /// Takes `value` into the aggregation at `pos`: a Null is not aggregated, DISTINCT drops a
+  /// repeat, and anything that survives both is counted.
+  ///
+  /// Answers whether the value still has to reach the aggregation itself. A COUNT never needs it
+  /// to, its result being read from the counts, so a COUNT may ignore the answer.
+  static bool TakeRowIn(CompactAggregationValue *agg_value, size_t pos, bool distinct, TypedValue const &value) {
+    if (value.IsNull()) return false;
+    if (distinct && !agg_value->unique_values_[pos].insert(value).second) return false;
+    agg_value->counts_[pos] += 1;
+    return true;
+  }
+
   /** Updates the given AggregationValue with new data. Assumes that
    * the AggregationValue has been initialized */
   void Update(const Frame &frame, ExpressionEvaluator *evaluator, AggregateCursor::CompactAggregationValue *agg_value) {
     DMG_ASSERT(self_.aggregations_.size() == agg_value->num_aggs_,
                "Expected as much AggregationValue.values_ as there are "
                "aggregations.");
+    DMG_ASSERT(count_from_frame_slot_.size() == agg_value->num_aggs_, "Classification is indexed by aggregation");
 
     for (size_t pos = 0; pos < agg_value->num_aggs_; ++pos) {
       const auto &agg_elem = self_.aggregations_[pos];
@@ -7167,26 +7180,14 @@ class AggregateCursor : public Cursor {
       // answers that without the value having to be built to be asked.
       if (auto const slot = count_from_frame_slot_[pos]; slot >= 0) {
         DMG_ASSERT(static_cast<size_t>(slot) < frame.elems().size(), "Identifier names no frame slot");
-        auto const &slot_value = frame.elems()[slot];
-        if (slot_value.IsNull()) continue;
-        if (agg_elem.distinct && !agg_value->unique_values_[pos].insert(slot_value).second) continue;
-        agg_value->counts_[pos] += 1;
-        // COUNT's result is read from `counts_` in post processing, so there is no value to set.
+        TakeRowIn(agg_value, pos, agg_elem.distinct, frame.elems()[slot]);
         continue;
       }
 
       TypedValue input_value = input_expr_ptr->Accept(*evaluator);
+      if (!TakeRowIn(agg_value, pos, agg_elem.distinct, input_value)) continue;
 
-      // Aggregations skip Null input values.
-      if (input_value.IsNull()) continue;
       const auto &agg_op = agg_elem.op;
-      if (agg_elem.distinct) {
-        auto insert_result = agg_value->unique_values_[pos].insert(input_value);
-        if (!insert_result.second) {
-          continue;
-        }
-      }
-      agg_value->counts_[pos] += 1;
       if (agg_value->counts_[pos] == 1) {
         // first value, nothing to aggregate. check type, set and continue.
         switch (agg_op) {
