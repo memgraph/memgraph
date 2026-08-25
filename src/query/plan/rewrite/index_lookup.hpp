@@ -2026,6 +2026,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       for (auto const &f : superseded_filters) {
         metadata.filters_to_erase.push_back(f);
+        metadata.expressions_to_mark_for_removal.push_back(f.expression);
       }
 
       // Collect metadata for filter cleanup
