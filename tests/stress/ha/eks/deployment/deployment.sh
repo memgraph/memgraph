@@ -203,15 +203,28 @@ cleanup_vpc_dependencies() {
 # is gone (typically DELETE_FAILED on the VPC). Returns 1 if a stack remains.
 cleanup_orphaned_cluster_stack() {
     local cluster_stack="eksctl-${CLUSTER_NAME}-cluster"
-    local status
-    status=$(aws cloudformation describe-stacks --region "$CLUSTER_REGION" \
-        --stack-name "$cluster_stack" --query 'Stacks[0].StackStatus' --output text 2>/dev/null) || true
-    if [[ -z "$status" || "$status" == "None" || "$status" == "DELETE_COMPLETE" ]]; then
-        return 0
-    fi
+    local status err
 
-    if eksctl get cluster --name "$CLUSTER_NAME" --region "$CLUSTER_REGION" &> /dev/null; then
-        log_error "Stack $cluster_stack is $status but EKS cluster $CLUSTER_NAME still exists; refusing to clean up"
+    # Only a confirmed "does not exist" means no stack; any other error must
+    # not be mistaken for a clean state.
+    if status=$(aws cloudformation describe-stacks --region "$CLUSTER_REGION" \
+            --stack-name "$cluster_stack" --query 'Stacks[0].StackStatus' --output text 2>&1); then
+        :
+    elif [[ "$status" == *"does not exist"* ]]; then
+        return 0
+    else
+        log_error "Cannot query stack $cluster_stack: $status"
+        return 1
+    fi
+    [[ "$status" == "DELETE_COMPLETE" ]] && return 0
+
+    # Likewise, only ResourceNotFound proves the EKS cluster is gone.
+    if err=$(aws eks describe-cluster --region "$CLUSTER_REGION" --name "$CLUSTER_NAME" \
+            --query 'cluster.status' --output text 2>&1); then
+        log_error "Stack $cluster_stack is $status but EKS cluster $CLUSTER_NAME still exists ($err); refusing to clean up"
+        return 1
+    elif [[ "$err" != *ResourceNotFoundException* ]]; then
+        log_error "Cannot determine whether EKS cluster $CLUSTER_NAME exists: $err"
         return 1
     fi
 
@@ -222,23 +235,44 @@ cleanup_orphaned_cluster_stack() {
         return 1
     fi
 
-    # Nodegroup stacks depend on the cluster stack and must go first.
-    local ng_stack
-    for ng_stack in $(aws cloudformation list-stacks --region "$CLUSTER_REGION" --output text \
-            --stack-status-filter CREATE_COMPLETE CREATE_FAILED ROLLBACK_COMPLETE ROLLBACK_FAILED DELETE_FAILED UPDATE_COMPLETE \
-            --query "StackSummaries[?starts_with(StackName, 'eksctl-${CLUSTER_NAME}-nodegroup-')].StackName" 2>/dev/null); do
-        log_info "Deleting orphaned nodegroup stack $ng_stack..."
-        aws cloudformation delete-stack --region "$CLUSTER_REGION" --stack-name "$ng_stack"
-        aws cloudformation wait stack-delete-complete --region "$CLUSTER_REGION" --stack-name "$ng_stack" || true
-    done
-
     local vpc_id
     vpc_id=$(aws cloudformation describe-stack-resources --region "$CLUSTER_REGION" \
         --stack-name "$cluster_stack" \
         --query "StackResources[?LogicalResourceId=='VPC'].PhysicalResourceId" --output text 2>/dev/null) || true
-    if [[ -n "$vpc_id" && "$vpc_id" != "None" ]]; then
+    [[ "$vpc_id" == "None" ]] && vpc_id=""
+
+    # Nodegroup stacks depend on the cluster stack and must go first. A first
+    # attempt may fail on the same VPC dependencies, so retry after the sweep.
+    local ng_stacks ng_stack
+    ng_stacks=$(aws cloudformation list-stacks --region "$CLUSTER_REGION" --output text \
+        --stack-status-filter CREATE_COMPLETE CREATE_FAILED ROLLBACK_COMPLETE ROLLBACK_FAILED DELETE_FAILED UPDATE_COMPLETE \
+        --query "StackSummaries[?starts_with(StackName, 'eksctl-${CLUSTER_NAME}-nodegroup-')].StackName" 2>&1) || {
+        log_error "Cannot list nodegroup stacks: $ng_stacks"
+        return 1
+    }
+    local remaining=()
+    for ng_stack in $ng_stacks; do
+        log_info "Deleting orphaned nodegroup stack $ng_stack..."
+        aws cloudformation delete-stack --region "$CLUSTER_REGION" --stack-name "$ng_stack"
+        aws cloudformation wait stack-delete-complete --region "$CLUSTER_REGION" --stack-name "$ng_stack" \
+            || remaining+=("$ng_stack")
+    done
+
+    if [[ -n "$vpc_id" ]]; then
         cleanup_vpc_dependencies "$vpc_id"
     fi
+
+    for ng_stack in "${remaining[@]}"; do
+        log_info "Retrying deletion of nodegroup stack $ng_stack..."
+        aws cloudformation delete-stack --region "$CLUSTER_REGION" --stack-name "$ng_stack"
+        if ! aws cloudformation wait stack-delete-complete --region "$CLUSTER_REGION" --stack-name "$ng_stack"; then
+            log_error "Nodegroup stack $ng_stack still could not be deleted:"
+            aws cloudformation describe-stack-events --region "$CLUSTER_REGION" --stack-name "$ng_stack" \
+                --query 'StackEvents[?ResourceStatus==`DELETE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
+                --output text 2>/dev/null || true
+            return 1
+        fi
+    done
 
     log_info "Deleting stack $cluster_stack..."
     aws cloudformation delete-stack --region "$CLUSTER_REGION" --stack-name "$cluster_stack"
