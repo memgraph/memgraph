@@ -511,9 +511,11 @@ def test_composite_index_non_leading_string_predicate(memgraph, predicate):
     assert indexed
 
 
-@pytest.fixture
-def duplicate_leading_graph(memgraph):
-    memgraph.execute("CREATE INDEX ON :DUP(type);")
+@pytest.fixture(params=["ASC", "DESC"])
+def duplicate_leading_graph(request, memgraph):
+    order = request.param
+    config = "" if order == "ASC" else ' WITH CONFIG {"order": "DESC"}'
+    memgraph.execute(f"CREATE INDEX ON :DUP(type){config};")
     memgraph.execute(
         "FOREACH (i IN range(1, 100) | "
         "FOREACH (t IN ['alpha', 'beta', 'gamma'] | "
