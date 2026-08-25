@@ -20,10 +20,14 @@ first guess:
   `[/opt/toolchain-v8/lib64:$ORIGIN/../lib]`, so they fall back correctly. From
   a copy at an unrelated path, both compilers built and linked working C++20
   binaries with no references back to the original prefix.
-- **gdb is the one exception.** Its RUNPATH is
-  `[/opt/toolchain-v8/sysroot/usr/lib:/opt/toolchain-v8/lib]` with no `$ORIGIN`
-  entry, so from a moved tree it reaches back into the original prefix and dies
-  on `GLIBC_2.38 not found`. That needs an `$ORIGIN`-relative rpath.
+- **Relocation is partial, and gdb is not the only exception.** A survey of the
+  whole prefix finds 122 files carrying a RUNPATH with no `$ORIGIN` entry -
+  binutils' `ld`, `nm`, `strip` and `ranlib`, the sanitizer runtimes, and gdb
+  among them. They are pinned to this prefix and will not follow a moved tree;
+  gdb is simply the one that fails loudest, reaching back into the original
+  prefix and dying on `GLIBC_2.38 not found`. The compilers themselves do
+  relocate, which is what the earlier spot check saw. Nothing reaches outside
+  the prefix, so this is a relocatability limit rather than a portability bug.
 - **Stage outputs are already isolable.** Every sysroot stage installs with
   `DESTDIR=$SYSROOT`, and the `$PREFIX` stages are autotools/cmake which honour
   `DESTDIR` too. Composing stages does not require re-plumbing the recipes.

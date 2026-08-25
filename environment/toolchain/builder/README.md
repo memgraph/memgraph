@@ -34,7 +34,7 @@ CentOS Stream 9 container our own packages are built in.
 | `versions/*.env` | one file per stage, so a bump invalidates only that stage |
 | `lib/common.sh` | the environment every stage script expects |
 | `files/` | `activate.in` and `toolchain.cmake` for the built toolchain |
-| `verify/` | the glibc floor gate, the fingerprint, the determinism measurement |
+| `verify/` | the floor gate, the expectation checks, the fingerprint, the comparison, the determinism measurement |
 | `justfile` | argument assembly; BuildKit owns the graph and the caching |
 
 ## Why it is shaped this way
@@ -83,6 +83,25 @@ startup files, so it is counted and reported.
 The glibc check can carry an exemption list, and it is currently empty. An
 entry there is a promise the toolchain does not keep, so a stale one is itself
 an error rather than something to leave lying around.
+
+## Is it what it claims to be
+
+`verify/expectations.sh` runs alongside the floor gate and asserts against
+declared values rather than against another build. That distinction matters:
+`verify/compare.sh` only shows two toolchains agree, and a mistake reproduced
+faithfully compares equal.
+
+It checks the sysroot holds the glibc we say it does, that this glibc targets
+the declared kernel floor, that gcc resolves the sysroot inside the prefix and
+reports the expected triple, and that clang has *no* sysroot baked in -- a
+baked one would silently override what the cmake toolchain file passes.
+
+It also checks nothing shipped reaches outside the prefix for a library at run
+time, which currently holds. Relocatability is weaker: 122 files carry a
+RUNPATH with no `$ORIGIN` entry, so they are pinned to this prefix and will not
+follow a moved tree. binutils' `ld`, `nm`, `strip` and `ranlib`, the sanitizer
+runtimes and gdb are the bulk of it. That count is pinned rather than required
+to be zero, so fixing it stays separate work while a regression still shows up.
 
 ## Where the floors come from
 

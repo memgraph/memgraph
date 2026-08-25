@@ -201,7 +201,12 @@ RUN /tc/stages/heaptrack.sh
 
 FROM s-heaptrack AS s-verify
 COPY verify/ /tc/verify/
-RUN /tc/verify/floors.sh
+# floors.sh checks nothing needs more than we promise. expectations.sh checks
+# the toolchain is what it says it is -- the right glibc in the sysroot,
+# targeting the right kernel, resolving the sysroot inside the prefix, and not
+# reaching outside it for a library at run time. Comparing two builds cannot
+# catch any of that, since a mistake reproduced faithfully compares equal.
+RUN /tc/verify/floors.sh && /tc/verify/expectations.sh
 
 FROM s-verify AS s-package
 COPY stages/package.sh /tc/stages/
