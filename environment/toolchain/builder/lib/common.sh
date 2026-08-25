@@ -57,6 +57,32 @@ fi
 
 TOOLCHAIN_STDCXX="${TOOLCHAIN_STDCXX:-libstdc++}"
 
+# Activate the toolchain, once it exists.
+#
+# In the original script this block sat inline just after GCC was installed and
+# then applied to everything that followed, because it was all one shell. Each
+# stage here is its own process, so it has to live somewhere every stage sees.
+#
+# The guard reproduces the original ordering exactly: the kernel headers and
+# glibc stages run before GCC exists and must use the host compiler, so they
+# get none of this; every stage after GCC does. Without it, configure scripts
+# fall back to the host cc and host pkg-config, and quietly link host-glibc
+# symbols into libraries that are supposed to target the sysroot.
+if [[ -x "$PREFIX/bin/gcc" ]]; then
+    export PATH=$PREFIX/bin:$PATH
+    export LD_LIBRARY_PATH=$PREFIX/lib64
+    # Pin CC/CXX so subsequent configure runs (gmp, mpfr, gdb, ...) don't fall
+    # back to the host /usr/bin/cc.
+    export CC=$PREFIX/bin/gcc
+    export CXX=$PREFIX/bin/g++
+    # Point pkg-config at the sysroot so configure and cmake resolve the
+    # sysroot's .pc files rather than the host's, which would otherwise drag in
+    # /usr/include and host-glibc deps. PKG_CONFIG_LIBDIR _replaces_ the search
+    # path (no host fallback); PKG_CONFIG_SYSROOT_DIR rewrites -I/-L in them.
+    export PKG_CONFIG_LIBDIR=$SYSROOT/usr/lib/pkgconfig:$SYSROOT/usr/lib64/pkgconfig:$SYSROOT/usr/share/pkgconfig
+    export PKG_CONFIG_SYSROOT_DIR=$SYSROOT
+fi
+
 # Names the build environment, so it has to describe the base image: binutils
 # keys a gprofng workaround off it, and the generated README points at that
 # distro's run-dependency list.

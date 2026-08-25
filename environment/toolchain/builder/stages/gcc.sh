@@ -104,20 +104,5 @@ if [[ ! -f "$PREFIX/bin/gcc" ]]; then
     popd && popd
 fi
 
-# activate toolchain
-export PATH=$PREFIX/bin:$PATH
-export LD_LIBRARY_PATH=$PREFIX/lib64
-# Pin CC/CXX so subsequent configure runs (gmp, mpfr, gdb, ...) don't fall back
-# to the host /usr/bin/cc. Without this, autoconf prefers `cc` and we end up
-# linking host-glibc symbols into libraries that should target the sysroot.
-export CC=$PREFIX/bin/gcc
-export CXX=$PREFIX/bin/g++
-# Point pkg-config at the sysroot so cmake / configure scripts that use it
-# (e.g. cmake's --system-curl) resolve to the sysroot's .pc files rather than
-# the host's, which would otherwise drag in /usr/include and host-glibc deps.
-# PKG_CONFIG_LIBDIR _replaces_ the default search path (no host fallback);
-# PKG_CONFIG_SYSROOT_DIR rewrites the -I/-L paths in those .pc files.
-export PKG_CONFIG_LIBDIR=$SYSROOT/usr/lib/pkgconfig:$SYSROOT/usr/lib64/pkgconfig:$SYSROOT/usr/share/pkgconfig
-export PKG_CONFIG_SYSROOT_DIR=$SYSROOT
 
 popd
