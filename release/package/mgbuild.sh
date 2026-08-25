@@ -1905,23 +1905,6 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION $DATASET/$DATASET_SIZE/*/*"
     ;;
     mgbench-ha)
-      # Measures only a coordinator-managed HA cluster: a main and one SYNC replica behind three
-      # coordinators, or whichever topology --cluster-description names: the target set is defined once
-      # here and the description chooses how many replicas the commits wait for.
-      # Covers every distinct pokec write shape plus one read as a control. The target set is
-      # deliberately small because every query
-      # measured against a cluster restarts every instance in it, which is also why the create group
-      # is named query by query rather than globbed: create/vertex and create/edge duplicate
-      # arango/single_vertex_write and arango/single_edge_write.
-      #
-      # The authorization pass is left off, since on this leg each extra measurement also pays a
-      # cluster restart. Runs under tests/ve3, the virtualenv init-tests builds from
-      # tests/requirements.txt, because driving tests/e2e/interactive_mg_runner.py needs mgclient;
-      # the e2e and stress suites activate the same virtualenv for the same reason.
-      #
-      # PYTHONUNBUFFERED because in CI stdout is a pipe, so Python block-buffers it and a run that
-      # spends minutes in one phase looks hung: the first 8KB of output never appears. Progress has to
-      # be visible to tell a slow cluster restart from a stuck one.
       shift 1
       local DATASET_SIZE='medium'
       local EXPORT_RESULTS_FILE="$default_benchmark_result_ha_file"
