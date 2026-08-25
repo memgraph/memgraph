@@ -4,6 +4,8 @@
 set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/llvm.env"
+# the swig stage installed under $DIR/build; this needs its version to find it
+source "$TC_VERSIONS/swig.env"
 
 pushd "$TC_ARCHIVES"
 if [[ ! -d llvmorg-$LLVM_VERSION ]]; then

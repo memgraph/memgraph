@@ -4,6 +4,13 @@
 # verbatim from the v8 build script; the archive command is not, see below.
 set -euo pipefail
 source /tc/lib/common.sh
+# the generated README lists every tool it ships, so it needs their versions
+source "$TC_VERSIONS/gcc.env"
+source "$TC_VERSIONS/binutils.env"
+source "$TC_VERSIONS/gdb.env"
+source "$TC_VERSIONS/cmake.env"
+source "$TC_VERSIONS/cppcheck.env"
+source "$TC_VERSIONS/llvm.env"
 
 pushd "$TC_BUILD"
 # create README

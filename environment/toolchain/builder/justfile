@@ -22,8 +22,16 @@ cache_ref := env_var_or_default("TC_CACHE_REF", "")
 _cache_from := if cache_ref == "" { "" } else { "--cache-from=type=registry,ref=" + cache_ref }
 _cache_to := if env_var_or_default("TC_CACHE_WRITE", "") == "" { "" } else { "--cache-to=type=registry,ref=" + cache_ref + ",mode=max" }
 
+# Static checks worth running before committing to a long build. Splitting one
+# shell into a process per stage breaks implicit dependencies, and those breaks
+# otherwise surface hours in rather than at the mistake.
+check:
+    "{{ here }}/verify/stage-vars.py"
+    @for f in "{{ here }}"/stages/*.sh "{{ here }}"/lib/*.sh "{{ here }}"/verify/*.sh; do bash -n "$f" || exit 1; done
+    @echo "stage scripts parse"
+
 # Build the toolchain archive.
-build *args:
+build *args: check
     mkdir -p "{{ output }}"
     docker buildx build "{{ here }}" \
         --target artifact \
