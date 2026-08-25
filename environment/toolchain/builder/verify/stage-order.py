@@ -49,6 +49,21 @@ ORIGINAL_ORDER = {
     "package": 1167,
 }
 
+# Stages added since the port, which have no line in the original. Each names
+# the stage it must follow, so its position is still checked rather than
+# exempt, and the reason it sits where it does is written down.
+ADDED_AFTER = {
+    "elfutils": "libffi",  # sysroot library, needed by dwz and libabigail
+    "libxml2": "elfutils",  # sysroot library, needed by libabigail
+    "xxhash": "libxml2",  # sysroot library, needed by dwz since its 0.16
+    "xz": "xxhash",  # sysroot library, required outright by libabigail
+    "dwz": "xz",  # needs elfutils and xxhash; before llvm so a bump misses it
+    "libabigail": "dwz",  # needs elfutils and libxml2
+}
+
+for _name, _after in ADDED_AFTER.items():
+    ORIGINAL_ORDER[_name] = ORIGINAL_ORDER[_after] + 1
+
 dockerfile = (ROOT / "Dockerfile").read_text()
 built = [m for m in re.findall(r"^FROM\s+\S+\s+AS\s+s-(\S+)", dockerfile, re.M) if m in ORIGINAL_ORDER]
 

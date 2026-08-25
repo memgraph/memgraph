@@ -30,6 +30,11 @@ check:
     "{{ here }}/verify/stage-order.py"
     @for f in "{{ here }}"/stages/*.sh "{{ here }}"/lib/*.sh "{{ here }}"/verify/*.sh; do bash -n "$f" || exit 1; done
     @echo "stage scripts parse"
+    # A stage script without its exec bit fails as "Permission denied" inside
+    # the container, which reads like a sandbox problem rather than a missing
+    # chmod on a newly written file.
+    @for f in "{{ here }}"/stages/*.sh; do [ -x "$f" ] || { echo "not executable: $f"; exit 1; }; done
+    @echo "stage scripts executable"
 
 # Build the toolchain; the archive lands in output/.
 build *args: check _space

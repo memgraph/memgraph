@@ -28,7 +28,11 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
     # compiler-rt and openmp moved out of LLVM_ENABLE_PROJECTS (deprecated as
     # projects since LLVM 16+, fatal error in future releases) — they're built
     # as runtimes by the just-built clang, not the host gcc.
-    TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lldb;lld"
+    # bolt gives llvm-bolt, perf2bolt and merge-fdata: post-link layout
+    # optimisation driven by a perf profile. It is a project rather than a
+    # separate download, so the only cost is build time, and it pairs with the
+    # llvm-profgen this toolchain already ships.
+    TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lldb;lld;bolt"
     TOOLCHAIN_LLVM_ENABLE_RUNTIMES="libunwind;compiler-rt;openmp"
     if [[ "$TOOLCHAIN_STDCXX" = "libc++" ]]; then
         TOOLCHAIN_LLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES;libcxx;libcxxabi"

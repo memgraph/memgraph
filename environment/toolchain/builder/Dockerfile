@@ -125,7 +125,40 @@ COPY versions/libffi.env /tc/versions/
 COPY stages/libffi.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/libffi.sh
 
-FROM s-libffi AS s-python
+# elfutils and libxml2 are here for dwz and libabigail below. They sit before
+# LLVM on purpose: neither depends on it, and putting them after would mean an
+# LLVM bump rebuilt them for nothing.
+FROM s-libffi AS s-elfutils
+COPY versions/elfutils.env /tc/versions/
+COPY stages/elfutils.sh /tc/stages/
+RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/elfutils.sh
+
+FROM s-elfutils AS s-libxml2
+COPY versions/libxml2.env /tc/versions/
+COPY stages/libxml2.sh /tc/stages/
+RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/libxml2.sh
+
+FROM s-libxml2 AS s-xxhash
+COPY versions/xxhash.env /tc/versions/
+COPY stages/xxhash.sh /tc/stages/
+RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/xxhash.sh
+
+FROM s-xxhash AS s-xz
+COPY versions/xz.env /tc/versions/
+COPY stages/xz.sh /tc/stages/
+RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/xz.sh
+
+FROM s-xz AS s-dwz
+COPY versions/dwz.env /tc/versions/
+COPY stages/dwz.sh /tc/stages/
+RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/dwz.sh
+
+FROM s-dwz AS s-libabigail
+COPY versions/libabigail.env /tc/versions/
+COPY stages/libabigail.sh /tc/stages/
+RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/libabigail.sh
+
+FROM s-libabigail AS s-python
 COPY versions/python.env /tc/versions/
 COPY stages/python.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/python.sh

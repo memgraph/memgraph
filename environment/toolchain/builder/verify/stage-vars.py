@@ -32,7 +32,7 @@ def assigned_in(text):
 def sourced_env_vars(text):
     """Variables provided by the version files a script sources."""
     out = set()
-    for env in re.findall(r"\$TC_VERSIONS/([a-z-]+)\.env", text):
+    for env in re.findall(r"\$TC_VERSIONS/([a-z0-9-]+)\.env", text):
         f = ROOT / "versions" / f"{env}.env"
         if f.exists():
             out |= assigned_in(f.read_text())
@@ -75,7 +75,9 @@ for sh in sorted((ROOT / "stages").glob("*.sh")):
     provided = from_common | AMBIENT | assigned_in(text) | sourced_env_vars(text)
     if "clang-env.sh" in text:
         provided |= from_clang
-    used = set(re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", text))
+    # comments do not execute, so a variable named in one is not a dependency
+    code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
+    used = set(re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", code))
     missing = sorted(v for v in used - provided if not v.startswith("BASH"))
     if missing:
         problems.append((sh.name, missing))
