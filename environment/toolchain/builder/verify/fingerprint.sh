@@ -39,7 +39,10 @@ echo
 echo "### compiler configuration"
 if [[ -x "$PREFIX/bin/gcc" ]]; then
     echo "gcc -dumpmachine: $("$PREFIX/bin/gcc" -dumpmachine)"
-    echo "gcc -print-sysroot: $("$PREFIX/bin/gcc" -print-sysroot)"
+    # GCC resolves its sysroot from argv[0], so this reports wherever the tree
+    # currently sits. Two trees being compared are rarely at the same path, and
+    # the difference says nothing about the toolchains.
+    echo "gcc -print-sysroot: $("$PREFIX/bin/gcc" -print-sysroot | sed "s|$PREFIX|\$PREFIX|")"
     # The full -v output records every configure flag GCC was built with, which
     # is where a mis-ported flag shows up.
     "$PREFIX/bin/gcc" -v 2>&1 | grep -E '^Configured with:' | tr ' ' '\n' | LC_ALL=C sort | sed 's/^/  /'
