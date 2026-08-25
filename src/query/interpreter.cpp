@@ -8240,6 +8240,12 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
   MG_ASSERT(current_db.db_transactional_accessor_, "Constraint query expects a DB transactional access");
   auto *dba = &*current_db.execution_db_accessor_;
 
+  // A plan may be built knowing which constraints hold, so one built before this runs cannot be
+  // reused after it.
+  auto invalidate_plan_cache = [plan_cache = current_db.db_acc_->get()->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+
   auto *constraint_query = utils::Downcast<ConstraintQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
@@ -8558,17 +8564,20 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
     } break;
   }
 
-  return PreparedQuery{
-      .header = {},
-      .privileges = std::move(parsed_query.required_privileges),
-      .query_handler =
-          [handler = std::move(handler), constraint_notification = std::move(constraint_notification), notifications](
-              AnyStream * /*stream*/, std::optional<int> /*n*/) mutable {
-            handler(constraint_notification);
-            notifications->push_back(constraint_notification);
-            return QueryHandlerResult::COMMIT;
-          },
-      .rw_type = RWType::NONE};
+  return PreparedQuery{.header = {},
+                       .privileges = std::move(parsed_query.required_privileges),
+                       .query_handler =
+                           [handler = std::move(handler),
+                            constraint_notification = std::move(constraint_notification),
+                            notifications,
+                            invalidate_plan_cache = std::move(invalidate_plan_cache)](
+                               AnyStream * /*stream*/, std::optional<int> /*n*/) mutable {
+                             utils::OnScopeExit const cache_invalidator(invalidate_plan_cache);
+                             handler(constraint_notification);
+                             notifications->push_back(constraint_notification);
+                             return QueryHandlerResult::COMMIT;
+                           },
+                       .rw_type = RWType::NONE};
 }
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,

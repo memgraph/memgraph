@@ -1677,6 +1677,24 @@ TYPED_TEST(InterpreterTest, UniqueConstraintTest) {
   this->Interpret("DROP CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;");
 }
 
+// A plan may be built knowing which constraints hold, so one cached before a constraint changed
+// would answer for a database that no longer exists.
+TYPED_TEST(InterpreterTest, ConstraintChangeDiscardsCachedPlans) {
+  auto cached_plans = [this] { return this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }); };
+
+  this->Interpret("MATCH (n:A) RETURN n;");
+  ASSERT_EQ(cached_plans(), 1U);
+
+  this->Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a IS UNIQUE;");
+  EXPECT_EQ(cached_plans(), 0U);
+
+  this->Interpret("MATCH (n:A) RETURN n;");
+  ASSERT_EQ(cached_plans(), 1U);
+
+  this->Interpret("DROP CONSTRAINT ON (n:A) ASSERT n.a IS UNIQUE;");
+  EXPECT_EQ(cached_plans(), 0U);
+}
+
 TYPED_TEST(InterpreterTest, ExplainQuery) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->AstCacheSize(), 0U);
