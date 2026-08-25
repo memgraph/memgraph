@@ -248,8 +248,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     // A Cartesian pulls its right branch once per pass, not once per left row, so it cannot feed a
     // seek keyed on the other branch. Convert only when a consumed filter created such a dependency.
-    // A retained post-filter is not removed, but may still have keyed the seek below (STARTS WITH),
-    // so `did_remove` alone would miss the dependency it created.
+    // A retained post-filter is not removed, but may still have keyed the seek below (CONTAINS,
+    // ENDS WITH), so `did_remove` alone would miss the dependency it created.
     if (removal.did_remove || !removed_filters.empty()) {
       LogicalOperator *input = op.input().get();
       LogicalOperator *parent = &op;
@@ -1760,7 +1760,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (max_vertex_count && best->estimated_count > *max_vertex_count) return std::nullopt;
 
     auto const &prop_filter = *best->filter.property_filter;
-    if (!PropertyFilter::RequiresPostFilter(prop_filter.type_)) {
+    // The node-path scan computes exact [prefix, PrefixSuccessor) bounds via ExpressionRange, so
+    // STARTS_WITH needs no post-filter here. (The edge-path scan still uses a lower-bound-only range
+    // and keeps RequiresPostFilter true.)
+    if (!PropertyFilter::RequiresPostFilter(prop_filter.type_) ||
+        prop_filter.type_ == PropertyFilter::Type::STARTS_WITH) {
       metadata.expressions_to_mark_for_removal.push_back(best->filter.expression);
     } else if (PropertyFilter::SeeksOnValue(prop_filter.type_)) {
       metadata.expressions_keying_a_seek.push_back(best->filter.expression);
@@ -2030,7 +2034,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       for (auto const &filter_info : found_index->filters) {
         const PropertyFilter prop_filter = *filter_info.property_filter;
 
-        if (!PropertyFilter::RequiresPostFilter(prop_filter.type_)) {
+        if (!PropertyFilter::RequiresPostFilter(prop_filter.type_) ||
+            prop_filter.type_ == PropertyFilter::Type::STARTS_WITH) {
           metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
         } else if (PropertyFilter::SeeksOnValue(prop_filter.type_)) {
           metadata.expressions_keying_a_seek.push_back(filter_info.expression);
@@ -2115,7 +2120,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             // Filter cleanup, track which expressions to remove
             for (auto const &filter_info : label_property_index.filters) {
               const PropertyFilter prop_filter = *filter_info.property_filter;
-              if (!PropertyFilter::RequiresPostFilter(prop_filter.type_)) {
+              if (!PropertyFilter::RequiresPostFilter(prop_filter.type_) ||
+                  prop_filter.type_ == PropertyFilter::Type::STARTS_WITH) {
                 metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
               } else if (PropertyFilter::SeeksOnValue(prop_filter.type_)) {
                 metadata.expressions_keying_a_seek.push_back(filter_info.expression);
