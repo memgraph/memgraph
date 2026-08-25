@@ -332,11 +332,7 @@ jobs:
 
       - name: "Spin up mgbuild container"
         run: |
-          if [[ "$OS" =~ ^ubuntu-24.04.* ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
@@ -698,6 +694,9 @@ jobs:
       - name: "Build image (prod)"
         if: ${{ (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |
+          # The image is built FROM ubuntu:24.04 whatever the build container's
+          # distro is, so the mirror check is against that, not against $OS.
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os ubuntu-24.04 --arch "$ARCH")"
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
@@ -709,13 +708,16 @@ jobs:
             --image-tag $PROD_IMAGE_TAG \
             --memgraph-ref $MEMGRAPH_REF \
             --cache-present $CACHE_PRESENT \
-            --custom-mirror true \
+            --custom-mirror $USE_CUSTOM_MIRROR \
             --cuda $CUDA \
             --package-flavour prod
 
       - name: "Build image (debug)"
         if: ${{ (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both')  }}
         run: |
+          # The image is built FROM ubuntu:24.04 whatever the build container's
+          # distro is, so the mirror check is against that, not against $OS.
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os ubuntu-24.04 --arch "$ARCH")"
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
@@ -727,7 +729,7 @@ jobs:
             --image-tag $DEBUG_IMAGE_TAG \
             --memgraph-ref $MEMGRAPH_REF \
             --cache-present $CACHE_PRESENT \
-            --custom-mirror true \
+            --custom-mirror $USE_CUSTOM_MIRROR \
             --cuda $CUDA \
             --package-flavour debug
 

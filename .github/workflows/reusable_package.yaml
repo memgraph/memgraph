@@ -192,11 +192,7 @@ jobs:
 
       - name: "Spin up mgbuild container"
         run: |
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
-            USE_CUSTOM_MIRROR=true
-          else
-            USE_CUSTOM_MIRROR=false
-          fi
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
@@ -392,7 +388,7 @@ jobs:
         if: ${{ inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both' }}
         run: |
           [[ "$MALLOC" == "true" ]] && malloc=true ||malloc=false
-          [[ "$OS" == "ubuntu-24.04" ]] && USE_CUSTOM_MIRROR=true || USE_CUSTOM_MIRROR=false
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
 
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -440,7 +436,7 @@ jobs:
         if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
         run: |
           [[ "$MALLOC" == "true" ]] && malloc=true ||malloc=false
-          [[ "$OS" == "ubuntu-24.04" ]] && USE_CUSTOM_MIRROR=true || USE_CUSTOM_MIRROR=false
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
 
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
