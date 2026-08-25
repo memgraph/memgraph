@@ -198,7 +198,10 @@ class MemoryTracker final {
   static bool IsRefusalHandled() { return refusal_handled_; }
 
  private:
-  static thread_local bool refusal_handled_ [[gnu::tls_model("initial-exec")]];
+  // Constant-initialized so reading it is a bare thread-pointer access. Code that sets it around
+  // an allocation relies on the allocator being able to observe the write, which for the C
+  // allocation functions holds only because mg-memory does not compile them as builtins.
+  static constinit thread_local bool refusal_handled_ [[gnu::tls_model("initial-exec")]];
 
   std::atomic<int64_t> amount_{0};
   std::atomic<int64_t> peak_{0};
