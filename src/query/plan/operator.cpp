@@ -2261,10 +2261,13 @@ class ExpandVariableCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    // Named here rather than after the operator, which may permit pruning and so
-    // would report a walk other than this one.
-    auto const profile_name = self_.ToStringNamed(context.db_accessor, "ExpandVariable");
-    SCOPED_PROFILE_OP(profile_name.c_str());
+    // The operator's type may be PRUNING_BFS when the dispatch cursor chose this
+    // DFS walk as a fallback, so the cursor names itself rather than asking the
+    // operator. Computed once to avoid a per-row allocation.
+    if (!profile_name_ && context.is_profile_query) {
+      profile_name_ = self_.ToStringNamed(context.db_accessor, "ExpandVariable");
+    }
+    SCOPED_PROFILE_OP(profile_name_ ? profile_name_->c_str() : "ExpandVariable");
 
     AbortCheck(context);
 
@@ -2304,6 +2307,7 @@ class ExpandVariableCursor : public Cursor {
  private:
   const ExpandVariable &self_;
   const UniqueCursorPtr input_cursor_;
+  std::optional<std::string> profile_name_;
   // bounds. in the cursor they are not optional but set to
   // default values if missing in the ExpandVariable operator
   int64_t upper_bound_{-1};
