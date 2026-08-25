@@ -24,11 +24,15 @@ extern "C" {
 #include <unistd.h>
 
 #include "license/license.hpp"
+#ifdef MG_PYTHON_SUPPORT
 #include "py/py.hpp"
+#endif
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#ifdef MG_PYTHON_SUPPORT
 #include "query/procedure/py_module.hpp"
+#endif
 #include "utils/case_insensitve_set.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -44,6 +48,7 @@ auto ReservedBuiltInModuleNames() -> ::memgraph::utils::CaseInsensitiveSet const
 
 namespace memgraph::query::procedure {
 
+#ifdef MG_PYTHON_SUPPORT
 constexpr const char *func_code =
     "import ast\n\n"
     "no_removals = ['collections', 'abc', 'sys', 'torch', 'torch_geometric', 'igraph', 'dgl', 'numpy', 'mgp', "
@@ -66,6 +71,7 @@ constexpr const char *func_code =
 
 void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
                              PyObject *sys_mod_ref);
+#endif
 
 ModuleRegistry gModuleRegistry;
 
@@ -967,6 +973,7 @@ const std::map<std::string, mgp_func, std::less<>> *SharedLibraryModule::Functio
   return &functions_;
 }
 
+#ifdef MG_PYTHON_SUPPORT
 class PythonModule final : public Module {
  public:
   PythonModule();
@@ -1290,6 +1297,7 @@ const std::map<std::string, mgp_func, std::less<>> *PythonModule::Functions() co
             "not been loaded...");
   return &functions_;
 }
+#endif  // MG_PYTHON_SUPPORT
 
 namespace {
 
@@ -1323,9 +1331,15 @@ std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
     if (!lib_module->Load(path)) return nullptr;
     module = std::move(lib_module);
   } else if (path.extension() == ".py") {
+#ifdef MG_PYTHON_SUPPORT
     auto py_module = std::make_unique<PythonModule>();
     if (!py_module->Load(path)) return nullptr;
     module = std::move(py_module);
+#else
+    spdlog::warn(utils::MessageWithLink(
+        "Unable to load module {}; this Memgraph was built without Python support.", path, "https://memgr.ph/modules"));
+    return nullptr;
+#endif
   }
   return module;
 }

@@ -73,11 +73,13 @@ set_target_properties(memgraph PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
+if (MG_PYTHON_SUPPORT)
 # Emulate the installed python_support, by creating a symlink
 add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/python_support
         BYPRODUCTS ${CMAKE_BINARY_DIR}/python_support
         COMMENT "Creating symlink for python_support")
+endif()
 
 # Strip the executable in release build.
 if(lower_build_type STREQUAL "release")
@@ -96,6 +98,7 @@ mg_split_debug(memgraph INSTALL_DESTINATION lib/memgraph)
 #
 # Emit the once-per-build configure-time warnings so the developer knows why
 # the rewrite was skipped (the helper itself is silent on the skip).
+if (MG_PYTHON_SUPPORT)
 find_program(PATCHELF_EXECUTABLE patchelf)
 # NO_CMAKE_FIND_ROOT_PATH: must match mg_apply_python_abi3_rewrite — the probe
 # asks what the RUNTIME linker can resolve, so the sysroot's own libpython3.so
@@ -115,6 +118,7 @@ if(MG_PYTHON_REWRITE_DT_NEEDED AND NOT (PATCHELF_EXECUTABLE AND MG_LIBPYTHON3_SO
                                 "--python-build-version). Without this, binaries keep a versioned libpython dependency.")
         endif()
 endif()
+endif() # MG_PYTHON_SUPPORT
 
 # Generate the configuration file under the build directory.
 add_custom_command(TARGET memgraph POST_BUILD
@@ -207,12 +211,14 @@ install(TARGETS mg-module-support
     LIBRARY DESTINATION lib/memgraph)
 
 # Install Python source for supporting our embedded Python.
+if (MG_PYTHON_SUPPORT)
 install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.py
         DESTINATION lib/memgraph/python_support)
 install(FILES ${CMAKE_SOURCE_DIR}/include/mgp_mock.py
         DESTINATION lib/memgraph/python_support)
 install(FILES ${CMAKE_SOURCE_DIR}/include/_mgp_mock.py
         DESTINATION lib/memgraph/python_support)
+endif()
 
 # Install the includes file for writing custom procedures in C and C++>
 install(FILES ${CMAKE_SOURCE_DIR}/include/mg_procedure.h

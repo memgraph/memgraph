@@ -96,7 +96,6 @@ target_sources(mg-query
     procedure/mg_procedure_helpers.cpp
     procedure/mg_procedure_impl.cpp
     procedure/module.cpp
-    procedure/py_module.cpp
     query_user.cpp
     serialization/property_value.cpp
     stream/common.cpp
@@ -166,6 +165,13 @@ target_sources(mg-query-cppm
     jsonl/reader.cppm
 )
 target_link_libraries(mg-query-cppm PUBLIC mg-aws mg::storage)
+
+# Everything Python lives behind MG_PYTHON_SUPPORT: with it OFF, mg-query
+# skips py_module.cpp and links no libpython at all.
+set(MG_PYTHON_LINK_TARGET "")
+if(MG_PYTHON_SUPPORT)
+
+target_sources(mg-query PRIVATE procedure/py_module.cpp)
 
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
     set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
@@ -256,6 +262,8 @@ foreach(_mg_multiarch x86_64-linux-gnu aarch64-linux-gnu)
                      INTERFACE_INCLUDE_DIRECTORIES "${_mg_py_shim}")
     endif()
 endforeach()
+
+endif() # MG_PYTHON_SUPPORT
 
 target_link_libraries(mg-query
     PUBLIC

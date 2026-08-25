@@ -416,6 +416,14 @@ if (MG_ENTERPRISE)
   add_definitions(-DMG_ENTERPRISE)
 endif()
 
+# Embedded Python interpreter (Python query modules). OFF builds a memgraph
+# with no libpython dependency; only .so query modules can be loaded.
+option(MG_PYTHON_SUPPORT "Embed the Python interpreter (enables Python query modules)" ON)
+if (MG_PYTHON_SUPPORT)
+  add_definitions(-DMG_PYTHON_SUPPORT)
+endif()
+message(STATUS "MG_PYTHON_SUPPORT: ${MG_PYTHON_SUPPORT}")
+
 option(ENABLE_JEMALLOC "Use jemalloc" ON)
 
 option(MG_MEMORY_PROFILE "If build should be setup for memory profiling" OFF)

@@ -24,6 +24,7 @@ OPTIONS:
 The build directory must already be configured and built, e.g.:
     ./build.sh --split-debug --build-type RelWithDebInfo --mage on   # everything
     ./build.sh --split-debug --build-type RelWithDebInfo --mage only # just MAGE
+    ./build.sh --split-debug --build-type RelWithDebInfo --no-python # Python-less memgraph
 
 Packages are written to <build-dir>/output/.
 
@@ -135,6 +136,16 @@ case "$TARGET" in
         exit 1
         ;;
 esac
+
+# Python-less memgraph (./build.sh --no-python): same package name, but no
+# libpython/python3/pip dependencies and no pip phase in the install scripts.
+if ! cache_enabled MG_PYTHON_SUPPORT; then
+    echo "Note: packaging memgraph built without the embedded Python interpreter (MG_PYTHON_SUPPORT=OFF)"
+    if [[ "$COMPONENTS" == *mage* ]]; then
+        echo "Warning: MAGE's Python query modules need memgraph's embedded interpreter;"
+        echo "         only the C++ MAGE modules will be loadable by this memgraph build."
+    fi
+fi
 
 # cpack ships with the conan-provided cmake; pick up the build's tool env.
 if [[ -f "$BUILD_DIR/generators/conanbuild.sh" ]]; then

@@ -303,12 +303,14 @@ add_unit_test(query_procedure_mgp_module
 )
 
 
+if (MG_PYTHON_SUPPORT)
 add_unit_test(query_procedure_py_module
     SOURCES query_procedure_py_module.cpp
     LINK_TARGETS mg-query disk_test_utils
     CUSTOM_MAIN
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
+endif()
 
 
 add_unit_test(query_procedures_mgp_graph

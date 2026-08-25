@@ -84,6 +84,7 @@ add_subdirectory(community_detection_module)
 # Copy python query modules into build/query_modules
 # This is to avoid doing make install during CI
 # C and C++ modules .so files will already be there
+# Skipped entirely when the embedded Python interpreter is disabled.
 #
 # NOTE: some of the files copied below come from src/mage/python; the MAGE build
 # (MG_BUILD_MAGE, src/mage/python/CMakeLists.txt) independently ships the full
@@ -96,6 +97,7 @@ file(MAKE_DIRECTORY ${QUERY_MODULES_BUILD_DIR})
 # TODO: make this consistent
 add_subdirectory(node2vec_online_module)
 
+if (MG_PYTHON_SUPPORT)
 set(PYTHON_QUERY_MODULES_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/graph_analyzer.py
     ${CMAKE_CURRENT_SOURCE_DIR}/mgp_networkx.py
@@ -129,6 +131,7 @@ mg_add_stamped_custom_target(copy_mage_python_query_modules ALL
     DEPENDS ${MAGE_PYTHON_QUERY_MODULES}
     COMMENT "Copying MAGE Python query modules to build/query_modules"
 )
+endif() # MG_PYTHON_SUPPORT
 
 # Install C++ query modules
 install(TARGETS
@@ -139,6 +142,7 @@ install(TARGETS
 )
 
 # Install the Python example and modules
+if (MG_PYTHON_SUPPORT)
 install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)
 install(FILES graph_analyzer.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgp_networkx.py DESTINATION lib/memgraph/query_modules)
@@ -150,5 +154,6 @@ install(FILES date.py DESTINATION lib/memgraph/query_modules)
 install(FILES ${CMAKE_SOURCE_DIR}/src/mage/python/mage/__init__.py DESTINATION lib/memgraph/query_modules/mage)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/src/mage/python/mage/date DESTINATION lib/memgraph/query_modules/mage)
 install(FILES ${QUERY_MODULES_BUILD_DIR}/mage/date/__init__.py DESTINATION lib/memgraph/query_modules/mage/date)
+endif() # MG_PYTHON_SUPPORT
 
 # IMPORTANT: when adding enterprise module add its name to kEnterpriseModuleList in src/query/procedure/module.cpp
