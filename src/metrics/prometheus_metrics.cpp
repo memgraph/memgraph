@@ -2088,14 +2088,14 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendHistogramPercentiles(out, "DatabaseResumeLatency", "HotCold", *global.database_resume_latency_seconds);
 
   // Deferred tenant destruction (global only)
-  out.push_back({"PendingTenantDestructions",
-                 "MultiTenancy",
-                 "Gauge",
-                 static_cast<int64_t>(global.pending_tenant_destructions->Value())});
-  out.push_back({"DeferredTenantDestructions",
-                 "MultiTenancy",
-                 "Counter",
-                 static_cast<int64_t>(global.deferred_tenant_destructions->Value())});
+  out.push_back({.name = "PendingTenantDestructions",
+                 .type = "MultiTenancy",
+                 .metric_type = "Gauge",
+                 .value = static_cast<int64_t>(global.pending_tenant_destructions->Value())});
+  out.push_back({.name = "DeferredTenantDestructions",
+                 .type = "MultiTenancy",
+                 .metric_type = "Counter",
+                 .value = static_cast<int64_t>(global.deferred_tenant_destructions->Value())});
 
   // Session
   out.push_back({"ActiveSessions", "Session", "Gauge", static_cast<int64_t>(global.active_sessions->Value())});
