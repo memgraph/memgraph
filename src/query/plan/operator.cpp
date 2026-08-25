@@ -3266,10 +3266,10 @@ class PruningBFSCursor : public query::plan::Cursor {
   utils::pmr::vector<VertexAccessor> to_visit_next_;
 };
 
-/// Only a lower bound of one lets a pruning BFS reach the same vertices as a
-/// depth-first walk: a vertex the BFS first arrives at below the bound is marked
-/// visited and never emitted, where the walk would still arrive at it along a
-/// longer edge-unique path.
+/// Only a lower bound of at most one lets a pruning BFS reach the same vertices
+/// as a depth-first walk: a vertex the BFS first arrives at below the bound is
+/// marked visited and never emitted, where the walk would still arrive at it
+/// along a longer edge-unique path.
 class PruningBFSDispatchCursor : public query::plan::Cursor {
  public:
   PruningBFSDispatchCursor(const ExpandVariable &self, utils::MemoryResource *mem,
@@ -3298,10 +3298,11 @@ class PruningBFSDispatchCursor : public query::plan::Cursor {
     return MakeUniqueCursorPtr<ExpandVariableCursor>(mem_, self_, mem_, metric_handles_);
   }
 
-  /// A walk of at least one edge is what a pruning BFS reaches the same vertices
-  /// as, so a bound above one goes to the depth-first walk, as does one of the
-  /// wrong type. That walk reads its bounds only once it holds a row, so
-  /// rejecting a bad one stays off the expansions that find nothing to expand.
+  /// A walk of at most one edge is the threshold below which a pruning BFS
+  /// reaches the same vertices as a depth-first walk, so a bound above one goes
+  /// to the depth-first walk, as does one of the wrong type. That walk reads its
+  /// bounds only once it holds a row, so rejecting a bad one stays off the
+  /// expansions that find nothing to expand.
   /// Must agree with ExpandVariable::OperatorName(Parameters*), which answers
   /// the same question for EXPLAIN output.
   bool BoundPermitsPruning(Frame &frame, ExecutionContext &context) {
