@@ -349,7 +349,12 @@ int main(int argc, char **argv) {
 #endif
 
   std::optional<memgraph::utils::Scheduler> python_gc_scheduler{std::nullopt};
+#ifdef MG_ENTERPRISE
+  // Enterprise-only: every use of this scheduler (arm/run/stop) is under MG_ENTERPRISE, so the
+  // declaration must be too -- otherwise a community build has an untouched optional that
+  // clang-tidy's misc-const-correctness (rightly) flags as const-able.
   std::optional<memgraph::utils::Scheduler> idle_reaper_scheduler{std::nullopt};
+#endif
   wchar_t *program_name{nullptr};
   PyThreadState *python_thread_state{nullptr};
 
