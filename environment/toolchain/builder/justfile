@@ -1,13 +1,15 @@
 # Toolchain build entry point.
 #
-# This is a front door, not a build engine: BuildKit owns the dependency graph,
-# the caching and the scheduling. Everything here just assembles arguments.
+# A front door, not a build engine: BuildKit owns the dependency graph, the
+# caching and the scheduling. Everything here assembles arguments.
 #
-#   just build              build the toolchain and write the archive to output/
-#   just stage llvm         build up to one stage, for iterating on it
-#   just shell llvm         open a shell in a stage, to debug a failure
-#   just fingerprint        describe an installed toolchain, for comparing two
-#   just clean              drop the local build cache for this toolchain
+# On cache and disk. A toolchain's layers are several GB each, and BuildKit
+# garbage-collects to a ceiling it decides for itself. When that ceiling is
+# lower than a full toolchain, the expensive early layers are evicted between
+# runs and a rebuild starts from glibc rather than from the stage you changed,
+# which is exactly the latency this build exists to remove. `just cache` shows
+# whether that is happening; `just clean` trims to a ceiling that leaves recent
+# entries in place.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -22,17 +24,15 @@ cache_ref := env_var_or_default("TC_CACHE_REF", "")
 _cache_from := if cache_ref == "" { "" } else { "--cache-from=type=registry,ref=" + cache_ref }
 _cache_to := if env_var_or_default("TC_CACHE_WRITE", "") == "" { "" } else { "--cache-to=type=registry,ref=" + cache_ref + ",mode=max" }
 
-# Static checks worth running before committing to a long build. Splitting one
-# shell into a process per stage breaks implicit dependencies, and those breaks
-# otherwise surface hours in rather than at the mistake.
+# Static checks. Seconds, and they catch what otherwise fails hours into a build.
 check:
     "{{ here }}/verify/stage-vars.py"
     "{{ here }}/verify/stage-order.py"
     @for f in "{{ here }}"/stages/*.sh "{{ here }}"/lib/*.sh "{{ here }}"/verify/*.sh; do bash -n "$f" || exit 1; done
     @echo "stage scripts parse"
 
-# Build the toolchain archive.
-build *args: check
+# Build the toolchain; the archive lands in output/.
+build *args: check _space
     mkdir -p "{{ output }}"
     docker buildx build "{{ here }}" \
         --target artifact \
@@ -42,7 +42,7 @@ build *args: check
     @echo
     @ls -lh "{{ output }}"/*.tar.gz
 
-# Build up to one stage only. Everything before it comes from cache.
+# Build up to one stage only, for iterating on it.
 stage name *args:
     docker buildx build "{{ here }}" \
         --target "s-{{ name }}" \
@@ -57,16 +57,36 @@ shell name *args:
         {{ _cache_from }} {{ args }}
     docker run --rm -it "mg-toolchain-stage-{{ name }}" bash
 
-# Describe an installed toolchain. Two of these are what an equivalence check
-# compares; see verify/fingerprint.sh for what it covers and what it cannot.
+# Describe an installed toolchain, for comparing two of them.
 fingerprint prefix="/opt/toolchain-v8":
     "{{ here }}/verify/fingerprint.sh" "{{ prefix }}"
 
-# Build the same thing twice and report how much of it is not reproducible.
-# A measurement, not a gate: bit-for-bit reproducible GCC and LLVM is a project
-# of its own and must not block this one.
+# Compare two installed toolchains for equivalence.
+compare a b:
+    "{{ here }}/verify/compare.sh" "{{ a }}" "{{ b }}"
+
+# Build twice and report how much of the result is not reproducible.
 determinism:
     "{{ here }}/verify/determinism.sh"
 
-clean:
-    docker buildx prune --filter=label=toolchain --force
+# Show what the build cache holds and how much disk is left.
+cache:
+    @docker buildx du | tail -3
+    @df -h / | awk 'NR==2 {print "disk: "$4" free ("$5" used)"}'
+
+# Reclaim disk, trimming the cache to a ceiling but keeping recent entries.
+clean max="60GB":
+    rm -rf "{{ output }}"
+    docker buildx prune --force --max-used-space {{ max }}
+    @just cache
+
+# Drop the whole cache; the next build rebuilds glibc and GCC from source.
+clean-all:
+    rm -rf "{{ output }}"
+    docker buildx prune --all --force
+    @just cache
+
+# Trim week-old cache entries so they do not crowd out this build's layers.
+_space:
+    @docker buildx prune --force --filter until=168h > /dev/null 2>&1 || true
+    @df -h / | awk 'NR==2 {if (0+$5 > 90) print "  WARNING: disk "$5" used; expect cache eviction and slow rebuilds"; else print "  disk: "$4" free"}'
