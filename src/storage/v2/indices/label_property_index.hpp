@@ -24,6 +24,7 @@
 #include <concepts>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <range/v3/view/enumerate.hpp>
 #include <range/v3/view/transform.hpp>
 #include <ranges>
@@ -65,7 +66,10 @@ struct PropertyValueRange {
 
   static auto IsNotNull() -> PropertyValueRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
 
-  using ValuePredicate = std::function<bool(PropertyValue const &)>;
+  using ValuePredicateFn = std::function<bool(PropertyValue const &)>;
+  /// Held by pointer: a scan hands the same predicate to every iterator it makes, and one carrying
+  /// a compiled pattern is expensive to copy.
+  using ValuePredicate = std::shared_ptr<ValuePredicateFn const>;
 
   void SetValuePredicate(ValuePredicate predicate) { value_predicate_ = std::move(predicate); }
 

@@ -1177,7 +1177,7 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::operator++() {
 template <typename EntryT>
 void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid() {
   constexpr bool is_desc = EntryT::kOrder == IndexOrder::DESC;
-  auto const &leading_predicate = !self_->value_predicates_.empty() ? self_->value_predicates_[0] : nullptr;
+  auto const *leading_predicate = self_->leading_predicate_.get();
 
   while (true) {
     AdvanceUntilValid_(index_iterator_,
@@ -1199,7 +1199,7 @@ void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid()
     if (!leading_predicate || index_iterator_ == self_->index_accessor_.end()) break;
 
     auto const &leading_value = index_iterator_->values[0];
-    if (leading_predicate(leading_value)) break;
+    if ((*leading_predicate)(leading_value)) break;
 
     // Advance one entry. If the next entry has the same value, the group
     // is large enough to warrant an O(log n) seek; otherwise the iterator
@@ -1229,9 +1229,8 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListD
       transaction_(transaction),
       max_gid_(max_gid) {
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
-  value_predicates_.reserve(ranges.size());
-  for (auto const &range : ranges) {
-    value_predicates_.push_back(range.GetValuePredicate());
+  if (!ranges.empty()) {
+    leading_predicate_ = ranges[0].GetValuePredicate();
   }
 }
 

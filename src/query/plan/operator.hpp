@@ -68,6 +68,16 @@ struct ExpressionRange {
   static auto IsNotNull() -> ExpressionRange;
 
   auto Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
+
+  /// The predicate that decides which of the values inside the evaluated bounds actually satisfy
+  /// this range, or an empty one where the bounds already say everything. Null for every type but
+  /// CONTAINS, ENDS_WITH and REGEX_MATCH, whose bounds only narrow the scan to the string type.
+  ///
+  /// Separate from Evaluate because the two have different lifetimes: the bounds may read a symbol
+  /// and so are evaluated per row, while a search term that reads any symbol makes the filter no
+  /// index candidate at all, leaving the predicate the same for the whole execution.
+  auto MakeValuePredicate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange::ValuePredicate;
+
   auto ResolveAtPlantime(Parameters const &params, storage::NameIdMapper *name_id_mapper) const
       -> std::optional<storage::PropertyValueRange>;
 

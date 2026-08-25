@@ -190,36 +190,15 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     case Type::REGEX_MATCH:
     case Type::CONTAINS:
     case Type::ENDS_WITH: {
+      // A non-string search term compares to Null for every row, so nothing can match. A regex
+      // pattern is the exception: a non-string one raises, and a scan must not decide whether it
+      // does, so its whole band is read and the retained filter answers.
+      if (type_ != Type::REGEX_MATCH && lower_ && !lower_->value()->Accept(evaluator).IsString()) {
+        return storage::PropertyValueRange::Empty();
+      }
       auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
       auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
-      auto range = storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
-
-      if (lower_) {
-        auto const typed_value = lower_->value()->Accept(evaluator);
-        if (typed_value.IsString()) {
-          auto const &search_term = typed_value.ValueString();
-          if (type_ == Type::CONTAINS) {
-            range.SetValuePredicate([s = std::string(search_term)](storage::PropertyValue const &v) {
-              return v.IsString() && v.ValueString().contains(s);
-            });
-          } else if (type_ == Type::ENDS_WITH) {
-            range.SetValuePredicate([s = std::string(search_term)](storage::PropertyValue const &v) {
-              return v.IsString() && v.ValueString().ends_with(s);
-            });
-          } else {
-            try {
-              auto re = std::regex(search_term);
-              range.SetValuePredicate([re = std::move(re)](storage::PropertyValue const &v) {
-                return v.IsString() && std::regex_match(v.ValueString(), re);
-              });
-            } catch (std::regex_error const &e) {
-              throw QueryRuntimeException("Regex error in '{}': {}", search_term, e.what());
-            }
-          }
-        }
-      }
-
-      return range;
+      return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
     }
 
     case Type::STARTS_WITH: {
@@ -255,6 +234,38 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     case Type::IS_NOT_NULL: {
       return storage::PropertyValueRange::IsNotNull();
     }
+  }
+}
+
+auto ExpressionRange::MakeValuePredicate(ExpressionEvaluator &evaluator) const
+    -> storage::PropertyValueRange::ValuePredicate {
+  if (!lower_) return nullptr;
+  auto const typed_value = lower_->value()->Accept(evaluator);
+  if (!typed_value.IsString()) return nullptr;
+  auto const &search_term = typed_value.ValueString();
+
+  auto const make = [](auto match) {
+    return std::make_shared<storage::PropertyValueRange::ValuePredicateFn>(
+        [match = std::move(match)](storage::PropertyValue const &value) {
+          return value.IsString() && match(value.ValueString());
+        });
+  };
+
+  switch (type_) {
+    case Type::CONTAINS:
+      return make([s = std::string(search_term)](auto const &v) { return v.contains(s); });
+    case Type::ENDS_WITH:
+      return make([s = std::string(search_term)](auto const &v) { return v.ends_with(s); });
+    case Type::REGEX_MATCH:
+      try {
+        // An unusable pattern raises where the filter reaches it, once a row exists to test. Doing
+        // so here instead would let an index decide whether the query raises at all.
+        return make([re = std::regex(search_term)](auto const &v) { return std::regex_match(v, re); });
+      } catch (std::regex_error const &) {
+        return nullptr;
+      }
+    default:
+      return nullptr;
   }
 }
 
@@ -1743,7 +1754,10 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
                                                      metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_label_properties_operator.Increment();
 
-  auto vertices = [this](Frame &frame, ExecutionContext &context)
+  // A search term reads nothing from the frame, so its predicate is built once and reused for
+  // every row the input produces. Compiling a pattern per row would undo what it buys.
+  auto vertices = [this, value_predicates = std::vector<storage::PropertyValueRange::ValuePredicate>{}](
+                      Frame &frame, ExecutionContext &context) mutable
       -> std::optional<decltype(context.db_accessor->Vertices(
           view_, label_, properties_, std::span<storage::PropertyValueRange>{}))> {
     auto *db = context.db_accessor;
@@ -1752,6 +1766,16 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
     auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
     if (!maybe_prop_value_ranges) {
       return std::nullopt;
+    }
+
+    if (value_predicates.size() != expression_ranges_.size()) {
+      value_predicates = expression_ranges_ | rv::transform([&](ExpressionRange const &expression_range) {
+                           return expression_range.MakeValuePredicate(evaluator);
+                         }) |
+                         ranges::to_vector;
+    }
+    for (auto &&[range, predicate] : rv::zip(*maybe_prop_value_ranges, value_predicates)) {
+      range.SetValuePredicate(predicate);
     }
 
     return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
