@@ -2489,6 +2489,7 @@ TEST_F(AuthQueryHandlerFixture, SessionLimitExhaustion) {
 
 TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustion) {
   memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
   // Create profile with memory limit
   auto limit = memgraph::query::UserProfileQuery::LimitValueResult{};
   limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
@@ -2529,6 +2530,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustion) {
 
 TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocation) {
   memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
   // Create profile with moderate memory limit
   auto limit = memgraph::query::UserProfileQuery::LimitValueResult{};
   limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
@@ -2557,6 +2559,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocation) {
 
 TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocationAndNoThrow) {
   memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
   // Create profile with moderate memory limit
   auto limit = memgraph::query::UserProfileQuery::LimitValueResult{};
   limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
@@ -2588,6 +2591,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocationAndNoThr
 
 TEST_F(AuthQueryHandlerFixture, ResourceExhaustionRecovery) {
   memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
   // Create profile with limits
   auto session_limit = memgraph::query::UserProfileQuery::LimitValueResult{};
   session_limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY;
@@ -2785,6 +2789,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryExhaustionUnderLoad) {
   for (size_t i = 0; i < kNumThreads; ++i) {
     threads.emplace_back([&]() {
       memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+      const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
       auto resource = resources.GetUser("test_user");
       ASSERT_TRUE(resource);
       size_t allocation_size = 256;  // 256 bytes per thread

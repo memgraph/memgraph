@@ -149,7 +149,57 @@ class MemoryTracker final {
     static thread_local uint64_t counter_ [[gnu::tls_model("initial-exec")]];
   };
 
+  // Marks a scope whose caller turns a refused allocation into an exception. Refusing is only
+  // meaningful to a caller that can act on it: the dynamic loader and C libraries have no path
+  // back from a null return, and for the loader it is fatal. An over-limit allocation outside any
+  // such scope is tracked and allowed, and the limit is enforced at the next one inside it.
+  //
+  // Calling into a query module is such a scope, at every C API entry point: procedures, their
+  // initializers and cleanups, user-defined functions, and stream transformations. A module
+  // reports a refusal through its own return value or error message. Its allocations reach the
+  // tracker through the same C allocation functions the C library uses, which cannot themselves
+  // be marked, so the module's side of that boundary is where refusal becomes available again.
+  class RefusalHandledScope final {
+   public:
+    RefusalHandledScope(const RefusalHandledScope &) = delete;
+    RefusalHandledScope &operator=(const RefusalHandledScope &) = delete;
+    RefusalHandledScope(RefusalHandledScope &&) = delete;
+    RefusalHandledScope &operator=(RefusalHandledScope &&) = delete;
+
+    // These scopes nest, so the previous value is restored: an allocation made while handling a
+    // refusal is not itself covered by the scope handling it.
+    RefusalHandledScope() : previous_{refusal_handled_} { refusal_handled_ = true; }
+
+    ~RefusalHandledScope() { refusal_handled_ = previous_; }
+
+   private:
+    bool previous_;
+  };
+
+  // Marks a scope that may allocate on behalf of the runtime rather than its caller, so nothing
+  // allocated within it is refusable. Deciding whether a refusal may throw reads a libstdc++
+  // thread-local, which the dynamic loader can satisfy by reallocating the thread's storage
+  // vector; that allocation belongs to the loader, which cannot survive a refusal.
+  class RefusalSuspendedScope final {
+   public:
+    RefusalSuspendedScope(const RefusalSuspendedScope &) = delete;
+    RefusalSuspendedScope &operator=(const RefusalSuspendedScope &) = delete;
+    RefusalSuspendedScope(RefusalSuspendedScope &&) = delete;
+    RefusalSuspendedScope &operator=(RefusalSuspendedScope &&) = delete;
+
+    RefusalSuspendedScope() : previous_{refusal_handled_} { refusal_handled_ = false; }
+
+    ~RefusalSuspendedScope() { refusal_handled_ = previous_; }
+
+   private:
+    bool previous_;
+  };
+
+  static bool IsRefusalHandled() { return refusal_handled_; }
+
  private:
+  static thread_local bool refusal_handled_ [[gnu::tls_model("initial-exec")]];
+
   std::atomic<int64_t> amount_{0};
   std::atomic<int64_t> peak_{0};
   std::atomic<int64_t> hard_limit_{0};
@@ -171,10 +221,20 @@ extern constinit MemoryTracker total_memory_tracker;
 extern constinit MemoryTracker graph_memory_tracker;
 extern constinit MemoryTracker vector_index_memory_tracker;
 
-// Prevent memory tracker for throwing during the stack unwinding
+// Whether a refusal may be delivered by throwing. Throwing is opt-in per thread, so the opt-in is
+// tested first and the libstdc++ read below is reached only on threads that asked to be limited.
+// That read resolves through the dynamic loader and can allocate, so it runs under a suspension:
+// what it allocates belongs to the loader rather than to this caller.
 inline bool MemoryTrackerCanThrow() {
-  return !std::uncaught_exceptions() && MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow() &&
-         !MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked();
+  if (!MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow()) return false;
+  if (MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked()) return false;
+
+  const MemoryTracker::RefusalSuspendedScope refusal_suspended;
+  return !std::uncaught_exceptions();
 }
+
+// Whether an allocation that exceeds the hard limit may be refused. Every site that can refuse an
+// allocation asks this, so they agree on which allocations are exempt.
+inline bool MayRefuseAllocation() { return MemoryTracker::IsRefusalHandled() && MemoryTrackerCanThrow(); }
 
 }  // namespace memgraph::utils

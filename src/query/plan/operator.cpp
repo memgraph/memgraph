@@ -8752,6 +8752,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   if (call_initializer) {
     MG_ASSERT(proc.initializer);
     mgp_memory initializer_memory{memory};
+    const utils::MemoryTracker::RefusalHandledScope refusal_handled;
     proc.initializer.value()(&proc_args, &graph, &initializer_memory);
   }
   if (memory_limit) {
@@ -8795,7 +8796,10 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     mgp_memory proc_memory{&memory_tracking_resource};
 
     // TODO: What about cross library boundary exceptions? OMG C++?! <- should be fine since moving to shared libstd
-    proc.cb(&proc_args, &graph, result, &proc_memory);
+    {
+      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
+      proc.cb(&proc_args, &graph, result, &proc_memory);
+    }
 
     if (auto *impl = graph.TryGetImpl();
         impl != nullptr && impl->TransactionHasSerializationError() && !result->error_msg) {
@@ -8811,7 +8815,10 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // memory leaks in procedure.
     mgp_memory proc_memory{memory};
     // TODO: What about cross library boundary exceptions? OMG C++?!
-    proc.cb(&proc_args, &graph, result, &proc_memory);
+    {
+      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
+      proc.cb(&proc_args, &graph, result, &proc_memory);
+    }
 
     if (auto *impl = graph.TryGetImpl();
         impl != nullptr && impl->TransactionHasSerializationError() && !result->error_msg) {
@@ -8908,6 +8915,7 @@ class CallProcedureCursor : public Cursor {
       if (stream_exhausted) {
         if (!input_cursor_->Pull(frame, context)) {
           if (proc_->cleanup) {
+            const utils::MemoryTracker::RefusalHandledScope refusal_handled;
             proc_->cleanup.value()();
           }
           return false;
@@ -8916,6 +8924,7 @@ class CallProcedureCursor : public Cursor {
         if (proc_->initializer) {
           call_initializer = true;
           MG_ASSERT(proc_->cleanup);
+          const utils::MemoryTracker::RefusalHandledScope refusal_handled;
           proc_->cleanup.value()();
         }
       }
@@ -8995,12 +9004,14 @@ class CallProcedureCursor : public Cursor {
     result_.rows.clear();
     result_row_it_ = result_.rows.begin();
     if (cleanup_) {
+      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
       cleanup_.value()();
     }
   }
 
   void Shutdown() override {
     if (cleanup_) {
+      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
       cleanup_.value()();
     }
   }
