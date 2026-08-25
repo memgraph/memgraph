@@ -168,6 +168,30 @@ LLVM 23 and GCC, on a build already proven equivalent, so a failure is
 unambiguously a version problem. Needs `compiler.version` updated in the Conan
 profile alongside.
 
+Raise the floors here too. They are currently set by the builder base rather
+than by anything we support, and they are three glibc releases and ten kernel
+releases more conservative than they need to be:
+
+| | glibc | kernel |
+|---|---|---|
+| toolchain builds for | 2.31 | 5.4 |
+| oldest supported target (CentOS Stream 9) | 2.34 | 5.14 |
+
+Read from the distro images rather than a published table, because the tables
+disagree with reality: one gave Rocky 10.2 as glibc 2.44 when the image has
+2.39. `builder/verify/supported-floors.sh` regenerates the comparison from
+`SUPPORTED_OS_V8`, so it cannot drift from what CI actually packages.
+
+Building below the oldest supported distro is not a correctness problem -- the
+binaries run everywhere they need to -- but it buys compatibility nobody asked
+for, and it is what pins the builder to Ubuntu 20.04. Two consequences worth
+naming: raising the sysroot glibc to 2.34 crosses the release where libpthread
+and libdl merged into libc, and it drops anything older than the supported set,
+which is a support-policy decision rather than a build one. The builder base is
+a separate knob: it decides where the toolchain itself runs, so it must stay no
+newer than the oldest distro anyone runs the toolchain on, which is not
+necessarily the same list.
+
 ## Not in scope
 
 Split DWARF, PGO, precompiled headers, BOLT wiring, LTO, removing PIE and
