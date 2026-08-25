@@ -8722,26 +8722,10 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, std::vector<No
                   }
                 };
 
-                // Reuses cooperative_cancel's verifier-protected enumeration (TryAcquireForVerification), so
-                // this diagnostic adds no new cross-thread read; swallows because AwaitDrain_ already guards this call
-                // too.
-                auto holder_probe = [db_name, interpreter_context]() -> dbms::DbmsHandler::DrainBlockers {
-                  try {
-                    const auto asked_to_abort =
-                        interpreter_context->interpreters.WithLock([db_name](auto &interpreters) {
-                          return InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name).size();
-                        });
-                    return dbms::DbmsHandler::DrainBlockers{
-                        .transactions_asked_to_abort = static_cast<uint64_t>(asked_to_abort), .probe_ran = true};
-                  } catch (...) {
-                    return {};
-                  }
-                };
-
                 std::optional<dbms::DbmsHandler::DrainRequest> drain;
                 if (force_abort) {
-                  drain.emplace(dbms::DbmsHandler::DrainRequest{
-                      .deadline = dbms::DbmsHandler::kDrainDeadline, .probe = holder_probe, .report = &drain_report});
+                  drain.emplace(dbms::DbmsHandler::DrainRequest{.deadline = dbms::DbmsHandler::kDrainDeadline,
+                                                                .report = &drain_report});
                 }
                 success = db_handler->Delete(
                     db_name, &*interpreter->system_transaction_, cooperative_cancel, drain ? &*drain : nullptr);
@@ -8772,32 +8756,13 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, std::vector<No
             // Stays silent on CONVERGED so FORCE ABORT is a drop-in for plain FORCE; dbms already spdlog::warn's
             // EXPIRED, this is just the operator-facing half. No throw reached here, so Phase 3 did land DETACHED.
             if (notifications != nullptr && drain_report.outcome == dbms::DbmsHandler::DrainOutcome::EXPIRED) {
-              const auto asked_to_abort = drain_report.blockers.transactions_asked_to_abort;
-              const auto residual = drain_report.holders_remaining > asked_to_abort
-                                        ? drain_report.holders_remaining - asked_to_abort
-                                        : uint64_t{0};
               std::string description = fmt::format(
-                  "Waited {} ms for the last holders of \"{}\" to let go after asking them to stop; {} holder(s) "
-                  "remain, so the database is now DETACHED and its memory stays accounted for until the last "
-                  "holder releases it.",
-                  drain_report.waited.count(),
+                  "\"{}\" was force-dropped, but {} holder(s) still had it after waiting {} ms, so the database is "
+                  "now DETACHED and its memory stays accounted for until the last holder releases it. The name "
+                  "\"{}\" is free for immediate reuse; watch the tenant retire with SHOW DATABASES.",
                   db_name,
-                  drain_report.holders_remaining);
-              if (asked_to_abort > 0) {
-                description += fmt::format(
-                    " {} transaction(s) on this database were asked to abort and have not released it yet: an "
-                    "explicit transaction is released only when its client sends ROLLBACK, and a transaction "
-                    "waiting for this database's storage lock only notices the abort once that wait ends.",
-                    asked_to_abort);
-              }
-              if (residual > 0) {
-                description += fmt::format(
-                    " {} remaining holder(s) are attached to no transaction: an idle client session that "
-                    "selected this database (it releases on its next request), or in-flight replication work.",
-                    residual);
-              }
-              description += fmt::format(
-                  " The name \"{}\" is free for immediate reuse; watch the tenant retire with SHOW DATABASES.",
+                  drain_report.holders_remaining,
+                  drain_report.waited.count(),
                   db_name);
               notifications->emplace_back(SeverityLevel::WARNING,
                                           NotificationCode::DROP_DATABASE_DETACHED,

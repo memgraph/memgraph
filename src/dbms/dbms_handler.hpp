@@ -340,23 +340,11 @@ class DbmsHandler {
   // wait outcome for a caller that always reads a DrainReport regardless of whether it supplied one.
   enum class DrainOutcome : uint8_t { NOT_REQUESTED, CONVERGED, EXPIRED };
 
-  // Counts the query layer can attribute at expiry. Numbers only: the operator-facing wording lives in
-  // the query layer, which owns user-visible text.
-  struct DrainBlockers {
-    uint64_t transactions_asked_to_abort{0};
-    bool probe_ran{false};
-  };
-
   struct DrainReport {  // caller-owned; Delete_ only writes it
     DrainOutcome outcome{DrainOutcome::NOT_REQUESTED};
     std::chrono::milliseconds waited{0};
     uint64_t holders_remaining{0};
-    DrainBlockers blockers{};
   };
-
-  // Diagnostic-only holder breakdown, sampled once at expiry (see AwaitDrain_'s catch(...) around this
-  // call -- an escaping throw here must not fail an otherwise-honoured, merely-expired drop).
-  using HolderProbeFn = std::function<DrainBlockers()>;
 
   // Opt-in bounded wait for Delete_'s Phase 2 (off-lock) window: after asking outside holders to
   // release (cooperative_cancel, looped), wait up to `deadline` for the tenant's own drop accessor to
@@ -365,7 +353,6 @@ class DbmsHandler {
   // (Delete(uuid) -> Delete_) stays excluded from the deadline by construction.
   struct DrainRequest {
     std::chrono::milliseconds deadline{};
-    HolderProbeFn probe{};
     DrainReport *report{nullptr};
   };
 

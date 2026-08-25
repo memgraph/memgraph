@@ -832,12 +832,11 @@ void DbmsHandler::AwaitDrain_(utils::Gatekeeper<Database> *gk, Database *databas
   const auto started = clock::now();
   const auto expiry = started + drain.deadline;
 
-  auto finish = [&](DrainOutcome outcome, uint64_t holders_remaining, DrainBlockers blockers) {
+  auto finish = [&](DrainOutcome outcome, uint64_t holders_remaining) {
     if (!drain.report) return;
     *drain.report = DrainReport{.outcome = outcome,
                                 .waited = duration_cast<milliseconds>(clock::now() - started),
-                                .holders_remaining = holders_remaining,
-                                .blockers = blockers};
+                                .holders_remaining = holders_remaining};
   };
 
   for (;;) {
@@ -848,30 +847,19 @@ void DbmsHandler::AwaitDrain_(utils::Gatekeeper<Database> *gk, Database *databas
     if (holders <= 1) {
       // <= 1, not == 1: Phase 1's drain_bypass accessor keeps holder_count() >= 1 here (it's reset at
       // line 1022, after this wait) -- <= 1 just keeps this safe if that ordering ever changes.
-      finish(DrainOutcome::CONVERGED, 0, {});
+      finish(DrainOutcome::CONVERGED, 0);
       spdlog::info(R"(Database "{}" finished draining after {} ms; proceeding with the drop.)",
                    database->name(),
                    duration_cast<milliseconds>(clock::now() - started).count());
       return;
     }
     if (clock::now() >= expiry) {
-      DrainBlockers blockers{};
-      if (drain.probe) {
-        // MANDATORY: an escaping throw here unwinds into rollback_drain and turns an honoured EXPIRED
-        // outcome into a FAILED one -- a diagnostic must never fail an otherwise-good drop.
-        try {
-          blockers = drain.probe();
-        } catch (...) {
-        }
-      }
       const auto holders_remaining = holders - 1;
-      finish(DrainOutcome::EXPIRED, holders_remaining, blockers);
-      spdlog::warn(
-          R"(Database "{}" still has {} holder(s) after waiting {} ms to drain; {} transaction(s) were asked to abort and have not released it yet.)",
-          database->name(),
-          holders_remaining,
-          duration_cast<milliseconds>(clock::now() - started).count(),
-          blockers.transactions_asked_to_abort);
+      finish(DrainOutcome::EXPIRED, holders_remaining);
+      spdlog::warn(R"(Database "{}" still has {} holder(s) after waiting {} ms to drain.)",
+                   database->name(),
+                   holders_remaining,
+                   duration_cast<milliseconds>(clock::now() - started).count());
       return;
     }
     // Guarded here, unlike the pre-loop call in Delete_'s Phase 2: Phase 2's joins/DropAll already ran and
