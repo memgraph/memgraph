@@ -16,7 +16,6 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
-#include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/pruning_bfs.hpp"
 
@@ -149,9 +148,22 @@ TEST_F(PruningBFSRewriteTest, MarksAnExpansionWhoseBoundOnlyTheParametersSettle)
 }
 
 TEST_F(PruningBFSRewriteTest, LeavesAnExpansionWhoseBoundTheRowSupplies) {
-  // Read from the row being expanded, the bound can differ from row to row, so
-  // no single choice of walk is right for the whole expansion.
+  // A property lookup is neither a literal nor a parameter, so the bound is not
+  // resolvable and the expansion stays depth-first.
   lower_bound = BoundFromTheRow();
+  auto const type = RewrittenType([](auto input) { return input; });
+  EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
+}
+
+TEST_F(PruningBFSRewriteTest, LeavesAnExpansionWhoseBoundIsANonTrivialExpression) {
+  // An addition of two literals reads no symbol but is neither a literal nor a
+  // parameter, so ConstExternalPropertyValue cannot resolve it.
+  auto *lhs = storage.Create<PrimitiveLiteral>(storage::ExternalPropertyValue{static_cast<int64_t>(0)}, 0);
+  auto *rhs = storage.Create<PrimitiveLiteral>(storage::ExternalPropertyValue{static_cast<int64_t>(1)}, 0);
+  auto *add = storage.Create<AdditionOperator>();
+  add->expression1_ = lhs;
+  add->expression2_ = rhs;
+  lower_bound = add;
   auto const type = RewrittenType([](auto input) { return input; });
   EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
 }
