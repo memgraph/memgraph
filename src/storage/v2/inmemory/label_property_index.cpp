@@ -1206,8 +1206,7 @@ void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid()
     // is already past the group.
     ++index_iterator_;
     if (index_iterator_ != self_->index_accessor_.end() && index_iterator_->values[0] == leading_value) {
-      std::array<PropertyValue, 1> seek_key{leading_value};
-      index_iterator_ = self_->index_accessor_.find_greater(std::span<PropertyValue const>{seek_key});
+      index_iterator_ = self_->index_accessor_.find_greater(std::span<PropertyValue const>{&leading_value, 1});
     }
     current_vertex_ = nullptr;
   }
