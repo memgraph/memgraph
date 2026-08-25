@@ -118,3 +118,6 @@ add_test(NAME ${test_prefix}usearch_index_add_simsimd COMMAND $<TARGET_FILE:${te
 set_tests_properties(${test_prefix}usearch_index_add_simsimd PROPERTIES LABELS "benchmark")
 add_dependencies(memgraph__benchmark ${test_prefix}usearch_index_add_simsimd)
 ]]
+
+add_benchmark(memory_new_delete.cpp)
+target_link_libraries(${test_prefix}memory_new_delete mg-utils)
