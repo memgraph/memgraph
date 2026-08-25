@@ -430,7 +430,9 @@ TEST(DBMS_Handler, MigratesV0DefaultDbDurabilityAndRestoresTenant) {
 TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
   auto &dbms = *TestEnvironment::get();
 
+#if USE_JEMALLOC
   const int64_t global_baseline = memgraph::utils::graph_memory_tracker.Amount();
+#endif
 
   auto new_t1 = dbms.New("starve_orphan_t1");
   ASSERT_TRUE(new_t1.has_value()) << (int)new_t1.error();
@@ -463,10 +465,12 @@ TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
   write_payload(t1_acc);
   write_payload(t2_acc);
 
+#if USE_JEMALLOC
   constexpr int64_t kTightToleranceBytes = 64 * 1024;
   const int64_t global_with_both = memgraph::utils::graph_memory_tracker.Amount();
   ASSERT_GT(global_with_both - global_baseline, static_cast<int64_t>(2 * kNumVertices * kPropertyBytes))
       << "both t1 and t2 must have an unambiguous, measurable footprint before either is deleted";
+#endif
 
   // Both accessors are still held, so both deletes take DeferDelete's deferred path: try_delete()'s
   // count_==1 check fails while t1_acc / t2_acc are outstanding.
@@ -488,6 +492,7 @@ TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
   EXPECT_TRUE(std::filesystem::exists(t1_dir))
       << "t1 is still held by t1_acc, so its destruction must NOT have completed";
 
+#if USE_JEMALLOC
   // The customer-visible symptom: roughly one tenant's worth of memory (t2's) comes back while
   // roughly one tenant's worth (t1's) is still held.
   const int64_t after_t2 = memgraph::utils::graph_memory_tracker.Amount();
@@ -497,15 +502,23 @@ TEST(DBMS_Handler, StuckOrphanDoesNotStarveAnotherTenantsDeferredDelete) {
   EXPECT_GT(after_t2 - global_baseline, static_cast<int64_t>(kNumVertices * kPropertyBytes))
       << "t1's memory must still be accounted for while t1_acc is alive; now=" << after_t2
       << " baseline=" << global_baseline;
+#endif
 
   t1_acc.reset();
 
+#if USE_JEMALLOC
   const bool both_recovered = WaitUntil(std::chrono::seconds(10), [&] {
     return AbsDiff(memgraph::utils::graph_memory_tracker.Amount(), global_baseline) <= kTightToleranceBytes;
   });
   EXPECT_TRUE(both_recovered) << "both t1 and t2 must eventually be reclaimed once t1_acc is released; "
                                  "current amount: "
                               << memgraph::utils::graph_memory_tracker.Amount() << ", baseline: " << global_baseline;
+#else
+  // Without jemalloc the memory tracker reads 0, so t1_dir's disappearance is the completion signal
+  // that both deferred destructions ran once t1_acc was released.
+  EXPECT_TRUE(WaitUntil(std::chrono::seconds(10), [&] { return !std::filesystem::exists(t1_dir); }))
+      << "t1's deferred destruction must complete once its accessor is released; " << t1_dir << " is still present";
+#endif
   EXPECT_FALSE(std::filesystem::exists(t1_dir))
       << "t1's deferred destruction must complete once its accessor is released; " << t1_dir << " is still present";
 }
@@ -536,12 +549,14 @@ TEST(DBMS_Handler, DetachedTenantMemoryStaysAttributableWhileUnaddressable) {
     ASSERT_TRUE(storage_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
+#if USE_JEMALLOC
   const int64_t footprint = acc->DbMemoryUsage();
   ASSERT_GT(footprint, static_cast<int64_t>(kNumVertices * kPropertyBytes))
       << "the footprint must be unambiguous before it is used as a tolerance baseline below";
 
   const auto before = dbms.TenantMemorySum();
   ASSERT_GE(before.hot, footprint);
+#endif
 
   // Force-drop while acc is still held: try_delete() times out and the destruction is deferred onto
   // its own drain thread (see DbmsHandler::Delete's single-arg, no-transaction overload).
@@ -569,14 +584,17 @@ TEST(DBMS_Handler, DetachedTenantMemoryStaysAttributableWhileUnaddressable) {
     EXPECT_EQ(it->name, "detached_mem_t1");
     EXPECT_EQ(it->reason, memgraph::dbms::DbmsHandler::DetachReason::DROP);
     EXPECT_GE(it->holders_at_detach, 1u);
+#if USE_JEMALLOC
     EXPECT_LE(AbsDiff(it->memory_at_detach, footprint), footprint / 10)
         << "memory_at_detach=" << it->memory_at_detach << " footprint=" << footprint;
+#endif
   }
   {
     const auto statuses = dbms.AllWithHotColdStatus();
     EXPECT_TRUE(std::ranges::any_of(
         statuses, [](auto const &kv) { return kv.first == "detached_mem_t1" && kv.second == "DETACHED"; }));
   }
+#if USE_JEMALLOC
   {
     // The two halves are asserted separately on purpose: a regression that simply stopped counting the
     // tenant anywhere would still pass a test that only checked the (hot + detached) total.
@@ -585,6 +603,7 @@ TEST(DBMS_Handler, DetachedTenantMemoryStaysAttributableWhileUnaddressable) {
     EXPECT_GE(after.detached, footprint - tolerance) << "the bytes must have moved into the detached half";
     EXPECT_LE(after.hot, before.hot - (footprint - tolerance)) << "and must have left the hot half";
   }
+#endif
 
   acc.reset();
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
