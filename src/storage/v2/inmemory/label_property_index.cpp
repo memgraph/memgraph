@@ -1177,8 +1177,7 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::operator++() {
 template <typename EntryT>
 void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid() {
   constexpr bool is_desc = EntryT::kOrder == IndexOrder::DESC;
-  auto const &predicates = self_->value_predicates_;
-  auto const has_predicates = std::ranges::any_of(predicates, [](auto const &p) { return !!p; });
+  auto const &leading_predicate = !self_->value_predicates_.empty() ? self_->value_predicates_[0] : nullptr;
 
   while (true) {
     AdvanceUntilValid_(index_iterator_,
@@ -1197,19 +1196,10 @@ void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid()
                        /*use_cache=*/true,
                        /*reverse_iteration=*/is_desc);
 
-    if (!has_predicates || index_iterator_ == self_->index_accessor_.end()) break;
+    if (!leading_predicate || index_iterator_ == self_->index_accessor_.end()) break;
 
-    // Test value predicates on the found entry's leading value.
-    // If rejected, seek past the entire value group and retry.
     auto const &leading_value = index_iterator_->values[0];
-    bool accepted = true;
-    for (auto const &predicate : predicates) {
-      if (predicate && !predicate(leading_value)) {
-        accepted = false;
-        break;
-      }
-    }
-    if (accepted) break;
+    if (leading_predicate(leading_value)) break;
 
     // Advance one entry. If the next entry has the same value, the group
     // is large enough to warrant an O(log n) seek; otherwise the iterator
