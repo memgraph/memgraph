@@ -1028,11 +1028,13 @@ TEST(DBMS_Handler, DrainingTenantIsVisibleAndCountedExactlyOnce) {
     ASSERT_TRUE(storage_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
+#if USE_JEMALLOC
   const int64_t footprint = acc->DbMemoryUsage();
   ASSERT_GT(footprint, static_cast<int64_t>(kNumVertices * kPropertyBytes))
       << "the footprint must be unambiguous before it is used as a tolerance baseline below";
   const auto before = dbms.TenantMemorySum();
   ASSERT_GE(before.hot, footprint);
+#endif
 
   PhaseTwoStall stall{acc};
   ASSERT_TRUE(stall.WaitUntilRunning()) << "the stalling task must start before the drop begins";
@@ -1068,6 +1070,7 @@ TEST(DBMS_Handler, DrainingTenantIsVisibleAndCountedExactlyOnce) {
       return kv.first == "draining_visibility_probe" && kv.second == "HOT";
     })) << "a draining tenant must not ALSO be reported HOT";
   }
+#if USE_JEMALLOC
   {
     const auto during = dbms.TenantMemorySum();
     const int64_t tolerance = footprint / 10;
@@ -1076,6 +1079,7 @@ TEST(DBMS_Handler, DrainingTenantIsVisibleAndCountedExactlyOnce) {
     EXPECT_GE(during.detached, footprint - tolerance)
         << "its bytes must be attributed via the detached half while draining, or they vanish from every total";
   }
+#endif
   {
     const auto all_detached = dbms.AllDetached();
     const auto matches = std::ranges::count_if(all_detached, [&](auto const &d) { return d.uuid == tenant_uuid; });
