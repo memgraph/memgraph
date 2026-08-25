@@ -61,8 +61,6 @@ class PostProcessor final {
 
  public:
   IndexHints index_hints_{};
-  /// Set by a rewrite that read a parameter to settle the plan's shape. Only
-  /// ever set, so it spans every candidate plan considered for the query.
 
   using ProcessedPlan = std::unique_ptr<LogicalOperator>;
 
@@ -134,8 +132,6 @@ auto MakeLogicalPlanForSingleQuery(QueryParts query_parts, PlanningContext<TDbAc
 struct MakeLogicalPlanResult {
   PostProcessor::ProcessedPlan plan;
   double cost;
-  /// Whether a rewrite settled the plan's shape by reading a parameter, leaving
-  /// it correct only for the parameters it was planned with.
 };
 
 /// Generates the LogicalOperator tree and returns the resulting plan.
