@@ -16,11 +16,11 @@
 
 #include <nlohmann/json_fwd.hpp>
 
-#include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 
 namespace memgraph::query {
 class DbAccessor;
+struct Parameters;
 
 namespace plan {
 class LogicalOperator;
