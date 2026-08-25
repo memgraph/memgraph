@@ -343,16 +343,18 @@ include(SplitDebug)
 #debug flags
 set(PREFERRED_DEBUGGER "gdb" CACHE STRING
     "Tunes the debug output for your preferred debugger (gdb or lldb).")
+# -Og is the optimisation level meant to be debugged: it leaves assertions, and the code paths
+# they guard, exactly as they are, while costing a fraction of what unoptimised code does to run.
 if ("${PREFERRED_DEBUGGER}" STREQUAL "gdb" AND
     "${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang|GNU")
-    set(CMAKE_CXX_FLAGS_DEBUG "-ggdb")
+    set(CMAKE_CXX_FLAGS_DEBUG "-ggdb -Og")
 elseif ("${PREFERRED_DEBUGGER}" STREQUAL "lldb" AND
         "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-    set(CMAKE_CXX_FLAGS_DEBUG "-glldb")
+    set(CMAKE_CXX_FLAGS_DEBUG "-glldb -Og")
 else()
     message(WARNING "Unable to tune for PREFERRED_DEBUGGER: "
             "'${PREFERRED_DEBUGGER}' with compiler: '${CMAKE_CXX_COMPILER_ID}'")
-    set(CMAKE_CXX_FLAGS_DEBUG "-g")
+    set(CMAKE_CXX_FLAGS_DEBUG "-g -Og")
 endif()
 
 # -----------------------------------------------------------------------------
