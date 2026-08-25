@@ -488,5 +488,56 @@ def test_is_not_null_upgraded_to_string_predicate(memgraph, predicate, expected)
     assert [r["t"] for r in result] == expected
 
 
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "n.a = 'k000' AND n.b CONTAINS '5'",
+        "n.a = 'k000' AND n.b ENDS WITH '0'",
+        "n.a = 'k000' AND n.b =~ '.*5'",
+    ],
+)
+def test_composite_index_non_leading_string_predicate(memgraph, predicate):
+    for label in ("CIDX", "CPLAIN"):
+        memgraph.execute(
+            f"FOREACH (i IN range(0,99) | FOREACH (j IN range(0,99) | "
+            f"CREATE (:{label} {{a:'k'+right('00'+toString(i),3), b:'v'+right('00'+toString(j),3)}})));"
+        )
+    memgraph.execute("CREATE INDEX ON :CIDX(a, b);")
+    q = "MATCH (n:{L}) WHERE {p} RETURN n.a AS a, n.b AS b ORDER BY a, b"
+    indexed = [(r["a"], r["b"]) for r in memgraph.execute_and_fetch(q.format(L="CIDX", p=predicate))]
+    plain = [(r["a"], r["b"]) for r in memgraph.execute_and_fetch(q.format(L="CPLAIN", p=predicate))]
+    memgraph.execute("DROP INDEX ON :CIDX(a, b);")
+    assert indexed == plain
+    assert indexed
+
+
+@pytest.fixture
+def duplicate_leading_graph(memgraph):
+    memgraph.execute("CREATE INDEX ON :DUP(type);")
+    memgraph.execute(
+        "FOREACH (i IN range(1, 100) | "
+        "FOREACH (t IN ['alpha', 'beta', 'gamma'] | "
+        "CREATE (:DUP {type: t, seq: i})));"
+    )
+    yield memgraph
+    memgraph.execute("DROP INDEX ON :DUP(type);")
+
+
+@pytest.mark.parametrize(
+    "predicate,expected_type",
+    [
+        ("n.type CONTAINS 'lph'", "alpha"),
+        ("n.type ENDS WITH 'ta'", "beta"),
+        ("n.type =~ 'gam.*'", "gamma"),
+    ],
+)
+def test_skip_scan_with_duplicate_leading_values(memgraph, duplicate_leading_graph, predicate, expected_type):
+    q = f"MATCH (n:DUP) WHERE {predicate} RETURN DISTINCT n.type AS t"
+    result = [r["t"] for r in memgraph.execute_and_fetch(q)]
+    assert result == [expected_type]
+    q_count = f"MATCH (n:DUP) WHERE {predicate} RETURN count(n) AS c"
+    assert list(memgraph.execute_and_fetch(q_count))[0]["c"] == 100
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
