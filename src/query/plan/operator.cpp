@@ -200,13 +200,11 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
           auto const &search_term = typed_value.ValueString();
           if (type_ == Type::CONTAINS) {
             range.SetValuePredicate([s = std::string(search_term)](storage::PropertyValue const &v) {
-              return v.IsString() && v.ValueString().find(s) != std::string::npos;
+              return v.IsString() && v.ValueString().contains(s);
             });
           } else if (type_ == Type::ENDS_WITH) {
             range.SetValuePredicate([s = std::string(search_term)](storage::PropertyValue const &v) {
-              if (!v.IsString()) return false;
-              auto const &vs = v.ValueString();
-              return vs.size() >= s.size() && vs.compare(vs.size() - s.size(), s.size(), s) == 0;
+              return v.IsString() && v.ValueString().ends_with(s);
             });
           } else {
             try {
