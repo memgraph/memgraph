@@ -24,19 +24,31 @@ namespace {
 
 /// Whether the rows reaching the deduplication already differ somewhere within its key, which
 /// leaves it nothing to remove.
-bool KeepsEveryRowAnyway(Distinct const &distinct, SymbolTable const &symbol_table) {
-  auto const key = CandidateKeyOf(*distinct.input_, symbol_table);
+bool KeepsEveryRowAnyway(Distinct const &distinct, SymbolTable const &symbol_table,
+                         UniqueConstraints const &unique_constraints) {
+  auto const key = CandidateKeyOf(*distinct.input_, symbol_table, unique_constraints);
   if (!key) return false;
   return std::ranges::all_of(*key, [&](Symbol const &symbol) {
     return std::ranges::find(distinct.value_symbols_, symbol) != distinct.value_symbols_.end();
   });
 }
 
+/// Whether the plan holds a deduplication this can reach, which is the root or one below a run of
+/// operators each having the one input to walk into.
+bool HoldsADeduplication(LogicalOperator const &root_op) {
+  auto const *op = &root_op;
+  while (true) {
+    if (op->GetTypeInfo() == Distinct::kType) return true;
+    if (!op->HasSingleInput() || !op->input()) return false;
+    op = op->input().get();
+  }
+}
+
 }  // namespace
 
-std::unique_ptr<LogicalOperator> RewriteWithDistinctRemoval(std::unique_ptr<LogicalOperator> root_op,
-                                                            SymbolTable const *symbol_table, bool parallel_execution,
-                                                            AstStorage *ast_storage) {
+std::unique_ptr<LogicalOperator> RewriteWithDistinctRemoval(
+    std::unique_ptr<LogicalOperator> root_op, SymbolTable const *symbol_table, bool parallel_execution,
+    AstStorage *ast_storage, std::function<UniqueConstraints()> const &read_unique_constraints) {
   // Several cursors then divide the rows between them, and a set of symbols separating the rows one
   // of them produces need not separate the rows of the plan.
   if (parallel_execution) return root_op;
@@ -47,8 +59,11 @@ std::unique_ptr<LogicalOperator> RewriteWithDistinctRemoval(std::unique_ptr<Logi
   using RWType = ReadWriteTypeChecker::RWType;
   if (writes.type != RWType::R && writes.type != RWType::NONE) return root_op;
 
+  if (!HoldsADeduplication(*root_op)) return root_op;
+  auto const unique_constraints = read_unique_constraints();
+
   if (auto const *distinct = utils::Downcast<Distinct>(root_op.get());
-      distinct != nullptr && KeepsEveryRowAnyway(*distinct, *symbol_table)) {
+      distinct != nullptr && KeepsEveryRowAnyway(*distinct, *symbol_table, unique_constraints)) {
     // The tree below is shared while a plan is owned outright, so what is kept is copied out.
     return distinct->input_->Clone(ast_storage);
   }
@@ -59,7 +74,7 @@ std::unique_ptr<LogicalOperator> RewriteWithDistinctRemoval(std::unique_ptr<Logi
   while (parent->HasSingleInput() && parent->input()) {
     auto const input = parent->input();
     auto const *distinct = utils::Downcast<Distinct>(input.get());
-    if (distinct != nullptr && KeepsEveryRowAnyway(*distinct, *symbol_table)) {
+    if (distinct != nullptr && KeepsEveryRowAnyway(*distinct, *symbol_table, unique_constraints)) {
       parent->set_input(distinct->input_);
       continue;
     }

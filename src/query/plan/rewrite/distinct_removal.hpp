@@ -11,7 +11,10 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
+
+#include "query/plan/candidate_key.hpp"
 
 namespace memgraph::query {
 class AstStorage;
@@ -26,8 +29,11 @@ class LogicalOperator;
 ///
 /// Set `parallel_execution` where the plan will be run by several cursors at once, which leaves the
 /// rows one of them produces no longer the rows the plan produces.
-std::unique_ptr<LogicalOperator> RewriteWithDistinctRemoval(std::unique_ptr<LogicalOperator> root_op,
-                                                            SymbolTable const *symbol_table, bool parallel_execution,
-                                                            AstStorage *ast_storage);
+///
+/// `read_unique_constraints` is called only where the plan holds a deduplication to consider, since
+/// a query reaching no data is planned with nothing to read them from.
+std::unique_ptr<LogicalOperator> RewriteWithDistinctRemoval(
+    std::unique_ptr<LogicalOperator> root_op, SymbolTable const *symbol_table, bool parallel_execution,
+    AstStorage *ast_storage, std::function<UniqueConstraints()> const &read_unique_constraints);
 
 }  // namespace memgraph::query::plan

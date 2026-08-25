@@ -12,9 +12,12 @@
 #pragma once
 
 #include <optional>
+#include <set>
+#include <utility>
 #include <vector>
 
 #include "query/frontend/semantic/symbol.hpp"
+#include "storage/v2/id_types.hpp"
 
 namespace memgraph::query {
 class SymbolTable;
@@ -24,12 +27,17 @@ namespace memgraph::query::plan {
 
 class LogicalOperator;
 
+/// Sets of properties no two vertices of a label may hold the same values for, as the storage
+/// reports them.
+using UniqueConstraints = std::vector<std::pair<storage::LabelId, std::set<storage::PropertyId>>>;
+
 /// Symbols on which no two rows an operator produces can agree.
 ///
 /// An empty key says the operator produces at most one row, since agreeing on nothing is agreeing.
 /// Nothing is returned where no such set is known, which is the answer for any operator not
 /// accounted for: a wrong key claims rows differ that do not, so only what has been established
 /// gets one.
-std::optional<std::vector<Symbol>> CandidateKeyOf(LogicalOperator const &op, SymbolTable const &symbol_table);
+std::optional<std::vector<Symbol>> CandidateKeyOf(LogicalOperator const &op, SymbolTable const &symbol_table,
+                                                  UniqueConstraints const &unique_constraints);
 
 }  // namespace memgraph::query::plan

@@ -24,6 +24,7 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/plan/planner.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
 #include "query_plan_common.hpp"
 
@@ -50,11 +51,58 @@ class DistinctRemovalTest : public ::testing::Test {
   void SetUp() override {
     db_ = std::make_unique<memgraph::storage::InMemoryStorage>(
         memgraph::storage::Config{.salient = {.items = {.properties_on_edges = true}}});
-    storage_accessor_ = db_->Access(memgraph::storage::WRITE);
-    dba_ = std::make_unique<DbAccessor>(storage_accessor_.get());
+  }
+
+  /// Indexes the properties and declares them unique together, which is what lets a lookup of the
+  /// whole set be answered by at most one vertex.
+  void OnlyOneVertexPer(std::string const &label_name, std::vector<std::string> const &property_names) {
+    auto accessor = db_->UniqueAccess();
+    auto const label = accessor->NameToLabel(label_name);
+    memgraph::storage::PropertiesPaths properties;
+    std::set<memgraph::storage::PropertyId> unique_properties;
+    for (auto const &name : property_names) {
+      auto const property = accessor->NameToProperty(name);
+      properties.emplace_back(property);
+      unique_properties.insert(property);
+    }
+    [[maybe_unused]] auto index = accessor->CreateIndex(label, properties);
+    [[maybe_unused]] auto constraint = accessor->CreateUniqueConstraint(label, unique_properties);
+    ASSERT_TRUE(accessor->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  /// Vertices carrying the label and nothing else, which a property lookup has to account for.
+  void AddVerticesWithoutProperties(std::string const &label_name, int count) {
+    auto accessor = db_->Access(memgraph::storage::WRITE);
+    DbAccessor dba(accessor.get());
+    auto const label = dba.NameToLabel(label_name);
+    for (int i = 0; i != count; ++i) {
+      auto vertex = dba.InsertVertex();
+      MG_ASSERT(vertex.AddLabel(label).has_value());
+    }
+    MG_ASSERT(accessor->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  size_t RowsFor(std::string const &query_string) {
+    auto const plan = PlanFor(query_string);
+    auto const symbols = plan->OutputSymbols(symbol_table_);
+    auto context = MakeContext(ast_, symbol_table_, dba_.get());
+    Frame frame(symbol_table_.max_position());
+    auto cursor = plan->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+    size_t rows = 0;
+    while (cursor->Pull(frame, context)) ++rows;
+    return rows;
   }
 
   bool DeduplicatesFor(std::string const &query_string) {
+    auto const plan = PlanFor(query_string);
+    FindsDistinct finder;
+    plan->Accept(finder);
+    return finder.found;
+  }
+
+  std::unique_ptr<LogicalOperator> PlanFor(std::string const &query_string) {
+    storage_accessor_ = db_->Access(memgraph::storage::WRITE);
+    dba_ = std::make_unique<DbAccessor>(storage_accessor_.get());
     ast_ = AstStorage{};
     memgraph::query::Parameters parameters;
     memgraph::query::frontend::ParsingContext parsing_context{.is_query_cached = false};
@@ -66,11 +114,7 @@ class DistinctRemovalTest : public ::testing::Test {
 
     symbol_table_ = MakeSymbolTable(query);
     auto planning_context = MakePlanningContext(&ast_, &symbol_table_, query, dba_.get());
-    auto plan = MakeLogicalPlan(&planning_context, parameters, /*use_cost_estimator=*/false).plan;
-
-    FindsDistinct finder;
-    plan->Accept(finder);
-    return finder.found;
+    return MakeLogicalPlan(&planning_context, parameters, /*use_cost_estimator=*/false).plan;
   }
 
   std::unique_ptr<memgraph::storage::Storage> db_;
@@ -154,6 +198,42 @@ TEST_F(DistinctRemovalTest, DropsItBeneathALimit) {
 // settled while a query writes.
 TEST_F(DistinctRemovalTest, KeepsItWhereTheQueryWrites) {
   EXPECT_TRUE(DeduplicatesFor("MATCH (n:Item) SET n.id = 1 RETURN DISTINCT n, n.id"));
+}
+
+// Looking a uniquely held property up by its value finds at most one vertex, so the one row the
+// lookup can produce cannot repeat, whatever the projection then returns of it.
+TEST_F(DistinctRemovalTest, DropsItWhereAUniquePropertyIsLookedUpByValue) {
+  OnlyOneVertexPer("Item", {"id"});
+  EXPECT_FALSE(DeduplicatesFor("MATCH (n:Item {id: 1}) RETURN DISTINCT n.id"));
+}
+
+TEST_F(DistinctRemovalTest, KeepsItWhereThePropertyIsNotHeldUnique) {
+  EXPECT_TRUE(DeduplicatesFor("MATCH (n:Item {id: 1}) RETURN DISTINCT n.id"));
+}
+
+// A range admits many vertices where a value admits one.
+TEST_F(DistinctRemovalTest, KeepsItWhereAUniquePropertyIsLookedUpByRange) {
+  OnlyOneVertexPer("Item", {"id"});
+  EXPECT_TRUE(DeduplicatesFor("MATCH (n:Item) WHERE n.id > 1 RETURN DISTINCT n.id"));
+}
+
+// Both properties are needed to hold a vertex to one, so pinning one of them holds nothing.
+TEST_F(DistinctRemovalTest, DropsItWhereEveryPropertyHeldUniqueTogetherIsLookedUpByValue) {
+  OnlyOneVertexPer("Item", {"a", "b"});
+  EXPECT_FALSE(DeduplicatesFor("MATCH (n:Item {a: 1, b: 2}) RETURN DISTINCT n.a"));
+}
+
+TEST_F(DistinctRemovalTest, KeepsItWhereOnlySomeOfThePropertiesHeldUniqueAreLookedUpByValue) {
+  OnlyOneVertexPer("Item", {"a", "b"});
+  EXPECT_TRUE(DeduplicatesFor("MATCH (n:Item {a: 1}) RETURN DISTINCT n.a"));
+}
+
+// Uniqueness says nothing about vertices not carrying the property, of which a label may have many,
+// so the one row the lookup is credited with has to hold for a lookup of null too.
+TEST_F(DistinctRemovalTest, LooksUpNullWithoutFindingTheVerticesLackingTheProperty) {
+  OnlyOneVertexPer("Item", {"id"});
+  AddVerticesWithoutProperties("Item", 3);
+  EXPECT_LE(RowsFor("MATCH (n:Item {id: null}) RETURN DISTINCT n.id"), 1U);
 }
 
 }  // namespace

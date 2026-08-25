@@ -58,6 +58,17 @@ auto operator|(T &&value, F &&func) -> decltype(func(std::forward<T>(value))) {
   return func(std::forward<T>(value));
 }
 
+/// Reads the sets of properties held unique per label, which say when a lookup of a value can be
+/// answered by at most one vertex.
+template <class TDbAccessor>
+UniqueConstraints UniqueConstraintsOf(TDbAccessor *db) {
+  // A query reaching no data is planned without an accessor to read them from, and nothing can then
+  // be shown to be held unique.
+  auto *accessor = db->GetStorageAccessor();
+  if (accessor == nullptr) return {};
+  return accessor->ListAllConstraints().unique;
+}
+
 class PostProcessor final {
   Parameters parameters_;
 
@@ -93,7 +104,10 @@ class PostProcessor final {
            [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithPruningBFS(std::move(p), symbol_table, parameters_, &reads_parameters_); } |
            [&](auto p) { return RewriteWithDistinctKey(std::move(p), symbol_table); } |
-           [&](auto p) { return RewriteWithDistinctRemoval(std::move(p), symbol_table, parallel_exec, ast); }
+           [&](auto p) {
+             return RewriteWithDistinctRemoval(
+                 std::move(p), symbol_table, parallel_exec, ast, [&db] { return UniqueConstraintsOf(db); });
+           }
 #ifdef MG_ENTERPRISE
            |
            // Keep at the end

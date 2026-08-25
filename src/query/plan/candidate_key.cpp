@@ -12,6 +12,7 @@
 #include "query/plan/candidate_key.hpp"
 
 #include <algorithm>
+#include <set>
 
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
@@ -31,9 +32,9 @@ void Add(Key &key, Symbol const &symbol) {
 /// Named one by one rather than by their common base, which edge scans share while binding symbols
 /// beyond the one it carries.
 bool ReachesEachVertexOnce(utils::TypeInfo const &type) {
-  return type == ScanAll::kType || type == ScanAllByLabel::kType || type == ScanAllByLabelProperties::kType ||
-         type == ScanAllById::kType || type == ScanAllByVertexProperty::kType ||
-         type == ScanAllByPointDistance::kType || type == ScanAllByPointWithinbbox::kType;
+  return type == ScanAll::kType || type == ScanAllByLabel::kType || type == ScanAllById::kType ||
+         type == ScanAllByVertexProperty::kType || type == ScanAllByPointDistance::kType ||
+         type == ScanAllByPointWithinbbox::kType;
 }
 
 /// Operators passing on a subset of the rows they are given, in some order, binding nothing.
@@ -58,17 +59,48 @@ std::optional<Key> ThroughProjection(Key const &key, Produce const &produce, Sym
   return projected;
 }
 
+/// Whether the lookup can be answered by at most one vertex, which holds where it pins to a value
+/// every property of some set the label holds unique together. Pinning only some of such a set
+/// holds nothing, and a range pins nothing at all.
+bool HoldsAtMostOneVertex(ScanAllByLabelProperties const &scan, UniqueConstraints const &unique_constraints) {
+  std::set<storage::PropertyId> pinned;
+  // A lookup may leave trailing properties of a composite index unconstrained, giving fewer ranges
+  // than properties, and a property with no range pins nothing.
+  auto const constrained = std::min(scan.properties_.size(), scan.expression_ranges_.size());
+  for (size_t i = 0; i != constrained; ++i) {
+    if (scan.expression_ranges_[i].type_ != PropertyFilter::Type::EQUAL) continue;
+    // A constraint is held over properties of the vertex, which a path reaching inside one is not.
+    if (scan.properties_[i].size() != 1) continue;
+    pinned.insert(scan.properties_[i][0]);
+  }
+  if (pinned.empty()) return false;
+  return std::ranges::any_of(unique_constraints, [&](auto const &constraint) {
+    return constraint.first == scan.label_ && std::ranges::includes(pinned, constraint.second);
+  });
+}
+
 }  // namespace
 
-std::optional<Key> CandidateKeyOf(LogicalOperator const &op, SymbolTable const &symbol_table) {
+std::optional<Key> CandidateKeyOf(LogicalOperator const &op, SymbolTable const &symbol_table,
+                                  UniqueConstraints const &unique_constraints) {
   auto const &type = op.GetTypeInfo();
 
   // One row, so there is no second row to agree with it.
   if (type == Once::kType) return Key{};
 
+  // A lookup holding at most one vertex produces at most one row for each it is given, so those
+  // rows stand in for the rows below and are told apart by whatever tells those apart.
+  if (type == ScanAllByLabelProperties::kType) {
+    auto const &scan = static_cast<ScanAllByLabelProperties const &>(op);
+    auto key = CandidateKeyOf(*scan.input(), symbol_table, unique_constraints);
+    if (!key) return std::nullopt;
+    if (!HoldsAtMostOneVertex(scan, unique_constraints)) Add(*key, scan.output_symbol_);
+    return key;
+  }
+
   if (ReachesEachVertexOnce(type)) {
     auto const &scan = static_cast<ScanAll const &>(op);
-    auto key = CandidateKeyOf(*scan.input(), symbol_table);
+    auto key = CandidateKeyOf(*scan.input(), symbol_table, unique_constraints);
     if (!key) return std::nullopt;
     Add(*key, scan.output_symbol_);
     return key;
@@ -79,17 +111,17 @@ std::optional<Key> CandidateKeyOf(LogicalOperator const &op, SymbolTable const &
   // the vertex reached does not.
   if (type == Expand::kType) {
     auto const &expand = static_cast<Expand const &>(op);
-    auto key = CandidateKeyOf(*expand.input(), symbol_table);
+    auto key = CandidateKeyOf(*expand.input(), symbol_table, unique_constraints);
     if (!key) return std::nullopt;
     Add(*key, expand.common_.edge_symbol);
     return key;
   }
 
-  if (PassesRowsOn(type)) return CandidateKeyOf(*op.input(), symbol_table);
+  if (PassesRowsOn(type)) return CandidateKeyOf(*op.input(), symbol_table, unique_constraints);
 
   if (type == Produce::kType) {
     auto const &produce = static_cast<Produce const &>(op);
-    auto const key = CandidateKeyOf(*produce.input(), symbol_table);
+    auto const key = CandidateKeyOf(*produce.input(), symbol_table, unique_constraints);
     if (!key) return std::nullopt;
     return ThroughProjection(*key, produce, symbol_table);
   }
@@ -101,7 +133,7 @@ std::optional<Key> CandidateKeyOf(LogicalOperator const &op, SymbolTable const &
   // group, so the grouped symbols alone separate the rows.
   if (type == Aggregate::kType) {
     auto const &aggregate = static_cast<Aggregate const &>(op);
-    if (!CandidateKeyOf(*aggregate.input(), symbol_table)) return std::nullopt;
+    if (!CandidateKeyOf(*aggregate.input(), symbol_table, unique_constraints)) return std::nullopt;
     Key key;
     for (auto *expression : aggregate.group_by_) {
       auto *identifier = utils::Downcast<Identifier>(expression);
@@ -115,8 +147,8 @@ std::optional<Key> CandidateKeyOf(LogicalOperator const &op, SymbolTable const &
   // keys agrees on neither side alone.
   if (type == Cartesian::kType) {
     auto const &cartesian = static_cast<Cartesian const &>(op);
-    auto left = CandidateKeyOf(*cartesian.left_op_, symbol_table);
-    auto const right = CandidateKeyOf(*cartesian.right_op_, symbol_table);
+    auto left = CandidateKeyOf(*cartesian.left_op_, symbol_table, unique_constraints);
+    auto const right = CandidateKeyOf(*cartesian.right_op_, symbol_table, unique_constraints);
     if (!left || !right) return std::nullopt;
     for (auto const &symbol : *right) Add(*left, symbol);
     return left;

@@ -199,7 +199,11 @@ class VertexCountCache {
 
   operator DbAccessor const &() const { return *db_; }
 
-  auto GetStorageAccessor() const -> storage::Storage::Accessor * { return db_->GetStorageAccessor(); }
+  /// Null where a query reaching no data is planned before a transaction is opened, which leaves
+  /// nothing to read the storage through.
+  auto GetStorageAccessor() const -> storage::Storage::Accessor * {
+    return db_ != nullptr ? db_->GetStorageAccessor() : nullptr;
+  }
 
  private:
   using LabelPropertyKey = std::pair<storage::LabelId, storage::PropertyId>;

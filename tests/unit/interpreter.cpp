@@ -166,6 +166,14 @@ TYPED_TEST(InterpreterTest, ConstantReturnUsesAccessorFreeFastPath) {
     EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
   }
   {
+    // Deduplicating is planned by asking what the storage holds unique, which such a query is
+    // planned with no way of reaching.
+    auto stream = this->Interpret("RETURN DISTINCT 1");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
     auto stream = this->Interpret("RETURN 1");
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "1");
