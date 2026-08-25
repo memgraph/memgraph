@@ -1802,6 +1802,10 @@ TEST(DBMS_Handler, ProtectorStopsBackgroundWorkFromReArmingItself) {
          "this is what fails if is_tenant_marked_for_deletion() stops reporting the drop";
 
   chain_pool.ShutDown();  // bounded: the chain has already stopped, so nothing is in flight
+  // The step closure captures `step` by value so it can re-arm itself; that makes *step own a
+  // shared_ptr to itself -- a cycle the local `step` alone can't break. Clear it now that the pool is
+  // joined (no task still references it) so the control block is freed and LeakSanitizer stays quiet.
+  *step = nullptr;
 }
 
 int main(int argc, char *argv[]) {
