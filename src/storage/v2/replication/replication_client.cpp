@@ -213,7 +213,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                   main_db_name);
     replica_state_.WithLock([&](auto &state) {
       state = ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask(
+      client_.maintenance_pool_.AddTask(
           [main_storage, gk = protector.clone(), this, arena_pool = main_storage->DbArenaPool()] {
             const memory::DbArenaScope db_arena_scope{arena_pool};
             this->RecoverReplica(/*replica_last_commit_ts*/ 0,
@@ -242,7 +242,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // so merging it via the advance-only Max below would restore the stale (inflated) count, undo the reset, and
   // resurface as a persistent negative replication lag. Two things keep this safe: the RECOVERY gate checked here,
   // and the fact that this function and the recovery task both run on the same single-threaded per-client
-  // thread_pool_, so the reset can never execute between this check and the Max merge. Note that engine_lock_ does
+  // maintenance_pool_, so the reset can never execute between this check and the Max merge. Note that engine_lock_ does
   // NOT protect this: the recovery task's reset takes no engine lock. If the pool ever became multi-threaded, this
   // check-then-merge would be racy and would need to hold replica_state_'s lock across both the check and the merge.
   if (*replica_state_.Lock() == ReplicaState::RECOVERY) {
@@ -290,11 +290,11 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     } else {
       spdlog::debug("Replica {} is behind for db {}.", client_.name_, main_db_name);
       state = ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask([main_storage,
-                                    current_commit_timestamp = heartbeat_res.current_commit_timestamp_,
-                                    gk = protector.clone(),
-                                    arena_pool = main_storage->DbArenaPool(),
-                                    this] {
+      client_.maintenance_pool_.AddTask([main_storage,
+                                         current_commit_timestamp = heartbeat_res.current_commit_timestamp_,
+                                         gk = protector.clone(),
+                                         arena_pool = main_storage->DbArenaPool(),
+                                         this] {
         const memory::DbArenaScope db_arena_scope{arena_pool};
         this->RecoverReplica(current_commit_timestamp, main_storage);
       });
@@ -316,7 +316,7 @@ void ReplicationStorageClient::LogRpcFailure() const {
 }
 
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, DatabaseProtector const &protector) {
-  client_.thread_pool_.AddTask(
+  client_.maintenance_pool_.AddTask(
       [main_storage, protector = protector.clone(), arena_pool = main_storage->DbArenaPool(), this]() {
         const memory::DbArenaScope db_arena_scope{arena_pool};
         this->TryCheckReplicaStateSync(main_storage, *protector);
@@ -328,7 +328,7 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
       "Force recovering replica {} for db {}", client_.name_, static_cast<InMemoryStorage *>(main_storage)->name());
   replica_state_.WithLock([&](auto &state) {
     state = ReplicaState::RECOVERY;
-    client_.thread_pool_.AddTask(
+    client_.maintenance_pool_.AddTask(
         [main_storage, gk = protector.clone(), this, arena_pool = main_storage->DbArenaPool()] {
           const memory::DbArenaScope db_arena_scope{arena_pool};
           this->RecoverReplica(/*replica_last_commit_ts*/ 0,
