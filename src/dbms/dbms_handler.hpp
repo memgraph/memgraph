@@ -1115,8 +1115,8 @@ class DbmsHandler {
   // deadline expires). Writes the outcome to `drain.report` if non-null. Runs entirely off `lock_` --
   // see AwaitDrain_'s definition doc for why holder_count()'s "diagnostics only" caveat does not apply
   // here, and why the wait must fail (expire) rather than hang.
-  void AwaitDrain_(utils::Gatekeeper<Database> *gk, Database *database, CooperativeCancelFn const &cooperative_cancel,
-                   DrainRequest const &drain);
+  static void AwaitDrain_(utils::Gatekeeper<Database> *gk, Database *database,
+                          CooperativeCancelFn const &cooperative_cancel, DrainRequest const &drain);
 
   // Drop a COLD (suspended) tenant: erases suspended_ entry, durable cold marker, on-disk data dir,
   // cold shell, and tenant-profile attachment. Returns the dropped UUID on success, or DeleteError
