@@ -4818,8 +4818,8 @@ std::string_view ExpandVariable::OperatorName(Parameters const *parameters) cons
       // makes the runtime decision.
       if (!parameters || !lower_bound_) return "PruningBFSExpand"sv;
       auto const bound = ConstExternalPropertyValue(lower_bound_, *parameters);
-      if (bound && bound->IsInt() && bound->ValueInt() > 1) return "ExpandVariable"sv;
-      return "PruningBFSExpand"sv;
+      if (bound && bound->IsInt() && bound->ValueInt() <= 1) return "PruningBFSExpand"sv;
+      return "ExpandVariable"sv;
     }
     case Type::SINGLE:
       LOG_FATAL("Unexpected ExpandVariable::type_");
