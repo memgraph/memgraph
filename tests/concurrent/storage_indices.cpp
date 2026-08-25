@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <stop_token>
 #include <thread>
 #include <unordered_map>
 
@@ -38,7 +39,7 @@ TEST(Storage, LabelIndex) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  std::vector<std::thread> verifiers;
+  std::vector<std::jthread> verifiers;
   verifiers.reserve(kNumVerifiers);
   for (uint64_t i = 0; i < kNumVerifiers; ++i) {
     verifiers.emplace_back([&store, label, num = i] {
@@ -65,24 +66,23 @@ TEST(Storage, LabelIndex) {
               it->second = true;
             }
           }
-          for (auto &item : gids) {
-            ASSERT_TRUE(item.second);
-            item.second = false;
-          }
+        }
+        for (auto &item : gids) {
+          ASSERT_TRUE(item.second);
+          item.second = false;
         }
       }
     });
   }
 
-  std::vector<std::thread> mutators;
-  std::atomic<bool> mutators_run = true;
+  std::vector<std::jthread> mutators;
   mutators.reserve(kNumMutators);
   for (uint64_t i = 0; i < kNumMutators; ++i) {
-    mutators.emplace_back([&store, &mutators_run, label, num = i] {
+    mutators.emplace_back([&store, label, num = i](std::stop_token stop) {
       memgraph::utils::ThreadSetName(fmt::format("mutator{}", num));
       std::vector<memgraph::storage::Gid> gids;
       gids.resize(kMutatorBatchSize);
-      while (mutators_run.load(std::memory_order_acquire)) {
+      while (!stop.stop_requested()) {
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
           auto acc = store->Access(memgraph::storage::WRITE);
           auto vertex = acc->CreateVertex();
@@ -103,13 +103,11 @@ TEST(Storage, LabelIndex) {
     });
   }
 
-  for (uint64_t i = 0; i < kNumVerifiers; ++i) {
-    verifiers[i].join();
-  }
-
-  mutators_run.store(false, std::memory_order_release);
-  for (uint64_t i = 0; i < kNumMutators; ++i) {
-    mutators[i].join();
+  // Joined here rather than left to scope exit: the verifiers have to run to completion while the
+  // mutators are still writing, which is the whole point of running them together. The mutators are
+  // asked to stop and joined when they go out of scope.
+  for (auto &verifier : verifiers) {
+    verifier.join();
   }
 }
 
@@ -124,7 +122,7 @@ TEST(Storage, LabelPropertyIndex) {
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  std::vector<std::thread> verifiers;
+  std::vector<std::jthread> verifiers;
   verifiers.reserve(kNumVerifiers);
   for (uint64_t i = 0; i < kNumVerifiers; ++i) {
     verifiers.emplace_back([&store, label, prop, num = i] {
@@ -159,24 +157,23 @@ TEST(Storage, LabelPropertyIndex) {
               it->second = true;
             }
           }
-          for (auto &item : gids) {
-            ASSERT_TRUE(item.second);
-            item.second = false;
-          }
+        }
+        for (auto &item : gids) {
+          ASSERT_TRUE(item.second);
+          item.second = false;
         }
       }
     });
   }
 
-  std::vector<std::thread> mutators;
-  std::atomic<bool> mutators_run = true;
+  std::vector<std::jthread> mutators;
   mutators.reserve(kNumMutators);
   for (uint64_t i = 0; i < kNumMutators; ++i) {
-    mutators.emplace_back([&store, &mutators_run, label, prop, num = i] {
+    mutators.emplace_back([&store, label, prop, num = i](std::stop_token stop) {
       memgraph::utils::ThreadSetName(fmt::format("mutator{}", num));
       std::vector<memgraph::storage::Gid> gids;
       gids.resize(kMutatorBatchSize);
-      while (mutators_run.load(std::memory_order_acquire)) {
+      while (!stop.stop_requested()) {
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
           auto acc = store->Access(memgraph::storage::WRITE);
           auto vertex = acc->CreateVertex();
@@ -204,13 +201,11 @@ TEST(Storage, LabelPropertyIndex) {
     });
   }
 
-  for (uint64_t i = 0; i < kNumVerifiers; ++i) {
-    verifiers[i].join();
-  }
-
-  mutators_run.store(false, std::memory_order_release);
-  for (uint64_t i = 0; i < kNumMutators; ++i) {
-    mutators[i].join();
+  // Joined here rather than left to scope exit: the verifiers have to run to completion while the
+  // mutators are still writing, which is the whole point of running them together. The mutators are
+  // asked to stop and joined when they go out of scope.
+  for (auto &verifier : verifiers) {
+    verifier.join();
   }
 }
 
