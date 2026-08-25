@@ -16,6 +16,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "spdlog/spdlog.h"
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -42,18 +43,40 @@ class TransactionReplication {
   // Schedules `encode` on every streaming replica's worker. The single worker per replica keeps this
   // task ordered before the transaction-end task ShipDeltas schedules later. The caller must keep
   // everything `encode` references alive until WaitEncodeDone returns.
+  //
+  // Any encode failure is contained per replica: the stream is dropped and the replica falls back to
+  // recovery, exactly like an RPC failure, so it surfaces as a replication failure in ShipDeltas while
+  // main and the healthy replicas commit. It must never abort main, whose WAL has already recorded the
+  // transaction as committed.
   template <InvocableWithStream F>
   void ScheduleEncode(F encode) {
+    // Reserve first: a push_back that throws after its task was enqueued would orphan a running task
+    // with no future to collect.
+    encode_futures_.reserve(locked_clients->size());
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+      // A streamless replica already failed to start this transaction; there is nothing to encode.
+      // Queueing a no-op would make the commit thread await this replica's worker, whose queue may
+      // hold a recovery or state-check task that blocks on the engine_lock_ this thread holds.
+      if (!replica_stream) {
+        continue;
+      }
       auto *raw_client = client.get();
       auto *stream_ptr = &replica_stream;
-      encode_futures_.push_back(raw_client->ScheduleTask(
-          [raw_client, stream_ptr, encode]() { raw_client->IfStreamingTransaction(encode, *stream_ptr); }));
+      encode_futures_.push_back(raw_client->ScheduleTask([raw_client, stream_ptr, encode]() {
+        try {
+          raw_client->IfStreamingTransaction(encode, *stream_ptr);
+        } catch (...) {
+          spdlog::error("Failed to encode transaction data for replica {}.", raw_client->Name());
+          stream_ptr->reset();
+          raw_client->SetMaybeBehind();
+        }
+      }));
     }
   }
 
-  // Waits for every scheduled encode task; rethrows the first failure only after all of them finished,
-  // so no worker is left referencing the caller's frame.
+  // Waits for every scheduled encode task so no worker is left referencing the caller's frame. Encode
+  // failures are contained inside the tasks, so this throws only on internal future errors — and even
+  // then only after all of the tasks finished.
   void WaitEncodeDone();
 
   // RPC stream won't be destroyed at the end of this function.

@@ -4391,6 +4391,19 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     return positions;
   }};
   auto wal_result = wal_task.get_future();
+  // Every worker borrows this frame (commands, commit_args, streams), so if anything below throws
+  // before the barrier collected them, collect them here; a task that never got enqueued surfaces as
+  // an already-satisfied broken-promise future. On the normal path the barrier already ran and this
+  // is a no-op.
+  auto const collect_workers = utils::OnScopeExit{[&]() noexcept {
+    try {
+      replicating_txn.WaitEncodeDone();
+    } catch (...) {
+    }
+    if (wal_result.valid()) {
+      wal_result.wait();
+    }
+  }};
   mem_storage->wal_worker_.AddTask(std::move(wal_task));
 
   // Each replica encodes on its own worker, concurrently with the WAL task and each other. It does not
@@ -4415,31 +4428,19 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         }
       });
 
-  // Workers reference this frame, so all of them must be collected before leaving on any path. Encoding
-  // must also finish before the commit timestamp is published: EncodeDelta reads live vertex and edge
-  // state, which other transactions may overwrite in place the moment this transaction becomes visible.
-  std::exception_ptr replica_encode_error;
-  try {
-    replicating_txn.WaitEncodeDone();
-  } catch (...) {
-    replica_encode_error = std::current_exception();
-  }
-
-  std::exception_ptr durability_error;
-  try {
-    wal_txn_positions_ = wal_result.get();
-  } catch (...) {
-    durability_error = std::current_exception();
-  }
+  // Workers reference this frame, so all of them must be collected before leaving on any path (the
+  // collect_workers guard backstops the unwind paths). Encoding must also finish before the commit
+  // timestamp is published: EncodeDelta reads live vertex and edge state, which other transactions may
+  // overwrite in place the moment this transaction becomes visible.
+  //
+  // A replica encode failure is contained inside its encode task (the replica drops to recovery) and
+  // surfaces below as a replication failure: main and the healthy replicas still commit, consistent
+  // with the WAL which already recorded the transaction as committed.
+  replicating_txn.WaitEncodeDone();
 
   // A durability failure must not ship transaction ends: no replica can commit without one, and
   // destroying the streams during unwind aborts this transaction on every replica.
-  if (durability_error != nullptr) {
-    std::rethrow_exception(durability_error);
-  }
-  if (replica_encode_error != nullptr) {
-    std::rethrow_exception(replica_encode_error);
-  }
+  wal_txn_positions_ = wal_result.get();
 
   // Ships transaction ends to instances and waits for the reply.
   // Returns only the status of SYNC and STRICT_SYNC replicas.
