@@ -600,5 +600,90 @@ TEST_F(QueryCostEstimator, ExtractListFromInUnwindMatching) {
   EXPECT_EQ(extracted->elements_.size(), 2);
 }
 
+/** A fixture for the string predicates, whose scan is narrowed to the string type rather than to a
+ * span around the search term. Holds a global property index over values spread across the
+ * alphabet, so an estimate that mistook the search term for a bound would move as the term moves. */
+class QueryCostEstimatorStringPredicates : public ::testing::Test {
+ protected:
+  std::unique_ptr<ms::Storage> db = std::make_unique<ms::InMemoryStorage>();
+  std::optional<std::unique_ptr<ms::Storage::Accessor>> storage_dba;
+  std::optional<memgraph::query::DbAccessor> dba;
+  ms::PropertyId prop = db->NameToProperty("s");
+
+  std::shared_ptr<LogicalOperator> last_op_ = std::make_shared<Once>();
+  AstStorage storage_;
+  SymbolTable symbol_table_;
+  Parameters parameters_;
+  int symbol_count = 0;
+
+  static constexpr int kStringCount = 1000;
+
+  void SetUp() override {
+    {
+      auto unique_acc = db->UniqueAccess();
+      ASSERT_TRUE(unique_acc->CreateGlobalVertexIndex(prop).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    storage_dba.emplace(db->Access(memgraph::storage::WRITE));
+    dba.emplace(storage_dba->get());
+    // Spread across the alphabet, so a term mistaken for a bound would cut the count differently
+    // depending on the letter it starts with.
+    for (int i = 0; i < kStringCount; ++i) {
+      auto vertex = dba->InsertVertex();
+      auto value = std::string(1, static_cast<char>('a' + i % 26)) + std::to_string(i);
+      ASSERT_TRUE(vertex.SetProperty(prop, ms::PropertyValue(std::move(value))).has_value());
+    }
+    dba->AdvanceCommand();
+  }
+
+  Symbol NextSymbol() { return symbol_table_.CreateSymbol("Symbol" + std::to_string(symbol_count++), true); }
+
+  template <typename TValue>
+  Expression *Literal(TValue value) {
+    return storage_.Create<PrimitiveLiteral>(value);
+  }
+
+  template <typename TValue>
+  Expression *Parameter(TValue value) {
+    int token_position = parameters_.size();
+    parameters_.Add(token_position, ms::ExternalPropertyValue(value));
+    return storage_.Create<ParameterLookup>(token_position);
+  }
+
+  double CostOf(ExpressionRange range) {
+    last_op_ = std::make_shared<ScanAllByVertexProperty>(nullptr, NextSymbol(), prop, range);
+    CostEstimator<memgraph::query::DbAccessor> cost_estimator(
+        &*dba, symbol_table_, parameters_, memgraph::query::plan::IndexHints());
+    last_op_->Accept(cost_estimator);
+    return cost_estimator.cost();
+  }
+};
+
+TEST_F(QueryCostEstimatorStringPredicates, EstimateDoesNotMoveWithTheSearchTerm) {
+  // Query stripping turns the term into a parameter and the plan cache is keyed on the stripped
+  // text, so a plan costed against one call's term would be handed to every other term. The
+  // estimate therefore has to be the same for all of them, non-strings included.
+  auto const reference = CostOf(ExpressionRange::Contains(Literal("a")));
+  for (auto *term : {Literal("a"), Literal("m"), Literal("z"), Literal("zzzz"), Parameter("z"), Literal(5)}) {
+    EXPECT_FLOAT_EQ(CostOf(ExpressionRange::Contains(term)), reference);
+    EXPECT_FLOAT_EQ(CostOf(ExpressionRange::EndsWith(term)), reference);
+    EXPECT_FLOAT_EQ(CostOf(ExpressionRange::RegexMatch(term)), reference);
+  }
+}
+
+TEST_F(QueryCostEstimatorStringPredicates, EstimateCoversTheStringsTheScanReads) {
+  // Every value here is a string, so the band these predicates read is the whole property. An
+  // estimate far below it would make the scan look free and win comparisons it should lose.
+  auto const whole_property = CostOf(ExpressionRange::IsNotNull());
+  ASSERT_GT(whole_property, 0.0);
+  EXPECT_GT(CostOf(ExpressionRange::Contains(Literal("a"))), whole_property / 2);
+}
+
+TEST_F(QueryCostEstimatorStringPredicates, StartsWithStillNarrowsToItsPrefix) {
+  // The prefix is a real bound on what matches, and STARTS_WITH already accepts that its plan is
+  // settled by the term. This pins the line between the two: only the prefix seek reads it.
+  EXPECT_LT(CostOf(ExpressionRange::StartsWith(Literal("a"))), CostOf(ExpressionRange::IsNotNull()));
+}
+
 // TODO test cost when ScanAll, Expand, Accumulate, Limit
 // vs cost for SA, Expand, Limit

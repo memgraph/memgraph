@@ -310,6 +310,9 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
     case Type::REGEX_MATCH:
     case Type::CONTAINS:
     case Type::ENDS_WITH: {
+      // The search term is deliberately not read here. Query stripping turns it into a parameter
+      // and the plan cache is keyed on the stripped text, so a plan settled by one call's term
+      // would be reused for every other term. Evaluate reads it per execution instead.
       auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
       auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
       return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));

@@ -783,10 +783,17 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
         }
         return EstimateVertexPropertyRangeCardinality(property, range.lower_, range.upper_);
       }
-      case Type::RANGE:
       case Type::REGEX_MATCH:
       case Type::CONTAINS:
-      case Type::ENDS_WITH:
+      case Type::ENDS_WITH: {
+        // The raw lower bound holds the search term, which is not a bound on what matches, so it
+        // cannot be counted as one. What the scan reads is the property's string values, and
+        // counting that band needs a lower bound the index actually holds, so the estimate is the
+        // whole property: an overestimate rather than one that makes the scan look free. Reading
+        // the term would also settle a cached plan against one call's value.
+        return db_accessor_->VerticesCount(property);
+      }
+      case Type::RANGE:
         return EstimateVertexPropertyRangeCardinality(property, range.lower_, range.upper_);
     }
     std::unreachable();
