@@ -317,9 +317,56 @@ add_compile_options(
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
 )
 
+# Split DWARF: emit per-TU .dwo files so debug info does not pass through the
+# linker. RelWithDebInfo carries -g and is the config we bundle debug info for;
+# Debug gets it from the frontend instead, a different codepath with no LTO.
+# Release has no -g, so this would only produce empty .dwo files and the binary
+# is stripped afterwards anyway.
+add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gsplit-dwarf>)
+
+# The matching --plugin-opt=dwo_dir is set per-target on the memgraph
+# executable, in src/CMakeLists.txt, and must never be a global link option:
+# lld names .dwo files by task ID starting from 1 on every link, so a shared
+# directory lets each test binary's link truncate-overwrite memgraph's.
+
+# Cap ThinLTO codegen parallelism. lld defaults --thinlto-jobs to one job per
+# core, each wanting 1-3 GB, so a single link can exhaust a shared runner. The
+# job pools elsewhere bound how many links run at once, not the parallelism
+# inside one link, so this is a separate limit rather than a duplicate one.
+execute_process(
+    COMMAND ${CMAKE_SOURCE_DIR}/tools/ci/compute-build-threads.sh 3
+    OUTPUT_VARIABLE MG_THINLTO_JOBS
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _mg_thinlto_rc)
+if(_mg_thinlto_rc EQUAL 0 AND MG_THINLTO_JOBS)
+    message(STATUS "ThinLTO codegen jobs capped at ${MG_THINLTO_JOBS} (3 GB each)")
+    add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Release>>:LINKER:--thinlto-jobs=${MG_THINLTO_JOBS}>)
+else()
+    message(WARNING "compute-build-threads.sh failed (${_mg_thinlto_rc}); leaving --thinlto-jobs at lld's default of one per core")
+endif()
+
+# Record the compile invocation in the debug info, so a crash from a binary
+# whose flags are not otherwise recoverable still says how it was built.
+add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-frecord-command-line>)
+
+# Normalise source paths in debug info and __FILE__, so artifacts are portable
+# across worktrees and ccache hits carry between checkouts.
+#
+# The second rule is not redundant. Our build directory usually sits inside the
+# source directory, so a bare rewrite of the source path also catches build
+# paths: skeleton units end up with a relative DW_AT_GNU_dwo_name and llvm-dwp
+# resolves it against its own working directory instead of finding the .dwo.
+# clang applies these in order with last match winning, so an identity rule for
+# the build directory after the source rule shields it.
+add_compile_options(
+    "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=."
+    "-ffile-prefix-map=${CMAKE_BINARY_DIR}=${CMAKE_BINARY_DIR}")
+
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
+# A prebuilt index, so gdb does not have to scan the debug info on every start.
+add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:LINKER:--gdb-index>)
 link_directories("${MG_TOOLCHAIN_ROOT}/lib")
 
 # After linker is set, check we can use link-time optimization
@@ -332,13 +379,18 @@ if (NOT ipo_supported)
 endif()
 
 
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
+# CMake reads these per-config variables in upper case only. Spelled in mixed
+# case they set nothing, no -flto ever reaches a translation unit, and the
+# check_ipo_supported() above passes while the build silently has no LTO --
+# which is how it stood for about a year.
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE)
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 
 include(SplitDebug)
+include(BundleDwarf)
 include(CompressDebug)
 
 #debug flags

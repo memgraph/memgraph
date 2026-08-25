@@ -88,6 +88,17 @@ if(lower_build_type STREQUAL "release")
                 COMMENT "Stripping symbols and sections from memgraph")
 endif()
 
+# Where lld writes this binary's .dwo files. Scoped to the target rather than
+# set globally: lld numbers them by task ID from 1 on every link, so any other
+# executable link sharing the directory would truncate-overwrite memgraph's.
+# The path mirrors lld's own <binary>_dwo convention, and lld creates it.
+target_link_options(memgraph PRIVATE
+    "$<$<CONFIG:RelWithDebInfo>:LINKER:--plugin-opt=dwo_dir=$<TARGET_FILE_DIR:memgraph>/memgraph_dwo>")
+
+# Bundling must precede splitting: both attach POST_BUILD commands, which run
+# in the order added, and mg_split_debug strips the binary of the skeleton
+# units that llvm-dwp reads to find the .dwo files.
+mg_bundle_dwarf(memgraph INSTALL_DESTINATION lib/memgraph)
 mg_split_debug(memgraph INSTALL_DESTINATION lib/memgraph)
 
 # The abi3 DT_NEEDED rewrite is attached automatically to the memgraph binary
