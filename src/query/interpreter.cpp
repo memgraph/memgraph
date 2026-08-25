@@ -8138,10 +8138,14 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           metrics::Metrics().global.show_storage_info->Increment();
           const auto instance_info = GetInstanceStorageInfo();
 #ifdef MG_ENTERPRISE
-          // Surfaces detached-tenant memory (see TenantMemorySum) at the instance level, where
-          // by-name views can't see it.
-          const auto tenant_mem = dbms_handler->TenantMemorySum();
-          const auto detached_count = static_cast<int64_t>(dbms_handler->AllDetached().size());
+          // A null dbms_handler (no DBMS, e.g. the interpreter unit fixture) means no tenants,
+          // so these instance-level tenant fields are zero. Keep the rows (stable schema).
+          dbms::DbmsHandler::TenantMemorySums tenant_mem{};
+          int64_t detached_count = 0;
+          if (dbms_handler) {
+            tenant_mem = dbms_handler->TenantMemorySum();
+            detached_count = static_cast<int64_t>(dbms_handler->AllDetached().size());
+          }
 #endif
           const std::vector<std::vector<TypedValue>> results{
               {TypedValue("vm_max_map_count"), TypedValue(instance_info.vm_max_map_count)},
