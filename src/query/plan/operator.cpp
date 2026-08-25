@@ -3310,7 +3310,7 @@ class PruningBFSDispatchCursor : public query::plan::Cursor {
   const ExpandVariable &self_;
   utils::MemoryResource *mem_;
   metrics::DatabaseMetricHandles &metric_handles_;
-  UniqueCursorPtr chosen_{nullptr};
+  UniqueCursorPtr chosen_;
 };
 
 void ValidateWeight(TypedValue current_weight) {
