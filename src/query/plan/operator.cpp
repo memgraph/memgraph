@@ -190,9 +190,8 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     case Type::REGEX_MATCH:
     case Type::CONTAINS:
     case Type::ENDS_WITH: {
-      // A non-string search term compares to Null for every row, so nothing can match. A regex
-      // pattern is the exception: a non-string one raises, and a scan must not decide whether it
-      // does, so its whole band is read and the retained filter answers.
+      // A non-string search term compares to Null, so nothing matches. A non-string regex pattern
+      // instead raises, and a scan must not decide whether it does, so that one keeps its band.
       if (type_ != Type::REGEX_MATCH && lower_ && !lower_->value()->Accept(evaluator).IsString()) {
         return storage::PropertyValueRange::Empty();
       }
@@ -258,8 +257,8 @@ auto ExpressionRange::MakeValuePredicate(ExpressionEvaluator &evaluator) const
       return make([s = std::string(search_term)](auto const &v) { return v.ends_with(s); });
     case Type::REGEX_MATCH:
       try {
-        // An unusable pattern raises where the filter reaches it, once a row exists to test. Doing
-        // so here instead would let an index decide whether the query raises at all.
+        // Raising here would let an index decide whether the query raises at all. Left to the
+        // filter, an unusable pattern raises once a row reaches it, as it does without an index.
         return make([re = std::regex(search_term)](auto const &v) { return std::regex_match(v, re); });
       } catch (std::regex_error const &) {
         return nullptr;
@@ -1754,8 +1753,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
                                                      metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_label_properties_operator.Increment();
 
-  // A search term reads nothing from the frame, so its predicate is built once and reused for
-  // every row the input produces. Compiling a pattern per row would undo what it buys.
+  // The predicates outlive the row they were built from; see ExpressionRange::MakeValuePredicate.
   auto vertices = [this, value_predicates = std::vector<storage::PropertyValueRange::ValuePredicate>{}](
                       Frame &frame, ExecutionContext &context) mutable
       -> std::optional<decltype(context.db_accessor->Vertices(

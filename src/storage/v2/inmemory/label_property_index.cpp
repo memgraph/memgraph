@@ -1201,9 +1201,8 @@ void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid()
     auto const &leading_value = index_iterator_->values[0];
     if ((*leading_predicate)(leading_value)) break;
 
-    // Advance one entry. If the next entry has the same value, the group
-    // is large enough to warrant an O(log n) seek; otherwise the iterator
-    // is already past the group.
+    // Only seek when the group turns out to hold more than the one entry: a seek costs more than
+    // the step that has already left a single-entry group behind.
     ++index_iterator_;
     if (index_iterator_ != self_->index_accessor_.end() && index_iterator_->values[0] == leading_value) {
       index_iterator_ = self_->index_accessor_.find_greater(std::span<PropertyValue const>{&leading_value, 1});

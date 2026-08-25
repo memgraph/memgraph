@@ -295,12 +295,11 @@ class PropertyFilter {
   }
 
   /// The predicates that read a search term to narrow a scan over the property's string values,
-  /// either as the seek key or as the value predicate that skips whole groups of equal values. A
-  /// correlated one -- whose search term reads a symbol other than the one being scanned -- is
-  /// deliberately not indexed: the term then describes a single row of the other branch, while a
-  /// Cartesian evaluates it once for the whole pass, and indexing it anyway would need an
-  /// IndexedJoin that re-seeks the index per outer row. On an edge it is not plannable at all.
-  /// Before the feature they were plain filters over a scan, and a correlated one stays that way.
+  /// as the seek key or as the predicate that skips whole groups of equal values. One whose search
+  /// term reads a symbol other than the scanned one is refused as an index candidate: the term
+  /// then describes a single row of the other branch, while a Cartesian evaluates it once for the
+  /// whole pass. It stays a filter over a scan, which is also why an indexed search term is the
+  /// same for the whole execution.
   static constexpr bool IsStringPredicate(Type t) {
     return t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH || t == Type::REGEX_MATCH;
   }

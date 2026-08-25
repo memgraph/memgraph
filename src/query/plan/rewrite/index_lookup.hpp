@@ -1187,8 +1187,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   // Whether a scan of `scanned_symbol` may read this filter's value expression. Every path that
-  // hands a filter to a scan has to ask, so that none of them can admit a value the scan cannot
-  // evaluate where it runs.
+  // hands a filter to a scan asks here, so none of them can admit a value the scan cannot evaluate
+  // where it runs.
   static bool CanKeyIndexScan(const Symbol &scanned_symbol, const std::unordered_set<Symbol> &bound_symbols,
                               FilterInfo const &filter) {
     // Skip filter expressions which use the symbol whose property we are
@@ -2005,8 +2005,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         (!max_vertex_count || *max_vertex_count >= found_index->vertex_count) && or_labels.empty()) {
       // When a selected filter is IS_NOT_NULL but a string predicate (CONTAINS/ENDS_WITH/REGEX)
       // exists for the same property, upgrade to the string predicate. Both scan the same index
-      // range, but the string predicate attaches a ValuePredicate enabling index skip scan. The
-      // candidate has to pass the same test the selected filters did: it is about to key a scan.
+      // range, but the string predicate attaches a ValuePredicate enabling index skip scan.
       std::vector<FilterInfo> superseded_filters;
       for (auto &filter_info : found_index->filters) {
         if (filter_info.property_filter->type_ != PropertyFilter::Type::IS_NOT_NULL) continue;

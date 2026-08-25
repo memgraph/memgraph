@@ -196,7 +196,7 @@ def test_edge_starts_with_null_returns_empty(memgraph, edge_graph):
     assert result == []
 
 
-# --- regression tests for defects found in review ---
+# --- an index may change the plan but never the rows ---
 
 
 @pytest.fixture
@@ -556,10 +556,9 @@ def test_skip_scan_with_duplicate_leading_values(memgraph, duplicate_leading_gra
 def test_correlated_search_term_agrees_with_an_unindexed_scan(
     memgraph, operator, left_values, right_values, expected, predicate_prefix
 ):
-    # A Cartesian pulls its right branch once per pass, against whichever left row was last on the
-    # frame, so a search term read from the other branch describes that one row alone. A skip scan
-    # keyed on it walks past the entries every other left row needed, and the post-filter that
-    # remains cannot bring back rows the scan never produced.
+    # A Cartesian pulls its right branch once per pass, so a search term read from the other branch
+    # describes one left row alone. A skip scan keyed on it walks past the entries the other left
+    # rows needed, and the post-filter cannot bring back rows the scan never produced.
     memgraph.execute("UNWIND $vs AS v CREATE (:CORRL {t: v});", {"vs": left_values})
     for label in ("CORRIDX", "CORRPLAIN"):
         memgraph.execute(f"UNWIND $vs AS v CREATE (:{label} {{t: v}});", {"vs": right_values})
@@ -583,9 +582,8 @@ def test_correlated_search_term_agrees_with_an_unindexed_scan(
 
 
 def test_invalid_regex_does_not_raise_before_a_row_is_read(memgraph):
-    # Compiling the pattern to seed a skip scan happens before the first row is read, so a pattern
-    # that only the filter ever rejected now decides the query's fate. With no row to test, the
-    # query returned nothing rather than raising, and an index must not change that.
+    # An unusable pattern is rejected by the filter, which no row ever reaches here. Seeding a skip
+    # scan reads the pattern earlier, and must not turn a query that answers into one that raises.
     memgraph.execute("CREATE INDEX ON :RXEMPTY(p);")
     assert list(memgraph.execute_and_fetch("MATCH (n:RXEMPTY) WHERE n.p =~ '[' RETURN n.p AS v")) == []
     memgraph.execute("DROP INDEX ON :RXEMPTY(p);")
