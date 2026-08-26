@@ -18,7 +18,7 @@
 
 namespace memgraph::auth {
 /// Need to be stable, auth durability depends on this
-enum class PasswordHashAlgorithm : uint8_t { BCRYPT = 0, SHA256 = 1, SHA256_MULTIPLE = 2 };
+enum class PasswordHashAlgorithm : uint8_t { BCRYPT = 0, SHA256 = 1, SHA256_MULTIPLE = 2, PBKDF2_SHA256 = 3 };
 
 struct HashSize {
   size_t unsalted;  //!< size defined by the algorithm

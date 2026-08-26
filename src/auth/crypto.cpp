@@ -8,22 +8,32 @@
 #include "auth/crypto.hpp"
 
 #include <bcrypt.h>
+#include <fmt/format.h>
 #include <gflags/gflags.h>
+#include <openssl/core_names.h>
 #include <openssl/evp.h>
+#include <openssl/kdf.h>
 #include <openssl/opensslv.h>
+#include <openssl/params.h>
+#include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <openssl/types.h>
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdint>
 #include <expected>
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <limits>
+#include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <random>
+#include <span>
 #include <sstream>
+#include <string>
 #include <utility>
 
 #include "auth/exceptions.hpp"
@@ -41,7 +51,8 @@ constexpr auto kPasswordHash = "password_hash";
 inline constexpr std::array password_hash_mappings{
     std::pair{"bcrypt"sv, memgraph::auth::PasswordHashAlgorithm::BCRYPT},
     std::pair{"sha256"sv, memgraph::auth::PasswordHashAlgorithm::SHA256},
-    std::pair{"sha256-multiple"sv, memgraph::auth::PasswordHashAlgorithm::SHA256_MULTIPLE}};
+    std::pair{"sha256-multiple"sv, memgraph::auth::PasswordHashAlgorithm::SHA256_MULTIPLE},
+    std::pair{"pbkdf2-sha256"sv, memgraph::auth::PasswordHashAlgorithm::PBKDF2_SHA256}};
 
 inline constexpr uint64_t ONE_SHA_ITERATION = 1;
 inline constexpr uint64_t MULTIPLE_SHA_ITERATIONS = 1024;
@@ -73,6 +84,35 @@ DEFINE_VALIDATED_string(password_encryption_algorithm, "bcrypt",
                         });
 
 namespace memgraph::auth {
+
+namespace {
+/// Salt from OpenSSL's DRBG, which SP 800-132 requires for an approved KDF.
+/// The legacy SHA algorithms still salt from `std::mt19937`; they are not
+/// FIPS-approvable regardless, so that path is deliberately left alone.
+template <std::size_t N>
+auto GenerateSalt() -> std::array<char, N> {
+  auto salt = std::array<char, N>{};
+  static_assert(N <= std::numeric_limits<int>::max());
+  if (RAND_bytes(reinterpret_cast<unsigned char *>(salt.data()), static_cast<int>(N)) != 1) {
+    throw AuthException("Couldn't generate a password salt!");
+  }
+  return salt;
+}
+
+auto ToHex(std::span<const unsigned char> bytes) -> std::string {
+  auto out = std::string{};
+  out.reserve(bytes.size() * 2);
+  for (auto const byte : bytes) {
+    fmt::format_to(std::back_inserter(out), "{:02x}", byte);
+  }
+  return out;
+}
+
+auto AsBytes(std::string_view sv) -> std::span<const unsigned char> {
+  return {reinterpret_cast<const unsigned char *>(sv.data()), sv.size()};
+}
+}  // namespace
+
 namespace BCrypt {
 std::string HashPassword(const std::string &password) {
   char salt[BCRYPT_HASHSIZE];
@@ -232,6 +272,94 @@ bool VerifyPassword(std::string_view password, std::string_view hash, const uint
 
 }  // namespace SHA
 
+namespace PBKDF2 {
+
+namespace {
+
+// SP 800-132 floors, as OpenSSL enforces them: >= 1000 iterations,
+// >= 128-bit salt, >= 112-bit derived key.
+constexpr auto ITERATIONS = 600'000U;
+constexpr auto SALT_SIZE = 16U;         // 128-bit
+constexpr auto DERIVED_KEY_SIZE = 32U;  // 256-bit
+constexpr auto SALT_SIZE_DURABLE = SALT_SIZE * 2;
+constexpr auto HASH_LENGTH = DERIVED_KEY_SIZE * 2;
+
+// The iteration count is not stored in the hash, so it cannot be raised
+// without invalidating every existing one. If OWASP guidance moves past 600k,
+// add a new PasswordHashAlgorithm rather than editing ITERATIONS -- the same
+// way sha256 and sha256-multiple are separate algorithms.
+static_assert(ITERATIONS >= 1000);
+static_assert(SALT_SIZE * 8 >= 128);
+static_assert(DERIVED_KEY_SIZE * 8 >= 112);
+
+// Hex decoding is shared with the SHA path, which hardcodes its own salt size.
+static_assert(SALT_SIZE == SHA::SALT_SIZE);
+static_assert(SALT_SIZE_DURABLE == SHA::SALT_SIZE_DURABLE);
+
+struct KdfDeleter {
+  void operator()(EVP_KDF *kdf) const noexcept { EVP_KDF_free(kdf); }
+};
+
+struct KdfCtxDeleter {
+  void operator()(EVP_KDF_CTX *ctx) const noexcept { EVP_KDF_CTX_free(ctx); }
+};
+
+auto Derive(std::string_view password, std::string_view salt) -> std::array<unsigned char, DERIVED_KEY_SIZE> {
+  auto const kdf = std::unique_ptr<EVP_KDF, KdfDeleter>{EVP_KDF_fetch(nullptr, "PBKDF2", nullptr)};
+  if (!kdf) {
+    throw AuthException("Couldn't fetch the PBKDF2 implementation!");
+  }
+  auto const ctx = std::unique_ptr<EVP_KDF_CTX, KdfCtxDeleter>{EVP_KDF_CTX_new(kdf.get())};
+  if (!ctx) {
+    throw AuthException("Couldn't create a PBKDF2 context!");
+  }
+
+  // Copied so that `.data()` is never null, which an empty string_view allows
+  // but OpenSSL does not accept.
+  auto password_buffer = std::string{password};
+  auto salt_buffer = std::string{salt};
+  auto digest = std::string{"SHA2-256"};
+  auto iterations = ITERATIONS;
+  // 0 keeps the SP 800-132 lower-bound checks on. Stated explicitly so the
+  // intent is visible rather than inherited from an OpenSSL default.
+  auto legacy_pkcs5_mode = 0;
+
+  auto params = std::array{
+      OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD, password_buffer.data(), password_buffer.size()),
+      OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT, salt_buffer.data(), salt_buffer.size()),
+      OSSL_PARAM_construct_uint(OSSL_KDF_PARAM_ITER, &iterations),
+      OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, digest.data(), 0),
+      OSSL_PARAM_construct_int(OSSL_KDF_PARAM_PKCS5, &legacy_pkcs5_mode),
+      OSSL_PARAM_construct_end(),
+  };
+
+  auto derived = std::array<unsigned char, DERIVED_KEY_SIZE>{};
+  if (EVP_KDF_derive(ctx.get(), derived.data(), derived.size(), params.data()) != 1) {
+    throw AuthException("Couldn't hash the password!");
+  }
+  return derived;
+}
+
+}  // namespace
+
+/// Stored as hex(salt) || hex(derived key), matching the shape of the salted
+/// SHA hashes so the durable form stays fixed-width.
+std::string HashPassword(std::string_view password, std::string_view salt) {
+  MG_ASSERT(salt.size() == SALT_SIZE);
+  return ToHex(AsBytes(salt)) + ToHex(Derive(password, salt));
+}
+
+bool VerifyPassword(std::string_view password, std::string_view hash) {
+  // Always salted, unlike SHA256 which has a legacy unsalted form.
+  if (hash.size() != SALT_SIZE_DURABLE + HASH_LENGTH) {
+    return false;
+  }
+  auto const salt = SHA::ExtractSalt(hash.substr(0, SALT_SIZE_DURABLE));
+  return HashPassword(password, {salt.data(), salt.size()}) == hash;
+}
+
+}  // namespace PBKDF2
+
 HashedPassword HashPassword(const std::string &password, std::optional<PasswordHashAlgorithm> override_algo) {
   auto const hash_algo = override_algo.value_or(CurrentHashAlgorithm());
   auto password_hash = std::invoke([&] {
@@ -247,6 +375,10 @@ HashedPassword HashPassword(const std::string &password, std::optional<PasswordH
         std::generate(salt.begin(), salt.end(), [&]() { return dis(gen); });
         auto iterations = (hash_algo == PasswordHashAlgorithm::SHA256) ? ONE_SHA_ITERATION : MULTIPLE_SHA_ITERATIONS;
         return SHA::HashPassword(password, iterations, {salt.data(), salt.size()});
+      }
+      case PasswordHashAlgorithm::PBKDF2_SHA256: {
+        auto const salt = GenerateSalt<PBKDF2::SALT_SIZE>();
+        return PBKDF2::HashPassword(password, {salt.data(), salt.size()});
       }
     }
   });
@@ -284,6 +416,11 @@ std::optional<std::string_view> UsesAlgo(std::string_view str, PasswordHashAlgor
 }
 }  // namespace
 
+// NOTE: Deliberately no pbkdf2-sha256 branch. A user-supplied hash carries no
+// iteration count, so accepting one would mean assuming it was derived with
+// ITERATIONS when it may have used the SP 800-132 floor of 1000 -- we would
+// verify a far weaker hash as though it were strong. Set a pbkdf2 password
+// through the plaintext path instead.
 std::optional<HashedPassword> UserDefinedHash(std::string_view password) {
   if (const auto hash = UsesAlgo(password, PasswordHashAlgorithm::BCRYPT)) {
     return HashedPassword{PasswordHashAlgorithm::BCRYPT, std::string{*hash}};
@@ -315,6 +452,8 @@ auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize {
     case PasswordHashAlgorithm::SHA256:
     case PasswordHashAlgorithm::SHA256_MULTIPLE:
       return {SHA::SHA_LENGTH, SHA::SHA_LENGTH + SHA::SALT_SIZE_DURABLE};
+    case PasswordHashAlgorithm::PBKDF2_SHA256:
+      return {PBKDF2::HASH_LENGTH, PBKDF2::HASH_LENGTH + PBKDF2::SALT_SIZE_DURABLE};
   }
 
 }
@@ -327,6 +466,8 @@ bool HashedPassword::VerifyPassword(const std::string &password) {
       return SHA::VerifyPassword(password, password_hash, ONE_SHA_ITERATION);
     case PasswordHashAlgorithm::SHA256_MULTIPLE:
       return SHA::VerifyPassword(password, password_hash, MULTIPLE_SHA_ITERATIONS);
+    case PasswordHashAlgorithm::PBKDF2_SHA256:
+      return PBKDF2::VerifyPassword(password, password_hash);
   }
 }
 
@@ -349,6 +490,8 @@ bool HashedPassword::IsSalted() const {
     case PasswordHashAlgorithm::SHA256:
     case PasswordHashAlgorithm::SHA256_MULTIPLE:
       return SHA::IsSalted(password_hash);
+    case PasswordHashAlgorithm::PBKDF2_SHA256:
+      return true;
   }
 }
 

@@ -2842,6 +2842,53 @@ TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256_1024) {
   ASSERT_FALSE(hash.VerifyPassword("hello1"));
 }
 
+TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordPBKDF2SHA256) {
+  SetHashAlgorithm("pbkdf2-sha256");
+  auto hash = HashPassword("hello");
+  ASSERT_EQ(hash.HashAlgo(), PasswordHashAlgorithm::PBKDF2_SHA256);
+  ASSERT_TRUE(hash.VerifyPassword("hello"));
+  ASSERT_FALSE(hash.VerifyPassword("hello1"));
+}
+
+// Known-answer test. The expected value was produced independently of our
+// EVP_KDF wiring, so it catches a wrong digest, a swapped password/salt, or a
+// wrong iteration count -- the realistic parameter mistakes. Reproduce with:
+//
+//   python3 -c 'import hashlib; print(hashlib.pbkdf2_hmac(
+//       "sha256", b"hello", bytes(range(16)), 600000, 32).hex())'
+//
+// Formal CAVP coverage of PBKDF2 itself is the validated module's, not ours.
+TEST_F(AuthWithVariousEncryptionAlgorithms, PBKDF2SHA256KnownAnswer) {
+  static constexpr auto kSaltHex = "000102030405060708090a0b0c0d0e0f";
+  static constexpr auto kDerivedHex = "0f2f8ea738901d7afee33ef32d3a4358619f9f6e24a1f1b6a6ca81310858fcd7";
+
+  auto hash = HashedPassword{PasswordHashAlgorithm::PBKDF2_SHA256, std::string{kSaltHex} + kDerivedHex};
+  ASSERT_TRUE(hash.VerifyPassword("hello"));
+  ASSERT_FALSE(hash.VerifyPassword("hellp"));
+}
+
+// The salt is 128-bit and comes from OpenSSL's DRBG, so hashing the same
+// password twice must not collide.
+TEST_F(AuthWithVariousEncryptionAlgorithms, PBKDF2SHA256SaltIsRandomAndSized) {
+  SetHashAlgorithm("pbkdf2-sha256");
+  auto const first = HashPassword("hello");
+  auto const second = HashPassword("hello");
+  ASSERT_NE(first, second);
+  ASSERT_TRUE(first.IsSalted());
+
+  nlohmann::json j = first;
+  ASSERT_EQ(j.at("password_hash").get<std::string>().size(), 96);
+}
+
+// Unlike bcrypt/sha256, a pre-computed pbkdf2 hash is deliberately rejected:
+// it carries no iteration count, so accepting one would mean trusting an
+// unknown work factor. See the note on UserDefinedHash.
+TEST_F(AuthWithVariousEncryptionAlgorithms, PBKDF2SHA256RejectsUserSuppliedHash) {
+  auto const supplied = std::string{"pbkdf2-sha256:000102030405060708090a0b0c0d0e0f"} +
+                        "0f2f8ea738901d7afee33ef32d3a4358619f9f6e24a1f1b6a6ca81310858fcd7";
+  ASSERT_FALSE(UserDefinedHash(supplied).has_value());
+}
+
 TEST_F(AuthWithVariousEncryptionAlgorithms, SetEncryptionAlgorithmNonsenseThrow) {
   ASSERT_THROW(SetHashAlgorithm("abcd"), AuthException);
 }
@@ -2886,9 +2933,20 @@ TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserSha256_1024) {
   ASSERT_EQ(user->username(), "alice");
 }
 
+TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserPBKDF2Sha256) {
+  SetHashAlgorithm("pbkdf2-sha256");
+  auto user = auth.AddUser("Alice", "alice");
+  ASSERT_TRUE(user);
+  ASSERT_EQ(user->username(), "alice");
+  ASSERT_TRUE(auth.Authenticate("Alice", "alice"));
+  ASSERT_FALSE(auth.Authenticate("Alice", "bob"));
+}
+
 TEST(Serialize, HashedPassword) {
-  for (auto algo :
-       {PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE}) {
+  for (auto algo : {PasswordHashAlgorithm::BCRYPT,
+                    PasswordHashAlgorithm::SHA256,
+                    PasswordHashAlgorithm::SHA256_MULTIPLE,
+                    PasswordHashAlgorithm::PBKDF2_SHA256}) {
     auto sut = HashPassword("password", algo);
     nlohmann::json j = sut;
     auto ret = j.get<HashedPassword>();
