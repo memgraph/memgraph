@@ -349,8 +349,15 @@ endif()
 # whose flags are not otherwise recoverable still says how it was built.
 add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-frecord-command-line>)
 
-# Normalise source paths in debug info and __FILE__, so artifacts are portable
-# across worktrees and ccache hits carry between checkouts.
+# Normalise source paths in debug info and __FILE__, so artifacts do not embed
+# the location they were built from.
+#
+# This does not let ccache reuse objects between checkouts. The identity rule
+# below keeps the absolute build directory both on the command line and in
+# DW_AT_comp_dir, and ccache hashes the working directory whenever debug info
+# is enabled, so each checkout gets its own cache entries. Sharing them would
+# need that rule dropped, llvm-dwp taught to resolve a relative dwo name, and
+# ccache's base_dir set.
 #
 # The second rule is not redundant. Our build directory usually sits inside the
 # source directory, so a bare rewrite of the source path also catches build
