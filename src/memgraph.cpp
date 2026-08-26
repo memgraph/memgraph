@@ -25,6 +25,7 @@
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/cluster_tls.hpp"
+#include "communication/init.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -307,6 +308,12 @@ int main(int argc, char **argv) {
                  build_info.version,
                  build_info.build_id.empty() ? "unknown" : build_info.build_id,
                  build_info.build_name);
+  }
+
+  // Must run before anything builds an SSL context or hashes a password, and
+  // after logger init so a failure is actually delivered.
+  if (FLAGS_fips_mode) {
+    memgraph::communication::EnableFipsMode();
   }
 
   // Owns the thread that drops read-through snapshots from the page cache. Declared here so it
