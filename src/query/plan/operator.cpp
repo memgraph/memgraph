@@ -7482,8 +7482,6 @@ class AggregateCursor : public Cursor {
     }
   }
 
-  /** Checks if the given TypedValue is legal in AVG and SUM. If not
-   * an appropriate exception is thrown. */
   /// Adds `addend` into the running total `total`, in place where the two are the same kind of
   /// number.
   ///
@@ -7505,6 +7503,8 @@ class AggregateCursor : public Cursor {
     total = total + addend;
   }
 
+  /** Checks if the given TypedValue is legal in AVG and SUM. If not
+   * an appropriate exception is thrown. */
   void EnsureOkForAvgSum(const TypedValue &value) const {
     switch (value.type()) {
       case TypedValue::Type::Int:
