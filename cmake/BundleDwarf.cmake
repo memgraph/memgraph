@@ -35,9 +35,11 @@ function(mg_bundle_dwarf target)
 
     # -e reads the executable's skeleton units to locate the .dwo files, rather
     # than being handed a list that would have to match the linker's naming.
+    # No BYPRODUCTS: it is evaluated in a scope where $<TARGET_FILE> does not
+    # resolve, and naming the .dwp there fails generation with "No target".
+    # mg_split_debug leaves it out for the same reason.
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${MG_LLVM_DWP} -e $<TARGET_FILE:${target}> -o $<TARGET_FILE:${target}>.dwp
-        BYPRODUCTS $<TARGET_FILE:${target}>.dwp
         COMMENT "Bundling split DWARF for ${target}")
 
     if(MGBD_INSTALL_DESTINATION)
