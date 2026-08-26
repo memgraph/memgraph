@@ -28,6 +28,14 @@ if [[ ! -f "$PREFIX/bin/gdb" ]]; then
     tar -xvf ../archives/gdb-$GDB_VERSION.tar.gz
     pushd "gdb-$GDB_VERSION"
     mkdir build && pushd build
+    # The runpath names this toolchain's own lib64 and lib, and not the
+    # sysroot. GDB runs on the build host, under the host's dynamic linker, so
+    # it has to use the host's libc; a runpath reaching into the sysroot made it
+    # load the sysroot libc under the host loader instead, and the two have to
+    # match. That left GDB unable to start at all, while every other tool here
+    # already took only libstdc++ and libgcc_s from the toolchain. $ORIGIN
+    # rather than an absolute path so the installed tree can still be moved.
+    #
     # GDB is built sysroot-aware via the toolchain GCC. --with-python points
     # at the libpython we installed into the sysroot above. Features that
     # require libraries not in the sysroot (expat, lzma, babeltrace,
@@ -43,7 +51,7 @@ if [[ ! -f "$PREFIX/bin/gdb" ]]; then
             CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
             CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
             CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
-            LDFLAGS="-Wl,-z,relro -Wl,-rpath,$PREFIX/sysroot/usr/lib" \
+            LDFLAGS="-Wl,-z,relro -Wl,-rpath,\$ORIGIN/../lib64 -Wl,-rpath,\$ORIGIN/../lib" \
             ../configure \
                 --build=aarch64-linux-gnu \
                 --host=aarch64-linux-gnu \
@@ -71,7 +79,7 @@ if [[ ! -f "$PREFIX/bin/gdb" ]]; then
             CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
             CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
             CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
-            LDFLAGS="-Wl,-z,relro -Wl,-rpath,$PREFIX/sysroot/usr/lib" \
+            LDFLAGS="-Wl,-z,relro -Wl,-rpath,\$ORIGIN/../lib64 -Wl,-rpath,\$ORIGIN/../lib" \
             ../configure \
                 --build=x86_64-linux-gnu \
                 --host=x86_64-linux-gnu \
