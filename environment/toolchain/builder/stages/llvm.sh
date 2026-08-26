@@ -58,7 +58,9 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
     # the other programs got a runpath while libLLVM, libclang and lldb did not
     # and fell back to whatever libstdc++ the machine happened to have. The path
     # is relative, and names lib64: LLVM's own default runpath points at lib,
-    # where this toolchain's libstdc++ does not live.
+    # where this toolchain's libstdc++ does not live. Three rules, not two:
+    # LLVMgold is a module rather than a shared library, and took neither of the
+    # other two.
     #
     # The runtimes need saying separately. compiler-rt and openmp are configured
     # as a nested CMake build, which inherits none of the flags above, and they
@@ -82,6 +84,7 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
         -DCMAKE_CXX_COMPILER=$PREFIX/bin/g++ \
         -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib64 -Wl,-rpath,\$ORIGIN/../lib64" \
         -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib64 -Wl,-rpath,\$ORIGIN/../lib64" \
+        -DCMAKE_MODULE_LINKER_FLAGS="-L$PREFIX/lib64 -Wl,-rpath,\$ORIGIN/../lib64" \
         -DCMAKE_INSTALL_PREFIX=$PREFIX \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -DNDEBUG" \

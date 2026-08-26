@@ -32,9 +32,17 @@ if [[ ! -f "$PREFIX/bin/gdb" ]]; then
     # sysroot. GDB runs on the build host, under the host's dynamic linker, so
     # it has to use the host's libc; a runpath reaching into the sysroot made it
     # load the sysroot libc under the host loader instead, and the two have to
-    # match. That left GDB unable to start at all, while every other tool here
-    # already took only libstdc++ and libgcc_s from the toolchain. $ORIGIN
-    # rather than an absolute path so the installed tree can still be moved.
+    # match. That left GDB unable to start at all. $ORIGIN rather than an
+    # absolute path so the installed tree can still be moved.
+    # Absolute, where the rest of the toolchain uses $ORIGIN. GDB's build is
+    # recursive: this value crosses configure, a top Makefile, a sub-make and
+    # the recipe shell, and each layer consumes an escaping level. Too few and
+    # $O reads as a make variable, leaving a literal RIGIN; too many and the
+    # shell expands $ORIGIN to nothing, leaving a path resolved against the
+    # caller's working directory, which is worse than either. Rather than tune
+    # the count to a recursion depth nobody controls, the path is spelled out.
+    # It costs relocation for these three files, which the pass that makes the
+    # whole tree relocatable has to rewrite anyway.
     #
     # GDB is built sysroot-aware via the toolchain GCC. --with-python points
     # at the libpython we installed into the sysroot above. Features that
@@ -51,7 +59,7 @@ if [[ ! -f "$PREFIX/bin/gdb" ]]; then
             CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
             CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
             CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
-            LDFLAGS="-Wl,-z,relro -Wl,-rpath,\$ORIGIN/../lib64 -Wl,-rpath,\$ORIGIN/../lib" \
+            LDFLAGS="-Wl,-z,relro -Wl,-rpath,$PREFIX/lib64 -Wl,-rpath,$PREFIX/lib" \
             ../configure \
                 --build=aarch64-linux-gnu \
                 --host=aarch64-linux-gnu \
@@ -79,7 +87,7 @@ if [[ ! -f "$PREFIX/bin/gdb" ]]; then
             CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
             CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
             CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
-            LDFLAGS="-Wl,-z,relro -Wl,-rpath,\$ORIGIN/../lib64 -Wl,-rpath,\$ORIGIN/../lib" \
+            LDFLAGS="-Wl,-z,relro -Wl,-rpath,$PREFIX/lib64 -Wl,-rpath,$PREFIX/lib" \
             ../configure \
                 --build=x86_64-linux-gnu \
                 --host=x86_64-linux-gnu \
@@ -102,6 +110,19 @@ if [[ ! -f "$PREFIX/bin/gdb" ]]; then
     fi
     make -j$CPUS
     make install
+
+    # Two of gdb's libraries are built only into the sysroot, and gdb is a host
+    # tool. Naming the sysroot on the runpath would find them, but it also finds
+    # the sysroot's libc, which is what stopped gdb starting at all. Link just
+    # those two onto the host side instead: both are plain C libraries built
+    # well below the host's glibc, so they load fine against it. The links are
+    # relative, so the installed tree still moves.
+    for _lib in libpython$PYTHON_MAJMIN.so.1.0 libxxhash.so.0; do
+        if [[ -e "$SYSROOT/usr/lib/$_lib" && ! -e "$PREFIX/lib/$_lib" ]]; then
+            ln -s "../sysroot/usr/lib/$_lib" "$PREFIX/lib/$_lib"
+        fi
+    done
+
     popd && popd
 fi
 

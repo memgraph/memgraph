@@ -16,7 +16,9 @@ popd
 pushd "$TC_BUILD"
 # Host deps (apt): make ("gcc"/"g++" resolve to the toolchain via PATH).
 # The runpath keeps cppcheck on the libstdc++ built here rather than the one on
-# whatever machine it is installed to; relative, so the tree still moves.
+# whatever machine it is installed to; relative, so the tree still moves. It is
+# spelled for make rather than the shell: a bare $O reads as a make variable and
+# leaves RIGIN behind, and the recipe's shell expansion eats it a second time.
 log_tool_name "cppcheck $CPPCHECK_VERSION"
 if [[ ! -f "$PREFIX/bin/cppcheck" ]]; then
     if [[ -d "cppcheck-$CPPCHECK_VERSION" ]]; then
@@ -27,7 +29,7 @@ if [[ ! -f "$PREFIX/bin/cppcheck" ]]; then
     env \
         CC=gcc \
         CXX=g++ \
-        LDFLAGS="-Wl,-rpath,\$ORIGIN/../lib64" \
+        LDFLAGS="-Wl,-rpath,\\\$\$ORIGIN/../lib64" \
         PREFIX=$PREFIX \
         FILESDIR=$PREFIX/share/cppcheck \
         CFGDIR=$PREFIX/share/cppcheck/cfg \
@@ -35,7 +37,7 @@ if [[ ! -f "$PREFIX/bin/cppcheck" ]]; then
     env \
         CC=gcc \
         CXX=g++ \
-        LDFLAGS="-Wl,-rpath,\$ORIGIN/../lib64" \
+        LDFLAGS="-Wl,-rpath,\\\$\$ORIGIN/../lib64" \
         PREFIX=$PREFIX \
         FILESDIR=$PREFIX/share/cppcheck \
         CFGDIR=$PREFIX/share/cppcheck/cfg \

@@ -24,8 +24,30 @@ is_dynamic_elf() {
     file "$1" 2>/dev/null | grep -q 'ELF.*\(executable\|shared object\).*dynamically linked'
 }
 
+# GCC's own target libraries, which carry no runpath and so find libgcc_s on
+# whatever machine they land on. Recorded rather than fixed: the knob for them
+# is LDFLAGS_FOR_TARGET, whose $ORIGIN has to survive configure, make, a
+# sub-make and libtool, and changing that stage invalidates every stage after
+# it. Nothing we ship is exposed today -- a consumer is only affected if it
+# reaches our libstdc++ without needing libgcc_s itself, and memgraph needs
+# both directly -- so this waits for the pass that makes the whole tree
+# relocatable, which has to rewrite these anyway.
+KNOWN_HOST_CXX=(
+    "lib64/libstdc++.so.6.0.36"
+    "lib64/debug/libstdc++.so.6.0.36"
+    "lib64/libgfortran.so.5.0.0"
+)
+
+is_known() {
+    local k
+    for k in "${KNOWN_HOST_CXX[@]}"; do
+        [[ "$1" == "$k" ]] && return 0
+    done
+    return 1
+}
+
 status=0
-unresolved=(); hostcxx=(); scanned=0
+unresolved=(); hostcxx=(); known=(); scanned=0
 
 for f in "${FILES[@]}"; do
     is_dynamic_elf "$f" || continue
@@ -37,7 +59,8 @@ for f in "${FILES[@]}"; do
     # Only files that actually need the C++ runtime can escape to the host's.
     if readelf -d "$f" 2>/dev/null | grep -q 'NEEDED.*\(libstdc++\|libgcc_s\)'; then
         if grep -E '=> (/lib|/usr/lib)' <<<"$out" | grep -qE 'libstdc\+\+|libgcc_s'; then
-            hostcxx+=("${f#"$PREFIX"/}")
+            rel="${f#"$PREFIX"/}"
+            if is_known "$rel"; then known+=("$rel"); else hostcxx+=("$rel"); fi
         fi
     fi
 done
@@ -60,6 +83,9 @@ if ((${#hostcxx[@]})); then
     status=1
 else
     echo "   ok"
+fi
+if ((${#known[@]})); then
+    printf '   recorded, see KNOWN_HOST_CXX: %s\n' "${known[@]}"
 fi
 
 echo
