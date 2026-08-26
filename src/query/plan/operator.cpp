@@ -7482,14 +7482,11 @@ class AggregateCursor : public Cursor {
     }
   }
 
-  /// Adds `addend` into the running total `total`, in place where the two are the same kind of
-  /// number.
+  /// Adds `addend` into the running total `total`. Each must be an integer or a double.
   ///
-  /// `EnsureOkForAvgSum` admits only an integer or a double as an addend, and the total starts as
-  /// an integer and only ever takes one of those, so both are integers or doubles here. Where they
-  /// agree, the sum is the one `operator+` gives and can be written straight into the total,
-  /// sparing a result value per row. Addition owns the rule for the pair that disagrees, where an
-  /// integer total meets a double and stops being an integer, so that pair is handed to it.
+  /// Where the two are the same kind of number the addition happens in place, sparing a result
+  /// value per row. An integer total meeting a double stops being an integer, and addition owns
+  /// that rule, so that pair is handed to it.
   static void AddInto(TypedValue &total, const TypedValue &addend) {
     if (total.IsDouble()) {
       total.ValueDouble() +=
