@@ -44,10 +44,8 @@ class SessionRegistry {
   void Register(std::string uuid, std::weak_ptr<TerminableSession> session);
   void Deregister(std::string_view uuid, TerminableSession const *self);
 
-  // Locks internally, promotes the stored weak_ptr, and unlocks before returning the resulting
-  // shared_ptr. This ordering is required: the caller may drop the last reference, which runs
-  // ~Session -> ~SessionHL -> SessionRegistry::Deregister (plus an unrelated query-layer lock).
-  // Returning while still holding the registry's mutex would self-deadlock on Deregister.
+  // Unlocks before returning the promoted shared_ptr: the caller may drop the last ref, running
+  // ~Session -> Deregister, which re-locks mutex_ and would self-deadlock if still held.
   [[nodiscard]] std::shared_ptr<TerminableSession> Find(std::string_view uuid) const;
 
   // Test-only: the map size is not part of any production code path.
@@ -56,9 +54,8 @@ class SessionRegistry {
  private:
   SessionRegistry() = default;
 
-  // A mutex, not utils::SpinLock: Register/Deregister allocate or free a hash-map node inside
-  // the critical section, and spinning through a stalled allocator would burn CPU on every
-  // concurrent caller. Churn is once per connect/disconnect, so a mutex is fast enough.
+  // A mutex, not utils::SpinLock: Register/Deregister allocate/free a hash-map node under the
+  // lock, so spinning through a stalled allocator would waste CPU; churn is only per connect.
   mutable std::mutex mutex_;
   std::unordered_map<std::string, std::weak_ptr<TerminableSession>> sessions_;
 };
