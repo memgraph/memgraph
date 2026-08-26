@@ -23,7 +23,7 @@ set -euo pipefail
 : "${KRB5_SHARED_DIR:?}"
 
 # A flaky apt or PyPI mirror is the one failure in here that says nothing about
-# memgraph, so give every network step three tries before failing the test.
+# memgraph, so give every network step five tries before failing the test.
 retry() {
   local attempt
   for attempt in 1 2 3 4 5; do
