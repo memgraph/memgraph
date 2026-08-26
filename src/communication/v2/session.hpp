@@ -43,6 +43,7 @@
 #include <boost/beast/websocket/rfc6455.hpp>
 #include <boost/system/detail/error_code.hpp>
 
+#include "communication/bolt/v1/session.hpp"
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
@@ -364,7 +365,42 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
 
     input_buffer_.write_end()->Written(bytes_transferred);
-    DoWork();
+
+    // Fast path: an eligible explicit-transaction BEGIN runs inline on this strand thread, skipping the
+    // thread-pool hop. See InlineBeginResult for the per-outcome contract.
+    using memgraph::communication::bolt::InlineBeginResult;
+    switch (session_.TryInlineBegin()) {
+      case InlineBeginResult::NotBegin:
+        DoWork();
+        break;
+      case InlineBeginResult::Handled:
+      case InlineBeginResult::ClientError:
+        if (session_.HasBufferedData()) {
+          DoWork();
+        } else {
+          DoRead();
+        }
+        break;
+      case InlineBeginResult::WouldBlock:
+        // A DDL (UNIQUE) holds the storage lock: finish the BEGIN with a blocking accessor on a worker.
+        session_context_->AddTask(
+            [shared_this = shared_from_this()](const auto /*thread_priority*/) {
+              try {
+                shared_this->session_.FinishPendingBeginBlocking();
+                if (shared_this->session_.HasBufferedData()) {
+                  shared_this->DoWork();
+                } else {
+                  shared_this->DoRead();
+                }
+              } catch (const std::exception & /* unused */) {
+                boost::asio::post(shared_this->strand_, [shared_this, eptr = std::current_exception()]() {
+                  shared_this->HandleException(eptr);
+                });
+              }
+            },
+            session_.ApproximateQueryPriority());
+        break;
+    }
   }
 
   void OnReadAsio(const boost::system::error_code &ec, const size_t bytes_transferred) {

@@ -69,7 +69,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void Configure(const bolt_map_t &run_time_info);
 
-  void BeginTransaction(const bolt_map_t &extra);
+  void BeginTransaction(const bolt_map_t &extra, bool try_only = false);
 
   bolt_map_t CommitTransaction();
 
@@ -140,6 +140,9 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   utils::Priority ApproximateQueryPriority() const;
 
   inline bool Execute() { return Execute_(*this); }
+
+  inline memgraph::communication::bolt::InlineBeginResult TryInlineBegin() { return TryInlineBegin_(*this); }
+  inline void FinishPendingBeginBlocking() { FinishPendingBeginBlocking_(*this); }
 
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return interpreter_.GetLogContext(); }
 

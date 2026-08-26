@@ -22,6 +22,7 @@
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/disk/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
@@ -67,6 +68,15 @@ std::unique_ptr<storage::Accessor> Database::Access(storage::StorageAccessType r
                                                     std::optional<storage::IsolationLevel> override_isolation_level,
                                                     std::optional<std::chrono::milliseconds> timeout) {
   return storage_->Access(rw_type, override_isolation_level, timeout);
+}
+
+std::unique_ptr<storage::Accessor> Database::TryAccess(
+    storage::StorageAccessType rw_type, std::optional<storage::IsolationLevel> override_isolation_level) {
+  auto *in_memory = dynamic_cast<storage::InMemoryStorage *>(storage_.get());
+  if (in_memory == nullptr) {
+    return nullptr;
+  }
+  return in_memory->TryAccess(rw_type, override_isolation_level);
 }
 
 std::unique_ptr<storage::Accessor> Database::UniqueAccess(

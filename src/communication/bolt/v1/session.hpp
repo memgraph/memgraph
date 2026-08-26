@@ -26,6 +26,7 @@
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
 #include "communication/metrics.hpp"
+#include "query/exceptions.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/session_context.hpp"
 #include "utils/timestamp.hpp"
@@ -42,6 +43,13 @@ class SessionException : public utils::BasicException {
   using utils::BasicException::BasicException;
   SPECIALIZE_GET_EXCEPTION_NAME(SessionException)
 };
+
+// Outcome of the strand-side inline-BEGIN fast path (TryInlineBegin_).
+// NotBegin  - the buffered message is not an inline-eligible BEGIN; leave it for the normal pool path.
+// Handled   - BEGIN ran inline and SUCCESS was sent; nothing left to do.
+// ClientError - the message was malformed / send failed; state moved to Close.
+// WouldBlock - the storage lock was contended; extras are stashed for FinishPendingBeginBlocking_ on the pool.
+enum class InlineBeginResult : uint8_t { NotBegin, Handled, ClientError, WouldBlock };
 
 /**
  * Bolt Session
@@ -167,6 +175,99 @@ class Session {
     return false;  // no more data
   }
 
+  bool HasBufferedData() const { return input_stream_.size() > 0; }
+
+  // Strand-side fast path: run an explicit BEGIN inline (on the ASIO strand) when the whole message has
+  // arrived and the storage lock is uncontended, saving the thread-pool hop. See InlineBeginResult for the
+  // per-outcome contract.
+  template <typename TImpl>
+    requires requires(TImpl &impl) {
+      { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
+    }
+  InlineBeginResult TryInlineBegin_(TImpl &impl) {
+    // Inline only for bolt v4+ and only from an idle (not-in-txn) state.
+    if (version_.major < 4) return InlineBeginResult::NotBegin;
+    if (state_ != State::Idle) return InlineBeginResult::NotBegin;
+
+    // Non-destructive raw-buffer peek: GetChunk() is destructive, so it must not run until we are certain
+    // this is a fully-arrived single-chunk BEGIN -- a non-BEGIN or partial message must stay intact for the pool path.
+    const size_t avail = input_stream_.size();
+    if (avail < 4) return InlineBeginResult::NotBegin;
+    const uint8_t *raw = input_stream_.data();
+    const size_t chunk_size = (static_cast<size_t>(raw[0]) << 8) | raw[1];
+    // Require the whole single chunk + its 0x00 0x00 terminator to be present.
+    if (avail < 2 + chunk_size + 2) return InlineBeginResult::NotBegin;
+    if (raw[2 + chunk_size] != 0 || raw[2 + chunk_size + 1] != 0)
+      return InlineBeginResult::NotBegin;  // multi-chunk -> normal path
+    if (raw[2] != static_cast<uint8_t>(Marker::TinyStruct1)) return InlineBeginResult::NotBegin;
+    if (raw[3] != static_cast<uint8_t>(Signature::Begin)) return InlineBeginResult::NotBegin;
+
+    // Committed to inline handling of this BEGIN. Replicate the side effects the normal
+    // Execute_/StateExecutingRun path performs, exactly once.
+    memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
+    memgraph::metrics::Metrics().global.bolt_messages->Increment();
+    at_least_one_run_ = true;
+
+    ChunkState cs;
+    while ((cs = decoder_buffer_.GetChunk()) == ChunkState::Whole) { /* drain chunks */ }
+    if (cs != ChunkState::Done) return InlineBeginResult::NotBegin;  // defensive; completeness was checked above
+
+    Marker marker;
+    Signature signature;
+    if (!decoder_.ReadMessageHeader(&signature, &marker)) {
+      state_ = State::Close;
+      return InlineBeginResult::ClientError;
+    }
+
+    Value extra;
+    if (!decoder_.ReadValue(&extra, Value::Type::Map)) {
+      state_ = State::Close;
+      return InlineBeginResult::ClientError;
+    }
+
+    try {
+      impl.Configure(extra.ValueMap());
+      impl.BeginTransaction(extra.ValueMap(), /*try_only=*/true);  // may throw WouldBlockInlineException
+      if (!encoder_.MessageSuccess({})) {
+        state_ = State::Close;
+        return InlineBeginResult::ClientError;
+      }
+      state_ = State::Idle;
+      return InlineBeginResult::Handled;
+    } catch (const memgraph::query::WouldBlockInlineException &) {
+      // Clean bail: accessor acquired first, so interpreter txn state is untouched. Stash extras for the pool fallback.
+      pending_begin_extra_ = std::move(extra);
+      return InlineBeginResult::WouldBlock;
+    } catch (const std::exception &e) {
+      state_ = HandleFailure(impl, e);  // same failure handling as the normal HandleBegin path
+      return InlineBeginResult::ClientError;
+    }
+  }
+
+  // Pool-side completion of a BEGIN that bailed inline with WouldBlock. Configure already ran on the strand,
+  // so it is NOT re-run here; only the blocking Access + SUCCESS remain. bolt_messages was already counted by
+  // TryInlineBegin_, so it is NOT incremented again.
+  template <typename TImpl>
+    requires requires(TImpl &impl) {
+      { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
+    }
+  void FinishPendingBeginBlocking_(TImpl &impl) {
+    memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
+    MG_ASSERT(pending_begin_extra_.has_value(), "FinishPendingBeginBlocking_ without a pending BEGIN");
+    Value extra = std::move(*pending_begin_extra_);
+    pending_begin_extra_.reset();
+    try {
+      impl.BeginTransaction(extra.ValueMap(), /*try_only=*/false);  // blocking Access on the worker
+      if (!encoder_.MessageSuccess({})) {
+        state_ = State::Close;
+        return;
+      }
+      state_ = State::Idle;
+    } catch (const std::exception &e) {
+      state_ = HandleFailure(impl, e);
+    }
+  }
+
   void HandleError() {
     if (!at_least_one_run_) {
       spdlog::info("Sudden connection loss. Make sure the client supports Memgraph.");
@@ -216,6 +317,10 @@ class Session {
   }
 
  private:
+  // Extras decoded by an inline BEGIN that bailed with WouldBlock, carried across the strand->pool handoff so
+  // FinishPendingBeginBlocking_ can retry the Access without re-decoding.
+  std::optional<Value> pending_begin_extra_{};
+
   const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
   const std::string login_timestamp_;

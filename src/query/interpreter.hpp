@@ -263,7 +263,8 @@ struct CurrentDB {
   CurrentDB &operator=(CurrentDB const &) = delete;
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE,
+                                bool try_only = false);
   void CleanupDBTransaction(bool abort);
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
@@ -462,7 +463,7 @@ class Interpreter final {
   std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {},
                                          std::optional<int> qid = {});
 
-  void BeginTransaction(QueryExtras const &extras = {});
+  void BeginTransaction(QueryExtras const &extras = {}, bool try_only = false);
 
   std::optional<uint64_t> GetTransactionId() const;
 
@@ -687,7 +688,8 @@ class Interpreter final {
 
   static void AppendNotificationToSummary(const Notification &notification, std::map<std::string, TypedValue> &summary);
 
-  PreparedQuery PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum, QueryExtras const &extras = {});
+  PreparedQuery PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum, QueryExtras const &extras = {},
+                                        bool try_only = false);
   void Commit();
   // Resets tx-tracking left ACTIVE by SetupInterpreterTransaction when NOTHING skips Commit()/Abort()'s cleanup.
   void FinishAutocommitNothing();
@@ -703,7 +705,8 @@ class Interpreter final {
   std::optional<std::function<void(std::string_view)>> on_change_{};
   void SetupInterpreterTransaction(const QueryExtras &extras);
   void SetupDatabaseTransaction(bool couldCommit,
-                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE,
+                                bool try_only = false);
 };
 
 template <typename TStream>

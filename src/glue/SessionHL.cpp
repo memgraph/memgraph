@@ -669,9 +669,9 @@ bolt_map_t SessionHL::CommitTransaction() {
   }
 }
 
-void SessionHL::BeginTransaction(const bolt_map_t &extra) {
+void SessionHL::BeginTransaction(const bolt_map_t &extra, bool try_only) {
   try {
-    interpreter_.BeginTransaction(ToQueryExtras(extra));
+    interpreter_.BeginTransaction(ToQueryExtras(extra), try_only);
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {

@@ -91,6 +91,13 @@ class Database {
                                             std::optional<storage::IsolationLevel> override_isolation_level = {},
                                             std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
+  // Non-blocking accessor for the inline-BEGIN fast path: returns a READ/WRITE accessor if the
+  // storage lock can be taken without blocking, or nullptr if it would block (a DDL/UNIQUE holder)
+  // OR the storage is not in-memory (only InMemoryStorage offers the probe). Callers must fall back
+  // to the blocking Access() path on nullptr; this is a one-shot try, never a poll loop.
+  std::unique_ptr<storage::Accessor> TryAccess(storage::StorageAccessType rw_type,
+                                               std::optional<storage::IsolationLevel> override_isolation_level = {});
+
   std::unique_ptr<storage::Accessor> UniqueAccess(std::optional<storage::IsolationLevel> override_isolation_level = {},
                                                   std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
