@@ -826,6 +826,21 @@ TEST_F(DownloadTempFileTest, NoDirectoryEntryIsLeftBehind) {
   EXPECT_TRUE(fs::is_empty(test_dir_));
 }
 
+TEST_F(DownloadTempFileTest, TheFileIsAlreadyUnlinked) {
+  auto file = DownloadTempFile::Create(test_dir_);
+  ASSERT_TRUE(file.has_value()) << file.error().message();
+
+  auto fd = file->DupFd();
+  ASSERT_TRUE(fd.has_value()) << fd.error().message();
+  auto const close_fd = memgraph::utils::OnScopeExit{[&] { ::close(*fd); }};
+
+  struct stat info{};
+  ASSERT_EQ(::fstat(*fd, &info), 0);
+  EXPECT_EQ(info.st_nlink, 0);
+}
+
+#ifdef __linux__
+// The only way to recover the path of an unlinked file, and procfs is not mounted everywhere.
 TEST_F(DownloadTempFileTest, FileIsCreatedInTheRequestedDirectoryUnderNameMax) {
   auto file = DownloadTempFile::Create(test_dir_);
   ASSERT_TRUE(file.has_value()) << file.error().message();
@@ -839,6 +854,7 @@ TEST_F(DownloadTempFileTest, FileIsCreatedInTheRequestedDirectoryUnderNameMax) {
   EXPECT_TRUE(target.filename().string().starts_with("memgraph_download_"));
   EXPECT_LT(target.filename().string().size(), NAME_MAX);
 }
+#endif
 
 TEST_F(DownloadTempFileTest, DuplicatedDescriptorOutlivesTheOwner) {
   int fd = -1;
