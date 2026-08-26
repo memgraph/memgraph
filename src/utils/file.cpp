@@ -19,6 +19,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <mutex>
@@ -67,6 +68,91 @@ auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
 
   throw utils::BasicException("More than 10k files with the same name. File {} won't be downloaded.",
                               base_path.string());
+}
+
+namespace {
+auto LastError() -> std::error_code { return std::error_code{errno, std::generic_category()}; }
+
+// Only the last six X are replaced, whatever the template contains, so a longer run of them buys no
+// additional randomness. Uniqueness is the kernel's guarantee here, not this string's.
+constexpr auto kDownloadTemplate = "memgraph_download_XXXXXX";
+}  // namespace
+
+auto DownloadTempFile::Create(std::filesystem::path const &dir) -> std::expected<DownloadTempFile, std::error_code> {
+  auto path = (dir / kDownloadTemplate).string();
+
+  auto const fd = ::mkstemp(path.data());
+  if (fd == -1) {
+    return std::unexpected{LastError()};
+  }
+
+  if (::unlink(path.c_str()) == -1) {
+    auto const error = LastError();
+    ::close(fd);
+    return std::unexpected{error};
+  }
+
+  return DownloadTempFile{fd};
+}
+
+auto DownloadTempFile::Create() -> std::expected<DownloadTempFile, std::error_code> {
+  std::error_code error;
+  auto const dir = std::filesystem::temp_directory_path(error);
+  if (error) {
+    return std::unexpected{error};
+  }
+  return Create(dir);
+}
+
+DownloadTempFile::DownloadTempFile(DownloadTempFile &&other) noexcept : fd_{std::exchange(other.fd_, -1)} {}
+
+auto DownloadTempFile::operator=(DownloadTempFile &&other) noexcept -> DownloadTempFile & {
+  if (this != &other) {
+    if (fd_ != -1) {
+      ::close(fd_);
+    }
+    fd_ = std::exchange(other.fd_, -1);
+  }
+  return *this;
+}
+
+DownloadTempFile::~DownloadTempFile() {
+  if (fd_ != -1) {
+    ::close(fd_);
+  }
+}
+
+auto DownloadTempFile::OpenStream() -> FileUniquePtr {
+  // The stream gets a descriptor of its own so that a writer which closes what it is handed cannot
+  // take the file out from under a reader that has not run yet.
+  auto const duplicated = ::dup(fd_);
+  if (duplicated == -1) {
+    return {nullptr, &std::fclose};
+  }
+
+  auto *stream = ::fdopen(duplicated, "wb");
+  if (stream == nullptr) {
+    ::close(duplicated);
+    return {nullptr, &std::fclose};
+  }
+
+  return {stream, &std::fclose};
+}
+
+auto DownloadTempFile::DupFd() -> std::expected<int, std::error_code> {
+  auto const duplicated = ::dup(fd_);
+  if (duplicated == -1) {
+    return std::unexpected{LastError()};
+  }
+
+  // A duplicate shares its file offset with the original, which a completed write leaves at the end.
+  if (::lseek(duplicated, 0, SEEK_SET) == -1) {
+    auto const error = LastError();
+    ::close(duplicated);
+    return std::unexpected{error};
+  }
+
+  return duplicated;
 }
 
 std::filesystem::path GetExecutablePath() { return std::filesystem::read_symlink("/proc/self/exe"); }

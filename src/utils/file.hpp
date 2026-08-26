@@ -20,10 +20,14 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
+#include <expected>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -36,6 +40,44 @@ using FileUniquePtr = std::unique_ptr<FILE, decltype(&std::fclose)>;
 
 auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
     -> std::pair<std::filesystem::path, FileUniquePtr>;
+
+/// A file that exists only as an open descriptor, for downloading content that is read once and
+/// discarded.
+///
+/// The name is a fixed-length template rather than anything derived from a caller-supplied URI, so
+/// no input can push it past the filesystem's limit on a path component. It is unlinked as soon as
+/// it is created, which means the download cannot be left behind by a signal or a crash, and that
+/// no consumer can come to depend on what it was called.
+class DownloadTempFile {
+ public:
+  /// Creates the file in `dir`.
+  static auto Create(std::filesystem::path const &dir) -> std::expected<DownloadTempFile, std::error_code>;
+
+  /// Creates the file in the directory `TMPDIR` names, falling back to the system default.
+  static auto Create() -> std::expected<DownloadTempFile, std::error_code>;
+
+  DownloadTempFile(DownloadTempFile const &) = delete;
+  auto operator=(DownloadTempFile const &) -> DownloadTempFile & = delete;
+
+  DownloadTempFile(DownloadTempFile &&other) noexcept;
+  auto operator=(DownloadTempFile &&other) noexcept -> DownloadTempFile &;
+
+  ~DownloadTempFile();
+
+  /// A stream positioned at the start of the file, for a writer that closes what it is handed.
+  /// Closing it leaves this object's own descriptor open. Returns nullptr if no descriptor is
+  /// available.
+  [[nodiscard]] auto OpenStream() -> FileUniquePtr;
+
+  /// A descriptor positioned at the start of the file, owned by the caller and closed by it, or by
+  /// whatever it is handed to.
+  [[nodiscard]] auto DupFd() -> std::expected<int, std::error_code>;
+
+ private:
+  explicit DownloadTempFile(int fd) noexcept : fd_{fd} {}
+
+  int fd_{-1};
+};
 
 /// Get the path of the current executable.
 ///

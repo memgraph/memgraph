@@ -15,10 +15,14 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <climits>
+#include <cstdio>
 #include <fstream>
 #include <map>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_set>
 #include <vector>
@@ -766,6 +770,106 @@ TEST_F(GetUniqueDownloadPathTest, MaxSuffixReached) {
   }
 
   EXPECT_THROW(CreateUniqueDownloadFile(base), memgraph::utils::BasicException);
+}
+
+using memgraph::utils::DownloadTempFile;
+
+class DownloadTempFileTest : public testing::Test {
+ protected:
+  void SetUp() override {
+    test_dir_ = fs::temp_directory_path() / "download_temp_file_test";
+    fs::create_directories(test_dir_);
+  }
+
+  void TearDown() override {
+    if (fs::exists(test_dir_)) {
+      fs::remove_all(test_dir_);
+    }
+  }
+
+  static auto ReadAll(int fd) -> std::string {
+    std::string content;
+    std::array<char, 64> buffer{};
+    while (auto const bytes = ::read(fd, buffer.data(), buffer.size())) {
+      if (bytes < 0) break;
+      content.append(buffer.data(), static_cast<std::size_t>(bytes));
+    }
+    return content;
+  }
+
+  static void Write(DownloadTempFile &file, std::string_view content) {
+    auto stream = file.OpenStream();
+    ASSERT_NE(stream.get(), nullptr);
+    ASSERT_EQ(std::fwrite(content.data(), 1, content.size(), stream.get()), content.size());
+  }
+
+  fs::path test_dir_;
+};
+
+TEST_F(DownloadTempFileTest, ContentWrittenThroughTheStreamIsReadableThroughTheDescriptor) {
+  auto file = DownloadTempFile::Create(test_dir_);
+  ASSERT_TRUE(file.has_value()) << file.error().message();
+
+  Write(*file, "parquet bytes");
+
+  auto fd = file->DupFd();
+  ASSERT_TRUE(fd.has_value()) << fd.error().message();
+  auto const close_fd = memgraph::utils::OnScopeExit{[&] { ::close(*fd); }};
+
+  EXPECT_EQ(ReadAll(*fd), "parquet bytes");
+}
+
+TEST_F(DownloadTempFileTest, NoDirectoryEntryIsLeftBehind) {
+  auto file = DownloadTempFile::Create(test_dir_);
+  ASSERT_TRUE(file.has_value()) << file.error().message();
+
+  EXPECT_TRUE(fs::is_empty(test_dir_));
+}
+
+TEST_F(DownloadTempFileTest, FileIsCreatedInTheRequestedDirectoryUnderNameMax) {
+  auto file = DownloadTempFile::Create(test_dir_);
+  ASSERT_TRUE(file.has_value()) << file.error().message();
+
+  auto fd = file->DupFd();
+  ASSERT_TRUE(fd.has_value()) << fd.error().message();
+  auto const close_fd = memgraph::utils::OnScopeExit{[&] { ::close(*fd); }};
+
+  auto const target = fs::read_symlink(fs::path{"/proc/self/fd"} / std::to_string(*fd));
+  EXPECT_EQ(target.parent_path(), test_dir_);
+  EXPECT_TRUE(target.filename().string().starts_with("memgraph_download_"));
+  EXPECT_LT(target.filename().string().size(), NAME_MAX);
+}
+
+TEST_F(DownloadTempFileTest, DuplicatedDescriptorOutlivesTheOwner) {
+  int fd = -1;
+  {
+    auto file = DownloadTempFile::Create(test_dir_);
+    ASSERT_TRUE(file.has_value()) << file.error().message();
+    Write(*file, "outlives the owner");
+
+    auto duplicated = file->DupFd();
+    ASSERT_TRUE(duplicated.has_value()) << duplicated.error().message();
+    fd = *duplicated;
+  }
+  auto const close_fd = memgraph::utils::OnScopeExit{[&] { ::close(fd); }};
+
+  EXPECT_EQ(ReadAll(fd), "outlives the owner");
+}
+
+TEST_F(DownloadTempFileTest, AnUnwritableDirectoryIsReportedAsAnErrorCode) {
+  if (::geteuid() == 0) {
+    GTEST_SKIP() << "root bypasses the directory permissions this test relies on";
+  }
+
+  auto const unwritable = test_dir_ / "unwritable";
+  fs::create_directories(unwritable);
+  fs::permissions(unwritable, fs::perms::owner_read | fs::perms::owner_exec);
+  auto const restore = memgraph::utils::OnScopeExit{[&] { fs::permissions(unwritable, fs::perms::owner_all); }};
+
+  auto file = DownloadTempFile::Create(unwritable);
+
+  ASSERT_FALSE(file.has_value());
+  EXPECT_EQ(file.error(), std::errc::permission_denied);
 }
 
 class UtilsFileTest : public ::testing::Test {
