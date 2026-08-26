@@ -25,6 +25,15 @@ if [[ ! -f "$PREFIX/bin/heaptrack" ]]; then
     # libebl.a must be linked explicitly, and it needs libdl for its runtime
     # backend dlopen. Missing backends on target machines degrade gracefully:
     # symbolization works via the default hooks (verified on bare 20.04/12).
+    # No --sysroot here, deliberately. These binaries declare a minimum kernel
+    # of 3.2.0 where the rest of the toolchain declares 5.4.0, because the link
+    # takes the builder's startup files rather than the sysroot's. Adding
+    # --sysroot is the obvious fix and does not work: heaptrack compiles against
+    # the builder's boost and elfutils headers -- see LIBDW_INCLUDE_DIR below,
+    # which names /usr/include outright -- and the sysroot hides them. Making it
+    # a sysroot-targeted build means putting boost and elfutils in the sysroot
+    # first, which is a larger change than the mislabel warrants.
+    #
     # Boost's cmake config links its compression deps as bare "-lz -lbz2 ..."
     # flags, which resolve to shared libs. Point the linker at a directory
     # holding only the static archives so those flags resolve statically.
