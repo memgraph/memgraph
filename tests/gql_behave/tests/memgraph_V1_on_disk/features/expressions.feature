@@ -309,3 +309,19 @@ Feature: Expressions
             | v    | result |
             | 1    | false  |
             | null | false  |
+
+    Scenario: Test a join on list equality drops the pairs it cannot decide
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {p: [null]}), (:A {p: [null]}), (:A {p: [1, 2]})
+            """
+        When executing query:
+            """
+            MATCH (a:A), (b:A)
+            WHERE a.p = b.p
+            RETURN count(*) AS result
+            """
+        Then the result should be:
+            | result |
+            | 1      |

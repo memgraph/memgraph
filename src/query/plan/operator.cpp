@@ -9735,7 +9735,11 @@ class HashJoinCursor : public Cursor {
           ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
       auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
-      if (left_value.type() != TypedValue::Type::Null) {
+      // The table matches by equivalence, in which Null equals Null, while the
+      // join condition is an equality that no Null can satisfy. Keying on a
+      // value that holds one anywhere would pair rows whose condition is Null,
+      // and such a row can never join with anything in any case.
+      if (!ContainsNull(left_value)) {
         hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
       }
     }
