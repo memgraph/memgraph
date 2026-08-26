@@ -22,11 +22,23 @@ set -euo pipefail
 : "${KRB5_CLIENT_PASSWORD:?}"
 : "${KRB5_SHARED_DIR:?}"
 
+# A flaky apt or PyPI mirror is the one failure in here that says nothing about
+# memgraph, so give every network step three tries before failing the test.
+retry() {
+  local attempt
+  for attempt in 1 2 3; do
+    (( attempt == 1 )) || sleep $(( attempt * 5 ))
+    "$@" && return 0
+    echo "attempt $attempt/3 failed: $*" >&2
+  done
+  return 1
+}
+
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq --no-install-recommends \
+retry apt-get update -qq
+retry apt-get install -y -qq --no-install-recommends \
   krb5-kdc krb5-admin-server krb5-user python3-gssapi python3-pip
-pip3 install --quiet --no-cache-dir --break-system-packages neo4j==5.23
+retry pip3 install --quiet --no-cache-dir --break-system-packages neo4j==5.23
 
 # One krb5.conf for both sides: written into the shared dir so the memgraph
 # container can mount the very same file.
