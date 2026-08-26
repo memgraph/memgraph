@@ -26,7 +26,7 @@ DEFINE_VALIDATED_int32(bolt_port, 7687, "Port on which the Bolt server should li
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(bolt_num_workers, memgraph::utils::GetSafeHardwareConcurrency(),
+DEFINE_VALIDATED_int32(bolt_num_workers, memgraph::utils::UsableCoreCount(),
                        "Number of workers used by the Bolt server. By default, this will be the "
                        "number of processing units available on the machine.",
                        FLAG_IN_RANGE(1, INT32_MAX));

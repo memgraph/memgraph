@@ -15,10 +15,13 @@
 #include <gflags/gflags.h>
 #include <sys/utsname.h>
 #include <algorithm>
+#include <charconv>
 #include <cstdlib>
 #include <filesystem>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -213,6 +216,84 @@ unsigned GetSafeHardwareConcurrency(unsigned fallback) {
 
   hw = static_cast<unsigned>(GetCPUInfo("").cpu_count);
   return hw != 0 ? hw : std::max(fallback, 1U);
+}
+
+namespace {
+
+// Parses a base-10 integer out of a whitespace-trimmed token; nullopt on failure.
+std::optional<long> ParseLong(std::string_view token) {
+  token = utils::Trim(std::string{token});
+  if (token.empty()) return std::nullopt;
+  long value = 0;
+  const auto *begin = token.data();
+  const auto *end = token.data() + token.size();
+  const auto [ptr, ec] = std::from_chars(begin, end, value);
+  if (ec != std::errc{} || ptr != end) return std::nullopt;
+  return value;
+}
+
+// Reads the single-line contents of a cgroup file; nullopt if the file is
+// absent or empty (which is how we distinguish cgroup v2 from v1).
+std::optional<std::string> ReadCgroupLine(const std::filesystem::path &path) {
+  const auto lines = utils::ReadLines(path);
+  if (lines.empty()) return std::nullopt;
+  return lines[0];
+}
+
+}  // namespace
+
+std::optional<unsigned> CpuQuotaToCores(long quota_us, long period_us) {
+  if (quota_us < 0) return std::nullopt;                     // unlimited (cgroup v1 uses -1)
+  if (quota_us == 0 || period_us <= 0) return std::nullopt;  // malformed -> fall back to host
+  // ceil(quota / period): a fractional quota still needs a whole worker thread.
+  const long cores = (quota_us + period_us - 1) / period_us;
+  return static_cast<unsigned>(cores);
+}
+
+std::optional<unsigned> ParseCgroupV2CpuMax(std::string_view cpu_max) {
+  // Format: "<quota> <period>", where <quota> is the literal "max" when unlimited.
+  auto rest = utils::Trim(std::string{cpu_max});
+  if (rest.empty()) return std::nullopt;
+
+  const auto sep = rest.find_first_of(" \t");
+  const std::string_view quota_tok = std::string_view{rest}.substr(0, sep);
+  if (quota_tok == "max") return std::nullopt;  // unlimited
+
+  const auto quota = ParseLong(quota_tok);
+  if (!quota) return std::nullopt;
+
+  // The period field defaults to the cgroup v2 baseline of 100000us if absent.
+  long period = 100000;
+  if (sep != std::string::npos) {
+    const auto period_opt = ParseLong(std::string_view{rest}.substr(sep + 1));
+    if (!period_opt) return std::nullopt;
+    period = *period_opt;
+  }
+  return CpuQuotaToCores(*quota, period);
+}
+
+unsigned UsableCoreCount(unsigned fallback) {
+  const unsigned host = GetSafeHardwareConcurrency(fallback);
+
+  std::optional<unsigned> cores;
+  if (const auto v2 = ReadCgroupLine("/sys/fs/cgroup/cpu.max")) {
+    // cgroup v2
+    cores = ParseCgroupV2CpuMax(*v2);
+  } else {
+    // cgroup v1
+    const auto quota = ReadCgroupLine("/sys/fs/cgroup/cpu/cpu.cfs_quota_us");
+    const auto period = ReadCgroupLine("/sys/fs/cgroup/cpu/cpu.cfs_period_us");
+    if (quota && period) {
+      const auto quota_us = ParseLong(*quota);
+      const auto period_us = ParseLong(*period);
+      if (quota_us && period_us) {
+        cores = CpuQuotaToCores(*quota_us, *period_us);
+      }
+    }
+  }
+
+  if (!cores) return host;  // unlimited, absent, or unparsable -> true hardware
+  return std::clamp(*cores, 1U, host);
 }
 
 }  // namespace memgraph::utils

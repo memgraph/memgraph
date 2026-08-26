@@ -63,7 +63,7 @@ class Server final {
    */
   Server(io::network::Endpoint endpoint, TSessionContext *session_context, ServerContext *context,
          int inactivity_timeout_sec, const std::string &service_name,
-         size_t workers_count = memgraph::utils::GetSafeHardwareConcurrency())
+         size_t workers_count = memgraph::utils::UsableCoreCount())
       : alive_(false),
         endpoint_(std::move(endpoint)),
         listener_(session_context, context, inactivity_timeout_sec, service_name, workers_count),

@@ -13,7 +13,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cstddef>
-#include <thread>
+
+#include "utils/system_info.hpp"
 
 namespace memgraph::utils {
 
@@ -27,8 +28,9 @@ inline void SetNumWorkers(std::size_t n) { global_num_workers.store(n, std::memo
 inline auto GetNumWorkers() -> std::size_t {
   auto n = global_num_workers.load(std::memory_order_acquire);
   if (n > 0) return n;
-  // hardware_concurrency() may return 0 in restricted environments (cgroups, sandboxes).
-  return std::max<std::size_t>(std::thread::hardware_concurrency(), 1);
+  // No explicit count set yet: fall back to the cgroup-aware usable core count
+  // (never 0), so container CPU limits are respected instead of host cores.
+  return static_cast<std::size_t>(UsableCoreCount());
 }
 
 }  // namespace memgraph::utils

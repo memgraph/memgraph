@@ -30,7 +30,7 @@ namespace memgraph::rpc {
 class Server {
  public:
   Server(io::network::Endpoint endpoint, communication::ServerContext *context,
-         size_t workers_count = memgraph::utils::GetSafeHardwareConcurrency());
+         size_t workers_count = memgraph::utils::UsableCoreCount());
   Server(const Server &) = delete;
   Server(Server &&) = delete;
   Server &operator=(const Server &) = delete;
