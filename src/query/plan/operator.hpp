@@ -62,15 +62,24 @@ struct ExpressionRange {
 
   static auto Equal(Expression *value) -> ExpressionRange;
   static auto In(Expression *runtime_value, ListLiteral *membership_list) -> ExpressionRange;
-  static auto RegexMatch() -> ExpressionRange;
+  static auto RegexMatch(Expression *value) -> ExpressionRange;
   static auto StartsWith(Expression *value) -> ExpressionRange;
-  static auto Contains() -> ExpressionRange;
-  static auto EndsWith() -> ExpressionRange;
+  static auto Contains(Expression *value) -> ExpressionRange;
+  static auto EndsWith(Expression *value) -> ExpressionRange;
   static auto Range(std::optional<utils::Bound<Expression *>> lower, std::optional<utils::Bound<Expression *>> upper)
       -> ExpressionRange;
   static auto IsNotNull() -> ExpressionRange;
 
   auto Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
+
+  /// Which of the values inside the evaluated bounds satisfy the range, where the bounds alone
+  /// cannot say. Null unless the bounds merely narrow the scan to the string type.
+  ///
+  /// Kept apart from Evaluate because the two have different lifetimes: bounds may read a symbol
+  /// and so are evaluated per row, while a search term never can (PropertyFilter::IsStringPredicate
+  /// says why), leaving the predicate the same for the whole execution.
+  auto MakeValuePredicate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange::ValuePredicate;
+
   auto ResolveAtPlantime(Parameters const &params, storage::NameIdMapper *name_id_mapper) const
       -> std::optional<storage::PropertyValueRange>;
 

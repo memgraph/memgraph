@@ -372,10 +372,10 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
 
 }  // namespace
 
-template <IndexOrder Order, std::size_t N>
-bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<(std::vector<PropertyValue> const &rhs) const {
-  auto const prefix = values | std::views::take(std::min(rhs.size(), values.size()));
-  // In DESC, "less than" in skip-list terms means "greater than" in value terms.
+namespace {
+template <IndexOrder Order, typename Range, typename Values>
+bool EntryLessThan(Values const &values, Range const &rhs) {
+  auto const prefix = values | std::views::take(std::min(std::ranges::size(rhs), values.size()));
   if constexpr (Order == IndexOrder::DESC) {
     return std::ranges::lexicographical_compare(rhs, prefix);
   } else {
@@ -383,13 +383,39 @@ bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<(std::vector<Pro
   }
 }
 
+template <typename Range, typename Values>
+bool EntryEqual(Values const &values, Range const &rhs) {
+  return std::ranges::equal(values | std::views::take(std::min(std::ranges::size(rhs), values.size())), rhs);
+}
+}  // namespace
+
+template <IndexOrder Order, std::size_t N>
+bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<(std::vector<PropertyValue> const &rhs) const {
+  return EntryLessThan<Order>(values, rhs);
+}
+
+template <IndexOrder Order, std::size_t N>
+bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<(std::span<PropertyValue const> rhs) const {
+  return EntryLessThan<Order>(values, rhs);
+}
+
 template <IndexOrder Order, std::size_t N>
 bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator==(std::vector<PropertyValue> const &rhs) const {
-  return std::ranges::equal(values | std::views::take(std::min(rhs.size(), values.size())), rhs);
+  return EntryEqual(values, rhs);
+}
+
+template <IndexOrder Order, std::size_t N>
+bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator==(std::span<PropertyValue const> rhs) const {
+  return EntryEqual(values, rhs);
 }
 
 template <IndexOrder Order, std::size_t N>
 bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<=(std::vector<PropertyValue> const &rhs) const {
+  return *this < rhs || *this == rhs;
+}
+
+template <IndexOrder Order, std::size_t N>
+bool InMemoryLabelPropertyIndex::BasicEntry<Order, N>::operator<=(std::span<PropertyValue const> rhs) const {
   return *this < rhs || *this == rhs;
 }
 
@@ -1151,21 +1177,38 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::operator++() {
 template <typename EntryT>
 void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid() {
   constexpr bool is_desc = EntryT::kOrder == IndexOrder::DESC;
-  AdvanceUntilValid_(index_iterator_,
-                     self_->index_accessor_.end(),
-                     current_vertex_,
-                     current_vertex_accessor_,
-                     self_->storage_,
-                     self_->transaction_,
-                     self_->view_,
-                     self_->label_,
-                     self_->lower_bound_,
-                     self_->upper_bound_,
-                     self_->permutation_helper_,
-                     self_->max_gid_,
-                     match_scratch_,
-                     /*use_cache=*/true,
-                     /*reverse_iteration=*/is_desc);
+  auto const *leading_predicate = self_->leading_predicate_.get();
+
+  while (true) {
+    AdvanceUntilValid_(index_iterator_,
+                       self_->index_accessor_.end(),
+                       current_vertex_,
+                       current_vertex_accessor_,
+                       self_->storage_,
+                       self_->transaction_,
+                       self_->view_,
+                       self_->label_,
+                       self_->lower_bound_,
+                       self_->upper_bound_,
+                       self_->permutation_helper_,
+                       self_->max_gid_,
+                       match_scratch_,
+                       /*use_cache=*/true,
+                       /*reverse_iteration=*/is_desc);
+
+    if (!leading_predicate || index_iterator_ == self_->index_accessor_.end()) break;
+
+    auto const &leading_value = index_iterator_->values[0];
+    if ((*leading_predicate)(leading_value)) break;
+
+    // Only seek when the group turns out to hold more than the one entry: a seek costs more than
+    // the step that has already left a single-entry group behind.
+    ++index_iterator_;
+    if (index_iterator_ != self_->index_accessor_.end() && index_iterator_->values[0] == leading_value) {
+      index_iterator_ = self_->index_accessor_.find_greater(std::span<PropertyValue const>{&leading_value, 1});
+    }
+    current_vertex_ = nullptr;
+  }
 }
 
 template <typename EntryT>
@@ -1185,6 +1228,9 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListD
       transaction_(transaction),
       max_gid_(max_gid) {
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
+  if (!ranges.empty()) {
+    leading_predicate_ = ranges[0].GetValuePredicate();
+  }
 }
 
 template <typename EntryT>

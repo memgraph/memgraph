@@ -75,8 +75,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     friend bool operator==(BasicEntry const &, BasicEntry const &) = default;
 
     bool operator<(std::vector<PropertyValue> const &rhs) const;
+    bool operator<(std::span<PropertyValue const> rhs) const;
     bool operator==(std::vector<PropertyValue> const &rhs) const;
+    bool operator==(std::span<PropertyValue const> rhs) const;
     bool operator<=(std::vector<PropertyValue> const &rhs) const;
+    bool operator<=(std::span<PropertyValue const> rhs) const;
   };
 
   template <std::size_t N = std::dynamic_extent>
@@ -326,6 +329,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> upper_bound_;
+    /// Only the leading property's predicate is held: it is the one a group of equal values can be
+    /// skipped by, because the index orders on it first. The rest are answered by the post-filter.
+    PropertyValueRange::ValuePredicate leading_predicate_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;

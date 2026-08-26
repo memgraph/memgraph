@@ -23,6 +23,8 @@
 #include <array>
 #include <concepts>
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <range/v3/view/enumerate.hpp>
 #include <range/v3/view/transform.hpp>
 #include <ranges>
@@ -64,6 +66,15 @@ struct PropertyValueRange {
 
   static auto IsNotNull() -> PropertyValueRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
 
+  using ValuePredicateFn = std::function<bool(PropertyValue const &)>;
+  /// Held by pointer: a scan hands the same predicate to every iterator it makes, and one carrying
+  /// a compiled pattern is expensive to copy.
+  using ValuePredicate = std::shared_ptr<ValuePredicateFn const>;
+
+  void SetValuePredicate(ValuePredicate predicate) { value_predicate_ = std::move(predicate); }
+
+  ValuePredicate const &GetValuePredicate() const { return value_predicate_; }
+
   bool IsValueInRange(PropertyValue const &value) const {
     // A range nothing can match admits nothing, whatever its bounds happen to be: an empty one
     // carries none at all, and reading those as unbounded would admit every value.
@@ -99,6 +110,8 @@ struct PropertyValueRange {
   PropertyValueRange(Type type, std::optional<utils::Bound<PropertyValue>> lower,
                      std::optional<utils::Bound<PropertyValue>> upper)
       : type_{type}, lower_{std::move(lower)}, upper_{std::move(upper)} {}
+
+  ValuePredicate value_predicate_;
 };
 
 /** A non-owning view over property values known to be in *index* order (the

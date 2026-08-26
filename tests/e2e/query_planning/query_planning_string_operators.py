@@ -196,7 +196,7 @@ def test_edge_starts_with_null_returns_empty(memgraph, edge_graph):
     assert result == []
 
 
-# --- regression tests for defects found in review ---
+# --- an index may change the plan but never the rows ---
 
 
 @pytest.fixture
@@ -466,6 +466,153 @@ def test_non_string_subject_compares_to_null(memgraph, op):
     memgraph.execute("CREATE (:SUBJ {v: 1}), (:SUBJ {v: true}), (:SUBJ {v: [1, 2]}), (:SUBJ {v: 'abc'});")
     q = f"MATCH (n:SUBJ) WHERE n.v {op} 'zzz' RETURN count(n) AS c"
     assert list(memgraph.execute_and_fetch(q))[0]["c"] == 0
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        ("n.type CONTAINS 'lph'", ["alpha"]),
+        ("n.type ENDS WITH 'ha'", ["alpha"]),
+        ("n.type =~ 'al.*'", ["alpha"]),
+    ],
+)
+def test_is_not_null_upgraded_to_string_predicate(memgraph, predicate, expected):
+    """When IS NOT NULL and a string predicate target the same indexed property,
+    the planner upgrades to the string predicate so the skip-scan ValuePredicate
+    reaches the storage layer."""
+    query = f"MATCH (n:N) WHERE n.type IS NOT NULL AND {predicate} RETURN n.type AS t ORDER BY t"
+    plan = get_plan(memgraph, query)
+    ops = operator_names(plan)
+    assert "ScanAllByLabelProperties" in ops, f"Expected index scan, got: {plan}"
+    result = list(memgraph.execute_and_fetch(query))
+    assert [r["t"] for r in result] == expected
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "n.a = 'k000' AND n.b CONTAINS '5'",
+        "n.a = 'k000' AND n.b ENDS WITH '0'",
+        "n.a = 'k000' AND n.b =~ '.*5'",
+    ],
+)
+def test_composite_index_non_leading_string_predicate(memgraph, predicate):
+    for label in ("CIDX", "CPLAIN"):
+        memgraph.execute(
+            f"FOREACH (i IN range(0,99) | FOREACH (j IN range(0,99) | "
+            f"CREATE (:{label} {{a:'k'+right('00'+toString(i),3), b:'v'+right('00'+toString(j),3)}})));"
+        )
+    memgraph.execute("CREATE INDEX ON :CIDX(a, b);")
+    q = "MATCH (n:{L}) WHERE {p} RETURN n.a AS a, n.b AS b ORDER BY a, b"
+    indexed = [(r["a"], r["b"]) for r in memgraph.execute_and_fetch(q.format(L="CIDX", p=predicate))]
+    plain = [(r["a"], r["b"]) for r in memgraph.execute_and_fetch(q.format(L="CPLAIN", p=predicate))]
+    memgraph.execute("DROP INDEX ON :CIDX(a, b);")
+    assert indexed == plain
+    assert indexed
+
+
+@pytest.fixture(params=["ASC", "DESC"])
+def duplicate_leading_graph(request, memgraph):
+    order = request.param
+    config = "" if order == "ASC" else ' WITH CONFIG {"order": "DESC"}'
+    memgraph.execute(f"CREATE INDEX ON :DUP(type){config};")
+    memgraph.execute(
+        "FOREACH (i IN range(1, 100) | "
+        "FOREACH (t IN ['alpha', 'beta', 'gamma'] | "
+        "CREATE (:DUP {type: t, seq: i})));"
+    )
+    yield memgraph
+    memgraph.execute("DROP INDEX ON :DUP(type);")
+
+
+@pytest.mark.parametrize(
+    "predicate,expected_type",
+    [
+        ("n.type CONTAINS 'lph'", "alpha"),
+        ("n.type ENDS WITH 'ta'", "beta"),
+        ("n.type =~ 'gam.*'", "gamma"),
+    ],
+)
+def test_skip_scan_with_duplicate_leading_values(memgraph, duplicate_leading_graph, predicate, expected_type):
+    q = f"MATCH (n:DUP) WHERE {predicate} RETURN DISTINCT n.type AS t"
+    result = [r["t"] for r in memgraph.execute_and_fetch(q)]
+    assert result == [expected_type]
+    q_count = f"MATCH (n:DUP) WHERE {predicate} RETURN count(n) AS c"
+    assert list(memgraph.execute_and_fetch(q_count))[0]["c"] == 100
+
+
+# --- a correlated search term must not key a skip scan ---
+
+
+@pytest.mark.parametrize("predicate_prefix", ["", "b.t IS NOT NULL AND "], ids=["bare", "is-not-null"])
+@pytest.mark.parametrize(
+    "operator,left_values,right_values,expected",
+    [
+        pytest.param("CONTAINS", ["al", "be"], ["alpha", "beta"], [("al", "alpha"), ("be", "beta")], id="contains"),
+        pytest.param("ENDS WITH", ["ha", "ta"], ["alpha", "beta"], [("ha", "alpha"), ("ta", "beta")], id="ends-with"),
+        pytest.param("=~", ["al.*", "be.*"], ["alpha", "beta"], [("al.*", "alpha"), ("be.*", "beta")], id="regex"),
+    ],
+)
+def test_correlated_search_term_agrees_with_an_unindexed_scan(
+    memgraph, operator, left_values, right_values, expected, predicate_prefix
+):
+    # A Cartesian pulls its right branch once per pass, so a search term read from the other branch
+    # describes one left row alone. A skip scan keyed on it walks past the entries the other left
+    # rows needed, and the post-filter cannot bring back rows the scan never produced.
+    memgraph.execute("UNWIND $vs AS v CREATE (:CORRL {t: v});", {"vs": left_values})
+    for label in ("CORRIDX", "CORRPLAIN"):
+        memgraph.execute(f"UNWIND $vs AS v CREATE (:{label} {{t: v}});", {"vs": right_values})
+    memgraph.execute("CREATE INDEX ON :CORRIDX(t);")
+
+    def rows(label):
+        q = (
+            f"MATCH (a:CORRL), (b:{label}) WHERE {predicate_prefix}b.t {operator} a.t "
+            f"RETURN a.t AS a, b.t AS b ORDER BY a, b"
+        )
+        return [(r["a"], r["b"]) for r in memgraph.execute_and_fetch(q)]
+
+    indexed = rows("CORRIDX")
+    plain = rows("CORRPLAIN")
+    memgraph.execute("DROP INDEX ON :CORRIDX(t);")
+    assert plain == expected
+    assert indexed == expected
+
+
+# --- an index must not decide whether a regex query raises ---
+
+
+def test_invalid_regex_does_not_raise_before_a_row_is_read(memgraph):
+    # An unusable pattern is rejected by the filter, which no row ever reaches here. Seeding a skip
+    # scan reads the pattern earlier, and must not turn a query that answers into one that raises.
+    memgraph.execute("CREATE INDEX ON :RXEMPTY(p);")
+    assert list(memgraph.execute_and_fetch("MATCH (n:RXEMPTY) WHERE n.p =~ '[' RETURN n.p AS v")) == []
+    memgraph.execute("DROP INDEX ON :RXEMPTY(p);")
+
+
+def test_invalid_regex_still_raises_when_a_row_reaches_the_filter(memgraph):
+    memgraph.execute("CREATE INDEX ON :RXROW(p);")
+    memgraph.execute("CREATE (:RXROW {p: 'aa'});")
+    with pytest.raises(Exception):
+        list(memgraph.execute_and_fetch("MATCH (n:RXROW) WHERE n.p =~ '[' RETURN n.p AS v"))
+    memgraph.execute("DROP INDEX ON :RXROW(p);")
+
+
+def test_non_string_regex_pattern_raises_with_and_without_an_index(memgraph):
+    # A non-string pattern is the one string-predicate argument that raises rather than comparing to
+    # Null, so narrowing the range must not quietly swallow it.
+    memgraph.execute("CREATE (:RXNOIDX {p: 'aa'}), (:RXIDX {p: 'aa'});")
+    memgraph.execute("CREATE INDEX ON :RXIDX(p);")
+    for label in ("RXNOIDX", "RXIDX"):
+        with pytest.raises(Exception):
+            list(memgraph.execute_and_fetch(f"MATCH (n:{label}) WHERE n.p =~ 5 RETURN n.p AS v"))
+    memgraph.execute("DROP INDEX ON :RXIDX(p);")
+
+
+def test_null_regex_pattern_matches_nothing(memgraph):
+    memgraph.execute("CREATE (:RXNULL {p: 'aa'});")
+    memgraph.execute("CREATE INDEX ON :RXNULL(p);")
+    assert list(memgraph.execute_and_fetch("MATCH (n:RXNULL) WHERE n.p =~ null RETURN n.p AS v")) == []
+    memgraph.execute("DROP INDEX ON :RXNULL(p);")
 
 
 if __name__ == "__main__":

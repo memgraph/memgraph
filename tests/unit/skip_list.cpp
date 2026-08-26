@@ -760,6 +760,36 @@ TEST(SkipList, EstimateRangeCount) {
   }
 }
 
+TEST(SkipList, EstimateRangeCountLowerBoundNeedNotBeInTheList) {
+  // A range is described by where its bounds fall between the keys, not by the keys themselves, so
+  // a bound that no element matches has to count the same elements as the next key above it.
+  memgraph::utils::SkipList<Counter> list;
+  const int64_t kKeys = 100;
+  const int64_t kMembers = 10;
+  {
+    auto acc = list.access();
+    for (int64_t key = 0; key < kKeys; ++key) {
+      for (int64_t member = 0; member < kMembers; ++member) {
+        ASSERT_TRUE(acc.insert({key * 2, member}).second);
+      }
+    }
+  }
+
+  auto acc = list.access();
+  using memgraph::utils::BoundType;
+  for (int64_t absent : {1, 51, 197}) {
+    auto const from_absent = acc.estimate_range_count<int64_t>({{absent, BoundType::INCLUSIVE}}, std::nullopt, 1);
+    auto const from_next_key = acc.estimate_range_count<int64_t>({{absent + 1, BoundType::INCLUSIVE}}, std::nullopt, 1);
+    EXPECT_GT(from_next_key, 0);
+    EXPECT_EQ(from_absent, from_next_key);
+  }
+
+  // An absent bound inside a bounded range behaves the same way.
+  auto const bounded_from_absent =
+      acc.estimate_range_count<int64_t>({{51, BoundType::INCLUSIVE}}, {{59, BoundType::INCLUSIVE}}, 1);
+  EXPECT_EQ(bounded_from_absent, 4 * kMembers);  // keys 52, 54, 56, 58
+}
+
 template <typename TElem, typename TCmp>
 void BenchmarkEstimateAverageNumberOfEquals(memgraph::utils::SkipList<TElem> *list, const TCmp &cmp) {
   std::cout << "List size: " << list->size() << std::endl;

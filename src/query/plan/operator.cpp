@@ -23,6 +23,7 @@
 #include <optional>
 #include <queue>
 #include <ranges>
+#include <regex>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -143,15 +144,21 @@ auto ExpressionRange::In(Expression *runtime_value, ListLiteral *membership_list
   return er;
 }
 
-auto ExpressionRange::RegexMatch() -> ExpressionRange { return {Type::REGEX_MATCH, std::nullopt, std::nullopt}; }
+auto ExpressionRange::RegexMatch(Expression *value) -> ExpressionRange {
+  return {Type::REGEX_MATCH, utils::MakeBoundInclusive(value), std::nullopt};
+}
 
 auto ExpressionRange::StartsWith(Expression *value) -> ExpressionRange {
   return {Type::STARTS_WITH, utils::MakeBoundInclusive(value), std::nullopt};
 }
 
-auto ExpressionRange::Contains() -> ExpressionRange { return {Type::CONTAINS, std::nullopt, std::nullopt}; }
+auto ExpressionRange::Contains(Expression *value) -> ExpressionRange {
+  return {Type::CONTAINS, utils::MakeBoundInclusive(value), std::nullopt};
+}
 
-auto ExpressionRange::EndsWith() -> ExpressionRange { return {Type::ENDS_WITH, std::nullopt, std::nullopt}; }
+auto ExpressionRange::EndsWith(Expression *value) -> ExpressionRange {
+  return {Type::ENDS_WITH, utils::MakeBoundInclusive(value), std::nullopt};
+}
 
 auto ExpressionRange::Range(std::optional<utils::Bound<Expression *>> lower,
                             std::optional<utils::Bound<Expression *>> upper) -> ExpressionRange {
@@ -183,6 +190,11 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     case Type::REGEX_MATCH:
     case Type::CONTAINS:
     case Type::ENDS_WITH: {
+      // A non-string search term compares to Null, so nothing matches. A non-string regex pattern
+      // instead raises, and a scan must not decide whether it does, so that one keeps its band.
+      if (type_ != Type::REGEX_MATCH && lower_ && !lower_->value()->Accept(evaluator).IsString()) {
+        return storage::PropertyValueRange::Empty();
+      }
       auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
       auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
       return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
@@ -221,6 +233,38 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
     case Type::IS_NOT_NULL: {
       return storage::PropertyValueRange::IsNotNull();
     }
+  }
+}
+
+auto ExpressionRange::MakeValuePredicate(ExpressionEvaluator &evaluator) const
+    -> storage::PropertyValueRange::ValuePredicate {
+  if (!lower_) return nullptr;
+  auto const typed_value = lower_->value()->Accept(evaluator);
+  if (!typed_value.IsString()) return nullptr;
+  auto const &search_term = typed_value.ValueString();
+
+  auto const make = [](auto match) {
+    return std::make_shared<storage::PropertyValueRange::ValuePredicateFn>(
+        [match = std::move(match)](storage::PropertyValue const &value) {
+          return value.IsString() && match(value.ValueString());
+        });
+  };
+
+  switch (type_) {
+    case Type::CONTAINS:
+      return make([s = std::string(search_term)](auto const &v) { return v.contains(s); });
+    case Type::ENDS_WITH:
+      return make([s = std::string(search_term)](auto const &v) { return v.ends_with(s); });
+    case Type::REGEX_MATCH:
+      try {
+        // Raising here would let an index decide whether the query raises at all. Left to the
+        // filter, an unusable pattern raises once a row reaches it, as it does without an index.
+        return make([re = std::regex(search_term)](auto const &v) { return std::regex_match(v, re); });
+      } catch (std::regex_error const &) {
+        return nullptr;
+      }
+    default:
+      return nullptr;
   }
 }
 
@@ -266,6 +310,9 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
     case Type::REGEX_MATCH:
     case Type::CONTAINS:
     case Type::ENDS_WITH: {
+      // The search term is deliberately not read here. Query stripping turns it into a parameter
+      // and the plan cache is keyed on the stripped text, so a plan settled by one call's term
+      // would be reused for every other term. Evaluate reads it per execution instead.
       auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
       auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
       return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
@@ -1709,7 +1756,9 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
                                                      metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_label_properties_operator.Increment();
 
-  auto vertices = [this](Frame &frame, ExecutionContext &context)
+  // The predicates outlive the row they were built from; see ExpressionRange::MakeValuePredicate.
+  auto vertices = [this, value_predicates = std::vector<storage::PropertyValueRange::ValuePredicate>{}](
+                      Frame &frame, ExecutionContext &context) mutable
       -> std::optional<decltype(context.db_accessor->Vertices(
           view_, label_, properties_, std::span<storage::PropertyValueRange>{}))> {
     auto *db = context.db_accessor;
@@ -1718,6 +1767,16 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
     auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
     if (!maybe_prop_value_ranges) {
       return std::nullopt;
+    }
+
+    if (value_predicates.size() != expression_ranges_.size()) {
+      value_predicates = expression_ranges_ | rv::transform([&](ExpressionRange const &expression_range) {
+                           return expression_range.MakeValuePredicate(evaluator);
+                         }) |
+                         ranges::to_vector;
+    }
+    for (auto &&[range, predicate] : rv::zip(*maybe_prop_value_ranges, value_predicates)) {
+      range.SetValuePredicate(predicate);
     }
 
     return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
