@@ -149,7 +149,7 @@ DEFINE_bool(storage_parallel_snapshot_creation, false,
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_snapshot_thread_count,
-              std::max(static_cast<uint64_t>(memgraph::utils::GetSafeHardwareConcurrency()),
+              std::max(static_cast<uint64_t>(memgraph::utils::UsableCoreCount()),
                        memgraph::storage::Config::Durability().snapshot_thread_count),
               "The number of threads used to create snapshots.");
 
@@ -175,7 +175,7 @@ DEFINE_bool(storage_release_sent_snapshot_page_cache,
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_recovery_thread_count,
-              std::max(static_cast<uint64_t>(memgraph::utils::GetSafeHardwareConcurrency()),
+              std::max(static_cast<uint64_t>(memgraph::utils::UsableCoreCount()),
                        memgraph::storage::Config::Durability().recovery_thread_count),
               "The number of threads used to recover persisted data from disk.");
 

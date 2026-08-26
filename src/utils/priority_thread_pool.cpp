@@ -191,7 +191,7 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
     // Limit the number of directly used threads when there are more workers than hw threads.
     // Gives better overall performance.
     static const auto max_wakeup_thread =
-        std::max(1UL, std::min(static_cast<TaskID>(GetSafeHardwareConcurrency()), workers_.size()));
+        std::max(1UL, std::min(static_cast<TaskID>(UsableCoreCount()), workers_.size()));
     // If no hot thread found, give it to the next thread
     tid = last_wid_++ % max_wakeup_thread;
   }
