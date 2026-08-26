@@ -52,11 +52,10 @@ def test_starts_with_uses_label_property_scan(memgraph):
     assert "ScanAll" not in ops, f"ScanAll should not appear, got: {plan}"
 
 
-def test_starts_with_filter_is_consumed_by_index(memgraph):
-    """The [prefix, PrefixSuccessor) range is exact, so no post-filter should remain."""
+def test_starts_with_filter_is_consumed_by_label_property_index(memgraph):
+    # The scan's two bounds span exactly the strings carrying the prefix, so nothing is left to check.
     plan = get_plan(memgraph, "MATCH (n:N) WHERE n.type STARTS WITH 'al' RETURN n")
-    filters = [line for line in plan if "Filter" in line]
-    assert filters == [], f"STARTS WITH should not leave a post-filter, got: {plan}"
+    assert "Filter" not in operator_names(plan), f"STARTS WITH should not leave a post-filter, got: {plan}"
 
 
 def test_ends_with_uses_label_property_scan(memgraph):
@@ -198,6 +197,13 @@ def test_edge_ends_with_uses_edge_type_property_range(memgraph, edge_graph):
     assert [r["k"] for r in result] == ["gamma"]
 
 
+def test_edge_starts_with_keeps_its_post_filter(memgraph, edge_graph):
+    # An edge scan ranges upwards from the prefix with no ceiling, so it reads past the prefix and
+    # the predicate has to be checked again afterwards.
+    plan = get_plan(memgraph, "MATCH (a)-[r:REL]->(b) WHERE r.kind STARTS WITH 'be' RETURN r.kind AS k")
+    assert "Filter" in operator_names(plan), f"An edge prefix scan must keep its post-filter, got: {plan}"
+
+
 def test_edge_starts_with_null_returns_empty(memgraph, edge_graph):
     result = list(memgraph.execute_and_fetch("MATCH (a)-[r:REL]->(b) WHERE r.kind STARTS WITH null RETURN r.kind AS k"))
     assert result == []
@@ -219,8 +225,7 @@ def cartesian_graph(memgraph):
 
 def test_starts_with_across_cartesian_keeps_all_rows(memgraph, cartesian_graph):
     # A Cartesian pulls its right branch once per pass, so a seek keyed on the left branch is only
-    # sound once the Cartesian has become an IndexedJoin. STARTS WITH keeps a post-filter, so the
-    # conversion cannot be driven by expression removal alone.
+    # sound once the Cartesian has become an IndexedJoin.
     result = list(
         memgraph.execute_and_fetch("MATCH (a:CA), (b:CB) WHERE b.t STARTS WITH a.t RETURN b.t AS t ORDER BY t")
     )
@@ -259,6 +264,25 @@ def test_global_property_index_string_predicates(memgraph, global_index_graph, p
     assert "ScanAllByVertexProperty" in operator_names(plan), f"Expected the global index, got: {plan}"
     result = list(memgraph.execute_and_fetch(f"MATCH (n:GI) WHERE {predicate} RETURN n.gp AS p ORDER BY p"))
     assert [r["p"] for r in result] == expected
+
+
+def test_starts_with_filter_is_consumed_by_global_property_index(memgraph, global_index_graph):
+    # Matching without a label keeps a surviving label check out of the plan, so the only Filter that
+    # could appear is the predicate itself.
+    plan = get_plan(memgraph, "MATCH (n) WHERE n.gp STARTS WITH 'hel' RETURN n.gp AS p")
+    ops = operator_names(plan)
+    assert "ScanAllByVertexProperty" in ops, f"Expected the global index, got: {plan}"
+    assert "Filter" not in ops, f"STARTS WITH should not leave a post-filter, got: {plan}"
+
+
+@pytest.mark.parametrize("predicate", ["n.gp CONTAINS 'ell'", "n.gp ENDS WITH 'lo'", "n.gp =~ 'hel.*'"])
+def test_unbounded_string_predicates_keep_their_post_filter(memgraph, global_index_graph, predicate):
+    # These three have no bound narrower than the whole string type, so the scan hands back rows the
+    # predicate rejects and it must still run.
+    plan = get_plan(memgraph, f"MATCH (n) WHERE {predicate} RETURN n.gp AS p")
+    ops = operator_names(plan)
+    assert "ScanAllByVertexProperty" in ops, f"Expected the global index, got: {plan}"
+    assert "Filter" in ops, f"{predicate} must keep its post-filter, got: {plan}"
 
 
 def test_far_smaller_band_index_still_wins(memgraph):

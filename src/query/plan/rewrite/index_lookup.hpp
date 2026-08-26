@@ -231,8 +231,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       Filters own_filters;
       own_filters.CollectFilterExpression(op.expression_, *symbol_table_);
       for (auto const &filter : own_filters) {
-        if (filter_exprs_for_removal_.contains(filter.expression) ||
-            filter_exprs_keying_a_seek_.contains(filter.expression)) {
+        if (filter_exprs_for_removal_.contains(filter.expression)) {
           removed_filters.push_back(filter);
         }
       }
@@ -248,9 +247,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     // A Cartesian pulls its right branch once per pass, not once per left row, so it cannot feed a
     // seek keyed on the other branch. Convert only when a consumed filter created such a dependency.
-    // A retained post-filter is not removed, but may still have keyed the seek below (CONTAINS,
-    // ENDS WITH), so `did_remove` alone would miss the dependency it created.
-    if (removal.did_remove || !removed_filters.empty()) {
+    // Every node predicate that keys a seek is consumed by the scan, so removal detects them all.
+    if (removal.did_remove) {
       LogicalOperator *input = op.input().get();
       LogicalOperator *parent = &op;
 
@@ -973,8 +971,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
-  // Expressions kept in a Filter that still supplied a seek key to a scan below it.
-  std::unordered_set<Expression *> filter_exprs_keying_a_seek_;
   // Enclosing scope's symbols: live on the frame, but not produced by this branch, so they must stay
   // out of the plan - ModifiedSymbols has consumers that read it as "produced by this subtree".
   std::unordered_set<Symbol> const inherited_bound_symbols_;
@@ -1710,8 +1706,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   struct ScanByIndexMetadata {
     std::vector<FilterInfo> filters_to_erase;
     std::vector<Expression *> expressions_to_mark_for_removal;
-    // Retained post-filters that nonetheless supplied the scan's seek key.
-    std::vector<Expression *> expressions_keying_a_seek;
     std::vector<LabelIx> labels_to_erase;   // For EraseLabelFilter or EraseOrLabelFilter
     bool is_or_label_filter = false;        // If true, use EraseOrLabelFilter instead of EraseLabelFilter
     bool all_property_filters_same = true;  // For OR labels: whether all filters are the same
@@ -1763,14 +1757,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (max_vertex_count && best->estimated_count > *max_vertex_count) return std::nullopt;
 
     auto const &prop_filter = *best->filter.property_filter;
-    // The node-path scan computes exact [prefix, PrefixSuccessor) bounds via ExpressionRange, so
-    // STARTS_WITH needs no post-filter here. (The edge-path scan still uses a lower-bound-only range
-    // and keeps RequiresPostFilter true.)
-    if (!PropertyFilter::RequiresPostFilter(prop_filter.type_) ||
-        prop_filter.type_ == PropertyFilter::Type::STARTS_WITH) {
+    if (!PropertyFilter::RequiresPostFilterOnNodeScan(prop_filter.type_)) {
       metadata.expressions_to_mark_for_removal.push_back(best->filter.expression);
-    } else if (PropertyFilter::SeeksOnValue(prop_filter.type_)) {
-      metadata.expressions_keying_a_seek.push_back(best->filter.expression);
     }
     metadata.filters_to_erase.push_back(best->filter);
 
@@ -2014,11 +2002,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       for (auto const &filter_info : found_index->filters) {
         const PropertyFilter prop_filter = *filter_info.property_filter;
 
-        if (!PropertyFilter::RequiresPostFilter(prop_filter.type_) ||
-            prop_filter.type_ == PropertyFilter::Type::STARTS_WITH) {
+        if (!PropertyFilter::RequiresPostFilterOnNodeScan(prop_filter.type_)) {
           metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
-        } else if (PropertyFilter::SeeksOnValue(prop_filter.type_)) {
-          metadata.expressions_keying_a_seek.push_back(filter_info.expression);
         }
 
         metadata.filters_to_erase.push_back(filter_info);
@@ -2100,11 +2085,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             // Filter cleanup, track which expressions to remove
             for (auto const &filter_info : label_property_index.filters) {
               const PropertyFilter prop_filter = *filter_info.property_filter;
-              if (!PropertyFilter::RequiresPostFilter(prop_filter.type_) ||
-                  prop_filter.type_ == PropertyFilter::Type::STARTS_WITH) {
+              if (!PropertyFilter::RequiresPostFilterOnNodeScan(prop_filter.type_)) {
                 metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
-              } else if (PropertyFilter::SeeksOnValue(prop_filter.type_)) {
-                metadata.expressions_keying_a_seek.push_back(filter_info.expression);
               }
             }
             auto or_membership_lists =
@@ -2160,8 +2142,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                        metadata.expressions_to_mark_for_removal.end());
     }
     filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-    filter_exprs_keying_a_seek_.insert(metadata.expressions_keying_a_seek.begin(),
-                                       metadata.expressions_keying_a_seek.end());
   }
 
   // Creates a ScanAll by the best possible index for the `node_symbol`. If the node
