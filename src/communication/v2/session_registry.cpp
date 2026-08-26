@@ -21,12 +21,12 @@ SessionRegistry &SessionRegistry::Instance() {
 }
 
 void SessionRegistry::Register(std::string uuid, std::weak_ptr<TerminableSession> session) {
-  std::lock_guard lock(mutex_);
+  const std::scoped_lock lock{mutex_};
   sessions_.insert_or_assign(std::move(uuid), std::move(session));
 }
 
 void SessionRegistry::Deregister(std::string_view uuid, TerminableSession const *self) {
-  std::lock_guard lock(mutex_);
+  const std::scoped_lock lock{mutex_};
   auto it = sessions_.find(std::string(uuid));
   if (it == sessions_.end()) return;
   // Erase iff the entry is stale or still owned by the caller; a uuid collision must not let one
@@ -40,7 +40,7 @@ void SessionRegistry::Deregister(std::string_view uuid, TerminableSession const 
 std::shared_ptr<TerminableSession> SessionRegistry::Find(std::string_view uuid) const {
   std::shared_ptr<TerminableSession> result;
   {
-    std::lock_guard lock(mutex_);
+    const std::scoped_lock lock{mutex_};
     auto it = sessions_.find(std::string(uuid));
     if (it != sessions_.end()) {
       result = it->second.lock();
@@ -50,7 +50,7 @@ std::shared_ptr<TerminableSession> SessionRegistry::Find(std::string_view uuid) 
 }
 
 std::size_t SessionRegistry::Size() const {
-  std::lock_guard lock(mutex_);
+  const std::scoped_lock lock{mutex_};
   return sessions_.size();
 }
 

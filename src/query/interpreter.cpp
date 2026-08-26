@@ -7421,7 +7421,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
         if (!sf || !std::ranges::contains(status_filter, *sf)) continue;
       }
       const auto &typed_queries = interpreter->GetQueries();
-      results.push_back({TypedValue(user_snapshot ? (user_snapshot->username() ? *user_snapshot->username() : "") : ""),
+      results.push_back({TypedValue(user_snapshot ? user_snapshot->username().value_or("") : ""),
                          TypedValue(std::to_string(transaction_id.value())),
                          TypedValue(typed_queries),
                          TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
@@ -7620,7 +7620,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                      privilege_checker = std::move(privilege_checker),
                      caller_session_uuid = std::move(caller_session_uuid)]() mutable {
         auto result = interpreter_context->interpreters.WithLock([&](auto &interpreters) {
-          return interpreter_context->TerminateSessions(
+          return InterpreterContext::TerminateSessions(
               interpreters, session_ids, user_or_role.get(), privilege_checker, caller_session_uuid);
         });
         // Closing a connection runs that session's destructor chain, which re-enters

@@ -141,7 +141,7 @@ struct InterpreterContext {
   // there is no correct tenant to scope against; "memgraph" is chosen because dbless connections are rare and
   // the default database is the closest thing to an instance-level scope Memgraph has. It means a
   // "memgraph"-scoped admin can reach sessions that belong to no tenant at all.
-  TerminateSessionsResult TerminateSessions(
+  static TerminateSessionsResult TerminateSessions(
       const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
       QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
       std::string_view caller_session_uuid);
