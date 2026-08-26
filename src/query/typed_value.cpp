@@ -2187,6 +2187,19 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
   LOG_FATAL("Unhandled TypedValue.type() in hash function");
 }
 
+bool ContainsNull(const TypedValue &value) {
+  switch (value.type()) {
+    case TypedValue::Type::Null:
+      return true;
+    case TypedValue::Type::List:
+      return std::ranges::any_of(value.ValueList(), [](const auto &element) { return ContainsNull(element); });
+    case TypedValue::Type::Map:
+      return std::ranges::any_of(value.ValueMap(), [](const auto &kv) { return ContainsNull(kv.second); });
+    default:
+      return false;
+  }
+}
+
 auto GetCRS(TypedValue const &tv) -> std::optional<storage::CoordinateReferenceSystem> {
   switch (tv.type()) {
     using enum TypedValue::Type;

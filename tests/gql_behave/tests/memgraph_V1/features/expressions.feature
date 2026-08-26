@@ -243,3 +243,69 @@ Feature: Expressions
             | value       | count |
             | {k: null}   | 2     |
             | {k: 1}      | 1     |
+
+    Scenario: Test IN is Null for a Null value whatever else the rows hold
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [10, 0, null] AS v
+            RETURN v, v IN [10] AS result
+            """
+        Then the result should be:
+            | v    | result |
+            | 10   | true   |
+            | 0    | false  |
+            | null | null   |
+
+    Scenario: Test WHERE drops a row whose negated IN is Null
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [10, 0, null] AS v
+            WITH v
+            WHERE NOT (v IN [10])
+            RETURN v
+            """
+        Then the result should be:
+            | v |
+            | 0 |
+
+    Scenario: Test IN over stored properties drops the rows it cannot decide
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:N {id: 1, v: 10}), (:N {id: 2, v: 0}), (:N {id: 3, v: null}), (:N {id: 4, v: -5}), (:N {id: 5})
+            """
+        When executing query:
+            """
+            MATCH (n:N)
+            WHERE NOT (n.v IN [10])
+            RETURN n.id AS id
+            ORDER BY id
+            """
+        Then the result should be:
+            | id |
+            | 2  |
+            | 4  |
+
+    Scenario: Test IN is Null when only a Null element could match
+        Given an empty graph
+        When executing query:
+            """
+            RETURN [null] IN [[null]] AS nested, 1 IN [1, null] AS found, 2 IN [1, null] AS absent
+            """
+        Then the result should be:
+            | nested | found | absent |
+            | null   | true  | null   |
+
+    Scenario: Test IN over an empty list is false even for a Null value
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, null] AS v
+            RETURN v, v IN [] AS result
+            """
+        Then the result should be:
+            | v    | result |
+            | 1    | false  |
+            | null | false  |

@@ -810,6 +810,14 @@ class TypedValue {
 };
 
 /**
+ * Whether the value is Null or holds one anywhere inside a list or map.
+ *
+ * Equality and equivalence answer alike for a pair of values only when neither
+ * of them contains a Null, which is what makes this worth asking.
+ */
+bool ContainsNull(const TypedValue &value);
+
+/**
  * An exception raised by the TypedValue system. Typically when
  * trying to perform operations (such as addition) on TypedValues
  * of incompatible Types.

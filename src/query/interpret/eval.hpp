@@ -440,7 +440,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return *list_ptr;
     };
 
-    auto do_list_literal_checks = [this, &literal](const TypedValue &list) -> std::optional<TypedValue> {
+    // A result the list decides on its own, before any element is compared.
+    auto do_list_literal_checks = [this](const TypedValue &list) -> std::optional<TypedValue> {
       if (list.IsNull()) {
         return TypedValue(ctx_->memory);
       }
@@ -449,14 +450,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (list.type() != TypedValue::Type::List) {
         throw QueryRuntimeException("IN expected a list, got {}.", list.type());
       }
-      const auto &list_value = list.ValueList();
-
-      // If literal is NULL there is no need to try to compare it with every
-      // element in the list since result of every comparison will be NULL. There
-      // is one special case that we must test explicitly: if list is empty then
-      // result is false since no comparison will be performed.
-      if (list_value.empty()) return TypedValue(false, ctx_->memory);
-      if (literal.IsNull()) return TypedValue(ctx_->memory);
+      // An empty list settles the answer even for a Null literal, since no
+      // comparison is performed.
+      if (list.ValueList().empty()) return TypedValue(false, ctx_->memory);
       return {};
     };
 
@@ -478,14 +474,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         const auto &cached_value = cached_value_ref->get();
 
-        if (cached_value.Contains(literal)) {
-          return TypedValue(true, ctx_->memory);
+        // The set answers by equivalence, in which Null equals Null, while IN
+        // asks by equality, which is three-valued. Where the two relations part
+        // company the question falls through to the scan below, which compares
+        // by equality one element at a time.
+        if (!cached_value.HasNullNestedInElement() && !ContainsNull(literal)) {
+          if (cached_value.Contains(literal)) {
+            return TypedValue(true, ctx_->memory);
+          }
+          // Nothing matched, but a Null element leaves the answer open.
+          if (cached_value.Contains(TypedValue(ctx_->memory))) {
+            return TypedValue(ctx_->memory);
+          }
+          return TypedValue(false, ctx_->memory);
         }
-        // has null
-        if (cached_value.Contains(TypedValue(ctx_->memory))) {
-          return TypedValue(ctx_->memory);
-        }
-        return TypedValue(false, ctx_->memory);
       }
     }
     // When caching is not an option, we need to evaluate list literal every time
@@ -495,6 +497,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (preoperational_checks) {
       return std::move(*preoperational_checks);
     }
+    // Every comparison against a Null literal is Null, so no element can settle
+    // the answer.
+    if (literal.IsNull()) return TypedValue(ctx_->memory);
 
     const auto &list_value = list.ValueList();
     auto has_null = false;

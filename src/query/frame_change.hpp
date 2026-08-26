@@ -33,9 +33,11 @@ struct CachedSet {
 
   explicit CachedSet(allocator_type alloc) : cache_{alloc} {}
 
-  CachedSet(const CachedSet &other, allocator_type alloc) : cache_(other.cache_, alloc) {}
+  CachedSet(const CachedSet &other, allocator_type alloc)
+      : cache_(other.cache_, alloc), has_nested_null_(other.has_nested_null_) {}
 
-  CachedSet(CachedSet &&other, allocator_type alloc) : cache_(std::move(other.cache_), alloc) {}
+  CachedSet(CachedSet &&other, allocator_type alloc)
+      : cache_(std::move(other.cache_), alloc), has_nested_null_(other.has_nested_null_) {}
 
   CachedSet(CachedSet &&other) noexcept : CachedSet(std::move(other), other.get_allocator()) {}
 
@@ -49,7 +51,10 @@ struct CachedSet {
 
   ~CachedSet() = default;
 
-  void Reset() { cache_.clear(); }
+  void Reset() {
+    cache_.clear();
+    has_nested_null_ = false;
+  }
 
   bool SetValue(const TypedValue &maybe_list) {
     if (!maybe_list.IsList()) {
@@ -57,6 +62,7 @@ struct CachedSet {
     }
     const auto &list = maybe_list.ValueList();
     for (const auto &element : list) {
+      has_nested_null_ = has_nested_null_ || (!element.IsNull() && ContainsNull(element));
       cache_.insert(element);
     }
     return true;
@@ -64,6 +70,19 @@ struct CachedSet {
 
   // Func to check if cache_ contains value
   bool Contains(const TypedValue &value) const { return cache_.contains(value); }
+
+  // Whether any element holds a Null inside a list or map of its own.
+  //
+  // The set compares by equivalence, in which Null equals Null, so a caller
+  // asking an equality question has to know where the two relations part
+  // company. An element that is itself Null does not: nothing is equivalent to
+  // it but Null, and the caller can read that as equality's Null. A Null
+  // nested inside an element does, because equivalence calls two such
+  // containers equal where equality cannot tell them apart.
+  bool HasNullNestedInElement() const { return has_nested_null_; }
+
+ private:
+  bool has_nested_null_ = false;
 };
 
 // Class tracks keys for which user can cache values which help with faster search or faster retrieval

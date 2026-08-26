@@ -24,6 +24,8 @@
 #include "disk_test_utils.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
+#include "query/frame_change.hpp"
+#include "query/frame_change_caching.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
@@ -504,6 +506,89 @@ TYPED_TEST(ExpressionEvaluatorTest, InListOperator) {
     auto value = this->Eval(op);
     EXPECT_FALSE(value.ValueBool());
   }
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, InListOperatorOverACachedList) {
+  // A loop-invariant list is turned into a set and reused across frames. The
+  // set answers by equivalence, in which NULL equals NULL, while IN asks by
+  // equality, under which a NULL value matches nothing at all.
+  auto *list_literal = this->storage.template Create<ListLiteral>(std::vector<Expression *>{
+      this->storage.template Create<PrimitiveLiteral>(1), this->storage.template Create<PrimitiveLiteral>(2)});
+  auto *identifier = this->storage.template Create<Identifier>("x", true);
+  auto symbol = this->symbol_table.CreateSymbol("x", true);
+  identifier->MapTo(symbol);
+  auto *op = this->storage.template Create<InListOperator>(identifier, list_literal);
+
+  memgraph::query::FrameChangeCollector collector;
+  memgraph::query::PrepareCaching(this->storage, &collector);
+  ExpressionEvaluator eval{&this->frame, this->execution_context, memgraph::storage::View::OLD, &collector};
+
+  auto evaluate_for = [&](const TypedValue &value) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(symbol, value);
+    return op->Accept(eval);
+  };
+
+  // The first evaluation populates the cache, the rest are answered from it.
+  EXPECT_TRUE(evaluate_for(TypedValue(1)).ValueBool());
+  EXPECT_FALSE(evaluate_for(TypedValue(3)).ValueBool());
+  EXPECT_TRUE(evaluate_for(TypedValue(2)).ValueBool());
+  EXPECT_TRUE(evaluate_for(TypedValue()).IsNull());
+  EXPECT_FALSE(evaluate_for(TypedValue(3)).ValueBool());
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, InListOperatorOverACachedListWithANullElement) {
+  // A Null element is one the set and equality agree about: nothing matches it
+  // but Null, so a value that is not in the list leaves the answer open rather
+  // than settling it as false.
+  auto *list_literal = this->storage.template Create<ListLiteral>(std::vector<Expression *>{
+      this->storage.template Create<PrimitiveLiteral>(1),
+      this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue())});
+  auto *identifier = this->storage.template Create<Identifier>("x", true);
+  auto symbol = this->symbol_table.CreateSymbol("x", true);
+  identifier->MapTo(symbol);
+  auto *op = this->storage.template Create<InListOperator>(identifier, list_literal);
+
+  memgraph::query::FrameChangeCollector collector;
+  memgraph::query::PrepareCaching(this->storage, &collector);
+  ExpressionEvaluator eval{&this->frame, this->execution_context, memgraph::storage::View::OLD, &collector};
+
+  auto evaluate_for = [&](const TypedValue &value) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(symbol, value);
+    return op->Accept(eval);
+  };
+
+  EXPECT_TRUE(evaluate_for(TypedValue(1)).ValueBool());
+  EXPECT_TRUE(evaluate_for(TypedValue(2)).IsNull());
+  EXPECT_TRUE(evaluate_for(TypedValue()).IsNull());
+  EXPECT_TRUE(evaluate_for(TypedValue(1)).ValueBool());
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, InListOperatorOverACachedListHoldingNull) {
+  // Equivalence would report the NULL-holding element as found; equality
+  // cannot tell it from any other list of one element.
+  auto *inner = this->storage.template Create<ListLiteral>(std::vector<Expression *>{
+      this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue())});
+  auto *list_literal = this->storage.template Create<ListLiteral>(std::vector<Expression *>{inner});
+  auto *identifier = this->storage.template Create<Identifier>("x", true);
+  auto symbol = this->symbol_table.CreateSymbol("x", true);
+  identifier->MapTo(symbol);
+  auto *op = this->storage.template Create<InListOperator>(identifier, list_literal);
+
+  memgraph::query::FrameChangeCollector collector;
+  memgraph::query::PrepareCaching(this->storage, &collector);
+  ExpressionEvaluator eval{&this->frame, this->execution_context, memgraph::storage::View::OLD, &collector};
+
+  auto evaluate_for = [&](const TypedValue &value) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(symbol, value);
+    return op->Accept(eval);
+  };
+
+  EXPECT_TRUE(evaluate_for(TypedValue(std::vector<TypedValue>{TypedValue()})).IsNull());
+  EXPECT_TRUE(evaluate_for(TypedValue(std::vector<TypedValue>{TypedValue(1)})).IsNull());
+  EXPECT_FALSE(evaluate_for(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)})).ValueBool());
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, ListIndexing) {
