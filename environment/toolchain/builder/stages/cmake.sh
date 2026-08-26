@@ -41,6 +41,12 @@ if [[ ! -f "$PREFIX/bin/cmake" ]]; then
     echo 'set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY CACHE STRING "" FORCE)' >> build-flags.cmake
     echo 'set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY CACHE STRING "" FORCE)' >> build-flags.cmake
     echo 'set(BUILD_CursesDialog ON CACHE BOOL "Build curses GUI" FORCE)' >> build-flags.cmake
+    # cmake, ctest, cpack and ccmake are C++ and shipped without a runpath, so
+    # they bind to whatever libstdc++ the machine they land on provides. That
+    # makes the oldest usable machine a property of the host rather than of the
+    # newer libstdc++ this toolchain ships alongside them. Relative, so the
+    # installed tree still moves.
+    echo 'set(CMAKE_EXE_LINKER_FLAGS "-Wl,-rpath,$ORIGIN/../lib64" CACHE STRING "" FORCE)' >> build-flags.cmake
     mkdir build && pushd build
     ../bootstrap \
         --prefix=$PREFIX \

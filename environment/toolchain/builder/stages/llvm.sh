@@ -53,6 +53,13 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
     # activate swig
     export PATH=$DIR/build/swig-$SWIG_VERSION/install/bin:$PATH
     # influenced by: https://buildd.debian.org/status/fetch.php?pkg=llvm-toolchain-7&arch=amd64&ver=1%3A7.0.1%7E%2Brc2-1%7Eexp1&stamp=1541506173&raw=0
+    # The linker flags name both link rules. CMAKE_CXX_LINK_FLAGS, which stood
+    # here before, expands only in the rule that links executables, so clang and
+    # the other programs got a runpath while libLLVM, libclang and lldb did not
+    # and fell back to whatever libstdc++ the machine happened to have. The path
+    # is relative, and names lib64: LLVM's own default runpath points at lib,
+    # where this toolchain's libstdc++ does not live.
+    #
     # No -fuse-ld=gold. binutils dropped gold, so this toolchain ships none and
     # the flag was silently selecting the *host's* gold -- an old one, outside
     # the sysroot. It also fails outright on BOLT: gold 1.16 hits an internal
@@ -67,7 +74,8 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
         -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
         -DCMAKE_C_COMPILER=$PREFIX/bin/gcc \
         -DCMAKE_CXX_COMPILER=$PREFIX/bin/g++ \
-        -DCMAKE_CXX_LINK_FLAGS="-L$PREFIX/lib64 -Wl,-rpath,$PREFIX/lib64" \
+        -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib64 -Wl,-rpath,\$ORIGIN/../lib64" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib64 -Wl,-rpath,\$ORIGIN/../lib64" \
         -DCMAKE_INSTALL_PREFIX=$PREFIX \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -DNDEBUG" \

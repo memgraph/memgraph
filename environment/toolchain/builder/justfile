@@ -66,6 +66,11 @@ shell name *args:
 fingerprint prefix="/opt/toolchain-v8":
     "{{ here }}/verify/fingerprint.sh" "{{ prefix }}"
 
+# Check an installed toolchain resolves its own libraries rather than the
+# host's. Needs a deployed tree, so it is separate from the static checks.
+check-links prefix="/opt/toolchain-v8":
+    "{{ here }}/verify/runtime-links.sh" "{{ prefix }}"
+
 # Compare two installed toolchains for equivalence.
 compare a b:
     "{{ here }}/verify/compare.sh" "{{ a }}" "{{ b }}"
