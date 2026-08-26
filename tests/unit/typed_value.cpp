@@ -311,6 +311,66 @@ TEST(TypedValue, BoolEquals) {
   EXPECT_TRUE(eq(TypedValue(), TypedValue()));
 }
 
+namespace {
+TypedValue List(std::vector<TypedValue> elements) { return TypedValue(std::move(elements)); }
+
+TypedValue Map(std::map<std::string, TypedValue> entries) { return TypedValue(std::move(entries)); }
+}  // namespace
+
+TEST(TypedValue, ContainerEqualityPropagatesNull) {
+  const auto null = TypedValue();
+
+  // Equality is three-valued. An element pair that compares Null leaves the
+  // whole comparison Null, because the containers cannot be told apart.
+  EXPECT_PROP_ISNULL(List({null}) == List({null}));
+  EXPECT_PROP_ISNULL(List({null}) == List({TypedValue(1)}));
+  EXPECT_PROP_ISNULL(List({TypedValue(1), null, TypedValue(3)}) == List({TypedValue(1), null, TypedValue(3)}));
+  EXPECT_PROP_ISNULL(List({null}) != List({null}));
+  EXPECT_PROP_ISNULL(Map({{"k", null}}) == Map({{"k", null}}));
+  EXPECT_PROP_ISNULL(Map({{"k", null}}) == Map({{"k", TypedValue(1)}}));
+
+  // A pair that is definitively unequal settles the comparison whatever else
+  // is Null.
+  EXPECT_PROP_FALSE(List({null, TypedValue(1)}) == List({null, TypedValue(2)}));
+  EXPECT_PROP_FALSE(Map({{"j", TypedValue(1)}, {"k", null}}) == Map({{"j", TypedValue(2)}, {"k", null}}));
+
+  // So does a difference in shape, which needs no element comparison at all.
+  EXPECT_PROP_FALSE(List({null}) == List({null, null}));
+  EXPECT_PROP_FALSE(Map({{"k", null}}) == Map({{"j", null}}));
+
+  // Nesting is no different.
+  EXPECT_PROP_ISNULL(List({List({null})}) == List({List({null})}));
+  EXPECT_PROP_FALSE(List({List({null})}) == List({List({null, null})}));
+
+  // With no Null anywhere the result stays definitive.
+  EXPECT_PROP_TRUE(List({TypedValue(1), TypedValue(2)}) == List({TypedValue(1), TypedValue(2)}));
+  EXPECT_PROP_FALSE(List({TypedValue(1), TypedValue(2)}) == List({TypedValue(1), TypedValue(3)}));
+  EXPECT_PROP_TRUE(Map({{"k", TypedValue(1)}}) == Map({{"k", TypedValue(1)}}));
+}
+
+TEST(TypedValue, ContainerEquivalenceHoldsNullEquivalentToNull) {
+  // Equivalence is the two-valued relation behind DISTINCT and grouping. It
+  // holds Null equivalent to Null, and applies that to elements too, so it
+  // must not be derived from equality's Null-propagating answer.
+  auto eq = TypedValue::BoolEqual{};
+  const auto null = TypedValue();
+
+  EXPECT_TRUE(eq(List({null}), List({null})));
+  EXPECT_FALSE(eq(List({null}), List({TypedValue(1)})));
+  EXPECT_TRUE(eq(List({TypedValue(1), null}), List({TypedValue(1), null})));
+  EXPECT_FALSE(eq(List({null}), List({null, null})));
+  EXPECT_TRUE(eq(Map({{"k", null}}), Map({{"k", null}})));
+  EXPECT_FALSE(eq(Map({{"k", null}}), Map({{"k", TypedValue(1)}})));
+  EXPECT_FALSE(eq(Map({{"k", null}}), Map({{"j", null}})));
+  EXPECT_TRUE(eq(List({List({null})}), List({List({null})})));
+
+  // Equivalent values must hash alike, or the hash sets built on this relation
+  // never get as far as comparing them.
+  auto hash = TypedValue::Hash{};
+  EXPECT_EQ(hash(List({null})), hash(List({null})));
+  EXPECT_EQ(hash(Map({{"k", null}})), hash(Map({{"k", null}})));
+}
+
 TEST(TypedValue, Hash) {
   auto hash = TypedValue::Hash{};
 
@@ -828,13 +888,10 @@ TYPED_TEST(AllTypesFixture, CopyConstruction) {
       EXPECT_PROP_ISNULL(cpy);
     } else if (value.IsGraph()) {
       // not comparable
-    } else if (value.IsMap()) {
-      // map contains NULL so can't be true
-      auto res = cpy == value;
-      // THIS IS NOT THE SAME AS NEO4J
-      // NEO4J returns NULL
-      ASSERT_EQ(res.type(), TypedValue::Type::Bool);
-      ASSERT_EQ(res.ValueBool(), false);
+    } else if (value.IsList() || value.IsMap()) {
+      // Both hold a Null element, so equality cannot tell the copy from the
+      // original however faithful the copy is.
+      EXPECT_PROP_ISNULL(cpy == value);
     } else {
       EXPECT_PROP_EQ(cpy, value);
     }

@@ -12,6 +12,7 @@
 #include "query/typed_value.hpp"
 
 #include <fmt/format.h>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <iosfwd>
@@ -1754,34 +1755,39 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::VirtualNode:
       return TypedValue(a.ValueVirtualNode() == b.ValueVirtualNode(), a.alloc_);
     case TypedValue::Type::List: {
-      // We are not compatible with neo4j at this point. In neo4j 2 = [2]
-      // compares
-      // to true. That is not the end of unselfishness of developers at neo4j so
-      // they allow us to use as many braces as we want to get to the truth in
-      // list comparison, so [[2]] = [[[[[[2]]]]]] compares to true in neo4j as
-      // well. Because, why not?
-      // At memgraph we prefer sanity so [1,2] = [1,2] compares to true and
-      // 2 = [2] compares to false.
       const auto &list_a = a.ValueList();
       const auto &list_b = b.ValueList();
       if (list_a.size() != list_b.size()) return TypedValue(false, a.alloc_);
-      // two arrays are considered equal (by neo) if all their
-      // elements are bool-equal. this means that:
-      //    [1] == [null] -> false
-      //    [null] == [null] -> true
-      // in that sense array-comparison never results in Null
-      return TypedValue(std::equal(list_a.begin(), list_a.end(), list_b.begin(), TypedValue::BoolEqual{}), a.alloc_);
+      auto saw_null = false;
+      for (size_t i = 0; i != list_a.size(); ++i) {
+        auto const element_result = list_a[i] == list_b[i];
+        if (element_result.IsNull()) {
+          saw_null = true;
+        } else if (!element_result.ValueBool()) {
+          return TypedValue(false, a.alloc_);
+        }
+      }
+      // One Null element pair only leaves the lists indistinguishable; another
+      // pair may still have proved them different, which is why false wins.
+      if (saw_null) return TypedValue(a.alloc_);
+      return TypedValue(true, a.alloc_);
     }
     case TypedValue::Type::Map: {
       const auto &map_a = a.ValueMap();
       const auto &map_b = b.ValueMap();
       if (map_a.size() != map_b.size()) return TypedValue(false, a.alloc_);
+      auto saw_null = false;
       for (const auto &kv_a : map_a) {
         auto found_b_it = map_b.find(kv_a.first);
         if (found_b_it == map_b.end()) return TypedValue(false, a.alloc_);
-        TypedValue comparison = kv_a.second == found_b_it->second;
-        if (comparison.IsNull() || !comparison.ValueBool()) return TypedValue(false, a.alloc_);
+        auto const value_result = kv_a.second == found_b_it->second;
+        if (value_result.IsNull()) {
+          saw_null = true;
+        } else if (!value_result.ValueBool()) {
+          return TypedValue(false, a.alloc_);
+        }
       }
+      if (saw_null) return TypedValue(a.alloc_);
       return TypedValue(true, a.alloc_);
     }
     case TypedValue::Type::Path:
@@ -2083,7 +2089,27 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b) {
 }
 
 bool TypedValue::BoolEqual::operator()(const TypedValue &lhs, const TypedValue &rhs) const {
-  if (lhs.IsNull() && rhs.IsNull()) return true;
+  if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && rhs.IsNull();
+
+  // Equivalence differs from equality only in holding Null equivalent to Null,
+  // and containers hold that of their elements too. Deriving the container
+  // cases from equality would instead inherit the Null it propagates and read
+  // it as not equivalent, so they are walked here.
+  if (lhs.IsList() && rhs.IsList()) {
+    const auto &list_lhs = lhs.ValueList();
+    const auto &list_rhs = rhs.ValueList();
+    return list_lhs.size() == list_rhs.size() && std::equal(list_lhs.begin(), list_lhs.end(), list_rhs.begin(), *this);
+  }
+  if (lhs.IsMap() && rhs.IsMap()) {
+    const auto &map_lhs = lhs.ValueMap();
+    const auto &map_rhs = rhs.ValueMap();
+    if (map_lhs.size() != map_rhs.size()) return false;
+    return std::ranges::all_of(map_lhs, [&](const auto &kv) {
+      auto const it = map_rhs.find(kv.first);
+      return it != map_rhs.end() && (*this)(kv.second, it->second);
+    });
+  }
+
   TypedValue equality_result = lhs == rhs;
   DMG_ASSERT(equality_result.type() == TypedValue::Type::Bool || equality_result.type() == TypedValue::Type::Null,
              "Equality between two TypedValues must result in either Null or Bool");
