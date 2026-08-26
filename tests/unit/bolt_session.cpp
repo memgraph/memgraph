@@ -114,7 +114,9 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   bolt_map_t Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) { return {}; }
 
-  void BeginTransaction(const bolt_map_t &extra) {
+  void BeginTransaction(const bolt_map_t &extra, bool try_only = false) {
+    // Simulate a contended storage lock (e.g. held UNIQUE) on the non-blocking inline path only.
+    if (try_only && fail_try_) throw memgraph::query::WouldBlockInlineException{};
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
       if (!metadata.empty()) md_ = metadata;
@@ -170,6 +172,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   void TestHook_ShouldAbort() { should_abort_ = true; }
 
+  void TestHook_FailTry() { fail_try_ = true; }
+
   void Execute() {
     while (Execute_(*this)) {
       // Execute now exists on result, so it can be schduled again.
@@ -177,10 +181,15 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
+  memgraph::communication::bolt::InlineBeginResult TryInlineBegin() { return TryInlineBegin_(*this); }
+
+  void FinishPendingBeginBlocking() { FinishPendingBeginBlocking_(*this); }
+
  private:
   std::string query_;
   bolt_map_t md_;
   bool should_abort_ = false;
+  bool fail_try_{false};
 };
 
 // TODO: This could be done in fixture.
@@ -1325,4 +1334,65 @@ TEST(BoltSession, PartialStream) {
     auto const find_msg = std::search(cbegin(output), cend(output), cbegin(error_msg), cend(error_msg));
     EXPECT_NE(find_msg, cend(output));
   }
+}
+
+// A minimal single-chunk BEGIN with an empty extras map:
+//   0x00 0x03           chunk size 3
+//   0xB1                TinyStruct1
+//   0x11                Begin signature
+//   0xA0                empty TinyMap (extras)
+//   0x00 0x00           end-of-message terminator
+static constexpr std::array<uint8_t, 7> begin_bytes{0x00, 0x03, 0xB1, 0x11, 0xA0, 0x00, 0x00};
+
+using memgraph::communication::bolt::InlineBeginResult;
+
+TEST(BoltSession, InlineBeginHandledWhenLockFree) {
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+  ASSERT_EQ(session.state_, State::Idle);
+
+  input_stream.Write(begin_bytes.data(), begin_bytes.size());
+  output.clear();  // scope the assertion below to the inline reply
+
+  EXPECT_EQ(session.TryInlineBegin(), InlineBeginResult::Handled);
+  EXPECT_EQ(session.state_, State::Idle);
+  EXPECT_FALSE(output.empty());          // a SUCCESS was written inline
+  EXPECT_EQ(input_stream.size(), 0ul);   // the BEGIN was consumed
+}
+
+TEST(BoltSession, InlineBeginNotBeginLeavesBufferIntact) {
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+  ASSERT_EQ(session.state_, State::Idle);
+
+  // A RUN message (signature 0x10) is not a BEGIN; the non-destructive peek must leave it for the pool path.
+  WriteRunRequest(input_stream, kQueryReturn42, true);
+  const auto size_before = input_stream.size();
+
+  EXPECT_EQ(session.TryInlineBegin(), InlineBeginResult::NotBegin);
+  EXPECT_EQ(input_stream.size(), size_before);  // nothing consumed
+}
+
+TEST(BoltSession, InlineBeginWouldBlockThenPoolFallback) {
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+  ASSERT_EQ(session.state_, State::Idle);
+
+  session.TestHook_FailTry();  // simulate a contended storage lock on the non-blocking try
+  input_stream.Write(begin_bytes.data(), begin_bytes.size());
+  output.clear();
+
+  EXPECT_EQ(session.TryInlineBegin(), InlineBeginResult::WouldBlock);
+  EXPECT_TRUE(output.empty());  // a would-block does not reply inline
+
+  // The blocking path (try_only=false) is not gated by fail_try_, so it completes the BEGIN.
+  session.FinishPendingBeginBlocking();
+  EXPECT_FALSE(output.empty());  // SUCCESS now written
+  EXPECT_EQ(session.state_, State::Idle);
 }
