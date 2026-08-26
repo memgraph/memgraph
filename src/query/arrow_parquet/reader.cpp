@@ -666,12 +666,15 @@ ParquetReader::ParquetReader(utils::pmr::string const &uri, utils::S3Config s3_c
                                              fmt::format("Couldn't open the download of {} for writing", uri)}};
       }
 
-      if (!requests::CreateAndDownloadFile(std::string{uri},
-                                           std::move(stream),
-                                           memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
-                                           std::move(abort_check))) {
+      if (auto const downloaded =
+              requests::CreateAndDownloadFile(std::string{uri},
+                                              std::move(stream),
+                                              memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
+                                              std::move(abort_check));
+          !downloaded) {
         return std::unexpected{
-            arrow::Status{arrow::StatusCode::UnknownError, fmt::format("Couldn't download file: {}", uri)}};
+            arrow::Status{arrow::StatusCode::UnknownError,
+                          fmt::format("Couldn't download file {}: {}", uri, downloaded.error().message)}};
       }
 
       // The reader takes a descriptor of its own, so the download outlives `temp_file` going out of

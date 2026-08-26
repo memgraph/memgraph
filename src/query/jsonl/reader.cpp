@@ -308,9 +308,10 @@ struct JsonlReader::impl {
             auto const sink = [&push](char const *data, std::size_t size) -> std::size_t {
               return push(data, size) ? size : 0;
             };
-            if (!requests::DownloadToSink(
-                    uri, sink, memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(), std::move(abort_check))) {
-              throw utils::BasicException("Failed to download file {}", uri);
+            if (auto const downloaded = requests::DownloadToSink(
+                    uri, sink, memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(), std::move(abort_check));
+                !downloaded) {
+              throw utils::BasicException("Failed to download file {}: {}", uri, downloaded.error().message);
             }
           });
     }

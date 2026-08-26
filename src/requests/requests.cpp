@@ -197,8 +197,9 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
 
 // File will be destroyed when it goes out of scope by calling std::fclose.
 // Clients are responsible for deleting the file if the downnload fails
-bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, uint64_t const connection_timeout,
-                           std::function<void()> abort_check) {
+std::expected<void, DownloadError> CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file,
+                                                         uint64_t const connection_timeout,
+                                                         std::function<void()> abort_check) {
   // A short write ends the transfer, which is what a full disk should do.
   auto const sink = [&file](char const *data, size_t const size) -> size_t {
     return std::fwrite(data, 1, size, file.get());
@@ -207,14 +208,15 @@ bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, ui
   return DownloadToSink(url, sink, connection_timeout, std::move(abort_check));
 }
 
-bool DownloadToSink(const std::string &url, WriteSink const &write, uint64_t const connection_timeout,
-                    std::function<void()> abort_check) {
+std::expected<void, DownloadError> DownloadToSink(const std::string &url, WriteSink const &write,
+                                                  uint64_t const connection_timeout,
+                                                  std::function<void()> abort_check) {
   auto const user_agent = fmt::format("memgraph/{}", gflags::VersionString());
 
   auto *curl = curl_easy_init();
   if (!curl) {
     spdlog::error("requests: Couldn't init curl");
-    return false;
+    return std::unexpected{DownloadError{.message = "could not start a request"}};
   }
   utils::OnScopeExit const cleanup{[curl]() { curl_easy_cleanup(curl); }};
 
@@ -242,18 +244,41 @@ bool DownloadToSink(const std::string &url, WriteSink const &write, uint64_t con
   curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
   SetCaInfo(curl);
 
-  if (auto const res = curl_easy_perform(curl); res != CURLE_OK) {
-    // The caller stopped this deliberately, so report what it asked for rather than a download
-    // failure. Rethrowing here rather than from the callback keeps it out of libcurl's frames.
-    if (progress_data.abort_error_) {
-      std::rethrow_exception(progress_data.abort_error_);
-    }
-
-    spdlog::error("Error happened while downloading {}: {}", url, curl_easy_strerror(res));
-    return false;
+  auto const res = curl_easy_perform(curl);
+  if (res == CURLE_OK) {
+    return {};
   }
 
-  return true;
+  // The caller stopped this deliberately, so report what it asked for rather than a download
+  // failure. Rethrowing here rather than from the callback keeps it out of libcurl's frames.
+  if (progress_data.abort_error_) {
+    std::rethrow_exception(progress_data.abort_error_);
+  }
+
+  long status = 0;  // NOLINT(google-runtime-int) - curl_easy_getinfo requires long*
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+
+  auto error = DownloadError{.http_status = static_cast<int>(status), .message = curl_easy_strerror(res)};
+  switch (res) {
+    case CURLE_HTTP_RETURNED_ERROR:
+      error.kind = status >= 500 ? DownloadFailure::HttpServerError : DownloadFailure::HttpClientError;
+      error.message = fmt::format("the server replied {}", status);
+      break;
+    case CURLE_WRITE_ERROR:
+      error.kind = DownloadFailure::LocalWrite;
+      error.message = "the download could not be written";
+      break;
+    case CURLE_ABORTED_BY_CALLBACK:
+      error.kind = DownloadFailure::Stalled;
+      error.message = "the transfer stopped making progress";
+      break;
+    default:
+      error.kind = DownloadFailure::Network;
+      break;
+  }
+
+  spdlog::error("Error happened while downloading {}: {}", url, error.message);
+  return std::unexpected{std::move(error)};
 }
 
 auto DownloadToStream(std::string_view url, std::ostream &os) -> bool {

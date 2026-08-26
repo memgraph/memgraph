@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <expected>
 #include <functional>
 #include <nlohmann/json_fwd.hpp>
 #include <ostream>
@@ -55,8 +56,37 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
  * built-in connection timeout of 300s.
  * @return bool true if the request was successful, false otherwise.
  */
-bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, uint64_t connection_timeout,
-                           std::function<void()> abort_check = nullptr);
+/// Why a download did not deliver the whole body.
+enum class DownloadFailure : uint8_t {
+  /// Could not reach the server, or lost it part way through.
+  Network,
+  /// The server refused the request as written, and will keep refusing it.
+  HttpClientError,
+  /// The server failed to serve a request it accepted.
+  HttpServerError,
+  /// The destination would not take what was delivered, such as a full disk.
+  LocalWrite,
+  /// Nothing arrived for long enough that the transfer was given up on.
+  Stalled,
+};
+
+struct DownloadError {
+  DownloadFailure kind{DownloadFailure::Network};
+  /// The status the server replied with, or 0 if it never replied.
+  int http_status{0};
+  std::string message;
+
+  /// Whether making the same request again could produce a different outcome. Deciding this is HTTP's
+  /// business, so it is settled here rather than by each caller.
+  [[nodiscard]] auto Retryable() const -> bool {
+    return kind == DownloadFailure::Network || kind == DownloadFailure::HttpServerError ||
+           kind == DownloadFailure::Stalled;
+  }
+};
+
+std::expected<void, DownloadError> CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file,
+                                                         uint64_t connection_timeout,
+                                                         std::function<void()> abort_check = nullptr);
 
 /// Receives a block of the response body and returns how many of those bytes it took. Taking fewer
 /// than offered ends the transfer.
@@ -74,8 +104,9 @@ using WriteSink = std::function<size_t(char const *, size_t)>;
  * @param abort_check called periodically while the transfer is in progress
  * @return bool true if the whole body was delivered
  */
-bool DownloadToSink(const std::string &url, WriteSink const &write, uint64_t connection_timeout,
-                    std::function<void()> abort_check = nullptr);
+std::expected<void, DownloadError> DownloadToSink(const std::string &url, WriteSink const &write,
+                                                  uint64_t connection_timeout,
+                                                  std::function<void()> abort_check = nullptr);
 
 /**
  * Downloads content into a stream
