@@ -435,6 +435,20 @@ inline void AbortCheck(ExecutionContext const &context) {
     throw HintedAbortError(reason);
 }
 
+// A download runs to completion inside a single Pull, so the check above gets no chance to run while
+// it does. This hands the same decision to the transfer, which can only act on it if it is thrown:
+// the transfer has no way to interpret a returned reason, and a returned one would be discarded.
+// Each aborter is called from one thread only, which is what its counter requires.
+auto MakeThrowingAborter(ExecutionContext const &context, std::size_t const check_every) -> std::function<void()> {
+  return [counter = utils::ResettableCounter{check_every}, stopping_context = context.stopping_context]() {
+    if (!counter()) return;
+
+    if (auto const reason = stopping_context.MustAbort(); reason != AbortReason::NO_ABORT) {
+      throw HintedAbortError(reason);
+    }
+  };
+}
+
 std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType> &labels,
                                              ExpressionEvaluator &evaluator, DbAccessor *dba) {
   std::vector<storage::LabelId> result;
@@ -9126,7 +9140,7 @@ class LoadParquetCursor : public Cursor {
                                     utils::kAwsEndpointUrlQuerySetting);
       }
 
-      auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);
+      auto abort_check_erased = MakeThrowingAborter(context, 1);
 
       // No need to check if maybe_file is std::nullopt, as the parser makes sure
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause
@@ -9250,7 +9264,7 @@ class LoadJsonlCursor : public Cursor {
         s3_config.emplace(utils::S3Config::Build(std::move(*maybe_config_map), BuildRunTimeS3Config()));
       }
 
-      auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);
+      auto abort_check_erased = MakeThrowingAborter(context, 1);
 
       reader_.emplace(std::string{maybe_file}, std::move(s3_config), mem, std::move(abort_check_erased));
     }

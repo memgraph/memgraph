@@ -10,9 +10,89 @@
 # licenses/APL.txt.
 
 import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 from common import connect, execute_and_fetch_all, get_file_path
+
+# Slow enough that the fixture takes far longer to arrive than the test waits for the terminate to
+# land, so a load that ran to completion cannot be mistaken for one that was cancelled.
+TRICKLE_BYTES_PER_SECOND = 200
+
+
+def serve_slowly(body: bytes):
+    """Serves `body` at a trickle. Returns the server, which the caller shuts down."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            step = max(TRICKLE_BYTES_PER_SECOND // 10, 1)
+            try:
+                for offset in range(0, len(body), step):
+                    self.wfile.write(body[offset : offset + step])
+                    self.wfile.flush()
+                    time.sleep(0.1)
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the client gave up, which is what this test is about
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def find_transaction(cursor, needle: str, timeout: float):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for row in execute_and_fetch_all(cursor, "SHOW TRANSACTIONS"):
+            queries = row[2]
+            if any(needle in q for q in queries):
+                return row[1]
+        time.sleep(0.2)
+    return None
+
+
+def test_a_slow_download_can_be_terminated():
+    with open(get_file_path("nodes_100.parquet"), "rb") as fixture:
+        body = fixture.read()
+    server = serve_slowly(body)
+    url = f"http://127.0.0.1:{server.server_port}/nodes_100.parquet"
+
+    outcome = {}
+
+    def load():
+        try:
+            cursor = connect(host="localhost", port=7687).cursor()
+            execute_and_fetch_all(cursor, f"LOAD PARQUET FROM '{url}' AS row CREATE (n:N {{id: row.id}})")
+            outcome["result"] = "completed"
+        except Exception as e:
+            outcome["result"] = "error"
+            outcome["message"] = str(e)
+
+    loader = threading.Thread(target=load)
+    loader.start()
+    try:
+        cursor = connect(host="localhost", port=7687).cursor()
+        transaction = find_transaction(cursor, "LOAD PARQUET", timeout=10.0)
+        assert transaction is not None, "the load never appeared in SHOW TRANSACTIONS"
+
+        execute_and_fetch_all(cursor, f'TERMINATE TRANSACTIONS "{transaction}"')
+
+        # The whole body needs len(body) / 200 seconds to arrive, which is far more than this.
+        loader.join(timeout=10.0)
+        assert not loader.is_alive(), "the load kept running after it was terminated"
+        assert outcome.get("result") == "error", f"expected the load to fail, got {outcome}"
+        assert "abort" in outcome.get("message", "").lower(), outcome
+    finally:
+        server.shutdown()
+        loader.join(timeout=30.0)
+        execute_and_fetch_all(connect(host="localhost", port=7687).cursor(), "MATCH (n) DETACH DELETE n")
 
 
 def test_non_existing_file_err_ms():
