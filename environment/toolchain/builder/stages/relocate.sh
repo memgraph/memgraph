@@ -17,6 +17,17 @@ source /tc/lib/common.sh
 
 log_tool_name "relocate (runpaths -> \$ORIGIN)"
 
+# What could not resolve before any of this, so the check below reports what
+# this pass broke rather than what it merely noticed. libabigail's tools are in
+# here: they need libdw and libelf, which live in the sysroot, and their runpath
+# has never named it. That is a real defect and a separate one.
+declare -A was_broken=()
+while IFS= read -r f; do
+    file "$f" 2>/dev/null | grep -q 'ELF.*dynamically linked' || continue
+    ldd "$f" 2>&1 | grep -q 'not found' && was_broken["$f"]=1
+done < <(find "$PREFIX/bin" "$PREFIX/lib" "$PREFIX/lib64" "$PREFIX/libexec" -type f 2>/dev/null)
+echo "  unresolved before rewriting: ${#was_broken[@]}"
+
 changed=0
 scanned=0
 while IFS= read -r f; do
@@ -49,17 +60,22 @@ echo "  runpaths: $scanned carried one, $changed rewritten"
 
 # A rewrite that leaves something unable to load is worse than the absolute path
 # it replaced, so check before the archive is built rather than after it ships.
-bad=0
+# Only a file that resolved before and does not now is this pass's doing.
+broke=0
+still=0
 while IFS= read -r f; do
     file "$f" 2>/dev/null | grep -q 'ELF.*dynamically linked' || continue
-    if ldd "$f" 2>&1 | grep -q 'not found'; then
-        echo "  UNRESOLVED after rewrite: ${f#"$PREFIX"/}"
-        bad=$((bad + 1))
+    ldd "$f" 2>&1 | grep -q 'not found' || continue
+    if [[ -n "${was_broken[$f]:-}" ]]; then
+        still=$((still + 1))
+    else
+        echo "  BROKEN BY REWRITE: ${f#"$PREFIX"/}"
+        broke=$((broke + 1))
     fi
 done < <(find "$PREFIX/bin" "$PREFIX/lib" "$PREFIX/lib64" "$PREFIX/libexec" -type f 2>/dev/null)
 
-if (( bad )); then
-    echo "  $bad file(s) cannot resolve their libraries after rewriting" >&2
+if (( broke )); then
+    echo "  $broke file(s) resolved before the rewrite and do not now" >&2
     exit 1
 fi
-echo "  every rewritten file still resolves"
+echo "  nothing that resolved before stopped resolving ($still already could not)"

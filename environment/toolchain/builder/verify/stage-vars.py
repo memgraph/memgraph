@@ -21,9 +21,14 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def assigned_in(text):
-    """Variables a script sets: plain assignment, loop variable, or read."""
+    """Variables a script sets: plain assignment, loop variable, or read.
+
+    declare and its options count as assignment too; an associative array has
+    to be declared before it can be used, so the declaration is the only place
+    its name appears on the left.
+    """
     return (
-        set(re.findall(r"^\s*(?:export\s+|local\s+)?([A-Za-z_][A-Za-z0-9_]*)=", text, re.M))
+        set(re.findall(r"^\s*(?:export\s+|local\s+|declare\s+(?:-\w+\s+)*)?([A-Za-z_][A-Za-z0-9_]*)=", text, re.M))
         | set(re.findall(r"\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b", text))
         | set(re.findall(r"\bread\s+(?:-r\s+)?([A-Za-z_][A-Za-z0-9_]*)", text))
     )
