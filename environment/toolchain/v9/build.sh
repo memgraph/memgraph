@@ -43,12 +43,12 @@ TOOLCHAIN_VERSION=9
 GCC_VERSION=16.2.0
 BINUTILS_VERSION=2.47
 GDB_VERSION=17.2
-CMAKE_VERSION=4.4.1
+CMAKE_VERSION=4.4.3
 CPPCHECK_VERSION=2.21.1
 LLVM_VERSION=23.1.0
 PAHOLE_SHA256="7abd613e4dfabeb46d8ef312ef85b280808a369301db21cb7c2b76a6660b53de"  # Note, this may not match if there is ever another commit to this repo
-SWIG_VERSION=4.4.1 # used only for LLVM compilation
-SWIG_SHA256="8bf32042beb7ee1eeb5c71aa15a62513d964893f84234f2cd77e4a8e2ed41e87"
+SWIG_VERSION=4.5.0 # used only for LLVM compilation
+SWIG_SHA256="eb797b32194d5ed995f571f58839e2307a2e9b2d5cfa6ad1ec7b43f6663dc59a"
 PCRE2_VERSION=10.47 # build-time dep of SWIG 4.4+ (hard requirement)
 # Sysroot: pin glibc/kernel-headers so the toolchain produces binaries that run
 # on any Linux with glibc >= GLIBC_VERSION and kernel >= 5.4.
@@ -63,9 +63,9 @@ ZLIB_VERSION=1.3.2
 # sysroot, so it has to be installed there like the rest of these.
 ZSTD_VERSION=1.5.7
 NCURSES_VERSION=6.6
-OPENSSL_VERSION=3.6.3
+OPENSSL_VERSION=3.6.4
 CURL_VERSION=8.21.0
-LIBFFI_VERSION=3.7.1
+LIBFFI_VERSION=3.8.0
 LIBIPT_VERSION=2.2 # Intel PT decoding for GDB btrace; x86_64 only
 # Python lives in the sysroot solely so GDB can be built with scripting
 # support and ship libpython3.so alongside the toolchain. memgraph's CMake
@@ -153,7 +153,7 @@ if [[ ! -f gdb-$GDB_VERSION.tar.gz ]]; then
 fi
 if [[ ! -f cmake-$CMAKE_VERSION.tar.gz ]]; then
     wget --https-only https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION.tar.gz
-    CMAKE_SHA256="95d4721f3625fb0d9d6ca480dd59a46c84b4c157f7fadd2e9b179ef9c871174d"
+    CMAKE_SHA256="c46400618b4f1f2b43507f24fb22f3ae830c3416cf23b776e16e1d413aa892f0"
     echo "$CMAKE_SHA256  cmake-$CMAKE_VERSION.tar.gz" | sha256sum -c -
 fi
 if [[ ! -f cppcheck-$CPPCHECK_VERSION.tar.gz ]]; then
@@ -209,12 +209,12 @@ if [[ ! -f curl-$CURL_VERSION.tar.gz ]]; then
 fi
 if [[ ! -f openssl-$OPENSSL_VERSION.tar.gz ]]; then
     wget --https-only https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz
-    OPENSSL_SHA256="243a86649cf6f23eeb6a2ff2456e09e5d77dd9018a54d3d96b0c6bdd6ba6c7f1"
+    OPENSSL_SHA256="9bffaa1ad1e07b354c21bd3324ec02fa15579f45a7d0494b3e74bc449b7333ef"
     echo "$OPENSSL_SHA256  openssl-$OPENSSL_VERSION.tar.gz" | sha256sum -c -
 fi
 if [[ ! -f libffi-$LIBFFI_VERSION.tar.gz ]]; then
     wget --https-only https://github.com/libffi/libffi/releases/download/v$LIBFFI_VERSION/libffi-$LIBFFI_VERSION.tar.gz
-    LIBFFI_SHA256="d5e9a6638ddbd2513ddb54518eb67e4bbe6fa707bcc01c10f6212f0a088d819d"
+    LIBFFI_SHA256="7da3e2d9a171eb0a038f592ecad3ff2bb2550f3496d87b3b29ad0cf4430c0db4"
     echo "$LIBFFI_SHA256  libffi-$LIBFFI_VERSION.tar.gz" | sha256sum -c -
 fi
 if [[ ! -f Python-$PYTHON_VERSION.tgz ]]; then
