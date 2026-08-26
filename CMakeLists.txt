@@ -372,20 +372,32 @@ if(NOT _mg_build_inside_source EQUAL 0)
     add_compile_options("-ffile-prefix-map=${CMAKE_BINARY_DIR}=.")
 endif()
 
-# Use lld linker to speedup build and use less memory.
-add_link_options(-fuse-ld=lld)
+# mold where the toolchain ships it, lld otherwise. mold links this shape of
+# binary several times faster at a fraction of the memory, and handles
+# everything here needs: ThinLTO, split DWARF with a dwo directory, build ids
+# and the job cap.
+#
+# Only the toolchain's copy counts, which is what NO_DEFAULT_PATH enforces: a
+# linker picked up from the machine's PATH is outside the sysroot, and an
+# unmaintained one found that way is what silently linked the compiler for
+# years. A toolchain without mold falls back rather than reaching outward.
+find_program(MG_MOLD NAMES mold PATHS "${MG_TOOLCHAIN_ROOT}/bin" NO_DEFAULT_PATH NO_CACHE)
+if(MG_MOLD)
+    message(STATUS "Linking with mold: ${MG_MOLD}")
+    add_link_options(-fuse-ld=mold -B "${MG_TOOLCHAIN_ROOT}/bin")
+else()
+    message(STATUS "mold not in ${MG_TOOLCHAIN_ROOT}/bin; linking with lld")
+    add_link_options(-fuse-ld=lld)
+endif()
 add_link_options(LINKER:--build-id)
 # A prebuilt index, so the debugger does not have to scan the debug info on
-# every start. .debug_names is the DWARF 5 accelerator, which both the
-# toolchain's gdb and lldb read; the older .gdb_index costs several times its
-# size for the same job.
+# every start.
 #
-# -gpubnames is what makes the compiler emit the per-unit tables the linker
-# merges. Without it the linker finds nothing to merge and produces no
-# accelerator at all, silently and without a warning, leaving the debugger to
-# scan the whole of the debug info instead.
-add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gpubnames>)
-add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:LINKER:--debug-names>)
+# .gdb_index, not the DWARF 5 .debug_names that replaced it briefly. gdb refuses
+# any .debug_names it did not write itself -- it says so and falls back to
+# scanning -- so that table costs size and buys the debugger nothing, however
+# modern it is. .gdb_index is what gdb reads, and both linkers can write it.
+add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:LINKER:--gdb-index>)
 link_directories("${MG_TOOLCHAIN_ROOT}/lib")
 
 # After linker is set, check we can use link-time optimization

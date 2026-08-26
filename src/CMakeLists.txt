@@ -106,17 +106,17 @@ target_link_options(memgraph PRIVATE
 mg_bundle_dwarf(memgraph INSTALL_DESTINATION lib/memgraph)
 mg_split_debug(memgraph INSTALL_DESTINATION lib/memgraph)
 
-# The accelerator is only built if the compiler emitted the tables for the
-# linker to merge, and neither tool complains when it did not; the index simply
-# is not there and every debugger session pays for it. Checked here rather than
-# inside mg_split_debug because that helper also serves targets built without
-# these flags.
+# The linker does not complain when it builds no index, and the split moves the
+# section into the sidecar, so a missing accelerator is invisible until someone
+# waits for gdb to scan a few hundred megabytes. Checked here rather than inside
+# mg_split_debug because that helper also serves targets built without these
+# flags.
 if(MG_SPLIT_DEBUG AND MG_LLVM_DWARFDUMP AND CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_COMMAND}
             -DFILE=$<TARGET_FILE:memgraph>.debug
-            -DSECTION=.debug_names
-            "-DWHY=The linker had no per-unit name tables to merge, which means -gpubnames did not reach the compile."
+            -DSECTION=.gdb_index
+            "-DWHY=The linker produced no index, so every debugger session pays to scan the debug info instead."
             -DDWARFDUMP=${MG_LLVM_DWARFDUMP}
             -P ${CMAKE_SOURCE_DIR}/cmake/VerifyDebugSection.cmake
         COMMENT "Checking the debug-info accelerator survived the split")
