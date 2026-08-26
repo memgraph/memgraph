@@ -15,10 +15,10 @@ module;
 #include <cstddef>
 #include <cstring>
 #include <exception>
-#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <memory>
+#include <streambuf>
 #include <string>
 #include <thread>
 #include <utility>
@@ -158,14 +158,17 @@ class FileByteSource final : public ByteSource {
 
 // Bridges a transfer that pushes its bytes to a reader that pulls them. The transfer runs on its own
 // thread and blocks once the queue is full, so it cannot outrun the parser.
-class DownloadByteSource final : public ByteSource {
+class QueuedByteSource final : public ByteSource {
  public:
-  DownloadByteSource(std::string uri, std::function<void()> abort_check, std::size_t queued_blocks)
-      : uri_{std::move(uri)},
-        queue_{queued_blocks},
-        thread_{[this, abort_check = std::move(abort_check)]() mutable { Download(std::move(abort_check)); }} {}
+  /// Runs on the transfer's own thread. `push` returns false once the reader has stopped, which is
+  /// the signal to abandon the transfer.
+  using Push = std::function<bool(char const *, std::size_t)>;
+  using Transfer = std::function<void(Push const &)>;
 
-  ~DownloadByteSource() override {
+  QueuedByteSource(std::size_t queued_blocks, Transfer transfer)
+      : queue_{queued_blocks}, thread_{[this, transfer = std::move(transfer)]() { Run(transfer); }} {}
+
+  ~QueuedByteSource() override {
     // Refusing further blocks makes the sink short-change curl, which ends the transfer. Without it a
     // reader that stops early would leave the thread blocked on a queue nobody is draining.
     queue_.finish();
@@ -194,28 +197,44 @@ class DownloadByteSource final : public ByteSource {
   }
 
  private:
-  void Download(std::function<void()> abort_check) {
+  void Run(Transfer const &transfer) {
     try {
-      auto const sink = [this](char const *data, std::size_t size) -> std::size_t {
-        return queue_.push(std::vector<char>{data, data + size}) ? size : 0;
-      };
-      if (!memgraph::requests::DownloadToSink(
-              uri_, sink, memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(), std::move(abort_check))) {
-        throw memgraph::utils::BasicException("Failed to download file {}", uri_);
-      }
+      transfer(
+          [this](char const *data, std::size_t size) { return queue_.push(std::vector<char>{data, data + size}); });
     } catch (...) {
       error_ = std::current_exception();
     }
     queue_.finish();
   }
 
-  std::string uri_;
   memgraph::utils::DataQueue<std::vector<char>> queue_;
   std::vector<char> block_;
   std::size_t offset_{0};
   std::exception_ptr error_;
   // Declared last so it is joined before anything the thread touches is destroyed.
   std::jthread thread_;
+};
+
+// Lets the AWS SDK write its response body straight onto the queue. Only the write side is used, so
+// there is nothing to put back and nowhere to seek.
+class PushStreambuf final : public std::streambuf {
+ public:
+  explicit PushStreambuf(QueuedByteSource::Push const &push) : push_{push} {}
+
+ protected:
+  auto xsputn(char const *s, std::streamsize n) -> std::streamsize override {
+    if (n <= 0) return 0;
+    return push_(s, static_cast<std::size_t>(n)) ? n : 0;
+  }
+
+  auto overflow(int_type ch) -> int_type override {
+    if (traits_type::eq_int_type(ch, traits_type::eof())) return traits_type::not_eof(ch);
+    auto const byte = traits_type::to_char_type(ch);
+    return push_(&byte, 1) ? ch : traits_type::eof();
+  }
+
+ private:
+  QueuedByteSource::Push const &push_;
 };
 
 // Enough to keep the transfer busy while a chunk is being parsed, without buffering a meaningful
@@ -262,12 +281,18 @@ struct JsonlReader::impl {
     constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
     constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
-    auto const build_base_path = [&]() -> std::filesystem::path {
-      return std::filesystem::path{"/tmp"} / std::filesystem::path{uri_}.filename();
-    };
-
     if (url_matcher(uri_)) {
-      return std::make_unique<DownloadByteSource>(uri_, std::move(abort_check), kQueuedBlocks);
+      return std::make_unique<QueuedByteSource>(
+          kQueuedBlocks,
+          [uri = uri_, abort_check = std::move(abort_check)](QueuedByteSource::Push const &push) mutable {
+            auto const sink = [&push](char const *data, std::size_t size) -> std::size_t {
+              return push(data, size) ? size : 0;
+            };
+            if (!requests::DownloadToSink(
+                    uri, sink, memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(), std::move(abort_check))) {
+              throw utils::BasicException("Failed to download file {}", uri);
+            }
+          });
     }
 
     if (s3_matcher(uri_)) {
@@ -275,23 +300,16 @@ struct JsonlReader::impl {
       if (auto const res = s3_cfg->Validate(); res.has_value()) {
         throw utils::BasicException(utils::AwsValidationErrorToStr(*res));
       }
-      auto const new_path = utils::CreateUniqueDownloadFile(build_base_path()).first;
-      if (auto const res = utils::GetS3Object(uri_, *s3_cfg, new_path.string()); !res.has_value()) {
-        utils::DeleteFile(new_path);
-        throw utils::BasicException(res.error().message);
-      }
-      return OpenDownloaded(new_path);
+      return std::make_unique<QueuedByteSource>(
+          kQueuedBlocks, [uri = uri_, config = *s3_cfg](QueuedByteSource::Push const &push) {
+            PushStreambuf sink{push};
+            if (auto const res = utils::GetS3ObjectStreaming(uri, config, sink); !res.has_value()) {
+              throw utils::BasicException(res.error().message);
+            }
+          });
     }
 
     return std::make_unique<FileByteSource>(uri_);
-  }
-
-  // The open descriptor keeps the content readable, so the name is no longer needed and a failure
-  // later on cannot leave the download behind.
-  static auto OpenDownloaded(std::filesystem::path const &path) -> std::unique_ptr<ByteSource> {
-    auto source = std::make_unique<FileByteSource>(path.string());
-    utils::DeleteFile(path);
-    return source;
   }
 
   // Carries the trailing partial document to the front of the buffer, tops the buffer up from the

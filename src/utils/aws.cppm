@@ -15,6 +15,7 @@ module;
 #include <map>
 #include <optional>
 #include <ostream>
+#include <streambuf>
 #include <string>
 
 #include <aws/core/Aws.h>
@@ -216,6 +217,37 @@ auto GetS3ObjectOutcome(std::string_view uri, S3Config const &s3_config)
           std::pair<std::string_view, std::string_view> const &bucket_info) -> Aws::S3::Model::GetObjectOutcome {
         return s3_client.GetObject(BuildGetObjectRequest(bucket_info.first, bucket_info.second));
       });
+}
+
+// Writes the object at `uri` into `sink` as the body arrives, so neither this function nor the SDK
+// ever holds the whole object. The default response stream buffers it in full, which is what the
+// overloads below do.
+auto GetS3ObjectStreaming(std::string_view uri, S3Config const &s3_config, std::streambuf &sink)
+    -> std::expected<void, S3Error> {
+  GlobalS3APIManager::GetInstance();
+
+  auto bucket_info = ExtractBucketAndObjectKey(uri);
+  if (!bucket_info.has_value()) {
+    return std::unexpected{bucket_info.error()};
+  }
+
+  Aws::Auth::AWSCredentials const credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
+  Aws::S3::S3Client const s3_client(credentials,
+                                    BuildClientConfiguration(*s3_config.aws_region, s3_config.aws_endpoint_url),
+                                    Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                                    false);
+
+  auto request = BuildGetObjectRequest(bucket_info->first, bucket_info->second);
+  request.SetResponseStreamFactory([&sink]() { return Aws::New<Aws::IOStream>("MemgraphS3StreamingGet", &sink); });
+
+  auto const outcome = s3_client.GetObject(request);
+  if (!outcome.IsSuccess()) {
+    return std::unexpected{S3Error{
+        .status_code = S3ErrorCode::S3_API_ERROR,
+        .message = fmt::format("Failed to get object from S3 {}. Error: {}", uri, outcome.GetError().GetMessage())}};
+  }
+
+  return {};
 }
 
 // Writes the content of the S3 object from the uri into ostream
