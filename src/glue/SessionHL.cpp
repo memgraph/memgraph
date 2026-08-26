@@ -691,6 +691,16 @@ void SessionHL::Configure(const bolt_map_t &run_time_info) {
 #endif
 }
 
+bool SessionHL::ConfigureWouldBeNoOp(const bolt_map_t &run_time_info) const {
+#ifdef MG_ENTERPRISE
+  if (flags::CoordinationSetupInstance().IsCoordinator()) return true;  // Configure returns early anyway
+  return runtime_config_.ConfigureIsNoOp(run_time_info);
+#else
+  (void)run_time_info;
+  return true;  // community Configure is a no-op
+#endif
+}
+
 SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *input_stream,
                      memgraph::communication::v2::OutputStream *output_stream)
     : Session<memgraph::communication::v2::InputStream, memgraph::communication::v2::OutputStream>(input_stream,
@@ -749,6 +759,10 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
 }
 
 #ifdef MG_ENTERPRISE
+bool RuntimeConfig::ConfigureIsNoOp(const bolt_map_t &run_time_info) const {
+  return previous_run_time_info_ && run_time_info == *previous_run_time_info_;
+}
+
 void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_tx) {
   // NOTE: Once in a transaction, the drivers stop explicitly sending the config and count on using it until commit
   // Runtime config is sent at the beginning of the transaction, but is missing during the transaction

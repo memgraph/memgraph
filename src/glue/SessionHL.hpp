@@ -38,6 +38,12 @@ class RuntimeConfig {
 
   void Configure(const bolt_map_t &run_time_info, bool in_explicit_tx);
 
+  // True iff Configure(run_time_info) would early-out (unchanged config) -- i.e. it would take no
+  // locks and do no DB/auth work. Used by the inline-BEGIN fast path to stay off the strand when a
+  // real (lock-taking) reconfigure is needed. Defined in the .cpp so the bolt_map_t comparison sees
+  // the same operator== visibility as RuntimeConfig::Configure's own early-out.
+  bool ConfigureIsNoOp(const bolt_map_t &run_time_info) const;
+
   bool db_explicit_ = false;
   bool user_explicit_ = false;
 
@@ -68,6 +74,10 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   /// BOLT level API ///
 
   void Configure(const bolt_map_t &run_time_info);
+
+  // True iff Configure(run_time_info) would take no locks and do no work. The inline-BEGIN fast path
+  // uses this to keep the (potentially blocking) dbms/auth reconfigure off the Bolt strand.
+  bool ConfigureWouldBeNoOp(const bolt_map_t &run_time_info) const;
 
   void BeginTransaction(const bolt_map_t &extra, bool try_only = false);
 

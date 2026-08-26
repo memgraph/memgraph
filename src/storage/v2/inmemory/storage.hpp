@@ -167,7 +167,7 @@ class InMemoryStorage final : public Storage {
 
     /// Takes ownership of a hold the caller acquired; see Accessor's constructor.
     explicit InMemoryAccessor(InMemoryStorage *storage, std::optional<IsolationLevel> override_isolation_level,
-                              utils::ResourceLockGuard guard);
+                              utils::ResourceLockGuard guard, bool try_engine = false);
 
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
 
@@ -852,7 +852,8 @@ class InMemoryStorage final : public Storage {
   void CreateSnapshotHandler(
       std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>(std::string_view)> cb);
 
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
+                                bool try_engine = false) override;
 
   void SetStorageMode(StorageMode storage_mode);
 

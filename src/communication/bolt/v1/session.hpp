@@ -225,8 +225,15 @@ class Session {
       return InlineBeginResult::ClientError;
     }
 
+    // Off-strand for any BEGIN that needs a real reconfigure (first BEGIN, db-switch, impersonation):
+    // Configure would take the dbms/auth locks, which can block. Hand the whole BEGIN to the pool.
+    if (!impl.ConfigureWouldBeNoOp(extra.ValueMap())) {
+      pending_begin_extra_ = std::move(extra);
+      return InlineBeginResult::WouldBlock;  // fallback runs the FULL begin (Configure + BeginTransaction) on a worker
+    }
+
     try {
-      impl.Configure(extra.ValueMap());
+      // Configure is verified a no-op above, so it is skipped here; the full begin runs on the pool otherwise.
       impl.BeginTransaction(extra.ValueMap(), /*try_only=*/true);  // may throw WouldBlockInlineException
       if (!encoder_.MessageSuccess({})) {
         state_ = State::Close;
@@ -244,9 +251,11 @@ class Session {
     }
   }
 
-  // Pool-side completion of a BEGIN that bailed inline with WouldBlock. Configure already ran on the strand,
-  // so it is NOT re-run here; only the blocking Access + SUCCESS remain. bolt_messages was already counted by
-  // TryInlineBegin_, so it is NOT incremented again.
+  // Pool-side completion of a BEGIN that bailed inline with WouldBlock. Runs the FULL begin (Configure +
+  // BeginTransaction) on the worker so it covers BOTH bail causes: the gate bail (a real, lock-taking
+  // reconfigure was needed) and the engine-lock contention bail. Configure re-running when it was actually a
+  // no-op is harmless -- it early-outs again. bolt_messages/at_least_one_run_ were already counted by
+  // TryInlineBegin_, so they are NOT touched here.
   template <typename TImpl>
     requires requires(TImpl &impl) {
       { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
@@ -257,6 +266,7 @@ class Session {
     Value extra = std::move(*pending_begin_extra_);
     pending_begin_extra_.reset();
     try {
+      impl.Configure(extra.ValueMap());                            // real reconfigure runs here, on the worker (blocking OK)
       impl.BeginTransaction(extra.ValueMap(), /*try_only=*/false);  // blocking Access on the worker
       if (!encoder_.MessageSuccess({})) {
         state_ = State::Close;

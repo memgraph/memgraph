@@ -168,6 +168,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   void Configure(const bolt_map_t &) {}
 
+  bool ConfigureWouldBeNoOp(const bolt_map_t &) const { return true; }
+
   std::string GetCurrentDB() const { return ""; }
 
   void TestHook_ShouldAbort() { should_abort_ = true; }

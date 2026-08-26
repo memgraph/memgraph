@@ -121,14 +121,14 @@ std::unique_ptr<Accessor> Storage::ReadOnlyAccess(std::optional<IsolationLevel> 
 std::unique_ptr<Accessor> Storage::ReadOnlyAccess() { return ReadOnlyAccess({}, std::nullopt); }
 
 Storage::Accessor::Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level,
-                            utils::ResourceLockGuard guard)
+                            utils::ResourceLockGuard guard, bool try_engine)
     : storage_(storage),
       // The hold is taken before the transaction is created, so a freshly created transaction can
       // never dangle in an active state during an exclusive operation.
       guard_(std::move(guard)),
       // Both reads are under guard_, already constructed above, so the hold pins them.
       transaction_(storage->CreateTransaction(override_isolation_level.value_or(storage->isolation_level_),
-                                              storage->storage_mode_)),
+                                              storage->storage_mode_, try_engine)),
       is_transaction_active_(true),
       original_access_type_(ToAccessType(guard_.type())) {
   DMG_ASSERT(guard_.owns_lock() && guard_.mutex() == std::addressof(storage_->main_lock_),

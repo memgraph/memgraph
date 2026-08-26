@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <exception>
 #include <optional>
 #include <set>
 #include <string>
@@ -44,6 +45,10 @@
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized_metadata_store.hpp"
+
+// Test-only: fixture in tests/unit/storage_v2.cpp (global namespace); forward-declared so the
+// qualified friend in Storage below names an existing entity.
+class StorageEngineLockContentionTest;
 
 namespace memgraph::metrics {
 struct DatabaseMetricHandles;
@@ -280,6 +285,9 @@ class Storage {
   friend class ReplicationServer;
   friend class ReplicationStorageClient;
   friend class VectorIndex;
+  // Test-only: lets StorageEngineLockContentionTest hold engine_lock_ to verify the non-blocking
+  // TryAccess bail (see tests/unit/storage_v2.cpp).
+  friend class ::StorageEngineLockContentionTest;
 
  public:
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
@@ -387,7 +395,8 @@ class Storage {
 
   virtual void UpdateLabelCount(LabelId label, int64_t change) = 0;
 
-  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
+  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
+                                        bool try_engine = false) = 0;
 
   virtual void PrepareForNewEpoch() = 0;
 
@@ -538,11 +547,20 @@ inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
 utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType rw_type,
                                              std::optional<std::chrono::milliseconds> timeout);
 
+// Thrown by CreateTransaction(..., try_engine=true) when the transaction-engine lock is held by a
+// concurrent commit/GC, so a non-blocking probe (TryAccess) can bail instead of blocking. Caught in
+// TryAccess and turned into a nullptr; never surfaces to callers.
+struct TransactionEngineWouldBlock final : std::exception {
+  const char *what() const noexcept override { return "transaction engine lock busy"; }
+};
+
 class Accessor {
  public:
   /// Takes ownership of a hold on `storage`'s main_lock_. The caller acquires it: blocking with a
   /// timeout via AcquireGuardOrThrow, or non-blocking via a try_to_lock guard. Construction itself
-  /// never blocks and never fails, so a probe can decide whether to build an accessor at all.
+  /// never blocks and never fails, EXCEPT on the `try_engine` probe path: with try_engine=true the
+  /// mint try-locks the transaction-engine lock and throws TransactionEngineWouldBlock if it is
+  /// contended, so a probe can decide whether to build an accessor at all without blocking.
   ///
   /// The access type comes from the guard, not alongside it. It is recorded as
   /// original_access_type_, which the WAL carries to replicas to pick the mode they replay under,
@@ -552,7 +570,8 @@ class Accessor {
   /// The isolation level and storage mode are read from `storage` under the guard rather than
   /// passed in: SetIsolationLevel and SetStorageMode write them under UNIQUE, so a caller reading
   /// them before acquiring could build a transaction against a mode that has since changed.
-  Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard);
+  Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard,
+           bool try_engine = false);
 
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;

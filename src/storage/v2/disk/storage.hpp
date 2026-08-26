@@ -628,7 +628,8 @@ class DiskStorage final : public Storage {
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
+                                bool try_engine = false) override;
 
   void SetEdgeImportMode(EdgeImportMode edge_import_status);
 

@@ -3198,3 +3198,35 @@ TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
   ASSERT_NE(write_acc, nullptr);
   EXPECT_NO_THROW(write_acc->Abort());
 }
+
+// TryAccess is non-blocking on the transaction-engine lock: CreateTransaction(..., try_engine=true)
+// does engine_lock_.try_lock() and, on failure, throws TransactionEngineWouldBlock, which TryAccess
+// turns into nullptr so the inline-BEGIN caller falls back to the pool instead of busy-spinning the
+// strand. StorageTryAccessTest covers the free (try_lock succeeds) side; this covers the contended
+// side deterministically: utils::SpinLock is non-recursive, so a single test thread that already
+// holds engine_lock_ forces the internal try_lock() to fail.
+class StorageEngineLockContentionTest : public ::testing::Test {
+ protected:
+  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
+      .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
+
+  // TEST_F's body runs in a class derived from this fixture, and friendship is not inherited, so the
+  // private engine_lock_ access must live in a member of the befriended fixture itself.
+  void LockEngine() { static_cast<memgraph::storage::Storage &>(store).engine_lock_.lock(); }
+  void UnlockEngine() { static_cast<memgraph::storage::Storage &>(store).engine_lock_.unlock(); }
+};
+
+TEST_F(StorageEngineLockContentionTest, EngineLockHeldMakesTryAccessBailWithoutBlocking) {
+  using namespace memgraph::storage;
+
+  // Hold the transaction-engine lock, as a concurrent write-commit's durability phase would.
+  LockEngine();
+  // A non-blocking probe must bail (return nullptr) rather than busy-spin the (would-be strand) thread.
+  EXPECT_EQ(store.TryAccess(READ), nullptr);
+  EXPECT_EQ(store.TryAccess(WRITE), nullptr);
+  UnlockEngine();
+
+  // Once released, the same probe succeeds and yields a usable accessor.
+  auto acc = store.TryAccess(READ);
+  EXPECT_NE(acc, nullptr);
+}
