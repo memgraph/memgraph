@@ -17,8 +17,6 @@
 
 namespace memgraph::dbms {
 
-// Backing storage for the slot: the cached accessor plus metadata to validate and scope it. See
-// TwoPCCommitCache's class comment (two_pc_commit_cache.hpp) for the lifetime discipline.
 struct TwoPCCommitCache::Record {
   std::unique_ptr<storage::ReplicationAccessor> commit_accessor_;
   uint64_t durability_commit_timestamp_{};
