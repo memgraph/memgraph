@@ -350,30 +350,42 @@ endif()
 add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-frecord-command-line>)
 
 # Normalise source paths in debug info and __FILE__, so artifacts do not embed
-# the location they were built from.
+# the location they were built from. Our build directory usually sits inside the
+# source directory, so this rewrites build paths too, leaving DW_AT_comp_dir
+# relative and the objects independent of where they were compiled. That is what
+# makes ccache reuse between checkouts sound rather than merely possible: set
+# ccache's base_dir and a hit carries the right paths with it.
 #
-# This does not let ccache reuse objects between checkouts. The identity rule
-# below keeps the absolute build directory both on the command line and in
-# DW_AT_comp_dir, and ccache hashes the working directory whenever debug info
-# is enabled, so each checkout gets its own cache entries. Sharing them would
-# need that rule dropped, llvm-dwp taught to resolve a relative dwo name, and
-# ccache's base_dir set.
-#
-# The second rule is not redundant. Our build directory usually sits inside the
-# source directory, so a bare rewrite of the source path also catches build
-# paths: skeleton units end up with a relative DW_AT_GNU_dwo_name and llvm-dwp
-# resolves it against its own working directory instead of finding the .dwo.
-# clang applies these in order with last match winning, so an identity rule for
-# the build directory after the source rule shields it.
-add_compile_options(
-    "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=."
-    "-ffile-prefix-map=${CMAKE_BINARY_DIR}=${CMAKE_BINARY_DIR}")
+# The .dwo files stay reachable because the name a skeleton unit records comes
+# from the linker's dwo_dir, not from this mapping.
+add_compile_options("-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
+
+# A build directory outside the source tree is not covered by the rule above, so
+# its absolute path would reach DW_AT_comp_dir and, when the object path is
+# absolute, DW_AT_dwo_name. Both are derived from the output path, which ccache
+# treats as a result rather than an input, so an object carrying them can be
+# served to a build in a different directory and quietly reference the wrong
+# debug info. Mapping the build directory as well keeps objects independent of
+# where they were produced, which is what makes sharing them safe.
+string(FIND "${CMAKE_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/" _mg_build_inside_source)
+if(NOT _mg_build_inside_source EQUAL 0)
+    add_compile_options("-ffile-prefix-map=${CMAKE_BINARY_DIR}=.")
+endif()
 
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
-# A prebuilt index, so gdb does not have to scan the debug info on every start.
-add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:LINKER:--gdb-index>)
+# A prebuilt index, so the debugger does not have to scan the debug info on
+# every start. .debug_names is the DWARF 5 accelerator, which both the
+# toolchain's gdb and lldb read; the older .gdb_index costs several times its
+# size for the same job.
+#
+# -gpubnames is what makes the compiler emit the per-unit tables the linker
+# merges. Without it the linker finds nothing to merge and produces no
+# accelerator at all, silently and without a warning, leaving the debugger to
+# scan the whole of the debug info instead.
+add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gpubnames>)
+add_link_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:LINKER:--debug-names>)
 link_directories("${MG_TOOLCHAIN_ROOT}/lib")
 
 # After linker is set, check we can use link-time optimization

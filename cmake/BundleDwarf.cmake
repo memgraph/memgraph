@@ -15,10 +15,15 @@
 # callers do not need to guard.
 
 find_program(MG_LLVM_DWP NAMES llvm-dwp dwp HINTS "${MG_TOOLCHAIN_ROOT}/bin")
+find_program(MG_LLVM_DWARFDUMP NAMES llvm-dwarfdump HINTS "${MG_TOOLCHAIN_ROOT}/bin")
 
 if(NOT MG_LLVM_DWP)
     message(STATUS "llvm-dwp not found; split-DWARF bundles will not be produced")
 endif()
+
+# Captured here because it is read inside a function, where the current list dir
+# would otherwise be the caller's.
+set(MG_BUNDLE_DWARF_DIR "${CMAKE_CURRENT_LIST_DIR}")
 
 function(mg_bundle_dwarf target)
     # Only RelWithDebInfo carries -g and the dwo_dir link option. Debug emits
@@ -38,8 +43,28 @@ function(mg_bundle_dwarf target)
     # No BYPRODUCTS: it is evaluated in a scope where $<TARGET_FILE> does not
     # resolve, and naming the .dwp there fails generation with "No target".
     # mg_split_debug leaves it out for the same reason.
+    #
+    # Run from the source directory: the skeleton units carry a comp_dir the
+    # file-prefix-map has made relative to it, and the bundler resolves the .dwo
+    # names against that. Getting this wrong produces an empty bundle and a zero
+    # exit status, which is what the verify step below catches.
+    set(_verify)
+    if(MG_LLVM_DWARFDUMP)
+        # The index is what maps a skeleton unit's DWO id to its contribution,
+        # so a bundle that found no .dwo files has none at all.
+        set(_verify
+            COMMAND ${CMAKE_COMMAND}
+                -DFILE=$<TARGET_FILE:${target}>.dwp
+                -DSECTION=.debug_cu_index
+                "-DWHY=The .dwo files named by the skeleton units were not found, usually because dwo_dir and the directory the bundler runs in disagree."
+                -DDWARFDUMP=${MG_LLVM_DWARFDUMP}
+                -P ${MG_BUNDLE_DWARF_DIR}/VerifyDebugSection.cmake)
+    endif()
+
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${MG_LLVM_DWP} -e $<TARGET_FILE:${target}> -o $<TARGET_FILE:${target}>.dwp
+        ${_verify}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "Bundling split DWARF for ${target}")
 
     if(MGBD_INSTALL_DESTINATION)

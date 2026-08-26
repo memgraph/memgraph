@@ -92,14 +92,35 @@ endif()
 # set globally: lld numbers them by task ID from 1 on every link, so any other
 # executable link sharing the directory would truncate-overwrite memgraph's.
 # The path mirrors lld's own <binary>_dwo convention, and lld creates it.
+#
+# Relative, and so resolved against the directory the link runs in, which is the
+# build directory. An absolute path here would be copied verbatim into every
+# skeleton unit's dwo name and put the build location back into the binary that
+# the file-prefix-map exists to keep out.
 target_link_options(memgraph PRIVATE
-    "$<$<CONFIG:RelWithDebInfo>:LINKER:--plugin-opt=dwo_dir=$<TARGET_FILE_DIR:memgraph>/memgraph_dwo>")
+    "$<$<CONFIG:RelWithDebInfo>:LINKER:--plugin-opt=dwo_dir=memgraph_dwo>")
 
 # Bundling must precede splitting: both attach POST_BUILD commands, which run
 # in the order added, and mg_split_debug strips the binary of the skeleton
 # units that llvm-dwp reads to find the .dwo files.
 mg_bundle_dwarf(memgraph INSTALL_DESTINATION lib/memgraph)
 mg_split_debug(memgraph INSTALL_DESTINATION lib/memgraph)
+
+# The accelerator is only built if the compiler emitted the tables for the
+# linker to merge, and neither tool complains when it did not; the index simply
+# is not there and every debugger session pays for it. Checked here rather than
+# inside mg_split_debug because that helper also serves targets built without
+# these flags.
+if(MG_SPLIT_DEBUG AND MG_LLVM_DWARFDUMP AND CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+    add_custom_command(TARGET memgraph POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DFILE=$<TARGET_FILE:memgraph>.debug
+            -DSECTION=.debug_names
+            "-DWHY=The linker had no per-unit name tables to merge, which means -gpubnames did not reach the compile."
+            -DDWARFDUMP=${MG_LLVM_DWARFDUMP}
+            -P ${CMAKE_SOURCE_DIR}/cmake/VerifyDebugSection.cmake
+        COMMENT "Checking the debug-info accelerator survived the split")
+endif()
 
 # The abi3 DT_NEEDED rewrite is attached automatically to the memgraph binary
 # (and every other executable) by the add_executable() override in

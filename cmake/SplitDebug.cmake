@@ -51,7 +51,12 @@ function(mg_split_debug target)
         # perf, gdb without the debuginfo package) still resolve to function
         # names. Switch to --strip-all once a symbol server is in place and
         # sidecar-less traces stop mattering for first-contact debugging.
-        COMMAND ${CMAKE_OBJCOPY} --strip-debug $<TARGET_FILE:${target}>
+        COMMAND ${CMAKE_OBJCOPY} --strip-debug --remove-section=.GCC.command.line $<TARGET_FILE:${target}>
+        # -frecord-command-line stores each compile invocation verbatim, absolute
+        # include paths and all, in a section that is not debug info and so
+        # survives --strip-debug. Left in place it puts the build location back
+        # into the shipped binary and costs it a megabyte or so. The sidecar
+        # keeps the section, so the provenance is still there when debugging.
         COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE_NAME:${target}>.debug $<TARGET_FILE:${target}>
         WORKING_DIRECTORY $<TARGET_FILE_DIR:${target}>
         COMMENT "Splitting debug info for ${target}")
