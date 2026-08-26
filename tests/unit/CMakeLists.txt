@@ -629,6 +629,11 @@ add_unit_test(csv_csv_parsing
     LINK_TARGETS mg::csv
 )
 
+add_unit_test(query_jsonl_reader
+    SOURCES query_jsonl_reader.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(utils_async_timer
     SOURCES utils_async_timer.cpp
     LINK_TARGETS mg-utils
