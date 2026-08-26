@@ -10193,6 +10193,11 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
 
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
+bool Interpreter::IsCurrentTransactionRead() const {
+  return current_db_.db_transactional_accessor_ &&
+         current_db_.db_transactional_accessor_->original_access_type() == storage::StorageAccessType::READ;
+}
+
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   ResetInterpreter();
   auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras);

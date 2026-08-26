@@ -233,8 +233,15 @@ utils::Priority SessionHL::ApproximateQueryPriority() const {
   // Query has been parsed and a priority can be determined
   if (parsed_res_ && state_ == memgraph::communication::bolt::State::Parsed) {
     return std::visit(utils::Overloaded{
-                          [](const query::Interpreter::TransactionQuery &) {
-                            // BEGIN; COMMIT; ROLLBACK
+                          [this](const query::Interpreter::TransactionQuery &tx_query) {
+                            // BEGIN; COMMIT; ROLLBACK -> LOW, EXCEPT a read-only COMMIT: it is near-noop (no
+                            // engine_lock/WAL/replication), so route it HIGH to drain in-flight read transactions
+                            // fast instead of queueing them behind heavy LOW work (which keeps them open and pins
+                            // the GC horizon).
+                            if (tx_query == query::Interpreter::TransactionQuery::COMMIT &&
+                                interpreter_.IsCurrentTransactionRead()) {
+                              return utils::Priority::HIGH;
+                            }
                             return utils::Priority::LOW;
                           },
                           [](const query::Interpreter::ParseInfo &parse_info) {
