@@ -272,6 +272,26 @@ def test_unprivileged_user_refused(request):
     wait_until_terminated(target_cursor)
 
 
+def _drop_force_abort_supported() -> bool:
+    """DROP DATABASE ... FORCE ABORT only parses where the tenant-lifecycle stack
+    (draining-state + FORCE ABORT, #4574/#4575) is present; on master the grammar is
+    ``DROP DATABASE databaseName ( FORCE)?`` with no ABORT alternative, so it is a parse error.
+
+    Probe once, side-effect-free: the target db does not exist, so nothing is dropped either way --
+    on a build that carries the feature the probe fails with a non-syntax "database doesn't
+    exist" error, on master it fails with an ANTLR parse error before touching anything.
+    """
+    cursor = connect().cursor()
+    try:
+        execute_and_fetch_all(cursor, "DROP DATABASE __force_abort_feature_probe__ FORCE ABORT")
+    except mgclient.Error as exc:
+        text = str(exc).lower()
+        # ANTLR parse-error markers => grammar lacks FORCE ABORT => feature absent.
+        parse_markers = ("mismatched input", "extraneous input", "no viable alternative", "syntax")
+        return not any(marker in text for marker in parse_markers)
+    return True  # parsed and executed (db-missing handled) => feature present
+
+
 def _run_drop_fa_db(outcome_queue: multiprocessing.Queue) -> None:
     """Runs DROP DATABASE fa_db FORCE ABORT to completion, in its OWN OS process.
 
@@ -303,6 +323,9 @@ def test_force_abort_converges_after_terminate(request):
     NotificationCode::DROP_DATABASE_DETACHED), but only after paying that full deadline. Terminating
     fa_bob's session while the drop is mid-wait must make it converge quickly instead.
     """
+    if not _drop_force_abort_supported():
+        pytest.skip("DROP DATABASE ... FORCE ABORT (tenant-lifecycle stack #4574/#4575) not present on this build")
+
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER fa_admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO fa_admin")
