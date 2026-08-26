@@ -27,6 +27,34 @@ AWS_REGION = "us-east-1"
 BUCKET_NAME = "deps.memgraph.io"
 
 
+def make_s3_client():
+    return boto3.client(
+        "s3",
+        endpoint_url=AWS_ENDPOINT_URL,
+        aws_access_key_id=AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+        region_name=AWS_REGION,
+    )
+
+
+def test_presigned_url_longer_than_a_path_component():
+    presigned_url = make_s3_client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": BUCKET_NAME, "Key": "test_types.jsonl"},
+        ExpiresIn=3600,
+    )
+
+    # A SigV4 query string is long enough on its own to carry the whole URL past the 255 bytes a
+    # filesystem allows in one path component, which is what makes this different from test_http_file.
+    assert len(presigned_url.split("/")[-1]) > 255
+
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = f"LOAD JSONL FROM '{presigned_url}' AS row CREATE (n:N {{id: row.id, name: row.name}})"
+    execute_and_fetch_all(cursor, load_query)
+    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 120
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
 def test_aws_region_not_provided_err_msg():
     cursor = connect(host="localhost", port=7687).cursor()
     load_query = f"LOAD JSONL FROM 's3://{BUCKET_NAME}/nodes_no_file.parquet' AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}})"
@@ -99,14 +127,7 @@ def test_http_file():
 
 
 def main():
-    # Configure S3 client for LocalStack
-    s3_client = boto3.client(
-        "s3",
-        endpoint_url=AWS_ENDPOINT_URL,
-        aws_access_key_id=AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-        region_name=AWS_REGION,
-    )
+    s3_client = make_s3_client()
 
     # Create bucket if it doesn't exist
     try:
