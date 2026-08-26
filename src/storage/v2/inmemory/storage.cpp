@@ -50,7 +50,6 @@
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info_glue.hpp"
-#include "utils/async_timer.hpp"
 #include "utils/timer.hpp"
 
 /// REPLICATION ///
@@ -518,10 +517,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
 
       // Auto-indexer also has a skiplist
       async_indexer_.RunGC();
-
-      // AsyncTimer resources are global, not particularly storage related, more query related
-      // At some point in the future this should be scheduled by something else
-      utils::AsyncTimer::GCRun();
     };
   }
 
