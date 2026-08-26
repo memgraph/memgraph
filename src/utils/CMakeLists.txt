@@ -18,7 +18,6 @@ add_library(mg::utils ALIAS mg-utils)
 
 target_sources(mg-utils
     PRIVATE
-    async_timer.cpp
     base64.cpp
     crc_accumulator.cpp
     file.cpp
