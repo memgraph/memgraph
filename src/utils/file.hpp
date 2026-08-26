@@ -38,9 +38,6 @@ namespace memgraph::utils {
 
 using FileUniquePtr = std::unique_ptr<FILE, decltype(&std::fclose)>;
 
-auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
-    -> std::pair<std::filesystem::path, FileUniquePtr>;
-
 /// A file that exists only as an open descriptor, for downloading content that is read once and
 /// discarded.
 ///
