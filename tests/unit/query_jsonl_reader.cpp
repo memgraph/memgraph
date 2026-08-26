@@ -90,6 +90,22 @@ TEST_F(JsonlReaderTest, ADocumentLargerThanTheChunkIsStillParsed) {
   EXPECT_EQ(ReadIds(path, kTinyChunk), (std::vector<int64_t>{1, 2}));
 }
 
+TEST_F(JsonlReaderTest, DocumentsAlternatingAroundTheChunkSizeAreAllParsed) {
+  auto const filler = std::string(400, 'x');
+  std::string content;
+  std::vector<int64_t> expected;
+  for (auto i = 1; i <= 12; ++i) {
+    // Every third document forces the buffer to grow; the rest let it give the space back.
+    content +=
+        (i % 3 == 0) ? std::format(R"({{"id": {}, "pad": "{}"}})", i, filler) : std::format(R"({{"id": {}}})", i);
+    content += '\n';
+    expected.push_back(i);
+  }
+  auto const path = WriteFile("alternating.jsonl", content);
+
+  EXPECT_EQ(ReadIds(path, kTinyChunk), expected);
+}
+
 TEST_F(JsonlReaderTest, ALastDocumentWithoutATrailingNewlineIsKept) {
   auto const path = WriteFile("no_newline.jsonl",
                               R"({"id": 1})"

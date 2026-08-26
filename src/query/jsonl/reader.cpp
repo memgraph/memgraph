@@ -135,7 +135,9 @@ class ByteSource {
   auto operator=(ByteSource &&) -> ByteSource & = delete;
   virtual ~ByteSource() = default;
 
-  /// Reads up to `size` bytes into `out` and returns how many were read. Zero means exhausted.
+  /// Reads into `out` and returns how many bytes were read, which may be fewer than `size` even
+  /// though more is still to come. Blocks only while there is nothing at all to return. Zero means
+  /// the source is exhausted.
   virtual auto Read(char *out, std::size_t size) -> std::size_t = 0;
 };
 
@@ -165,6 +167,8 @@ class QueuedByteSource final : public ByteSource {
   using Push = std::function<bool(char const *, std::size_t)>;
   using Transfer = std::function<void(Push const &)>;
 
+  static constexpr std::size_t kMaxBlockBytes = 256U * 1024U;
+
   QueuedByteSource(std::size_t queued_blocks, Transfer transfer)
       : queue_{queued_blocks}, thread_{[this, transfer = std::move(transfer)]() { Run(transfer); }} {}
 
@@ -180,7 +184,11 @@ class QueuedByteSource final : public ByteSource {
       if (offset_ == block_.size()) {
         offset_ = 0;
         block_.clear();
-        if (!queue_.pop(block_)) break;
+        // Wait only for the first block. Handing back what has arrived keeps the parser producing
+        // rows, and so the query's abort check running, instead of stalling until the buffer is
+        // full: on a slow transfer that wait is what a cancel ends up queueing behind.
+        auto const got = taken == 0 ? queue_.pop(block_) : queue_.try_pop(block_);
+        if (!got) break;
       }
       auto const take = std::min(size - taken, block_.size() - offset_);
       std::memcpy(out + taken, block_.data() + offset_, take);
@@ -199,8 +207,17 @@ class QueuedByteSource final : public ByteSource {
  private:
   void Run(Transfer const &transfer) {
     try {
-      transfer(
-          [this](char const *data, std::size_t size) { return queue_.push(std::vector<char>{data, data + size}); });
+      transfer([this](char const *data, std::size_t size) {
+        // A source decides how much it hands over at a time, so cap what one write can put on the
+        // queue. Without this the memory held is the queue depth times whatever the source chose.
+        while (size > 0) {
+          auto const take = std::min(size, kMaxBlockBytes);
+          if (!queue_.push(std::vector<char>{data, data + take})) return false;
+          data += take;
+          size -= take;
+        }
+        return true;
+      });
     } catch (...) {
       error_ = std::current_exception();
     }
@@ -249,7 +266,10 @@ struct JsonlReader::impl {
  public:
   impl(std::string uri, std::optional<utils::S3Config> s3_cfg, std::pmr::memory_resource *resource,
        std::function<void()> abort_check, std::size_t chunk_size)
-      : uri_{std::move(uri)}, resource_{resource}, buffer_{std::max<std::size_t>(chunk_size, 1)} {
+      : uri_{std::move(uri)},
+        resource_{resource},
+        chunk_size_{std::max<std::size_t>(chunk_size, 1)},
+        buffer_{chunk_size_} {
     source_ = OpenSource(std::move(s3_cfg), std::move(abort_check));
   }
 
@@ -312,6 +332,13 @@ struct JsonlReader::impl {
     return std::make_unique<FileByteSource>(uri_);
   }
 
+  // Reallocates the buffer, keeping the first `keep` bytes.
+  void Resize(std::size_t size, std::size_t keep) {
+    simdjson::padded_string resized{size};
+    std::memcpy(resized.data(), buffer_.data(), keep);
+    buffer_ = std::move(resized);
+  }
+
   // Carries the trailing partial document to the front of the buffer, tops the buffer up from the
   // source and parses again. Returns false once nothing parseable is left.
   auto Refill() -> bool {
@@ -329,18 +356,19 @@ struct JsonlReader::impl {
     // A document larger than the buffer fills it without completing, leaving nowhere to read the
     // rest of it into. Growing is what lets the parser make progress again.
     if (filled_ == buffer_.size()) {
-      simdjson::padded_string grown{std::max<std::size_t>(buffer_.size() * 2, 64)};
-      std::memcpy(grown.data(), buffer_.data(), filled_);
-      buffer_ = std::move(grown);
+      Resize(std::max<std::size_t>(buffer_.size() * 2, 64), carry);
+    } else if (buffer_.size() > chunk_size_ && carry * 2 <= chunk_size_) {
+      // One oversized document would otherwise leave the buffer grown for the rest of the source.
+      // Only give the space back once what is being carried fits well inside the configured size, so
+      // a run of large documents does not thrash between the two.
+      Resize(chunk_size_, carry);
     }
 
-    auto read_any = false;
-    while (filled_ < buffer_.size()) {
-      auto const read = source_->Read(buffer_.data() + filled_, buffer_.size() - filled_);
-      if (read == 0) break;
-      filled_ += read;
-      read_any = true;
-    }
+    // One read, then parse whatever turned up. Waiting for a full buffer would hold back every row
+    // in it until the slowest byte arrived.
+    auto const read = source_->Read(buffer_.data() + filled_, buffer_.size() - filled_);
+    filled_ += read;
+    auto const read_any = read > 0;
 
     // Either the source is spent, or what remains is a fragment it will never complete. A trailing
     // fragment is dropped rather than reported, which is what parsing the whole file at once did.
@@ -358,13 +386,15 @@ struct JsonlReader::impl {
 
   std::string uri_;
   std::pmr::memory_resource *resource_;
-  std::unique_ptr<ByteSource> source_;
+  std::size_t chunk_size_;
   simdjson::ondemand::parser parser_;
   simdjson::padded_string buffer_;
   std::size_t filled_{0};
   bool parsed_{false};
   simdjson::ondemand::document_stream docs_;
   simdjson::ondemand::document_stream::iterator it_;
+  // Declared last so a source that runs a thread is shut down before the parse state it feeds.
+  std::unique_ptr<ByteSource> source_;
 };
 
 JsonlReader::JsonlReader(std::string file, std::optional<utils::S3Config> s3_cfg, std::pmr::memory_resource *resource,
