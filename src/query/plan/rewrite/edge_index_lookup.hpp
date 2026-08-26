@@ -1089,7 +1089,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (found_index) {
       // Copy the property filter and then erase it from filters.
       const auto prop_filter = *found_index->filter.property_filter;
-      if (!PropertyFilter::RequiresPostFilter(prop_filter.type_)) {
+      if (!PropertyFilter::RequiresPostFilterOnEdgeScan(prop_filter.type_)) {
         filter_exprs_for_removal_.insert(found_index->filter.expression);
       } else if (PropertyFilter::SeeksOnValue(prop_filter.type_)) {
         filter_exprs_keying_a_seek_.insert(found_index->filter.expression);
@@ -1214,7 +1214,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto const build_scan_edgeproperty = [&]() -> std::shared_ptr<LogicalOperator> {
       // Copy the property filter and then erase it from filters.
       const auto prop_filter = *found_property_index->filter.property_filter;
-      if (!PropertyFilter::RequiresPostFilter(prop_filter.type_)) {
+      if (!PropertyFilter::RequiresPostFilterOnEdgeScan(prop_filter.type_)) {
         filter_exprs_for_removal_.insert(found_property_index->filter.expression);
       } else if (PropertyFilter::SeeksOnValue(prop_filter.type_)) {
         filter_exprs_keying_a_seek_.insert(found_property_index->filter.expression);
