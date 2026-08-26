@@ -74,7 +74,7 @@ jobs:
   core:
     if: ${{ inputs.run_core == 'true' }}
     name: "Core tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    runs-on: [self-hosted, Linux, X64, odin]
     timeout-minutes: 60
     steps:
       - name: Set up repository
@@ -618,7 +618,7 @@ jobs:
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
     name: "End to end tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    runs-on: [self-hosted, Linux, X64, odin]
     timeout-minutes: 110
     steps:
       - name: Set up repository
@@ -785,7 +785,7 @@ jobs:
   stress:
     if: ${{ inputs.run_stress == 'true' }}
     name: "Stress tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    runs-on: [self-hosted, Linux, X64, odin]
     timeout-minutes: 60
     steps:
       - name: Set up repository
@@ -971,7 +971,7 @@ jobs:
   query_modules:
     if: ${{ inputs.run_query_modules == 'true' }}
     name: "Query modules tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    runs-on: [self-hosted, Linux, X64, odin]
     timeout-minutes: 60
     steps:
       - name: Set up repository
