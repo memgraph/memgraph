@@ -99,6 +99,11 @@ DEFINE_uint64(memory_warning_threshold, 1024,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed in queries.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(fips_mode, false,
+            "Run Memgraph in FIPS 140-3 approved mode. Requires the validated OpenSSL FIPS provider to be available "
+            "and restricts password hashing and TLS to FIPS-approved algorithms.");
+
 // Storage flags.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector interval (in seconds).",
