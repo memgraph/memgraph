@@ -2889,6 +2889,62 @@ TEST_F(AuthWithVariousEncryptionAlgorithms, PBKDF2SHA256RejectsUserSuppliedHash)
   ASSERT_FALSE(UserDefinedHash(supplied).has_value());
 }
 
+// FIPS policy is process-global, so it must be reset even when a test fails.
+class AuthFipsMode : public ::testing::Test {
+ protected:
+  void SetUp() override { SetHashAlgorithm("bcrypt"); }
+
+  void TearDown() override {
+    SetFipsMode(false);
+    SetHashAlgorithm("bcrypt");
+  }
+};
+
+TEST_F(AuthFipsMode, OnlyPBKDF2IsApproved) {
+  ASSERT_FALSE(IsFipsApproved(PasswordHashAlgorithm::BCRYPT));
+  ASSERT_FALSE(IsFipsApproved(PasswordHashAlgorithm::SHA256));
+  ASSERT_FALSE(IsFipsApproved(PasswordHashAlgorithm::SHA256_MULTIPLE));
+  ASSERT_TRUE(IsFipsApproved(PasswordHashAlgorithm::PBKDF2_SHA256));
+}
+
+TEST_F(AuthFipsMode, HashingRefusesNonApprovedAlgorithms) {
+  SetFipsMode(true);
+  for (auto const algo :
+       {PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE}) {
+    ASSERT_THROW(HashPassword("hello", algo), AuthException) << AsString(algo);
+  }
+  ASSERT_NO_THROW(HashPassword("hello", PasswordHashAlgorithm::PBKDF2_SHA256));
+}
+
+// bcrypt never calls OpenSSL, so an active FIPS provider does nothing to stop
+// it -- this gate is the only thing that does.
+TEST_F(AuthFipsMode, VerificationRefusesLegacyHashes) {
+  auto legacy = HashPassword("hello", PasswordHashAlgorithm::BCRYPT);
+  ASSERT_TRUE(legacy.VerifyPassword("hello"));
+
+  SetFipsMode(true);
+  ASSERT_THROW(legacy.VerifyPassword("hello"), AuthException);
+}
+
+TEST_F(AuthFipsMode, UserSuppliedLegacyHashIsRejected) {
+  auto const supplied = std::string{"bcrypt:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy"};
+  ASSERT_TRUE(UserDefinedHash(supplied).has_value());
+
+  SetFipsMode(true);
+  ASSERT_THROW(UserDefinedHash(supplied), AuthException);
+}
+
+// Everything must behave exactly as before when the flag is off.
+TEST_F(AuthFipsMode, LegacyAlgorithmsUnaffectedWhenDisabled) {
+  ASSERT_FALSE(FipsMode());
+  for (auto const *algo : {"bcrypt", "sha256", "sha256-multiple", "pbkdf2-sha256"}) {
+    SetHashAlgorithm(algo);
+    auto hash = HashPassword("hello");
+    ASSERT_TRUE(hash.VerifyPassword("hello")) << algo;
+    ASSERT_FALSE(hash.VerifyPassword("hello1")) << algo;
+  }
+}
+
 TEST_F(AuthWithVariousEncryptionAlgorithms, SetEncryptionAlgorithmNonsenseThrow) {
   ASSERT_THROW(SetHashAlgorithm("abcd"), AuthException);
 }

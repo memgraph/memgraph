@@ -30,6 +30,36 @@ void SetHashAlgorithm(std::string_view algo);
 auto CurrentHashAlgorithm() -> PasswordHashAlgorithm;
 
 /**
+ * @brief Whether `hash_algo` may be used in FIPS 140-3 approved mode.
+ *
+ * bcrypt is Blowfish and can never be approved; the sha256 variants hash as
+ * SHA256(salt ‖ password×N), which is not an approved KDF under SP 800-132.
+ */
+[[nodiscard]] auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool;
+
+/**
+ * @brief Enable FIPS approved-mode password policy, or exit if the configured
+ * algorithm is not approved.
+ *
+ * Call once at startup when `--fips-mode=true`, after the logger is
+ * initialised. `communication::EnableFipsMode()` covers the OpenSSL module;
+ * this covers the password hashing that never goes through EVP and would
+ * otherwise keep working unnoticed.
+ */
+void EnableFipsMode();
+
+/**
+ * @brief Set the FIPS policy toggle directly, without the startup validation.
+ *
+ * The policy is kept local to auth rather than read from `--fips-mode`
+ * because mg-auth does not link mg-flags, and because it keeps the policy
+ * testable without an OpenSSL FIPS provider present.
+ */
+void SetFipsMode(bool enabled);
+
+[[nodiscard]] auto FipsMode() -> bool;
+
+/**
  * @brief Return algorithm name. Needs to be stable; auth queries depend on it.
  *
  * @param hash_algo

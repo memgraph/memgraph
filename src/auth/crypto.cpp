@@ -20,6 +20,7 @@
 #include <openssl/types.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <expected>
@@ -38,8 +39,10 @@
 
 #include "auth/exceptions.hpp"
 #include "utils/enum.hpp"
+#include "utils/exit_codes.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
+#include "utils/startup_failure.hpp"
 
 namespace {
 using namespace std::literals;
@@ -110,6 +113,18 @@ auto ToHex(std::span<const unsigned char> bytes) -> std::string {
 
 auto AsBytes(std::string_view sv) -> std::span<const unsigned char> {
   return {reinterpret_cast<const unsigned char *>(sv.data()), sv.size()};
+}
+
+/// Refuse a non-approved algorithm while in FIPS mode. Applied at every entry
+/// point that hashes or verifies, because none of the legacy algorithms fail
+/// on their own: bcrypt bypasses OpenSSL entirely, and the sha256 variants use
+/// an approved digest in an unapproved construction.
+void EnsureFipsApproved(PasswordHashAlgorithm hash_algo) {
+  if (FipsMode() && !IsFipsApproved(hash_algo)) {
+    throw AuthException("The '{}' password hash algorithm is not permitted in FIPS mode; use '{}'.",
+                        AsString(hash_algo),
+                        AsString(PasswordHashAlgorithm::PBKDF2_SHA256));
+  }
 }
 }  // namespace
 
@@ -362,6 +377,7 @@ bool VerifyPassword(std::string_view password, std::string_view hash) {
 
 HashedPassword HashPassword(const std::string &password, std::optional<PasswordHashAlgorithm> override_algo) {
   auto const hash_algo = override_algo.value_or(CurrentHashAlgorithm());
+  EnsureFipsApproved(hash_algo);
   auto password_hash = std::invoke([&] {
     switch (hash_algo) {
       case PasswordHashAlgorithm::BCRYPT: {
@@ -422,19 +438,55 @@ std::optional<std::string_view> UsesAlgo(std::string_view str, PasswordHashAlgor
 // verify a far weaker hash as though it were strong. Set a pbkdf2 password
 // through the plaintext path instead.
 std::optional<HashedPassword> UserDefinedHash(std::string_view password) {
-  if (const auto hash = UsesAlgo(password, PasswordHashAlgorithm::BCRYPT)) {
-    return HashedPassword{PasswordHashAlgorithm::BCRYPT, std::string{*hash}};
-  }
-  if (const auto hash = UsesAlgo(password, PasswordHashAlgorithm::SHA256)) {
-    return HashedPassword{PasswordHashAlgorithm::SHA256, std::string{*hash}};
-  }
-  if (const auto hash = UsesAlgo(password, PasswordHashAlgorithm::SHA256_MULTIPLE)) {
-    return HashedPassword{PasswordHashAlgorithm::SHA256_MULTIPLE, std::string{*hash}};
+  for (auto const algo :
+       {PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE}) {
+    if (const auto hash = UsesAlgo(password, algo)) {
+      // Must throw, not fall through to `{}`: Auth::UpdatePassword treats an
+      // empty result as a plaintext password, which would silently store the
+      // literal "bcrypt:$2a$..." string as the user's password.
+      EnsureFipsApproved(algo);
+      return HashedPassword{algo, std::string{*hash}};
+    }
   }
   return {};
 }
 
 auto CurrentHashAlgorithm() -> PasswordHashAlgorithm { return InternalCurrentHashAlgorithm(); }
+
+namespace {
+std::atomic<bool> fips_mode{false};
+}  // namespace
+
+void SetFipsMode(bool enabled) { fips_mode.store(enabled, std::memory_order_relaxed); }
+
+auto FipsMode() -> bool { return fips_mode.load(std::memory_order_relaxed); }
+
+auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool {
+  switch (hash_algo) {
+    case PasswordHashAlgorithm::BCRYPT:
+    case PasswordHashAlgorithm::SHA256:
+    case PasswordHashAlgorithm::SHA256_MULTIPLE:
+      return false;
+    case PasswordHashAlgorithm::PBKDF2_SHA256:
+      return true;
+  }
+}
+
+void EnableFipsMode() {
+  SetFipsMode(true);
+
+  // Fail here rather than at the first login. bcrypt does not go through EVP,
+  // so without this check it would keep hashing happily under an active FIPS
+  // provider and ship a silent compliance violation.
+  auto const configured = CurrentHashAlgorithm();
+  if (!IsFipsApproved(configured)) {
+    utils::FailStartup(
+        utils::ExitCode::FipsModeUnsupportedPasswordAlgorithm,
+        fmt::format("--fips-mode=true is incompatible with --password-encryption-algorithm={}. Only '{}' is approved.",
+                    AsString(configured),
+                    AsString(PasswordHashAlgorithm::PBKDF2_SHA256)));
+  }
+}
 
 void SetHashAlgorithm(std::string_view algo) {
   auto &current = InternalCurrentHashAlgorithm();
@@ -459,6 +511,9 @@ auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize {
 }
 
 bool HashedPassword::VerifyPassword(const std::string &password) {
+  // Throws rather than returning false: a legacy hash under FIPS mode is a
+  // migration problem the operator has to see, not a wrong password.
+  EnsureFipsApproved(hash_algo);
   switch (hash_algo) {
     case PasswordHashAlgorithm::BCRYPT:
       return BCrypt::VerifyPassword(password, password_hash);
