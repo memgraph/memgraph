@@ -21,19 +21,13 @@ KERNEL_FLOOR="${LINUX_HEADERS_VERSION%.*}"
 # Set by the base image, so it moves only when the base image does.
 BUILDER_GLIBC_FLOOR="${TC_BUILDER_GLIBC_FLOOR:?TC_BUILDER_GLIBC_FLOOR must be set}"
 
-# Files already above the floor when this check was introduced. binutils builds
-# gprofng's collector libraries against the host glibc instead of the sysroot,
-# so they reference the 2.32/2.34 pthread and dl consolidations and will not
-# load on an older target. Everything else in the toolchain respects the floor.
-# Fixing the binutils build removes these; until then they are recorded here so
-# the check stays enforcing for everything else rather than being switched off.
-KNOWN_ABOVE_FLOOR=(
-    "lib/gprofng/libgp-collector.so"
-    "lib/gprofng/libgp-collectorAPI.so"
-    "lib/gprofng/libgp-heap.so"
-    "lib/gprofng/libgp-iotrace.so"
-    "lib/gprofng/libgp-sync.so"
-)
+# Files allowed above the floor. Empty: the five gprofng collector libraries
+# that used to be here were built against the builder's glibc rather than the
+# sysroot and needed 2.34 against a floor of 2.31, and binutils is now
+# configured with --disable-gprofng, so they are not built at all. Leaving them
+# listed would have been an exemption for files that no longer exist, which the
+# stale-exemption check cannot flag because it only looks at files it finds.
+KNOWN_ABOVE_FLOOR=()
 
 is_known() {
     local rel="${1#"$PREFIX"/}"

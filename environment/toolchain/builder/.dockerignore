@@ -1,0 +1,10 @@
+# The build context is this directory, so anything here is uploaded to the
+# builder on every build. output/ holds the finished toolchain tarball, which is
+# gigabytes, and sending it back in as context on the next build is pure cost:
+# no stage reads it.
+output/
+
+# Artifacts of running the checks and reviews by hand, likewise never read by a
+# stage.
+*.html
+*.log

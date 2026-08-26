@@ -32,16 +32,20 @@ is_dynamic_elf() {
 # reaches our libstdc++ without needing libgcc_s itself, and memgraph needs
 # both directly -- so this waits for the pass that makes the whole tree
 # relocatable, which has to rewrite these anyway.
+# Patterns, not names: the file names carry the GCC version, so a bump would
+# turn three tolerated exemptions into three hard failures with nothing saying
+# the list moved rather than the toolchain.
 KNOWN_HOST_CXX=(
-    "lib64/libstdc++.so.6.0.36"
-    "lib64/debug/libstdc++.so.6.0.36"
-    "lib64/libgfortran.so.5.0.0"
+    "lib64/libstdc++.so.*"
+    "lib64/debug/libstdc++.so.*"
+    "lib64/libgfortran.so.*"
 )
 
 is_known() {
     local k
     for k in "${KNOWN_HOST_CXX[@]}"; do
-        [[ "$1" == "$k" ]] && return 0
+        # shellcheck disable=SC2053 -- the right side is a pattern on purpose
+        [[ "$1" == $k ]] && return 0
     done
     return 1
 }

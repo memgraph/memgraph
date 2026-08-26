@@ -17,6 +17,12 @@ source /tc/lib/common.sh
 
 log_tool_name "relocate (runpaths -> \$ORIGIN)"
 
+# Both checks walk the same tree the rewrite does. Scanning only bin and the
+# library directories would have missed the sysroot, where most of the rewritten
+# runpaths actually live -- python's extension modules alone are sixty of them --
+# and a break there surfaces as gdb failing to start rather than as a build
+# failure.
+#
 # What could not resolve before any of this, so the check below reports what
 # this pass broke rather than what it merely noticed. libabigail's tools are in
 # here: they need libdw and libelf, which live in the sysroot, and their runpath
@@ -25,7 +31,7 @@ declare -A was_broken=()
 while IFS= read -r f; do
     file "$f" 2>/dev/null | grep -q 'ELF.*dynamically linked' || continue
     ldd "$f" 2>&1 | grep -q 'not found' && was_broken["$f"]=1
-done < <(find "$PREFIX/bin" "$PREFIX/lib" "$PREFIX/lib64" "$PREFIX/libexec" -type f 2>/dev/null)
+done < <(find "$PREFIX" -type f -not -name '*.a' -not -name '*.o' 2>/dev/null)
 echo "  unresolved before rewriting: ${#was_broken[@]}"
 
 changed=0
@@ -72,7 +78,7 @@ while IFS= read -r f; do
         echo "  BROKEN BY REWRITE: ${f#"$PREFIX"/}"
         broke=$((broke + 1))
     fi
-done < <(find "$PREFIX/bin" "$PREFIX/lib" "$PREFIX/lib64" "$PREFIX/libexec" -type f 2>/dev/null)
+done < <(find "$PREFIX" -type f -not -name '*.a' -not -name '*.o' 2>/dev/null)
 
 if (( broke )); then
     echo "  $broke file(s) resolved before the rewrite and do not now" >&2

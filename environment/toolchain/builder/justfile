@@ -31,6 +31,13 @@ _builder := if builder == "" { "" } else { "--builder " + builder }
 _cache_from := if cache_ref == "" { "" } else { "--cache-from=type=registry,ref=" + cache_ref }
 _cache_to := if env_var_or_default("TC_CACHE_WRITE", "") == "" { "" } else { "--cache-to=type=registry,ref=" + cache_ref + ",mode=max" }
 
+# Create the builder the recipes above name, with the ceiling in buildkitd.toml.
+# Idempotent, so it is safe as a dependency of anything that builds.
+_builder-exists:
+    @docker buildx inspect {{ builder }} >/dev/null 2>&1 || \
+        docker buildx create --name {{ builder }} --driver docker-container \
+            --config "{{ here }}/buildkitd.toml" --bootstrap
+
 # Static checks. Seconds, and they catch what otherwise fails hours into a build.
 check:
     "{{ here }}/verify/stage-vars.py"
@@ -44,7 +51,7 @@ check:
     @echo "stage scripts executable"
 
 # Build the toolchain; the archive lands in output/.
-build *args: check _space
+build *args: check _builder-exists _space
     mkdir -p "{{ output }}"
     docker buildx build {{ _builder }} "{{ here }}" \
         --target artifact \
@@ -55,14 +62,14 @@ build *args: check _space
     @ls -lh "{{ output }}"/*.tar.gz
 
 # Build up to one stage only, for iterating on it.
-stage name *args:
+stage name *args: _builder-exists
     docker buildx build {{ _builder }} "{{ here }}" \
         --target "s-{{ name }}" \
         {{ _cache_from }} \
         {{ args }}
 
 # Open a shell inside a stage, for working out why it failed.
-shell name *args:
+shell name *args: _builder-exists
     docker buildx build {{ _builder }} "{{ here }}" \
         --target "s-{{ name }}" \
         --load -t "mg-toolchain-stage-{{ name }}" \
