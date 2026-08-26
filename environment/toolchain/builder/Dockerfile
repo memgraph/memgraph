@@ -172,7 +172,12 @@ COPY versions/cmake.env /tc/versions/
 COPY stages/cmake.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/cmake.sh
 
-FROM s-cmake AS s-libipt
+FROM s-cmake AS s-mold
+COPY versions/mold.env /tc/versions/
+COPY stages/mold.sh /tc/stages/
+RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/mold.sh
+
+FROM s-mold AS s-libipt
 COPY versions/libipt.env /tc/versions/
 COPY stages/libipt.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/libipt.sh

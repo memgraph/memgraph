@@ -59,6 +59,7 @@ ADDED_AFTER = {
     "xz": "xxhash",  # sysroot library, required outright by libabigail
     "dwz": "xz",  # needs elfutils and xxhash; before llvm so a bump misses it
     "libabigail": "dwz",  # needs elfutils and libxml2
+    "mold": "cmake",  # needs only cmake; before llvm so that link can use it
 }
 
 for _name, _after in ADDED_AFTER.items():

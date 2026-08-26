@@ -26,7 +26,7 @@ echo "### tool identity"
 # still fails is recorded rather than fatal, so one broken tool does not hide
 # the rest of the fingerprint.
 export LD_LIBRARY_PATH="$PREFIX/lib:$PREFIX/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-for t in gcc g++ clang clang++ ld.lld gdb cmake llvm-objcopy llvm-dwp llvm-profdata; do
+for t in gcc g++ clang clang++ ld.lld ld.mold gdb cmake llvm-objcopy llvm-dwp llvm-profdata; do
     [[ -x "$PREFIX/bin/$t" ]] || continue
     printf '%s: ' "$t"
     # sed rather than head: head closes the pipe as soon as it has its line,
