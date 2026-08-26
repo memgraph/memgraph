@@ -638,7 +638,9 @@ class TypedValue {
    * @throw TypedValueException if the values cannot be compared, i.e. they are
    *        not either Null, numeric or a character string type.
    */
-  // TODO: why not `!(b < a)` or C++20 auto generated
+  // The ordering is partial: NaN sits outside it, so all four ordered
+  // comparisons are false for it. Each is therefore built from `<` and `==`
+  // rather than by negating its opposite, which would report NaN as ordered.
   friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) { return a < b || a == b; }
 
   /**
@@ -651,7 +653,12 @@ class TypedValue {
    * @throw TypedValueException if the values cannot be compared, i.e. they are
    *        not either Null, numeric or a character string type.
    */
-  friend TypedValue operator>(const TypedValue &a, const TypedValue &b) { return !(a <= b); }
+  friend TypedValue operator>(const TypedValue &a, const TypedValue &b) {
+    auto const result = b < a;
+    // Rebuilt so that the result carries the left hand side's memory resource.
+    if (result.IsNull()) return TypedValue(a.alloc_);
+    return TypedValue(result.ValueBool(), a.alloc_);
+  }
 
   /**
    * Compare TypedValues and return true, false or Null.
@@ -663,7 +670,7 @@ class TypedValue {
    * @throw TypedValueException if the values cannot be compared, i.e. they are
    *        not either Null, numeric or a character string type.
    */
-  friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) { return !(a < b); }
+  friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) { return a == b || b < a; }
 
   // arithmetic operators
 

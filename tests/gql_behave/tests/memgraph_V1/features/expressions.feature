@@ -141,3 +141,37 @@ Feature: Expressions
         Then the result should be:
             | result |
             | true   |
+
+    Scenario: Test NaN is unordered with every value
+        Given an empty graph
+        When executing query:
+            """
+            WITH 0.0 / 0.0 AS nan
+            RETURN nan < 0 AS lt, nan <= 0 AS le, nan > 0 AS gt, nan >= 0 AS ge
+            """
+        Then the result should be:
+            | lt    | le    | gt    | ge    |
+            | false | false | false | false |
+
+    Scenario: Test NaN is not greater than infinity
+        Given an empty graph
+        When executing query:
+            """
+            RETURN 0.0 / 0.0 > 1.0 / 0.0 AS result
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Test a NaN row does not pass a greater than filter
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [0.0 / 0.0, -1.0, 2.0] AS value
+            WITH value
+            WHERE value > 0
+            RETURN value
+            """
+        Then the result should be:
+            | value |
+            | 2.0   |

@@ -13,6 +13,7 @@
 // Copyright 2017 Memgraph
 // Created by Florijan Stamenkovic on 24.01.17..
 //
+#include <limits>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -246,6 +247,10 @@ TEST(TypedValue, Comparison) {
 
   run_comparison_cases(local_date_time_1, local_date_time_2);
 
+  run_comparison_cases(TypedValue(1), TypedValue(2));
+  run_comparison_cases(TypedValue(1.5), TypedValue(2.5));
+  run_comparison_cases(TypedValue("abc"), TypedValue("abd"));
+
   auto enum_val = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
   EXPECT_THROW((void)(enum_val < enum_val), memgraph::query::TypedValueException);
 
@@ -254,6 +259,47 @@ TEST(TypedValue, Comparison) {
 
   EXPECT_THROW((void)(point_1 < point_1), memgraph::query::TypedValueException);
   EXPECT_THROW((void)(point_2 < point_2), memgraph::query::TypedValueException);
+}
+
+TEST(TypedValue, ComparisonWithNaN) {
+  // NaN is unordered with every value, itself included, so none of the four
+  // ordered comparisons holds for it in either direction.
+  const auto nan = TypedValue(std::numeric_limits<double>::quiet_NaN());
+
+  for (const auto &other : {TypedValue(0.0),
+                            TypedValue(std::numeric_limits<double>::infinity()),
+                            TypedValue(-std::numeric_limits<double>::infinity()),
+                            TypedValue(1),
+                            nan}) {
+    EXPECT_PROP_FALSE(nan < other);
+    EXPECT_PROP_FALSE(nan <= other);
+    EXPECT_PROP_FALSE(nan > other);
+    EXPECT_PROP_FALSE(nan >= other);
+
+    EXPECT_PROP_FALSE(other < nan);
+    EXPECT_PROP_FALSE(other <= nan);
+    EXPECT_PROP_FALSE(other > nan);
+    EXPECT_PROP_FALSE(other >= nan);
+  }
+
+  EXPECT_PROP_FALSE(nan == nan);
+  EXPECT_PROP_TRUE(nan != nan);
+}
+
+TEST(TypedValue, ComparisonWithNull) {
+  const auto null = TypedValue();
+
+  for (const auto &other : {TypedValue(1), TypedValue("abc"), null}) {
+    EXPECT_PROP_ISNULL(null < other);
+    EXPECT_PROP_ISNULL(null <= other);
+    EXPECT_PROP_ISNULL(null > other);
+    EXPECT_PROP_ISNULL(null >= other);
+
+    EXPECT_PROP_ISNULL(other < null);
+    EXPECT_PROP_ISNULL(other <= null);
+    EXPECT_PROP_ISNULL(other > null);
+    EXPECT_PROP_ISNULL(other >= null);
+  }
 }
 
 TEST(TypedValue, BoolEquals) {
