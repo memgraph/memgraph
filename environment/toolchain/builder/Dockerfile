@@ -143,7 +143,12 @@ COPY versions/xxhash.env /tc/versions/
 COPY stages/xxhash.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/xxhash.sh
 
-FROM s-xxhash AS s-xz
+FROM s-xxhash AS s-zstd
+COPY versions/zstd.env /tc/versions/
+COPY stages/zstd.sh /tc/stages/
+RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/zstd.sh
+
+FROM s-zstd AS s-xz
 COPY versions/xz.env /tc/versions/
 COPY stages/xz.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/xz.sh
@@ -245,7 +250,11 @@ FROM s-heaptrack AS s-verify
 COPY verify/ /tc/verify/
 RUN /tc/verify/floors.sh
 
-FROM s-verify AS s-package
+FROM s-verify AS s-relocate
+COPY stages/relocate.sh /tc/stages/
+RUN /tc/stages/relocate.sh
+
+FROM s-relocate AS s-package
 COPY stages/package.sh /tc/stages/
 RUN /tc/stages/package.sh
 

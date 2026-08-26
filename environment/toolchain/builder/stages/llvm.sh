@@ -68,6 +68,10 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
     # -- so one relative path cannot reach lib64 from both. Two are given; a
     # runpath entry that resolves to nothing is simply skipped.
     #
+    # FORCE_ON rather than ON for zstd: ON quietly builds without it when the
+    # library is not found, and the only sign is clang refusing -gz=zstd much
+    # later, at which point the build has already fallen back to zlib.
+    #
     # No -fuse-ld=gold. binutils dropped gold, so this toolchain ships none and
     # the flag was silently selecting the *host's* gold -- an old one, outside
     # the sysroot. It also fails outright on BOLT: gold 1.16 hits an internal
@@ -100,6 +104,8 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
         -DLLVM_BUILD_LLVM_DYLIB=ON \
         -DLLVM_ENABLE_RTTI=ON \
         -DLLVM_ENABLE_FFI=ON \
+        -DLLVM_ENABLE_ZSTD=FORCE_ON \
+        -DzstdSTATIC_LIBRARY=$SYSROOT/usr/lib/libzstd.a \
         -DLLVM_BINUTILS_INCDIR=$PREFIX/include/ \
         -DLLVM_INCLUDE_BENCHMARKS=OFF \
         -DLLVM_USE_PERF=yes \

@@ -56,10 +56,12 @@ ADDED_AFTER = {
     "elfutils": "libffi",  # sysroot library, needed by dwz and libabigail
     "libxml2": "elfutils",  # sysroot library, needed by libabigail
     "xxhash": "libxml2",  # sysroot library, needed by dwz since its 0.16
-    "xz": "xxhash",  # sysroot library, required outright by libabigail
+    "zstd": "xxhash",  # sysroot library, needed by llvm for -gz=zstd
+    "xz": "zstd",  # sysroot library, required outright by libabigail
     "dwz": "xz",  # needs elfutils and xxhash; before llvm so a bump misses it
     "libabigail": "dwz",  # needs elfutils and libxml2
     "mold": "cmake",  # needs only cmake; before llvm so that link can use it
+    "relocate": "heaptrack",  # rewrites the finished tree, so last but for packaging
 }
 
 for _name, _after in ADDED_AFTER.items():
