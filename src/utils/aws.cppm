@@ -252,23 +252,17 @@ auto GetS3ObjectStreaming(std::string_view uri, S3Config const &s3_config, std::
 
 // Writes the content of the S3 object from the uri into ostream
 // returns nullopt is all good, value of the error if something wrong
+// Note that on failure the stream may already hold part of the object, where the default response
+// stream would have left it untouched. Every caller treats an error as fatal and discards the
+// stream.
 auto GetS3Object(std::string uri, S3Config const &s3_config, std::ostream &ostream) -> std::expected<void, S3Error> {
-  GlobalS3APIManager::GetInstance();
-  auto const outcome = GetS3ObjectOutcome(uri, s3_config);
-
-  if (!outcome.has_value()) {
-    return std::unexpected{outcome.error()};
+  auto *sink = ostream.rdbuf();
+  if (sink == nullptr) {
+    return std::unexpected{
+        S3Error{.status_code = S3ErrorCode::S3_API_ERROR, .message = "Output stream has no buffer to write into"}};
   }
 
-  if (!outcome.value().IsSuccess()) {
-    return std::unexpected{S3Error{
-        .status_code = S3ErrorCode::S3_API_ERROR,
-        .message =
-            fmt::format("Failed to get object from S3 {}. Error: {}", uri, outcome.value().GetError().GetMessage())}};
-  }
-
-  ostream << outcome.value().GetResult().GetBody().rdbuf();
-  return {};
+  return GetS3ObjectStreaming(uri, s3_config, *sink);
 }
 
 // Writes the content of the S3 object from the uri into a file on the local disk
