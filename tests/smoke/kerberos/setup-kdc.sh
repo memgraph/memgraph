@@ -26,7 +26,7 @@ set -euo pipefail
 # memgraph, so give every network step three tries before failing the test.
 retry() {
   local attempt
-  for attempt in 1 2 3; do
+  for attempt in 1 2 3 4 5; do
     (( attempt == 1 )) || sleep $(( attempt * 5 ))
     "$@" && return 0
     echo "attempt $attempt/3 failed: $*" >&2
