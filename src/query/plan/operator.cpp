@@ -2320,7 +2320,13 @@ class ExpandVariableCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    // The operator's type may be PRUNING_BFS when the dispatch cursor chose this
+    // DFS walk as a fallback, so the cursor names itself rather than asking the
+    // operator. Computed once to avoid a per-row allocation.
+    if (!profile_name_ && context.is_profile_query) {
+      profile_name_ = self_.ToStringNamed(context.db_accessor, "ExpandVariable");
+    }
+    SCOPED_PROFILE_OP(profile_name_ ? profile_name_->c_str() : "ExpandVariable");
 
     AbortCheck(context);
 
@@ -2360,6 +2366,7 @@ class ExpandVariableCursor : public Cursor {
  private:
   const ExpandVariable &self_;
   const UniqueCursorPtr input_cursor_;
+  std::optional<std::string> profile_name_;
   // bounds. in the cursor they are not optional but set to
   // default values if missing in the ExpandVariable operator
   int64_t upper_bound_{-1};
@@ -3074,7 +3081,10 @@ class PruningBFSCursor : public query::plan::Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler const oom_exception;
-    SCOPED_PROFILE_OP("PruningBFSExpand");
+    if (!profile_name_ && context.is_profile_query) {
+      profile_name_ = self_.ToStringNamed(context.db_accessor, "PruningBFSExpand");
+    }
+    SCOPED_PROFILE_OP(profile_name_ ? profile_name_->c_str() : "PruningBFSExpand");
 
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
@@ -3294,6 +3304,7 @@ class PruningBFSCursor : public query::plan::Cursor {
 
   const ExpandVariable &self_;
   const UniqueCursorPtr input_cursor_;
+  std::optional<std::string> profile_name_;
 
   int64_t lower_bound_{};
   int64_t upper_bound_{};
@@ -3312,6 +3323,58 @@ class PruningBFSCursor : public query::plan::Cursor {
   // BFS frontier: current depth level and next depth level
   utils::pmr::vector<VertexAccessor> to_visit_current_;
   utils::pmr::vector<VertexAccessor> to_visit_next_;
+};
+
+/// Only a lower bound of at most one lets a pruning BFS reach the same vertices
+/// as a depth-first walk: a vertex the BFS first arrives at below the bound is
+/// marked visited and never emitted, where the walk would still arrive at it
+/// along a longer edge-unique path.
+class PruningBFSDispatchCursor : public query::plan::Cursor {
+ public:
+  PruningBFSDispatchCursor(const ExpandVariable &self, utils::MemoryResource *mem,
+                           metrics::DatabaseMetricHandles &metric_handles)
+      : self_(self), mem_(mem), metric_handles_(metric_handles) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    if (!chosen_) chosen_ = Choose(frame, context);
+    return chosen_->Pull(frame, context);
+  }
+
+  void Shutdown() override {
+    if (chosen_) chosen_->Shutdown();
+  }
+
+  void Reset() override {
+    // The bound reads no symbol and the parameters do not change over a cursor's
+    // life, so a reset cannot change which expansion the bound calls for.
+    if (chosen_) chosen_->Reset();
+  }
+
+ private:
+  UniqueCursorPtr Choose(Frame &frame, ExecutionContext &context) {
+    if (BoundPermitsPruning(frame, context))
+      return MakeUniqueCursorPtr<PruningBFSCursor>(mem_, self_, mem_, metric_handles_);
+    return MakeUniqueCursorPtr<ExpandVariableCursor>(mem_, self_, mem_, metric_handles_);
+  }
+
+  /// A walk of at most one edge is the threshold below which a pruning BFS
+  /// reaches the same vertices as a depth-first walk, so a bound above one goes
+  /// to the depth-first walk, as does one of the wrong type. That walk reads its
+  /// bounds only once it holds a row, so rejecting a bad one stays off the
+  /// expansions that find nothing to expand.
+  /// Must agree with ExpandVariable::OperatorName(Parameters*), which answers
+  /// the same question for EXPLAIN output.
+  bool BoundPermitsPruning(Frame &frame, ExecutionContext &context) const {
+    if (!self_.lower_bound_) return true;
+    ExpressionEvaluator evaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+    TypedValue const bound = self_.lower_bound_->Accept(evaluator);
+    return bound.IsInt() && bound.ValueInt() <= 1;
+  }
+
+  const ExpandVariable &self_;
+  utils::MemoryResource *mem_;
+  metrics::DatabaseMetricHandles &metric_handles_;
+  UniqueCursorPtr chosen_;
 };
 
 void ValidateWeight(TypedValue current_weight) {
@@ -4747,7 +4810,7 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem,
       return MakeUniqueCursorPtr<KShortestPathsCursor>(mem, *this, mem, metric_handles);
     }
     case EdgeAtom::Type::PRUNING_BFS: {
-      return MakeUniqueCursorPtr<PruningBFSCursor>(mem, *this, mem, metric_handles);
+      return MakeUniqueCursorPtr<PruningBFSDispatchCursor>(mem, *this, mem, metric_handles);
     }
     case EdgeAtom::Type::SINGLE: {
       LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
@@ -4757,10 +4820,16 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem,
   }
 }  // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
 
-std::string ExpandVariable::ToString(const DbAccessor *dba) const {
+std::string ExpandVariable::ToString(const DbAccessor *dba) const { return ToStringNamed(dba, OperatorName()); }
+
+std::string ExpandVariable::ToStringWithParameters(const DbAccessor *dba, Parameters const &parameters) const {
+  return ToStringNamed(dba, OperatorName(&parameters));
+}
+
+std::string ExpandVariable::ToStringNamed(const DbAccessor *dba, std::string_view operator_name) const {
   return fmt::format(
       "{} ({}){}[{}{}]{}({})",
-      OperatorName(),
+      operator_name,
       input_symbol_.name(),
       common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
       common_.edge_symbol.name(),
@@ -4792,7 +4861,7 @@ std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) cons
   return object;
 }
 
-std::string_view ExpandVariable::OperatorName() const {
+std::string_view ExpandVariable::OperatorName(Parameters const *parameters) const {
   using namespace std::string_view_literals;
   using Type = query::EdgeAtom::Type;
   switch (type_) {
@@ -4806,8 +4875,16 @@ std::string_view ExpandVariable::OperatorName() const {
       return "AllShortestPaths"sv;
     case Type::KSHORTEST:
       return "KShortest"sv;
-    case Type::PRUNING_BFS:
-      return "PruningBFSExpand"sv;
+    case Type::PRUNING_BFS: {
+      // Which walk runs is settled from the bound, so naming one before the
+      // bound can be read would name a walk that may not be the one taken.
+      // Must agree with PruningBFSDispatchCursor::BoundPermitsPruning, which
+      // makes the runtime decision.
+      if (!parameters || !lower_bound_) return "PruningBFSExpand"sv;
+      auto const bound = ConstExternalPropertyValue(lower_bound_, *parameters);
+      if (bound && bound->IsInt() && bound->ValueInt() <= 1) return "PruningBFSExpand"sv;
+      return "ExpandVariable"sv;
+    }
     case Type::SINGLE:
       LOG_FATAL("Unexpected ExpandVariable::type_");
     default:

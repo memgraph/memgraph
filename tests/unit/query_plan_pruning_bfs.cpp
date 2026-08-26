@@ -16,7 +16,6 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
-#include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/pruning_bfs.hpp"
 
@@ -31,8 +30,6 @@ class PruningBFSRewriteTest : public ::testing::Test {
  protected:
   AstStorage storage;
   SymbolTable symbol_table;
-  Parameters parameters;
-  bool reads_parameters = false;
 
   Symbol source_sym = symbol_table.CreateSymbol("source", true);
   Symbol target_sym = symbol_table.CreateSymbol("target", true);
@@ -75,16 +72,19 @@ class PruningBFSRewriteTest : public ::testing::Test {
   }
 
   /// A bound that only the parameters of a particular execution settle, as query
-  /// stripping produces for a written-out bound.
-  Expression *SuppliedBound(int64_t value) {
-    constexpr int kTokenPosition = 0;
-    parameters.Add(kTokenPosition, memgraph::storage::ExternalPropertyValue{value});
-    return storage.Create<ParameterLookup>(kTokenPosition);
+  /// stripping produces for a written-out bound. Its value is out of the plan's
+  /// reach, but it reads no symbol, so the cursor can settle it.
+  Expression *SuppliedBound() { return storage.Create<ParameterLookup>(0); }
+
+  /// A bound read from the row being expanded, which no plan can settle.
+  Expression *BoundFromTheRow() {
+    auto *identifier = storage.Create<Identifier>("source")->MapTo(source_sym);
+    return storage.Create<PropertyLookup>(identifier, storage.GetPropertyIx("depth"));
   }
 
   EdgeAtom::Type RewrittenType(
       std::function<std::shared_ptr<LogicalOperator>(std::shared_ptr<LogicalOperator>)> const &above) {
-    auto plan = RewriteWithPruningBFS(MakePlan(above), &symbol_table, parameters, &reads_parameters);
+    auto plan = RewriteWithPruningBFS(MakePlan(above), &symbol_table);
     return expand->type_;
   }
 };
@@ -137,36 +137,40 @@ TEST_F(PruningBFSRewriteTest, RewritesBelowAReadProcedure) {
   EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
 }
 
-TEST_F(PruningBFSRewriteTest, ASuppliedBoundThatPermitsPruningTiesThePlanToIt) {
-  lower_bound = SuppliedBound(1);
+// === The bound belongs to the cursor, not the plan ===
+
+TEST_F(PruningBFSRewriteTest, MarksAnExpansionWhoseBoundOnlyTheParametersSettle) {
+  // The value is out of reach here, and does not need to be: the cursor reads it
+  // before it pulls a row, so leaving the plan free of it costs nothing.
+  lower_bound = SuppliedBound();
   auto const type = RewrittenType([](auto input) { return input; });
   EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
-  EXPECT_TRUE(reads_parameters);
 }
 
-TEST_F(PruningBFSRewriteTest, ASuppliedBoundThatDeniesPruningAlsoTiesThePlanToIt) {
-  // The plan is depth-first either way, but caching it would serve it to the
-  // bounds that do permit pruning.
-  lower_bound = SuppliedBound(2);
+TEST_F(PruningBFSRewriteTest, LeavesAnExpansionWhoseBoundTheRowSupplies) {
+  // A property lookup is neither a literal nor a parameter, so the bound is not
+  // resolvable and the expansion stays depth-first.
+  lower_bound = BoundFromTheRow();
   auto const type = RewrittenType([](auto input) { return input; });
   EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
-  EXPECT_TRUE(reads_parameters);
 }
 
-TEST_F(PruningBFSRewriteTest, ABoundIsNotReadWhenNothingElseAllowsPruning) {
-  // Nothing deduplicates, so the bound never decides anything and the plan is
-  // the one every execution of this query would get.
-  deduplicates = false;
-  lower_bound = SuppliedBound(1);
+TEST_F(PruningBFSRewriteTest, LeavesAnExpansionWhoseBoundIsANonTrivialExpression) {
+  // An addition of two literals reads no symbol but is neither a literal nor a
+  // parameter, so ConstExternalPropertyValue cannot resolve it.
+  auto *lhs = storage.Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue{static_cast<int64_t>(0)}, 0);
+  auto *rhs = storage.Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue{static_cast<int64_t>(1)}, 0);
+  auto *add = storage.Create<AdditionOperator>();
+  add->expression1_ = lhs;
+  add->expression2_ = rhs;
+  lower_bound = add;
   auto const type = RewrittenType([](auto input) { return input; });
   EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
-  EXPECT_FALSE(reads_parameters);
 }
 
-TEST_F(PruningBFSRewriteTest, AnAbsentBoundLeavesThePlanFitForTheCache) {
+TEST_F(PruningBFSRewriteTest, MarksAnExpansionWithNoBoundAtAll) {
   auto const type = RewrittenType([](auto input) { return input; });
   EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
-  EXPECT_FALSE(reads_parameters);
 }
 
 }  // namespace
