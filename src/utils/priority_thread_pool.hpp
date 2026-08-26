@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <bit>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -50,6 +51,15 @@ class HotMask {
 
   // Returns the position of the first set bit and resets it
   std::optional<uint16_t> GetHotElement();
+
+  // Returns the number of set bits (idle-waiting workers). Read-only over the existing atomics.
+  uint16_t Count() const {
+    uint16_t count = 0;
+    for (uint16_t g = 0; g < n_groups_; ++g) {
+      count += static_cast<uint16_t>(std::popcount(hot_masks_[g].load(std::memory_order_acquire)));
+    }
+    return count;
+  }
 
  private:
   static constexpr auto kGroupSize = sizeof(uint64_t) * 8;  // bits

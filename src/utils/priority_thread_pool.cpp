@@ -11,6 +11,7 @@
 
 #include "utils/priority_thread_pool.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -253,6 +254,22 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     work_.pop();
   };
 
+  // Idle-spin budget: allow at most ~one hot spinner per hardware core, so some CPU stays free
+  // rather than every worker spinning at once. Computed once per worker.
+  [[maybe_unused]] const auto kSpinBudget = memgraph::utils::GetSafeHardwareConcurrency();
+  // Adaptive Phase-3 spin window for LP workers. STACK-LOCAL on purpose: the monitor thread
+  // concurrently reads Worker members, so this must NOT become a Worker member (that would be a
+  // data race).
+  static constexpr double kMaxSpin = 0.001;          // 1ms ceiling
+  static constexpr double kMinSpin = kMaxSpin / 64;  // ~15us floor: NON-ZERO so the window can always
+                                                     // register a hit and recover. A 0 floor is an
+                                                     // absorbing state (a tiny window never runs the
+                                                     // spin body, so it can never grow back).
+  // LP-only: mutated by the AIMD below in the non-HIGH branch; the HIGH instantiation ignores it
+  // (hence maybe_unused, and the const-correctness suppression - HIGH sees no mutation, LP does).
+  // NOLINTNEXTLINE(misc-const-correctness)
+  [[maybe_unused]] double spin_secs = kMaxSpin;
+
   while (run_.load(std::memory_order_acquire)) {
     // Phase 1 get scheduled work <- cold thread???
     // Phase 2 try to steal and loop <- hot thread
@@ -316,13 +333,30 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
       continue;
     }
 
-    // Phase 3 - spin for a while waiting on work (available only if TSC is available)
-    const auto freq = utils::GetTSCFrequency();
-    if (freq) {
+    // Phase 3 - spin for a while waiting on work (available only if TSC is available).
+    // Spins the window and returns whether work arrived before it elapsed.
+    const auto spin_for = [this](double window_secs) -> bool {
+      const auto freq = utils::GetTSCFrequency();
+      if (!freq) return false;
       const utils::TSCTimer timer{freq};
-      yielder y;                         // NOLINT (misc-const-correctness)
-      while (timer.Elapsed() < 0.001) {  // 1ms
-        if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) break;
+      yielder y;  // NOLINT (misc-const-correctness)
+      while (timer.Elapsed() < window_secs) {
+        if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) return true;
+      }
+      return false;
+    };
+
+    if constexpr (ThreadPriority == Priority::HIGH) {
+      // The single dedicated HIGH worker always spins the full window for lowest wakeup latency;
+      // it is never throttled by the LP spinner count nor subject to the adaptive shrink.
+      spin_for(kMaxSpin);
+    } else {
+      // LP workers only spin while the pool is not oversubscribed with idle-waiting workers, and
+      // adapt the window: AIMD - grow toward kMaxSpin when the spin paid off, shrink toward kMinSpin
+      // otherwise. kMinSpin is non-zero so a shrunk window can still register a hit and recover.
+      if (hot_threads.Count() <= kSpinBudget) {
+        const bool hit = spin_for(spin_secs);
+        spin_secs = hit ? std::min(kMaxSpin, spin_secs * 2.0) : std::max(kMinSpin, spin_secs * 0.5);
       }
     }
 
