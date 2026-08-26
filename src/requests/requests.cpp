@@ -194,47 +194,12 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
 // Clients are responsible for deleting the file if the downnload fails
 bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, uint64_t const connection_timeout,
                            std::function<void()> abort_check) {
-  CURL *curl = nullptr;
-  CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
+  // A short write ends the transfer, which is what a full disk should do.
+  auto const sink = [&file](char const *data, size_t const size) -> size_t {
+    return std::fwrite(data, 1, size, file.get());
+  };
 
-  auto const user_agent = fmt::format("memgraph/{}", gflags::VersionString());
-
-  curl = curl_easy_init();
-  if (!curl) {
-    spdlog::error("requests: Couldn't init curl");
-    return false;
-  }
-
-  ProgressData progress_data{.abort_check_ = std::move(abort_check)};
-
-  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, file.get());
-  // Timeout for establishing a connection
-  // Includes DNS, all protocol handshakes and negotiations until there is an established connection with the remote
-  // side
-  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, connection_timeout);
-  curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
-  curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent.c_str());
-  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
-  curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10);
-  // Needed so that XFERINFOFUNCTION could work
-  curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0);
-  curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progress_data);
-  curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, DownloadProgressCb);
-  // Fail fast on HTTP errors (don't write error pages to file)
-  curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
-  SetCaInfo(curl);
-
-  res = curl_easy_perform(curl);
-
-  if (res != CURLE_OK) {
-    spdlog::error("Error happened while downloading file {}: {}", url, curl_easy_strerror(res));
-    return false;
-  }
-
-  curl_easy_cleanup(curl);
-
-  return true;
+  return DownloadToSink(url, sink, connection_timeout, std::move(abort_check));
 }
 
 bool DownloadToSink(const std::string &url, WriteSink const &write, uint64_t const connection_timeout,
