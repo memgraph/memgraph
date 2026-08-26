@@ -15,6 +15,8 @@ popd
 
 pushd "$TC_BUILD"
 # Host deps (apt): make ("gcc"/"g++" resolve to the toolchain via PATH).
+# The runpath keeps cppcheck on the libstdc++ built here rather than the one on
+# whatever machine it is installed to; relative, so the tree still moves.
 log_tool_name "cppcheck $CPPCHECK_VERSION"
 if [[ ! -f "$PREFIX/bin/cppcheck" ]]; then
     if [[ -d "cppcheck-$CPPCHECK_VERSION" ]]; then
@@ -25,6 +27,7 @@ if [[ ! -f "$PREFIX/bin/cppcheck" ]]; then
     env \
         CC=gcc \
         CXX=g++ \
+        LDFLAGS="-Wl,-rpath,\$ORIGIN/../lib64" \
         PREFIX=$PREFIX \
         FILESDIR=$PREFIX/share/cppcheck \
         CFGDIR=$PREFIX/share/cppcheck/cfg \
@@ -32,6 +35,7 @@ if [[ ! -f "$PREFIX/bin/cppcheck" ]]; then
     env \
         CC=gcc \
         CXX=g++ \
+        LDFLAGS="-Wl,-rpath,\$ORIGIN/../lib64" \
         PREFIX=$PREFIX \
         FILESDIR=$PREFIX/share/cppcheck \
         CFGDIR=$PREFIX/share/cppcheck/cfg \

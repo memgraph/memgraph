@@ -3,13 +3,13 @@
 # A front door, not a build engine: BuildKit owns the dependency graph, the
 # caching and the scheduling. Everything here assembles arguments.
 #
-# On cache and disk. A toolchain's layers are several GB each, and BuildKit
-# garbage-collects to a ceiling it decides for itself. When that ceiling is
-# lower than a full toolchain, the expensive early layers are evicted between
-# runs and a rebuild starts from glibc rather than from the stage you changed,
-# which is exactly the latency this build exists to remove. `just cache` shows
-# whether that is happening; `just clean` trims to a ceiling that leaves recent
-# entries in place.
+# On cache and disk. A toolchain's layers are several GB each, and the default
+# BuildKit ceiling keeps less than one whole toolchain, so the expensive early
+# layers are evicted between runs and a rebuild starts from glibc rather than
+# from the stage you changed -- exactly the latency this build exists to remove.
+# The builder named below has its own ceiling, set in buildkitd.toml, and its
+# own cache, so it neither evicts nor is evicted by other work on the machine.
+# `just cache` shows what it holds; `just clean` trims it.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -20,6 +20,13 @@ output := here / "output"
 # supply-chain surface, and a cache hit means nobody rebuilds or inspects the
 # thing that compiles everything else.
 cache_ref := env_var_or_default("TC_CACHE_REF", "")
+
+# A builder of our own, so this cache does not compete with every other Docker
+# build on the machine. Its ceiling is in buildkitd.toml; the default builder
+# keeps far less than one toolchain. Set TC_BUILDER= to fall back to whatever
+# builder is currently selected.
+builder := env_var_or_default("TC_BUILDER", "mg-toolchain")
+_builder := if builder == "" { "" } else { "--builder " + builder }
 
 _cache_from := if cache_ref == "" { "" } else { "--cache-from=type=registry,ref=" + cache_ref }
 _cache_to := if env_var_or_default("TC_CACHE_WRITE", "") == "" { "" } else { "--cache-to=type=registry,ref=" + cache_ref + ",mode=max" }
@@ -39,7 +46,7 @@ check:
 # Build the toolchain; the archive lands in output/.
 build *args: check _space
     mkdir -p "{{ output }}"
-    docker buildx build "{{ here }}" \
+    docker buildx build {{ _builder }} "{{ here }}" \
         --target artifact \
         --output "type=local,dest={{ output }}" \
         {{ _cache_from }} {{ _cache_to }} \
@@ -49,14 +56,14 @@ build *args: check _space
 
 # Build up to one stage only, for iterating on it.
 stage name *args:
-    docker buildx build "{{ here }}" \
+    docker buildx build {{ _builder }} "{{ here }}" \
         --target "s-{{ name }}" \
         {{ _cache_from }} \
         {{ args }}
 
 # Open a shell inside a stage, for working out why it failed.
 shell name *args:
-    docker buildx build "{{ here }}" \
+    docker buildx build {{ _builder }} "{{ here }}" \
         --target "s-{{ name }}" \
         --load -t "mg-toolchain-stage-{{ name }}" \
         {{ _cache_from }} {{ args }}
@@ -81,22 +88,24 @@ determinism:
 
 # Show what the build cache holds and how much disk is left.
 cache:
-    @docker buildx du | tail -3
+    @docker buildx du {{ _builder }} | tail -3
     @df -h / | awk 'NR==2 {print "disk: "$4" free ("$5" used)"}'
 
 # Reclaim disk, trimming the cache to a ceiling but keeping recent entries.
 clean max="60GB":
     rm -rf "{{ output }}"
-    docker buildx prune --force --max-used-space {{ max }}
+    docker buildx prune {{ _builder }} --force --max-used-space {{ max }}
     @just cache
 
 # Drop the whole cache; the next build rebuilds glibc and GCC from source.
 clean-all:
     rm -rf "{{ output }}"
-    docker buildx prune --all --force
+    docker buildx prune {{ _builder }} --all --force
     @just cache
 
 # Trim week-old cache entries so they do not crowd out this build's layers.
+# Scoped to our own builder: pruning the shared one would throw away cache
+# belonging to every other build on the machine.
 _space:
-    @docker buildx prune --force --filter until=168h > /dev/null 2>&1 || true
+    @docker buildx prune {{ _builder }} --force --filter until=168h > /dev/null 2>&1 || true
     @df -h / | awk 'NR==2 {if (0+$5 > 90) print "  WARNING: disk "$5" used; expect cache eviction and slow rebuilds"; else print "  disk: "$4" free"}'

@@ -60,6 +60,12 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
     # is relative, and names lib64: LLVM's own default runpath points at lib,
     # where this toolchain's libstdc++ does not live.
     #
+    # The runtimes need saying separately. compiler-rt and openmp are configured
+    # as a nested CMake build, which inherits none of the flags above, and they
+    # install further down the tree -- lib/<triple> and lib/clang/N/lib/<triple>
+    # -- so one relative path cannot reach lib64 from both. Two are given; a
+    # runpath entry that resolves to nothing is simply skipped.
+    #
     # No -fuse-ld=gold. binutils dropped gold, so this toolchain ships none and
     # the flag was silently selecting the *host's* gold -- an old one, outside
     # the sysroot. It also fails outright on BOLT: gold 1.16 hits an internal
@@ -83,7 +89,7 @@ if [[ ! -f "$PREFIX/bin/clang" ]]; then
         -DCMAKE_C_FLAGS=' -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
         -DLLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS" \
         -DLLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES" \
-        -DRUNTIMES_CMAKE_ARGS="-DCMAKE_C_FLAGS=--gcc-toolchain=$PREFIX;-DCMAKE_CXX_FLAGS=--gcc-toolchain=$PREFIX;-DLIBOMP_OMPD_SUPPORT=OFF;-DLIBOMP_OMPD_GDB_SUPPORT=OFF" \
+        -DRUNTIMES_CMAKE_ARGS="-DCMAKE_C_FLAGS=--gcc-toolchain=$PREFIX;-DCMAKE_CXX_FLAGS=--gcc-toolchain=$PREFIX;-DLIBOMP_OMPD_SUPPORT=OFF;-DLIBOMP_OMPD_GDB_SUPPORT=OFF;-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-rpath,\$ORIGIN/../../lib64 -Wl,-rpath,\$ORIGIN/../../../../../lib64" \
         -DBUILTINS_CMAKE_ARGS="-DCMAKE_C_FLAGS=--gcc-toolchain=$PREFIX;-DCMAKE_CXX_FLAGS=--gcc-toolchain=$PREFIX" \
         -DLLVM_LINK_LLVM_DYLIB=ON \
         -DLLVM_INSTALL_UTILS=ON \
