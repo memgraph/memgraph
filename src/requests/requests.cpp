@@ -41,35 +41,29 @@ namespace {
 struct ProgressData {
   std::function<void()> abort_check_;
   std::optional<std::chrono::steady_clock::time_point> last_tp_;
+  // Why the caller wanted to stop. Kept so it can be rethrown once the transfer has unwound, since
+  // an exception must not cross libcurl's frames.
+  std::exception_ptr abort_error_;
 };
 
 // Callback function for reporting progress during a file download
 auto DownloadProgressCb(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t /*ultotal*/,
                         curl_off_t /*ulnow*/) -> int {
-  // No need to update the progress
-  if (dltotal == 0) return 0;
-
   constexpr auto kAbortTransferReturnCode = 1;
   constexpr auto kContinueTransferReturnCode = 0;
 
   auto *data = static_cast<ProgressData *>(clientp);
 
-  // Catch HintedAbortError and abort the transfer if got the request to terminate the transactions
+  // Ahead of anything that needs a total: a transfer whose length the server never announces still
+  // has to be stoppable, and a chunked response never reports one.
   // abort_check_ could be a nullptr.
   if (data->abort_check_) {
     try {
       data->abort_check_();
-    } catch (std::exception const &e) {
+    } catch (...) {
+      data->abort_error_ = std::current_exception();
       return kAbortTransferReturnCode;
     }
-  }
-
-  static thread_local auto counter = utils::ResettableCounter(500);
-
-  // Don't log too often but log when the file download is complete
-  if (counter() || dlnow == dltotal) {
-    auto const progress = (100.0F * static_cast<float>(dlnow)) / static_cast<float>(dltotal);
-    spdlog::trace("Downloaded {:.2f}% of the file", progress);
   }
 
   auto const now = std::chrono::steady_clock::now();
@@ -85,6 +79,17 @@ auto DownloadProgressCb(void *clientp, curl_off_t dltotal, curl_off_t dlnow, cur
   }
 
   data->last_tp_.emplace(now);
+
+  // Only the progress figure needs a total to mean anything.
+  if (dltotal != 0) {
+    static thread_local auto counter = utils::ResettableCounter(500);
+
+    // Don't log too often but log when the file download is complete
+    if (counter() || dlnow == dltotal) {
+      auto const progress = (100.0F * static_cast<float>(dlnow)) / static_cast<float>(dltotal);
+      spdlog::trace("Downloaded {:.2f}% of the file", progress);
+    }
+  }
 
   return kContinueTransferReturnCode;
 }
@@ -238,6 +243,12 @@ bool DownloadToSink(const std::string &url, WriteSink const &write, uint64_t con
   SetCaInfo(curl);
 
   if (auto const res = curl_easy_perform(curl); res != CURLE_OK) {
+    // The caller stopped this deliberately, so report what it asked for rather than a download
+    // failure. Rethrowing here rather than from the callback keeps it out of libcurl's frames.
+    if (progress_data.abort_error_) {
+      std::rethrow_exception(progress_data.abort_error_);
+    }
+
     spdlog::error("Error happened while downloading {}: {}", url, curl_easy_strerror(res));
     return false;
   }
