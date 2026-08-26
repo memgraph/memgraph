@@ -915,8 +915,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
 
       auto predicate_result = list_comprehension.where_->expression_->Accept(*this);
+      // This predicate filters rather than being folded into one answer the way
+      // a quantifier's is, so an element whose predicate is NULL is left out and
+      // the rest of the list still stands. NULL is the only value besides a
+      // boolean a predicate may hold.
+      if (predicate_result.IsNull()) {
+        continue;
+      }
       if (!predicate_result.IsBool()) {
-        return TypedValue(ctx_->memory);
+        throw QueryRuntimeException("Predicate of a list comprehension must evaluate to boolean, got {}.",
+                                    predicate_result.type());
       }
       if (predicate_result.ValueBool()) {
         if (has_transformation) {
