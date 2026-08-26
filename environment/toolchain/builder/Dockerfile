@@ -34,7 +34,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # pick up different builder packages.
 COPY apt-packages.txt /tc/apt-packages.txt
 RUN apt-get update && \
-    xargs -a /tc/apt-packages.txt apt-get install -y --no-install-recommends && \
+    grep -vE '^\s*(#|$)' /tc/apt-packages.txt | xargs apt-get install -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
 # $DIR in the recipes: holds archives/, build/, and the version's own
@@ -97,7 +97,26 @@ RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/binutils.
 # --------------------------------------------------------------------------
 # Sysroot support libraries, built with the toolchain GCC so they target the
 # sysroot's glibc, and installed into $SYSROOT/usr where that GCC finds them.
-# Consumed by GDB, cmake and mgconsole.
+#
+# What belongs in the sysroot, and what does not:
+#
+#   yes  a shared library a shipped binary loads at run time. gdb needs
+#        libpython and libncurses, libabigail needs libxml2 and libdw. These
+#        have to target the sysroot's glibc, because they are loaded next to
+#        binaries that do.
+#   yes  anything memgraph itself links against, which is what --sysroot points
+#        its build at. In practice the C library, and the C++ runtime beside it
+#        in lib64.
+#   no   a library only needed to build one of these tools, where the result is
+#        linked statically. That belongs in apt-packages.txt: it is a property
+#        of the machine doing the building, never of the toolchain. boost and
+#        elfutils are the examples -- heaptrack compiles against the builder's
+#        copies and links them in, so neither ever reaches the sysroot.
+#
+# The one deliberate exception is zstd, which is static and build-time only but
+# still installed here: LLVM is configured with FIND_ROOT_PATH_MODE_LIBRARY=ONLY
+# so that nothing host-linked can slip into the compiler, and that setting also
+# means the only place its build can find a library is the sysroot.
 # --------------------------------------------------------------------------
 
 FROM s-binutils AS s-zlib
