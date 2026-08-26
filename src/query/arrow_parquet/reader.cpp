@@ -672,9 +672,11 @@ ParquetReader::ParquetReader(utils::pmr::string const &uri, utils::S3Config s3_c
                                               memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
                                               std::move(abort_check));
           !downloaded) {
-        return std::unexpected{
-            arrow::Status{arrow::StatusCode::UnknownError,
-                          fmt::format("Couldn't download file {}: {}", uri, downloaded.error().message)}};
+        // Thrown rather than returned: an arrow::Status has nowhere to carry whether trying again
+        // could help, and everything it is turned into afterwards is permanent.
+        memgraph::query::ThrowDownloadFailed(
+            downloaded.error().Retryable(),
+            fmt::format("Couldn't download file {}: {}", uri, downloaded.error().message));
       }
 
       // The reader takes a descriptor of its own, so the download outlives `temp_file` going out of

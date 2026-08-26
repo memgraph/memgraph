@@ -30,6 +30,7 @@ module;
 #include "simdjson.h"
 #include "spdlog/spdlog.h"
 
+#include "query/exceptions.hpp"
 #include "query/typed_value.hpp"
 #include "utils/data_queue.hpp"
 #include "utils/exceptions.hpp"
@@ -311,7 +312,8 @@ struct JsonlReader::impl {
             if (auto const downloaded = requests::DownloadToSink(
                     uri, sink, memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(), std::move(abort_check));
                 !downloaded) {
-              throw utils::BasicException("Failed to download file {}: {}", uri, downloaded.error().message);
+              ThrowDownloadFailed(downloaded.error().Retryable(),
+                                  fmt::format("Failed to download file {}: {}", uri, downloaded.error().message));
             }
           });
     }
