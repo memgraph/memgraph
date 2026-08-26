@@ -14,12 +14,15 @@ module;
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <memory>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include "ctre.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -28,6 +31,7 @@ module;
 #include "spdlog/spdlog.h"
 
 #include "query/typed_value.hpp"
+#include "utils/data_queue.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/likely.hpp"
@@ -152,6 +156,72 @@ class FileByteSource final : public ByteSource {
   std::ifstream stream_;
 };
 
+// Bridges a transfer that pushes its bytes to a reader that pulls them. The transfer runs on its own
+// thread and blocks once the queue is full, so it cannot outrun the parser.
+class DownloadByteSource final : public ByteSource {
+ public:
+  DownloadByteSource(std::string uri, std::function<void()> abort_check, std::size_t queued_blocks)
+      : uri_{std::move(uri)},
+        queue_{queued_blocks},
+        thread_{[this, abort_check = std::move(abort_check)]() mutable { Download(std::move(abort_check)); }} {}
+
+  ~DownloadByteSource() override {
+    // Refusing further blocks makes the sink short-change curl, which ends the transfer. Without it a
+    // reader that stops early would leave the thread blocked on a queue nobody is draining.
+    queue_.finish();
+  }
+
+  auto Read(char *out, std::size_t size) -> std::size_t override {
+    std::size_t taken = 0;
+    while (taken < size) {
+      if (offset_ == block_.size()) {
+        offset_ = 0;
+        block_.clear();
+        if (!queue_.pop(block_)) break;
+      }
+      auto const take = std::min(size - taken, block_.size() - offset_);
+      std::memcpy(out + taken, block_.data() + offset_, take);
+      offset_ += take;
+      taken += take;
+    }
+
+    // finish() happens-before pop() reporting the queue drained, so a failure recorded before it is
+    // visible here without further synchronization.
+    if (taken == 0 && error_) {
+      std::rethrow_exception(error_);
+    }
+    return taken;
+  }
+
+ private:
+  void Download(std::function<void()> abort_check) {
+    try {
+      auto const sink = [this](char const *data, std::size_t size) -> std::size_t {
+        return queue_.push(std::vector<char>{data, data + size}) ? size : 0;
+      };
+      if (!memgraph::requests::DownloadToSink(
+              uri_, sink, memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(), std::move(abort_check))) {
+        throw memgraph::utils::BasicException("Failed to download file {}", uri_);
+      }
+    } catch (...) {
+      error_ = std::current_exception();
+    }
+    queue_.finish();
+  }
+
+  std::string uri_;
+  memgraph::utils::DataQueue<std::vector<char>> queue_;
+  std::vector<char> block_;
+  std::size_t offset_{0};
+  std::exception_ptr error_;
+  // Declared last so it is joined before anything the thread touches is destroyed.
+  std::jthread thread_;
+};
+
+// Enough to keep the transfer busy while a chunk is being parsed, without buffering a meaningful
+// amount of the body.
+constexpr std::size_t kQueuedBlocks = 4;
+
 }  // namespace
 
 namespace memgraph::query {
@@ -197,16 +267,7 @@ struct JsonlReader::impl {
     };
 
     if (url_matcher(uri_)) {
-      auto [new_path, file] = utils::CreateUniqueDownloadFile(build_base_path());
-
-      if (!requests::CreateAndDownloadFile(uri_,
-                                           std::move(file),
-                                           memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
-                                           std::move(abort_check))) {
-        utils::DeleteFile(new_path);
-        throw utils::BasicException("Failed to download file {}", uri_);
-      }
-      return OpenDownloaded(new_path);
+      return std::make_unique<DownloadByteSource>(uri_, std::move(abort_check), kQueuedBlocks);
     }
 
     if (s3_matcher(uri_)) {

@@ -58,6 +58,25 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
 bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, uint64_t connection_timeout,
                            std::function<void()> abort_check = nullptr);
 
+/// Receives a block of the response body and returns how many of those bytes it took. Taking fewer
+/// than offered ends the transfer.
+using WriteSink = std::function<size_t(char const *, size_t)>;
+
+/**
+ * Sends a GET request to `url` and hands the response body to `write` as it arrives, without ever
+ * holding the whole body.
+ *
+ * @param url url to which to send the request
+ * @param write receives each block of the body. Returning less than it was given aborts the
+ *        transfer, which is how a reader that has stopped consuming brings the download to an end.
+ * @param connection_timeout the timeout that should be used when making the request. The default
+ *        timeout of 0 would use built-in connection timeout of 300s.
+ * @param abort_check called periodically while the transfer is in progress
+ * @return bool true if the whole body was delivered
+ */
+bool DownloadToSink(const std::string &url, WriteSink const &write, uint64_t connection_timeout,
+                    std::function<void()> abort_check = nullptr);
+
 /**
  * Downloads content into a stream
  *

@@ -32,6 +32,7 @@
 #include "utils/counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/likely.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace memgraph::requests {
 
@@ -232,6 +233,49 @@ bool CreateAndDownloadFile(const std::string &url, utils::FileUniquePtr file, ui
   }
 
   curl_easy_cleanup(curl);
+
+  return true;
+}
+
+bool DownloadToSink(const std::string &url, WriteSink const &write, uint64_t const connection_timeout,
+                    std::function<void()> abort_check) {
+  auto const user_agent = fmt::format("memgraph/{}", gflags::VersionString());
+
+  auto *curl = curl_easy_init();
+  if (!curl) {
+    spdlog::error("requests: Couldn't init curl");
+    return false;
+  }
+  utils::OnScopeExit const cleanup{[curl]() { curl_easy_cleanup(curl); }};
+
+  ProgressData progress_data{.abort_check_ = std::move(abort_check)};
+
+  constexpr auto write_callback = [](char *ptr, size_t size, size_t nmemb, void *userdata) -> size_t {
+    auto const *sink = static_cast<WriteSink const *>(userdata);
+    return (*sink)(ptr, size * nmemb);
+  };
+
+  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +write_callback);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &write);
+  // Timeout for establishing a connection
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, connection_timeout);
+  curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
+  curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent.c_str());
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
+  curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10);
+  // Needed so that XFERINFOFUNCTION could work
+  curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0);
+  curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progress_data);
+  curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, DownloadProgressCb);
+  // Fail fast on HTTP errors, so an error page is never handed to the sink
+  curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+  SetCaInfo(curl);
+
+  if (auto const res = curl_easy_perform(curl); res != CURLE_OK) {
+    spdlog::error("Error happened while downloading {}: {}", url, curl_easy_strerror(res));
+    return false;
+  }
 
   return true;
 }
