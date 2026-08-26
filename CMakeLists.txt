@@ -25,8 +25,28 @@ find_program(CCACHE_PROGRAM ccache)
 
 if(CCACHE_PROGRAM)
     message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
-    set(CMAKE_C_COMPILER_LAUNCHER   ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
-    set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
+
+    # base_dir is what lets two checkouts share compiled objects. ccache
+    # rewrites absolute paths beneath it to relative ones before hashing and
+    # before running the compiler, so the object records where it was built
+    # relative to the checkout rather than absolutely -- including the ThinLTO
+    # module identifier, which is otherwise the source path CMake passes and
+    # cannot be changed from here. Without it, two checkouts of the same commit
+    # compile everything twice.
+    #
+    # The directory holding this checkout, so sibling checkouts share and
+    # nothing above them is rewritten. An environment setting wins, for a site
+    # that keeps its checkouts somewhere else.
+    if(DEFINED ENV{CCACHE_BASEDIR})
+        set(MG_CCACHE_BASEDIR "$ENV{CCACHE_BASEDIR}")
+    else()
+        get_filename_component(MG_CCACHE_BASEDIR "${CMAKE_SOURCE_DIR}" DIRECTORY)
+    endif()
+    message(STATUS "ccache base_dir: ${MG_CCACHE_BASEDIR}")
+
+    set(_mg_ccache env CCACHE_BASEDIR=${MG_CCACHE_BASEDIR} ${CCACHE_PROGRAM})
+    set(CMAKE_C_COMPILER_LAUNCHER   ${_mg_ccache} CACHE STRING "" FORCE)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${_mg_ccache} CACHE STRING "" FORCE)
 endif()
 
 # Set `make clean` to ignore outputs of add_custom_command. If generated files
@@ -345,9 +365,15 @@ else()
     message(WARNING "compute-build-threads.sh failed (${_mg_thinlto_rc}); leaving --thinlto-jobs at lld's default of one per core")
 endif()
 
-# Record the compile invocation in the debug info, so a crash from a binary
-# whose flags are not otherwise recoverable still says how it was built.
-add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-frecord-command-line>)
+# -frecord-command-line is deliberately absent. It stores each compile
+# invocation verbatim, and one of the flags it stores is the file-prefix-map,
+# which names the checkout it was built in. That single string is the only thing
+# left that stops an object being shared between checkouts: with ccache's
+# base_dir set, everything else about the object -- including the ThinLTO module
+# identifier, which base_dir rewrites to a relative path before the compiler
+# ever sees it -- comes out identical, and a second checkout gets a cache hit
+# carrying nothing from the first. Recording how a binary was built is worth
+# less than not compiling it twice.
 
 # Normalise source paths in debug info and __FILE__, so artifacts do not embed
 # the location they were built from. Our build directory usually sits inside the
