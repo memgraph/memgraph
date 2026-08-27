@@ -13,6 +13,7 @@
 
 #include <exception>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -34,8 +35,8 @@
 
 namespace memgraph::communication::bolt {
 // TODO: Revise these error messages
-inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::exception &e,
-                                                                   metrics::DatabaseMetricHandles *metric_handles) {
+inline std::pair<std::string, std::string> ExceptionToErrorMessage(
+    const std::exception &e, std::shared_ptr<metrics::DatabaseMetricHandles> const &metric_handles) {
   if (const auto *verbose = dynamic_cast<const VerboseError *>(&e)) {
     return {verbose->code(), verbose->what()};
   }

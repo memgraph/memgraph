@@ -15,6 +15,7 @@
 #include <expected>
 #include <functional>
 #include <list>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -199,25 +200,27 @@ class PrometheusMetrics {
     Registration(Registration const &) = delete;
     Registration &operator=(Registration const &) = delete;
 
-    DatabaseMetricHandles const &handles() const { return handles_; }
-
-    DatabaseMetricHandles &handles() { return handles_; }
+    std::shared_ptr<DatabaseMetricHandles> handles() const { return handles_.load(); }
 
     /// Points this entry at `new_uuid`. The metric objects and the handles into them stay put.
     void Rebind(utils::UUID const &new_uuid);
-    void Rebind(DatabaseMetricHandles const &handles) { handles_ = handles; }
+    void Rebind(DatabaseMetricHandles const &handles) {
+      handles_.store(std::make_shared<DatabaseMetricHandles>(handles));
+    }
 
    private:
     friend class PrometheusMetrics;
 
     Registration(PrometheusMetrics *registry, uint64_t entry_id, DatabaseMetricHandles handles)
-        : registry_(registry), entry_id_(entry_id), handles_(std::move(handles)) {}
+        : registry_(registry),
+          entry_id_(entry_id),
+          handles_(std::make_shared<DatabaseMetricHandles>(std::move(handles))) {}
 
     void Release() noexcept;
 
     PrometheusMetrics *registry_{nullptr};
     uint64_t entry_id_{0};
-    DatabaseMetricHandles handles_{};
+    std::atomic<std::shared_ptr<DatabaseMetricHandles>> handles_{};
   };
 
   [[nodiscard]] Registration AddDatabase(utils::UUID const &uuid, std::string_view name);
