@@ -311,6 +311,9 @@ class Storage {
 
   void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
 
+  // Test-only: install commit-path instrumentation (lock-free-read-snapshot experiment). Null in production.
+  void SetCommitProbe(CommitProbe *probe) noexcept { commit_probe_ = probe; }
+
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
   using Accessor = memgraph::storage::Accessor;
