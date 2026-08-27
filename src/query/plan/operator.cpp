@@ -7303,7 +7303,7 @@ class AggregateCursor : public Cursor {
             // over, rather than under comparability. The two differ over a NaN,
             // which orderability places after every other number and
             // comparability places beside none of them.
-            if (std::is_lt(TypedValueCompare(input_value, agg_value->values_[pos]))) {
+            if (std::is_lt(relations::orderability::Compare(input_value, agg_value->values_[pos]))) {
               agg_value->values_[pos] = std::move(input_value);
             }
           } catch (const QueryRuntimeException &) {
@@ -7316,7 +7316,7 @@ class AggregateCursor : public Cursor {
           //  all comments as for Op::Min
           EnsureOkForMinMax(input_value);
           try {
-            if (std::is_gt(TypedValueCompare(input_value, agg_value->values_[pos]))) {
+            if (std::is_gt(relations::orderability::Compare(input_value, agg_value->values_[pos]))) {
               agg_value->values_[pos] = std::move(input_value);
             }
           } catch (const QueryRuntimeException &) {
@@ -11672,13 +11672,13 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
         case Aggregation::Op::MIN: {
           // Orderability, for the reason given where the values are first
           // accumulated; merging two partial results has to order them alike.
-          if (std::is_lt(TypedValueCompare(other_value, main_value))) {
+          if (std::is_lt(relations::orderability::Compare(other_value, main_value))) {
             main_value = std::move(other_value);
           }
           break;
         }
         case Aggregation::Op::MAX: {
-          if (std::is_gt(TypedValueCompare(other_value, main_value))) {
+          if (std::is_gt(relations::orderability::Compare(other_value, main_value))) {
             main_value = std::move(other_value);
           }
           break;
