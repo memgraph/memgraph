@@ -60,6 +60,18 @@ fi
 
 TOOLCHAIN_STDCXX="${TOOLCHAIN_STDCXX:-libstdc++}"
 
+# The runtimes LLVM builds depend on which standard library was asked for. Both
+# the llvm stage and the packaging stage need the answer -- one to build it and
+# one to write it in the README -- so the rule is applied here rather than in
+# each of them. Reads LLVM_RUNTIMES, so the caller must have sourced llvm.env.
+mg_llvm_runtimes () {
+    if [[ "$TOOLCHAIN_STDCXX" = "libc++" ]]; then
+        echo "$LLVM_RUNTIMES;libcxx;libcxxabi"
+    else
+        echo "$LLVM_RUNTIMES"
+    fi
+}
+
 # Activate the toolchain, once it exists.
 #
 # In the original script this block sat inline just after GCC was installed and

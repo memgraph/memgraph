@@ -19,6 +19,11 @@ source "$TC_VERSIONS/gdb.env"
 source "$TC_VERSIONS/cmake.env"
 source "$TC_VERSIONS/cppcheck.env"
 source "$TC_VERSIONS/llvm.env"
+source "$TC_VERSIONS/mold.env"
+source "$TC_VERSIONS/dwz.env"
+source "$TC_VERSIONS/libabigail.env"
+source "$TC_VERSIONS/heaptrack.env"
+source "$TC_VERSIONS/mgconsole.env"
 
 # copy toolchain.cmake to the prefix
 cp -v $DIR/toolchain.cmake $PREFIX/
@@ -37,7 +42,15 @@ cat >$RELEASE/README.md <<EOF
  - GDB $GDB_VERSION
  - CMake $CMAKE_VERSION
  - Cppcheck $CPPCHECK_VERSION
- - LLVM (clang;clang-tools-extra;compiler-rt;libunwind;lldb[;libcxx;libcxxabi]) $LLVM_VERSION
+ - LLVM $LLVM_VERSION
+   - projects: $LLVM_PROJECTS
+   - runtimes: $(mg_llvm_runtimes)
+ - mold $MOLD_VERSION
+ - dwz $DWZ_VERSION
+ - libabigail $LIBABIGAIL_VERSION
+ - heaptrack $HEAPTRACK_TAG
+ - mgconsole $MGCONSOLE_TAG
+ - pahole-gdb (pinned by checksum)
 
 ## Required libraries
 
