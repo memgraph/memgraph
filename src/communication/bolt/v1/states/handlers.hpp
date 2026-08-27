@@ -214,9 +214,8 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
 template <typename TSession>
 State HandlePrepare(TSession &session) {
   try {
-    // Interpret can throw. Bounded-try engine-lock acquire (mirrors HandleBegin): rather than busy-spin this pool
-    // worker behind a long write commit's durability hold, InterpretPrepare throws WouldBlockInlineException on
-    // contention while keeping parsed_res_ intact, so the completion reschedules on the pool.
+    // Interpret can throw. Bounded-try acquire (mirrors HandleBegin) so this pool worker reschedules instead of
+    // busy-spinning behind a write commit: on contention InterpretPrepare throws WouldBlock, parsed_res_ left intact.
     const auto [header, qid] = session.InterpretPrepare(storage::EngineLockMode::TryBounded);
     // Send the header (exactly one SUCCESS). The PendingPrepare bail below must NOT send it.
     if (!session.SendPrepareHeader(header, qid)) {

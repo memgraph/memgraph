@@ -410,8 +410,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                   return;
                 }
                 if (shared_this->session_.HasPendingPrepare()) {
-                  // PREPARE's engine-lock acquire would block: finish it off the worker via the pool
-                  // (PostFinishPendingPrepare). Return now so no message pipelined behind the PREPARE runs first.
+                  // As the BEGIN bail above, for PREPARE: return so nothing pipelined behind it runs first.
                   shared_this->PostFinishPendingPrepare();
                   return;
                 }
@@ -462,8 +461,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         session_.ApproximateQueryPriority());
   }
 
-  // Completes a would-block PREPARE on the POOL (AddTask, never the strand): Reschedule re-posts so the worker never
-  // blocks behind a slow commit; a terminal outcome resumes DoWork/DoRead. FinishPendingPrepare emits the header once.
+  // PREPARE mirror of PostFinishPendingBegin above; FinishPendingPrepare emits the run header (not SUCCESS) once.
   void PostFinishPendingPrepare() {
     session_context_->AddTask(
         [shared_this = shared_from_this()](const auto /*thread_priority*/) {

@@ -56,10 +56,9 @@ enum class State : uint8_t {
   PendingBegin,
 
   /**
-   * A PREPARE (the Parsed->Result step) whose engine-lock acquire would block has been decoded and parsed; its
-   * completion is being run out-of-band on a pool worker. Execute_ returns without touching any message buffered
-   * behind the PREPARE, so ordering is preserved until the PREPARE finishes. The parse itself is held in
-   * SessionHL::parsed_res_ (re-runnable); the bolt layer only tracks the pending flag + retry count.
+   * A PREPARE (Parsed->Result) whose engine-lock acquire would block has been decoded and parsed; its
+   * completion runs out-of-band on a pool worker (never the strand). Execute_ returns without touching any message
+   * buffered behind the PREPARE, so ordering is preserved; the parse is held in SessionHL::parsed_res_ (re-runnable).
    */
   PendingPrepare,
 

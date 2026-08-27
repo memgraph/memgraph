@@ -123,10 +123,8 @@ class Session {
     }
 
     if (state_ == State::PendingPrepare) {
-      // HandlePrepare stashed a would-block PREPARE (parse kept in SessionHL::parsed_res_). Stop here WITHOUT
-      // entering the dechunk loop so it can't read the next chunk -- a message pipelined behind the PREPARE must
-      // not run before it finishes; DoWork hands the completion to the pool. Unlike PendingBegin, PREPARE is driven
-      // at the top of Execute_ (never from the loop's switch), so this is the one and only spot it can surface.
+      // Stop before the dechunk loop so a message pipelined behind the PREPARE can't run before it finishes; DoWork
+      // hands the completion to the pool. PREPARE surfaces only here (driven at the top of Execute_, not the switch).
       return true;  // more data to process
     }
 
@@ -249,9 +247,8 @@ class Session {
     pending_prepare_retries_ = 0;
   }
 
-  // Build and send the RUN header (output field names + optional qid) as the PREPARE's single SUCCESS. Shared by
-  // HandlePrepare's inline path and FinishPendingPrepare_'s pool path so the exactly-one header is byte-identical.
-  // Returns false if the send failed (caller moves to Close).
+  // Emits the RUN header (field names + optional qid) as the PREPARE's single SUCCESS. Shared by HandlePrepare's
+  // inline path and FinishPendingPrepare_'s pool path so that one header is byte-identical whichever path runs.
   bool SendPrepareHeader(const std::vector<std::string> &header, std::optional<int> qid) {
     std::vector<Value> vec;
     map_t data;
@@ -350,9 +347,8 @@ class Session {
   // After this many reschedules, FinishPendingBegin_ does one blocking acquire (fairness: a BEGIN cannot starve).
   static constexpr uint32_t kBeginRescheduleCap = 32;
 
-  // Set on a PREPARE WouldBlock bail; the parse itself lives in SessionHL::parsed_res_. Cleared once the PREPARE
-  // completes (header sent) or fails. Mutually exclusive with pending_begin_extra_ (a BEGIN and a PREPARE step
-  // cannot both be mid-flight on the same session).
+  // Cleared once the PREPARE completes (header sent) or fails. Mutually exclusive with pending_begin_extra_
+  // (state_ is single-valued, so a BEGIN and a PREPARE step cannot both be mid-flight on the same session).
   bool pending_prepare_{false};
 
   // Times FinishPendingPrepare_ lost the bounded-try engine-lock race for the current PREPARE; reset on a fresh stash.
