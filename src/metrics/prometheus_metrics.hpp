@@ -205,7 +205,7 @@ class PrometheusMetrics {
 
     /// Points this entry at `new_uuid`. The metric objects and the handles into them stay put.
     void Rebind(utils::UUID const &new_uuid);
-    void Rebind(utils::UUID const &uuid, DatabaseMetricHandles const &handles) { handles_ = handles; }
+    void Rebind(DatabaseMetricHandles const &handles) { handles_ = handles; }
 
    private:
     friend class PrometheusMetrics;
