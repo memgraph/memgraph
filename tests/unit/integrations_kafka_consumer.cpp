@@ -50,6 +50,52 @@ inline constexpr double kTimingTolerance = 1.2;  // tolerance for all timings to
 // consumer that never delivers into a failure with the counts in hand rather than a hung job; a
 // working consumer reaches the condition long before this and stops waiting.
 inline constexpr auto kConsumerReadyTimeout = std::chrono::seconds{60};
+
+// Deliveries land on the consumer's own thread, so every wait here is a poll. The interval only
+// sets how promptly the condition is noticed once it holds.
+inline constexpr auto kPollInterval = std::chrono::milliseconds{50};
+
+// The warm-up retry sends a message on every attempt, so its pacing decides how much traffic a slow
+// leader election puts on the topic that the rest of the test then has to consume. It is spaced out
+// where an ordinary wait, which only reads a counter, is not.
+inline constexpr auto kWarmUpSeedInterval = std::chrono::milliseconds{500};
+
+std::chrono::steady_clock::time_point Now() { return std::chrono::steady_clock::now(); }
+
+// Polls until the condition holds or the deadline passes. The condition is checked before the
+// clock, so a caller that arrives after the deadline still reports a condition that has already
+// come true rather than one it never looked at.
+template <typename Condition>
+bool WaitForConditionUntil(Condition condition, std::chrono::steady_clock::time_point deadline,
+                           std::chrono::milliseconds poll_interval) {
+  while (true) {
+    if (condition()) return true;
+    if (Now() >= deadline) return false;
+    std::this_thread::sleep_for(poll_interval);
+  }
+}
+
+// Waits for a named condition, and fails the test naming it if it never holds. Naming the condition
+// is what makes the failure readable: a timed-out poll otherwise reports only that some loop ran
+// out of time.
+template <typename Condition>
+bool ExpectEventually(std::string_view what, Condition condition, std::chrono::seconds timeout = kConsumerReadyTimeout,
+                      std::chrono::milliseconds poll_interval = kPollInterval) {
+  if (WaitForConditionUntil(std::move(condition), Now() + timeout, poll_interval)) return true;
+  ADD_FAILURE() << "Timed out after " << timeout.count() << "s waiting for " << what;
+  return false;
+}
+
+// Waiting for a counter to reach a target is the shape almost every wait in this file takes, and
+// how far it got is worth more than the bare fact that it stopped short, so the failure carries it.
+bool ExpectCountReaches(std::string_view what, const std::atomic<int> &counter, int target,
+                        std::chrono::seconds timeout = kConsumerReadyTimeout) {
+  const auto reached = [&] { return counter.load(std::memory_order_acquire) >= target; };
+  if (WaitForConditionUntil(reached, Now() + timeout, kPollInterval)) return true;
+  ADD_FAILURE() << "Timed out after " << timeout.count() << "s waiting for " << what << ": reached "
+                << counter.load(std::memory_order_acquire) << " of " << target;
+  return false;
+}
 }  // namespace
 
 struct ConsumerTest : public ::testing::Test {
@@ -98,28 +144,27 @@ struct ConsumerTest : public ::testing::Test {
       return nullptr;
     }
 
-    // Send messages to the topic until the consumer starts to receive them. In the first few seconds the consumer
-    // doesn't get messages because there is no leader in the consumer group. If consumer group leader election timeout
-    // could be lowered (didn't find anything in librdkafka docs), then this mechanism will become unnecessary.
-    // Both loops are bounded: a consumer that never receives anything has to fail the test that asked for it, not
-    // hang until the whole job is abandoned.
-    auto deadline = std::chrono::steady_clock::now() + kConsumerReadyTimeout;
-    while (last_received_message->load() == 0 && std::chrono::steady_clock::now() < deadline) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
-      SeedTopicWithInt(kTopicName, ++sent_messages);
-    }
-    if (last_received_message->load() == 0) {
-      ADD_FAILURE() << "Consumer received no messages while warming up";
+    // For the first few seconds the consumer receives nothing, because its group has no leader yet,
+    // and librdkafka offers no way to shorten that election. Sending again on every attempt is what
+    // makes this a retry rather than a wait: there is nothing in flight to wait for, because a
+    // consumer without a group leader never received what was sent before it.
+    if (!ExpectEventually(
+            "the warming-up consumer to receive a first message",
+            [&] {
+              if (last_received_message->load() != 0) return true;
+              SeedTopicWithInt(kTopicName, ++sent_messages);
+              return false;
+            },
+            kConsumerReadyTimeout,
+            kWarmUpSeedInterval)) {
       return nullptr;
     }
 
-    deadline = std::chrono::steady_clock::now() + kConsumerReadyTimeout;
-    while (last_received_message->load() != sent_messages && std::chrono::steady_clock::now() < deadline) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    if (last_received_message->load() != sent_messages) {
-      ADD_FAILURE() << "Consumer stopped short while warming up: received " << last_received_message->load() << " of "
-                    << sent_messages;
+    // Each message carries its own sequence number, so the last one received tells us how far the
+    // consumer has got without counting anything.
+    if (!ExpectCountReaches("the warming-up consumer to catch up with the messages sent to it",
+                            *last_received_message,
+                            sent_messages)) {
       return nullptr;
     }
 
@@ -169,15 +214,9 @@ TEST_F(ConsumerTest, BatchInterval) {
     // this test rather than a wait for something to happen.
     std::this_thread::sleep_for(kBatchInterval);
   }
-  // Wait for all messages to be delivered, bounded so that a message which never arrives fails the
-  // test rather than hanging it. try_wait is allowed to report false even once the count is zero,
-  // so the answer is taken once and then asserted, never asked for a second time.
-  const auto deadline = std::chrono::steady_clock::now() + kConsumerReadyTimeout;
-  auto all_delivered = false;
-  while (!(all_delivered = sent_messages.try_wait()) && std::chrono::steady_clock::now() < deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds{50});
-  }
-  EXPECT_TRUE(all_delivered) << "Not every message was delivered";
+  // try_wait is allowed to report false even once the count has reached zero, so a single reading of
+  // it cannot be trusted; polling it until the deadline turns that into an answer.
+  ExpectEventually("every message to be delivered", [&] { return sent_messages.try_wait(); });
 
   consumer->Stop();
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
@@ -284,14 +323,7 @@ TEST_F(ConsumerTest, BatchSize) {
     cluster.SeedTopic(kTopicName, kMessage);
   }
 
-  // Bounded rather than an open-ended wait: if delivery stops short the test has to fail with the
-  // counts in hand, not hang until ctest gives up on it. The bound is deliberately far above how
-  // long delivery takes, so that it never becomes an assertion about how fast the machine is.
-  const auto deadline = std::chrono::steady_clock::now() + kConsumerReadyTimeout;
-  while (received_count.load(std::memory_order_acquire) < kMessageCount &&
-         std::chrono::steady_clock::now() < deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds{50});
-  }
+  ExpectCountReaches("every message to be delivered", received_count, kMessageCount);
   // Stop() joins the polling thread, which publishes batch_sizes to this one.
   consumer->Stop();
 
@@ -378,15 +410,9 @@ TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
     auto consumer = std::make_unique<Consumer>(ConsumerInfo{info}, consumer_function);
     ASSERT_FALSE(consumer->IsRunning());
     consumer->Start();
-    const auto start = std::chrono::steady_clock::now();
     ASSERT_TRUE(consumer->IsRunning());
 
-    static constexpr auto kMaxWaitTime = std::chrono::seconds(5);
-
-    while (expected_total_messages != received_message_count.load() &&
-           (std::chrono::steady_clock::now() - start) < kMaxWaitTime) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    }
+    ExpectCountReaches("the messages just sent to be delivered", received_message_count, expected_total_messages);
     // it is stopped because of limited batches
     EXPECT_EQ(expected_total_messages, received_message_count);
     EXPECT_NO_THROW(consumer->Stop());
