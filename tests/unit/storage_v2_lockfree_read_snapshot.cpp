@@ -18,19 +18,26 @@
 #include <optional>
 #include <semaphore>
 #include <thread>
+#include <variant>
 
 #include "storage/v2/commit_probe.hpp"
+#include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/resource_lock.hpp"
 
 using memgraph::storage::Config;
+using memgraph::storage::ConstraintViolation;
 using memgraph::storage::Gid;
 using memgraph::storage::InMemoryStorage;
+using memgraph::storage::LabelId;
 using memgraph::storage::PropertyValue;
+using memgraph::storage::UniqueConstraints;
 using memgraph::storage::View;
 using Accessor = memgraph::storage::Storage::Accessor;
 
@@ -92,6 +99,39 @@ void CommitProp(InMemoryStorage &store, Gid gid, int value) {
   ASSERT_TRUE(vertex.has_value());
   ASSERT_TRUE(vertex->SetProperty(store.NameToProperty("p"), PropertyValue(value)).has_value());
   ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+// Concern-E (abort semantics) helpers. Installs a UNIQUE(label, "p") constraint so a later duplicate
+// commit fails the UniqueConstraintsViolation gate -- the abort-after-mint path under test.
+void CreateUniquePConstraint(InMemoryStorage &store, LabelId label) {
+  auto acc = store.ReadOnlyAccess();
+  auto res = acc->CreateUniqueConstraint(label, {store.NameToProperty("p")});
+  EXPECT_TRUE(res.has_value());
+  EXPECT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
+  EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+// Commits a fresh vertex carrying `label` and p=`value`; returns its gid. Seeds a row a later
+// duplicate must collide with under the UNIQUE constraint.
+Gid CommitLabeledVertex(InMemoryStorage &store, LabelId label, int value) {
+  auto acc = store.Access(memgraph::storage::WRITE);
+  auto vertex = acc->CreateVertex();
+  const auto gid = vertex.Gid();
+  EXPECT_TRUE(vertex.AddLabel(label).has_value());
+  EXPECT_TRUE(vertex.SetProperty(store.NameToProperty("p"), PropertyValue(value)).has_value());
+  EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  return gid;
+}
+
+// Number of vertices visible at the accessor's frozen snapshot. An aborted duplicate that leaked
+// into a reader's view would push this above the committed count.
+int64_t CountVertices(Accessor &acc) {
+  int64_t n = 0;
+  for (auto vertex : acc.Vertices(View::OLD)) {
+    (void)vertex;
+    ++n;
+  }
+  return n;
 }
 
 }  // namespace
@@ -454,4 +494,175 @@ TEST(LockFreeReadSnapshot, LongReaderVersionRetainedAcrossGc_OFF_AB) {
 
   auto fresh_reader = store->Access(memgraph::storage::READ);
   EXPECT_EQ(ReadProp(*fresh_reader, gid), 3);
+}
+
+// Phase 2, batch 4: concern-E (abort semantics). A committer that mints a commit timestamp and then
+// aborts must NOT advance the read watermark (last_committed_mvcc_ts_). The abort here is a UNIQUE
+// constraint violation, which storage.cpp checks AFTER GetCommitTimestamp mints the ts and returns
+// without ever reaching FinalizeCommitPhase -- so the minted ts is "wasted": the watermark advances
+// only on success, at the end of FinalizeCommitPhase. The observable invariant is that the aborted
+// transaction is invisible to every reader (before, during, and after the failed commit) and leaves
+// subsequent progress uncorrupted.
+
+// A minted-then-aborted duplicate is invisible to all readers and does not disturb later commits. B
+// duplicates published row A under UNIQUE(L, p): it mints a ts, fails the unique check, and aborts.
+// A reader opened before the failed commit and a fresh reader opened after it both see only A; a
+// later distinct-value commit C then advances normally -- proving the watermark never moved to B's
+// wasted ts.
+TEST(LockFreeReadSnapshot, AbortAfterMint_DoesNotAdvanceWatermark_ON) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  const auto label = store->NameToLabel("L");
+  CreateUniquePConstraint(*store, label);
+
+  const auto gid_a = CommitLabeledVertex(*store, label, 1);
+
+  // Reader opened BEFORE the failing commit: its snapshot includes A only.
+  auto reader_before = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*reader_before, gid_a), 1);
+  EXPECT_EQ(CountVertices(*reader_before), 1);
+
+  // A duplicate of A: it mints a commit ts, then the UNIQUE check aborts it (no FinalizeCommitPhase).
+  std::optional<Gid> gid_b;
+  {
+    auto w = store->Access(memgraph::storage::WRITE);
+    auto vertex = w->CreateVertex();
+    gid_b = vertex.Gid();
+    ASSERT_TRUE(vertex.AddLabel(label).has_value());
+    ASSERT_TRUE(vertex.SetProperty(store->NameToProperty("p"), PropertyValue(1)).has_value());
+    auto res = w->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+    ASSERT_FALSE(res.has_value()) << "the duplicate commit must fail the UNIQUE constraint";
+    EXPECT_EQ(std::get<ConstraintViolation>(res.error()).type, ConstraintViolation::Type::UNIQUE);
+  }
+
+  // The reader opened before the abort still sees exactly the pre-abort state.
+  EXPECT_EQ(ReadProp(*reader_before, gid_a), 1);
+  EXPECT_EQ(CountVertices(*reader_before), 1)
+      << "ABORTED-TXN LEAK: a reader opened before the failed commit observed the aborted vertex B.";
+  EXPECT_FALSE(reader_before->FindVertex(*gid_b, View::OLD).has_value());
+
+  // A fresh reader opened AFTER the abort also sees only A: the watermark never moved to B's ts.
+  {
+    auto fresh = store->Access(memgraph::storage::READ);
+    EXPECT_EQ(ReadProp(*fresh, gid_a), 1);
+    EXPECT_EQ(CountVertices(*fresh), 1)
+        << "WATERMARK ADVANCED ON ABORT: a reader opened after the failed commit saw the aborted "
+           "vertex B; the read watermark moved to B's wasted commit timestamp. This is a real feature "
+           "bug, not a test problem -- an aborted commit must not advance last_committed_mvcc_ts_.";
+    EXPECT_FALSE(fresh->FindVertex(*gid_b, View::OLD).has_value());
+  }
+
+  // Monotonic progress after the abort: a distinct-value commit C succeeds and is visible alongside A.
+  const auto gid_c = CommitLabeledVertex(*store, label, 2);
+  {
+    auto fresh = store->Access(memgraph::storage::READ);
+    EXPECT_EQ(ReadProp(*fresh, gid_a), 1);
+    EXPECT_EQ(ReadProp(*fresh, gid_c), 2);
+    EXPECT_EQ(CountVertices(*fresh), 2);
+    EXPECT_FALSE(fresh->FindVertex(*gid_b, View::OLD).has_value());
+  }
+}
+
+// Concern-E under concurrency. The mid-window CommitProbe choreography used elsewhere in this suite
+// is deliberately NOT used here: on the abort path the UNIQUE check runs BEFORE the after_mint seam.
+// In storage.cpp, GetCommitTimestamp mints under engine_lock, UniqueConstraintsViolation is checked
+// immediately after (still under engine_lock) and, on violation, aborts and returns -- all before
+// the InvokeProbe(after_mint) that only a surviving commit reaches. A constraint-aborting commit
+// therefore fires no probe, so its mint->abort window cannot be deterministically parked. Instead we
+// stress that window: a committer thread runs the aborting duplicate in a loop (each iteration wastes
+// a minted ts) while the main thread hammers reader opens. The invariant holds under every
+// interleaving -- no reader ever sees the aborted vertex, so every snapshot contains exactly one
+// vertex (A), and the many wasted mints never advance the watermark.
+TEST(LockFreeReadSnapshot, ReaderBeginsDuringAbortingCommitWindow_NeverSeesAborted_ON) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  const auto label = store->NameToLabel("L");
+  CreateUniquePConstraint(*store, label);
+
+  const auto gid_a = CommitLabeledVertex(*store, label, 1);
+
+  constexpr int kIters = 500;
+  std::binary_semaphore start{0};
+  bool all_failed = true;
+  bool all_unique = true;
+
+  std::thread committer([&] {
+    start.acquire();
+    for (int i = 0; i < kIters; ++i) {
+      auto w = store->Access(memgraph::storage::WRITE);
+      auto vertex = w->CreateVertex();
+      EXPECT_TRUE(vertex.AddLabel(label).has_value());
+      EXPECT_TRUE(vertex.SetProperty(store->NameToProperty("p"), PropertyValue(1)).has_value());
+      auto res = w->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+      all_failed = all_failed && !res.has_value();
+      if (!res.has_value()) {
+        all_unique = all_unique && std::get<ConstraintViolation>(res.error()).type == ConstraintViolation::Type::UNIQUE;
+      }
+    }
+  });
+
+  start.release();
+  for (int i = 0; i < kIters; ++i) {
+    auto reader = store->Access(memgraph::storage::READ);
+    EXPECT_EQ(CountVertices(*reader), 1)
+        << "ABORTED-TXN LEAK: a reader opened during the aborting commit's window saw the aborted "
+           "vertex (iteration "
+        << i << "). A minted-but-aborted commit must never advance the read watermark.";
+    EXPECT_EQ(ReadProp(*reader, gid_a), 1);
+  }
+  committer.join();
+
+  EXPECT_TRUE(all_failed) << "every duplicate commit must fail the UNIQUE constraint";
+  EXPECT_TRUE(all_unique);
+
+  auto fresh = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(CountVertices(*fresh), 1);
+  EXPECT_EQ(ReadProp(*fresh, gid_a), 1);
+}
+
+// A/B equivalence with the flag OFF: the abort-after-mint semantics are identical. The UNIQUE check
+// is flag-independent (it runs in both modes), so a duplicate commit aborts the same way and leaves
+// the same observable state -- aborted B invisible, later C visible. No probe is needed off-path.
+TEST(LockFreeReadSnapshot, AbortAfterMint_DoesNotAdvanceWatermark_OFF_AB) {
+  auto store = MakeStorage(/*flag_on=*/false);
+  const auto label = store->NameToLabel("L");
+  CreateUniquePConstraint(*store, label);
+
+  const auto gid_a = CommitLabeledVertex(*store, label, 1);
+
+  auto reader_before = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*reader_before, gid_a), 1);
+  EXPECT_EQ(CountVertices(*reader_before), 1);
+
+  std::optional<Gid> gid_b;
+  {
+    auto w = store->Access(memgraph::storage::WRITE);
+    auto vertex = w->CreateVertex();
+    gid_b = vertex.Gid();
+    ASSERT_TRUE(vertex.AddLabel(label).has_value());
+    ASSERT_TRUE(vertex.SetProperty(store->NameToProperty("p"), PropertyValue(1)).has_value());
+    auto res = w->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+    ASSERT_FALSE(res.has_value()) << "the duplicate commit must fail the UNIQUE constraint";
+    EXPECT_EQ(std::get<ConstraintViolation>(res.error()).type, ConstraintViolation::Type::UNIQUE);
+  }
+
+  EXPECT_EQ(ReadProp(*reader_before, gid_a), 1);
+  EXPECT_EQ(CountVertices(*reader_before), 1)
+      << "ABORTED-TXN LEAK (flag OFF): a reader opened before the failed commit observed aborted B.";
+  EXPECT_FALSE(reader_before->FindVertex(*gid_b, View::OLD).has_value());
+
+  {
+    auto fresh = store->Access(memgraph::storage::READ);
+    EXPECT_EQ(ReadProp(*fresh, gid_a), 1);
+    EXPECT_EQ(CountVertices(*fresh), 1)
+        << "ABORTED-TXN LEAK (flag OFF): a reader opened after the failed commit saw aborted B.";
+    EXPECT_FALSE(fresh->FindVertex(*gid_b, View::OLD).has_value());
+  }
+
+  const auto gid_c = CommitLabeledVertex(*store, label, 2);
+  {
+    auto fresh = store->Access(memgraph::storage::READ);
+    EXPECT_EQ(ReadProp(*fresh, gid_a), 1);
+    EXPECT_EQ(ReadProp(*fresh, gid_c), 2);
+    EXPECT_EQ(CountVertices(*fresh), 2);
+    EXPECT_FALSE(fresh->FindVertex(*gid_b, View::OLD).has_value());
+  }
 }
