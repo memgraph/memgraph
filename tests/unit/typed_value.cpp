@@ -472,6 +472,53 @@ TEST(TypedValue, ContainerEquivalenceHoldsNullEquivalentToNull) {
   EXPECT_EQ(hash(Map({{"k", null}})), hash(Map({{"k", null}})));
 }
 
+TEST(TypedValue, BooleansCompare) {
+  // Cypher orders booleans, with false before true.
+  EXPECT_PROP_TRUE(TypedValue(false) < TypedValue(true));
+  EXPECT_PROP_TRUE(TypedValue(true) > TypedValue(false));
+  EXPECT_PROP_FALSE(TypedValue(true) < TypedValue(false));
+  EXPECT_PROP_FALSE(TypedValue(false) > TypedValue(true));
+  EXPECT_PROP_TRUE(TypedValue(false) <= TypedValue(false));
+  EXPECT_PROP_TRUE(TypedValue(true) >= TypedValue(true));
+
+  // A boolean is ordered against nothing that is not a boolean.
+  EXPECT_PROP_ISNULL(TypedValue(false) < TypedValue(1));
+  EXPECT_PROP_ISNULL(TypedValue(false) < TypedValue("a"));
+  EXPECT_PROP_ISNULL(TypedValue(false) < TypedValue());
+}
+
+TEST(TypedValue, ListsCompareInDictionaryOrder) {
+  const auto null = TypedValue();
+  const auto nan = TypedValue(std::numeric_limits<double>::quiet_NaN());
+
+  // Element by element from the start.
+  EXPECT_PROP_TRUE(List({TypedValue(1), TypedValue(2)}) < List({TypedValue(1), TypedValue(3)}));
+  EXPECT_PROP_TRUE(List({List({TypedValue(1)})}) < List({List({TypedValue(2)})}));
+  EXPECT_PROP_TRUE(List({TypedValue(1), TypedValue(2)}) <= List({TypedValue(1), TypedValue(2)}));
+  EXPECT_PROP_FALSE(List({TypedValue(1), TypedValue(3)}) < List({TypedValue(1), TypedValue(2)}));
+
+  // A shorter list comes first, whatever would have followed it, a Null
+  // included: the element that is not there is never compared against.
+  EXPECT_PROP_TRUE(List({TypedValue(1)}) < List({TypedValue(1), TypedValue(0)}));
+  EXPECT_PROP_TRUE(List({TypedValue(1)}) < List({TypedValue(1), null}));
+
+  // Reaching a pair the ordering cannot decide leaves the lists undecided.
+  EXPECT_PROP_ISNULL(List({TypedValue(1), TypedValue(2)}) >= List({TypedValue(1), null}));
+  EXPECT_PROP_ISNULL(List({TypedValue(1), null}) < List({TypedValue(1), TypedValue(2)}));
+  EXPECT_PROP_ISNULL(List({TypedValue(1)}) < List({TypedValue("a")}));
+
+  // Unless an earlier pair settled it before that one was reached.
+  EXPECT_PROP_TRUE(List({TypedValue(1), null}) < List({TypedValue(2), null}));
+
+  // A NaN element has no place in the ordering, so neither do the lists.
+  EXPECT_PROP_ISNULL(List({nan}) < List({TypedValue(1.0)}));
+  EXPECT_PROP_ISNULL(List({nan}) > List({TypedValue(1.0)}));
+
+  // A list is ordered against nothing that is not a list.
+  EXPECT_PROP_ISNULL(List({TypedValue(1)}) < TypedValue(1));
+  EXPECT_PROP_ISNULL(List({TypedValue(1)}) < TypedValue());
+}
+
 TEST(TypedValue, Hash) {
   auto hash = TypedValue::Hash{};
 

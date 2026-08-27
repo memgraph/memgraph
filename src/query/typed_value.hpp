@@ -667,6 +667,8 @@ class TypedValue {
   static std::optional<std::partial_ordering> ComparePayload(const TypedValue &a, const TypedValue &b) {
     switch (a.type()) {
       using enum Type;
+      case Bool:
+        return a.UnsafeValueBool() <=> b.UnsafeValueBool();
       case Int:
         return a.UnsafeValueInt() <=> b.UnsafeValueInt();
       case Double:
@@ -685,7 +687,6 @@ class TypedValue {
         return a.UnsafeValueDuration() <=> b.UnsafeValueDuration();
 
       case Null:
-      case Bool:
       case Enum:
       case Point2d:
       case Point3d:
@@ -705,7 +706,7 @@ class TypedValue {
 
   /**
    * Orders two values of one type by what they hold, for the types orderability
-   * places and comparability does not: a boolean, an enum and the two points.
+   * places and comparability does not: an enum and the two points.
    *
    * Nothing is returned for every other type, which either belongs to
    * ComparePayload or carries no order at all.
@@ -715,8 +716,6 @@ class TypedValue {
   static std::optional<std::partial_ordering> ComparePayloadOrderOnly(const TypedValue &a, const TypedValue &b) {
     switch (a.type()) {
       using enum Type;
-      case Bool:
-        return a.UnsafeValueBool() <=> b.UnsafeValueBool();
       case Enum:
         return a.UnsafeValueEnum() <=> b.UnsafeValueEnum();
       case Point2d:
@@ -725,6 +724,7 @@ class TypedValue {
         return a.UnsafeValuePoint3d() <=> b.UnsafeValuePoint3d();
 
       case Null:
+      case Bool:
       case Int:
       case Double:
       case String:

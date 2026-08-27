@@ -325,3 +325,63 @@ Feature: Expressions
         Then the result should be:
             | result |
             | 1      |
+
+    Scenario: Test booleans are ordered with false before true
+        Given an empty graph
+        When executing query:
+            """
+            RETURN false < true AS lt, true > false AS gt, false <= false AS le, true >= true AS ge
+            """
+        Then the result should be:
+            | lt   | gt   | le   | ge   |
+            | true | true | true | true |
+
+    Scenario: Test a boolean is ordered against nothing else
+        Given an empty graph
+        When executing query:
+            """
+            RETURN false < 1 AS number, false < 'a' AS string, false < null AS nothing
+            """
+        Then the result should be:
+            | number | string | nothing |
+            | null   | null   | null    |
+
+    Scenario: Test lists are ordered element by element
+        Given an empty graph
+        When executing query:
+            """
+            RETURN [1, 2] < [1, 3] AS later, [[1]] < [[2]] AS nested, [1, 2] <= [1, 2] AS same
+            """
+        Then the result should be:
+            | later | nested | same |
+            | true  | true   | true |
+
+    Scenario: Test a shorter list comes first whatever would have followed
+        Given an empty graph
+        When executing query:
+            """
+            RETURN [1] < [1, 0] AS number, [1] < [1, null] AS nothing
+            """
+        Then the result should be:
+            | number | nothing |
+            | true   | true    |
+
+    Scenario: Test a list is undecided when a compared element is
+        Given an empty graph
+        When executing query:
+            """
+            RETURN [1, 2] >= [1, null] AS unknown, [1, null] < [2, null] AS settled_first, [1] < ['a'] AS unlike
+            """
+        Then the result should be:
+            | unknown | settled_first | unlike |
+            | null    | true          | null   |
+
+    Scenario: Test a list holding NaN has no place in the ordering
+        Given an empty graph
+        When executing query:
+            """
+            RETURN [0.0 / 0.0] < [1.0] AS lt, [0.0 / 0.0] > [1.0] AS gt
+            """
+        Then the result should be:
+            | lt   | gt   |
+            | null | null |

@@ -1636,6 +1636,25 @@ std::optional<std::partial_ordering> TypedValue::Compare(const TypedValue &a, co
   // Two values of one admitted type are the common case and the whole answer.
   if (a.type() == b.type()) {
     if (auto const order = ComparePayload(a, b)) return order;
+
+    if (a.IsList()) {
+      // Element by element from the start, in dictionary order.
+      auto const &lhs = a.UnsafeValueList();
+      auto const &rhs = b.UnsafeValueList();
+      auto const common = std::min(lhs.size(), rhs.size());
+      for (size_t i = 0; i != common; ++i) {
+        auto const order = Compare(lhs[i], rhs[i]);
+        // A pair the ordering cannot decide, or has no place for, leaves the
+        // lists undecided as well.
+        if (!order || *order == std::partial_ordering::unordered) return std::nullopt;
+        if (*order != std::partial_ordering::equivalent) return order;
+      }
+      // One list is the start of the other, and the shorter comes first
+      // whatever the element that would have followed it is. That element is
+      // never compared against, so a Null there decides nothing.
+      return lhs.size() <=> rhs.size();
+    }
+
     // A Null is admitted but orders against nothing, itself included.
     if (a.IsNull()) return std::nullopt;
     // Anything else of one type has no order comparability will give.
