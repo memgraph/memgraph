@@ -684,12 +684,12 @@ Path::RelStep Path::PathHelper::ParseRelStep(const mgp::List &list_of_relationsh
     AddRelationshipDirection(step, std::move(type), direction);
   }
 
-  step.needs_incoming = step.any_incoming;
-  step.needs_outgoing = step.any_outgoing;
-  for (auto const &[_, dir] : step.types) {
-    step.needs_incoming = step.needs_incoming || dir == RelDirection::kIncoming || dir == RelDirection::kAny;
-    step.needs_outgoing = step.needs_outgoing || dir == RelDirection::kOutgoing || dir == RelDirection::kAny;
-  }
+  auto has_dir = [&](RelDirection d) {
+    return std::ranges::any_of(step.types,
+                               [d](auto const &kv) { return kv.second == d || kv.second == RelDirection::kAny; });
+  };
+  step.needs_incoming = step.any_incoming || has_dir(RelDirection::kIncoming);
+  step.needs_outgoing = step.any_outgoing || has_dir(RelDirection::kOutgoing);
 
   return step;
 }
