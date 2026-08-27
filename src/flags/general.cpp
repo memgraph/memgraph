@@ -49,22 +49,14 @@ DEFINE_VALIDATED_int32(monitoring_port, 7444,
 DEFINE_VALIDATED_int32(metrics_port, 9091, "Port on which the Memgraph server for exposing metrics should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_string(metrics_format, "JSON",
+DEFINE_VALIDATED_string(metrics_format, "OpenMetrics",
                         "Format for the metrics endpoint. Supported values: OpenMetrics, JSON. JSON is deprecated.", {
                           (void)flagname;
                           if (value == "OpenMetrics") return true;
                           if (value == "JSON") {
-                            // As JSON is currently the default, if `--metrics-format=JSON` is
-                            // specified then this validator fires once at startup and again when
-                            // the flag is parsed, producing two deprecation warnings. This
-                            // suppresses the second one.
-                            static bool already_warned{false};
-                            if (!already_warned) {
-                              already_warned = true;
-                              spdlog::warn(
-                                  "--metrics-format=JSON is deprecated and will be removed in a future release. Please "
-                                  "use OpenMetrics instead.");
-                            }
+                            spdlog::warn(
+                                "--metrics-format=JSON is deprecated and will be removed in a future release. Please "
+                                "use OpenMetrics instead.");
                             return true;
                           }
                           return false;
