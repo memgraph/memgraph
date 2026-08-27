@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -213,38 +213,50 @@ TEST_F(ConsumerTest, StartStop) {
 }
 
 TEST_F(ConsumerTest, BatchSize) {
-  // Increase default batch interval to give more time for messages to receive
-  static constexpr auto kBatchInterval = std::chrono::milliseconds{1000};
+  // A batch ends on whichever comes first: batch_size messages, or delivery stalling for longer
+  // than batch_interval. This is the mirror of BatchInterval, which leaves the batch size at its
+  // large default so that only the interval can end a batch; here the interval is long enough that
+  // only the size can. The mock delivers with a delay of a few hundred milliseconds per message, so
+  // an interval anywhere near the time it takes to deliver batch_size of them ends batches early
+  // and the sizes stop being predictable.
+  static constexpr auto kBatchInterval = std::chrono::seconds{10};
   static constexpr auto kBatchSize = 3;
+  static constexpr auto kBatchCount = 3;
+  // A whole number of batches, so no trailing partial batch depends on the interval to be flushed.
+  static constexpr auto kMessageCount = kBatchCount * kBatchSize;
+  static constexpr std::string_view kMessage = "BatchSizeTestMessage";
+
   auto info = CreateDefaultConsumerInfo();
-  std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
   info.batch_interval = kBatchInterval;
   info.batch_size = kBatchSize;
-  static constexpr std::string_view kMessage = "BatchSizeTestMessage";
+
+  std::vector<size_t> batch_sizes{};
   auto expected_messages_received = true;
+  std::latch received_messages{kMessageCount};
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
-    received_timestamps.emplace_back(messages.size(), std::chrono::steady_clock::now());
+    batch_sizes.push_back(messages.size());
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
+    received_messages.count_down(messages.size());
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
-  static constexpr auto kLastBatchMessageCount = 1;
-  static constexpr auto kMessageCount = 3 * kBatchSize + kLastBatchMessageCount;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
   }
-  std::this_thread::sleep_for(kBatchInterval * 2);
+  received_messages.wait();
+  // Stop() joins the polling thread, which publishes batch_sizes to this one.
   consumer->Stop();
-  EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
-  ASSERT_FALSE(received_timestamps.empty());
 
-  static constexpr auto kExpectedBatchCount = kMessageCount / kBatchSize + 1;
-  EXPECT_EQ(kExpectedBatchCount, received_timestamps.size());
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
+  ASSERT_EQ(kBatchCount, batch_sizes.size());
+  for (const auto batch_size : batch_sizes) {
+    EXPECT_EQ(kBatchSize, batch_size);
+  }
 }
 
 TEST_F(ConsumerTest, InvalidBootstrapServers) {

@@ -21,21 +21,34 @@ using AsyncTimer = memgraph::utils::AsyncTimer;
 
 namespace {
 
+// A timer fires by delivering a signal to one process-wide thread, so how long after its deadline
+// it is observed depends on when that thread is next scheduled. Nothing bounds that, which is why
+// every upper bound here is a liveness bound - the timer eventually fires - rather than a latency
+// one. Lower bounds are different: only a broken timer fires early, so those stay tight.
+inline constexpr auto kExpirationSlack = std::chrono::seconds(1);
+
 // Test timing parameters - extracted magic numbers
 inline constexpr auto kDefaultTimerDuration = std::chrono::milliseconds(50);
 inline constexpr auto kShortTimer = std::chrono::milliseconds(30);
 inline constexpr auto kMediumTimer = std::chrono::milliseconds(60);
-inline constexpr auto kLongTimer = std::chrono::milliseconds(90);
 inline constexpr auto kVeryLongTimer = std::chrono::milliseconds(100);
+
+// RelativeTimingOrder asserts that a later timer has *not* fired yet, so it cannot use the slack
+// above: waiting a second for the first timer would let the others fire too. Separating its timers
+// by more than the slack is what makes the ordering hold when the delivering thread stalls.
+inline constexpr auto kOrderedShortTimer = std::chrono::milliseconds(100);
+inline constexpr auto kOrderedMediumTimer = std::chrono::milliseconds(400);
+inline constexpr auto kOrderedLongTimer = std::chrono::milliseconds(900);
+inline constexpr auto kOrderedShortTimeout = std::chrono::milliseconds(300);
+inline constexpr auto kOrderedMediumTimeout = std::chrono::milliseconds(700);
+inline constexpr auto kOrderedLongTimeout = std::chrono::milliseconds(1500);
 
 // Window parameters for verification
 inline constexpr auto kDefaultNotExpiredWindow = std::chrono::milliseconds(40);
-inline constexpr auto kDefaultExpiredWindow = std::chrono::milliseconds(65);
+inline constexpr auto kDefaultExpiredWindow = kDefaultTimerDuration + kExpirationSlack;
 
 // Timing tolerances
-inline constexpr auto kShortTimeout = std::chrono::milliseconds(50);
-inline constexpr auto kMediumTimeout = std::chrono::milliseconds(80);
-inline constexpr auto kLongTimeout = std::chrono::milliseconds(120);
+inline constexpr auto kShortTimeout = kShortTimer + kExpirationSlack;
 inline constexpr auto kQuickExpirationWindow = std::chrono::milliseconds(30);
 
 // Loop and polling parameters
@@ -119,24 +132,24 @@ TEST(AsyncTimer, SequentialTimers) {
 
 TEST(AsyncTimer, RelativeTimingOrder) {
   // Create timers with different durations to test ordering
-  AsyncTimer timer_short{ToSeconds(kShortTimer)};
-  AsyncTimer timer_medium{ToSeconds(kMediumTimer)};
-  AsyncTimer timer_long{ToSeconds(kLongTimer)};
+  AsyncTimer timer_short{ToSeconds(kOrderedShortTimer)};
+  AsyncTimer timer_medium{ToSeconds(kOrderedMediumTimer)};
+  AsyncTimer timer_long{ToSeconds(kOrderedLongTimer)};
 
   // Wait for short timer (should expire first)
-  EXPECT_TRUE(WaitForExpiration(timer_short, kShortTimeout));
+  EXPECT_TRUE(WaitForExpiration(timer_short, kOrderedShortTimeout));
   EXPECT_TRUE(timer_short.IsExpired());
   EXPECT_FALSE(timer_medium.IsExpired());
   EXPECT_FALSE(timer_long.IsExpired());
 
   // Wait for medium timer (should expire second)
-  EXPECT_TRUE(WaitForExpiration(timer_medium, kMediumTimeout));
+  EXPECT_TRUE(WaitForExpiration(timer_medium, kOrderedMediumTimeout));
   EXPECT_TRUE(timer_short.IsExpired());
   EXPECT_TRUE(timer_medium.IsExpired());
   EXPECT_FALSE(timer_long.IsExpired());
 
   // Wait for long timer (should expire last)
-  EXPECT_TRUE(WaitForExpiration(timer_long, kLongTimeout));
+  EXPECT_TRUE(WaitForExpiration(timer_long, kOrderedLongTimeout));
   EXPECT_TRUE(timer_short.IsExpired());
   EXPECT_TRUE(timer_medium.IsExpired());
   EXPECT_TRUE(timer_long.IsExpired());
@@ -178,7 +191,7 @@ TEST(AsyncTimer, MoveAssignment) {
   // Should NOT expire quickly (original would have expired by now)
   // Should expire within reasonable window for medium timer
   auto not_expired_window = kShortTimer + std::chrono::milliseconds(10);  // Longer than original short timer
-  auto expired_window = kMediumTimer + std::chrono::milliseconds(20);     // Medium timer + tolerance
+  auto expired_window = kMediumTimer + kExpirationSlack;
 
   EXPECT_TRUE(VerifyTimerExpiration(timer_2, not_expired_window, expired_window));
 
@@ -204,7 +217,7 @@ TEST(AsyncTimer, AssignmentToExpiredTimer) {
 
   // Calculate remaining time windows for the moved timer
   auto remaining_not_expired = kShortTimer + std::chrono::milliseconds(10);  // Should not expire for at least this long
-  auto remaining_should_expire = kVeryLongTimer + std::chrono::milliseconds(20);  // Should expire within this
+  auto remaining_should_expire = kVeryLongTimer + kExpirationSlack;
 
   // Verify timer_2 with the moved timer behavior
   EXPECT_TRUE(VerifyTimerExpiration(timer_2, remaining_not_expired, remaining_should_expire));
@@ -224,7 +237,7 @@ TEST(AsyncTimer, DestructionWhileRunning) {
 
   // Verify the second timer works correctly
   auto not_expired_window = kMediumTimer - std::chrono::milliseconds(10);
-  auto expired_window = kMediumTimer + kQuickExpirationWindow;
+  auto expired_window = kMediumTimer + kExpirationSlack;
 
   EXPECT_TRUE(VerifyTimerExpiration(timer_to_wait, not_expired_window, expired_window));
 }
