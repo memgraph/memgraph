@@ -143,7 +143,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return interpreter_.GetLogContext(); }
 
-  metrics::DatabaseMetricHandles *GetMetricHandles() {
+  std::shared_ptr<metrics::DatabaseMetricHandles> GetMetricHandles() {
     auto &db_acc = interpreter_.current_db_.db_acc_;
     return db_acc ? (*db_acc)->metric_handles() : nullptr;
   }

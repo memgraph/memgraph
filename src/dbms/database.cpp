@@ -138,16 +138,18 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
     config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+    auto mh = metrics_.handles();
     storage_ = std::make_unique<storage::DiskStorage>(std::move(config),
                                                       std::move(invalidator),
-                                                      metrics_.handles(),
+                                                      mh ? *mh : metrics::DatabaseMetricHandles{},
                                                       database_protector_factory,
                                                       db_arena_.get(),
                                                       &db_embedding_memory_tracker_);
   } else {
+    auto mh = metrics_.handles();
     storage_ = dbms::CreateInMemoryStorage(std::move(config),
                                            std::move(invalidator),
-                                           metrics_.handles(),
+                                           mh ? *mh : metrics::DatabaseMetricHandles{},
                                            database_protector_factory,
                                            db_arena_.get(),
                                            &db_embedding_memory_tracker_);
@@ -178,9 +180,10 @@ void Database::SwitchToOnDisk() {
   // This ensures consistent behavior for async operations (indexer, TTL) across storage transitions
   auto preserved_factory = storage_->get_database_protector_factory();
   const memory::DbArenaScope db_arena_scope{this};
+  auto mh = metrics_.handles();
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_),
                                                               std::make_unique<storage::PlanInvalidatorDefault>(),
-                                                              metrics_.handles(),
+                                                              mh ? *mh : metrics::DatabaseMetricHandles{},
                                                               preserved_factory,
                                                               db_arena_.get(),
                                                               &db_embedding_memory_tracker_);

@@ -53,8 +53,8 @@ TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
   memgraph::metrics::PrometheusMetrics pm;
   auto reg = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
 
-  reg.handles().vertex_count.Set(42.0);
-  reg.handles().committed_transactions.Increment(5.0);
+  reg.handles()->vertex_count.Set(42.0);
+  reg.handles()->committed_transactions.Increment(5.0);
 
   auto const families = pm.registry().Collect();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 42.0);
@@ -66,8 +66,8 @@ TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
   auto db1 = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
   auto db2 = pm.AddDatabase(memgraph::utils::UUID{}, "db2");
 
-  db1.handles().vertex_count.Set(10.0);
-  db2.handles().vertex_count.Set(20.0);
+  db1.handles()->vertex_count.Set(10.0);
+  db2.handles()->vertex_count.Set(20.0);
 
   auto const families = pm.registry().Collect();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 10.0);
@@ -103,7 +103,7 @@ TEST(PrometheusMetrics, RemoveDatabaseRemovesMetrics) {
   memgraph::metrics::PrometheusMetrics pm;
   memgraph::utils::UUID const uuid{};
   auto reg = pm.AddDatabase(uuid, "db1");
-  reg.handles().vertex_count.Set(99.0);
+  reg.handles()->vertex_count.Set(99.0);
 
   reg = {};
 
@@ -118,14 +118,14 @@ TEST(PrometheusMetrics, MetricsSurviveWhileAnotherRegistrationHoldsThem) {
 
   auto first = pm.AddDatabase(uuid, "db1");
   auto second = pm.AddDatabase(uuid, "db1");
-  ASSERT_EQ(first.handles().vertex_count.get(), second.handles().vertex_count.get()) << "one label set, one metric";
+  ASSERT_EQ(first.handles()->vertex_count.get(), second.handles()->vertex_count.get()) << "one label set, one metric";
 
   first = {};
 
   // Checked before the handle is used: writing through a dropped metric is the bug under test.
   ASSERT_NE(FindSample(pm.registry().Collect(), "memgraph_vertex_count", "db1"), std::nullopt);
 
-  second.handles().vertex_count.Set(7.0);
+  second.handles()->vertex_count.Set(7.0);
   EXPECT_EQ(FindSample(pm.registry().Collect(), "memgraph_vertex_count", "db1"), 7.0);
 
   second = {};
@@ -143,7 +143,7 @@ TEST(PrometheusMetrics, RemovingOneNameLeavesTheOtherRegisteredUnderThatUuid) {
 
   under_new_name = {};
 
-  under_old_name.handles().vertex_count.Set(5.0);
+  under_old_name.handles()->vertex_count.Set(5.0);
   EXPECT_EQ(FindSample(pm.registry().Collect(), "memgraph_vertex_count", "old"), 5.0);
   EXPECT_EQ(FindSample(pm.registry().Collect(), "memgraph_vertex_count", "new"), std::nullopt);
 }
@@ -254,7 +254,7 @@ TEST(PrometheusMetrics, RebindPropagatesHandlesToIndicesAndConstraints) {
   // Register default db with uuid_a, install handles into storage
   auto handles_a = pm.AddDatabase(uuid_a, "memgraph");
   auto storage = std::make_unique<memgraph::storage::InMemoryStorage>();
-  storage->RebindMetricHandles(handles_a.handles());
+  storage->RebindMetricHandles(*handles_a.handles());
 
   // Rebind to uuid_b, which destroys uuid_a gauge objects and creates uuid_b gauges
   auto new_handles = pm.RebindDefaultDatabaseUUID(uuid_b);

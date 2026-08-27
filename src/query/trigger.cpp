@@ -303,7 +303,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   while (cursor->Pull(frame, ctx));
 
   cursor->Shutdown();
-  if (auto *mh = db_acc->metric_handles()) mh->triggers_executed.Increment();
+  if (auto mh = db_acc->metric_handles()) mh->triggers_executed.Increment();
 }
 
 namespace {

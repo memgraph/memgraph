@@ -133,7 +133,7 @@ struct ExecutionContext {
   // acquire from it when work leaves the main query thread, so TLS-scoped
   // allocations still attribute to the parent DB.
   memgraph::memory::ArenaPool *db_arena_pool{nullptr};
-  metrics::DatabaseMetricHandles *metric_handles{nullptr};
+  std::shared_ptr<metrics::DatabaseMetricHandles> metric_handles;
 
   auto commit_args() -> storage::CommitArgs;
 };

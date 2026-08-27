@@ -35,8 +35,8 @@ using namespace memgraph::query::plan;
 
 using Bound = ScanAllByEdgeTypePropertyRange::Bound;
 
-inline memgraph::metrics::DatabaseMetricHandles &TestMetricHandles() {
-  static memgraph::metrics::DatabaseMetricHandles h;
+inline std::shared_ptr<memgraph::metrics::DatabaseMetricHandles> TestMetricHandles() {
+  static auto h = std::make_shared<memgraph::metrics::DatabaseMetricHandles>();
   return h;
 }
 
@@ -47,7 +47,7 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
   context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
-  context.metric_handles = &TestMetricHandles();
+  context.metric_handles = TestMetricHandles();
   return context;
 }
 #ifdef MG_ENTERPRISE
@@ -60,7 +60,7 @@ ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, co
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
   context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
   context.auth_checker = auth_checker;
-  context.metric_handles = &TestMetricHandles();
+  context.metric_handles = TestMetricHandles();
   return context;
 }
 #endif
@@ -78,7 +78,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
     symbols.emplace_back(context->symbol_table.at(*named_expression));
 
   // stream out results
-  auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+  auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource(), *TestMetricHandles());
   std::vector<std::vector<TypedValue>> results;
   while (cursor->Pull(frame, *context)) {
     std::vector<TypedValue> values;
@@ -91,7 +91,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
 
 int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
   Frame frame(context->symbol_table.max_position());
-  auto cursor = logical_op.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+  auto cursor = logical_op.MakeCursor(memgraph::utils::NewDeleteResource(), *TestMetricHandles());
   int count = 0;
   while (cursor->Pull(frame, *context)) {
     count++;
