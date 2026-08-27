@@ -691,6 +691,7 @@ void SessionHL::Configure(const bolt_map_t &run_time_info) {
 #endif
 }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static): uses runtime_config_ under MG_ENTERPRISE.
 bool SessionHL::ConfigureWouldBeNoOp(const bolt_map_t &run_time_info) const {
 #ifdef MG_ENTERPRISE
   if (flags::CoordinationSetupInstance().IsCoordinator()) return true;  // Configure returns early anyway
