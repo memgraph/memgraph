@@ -68,11 +68,13 @@ double ToSeconds(std::chrono::milliseconds ms) { return std::chrono::duration<do
 // previous wait returned lets the bounds accumulate, so a late wait can outlast a timer that a
 // later assertion says has not fired yet.
 bool WaitForExpirationUntil(AsyncTimer &timer, std::chrono::steady_clock::time_point deadline) {
-  while (Now() < deadline) {
+  // The timer is checked before the deadline is, so a caller that arrives late still reports a
+  // timer that has already fired rather than one it never looked at.
+  while (true) {
     if (timer.IsExpired()) return true;
+    if (Now() >= deadline) return false;
     std::this_thread::sleep_for(kPollInterval);
   }
-  return false;
 }
 
 // Helper to wait for timer expiration with timeout
@@ -80,12 +82,11 @@ bool WaitForExpiration(AsyncTimer &timer, std::chrono::milliseconds timeout) {
   return WaitForExpirationUntil(timer, Now() + timeout);
 }
 
-// Helper to verify timer is NOT expired during a window
-bool VerifyNotExpiredDuring(AsyncTimer &timer, std::chrono::milliseconds window) {
-  auto deadline = Now() + window;
+// Helper to verify timer is NOT expired until a fixed point in time
+bool VerifyNotExpiredUntil(AsyncTimer &timer, std::chrono::steady_clock::time_point deadline) {
   while (Now() < deadline) {
     if (timer.IsExpired()) {
-      ADD_FAILURE() << "Timer expired too early (within " << window.count() << "ms)";
+      ADD_FAILURE() << "Timer expired too early";
       return false;
     }
     std::this_thread::sleep_for(kPollInterval);
@@ -96,22 +97,20 @@ bool VerifyNotExpiredDuring(AsyncTimer &timer, std::chrono::milliseconds window)
 // Main helper to check timer state within time windows
 // First verifies timer is NOT expired during the "not expired" window
 // Then verifies timer DOES expire within the "expired" window
-bool VerifyTimerExpiration(AsyncTimer &timer, std::chrono::milliseconds not_expired_window = kDefaultNotExpiredWindow,
+//
+// Both windows run from `start`, which the caller takes before arming the timer. Taking it here
+// instead would put an unmeasured gap between arming and the first observation: the timer's
+// deadline would have moved on while the window had not, and a timer that fired correctly could
+// land inside the window that says it must not have fired yet.
+bool VerifyTimerExpiration(std::chrono::steady_clock::time_point start, AsyncTimer &timer,
+                           std::chrono::milliseconds not_expired_window = kDefaultNotExpiredWindow,
                            std::chrono::milliseconds expired_window = kDefaultExpiredWindow) {
-  auto start = Now();
-
-  // Phase 1: Verify timer is NOT expired during the initial window
-  if (!VerifyNotExpiredDuring(timer, not_expired_window)) {
+  if (!VerifyNotExpiredUntil(timer, start + not_expired_window)) {
     return false;
   }
 
-  // Phase 2: Wait for timer to expire within the expired window
-  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - start);
-  if (elapsed < expired_window) {
-    auto remaining_time = expired_window - elapsed;
-    if (WaitForExpiration(timer, remaining_time)) {
-      return true;
-    }
+  if (WaitForExpirationUntil(timer, start + expired_window)) {
+    return true;
   }
 
   ADD_FAILURE() << "Timer did not expire within " << expired_window.count() << "ms";
@@ -121,19 +120,22 @@ bool VerifyTimerExpiration(AsyncTimer &timer, std::chrono::milliseconds not_expi
 }  // namespace
 
 TEST(AsyncTimer, BasicExpiration) {
+  const auto start = Now();
   AsyncTimer timer{ToSeconds(kDefaultTimerDuration)};
-  EXPECT_TRUE(VerifyTimerExpiration(timer));
+  EXPECT_TRUE(VerifyTimerExpiration(start, timer));
 }
 
 TEST(AsyncTimer, SequentialTimers) {
   // Test two timers sequentially
   {
+    const auto start = Now();
     AsyncTimer timer1{ToSeconds(kDefaultTimerDuration)};
-    EXPECT_TRUE(VerifyTimerExpiration(timer1));
+    EXPECT_TRUE(VerifyTimerExpiration(start, timer1));
   }
   {
+    const auto start = Now();
     AsyncTimer timer2{ToSeconds(kDefaultTimerDuration)};
-    EXPECT_TRUE(VerifyTimerExpiration(timer2));
+    EXPECT_TRUE(VerifyTimerExpiration(start, timer2));
   }
 }
 
@@ -167,6 +169,7 @@ TEST(AsyncTimer, RelativeTimingOrder) {
 }
 
 TEST(AsyncTimer, MoveConstructor) {
+  const auto start = Now();
   AsyncTimer timer_1{ToSeconds(kDefaultTimerDuration)};
 
   // Move construct timer_2 from timer_1
@@ -177,13 +180,14 @@ TEST(AsyncTimer, MoveConstructor) {
   EXPECT_FALSE(timer_1.IsExpired());
 
   // timer_2 should work normally
-  EXPECT_TRUE(VerifyTimerExpiration(timer_2));
+  EXPECT_TRUE(VerifyTimerExpiration(start, timer_2));
 
   // timer_1 should still return false (it's moved-from)
   EXPECT_FALSE(timer_1.IsExpired());
 }
 
 TEST(AsyncTimer, MoveAssignment) {
+  const auto start = Now();
   AsyncTimer timer_1{ToSeconds(kMediumTimer)};  // Medium timer
   AsyncTimer timer_2{ToSeconds(kShortTimer)};   // Short timer
 
@@ -204,7 +208,7 @@ TEST(AsyncTimer, MoveAssignment) {
   auto not_expired_window = kShortTimer + std::chrono::milliseconds(10);  // Longer than original short timer
   auto expired_window = kMediumTimer + kExpirationSlack;
 
-  EXPECT_TRUE(VerifyTimerExpiration(timer_2, not_expired_window, expired_window));
+  EXPECT_TRUE(VerifyTimerExpiration(start, timer_2, not_expired_window, expired_window));
 
   // timer_1 remains false (moved-from)
   EXPECT_FALSE(timer_1.IsExpired());
@@ -236,7 +240,7 @@ TEST(AsyncTimer, AssignmentToExpiredTimer) {
   auto remaining_should_expire = kOrderedLongTimer + kExpirationSlack;
 
   // Verify timer_2 with the moved timer behavior
-  EXPECT_TRUE(VerifyTimerExpiration(timer_2, remaining_not_expired, remaining_should_expire));
+  EXPECT_TRUE(VerifyTimerExpiration(start, timer_2, remaining_not_expired, remaining_should_expire));
 
   // timer_1 should still be false (moved-from)
   EXPECT_FALSE(timer_1.IsExpired());
@@ -249,13 +253,14 @@ TEST(AsyncTimer, DestructionWhileRunning) {
   }
 
   // Create another timer to ensure the system still works
+  const auto start = Now();
   AsyncTimer timer_to_wait{ToSeconds(kMediumTimer + std::chrono::milliseconds(10))};
 
   // Verify the second timer works correctly
   auto not_expired_window = kMediumTimer - std::chrono::milliseconds(10);
   auto expired_window = kMediumTimer + kExpirationSlack;
 
-  EXPECT_TRUE(VerifyTimerExpiration(timer_to_wait, not_expired_window, expired_window));
+  EXPECT_TRUE(VerifyTimerExpiration(start, timer_to_wait, not_expired_window, expired_window));
 }
 
 TEST(AsyncTimer, ExtremeValues) {

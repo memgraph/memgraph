@@ -159,6 +159,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+  ASSERT_NE(nullptr, consumer);
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
@@ -169,12 +170,14 @@ TEST_F(ConsumerTest, BatchInterval) {
     std::this_thread::sleep_for(kBatchInterval);
   }
   // Wait for all messages to be delivered, bounded so that a message which never arrives fails the
-  // test rather than hanging it.
+  // test rather than hanging it. try_wait is allowed to report false even once the count is zero,
+  // so the answer is taken once and then asserted, never asked for a second time.
   const auto deadline = std::chrono::steady_clock::now() + kConsumerReadyTimeout;
-  while (!sent_messages.try_wait() && std::chrono::steady_clock::now() < deadline) {
+  auto all_delivered = false;
+  while (!(all_delivered = sent_messages.try_wait()) && std::chrono::steady_clock::now() < deadline) {
     std::this_thread::sleep_for(std::chrono::milliseconds{50});
   }
-  EXPECT_TRUE(sent_messages.try_wait()) << "Not every message was delivered";
+  EXPECT_TRUE(all_delivered) << "Not every message was delivered";
 
   consumer->Stop();
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
@@ -238,12 +241,14 @@ TEST_F(ConsumerTest, StartStop) {
 }
 
 TEST_F(ConsumerTest, BatchSize) {
-  // A batch ends on whichever comes first: batch_size messages, or delivery stalling for longer
-  // than batch_interval. This is the mirror of BatchInterval, which leaves the batch size at its
-  // large default so that only the interval can end a batch; here the interval is long enough that
-  // only the size can. The mock delivers with a delay of a few hundred milliseconds per message, so
-  // an interval anywhere near the time it takes to deliver batch_size of them ends batches early
-  // and the sizes stop being predictable.
+  // A batch ends on whichever comes first: batch_size messages, or batch_interval elapsing. The
+  // interval is a budget for assembling the whole batch, not an idle timeout - it is charged for
+  // the time every message takes to arrive, not only for gaps - so a batch of batch_size messages
+  // only ever comes out full if the interval outlasts the delivery of all of them. This is the
+  // mirror of BatchInterval, which leaves the batch size at its large default so that only the
+  // interval can end a batch; here the interval is generous enough that only the size can. The mock
+  // delivers with a delay of a few hundred milliseconds per message, so an interval anywhere near
+  // the time batch_size of them take ends batches early and the sizes stop being predictable.
   // The interval is also the timeout the polling thread blocks in, and Stop() joins that thread, so
   // it is this test's shutdown cost as well. Keep it comfortably above the delivery time of a full
   // batch without paying for more than that.
@@ -271,6 +276,7 @@ TEST_F(ConsumerTest, BatchSize) {
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+  ASSERT_NE(nullptr, consumer);
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
@@ -279,8 +285,9 @@ TEST_F(ConsumerTest, BatchSize) {
   }
 
   // Bounded rather than an open-ended wait: if delivery stops short the test has to fail with the
-  // counts in hand, not hang until ctest gives up on it.
-  const auto deadline = std::chrono::steady_clock::now() + 3 * kBatchInterval;
+  // counts in hand, not hang until ctest gives up on it. The bound is deliberately far above how
+  // long delivery takes, so that it never becomes an assertion about how fast the machine is.
+  const auto deadline = std::chrono::steady_clock::now() + kConsumerReadyTimeout;
   while (received_count.load(std::memory_order_acquire) < kMessageCount &&
          std::chrono::steady_clock::now() < deadline) {
     std::this_thread::sleep_for(std::chrono::milliseconds{50});
@@ -399,6 +406,7 @@ TEST_F(ConsumerTest, CheckMethodWorks) {
 
   // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
   auto consumer = CreateConsumer(std::move(info), kDummyConsumerFunction);
+  ASSERT_NE(nullptr, consumer);
 
   static constexpr auto kMessageCount = 4;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
@@ -515,6 +523,7 @@ TEST_F(ConsumerTest, LimitBatches_CannotStartIfAlreadyRunning) {
   auto info = CreateDefaultConsumerInfo();
 
   auto consumer = CreateConsumer(std::move(info), kDummyConsumerFunction);
+  ASSERT_NE(nullptr, consumer);
 
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
@@ -557,6 +566,7 @@ TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
   };
 
   auto consumer = CreateConsumer(std::move(info), consumer_function);
+  ASSERT_NE(nullptr, consumer);
 
   for (auto sent_messages = 0; sent_messages <= kNumberOfMessagesToSend; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
@@ -576,6 +586,7 @@ TEST_F(ConsumerTest, LimitBatches_Timeout_Reached) {
   auto info = CreateDefaultConsumerInfo();
 
   auto consumer = CreateConsumer(std::move(info), kDummyConsumerFunction);
+  ASSERT_NE(nullptr, consumer);
 
   std::chrono::milliseconds timeout{3000};
 
