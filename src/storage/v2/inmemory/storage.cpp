@@ -332,6 +332,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays) — make_unique<T[]> is the idiomatic heap array (cf. ring_buffer.hpp).
   snapshot_slots_ = std::make_unique<SnapshotSlot[]>(kSnapshotSlots);
   MG_ASSERT(!config_.salient.items.storage_light_edge || config_.salient.items.properties_on_edges,
             "Light edges require properties on edges (--storage-light-edge implies "
