@@ -71,6 +71,10 @@ struct CachedSet {
   // Func to check if cache_ contains value
   bool Contains(const TypedValue &value) const { return cache_.contains(value); }
 
+  // The elements themselves, for a caller whose question the set cannot answer
+  // and which would otherwise have to evaluate the list expression again.
+  auto const &Elements() const { return cache_; }
+
   // Whether any element holds a Null inside a list or map of its own.
   //
   // The set compares by equivalence, in which Null equals Null, so a caller
