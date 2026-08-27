@@ -29,7 +29,7 @@
 #include "utils/timezone.hpp"
 import memgraph.utils.fnv;
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 
 namespace memgraph::utils {
 namespace {
