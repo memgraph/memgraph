@@ -47,6 +47,10 @@
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized_metadata_store.hpp"
 
+// Test-only: fixture in tests/unit/storage_v2.cpp (global namespace); forward-declared so the
+// qualified friend in Storage below names an existing entity.
+class StorageEngineLockContentionTest;
+
 namespace memgraph::metrics {
 struct DatabaseMetricHandles;
 }  // namespace memgraph::metrics
@@ -282,6 +286,9 @@ class Storage {
   friend class ReplicationServer;
   friend class ReplicationStorageClient;
   friend class VectorIndex;
+  // Test-only: lets StorageEngineLockContentionTest hold engine_lock_ to verify the non-blocking
+  // TryAccess bail (see tests/unit/storage_v2.cpp).
+  friend class ::StorageEngineLockContentionTest;
 
  public:
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,

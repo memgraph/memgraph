@@ -3198,3 +3198,45 @@ TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
   ASSERT_NE(write_acc, nullptr);
   EXPECT_NO_THROW(write_acc->Abort());
 }
+
+// TryAccess is non-blocking on the transaction-engine lock: it defaults to EngineLockMode::TryBounded,
+// so CreateTransaction bounded-spins engine_lock_ (2us) and, on failure, throws
+// TransactionEngineWouldBlock, which TryAccess turns into nullptr so the BEGIN caller reschedules onto
+// the pool instead of busy-spinning a worker. The StorageTryAccessTest cases above cover the free
+// (acquire succeeds) side; this covers the contended side deterministically: utils::SpinLock is
+// non-recursive, so a single test thread that already holds engine_lock_ forces the bounded acquire to
+// time out. A blocking Access must still succeed once the lock is released.
+class StorageEngineLockContentionTest : public ::testing::Test {
+ protected:
+  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
+      .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
+
+  // TEST_F's body runs in a class derived from this fixture, and friendship is not inherited, so the
+  // private engine_lock_ access must live in a member of the befriended fixture itself.
+  void LockEngine() { static_cast<memgraph::storage::Storage &>(store).engine_lock_.lock(); }
+
+  void UnlockEngine() { static_cast<memgraph::storage::Storage &>(store).engine_lock_.unlock(); }
+};
+
+TEST_F(StorageEngineLockContentionTest, EngineLockHeldMakesTryAccessBailWhileBlockingAccessWaits) {
+  using namespace memgraph::storage;
+
+  // Hold the transaction-engine lock, as a concurrent write-commit's durability phase would.
+  LockEngine();
+  // A TryBounded probe must bail (return nullptr) rather than busy-spin the pool worker.
+  EXPECT_EQ(store.TryAccess(READ), nullptr);
+  EXPECT_EQ(store.TryAccess(WRITE), nullptr);
+  UnlockEngine();
+
+  // Once released, the bounded-try probe succeeds and yields a usable accessor.
+  auto try_acc = store.TryAccess(READ);
+  ASSERT_NE(try_acc, nullptr);
+  EXPECT_NO_THROW(try_acc->Abort());
+  try_acc.reset();
+
+  // A blocking Access (EngineLockMode::Blocking, the default) also succeeds against the free lock; it is
+  // the path the BEGIN falls back to at the fairness cap and never throws TransactionEngineWouldBlock.
+  auto blocking_acc = store.Access(READ);
+  ASSERT_NE(blocking_acc, nullptr);
+  EXPECT_NO_THROW(blocking_acc->Abort());
+}
