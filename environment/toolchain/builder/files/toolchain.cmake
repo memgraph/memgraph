@@ -59,8 +59,16 @@ set(CMAKE_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar" CACHE FILEPATH "Archiver" FORCE)
 set(CMAKE_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib" CACHE FILEPATH "Ranlib" FORCE)
 
 # Linker
-set(CMAKE_LINKER_TYPE LLD)
-set(CMAKE_LINKER "${MG_TOOLCHAIN_ROOT}/bin/lld")
+#
+# mold, which this toolchain ships. It links this shape of binary several times
+# faster at a fraction of the memory, and handles everything memgraph needs of
+# it: ThinLTO, split DWARF with a dwo directory, build ids and the job cap.
+#
+# The choice has to go through CMAKE_LINKER_TYPE. CMake appends that flag after
+# every other link flag, so a -fuse-ld= supplied as a link option loses to it
+# silently: the build reports the linker it chose and then uses the other one.
+set(CMAKE_LINKER_TYPE MOLD)
+set(CMAKE_LINKER "${MG_TOOLCHAIN_ROOT}/bin/mold")
 
 # NM (symbol listing)
 set(CMAKE_NM "${MG_TOOLCHAIN_ROOT}/bin/llvm-nm")
