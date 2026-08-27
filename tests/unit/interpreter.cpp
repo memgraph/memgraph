@@ -2699,6 +2699,31 @@ TYPED_TEST(InterpreterTest, CommitIsLow) {
   EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
 }
 
+// SessionHL::ApproximateQueryPriority routes an explicit COMMIT to HIGH only when the active transaction
+// was opened READ (client declared mode="r" at BEGIN); a write COMMIT stays LOW. The routing's sole
+// discriminator is Interpreter::IsCurrentTransactionRead() -- the SessionHL glue itself is a Bolt session
+// (covered by e2e), so assert the predicate that drives it. (CommitIsLow above exercises the unrelated
+// GetQueryPriority path, which stores LOW on the prepared COMMIT regardless of transaction mode.)
+TYPED_TEST(InterpreterTest, ReadOnlyTransactionRoutesCommitHigh) {
+  auto &interpreter = this->default_interpreter.interpreter;
+  // No active transaction -> nothing to promote.
+  EXPECT_FALSE(interpreter.IsCurrentTransactionRead());
+
+  interpreter.BeginTransaction(memgraph::query::QueryExtras{.is_read = true});
+  EXPECT_TRUE(interpreter.IsCurrentTransactionRead());  // read-only COMMIT would be routed HIGH
+  interpreter.RollbackTransaction();
+
+  // Cleared once the transaction ends.
+  EXPECT_FALSE(interpreter.IsCurrentTransactionRead());
+}
+
+TYPED_TEST(InterpreterTest, WriteTransactionKeepsCommitLow) {
+  auto &interpreter = this->default_interpreter.interpreter;
+  interpreter.BeginTransaction(memgraph::query::QueryExtras{.is_read = false});
+  EXPECT_FALSE(interpreter.IsCurrentTransactionRead());  // write COMMIT stays LOW
+  interpreter.RollbackTransaction();
+}
+
 TYPED_TEST(InterpreterTest, CreateIndexQueryPriorityIsLow) {
   auto [stream, qid] = this->Prepare("CREATE INDEX ON :Person(id)");
   EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
