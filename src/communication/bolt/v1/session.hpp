@@ -160,11 +160,9 @@ class Session {
       }
 
       if (state_ == State::PendingBegin) {
-        // HandleBegin decoded a BEGIN whose engine-lock acquire would block and stashed it. Stop the dechunk
-        // loop WITHOUT reading the next chunk so no message pipelined behind the BEGIN runs before it finishes;
-        // decoder_buffer_ is left exactly after the fully-consumed BEGIN chunk. DoWork sees HasPendingBegin()
-        // and hands the completion to the pool (PostFinishPendingBegin).
-        return true;  // more data to process (the pending BEGIN, off-loop)
+        // HandleBegin stashed a would-block BEGIN. Stop the dechunk loop WITHOUT reading the next chunk so a
+        // message pipelined behind the BEGIN can't run before it finishes; DoWork hands the completion to the pool.
+        return true;  // more data to process
       }
 
       if (state_ == State::Close) [[unlikely]] {
@@ -183,29 +181,22 @@ class Session {
     }
   }
 
-  // True once HandleBegin has stashed a would-block BEGIN (state_ == PendingBegin). DoWork uses this to hand
-  // the completion to the pool instead of continuing the dechunk loop.
+  // Used by DoWork to hand a stashed would-block BEGIN off to the pool instead of continuing the dechunk loop.
   bool HasPendingBegin() const { return pending_begin_extra_.has_value(); }
 
-  // Whether the underlying input stream still holds bytes the dechunk loop hasn't consumed. Used to decide
-  // whether the post-BEGIN resume re-enters the worker (DoWork) or waits for the next async read (DoRead).
+  // Decides whether the post-BEGIN resume re-enters the worker (DoWork) or waits for the next async read (DoRead).
   bool HasBufferedData() const { return input_stream_.size() > 0; }
 
-  // Stash the BEGIN's decoded extras (and reset the reschedule count) after HandleBegin's bounded-try acquire
-  // bailed with WouldBlock, so FinishPendingBegin_ can retry the Access on the pool without re-decoding.
+  // Stash the BEGIN's decoded extras after HandleBegin's bounded-try acquire bailed with WouldBlock, so
+  // FinishPendingBegin_ can retry the Access on the pool without re-decoding.
   void StashPendingBegin(Value extra) {
     pending_begin_extra_ = std::move(extra);
-    pending_begin_retries_ = 0;  // fresh BEGIN: start the reschedule fairness count over
+    pending_begin_retries_ = 0;
   }
 
-  // Pool-side completion of a BEGIN that bailed in HandleBegin with WouldBlock. Re-runs the FULL begin
-  // (Configure + BeginTransaction) on the worker; Configure re-running is idempotent (it early-outs), so it is
-  // safe to run here and across reschedules. Rather than block the worker on engine_lock_ behind a long write
-  // commit, it uses a bounded-spin acquire (TryBounded) and, on loss, returns Reschedule so the caller re-posts
-  // to the pool. After kBeginRescheduleCap reschedules it falls back to one Blocking acquire so the BEGIN cannot
-  // starve. The stash is consumed (reset) ONLY on a terminal outcome (Done/ClientError); on Reschedule it MUST
-  // stay stashed so the next attempt retries the Access without re-decoding. SUCCESS is emitted here and here
-  // only -- never on HandleBegin's bail path -- so the BEGIN yields exactly one SUCCESS.
+  // Pool-side completion of a BEGIN that HandleBegin bailed on with WouldBlock. Retries the Access with a
+  // bounded-try acquire (Blocking after kBeginRescheduleCap, so it can't starve); on loss returns Reschedule
+  // with the stash intact. Emits the BEGIN's one and only SUCCESS -- never on HandleBegin's bail path.
   template <typename TImpl>
     requires requires(TImpl &impl) {
       { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
@@ -218,23 +209,24 @@ class Session {
         cap_reached ? memgraph::storage::EngineLockMode::Blocking : memgraph::storage::EngineLockMode::TryBounded;
     const Value &extra = *pending_begin_extra_;  // reference, NOT move -- may need it again on reschedule
     try {
-      impl.Configure(extra.ValueMap());               // real reconfigure runs here, on the worker (blocking OK)
-      impl.BeginTransaction(extra.ValueMap(), mode);  // bounded-try (or blocking at the cap) Access on the worker
+      impl.Configure(
+          extra.ValueMap());  // idempotent on identical extras (early-outs), so safe to re-run across reschedules
+      impl.BeginTransaction(extra.ValueMap(), mode);
       if (!encoder_.MessageSuccess({})) {
         state_ = State::Close;
         pending_begin_extra_.reset();
         return PendingBeginOutcome::ClientError;
       }
       state_ = State::Idle;
-      pending_begin_extra_.reset();  // consume on success
+      pending_begin_extra_.reset();
       return PendingBeginOutcome::Done;
     } catch (const memgraph::query::WouldBlockInlineException &) {
-      // Reachable only when mode == TryBounded (Blocking never throws it). Keep extras stashed and reschedule.
+      // Only TryBounded throws this; Blocking (at the cap) never does, so the cap terminates the reschedule loop.
       ++pending_begin_retries_;
       return PendingBeginOutcome::Reschedule;  // pending_begin_extra_ intentionally NOT reset
     } catch (const std::exception &e) {
       state_ = HandleFailure(impl, e);
-      pending_begin_extra_.reset();  // consume on error
+      pending_begin_extra_.reset();
       return PendingBeginOutcome::ClientError;
     }
   }
@@ -282,12 +274,10 @@ class Session {
   }
 
  private:
-  // Extras decoded by a BEGIN that bailed in HandleBegin with WouldBlock, carried across the worker->pool
-  // reschedule so FinishPendingBegin_ can retry the Access without re-decoding the chunk.
+  // BEGIN extras stashed on a WouldBlock bail, carried across the worker->pool reschedule (retry without re-decoding).
   std::optional<Value> pending_begin_extra_{};
 
-  // Number of times FinishPendingBegin_ has lost the bounded-try engine-lock race for the current pending BEGIN.
-  // Reset to 0 when a fresh BEGIN is stashed (StashPendingBegin).
+  // Times FinishPendingBegin_ lost the bounded-try engine-lock race for the current BEGIN; reset on a fresh stash.
   uint32_t pending_begin_retries_{0};
   // After this many reschedules, FinishPendingBegin_ does one blocking acquire (fairness: a BEGIN cannot starve).
   static constexpr uint32_t kBeginRescheduleCap = 32;

@@ -27,8 +27,8 @@
 #include "communication/exceptions.hpp"
 #include "license/license_sender.hpp"
 #include "metrics/prometheus_metrics.hpp"
-#include "query/exceptions.hpp"        // WouldBlockInlineException (pending-BEGIN reschedule signal)
-#include "storage/v2/access_type.hpp"  // storage::EngineLockMode
+#include "query/exceptions.hpp"
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -447,9 +447,8 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
     }
     return State::Idle;
   } catch (const memgraph::query::WouldBlockInlineException &) {
-    // The engine lock was contended. Stash the decoded extras and hand off to the pool; the accessor-first
-    // reorder left interpreter txn state pristine (no id consumed). Do NOT MessageSuccess here -- the SUCCESS
-    // is emitted only by FinishPendingBegin_ once the BEGIN actually completes.
+    // Accessor-first reorder left interpreter txn state pristine (no id consumed), so the pool can retry.
+    // Do NOT MessageSuccess here -- the one SUCCESS is emitted by FinishPendingBegin_ when the BEGIN completes.
     session.StashPendingBegin(std::move(extra));
     return State::PendingBegin;
   } catch (const std::exception &e) {

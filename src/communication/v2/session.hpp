@@ -380,12 +380,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     try {
       // Execute until all data has been read
       while (session_.Execute()) {
-        // The websocket path runs the bolt state machine synchronously on the strand (no pool hand-off). A BEGIN
-        // whose bounded-try engine-lock acquire lost the race parks in State::PendingBegin, which makes Execute()
-        // keep returning true. Drive it to a terminal outcome inline here: the pool resume path (DoWork/DoRead)
-        // would switch this connection off the websocket read loop, so it can't be reused. This preserves master's
-        // pre-existing behavior of completing a websocket BEGIN inline on the strand (FinishPendingBegin converges
-        // via the fairness cap: after kBeginRescheduleCap tries it does one blocking acquire).
+        // Websocket runs the bolt state machine inline on the strand; a parked BEGIN keeps Execute() returning true.
+        // Drive it terminal here -- the pool resume (DoWork/DoRead) would take this connection off the websocket read
+        // loop.
         while (session_.HasPendingBegin()) {
           session_.FinishPendingBegin();
         }
@@ -404,9 +401,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
             while (true) {
               if (shared_this->session_.Execute()) {
                 if (shared_this->session_.HasPendingBegin()) {
-                  // Execute_ bailed with a BEGIN whose engine-lock acquire would block. Finish it off this
-                  // worker (never spin here behind a long write commit); PostFinishPendingBegin re-posts to the
-                  // pool on contention. Return now so no message pipelined behind the BEGIN runs before it does.
+                  // BEGIN's engine-lock acquire would block: finish it off the worker via the pool
+                  // (PostFinishPendingBegin). Return now so no message pipelined behind the BEGIN runs first.
                   shared_this->PostFinishPendingBegin();
                   return;
                 }
@@ -430,12 +426,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         session_.ApproximateQueryPriority());
   }
 
-  // Post the pool-side completion of a would-block BEGIN. On engine-lock contention FinishPendingBegin() returns
-  // Reschedule and we re-post to the POOL (AddTask) -- never to the strand -- so the worker never blocks behind a
-  // long write commit. After the fairness cap FinishPendingBegin() does one blocking acquire and returns terminally.
-  // On a terminal outcome the normal read path resumes: DoWork if input bytes remain (a message pipelined behind the
-  // BEGIN), else DoRead to await the next chunk. SUCCESS for the BEGIN is emitted exactly once, inside
-  // FinishPendingBegin().
+  // Completes a would-block BEGIN on the POOL (AddTask, never the strand): Reschedule re-posts so the worker never
+  // blocks behind a slow commit; a terminal outcome resumes DoWork/DoRead. FinishPendingBegin emits SUCCESS once.
   void PostFinishPendingBegin() {
     session_context_->AddTask(
         [shared_this = shared_from_this()](const auto /*thread_priority*/) {

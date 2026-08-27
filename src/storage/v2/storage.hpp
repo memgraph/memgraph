@@ -47,8 +47,7 @@
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized_metadata_store.hpp"
 
-// Test-only: fixture in tests/unit/storage_v2.cpp (global namespace); forward-declared so the
-// qualified friend in Storage below names an existing entity.
+// Test fixture (global ns, tests/unit/storage_v2.cpp); forward-declared for the friend below.
 class StorageEngineLockContentionTest;
 
 namespace memgraph::metrics {
@@ -286,8 +285,7 @@ class Storage {
   friend class ReplicationServer;
   friend class ReplicationStorageClient;
   friend class VectorIndex;
-  // Test-only: lets StorageEngineLockContentionTest hold engine_lock_ to verify the non-blocking
-  // TryAccess bail (see tests/unit/storage_v2.cpp).
+  // Test-only: fixture holds engine_lock_ to exercise the non-blocking TryAccess bail.
   friend class ::StorageEngineLockContentionTest;
 
  public:
@@ -548,12 +546,8 @@ inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
 utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType rw_type,
                                              std::optional<std::chrono::milliseconds> timeout);
 
-// EngineLockMode (Blocking / TryBounded) lives in storage/v2/access_type.hpp (a leaf header
-// included above), so protocol/dbms layers that only name the enum need not pull this header.
-
-// Thrown by CreateTransaction on a non-blocking mode (TryBounded) when the transaction-engine lock
-// is held by a concurrent commit/GC, so a non-blocking probe (TryAccess) can bail instead of
-// blocking. Caught in TryAccess and turned into a nullptr; never surfaces to callers.
+// Thrown by CreateTransaction under TryBounded when engine_lock_ is held by a concurrent commit/GC;
+// caught in TryAccess (returns nullptr) and never surfaces to callers.
 struct TransactionEngineWouldBlock final : std::exception {
   const char *what() const noexcept override { return "transaction engine lock busy"; }
 };

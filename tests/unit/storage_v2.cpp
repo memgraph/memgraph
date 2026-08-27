@@ -3218,7 +3218,9 @@ class StorageEngineLockContentionTest : public ::testing::Test {
   void UnlockEngine() { static_cast<memgraph::storage::Storage &>(store).engine_lock_.unlock(); }
 };
 
-TEST_F(StorageEngineLockContentionTest, EngineLockHeldMakesTryAccessBailWhileBlockingAccessWaits) {
+// A TryBounded TryAccess bails with nullptr while engine_lock_ is held; once released the lock is
+// reusable (no leak/poison) via both a fresh TryAccess and a blocking Access.
+TEST_F(StorageEngineLockContentionTest, EngineLockHeldMakesTryBoundedAccessBailAndLeavesLockReusable) {
   using namespace memgraph::storage;
 
   // Hold the transaction-engine lock, as a concurrent write-commit's durability phase would.

@@ -2881,20 +2881,17 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   ActiveIndicesPtr active_indices;
   ActiveConstraintsPtr active_constraints;
   {
-    // The acquire must precede every mutation below, so a contended non-blocking probe bails
-    // (throws) having changed nothing (no transaction_id_/timestamp_ bump, no index/constraint read).
-    // Bounded-try budget: keep tiny -- we would rather bail-and-reschedule than spin behind a long
-    // write-commit that holds engine_lock_ across durability/replication.
+    // Acquire must precede every mutation below: a contended TryBounded probe throws having
+    // changed nothing -- no transaction_id_/timestamp_ bump, no index/constraint read.
     constexpr auto kBeginEngineTryBudget = std::chrono::microseconds{2};
     std::unique_lock<utils::SpinLock> guard;
     switch (engine_mode) {
       case EngineLockMode::Blocking:
-        guard = std::unique_lock{engine_lock_};  // blocking acquire
+        guard = std::unique_lock{engine_lock_};
         break;
       case EngineLockMode::TryBounded:
-        // BoundedTryLock spins with an arch-guarded relax (portable to aarch64) and returns false
-        // WITHOUT holding the lock on timeout, so throwing here leaks nothing. On success it owns the
-        // lock; adopt that ownership so the existing RAII unlock at scope exit stays correct.
+        // BoundedTryLock returns false WITHOUT holding the lock on timeout, so throwing leaks nothing;
+        // on success it owns the lock -- adopt it so the scope-exit RAII unlock stays correct.
         if (!utils::BoundedTryLock(engine_lock_, kBeginEngineTryBudget)) throw TransactionEngineWouldBlock{};
         guard = std::unique_lock{engine_lock_, std::adopt_lock};
         break;

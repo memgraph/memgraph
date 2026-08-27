@@ -69,18 +69,14 @@ class SpinLock {
   pthread_spinlock_t lock_;
 };
 
-// Spin-try to acquire `lock` for up to `budget`, returning true iff acquired. Unlike lock(), this
-// caps the busy-wait: used where a caller would rather bail-and-reschedule than spin behind a
-// long holder (e.g. a write commit holding engine_lock_ across durability/replication). Keep the
-// budget SMALL (a few microseconds) -- a large budget wastes CPU spinning behind a long holder.
+// Spin-try to acquire `lock` for up to `budget`; returns true iff acquired. Lets a caller
+// bail-and-reschedule instead of spinning behind a long holder; keep budget SMALL -- a large one wastes CPU.
 inline bool BoundedTryLock(SpinLock &lock, std::chrono::nanoseconds budget) {
   if (lock.try_lock()) return true;
   const auto deadline = std::chrono::steady_clock::now() + budget;
   do {
-    // Arch-guarded CPU relax (mirrors utils/yielder.hpp): a real pause/yield hint on x86/aarch64,
-    // and a compiler barrier elsewhere so this header stays free of <thread> while still preventing
-    // the spin body from being hoisted/optimized away. Inlined rather than pulling yielder.hpp,
-    // which #undef's its PAUSE macro and carries a stateful sleep/backoff loop we don't want here.
+    // Arch CPU-relax hint (mirrors yielder.hpp PAUSE), compiler barrier elsewhere. Not reused because
+    // yielder.hpp #undef's PAUSE and pulls in <thread> + a stateful backoff loop we don't want here.
 #if defined(__x86_64__) || defined(__i386__)
     __builtin_ia32_pause();
 #elif defined(__aarch64__)
