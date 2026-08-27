@@ -605,11 +605,12 @@ InMemoryStorage::~InMemoryStorage() {
 }
 
 void InMemoryStorage::RebindMetricHandles(metrics::DatabaseMetricHandles const &new_handles) {
+  auto const ttl_was_paused = ttl_.Paused();
   gc_runner_.PauseAndWait();
   snapshot_runner_.PauseAndWait();
   ttl_.PauseAndWait();
   auto resume = utils::OnScopeExit{[&] {
-    ttl_.Resume();
+    if (!ttl_was_paused) ttl_.Resume();
     snapshot_runner_.Resume();
     gc_runner_.Resume();
   }};

@@ -266,8 +266,10 @@ class DbmsHandler {
       if (storage->config_.register_metrics) {
         storage->RebindMetricHandles({});
         auto new_handles = metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
-        storage->RebindMetricHandles(new_handles);
-        db->RebindMetrics(config.uuid, new_handles);
+        if (new_handles.vertex_count.gauge) {
+          storage->RebindMetricHandles(new_handles);
+          db->RebindMetrics(new_handles);
+        }
       }
 
       return db;

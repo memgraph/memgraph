@@ -203,7 +203,7 @@ class PrometheusMetrics {
 
     DatabaseMetricHandles &handles() { return handles_; }
 
-    void Rebind(utils::UUID const &uuid, DatabaseMetricHandles const &handles) { handles_ = handles; }
+    void Rebind(DatabaseMetricHandles const &handles) { handles_ = handles; }
 
    private:
     friend class PrometheusMetrics;
