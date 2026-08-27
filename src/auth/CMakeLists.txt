@@ -1,5 +1,6 @@
 add_library(mg-auth STATIC)
 target_sources(mg-auth PRIVATE
+    atomic_auth_overlay.cpp
     auth.cpp
     crypto.cpp
     models.cpp
