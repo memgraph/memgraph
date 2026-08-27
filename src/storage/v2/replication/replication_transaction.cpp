@@ -147,18 +147,17 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
   }
 
   // Collect every future before rethrowing anything: an abandoned task keeps running against this
-  // frame's db_acc, streams and this — same rule as WaitEncodeDone.
+  // frame's db_acc, streams and this — same rule as WaitEncodeDone. record_failure allocates, so it
+  // stays inside the try: a bad_alloc from it must not exit the loop before the drain finished.
   std::exception_ptr first_error;
   for (auto &[client, ship_result] : awaited) {
-    ShipResult finalized = std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
     try {
-      finalized = ship_result.get();
+      record_failure(client, ship_result.get());
     } catch (...) {
       if (!first_error) {
         first_error = std::current_exception();
       }
     }
-    record_failure(client, finalized);
   }
   if (first_error) {
     std::rethrow_exception(first_error);
@@ -212,20 +211,21 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
 
   bool strict_sync_replicas_succ{true};
   // Collect every future before rethrowing anything: an abandoned task keeps running against this,
-  // which the caller's unwind destroys — same rule as WaitEncodeDone.
+  // which the caller's unwind destroys — same rule as WaitEncodeDone. The push_back allocates, so it
+  // stays inside the try: a bad_alloc from it must not exit the loop before the drain finished.
   std::exception_ptr first_error;
   for (auto &[client, commit_result] : decisions) {
     bool commit_res = false;
     try {
       commit_res = commit_result.get();
+      if (!commit_res) {
+        finalize_failures_.push_back(
+            {.name = std::string{client->Name()}, .mode = "STRICT_SYNC", .reason = ReplicaFailureReason::RPC_ERROR});
+      }
     } catch (...) {
       if (!first_error) {
         first_error = std::current_exception();
       }
-    }
-    if (!commit_res) {
-      finalize_failures_.push_back(
-          {.name = std::string{client->Name()}, .mode = "STRICT_SYNC", .reason = ReplicaFailureReason::RPC_ERROR});
     }
     strict_sync_replicas_succ &= commit_res;
   }

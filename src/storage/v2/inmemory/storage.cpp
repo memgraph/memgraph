@@ -4389,19 +4389,26 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     }
     return positions;
   }};
+
   auto wal_result = wal_task.get_future();
   // Every worker borrows this frame (commands, commit_args, streams), so if anything below throws
   // before the barrier collected them, collect them here; a task that never got enqueued surfaces as
   // an already-satisfied broken-promise future. On the normal path the barrier already ran and this
   // is a no-op.
   auto const collect_workers = utils::OnScopeExit{[&]() noexcept {
+    // Separate try blocks: a throw while collecting the encode tasks must not skip collecting the WAL
+    // task, and neither throw may escape the noexcept guard.
     try {
       replicating_txn.WaitEncodeDone();
       // NOLINTNEXTLINE(bugprone-empty-catch)
     } catch (...) {
     }
-    if (wal_result.valid()) {
-      wal_result.wait();
+    try {
+      if (wal_result.valid()) {
+        wal_result.wait();
+      }
+      // NOLINTNEXTLINE(bugprone-empty-catch)
+    } catch (...) {
     }
   }};
   mem_storage->wal_worker_.AddTask(std::move(wal_task));
