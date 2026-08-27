@@ -5,18 +5,11 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/ncurses.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f ncurses-$NCURSES_VERSION.tar.gz ]]; then
-    wget --https-only https://invisible-island.net/archives/ncurses/ncurses-$NCURSES_VERSION.tar.gz
-    echo "$NCURSES_SHA256  ncurses-$NCURSES_VERSION.tar.gz" | sha256sum -c -
-fi
-popd
+fetch https://invisible-island.net/archives/ncurses/ncurses-$NCURSES_VERSION.tar.gz "$NCURSES_SHA256"
 
-pushd "$TC_BUILD"
 # Host deps (apt): make.
 log_tool_name "ncurses $NCURSES_VERSION (sysroot)"
-tar -xzf ../archives/ncurses-$NCURSES_VERSION.tar.gz
-pushd "ncurses-$NCURSES_VERSION"
+enter_source ncurses-$NCURSES_VERSION.tar.gz ncurses-$NCURSES_VERSION
 # Narrow (8-bit) ncurses with flat /usr/include header layout. The toolchain
 # tools (ccmake, GDB TUI) don't need wide-char support, and the flat layout
 # matches cmake's FindCurses default expectations.
@@ -36,6 +29,4 @@ LDFLAGS="-Wl,-rpath,$SYSROOT/usr/lib" \
     --with-termlib
 make -j$CPUS
 make install DESTDIR=$SYSROOT
-popd
-
-popd
+leave_source

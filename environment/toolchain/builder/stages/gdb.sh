@@ -6,12 +6,7 @@ source /tc/lib/common.sh
 source "$TC_VERSIONS/gdb.env"
 source "$TC_VERSIONS/python.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f gdb-$GDB_VERSION.tar.gz ]]; then
-    wget --https-only https://sourceware.org/pub/gdb/releases/gdb-$GDB_VERSION.tar.gz
-    echo "$GDB_SHA512  gdb-$GDB_VERSION.tar.gz" | sha512sum -c -
-fi
-popd
+fetch https://sourceware.org/pub/gdb/releases/gdb-$GDB_VERSION.tar.gz "$GDB_SHA512"
 
 pushd "$TC_BUILD"
 # Host deps (apt): make — gmp/mpfr come from $PREFIX, python/ncurses/zlib and

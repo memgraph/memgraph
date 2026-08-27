@@ -5,16 +5,8 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/swig.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f swig-$SWIG_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/swig/swig/archive/refs/tags/v$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
-    echo "$SWIG_SHA256 swig-$SWIG_VERSION.tar.gz" | sha256sum -c -
-fi
-if [[ ! -f pcre2-$PCRE2_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/PCRE2Project/pcre2/releases/download/pcre2-$PCRE2_VERSION/pcre2-$PCRE2_VERSION.tar.gz
-    echo "$PCRE2_SHA256  pcre2-$PCRE2_VERSION.tar.gz" | sha256sum -c -
-fi
-popd
+fetch https://github.com/swig/swig/archive/refs/tags/v$SWIG_VERSION.tar.gz "$SWIG_SHA256" swig-$SWIG_VERSION.tar.gz
+fetch https://github.com/PCRE2Project/pcre2/releases/download/pcre2-$PCRE2_VERSION/pcre2-$PCRE2_VERSION.tar.gz "$PCRE2_SHA256"
 
 pushd "$TC_BUILD"
 # Host deps (apt): autoconf (via automake), automake, libtool, bison, make —

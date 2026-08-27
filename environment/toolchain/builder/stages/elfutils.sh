@@ -8,18 +8,11 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/elfutils.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f elfutils-$ELFUTILS_VERSION.tar.bz2 ]]; then
-    wget --https-only https://sourceware.org/elfutils/ftp/$ELFUTILS_VERSION/elfutils-$ELFUTILS_VERSION.tar.bz2
-    echo "$ELFUTILS_SHA256  elfutils-$ELFUTILS_VERSION.tar.bz2" | sha256sum -c -
-fi
-popd
+fetch https://sourceware.org/elfutils/ftp/$ELFUTILS_VERSION/elfutils-$ELFUTILS_VERSION.tar.bz2 "$ELFUTILS_SHA256"
 
-pushd "$TC_BUILD"
 # Host deps: make, m4, bzip2. zlib comes from the sysroot.
 log_tool_name "elfutils $ELFUTILS_VERSION (sysroot)"
-tar -xjf ../archives/elfutils-$ELFUTILS_VERSION.tar.bz2
-pushd "elfutils-$ELFUTILS_VERSION"
+enter_source elfutils-$ELFUTILS_VERSION.tar.bz2 elfutils-$ELFUTILS_VERSION
 # Static only, matching the other sysroot libraries: nothing the toolchain
 # ships should acquire a runtime dependency on a .so inside the sysroot.
 # The debuginfod client and its server are not built -- they pull in
@@ -36,6 +29,4 @@ pushd "elfutils-$ELFUTILS_VERSION"
     --program-prefix=eu-
 make -j$CPUS
 make install DESTDIR=$SYSROOT
-popd
-
-popd
+leave_source

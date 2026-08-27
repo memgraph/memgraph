@@ -5,12 +5,7 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/libipt.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f libipt-$LIBIPT_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/intel/libipt/archive/refs/tags/v$LIBIPT_VERSION.tar.gz -O libipt-$LIBIPT_VERSION.tar.gz
-    echo "$LIBIPT_SHA256  libipt-$LIBIPT_VERSION.tar.gz" | sha256sum -c -
-fi
-popd
+fetch https://github.com/intel/libipt/archive/refs/tags/v$LIBIPT_VERSION.tar.gz "$LIBIPT_SHA256" libipt-$LIBIPT_VERSION.tar.gz
 
 pushd "$TC_BUILD"
 # Host deps (apt): make — built with the toolchain cmake/gcc from above.

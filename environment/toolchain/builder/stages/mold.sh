@@ -14,20 +14,13 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/mold.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f mold-$MOLD_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/rui314/mold/archive/refs/tags/v$MOLD_VERSION.tar.gz -O mold-$MOLD_VERSION.tar.gz
-    echo "$MOLD_SHA256  mold-$MOLD_VERSION.tar.gz" | sha256sum -c -
-fi
-popd
+fetch https://github.com/rui314/mold/archive/refs/tags/v$MOLD_VERSION.tar.gz "$MOLD_SHA256" mold-$MOLD_VERSION.tar.gz
 
-pushd "$TC_BUILD"
 # Host deps (apt): make ("gcc"/"g++" resolve to the toolchain via PATH).
 # mold carries its own TBB, mimalloc, blake3, xxhash, zlib and zstd, so this
 # adds no sysroot library and no stage has to run before it but cmake.
 log_tool_name "mold $MOLD_VERSION"
-tar -xzf ../archives/mold-$MOLD_VERSION.tar.gz
-pushd "mold-$MOLD_VERSION"
+enter_source mold-$MOLD_VERSION.tar.gz mold-$MOLD_VERSION
 # $ORIGIN, not an absolute path, so the installed tree can be moved: mold
 # needs the libstdc++ this toolchain builds, which is newer than the
 # sysroot's. The vendored dependencies are linked statically, which is
@@ -40,6 +33,4 @@ cmake -S . -B build \
     -DMOLD_USE_SYSTEM_MIMALLOC=OFF
 cmake --build build -j$CPUS
 cmake --install build
-popd
-
-popd
+leave_source

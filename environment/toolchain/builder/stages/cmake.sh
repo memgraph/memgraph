@@ -5,12 +5,7 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/cmake.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f cmake-$CMAKE_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION.tar.gz
-    echo "$CMAKE_SHA256  cmake-$CMAKE_VERSION.tar.gz" | sha256sum -c -
-fi
-popd
+fetch https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION.tar.gz "$CMAKE_SHA256"
 
 pushd "$TC_BUILD"
 # Host deps (apt): make — compiler is the toolchain gcc; curl/ncurses/openssl/

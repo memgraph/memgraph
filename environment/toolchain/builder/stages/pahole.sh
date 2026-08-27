@@ -5,12 +5,7 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/pahole.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f pahole-gdb-master.zip ]]; then
-    wget --https-only https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -O pahole-gdb-master.zip
-    echo "$PAHOLE_SHA256 pahole-gdb-master.zip" | sha256sum -c -
-fi
-popd
+fetch https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip "$PAHOLE_SHA256" pahole-gdb-master.zip
 
 pushd "$TC_BUILD"
 # Host deps (apt): unzip.

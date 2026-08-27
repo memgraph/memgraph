@@ -10,12 +10,7 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/dwz.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f dwz-$DWZ_VERSION.tar.xz ]]; then
-    wget --https-only https://sourceware.org/pub/dwz/releases/dwz-$DWZ_VERSION.tar.xz
-    echo "$DWZ_SHA256  dwz-$DWZ_VERSION.tar.xz" | sha256sum -c -
-fi
-popd
+fetch https://sourceware.org/pub/dwz/releases/dwz-$DWZ_VERSION.tar.xz "$DWZ_SHA256"
 
 pushd "$TC_BUILD"
 # Host deps: make. libelf comes from the sysroot.

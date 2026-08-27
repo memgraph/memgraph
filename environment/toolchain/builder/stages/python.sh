@@ -5,19 +5,12 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/python.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f Python-$PYTHON_VERSION.tgz ]]; then
-    wget --https-only https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz
-    echo "$PYTHON_SHA256  Python-$PYTHON_VERSION.tgz" | sha256sum -c -
-fi
-popd
+fetch https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz "$PYTHON_SHA256"
 
-pushd "$TC_BUILD"
 # Host deps (apt): make, pkg-config — zlib/ncurses/openssl/libffi deps all come
 # from the sysroot built above.
 log_tool_name "Python $PYTHON_VERSION (sysroot)"
-tar -xzf ../archives/Python-$PYTHON_VERSION.tgz
-pushd "Python-$PYTHON_VERSION"
+enter_source Python-$PYTHON_VERSION.tgz Python-$PYTHON_VERSION
 # Python is included solely so GDB can build with --with-python. We keep
 # the build small (skip pip, tests, profile-guided optimisation) and link
 # against sysroot openssl / libffi already installed above.
@@ -37,6 +30,4 @@ LDFLAGS="-Wl,-rpath,$SYSROOT/usr/lib" \
     --with-system-ffi
 make -j$CPUS
 make install DESTDIR=$SYSROOT
-popd
-
-popd
+leave_source

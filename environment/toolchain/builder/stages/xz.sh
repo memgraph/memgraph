@@ -12,19 +12,12 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/xz.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f xz-$XZ_VERSION.tar.xz ]]; then
-    wget --https-only https://github.com/tukaani-project/xz/releases/download/v$XZ_VERSION/xz-$XZ_VERSION.tar.xz
-    echo "$XZ_SHA256  xz-$XZ_VERSION.tar.xz" | sha256sum -c -
-fi
-popd
+fetch https://github.com/tukaani-project/xz/releases/download/v$XZ_VERSION/xz-$XZ_VERSION.tar.xz "$XZ_SHA256"
 
-pushd "$TC_BUILD"
 # Host deps: make. Only the library is wanted; the command line tools would
 # shadow the host's xz on PATH for no benefit.
 log_tool_name "xz $XZ_VERSION (sysroot)"
-tar -xJf ../archives/xz-$XZ_VERSION.tar.xz
-pushd "xz-$XZ_VERSION"
+enter_source xz-$XZ_VERSION.tar.xz xz-$XZ_VERSION
 ./configure \
     --prefix=/usr \
     --libdir=/usr/lib \
@@ -40,6 +33,4 @@ pushd "xz-$XZ_VERSION"
     --disable-nls
 make -j$CPUS
 make install DESTDIR=$SYSROOT
-popd
-
-popd
+leave_source

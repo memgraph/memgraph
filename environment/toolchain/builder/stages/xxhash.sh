@@ -9,21 +9,12 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/xxhash.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f xxhash-$XXHASH_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/Cyan4973/xxHash/archive/refs/tags/v$XXHASH_VERSION.tar.gz -O xxhash-$XXHASH_VERSION.tar.gz
-    echo "$XXHASH_SHA256  xxhash-$XXHASH_VERSION.tar.gz" | sha256sum -c -
-fi
-popd
+fetch https://github.com/Cyan4973/xxHash/archive/refs/tags/v$XXHASH_VERSION.tar.gz "$XXHASH_SHA256" xxhash-$XXHASH_VERSION.tar.gz
 
-pushd "$TC_BUILD"
 # Host deps: make.
 log_tool_name "xxhash $XXHASH_VERSION (sysroot)"
 # the tarball unpacks to xxHash-$VERSION, capitalised differently
-tar -xzf ../archives/xxhash-$XXHASH_VERSION.tar.gz
-pushd "xxHash-$XXHASH_VERSION"
+enter_source xxhash-$XXHASH_VERSION.tar.gz xxHash-$XXHASH_VERSION
 make -j$CPUS libxxhash.a
 make install PREFIX=/usr LIBDIR=/usr/lib DESTDIR=$SYSROOT
-popd
-
-popd
+leave_source

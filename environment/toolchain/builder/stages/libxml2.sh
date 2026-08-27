@@ -15,11 +15,9 @@ if [[ ! -f libxml2-$LIBXML2_VERSION.tar.xz ]]; then
 fi
 popd
 
-pushd "$TC_BUILD"
 # Host deps: make. zlib comes from the sysroot.
 log_tool_name "libxml2 $LIBXML2_VERSION (sysroot)"
-tar -xJf ../archives/libxml2-$LIBXML2_VERSION.tar.xz
-pushd "libxml2-$LIBXML2_VERSION"
+enter_source libxml2-$LIBXML2_VERSION.tar.xz libxml2-$LIBXML2_VERSION
 # Static, and trimmed to what libabigail reads: no python bindings, and no
 # network fetching, which an ABI comparison has no business doing.
 ./configure \
@@ -33,6 +31,4 @@ pushd "libxml2-$LIBXML2_VERSION"
     --without-lzma
 make -j$CPUS
 make install DESTDIR=$SYSROOT
-popd
-
-popd
+leave_source

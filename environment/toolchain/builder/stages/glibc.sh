@@ -6,12 +6,7 @@ source /tc/lib/common.sh
 source "$TC_VERSIONS/glibc.env"
 source "$TC_VERSIONS/linux-headers.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f glibc-$GLIBC_VERSION.tar.xz ]]; then
-    wget --https-only https://ftp.gnu.org/gnu/glibc/glibc-$GLIBC_VERSION.tar.xz
-    echo "$GLIBC_SHA256  glibc-$GLIBC_VERSION.tar.xz" | sha256sum -c -
-fi
-popd
+fetch https://ftp.gnu.org/gnu/glibc/glibc-$GLIBC_VERSION.tar.xz "$GLIBC_SHA256"
 
 pushd "$TC_BUILD"
 # Host deps (apt): gcc, g++, make (build-essential), gawk, bison, python3.

@@ -60,6 +60,71 @@ fi
 
 TOOLCHAIN_STDCXX="${TOOLCHAIN_STDCXX:-libstdc++}"
 
+# Fetch a source archive into the download cache and check it against a digest.
+#
+# The digest is checked every time, not only when the file is downloaded: the
+# cache is a mount that outlives the build, so an archive already sitting there
+# has not been looked at since it arrived. The algorithm follows from the length
+# of the digest, so there is no third argument to get wrong.
+#
+#   fetch <url> <digest> [filename]
+fetch () {
+    local url="$1" digest="$2" file="${3:-}" rc=0
+    [[ -n "$file" ]] || file="${url##*/}"
+    pushd "$TC_ARCHIVES"
+    # The status is carried rather than left to the last command: popd runs
+    # after the check and would otherwise report success over a bad digest.
+    [[ -f "$file" ]] || wget --https-only -O "$file" "$url" || rc=1
+    if (( rc == 0 )); then
+        case "${#digest}" in
+            64)  echo "$digest  $file" | sha256sum -c - || rc=1 ;;
+            128) echo "$digest  $file" | sha512sum -c - || rc=1 ;;
+            *)   echo "fetch: $file: $digest is neither a sha256 nor a sha512" >&2
+                 rc=1 ;;
+        esac
+    fi
+    popd
+    return $rc
+}
+
+# Unpack an archive from the cache and leave the shell inside the tree it
+# unpacked, ready for the recipe. Paired with leave_source.
+#
+# The tar flag follows from the extension. Choosing it by hand is how one
+# archive came to be unpacked with -xvf and the next with -xzf for no reason,
+# and how a recipe can end up unpacking nothing and building the last tree that
+# happened to be there.
+#
+#   enter_source <archive> <directory it unpacks to>
+enter_source () {
+    local file="$1" dir="$2" rc=0
+    pushd "$TC_BUILD"
+    case "$file" in
+        *.tar.gz|*.tgz) tar -xzf "$TC_ARCHIVES/$file" || rc=1 ;;
+        *.tar.xz)       tar -xJf "$TC_ARCHIVES/$file" || rc=1 ;;
+        *.tar.bz2)      tar -xjf "$TC_ARCHIVES/$file" || rc=1 ;;
+        *.zip)          unzip -q "$TC_ARCHIVES/$file" || rc=1 ;;
+        *) echo "enter_source: $file: unknown archive type" >&2; rc=1 ;;
+    esac
+    if (( rc == 0 )) && [[ ! -d "$dir" ]]; then
+        echo "enter_source: $file did not unpack to $dir" >&2
+        rc=1
+    fi
+    # On failure the build directory is left as it was found, so a recipe that
+    # ignores the status does not carry on inside the wrong tree.
+    if (( rc != 0 )); then
+        popd
+        return $rc
+    fi
+    pushd "$dir"
+}
+
+# Leave the tree enter_source entered, and the build directory with it.
+leave_source () {
+    popd
+    popd
+}
+
 # A git tag is a movable pointer, so cloning one says what the source was
 # called rather than what it was. Checking the commit we actually got turns a
 # moved tag into a failed build instead of a toolchain quietly built from

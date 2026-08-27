@@ -10,21 +10,12 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/zstd.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f zstd-$ZSTD_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz -O zstd-$ZSTD_VERSION.tar.gz
-    echo "$ZSTD_SHA256  zstd-$ZSTD_VERSION.tar.gz" | sha256sum -c -
-fi
-popd
+fetch https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz "$ZSTD_SHA256" zstd-$ZSTD_VERSION.tar.gz
 
-pushd "$TC_BUILD"
 # Host deps: make. Static only: LLVM links it in, and a shared copy in the
 # sysroot would become another runtime dependency of every clang invocation.
 log_tool_name "zstd $ZSTD_VERSION (sysroot)"
-tar -xzf ../archives/zstd-$ZSTD_VERSION.tar.gz
-pushd "zstd-$ZSTD_VERSION"
+enter_source zstd-$ZSTD_VERSION.tar.gz zstd-$ZSTD_VERSION
 make -j$CPUS -C lib libzstd.a
 make -C lib install-static install-includes PREFIX=/usr LIBDIR=/usr/lib DESTDIR=$SYSROOT
-popd
-
-popd
+leave_source

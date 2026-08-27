@@ -5,19 +5,12 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/curl.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f curl-$CURL_VERSION.tar.gz ]]; then
-    wget --https-only https://curl.se/download/curl-$CURL_VERSION.tar.gz
-    echo "$CURL_SHA256  curl-$CURL_VERSION.tar.gz" | sha256sum -c -
-fi
-popd
+fetch https://curl.se/download/curl-$CURL_VERSION.tar.gz "$CURL_SHA256"
 
-pushd "$TC_BUILD"
 # Host deps (apt): make, pkg-config (resolves sysroot OpenSSL/zlib .pc files
 # via PKG_CONFIG_LIBDIR).
 log_tool_name "curl $CURL_VERSION (sysroot)"
-tar -xzf ../archives/curl-$CURL_VERSION.tar.gz
-pushd "curl-$CURL_VERSION"
+enter_source curl-$CURL_VERSION.tar.gz curl-$CURL_VERSION
 ./configure --prefix=/usr \
     --enable-static \
     --disable-shared \
@@ -32,6 +25,4 @@ pushd "curl-$CURL_VERSION"
     --disable-ldap
 make -j$CPUS
 make install DESTDIR=$SYSROOT
-popd
-
-popd
+leave_source

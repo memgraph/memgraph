@@ -5,18 +5,11 @@ set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/openssl.env"
 
-pushd "$TC_ARCHIVES"
-if [[ ! -f openssl-$OPENSSL_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz
-    echo "$OPENSSL_SHA256  openssl-$OPENSSL_VERSION.tar.gz" | sha256sum -c -
-fi
-popd
+fetch https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz "$OPENSSL_SHA256"
 
-pushd "$TC_BUILD"
 # Host deps (apt): make, perl (openssl's Configure is a perl script).
 log_tool_name "openssl $OPENSSL_VERSION (sysroot)"
-tar -xzf ../archives/openssl-$OPENSSL_VERSION.tar.gz
-pushd "openssl-$OPENSSL_VERSION"
+enter_source openssl-$OPENSSL_VERSION.tar.gz openssl-$OPENSSL_VERSION
 ./config --prefix=/usr \
     --openssldir=/usr/ssl \
     no-shared \
@@ -26,6 +19,4 @@ pushd "openssl-$OPENSSL_VERSION"
     enable-deprecated
 make -j$CPUS
 make install_sw DESTDIR=$SYSROOT
-popd
-
-popd
+leave_source
