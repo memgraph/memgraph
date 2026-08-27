@@ -17,7 +17,10 @@
 #
 # Build with the justfile rather than by hand; it passes the arguments below.
 
-ARG BASE_IMAGE=ubuntu@sha256:8feb4d8ca5354def3d8fce243717141ce31e2c428701f6682bd2fafe15388214
+# Supplied by the justfile from the version set's builder.env. No default:
+# a default here would be a second place to change the base image, and the
+# one that silently wins when the set is not consulted.
+ARG BASE_IMAGE
 
 FROM ${BASE_IMAGE} AS base
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -32,9 +35,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # That is the one remaining source of drift in the build environment, and it is
 # what a snapshot archive would close; until then a rebuild months apart can
 # pick up different builder packages.
-COPY apt-packages.txt /tc/apt-packages.txt
+COPY resolved/packages.txt /tc/packages.txt
 RUN apt-get update && \
-    grep -vE '^\s*(#|$)' /tc/apt-packages.txt | xargs apt-get install -y --no-install-recommends && \
+    grep -vE '^\s*(#|$)' /tc/packages.txt | xargs apt-get install -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
 # $DIR in the recipes: holds archives/, build/, and the version's own
@@ -43,11 +46,14 @@ WORKDIR /work
 COPY files/ /work/
 COPY lib/ /tc/lib/
 
-# Cross-target and the builder's glibc, both build arguments so they are part
-# of every stage's cache key rather than detected at run time.
+# Build arguments so they are part of every stage's cache key rather than
+# detected at run time. TC_FOR_ARM selects the cross-target and is a knob;
+# the other two describe the build environment and come from the version set's
+# builder.env, so they carry no default for the same reason BASE_IMAGE does
+# not.
 ARG TC_FOR_ARM=false
-ARG TC_DISTRO=ubuntu-20.04
-ARG TC_BUILDER_GLIBC_FLOOR=2.31
+ARG TC_DISTRO
+ARG TC_BUILDER_GLIBC_FLOOR
 ENV TC_FOR_ARM=${TC_FOR_ARM} \
     TC_DISTRO=${TC_DISTRO} \
     TC_BUILDER_GLIBC_FLOOR=${TC_BUILDER_GLIBC_FLOOR} \
@@ -106,7 +112,7 @@ RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/binutils.
 #        its build at. In practice the C library, and the C++ runtime beside it
 #        in lib64.
 #   no   a library only needed to build one of these tools, where the result is
-#        linked statically. That belongs in apt-packages.txt: it is a property
+#        linked statically. That belongs in the set's packages.txt: it is a property
 #        of the machine doing the building, never of the toolchain. boost and
 #        elfutils are the examples -- heaptrack compiles against the builder's
 #        copies and links them in, so neither ever reaches the sysroot.

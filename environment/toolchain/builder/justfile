@@ -49,8 +49,7 @@ _builder-exists:
         docker buildx create --name {{ builder }} --driver docker-container \
             --config "{{ here }}/buildkitd.toml" --bootstrap
 
-# Put the selected version set where the Dockerfile expects it. Everything that
-# builds depends on this, and nothing else should read versions/ directly.
+# Put the selected version set where the Dockerfile expects it.
 _resolve:
     @test -d "{{ here }}/versions/{{ set_name }}" || \
         { echo "no version set {{ set_name }}; have:" >&2; ls "{{ here }}/versions" >&2; exit 1; }
@@ -80,37 +79,56 @@ check:
 
 # Build the toolchain; the archive lands in output/.
 build *args: check _resolve _builder-exists _space
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # The build environment comes from the set's builder.env, passed before any
+    # extra arguments so a --build-arg on the command line still wins: a one-off
+    # build on a different base does not need a version set of its own.
+    source "{{ here }}/resolved/builder.env"
     mkdir -p "{{ output }}"
     docker buildx build {{ _builder }} "{{ here }}" \
         --target artifact \
+        --build-arg BASE_IMAGE="$BASE_IMAGE" \
+        --build-arg TC_DISTRO="$TC_DISTRO" \
+        --build-arg TC_BUILDER_GLIBC_FLOOR="$TC_BUILDER_GLIBC_FLOOR" \
         --output "type=local,dest={{ output }}" \
         {{ _cache_from }} {{ _cache_to }} \
         {{ args }}
-    @echo
-    @ls -lh "{{ output }}"/*.tar.gz
+    echo
+    ls -lh "{{ output }}"/*.tar.gz
 
 # Build up to one stage only, for iterating on it.
 stage name *args: _resolve _builder-exists
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "{{ here }}/resolved/builder.env"
     docker buildx build {{ _builder }} "{{ here }}" \
         --target "s-{{ name }}" \
+        --build-arg BASE_IMAGE="$BASE_IMAGE" \
+        --build-arg TC_DISTRO="$TC_DISTRO" \
+        --build-arg TC_BUILDER_GLIBC_FLOOR="$TC_BUILDER_GLIBC_FLOOR" \
         {{ _cache_from }} \
         {{ args }}
 
 # Open a shell inside a stage, for working out why it failed.
 shell name *args: _resolve _builder-exists
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "{{ here }}/resolved/builder.env"
     docker buildx build {{ _builder }} "{{ here }}" \
         --target "s-{{ name }}" \
         --load -t "mg-toolchain-stage-{{ name }}" \
+        --build-arg BASE_IMAGE="$BASE_IMAGE" \
+        --build-arg TC_DISTRO="$TC_DISTRO" \
+        --build-arg TC_BUILDER_GLIBC_FLOOR="$TC_BUILDER_GLIBC_FLOOR" \
         {{ _cache_from }} {{ args }}
     docker run --rm -it "mg-toolchain-stage-{{ name }}" bash
 
-# Describe an installed toolchain, for comparing two of them. With no
-# argument the script defaults to the prefix this builder produces.
+# Describe an installed toolchain, for comparing two of them.
 fingerprint prefix="":
     "{{ here }}/verify/fingerprint.sh" "{{ prefix }}"
 
-# Check an installed toolchain resolves its own libraries rather than the
-# host's. Needs a deployed tree, so it is separate from the static checks.
+# Check an installed toolchain resolves its own libraries, not the host's.
 check-links prefix="":
     "{{ here }}/verify/runtime-links.sh" "{{ prefix }}"
 

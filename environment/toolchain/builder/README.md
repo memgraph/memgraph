@@ -64,6 +64,8 @@ the floor for where the toolchain itself can run.
 | `Dockerfile` | the stage graph; one stage per tool |
 | `stages/*.sh` | the build recipes, one per tool |
 | `versions/<set>/*.env` | one complete set per toolchain, one file per stage |
+| `versions/<set>/builder.env` | the base image and the floor for where the toolchain runs |
+| `versions/<set>/packages.txt` | what the build machine needs, and nothing else |
 | `resolved/` | the selected set, copied here before a build; generated |
 | `lib/common.sh` | the environment every stage script expects |
 | `files/` | `activate` and `toolchain.cmake`, shipped inside the toolchain |
@@ -85,6 +87,28 @@ unpacked source tree, and LLVM runs the swig that the swig stage built. That is
 why `$DIR` is one directory holding `archives/`, `build/` and the toolchain's
 own files, exactly as it was in the original script. Fanning out the
 independent leaves is worth doing once the port is proven, not before.
+
+**A version set owns its build environment too.** Two things get confused
+because both are glibc versions and both are currently near 2.31: the sysroot
+glibc in `glibc.env` decides where a binary *compiled with* this toolchain
+runs, and the base image in `builder.env` decides where the *toolchain itself*
+runs. They move for different reasons. The base image sets the builder's glibc,
+so it and `TC_BUILDER_GLIBC_FLOOR` are one decision and sit together; raising
+the image without raising the floor leaves the check passing while the
+toolchain has quietly stopped running on the oldest machine that needs it.
+
+The justfile passes these before any argument you add, so `--build-arg
+BASE_IMAGE=...` still wins and a one-off build on a different base does not
+need a version set of its own.
+
+**When a recipe has to differ between versions.** It has not happened yet, so
+there is no machinery for it, and this is the rule for when it does. Condition
+on the tool's own version rather than the toolchain's: a flag exists because
+LLVM 23 accepts it and 22 does not, which stays true the next time LLVM is
+bumped, whereas "from v10 onwards" stops being true as soon as v11 exists. Once
+a recipe carries more than a couple of these, fork it deliberately and say in
+both copies that the other exists -- a recipe that is half conditional is
+harder to read than two recipes.
 
 **Recipes were moved, not rewritten.** Those commands encode expensive lessons
 about bootstrap ordering, target triples and sysroot layout. The extraction was
