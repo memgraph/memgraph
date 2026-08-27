@@ -392,7 +392,12 @@ class Interpreter final {
 
   Interpreter::ParseRes Parse(const std::string &query, UserParameters_fn params_getter, QueryExtras const &extras);
 
-  Interpreter::PrepareResult Prepare(ParseRes parse_res, UserParameters_fn params_getter, QueryExtras const &extras);
+  // parse_res and params_getter are taken by non-const reference: they are only moved-from on the
+  // success path, after the storage accessor is acquired. If the acquire bails with
+  // WouldBlockInlineException (TryBounded mode) they are left untouched, so the caller can retry
+  // Prepare with the same parsed input.
+  Interpreter::PrepareResult Prepare(ParseRes &parse_res, UserParameters_fn &params_getter, QueryExtras const &extras,
+                                     storage::EngineLockMode try_mode = storage::EngineLockMode::Blocking);
 
   /**
    * Prepare a query for execution.
@@ -407,7 +412,9 @@ class Interpreter final {
     // Split Prepare in two (Parse and Prepare)
     // This allows us to parse, deduce priority and schedule accordingly
     // Leaving this one-shot version for back-compatiblity
-    return Prepare(Parse(query, params_getter, extras), params_getter, extras);
+    // parse_res must be an lvalue: the ParseRes overload binds it by reference.
+    auto parse_res = Parse(query, params_getter, extras);
+    return Prepare(parse_res, params_getter, extras);
   }
 
   /**

@@ -386,6 +386,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         while (session_.HasPendingBegin()) {
           session_.FinishPendingBegin();
         }
+        while (session_.HasPendingPrepare()) {
+          session_.FinishPendingPrepare();
+        }
       }
       // Handled all data,  async wait for new incoming data
       DoReadAsio();
@@ -404,6 +407,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                   // BEGIN's engine-lock acquire would block: finish it off the worker via the pool
                   // (PostFinishPendingBegin). Return now so no message pipelined behind the BEGIN runs first.
                   shared_this->PostFinishPendingBegin();
+                  return;
+                }
+                if (shared_this->session_.HasPendingPrepare()) {
+                  // PREPARE's engine-lock acquire would block: finish it off the worker via the pool
+                  // (PostFinishPendingPrepare). Return now so no message pipelined behind the PREPARE runs first.
+                  shared_this->PostFinishPendingPrepare();
                   return;
                 }
                 // Check if we can just steal this task (loop through)
@@ -438,6 +447,33 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                 return;
               case memgraph::communication::bolt::PendingBeginOutcome::Done:
               case memgraph::communication::bolt::PendingBeginOutcome::ClientError:
+                if (shared_this->session_.HasBufferedData()) {
+                  shared_this->DoWork();
+                } else {
+                  shared_this->DoRead();
+                }
+                return;
+            }
+          } catch (const std::exception & /* unused */) {
+            boost::asio::post(shared_this->strand_,
+                              [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
+          }
+        },
+        session_.ApproximateQueryPriority());
+  }
+
+  // Completes a would-block PREPARE on the POOL (AddTask, never the strand): Reschedule re-posts so the worker never
+  // blocks behind a slow commit; a terminal outcome resumes DoWork/DoRead. FinishPendingPrepare emits the header once.
+  void PostFinishPendingPrepare() {
+    session_context_->AddTask(
+        [shared_this = shared_from_this()](const auto /*thread_priority*/) {
+          try {
+            switch (shared_this->session_.FinishPendingPrepare()) {
+              case memgraph::communication::bolt::PendingPrepareOutcome::Reschedule:
+                shared_this->PostFinishPendingPrepare();  // re-post to the POOL, never post(strand_)
+                return;
+              case memgraph::communication::bolt::PendingPrepareOutcome::Done:
+              case memgraph::communication::bolt::PendingPrepareOutcome::ClientError:
                 if (shared_this->session_.HasBufferedData()) {
                   shared_this->DoWork();
                 } else {

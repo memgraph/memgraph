@@ -214,26 +214,20 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
 template <typename TSession>
 State HandlePrepare(TSession &session) {
   try {
-    // Interpret can throw.
-    const auto [header, qid] = session.InterpretPrepare();
-    // Convert std::string to Value
-    std::vector<Value> vec;
-    map_t data;
-    vec.reserve(header.size());
-    for (auto &i : header) vec.emplace_back(std::move(i));
-    data.emplace("fields", std::move(vec));
-    if (session.version_.major > 1) {
-      if (qid) {
-        data.emplace("qid", Value{*qid});
-      }
-    }
-
-    // Send the header.
-    if (!session.encoder_.MessageSuccess(data)) {
+    // Interpret can throw. Bounded-try engine-lock acquire (mirrors HandleBegin): rather than busy-spin this pool
+    // worker behind a long write commit's durability hold, InterpretPrepare throws WouldBlockInlineException on
+    // contention while keeping parsed_res_ intact, so the completion reschedules on the pool.
+    const auto [header, qid] = session.InterpretPrepare(storage::EngineLockMode::TryBounded);
+    // Send the header (exactly one SUCCESS). The PendingPrepare bail below must NOT send it.
+    if (!session.SendPrepareHeader(header, qid)) {
       spdlog::trace("Couldn't send query header!");
       return State::Close;
     }
     return State::Result;
+  } catch (const memgraph::query::WouldBlockInlineException &) {
+    // parsed_res_ is intact (re-runnable); the pool retries via FinishPendingPrepare_, which emits the one SUCCESS.
+    session.StashPendingPrepare();
+    return State::PendingPrepare;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }

@@ -56,6 +56,14 @@ enum class State : uint8_t {
   PendingBegin,
 
   /**
+   * A PREPARE (the Parsed->Result step) whose engine-lock acquire would block has been decoded and parsed; its
+   * completion is being run out-of-band on a pool worker. Execute_ returns without touching any message buffered
+   * behind the PREPARE, so ordering is preserved until the PREPARE finishes. The parse itself is held in
+   * SessionHL::parsed_res_ (re-runnable); the bolt layer only tracks the pending flag + retry count.
+   */
+  PendingPrepare,
+
+  /**
    * This state handles errors, if client handles error response correctly next
    * state is Idle.
    */
@@ -74,4 +82,10 @@ enum class State : uint8_t {
 // ClientError - send failed or the begin threw; state moved to Close/Error.
 // Reschedule  - the bounded-try engine-lock acquire lost the race; extras stay stashed, re-post to the pool.
 enum class PendingBeginOutcome : uint8_t { Done, ClientError, Reschedule };
+
+// Outcome of the pool-side completion of a would-block PREPARE (FinishPendingPrepare_).
+// Done        - the PREPARE completed and the header SUCCESS was sent.
+// ClientError - send failed or the prepare threw; state moved to Close/Error.
+// Reschedule  - the bounded-try engine-lock acquire lost the race; parsed_res_ stays intact, re-post to the pool.
+enum class PendingPrepareOutcome : uint8_t { Done, ClientError, Reschedule };
 }  // namespace memgraph::communication::bolt

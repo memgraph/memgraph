@@ -10561,8 +10561,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   std::optional<storage::StorageAccessType> accessor_type_;
 };
 
-Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
-                                                QueryExtras const &extras) {
+Interpreter::PrepareResult Interpreter::Prepare(ParseRes &parse_res, UserParameters_fn &params_getter,
+                                                QueryExtras const &extras, storage::EngineLockMode try_mode) {
   std::optional<memory::DbArenaScope> db_arena_scope;
   if (current_db_.db_acc_) {
     db_arena_scope.emplace(current_db_.db_acc_->get());
@@ -10795,7 +10795,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         if (transaction_requirements.isolation_level_override_) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
         }
-        SetupDatabaseTransaction(transaction_requirements.could_commit_, *transaction_requirements.accessor_type_);
+        SetupDatabaseTransaction(
+            transaction_requirements.could_commit_, *transaction_requirements.accessor_type_, try_mode);
 
         // SET STORAGE MODE can land between the unlocked read of `storage_mode` and the accessor
         // taking its hold, leaving the access type chosen for a mode no longer in force: an index
