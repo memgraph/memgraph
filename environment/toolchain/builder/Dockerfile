@@ -12,8 +12,8 @@
 # chain -- glibc needs the kernel headers, GCC needs glibc, everything after
 # needs GCC -- and the recipes reach across the shared build directory in
 # places (gmp and mpfr build from GCC's source tree, LLVM runs the swig that
-# swig built). Fanning out the independent leaves is worth doing once the port
-# is proven to reproduce v8, not before.
+# swig built). Fanning out the independent leaves is worth doing once this is
+# proven against a toolchain we already trust, not before.
 #
 # Build with the justfile rather than by hand; it passes the arguments below.
 

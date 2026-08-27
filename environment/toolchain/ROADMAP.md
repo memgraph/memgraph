@@ -158,15 +158,24 @@ floors), and an end-to-end memgraph build plus unit tests.
 ### Stage 4: features, each landing separately
 So that each fingerprint delta is readable. Adding `llvm-bolt` should show one
 new executable and nothing else; if it shows more, that is a finding.
-- zstd in the sysroot, `LLVM_ENABLE_ZSTD=FORCE_ON` (written, verified against v8)
-- `llvm-bolt` in `LLVM_ENABLE_PROJECTS`
-- libc++ runtime plus a profile, no CI job
-- gdb `$ORIGIN`-relative rpath
+
+**Landed**: zstd in the sysroot with `LLVM_ENABLE_ZSTD=FORCE_ON`; `llvm-bolt`
+in `LLVM_ENABLE_PROJECTS`; mold; dwz and libabigail; an `$ORIGIN`-relative
+rpath for gdb, and then a pass that makes every runpath in the prefix relative,
+which subsumes it.
+
+**Still parked**: the libc++ runtime plus a profile, with no CI job. It is a
+capability rather than a supported configuration, because the stdlib choice is
+a package-ID input and flipping it needs a parallel set of dependency binaries.
 
 ### Stage 5: version bumps
 LLVM 23 and GCC, on a build already proven equivalent, so a failure is
 unambiguously a version problem. Needs `compiler.version` updated in the Conan
 profile alongside.
+
+On this driver a bump is `LLVM_VERSION` in `builder/versions/llvm.env`, not a
+copied directory, and it rebuilds LLVM and what follows it rather than the whole
+toolchain.
 
 Raise the floors here too. They are currently set by the builder base rather
 than by anything we support, and they are three glibc releases and ten kernel

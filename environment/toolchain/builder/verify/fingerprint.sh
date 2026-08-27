@@ -10,7 +10,7 @@
 # Usage: fingerprint.sh [prefix]
 set -euo pipefail
 
-PREFIX="${1:-/opt/toolchain-v8}"
+PREFIX="${1:-/opt/toolchain-v9}"
 [[ -d "$PREFIX" ]] || { echo "no such prefix: $PREFIX" >&2; exit 1; }
 
 echo "### structure"

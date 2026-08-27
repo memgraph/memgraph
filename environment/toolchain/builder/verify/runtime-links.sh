@@ -12,7 +12,7 @@
 # Run: verify/runtime-links.sh [prefix]   (or `just check-links`)
 set -uo pipefail
 
-PREFIX="${1:-${PREFIX:-/opt/toolchain-v8}}"
+PREFIX="${1:-${PREFIX:-/opt/toolchain-v9}}"
 [[ -d "$PREFIX" ]] || { echo "no such prefix: $PREFIX" >&2; exit 2; }
 
 # The sysroot holds libraries for the target, not for this machine, so runtime

@@ -1,8 +1,13 @@
 # Toolchain build
 
-Builds the memgraph toolchain as a set of cached Docker stages instead of one
-long shell script, so changing one tool rebuilds that tool and what depends on
-it rather than everything.
+Builds toolchain v9 as a set of cached Docker stages instead of one long shell
+script, so changing one tool rebuilds that tool and what depends on it rather
+than everything.
+
+v8 is not built from here. It stays as it is, in `../v8/`, and this directory
+replaces the copy-the-previous-version model for v9 onwards: the version is a
+variable in `versions/toolchain.env`, so v10 is a bump rather than a new
+directory.
 
 ```
 just build              # build the toolchain, archive lands in output/
@@ -14,8 +19,8 @@ just fingerprint PREFIX # describe an installed toolchain
 The archive installs and runs on the host exactly as before:
 
 ```
-tar -xvzf output/toolchain-v8-binaries-x86_64.tar.gz -C /opt
-source /opt/toolchain-v8/activate
+tar -xvzf output/toolchain-v9-binaries-x86_64.tar.gz -C /opt
+source /opt/toolchain-v9/activate
 ```
 
 Docker is the build environment, never the runtime. The toolchain's binaries
@@ -27,7 +32,7 @@ the floor for where the toolchain itself can run.
 | path | what it is |
 |---|---|
 | `Dockerfile` | the stage graph; one stage per tool |
-| `stages/*.sh` | the build recipes, moved verbatim from `../v8/build.sh` |
+| `stages/*.sh` | the build recipes, one per tool |
 | `versions/*.env` | one file per stage, so a bump invalidates only that stage |
 | `lib/common.sh` | the environment every stage script expects |
 | `files/` | `activate.in` and `toolchain.cmake` for the built toolchain |
@@ -90,7 +95,12 @@ The base image is pinned by digest, but `apt-get` still resolves against the
 live archive, so builder package versions can drift even when the image does
 not. A snapshot archive is what closes that.
 
-The port targets v8's versions on purpose. It has to reproduce the existing
-toolchain before anything is added or bumped, or the comparison that proves it
-correct has nothing to compare against. `../v8/build.sh` stays for exactly that
-reason: it generates the reference tree.
+v9 starts from v8's package versions on purpose, so that the restructure can
+be checked against a toolchain we already trust: build v8 with `../v8/build.sh`,
+build this, and compare the two with `just compare`. A version bump on top of an
+unproven restructure has two candidate causes when it fails, and this has one.
+
+So the versions here are a starting point, not the shipping set. What v9 adds to
+v8 is already present -- mold, BOLT, dwz, libabigail, zstd-compressed debug info
+and relative runpaths -- and the LLVM and GCC bumps land after the comparison
+above has been run.

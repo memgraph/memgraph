@@ -30,8 +30,9 @@ if [[ ! -f "$SYSROOT/usr/lib/libpython${PYTHON_MAJMIN}.so" ]]; then
     # rpath is hardcoded to the final install location rather than $ORIGIN:
     # python's autoconf→make→shell substitution chain eats every plausible
     # escape ($ORIGIN → empty make var; $$ORIGIN → empty shell var after make
-    # collapses $$→$). The toolchain prefix is fixed at /opt/toolchain-v8
-    # throughout this script, so the absolute path is stable and reliable.
+    # collapses $$→$). An absolute path is safe here because the prefix is
+    # fixed while the toolchain is being built, and the relocate stage rewrites
+    # every runpath under the prefix to an $ORIGIN-relative one afterwards.
     LDFLAGS="-Wl,-rpath,$SYSROOT/usr/lib" \
     ./configure --prefix=/usr \
         --enable-shared \
