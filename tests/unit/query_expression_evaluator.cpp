@@ -1394,6 +1394,100 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneWhereWrongType) {
   EXPECT_THROW(this->Eval(none), QueryRuntimeException);
 }
 
+// A list comprehension filters, so an element whose predicate is NULL is left
+// out and the rest of the list still comes back. This is what separates it from
+// the quantifiers above, which fold a NULL into their answer.
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionKeepsElementsPastANullPredicate) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension =
+      LIST_COMPREHENSION(ident_x,
+                         LIST(LITERAL(1), LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(3)),
+                         WHERE(GREATER(ident_x, LITERAL(0))),
+                         nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(list_comprehension);
+  ASSERT_TRUE(value.IsList());
+  ASSERT_EQ(value.ValueList().size(), 2);
+  EXPECT_EQ(value.ValueList()[0].ValueInt(), 1);
+  EXPECT_EQ(value.ValueList()[1].ValueInt(), 3);
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionDropsTheElementWhosePredicateIsNull) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension =
+      LIST_COMPREHENSION(ident_x,
+                         LIST(LITERAL(1), LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(3)),
+                         WHERE(GREATER(ident_x, LITERAL(2))),
+                         nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(list_comprehension);
+  ASSERT_TRUE(value.IsList());
+  ASSERT_EQ(value.ValueList().size(), 1);
+  EXPECT_EQ(value.ValueList()[0].ValueInt(), 3);
+}
+
+// A predicate that is null for every element leaves an empty list, the same as
+// one that is false for every element.
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionOverAlwaysNullPredicateIsEmpty) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension = LIST_COMPREHENSION(
+      ident_x, LIST(LITERAL(1), LITERAL(2)), WHERE(LITERAL(memgraph::storage::ExternalPropertyValue())), nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(list_comprehension);
+  ASSERT_TRUE(value.IsList());
+  EXPECT_TRUE(value.ValueList().empty());
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionAppliesItsExpressionPastANullPredicate) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension =
+      LIST_COMPREHENSION(ident_x,
+                         LIST(LITERAL(1), LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(3)),
+                         WHERE(GREATER(ident_x, LITERAL(0))),
+                         ADD(ident_x, LITERAL(10)));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(list_comprehension);
+  ASSERT_TRUE(value.IsList());
+  ASSERT_EQ(value.ValueList().size(), 2);
+  EXPECT_EQ(value.ValueList()[0].ValueInt(), 11);
+  EXPECT_EQ(value.ValueList()[1].ValueInt(), 13);
+}
+
+// NULL is the only non-boolean a predicate may hold; anything else is still a
+// mistake in the query rather than an element to skip.
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionWhereWrongType) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension = LIST_COMPREHENSION(ident_x, LIST(LITERAL(1)), WHERE(LITERAL(2)), nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  EXPECT_THROW(this->Eval(list_comprehension), QueryRuntimeException);
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ListComprehensionOverNullList) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *list_comprehension =
+      LIST_COMPREHENSION(ident_x, LITERAL(memgraph::storage::ExternalPropertyValue()), WHERE(LITERAL(true)), nullptr);
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  list_comprehension->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  EXPECT_TRUE(this->Eval(list_comprehension).IsNull());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, FunctionReduce) {
   AstStorage storage;
   auto *ident_sum = IDENT("sum");
