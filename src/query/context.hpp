@@ -22,6 +22,7 @@
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
 #include "storage/v2/commit_args.hpp"
+#include "utils/coarse_clock.hpp"
 #include "utils/counter.hpp"
 #include "utils/priority_thread_pool.hpp"
 
@@ -128,7 +129,7 @@ struct StoppingContext {
     if (is_shutting_down && is_shutting_down->load(std::memory_order_acquire)) [[unlikely]] {
       return AbortReason::SHUTDOWN;
     }
-    if (deadline && std::chrono::steady_clock::now() >= *deadline) [[unlikely]] {
+    if (deadline && utils::CoarseSteadyNow() >= *deadline) [[unlikely]] {
       return AbortReason::TIMEOUT;
     }
     if (exception_occurred && exception_occurred->load(std::memory_order_acquire)) [[unlikely]] {
