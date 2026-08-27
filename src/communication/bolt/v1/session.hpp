@@ -26,6 +26,8 @@
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
 #include "communication/metrics.hpp"
+#include "query/exceptions.hpp"        // WouldBlockInlineException (pending-BEGIN reschedule signal)
+#include "storage/v2/access_type.hpp"  // storage::EngineLockMode (BeginTransaction engine-mode arg)
 #include "utils/exceptions.hpp"
 #include "utils/session_context.hpp"
 #include "utils/timestamp.hpp"
@@ -157,6 +159,14 @@ class Session {
         return true;  // more data to process
       }
 
+      if (state_ == State::PendingBegin) {
+        // HandleBegin decoded a BEGIN whose engine-lock acquire would block and stashed it. Stop the dechunk
+        // loop WITHOUT reading the next chunk so no message pipelined behind the BEGIN runs before it finishes;
+        // decoder_buffer_ is left exactly after the fully-consumed BEGIN chunk. DoWork sees HasPendingBegin()
+        // and hands the completion to the pool (PostFinishPendingBegin).
+        return true;  // more data to process (the pending BEGIN, off-loop)
+      }
+
       if (state_ == State::Close) [[unlikely]] {
         // State::Close is handled here because we always want to check for
         // it after the above select. If any of the states above return a
@@ -170,6 +180,62 @@ class Session {
   void HandleError() {
     if (!at_least_one_run_) {
       spdlog::info("Sudden connection loss. Make sure the client supports Memgraph.");
+    }
+  }
+
+  // True once HandleBegin has stashed a would-block BEGIN (state_ == PendingBegin). DoWork uses this to hand
+  // the completion to the pool instead of continuing the dechunk loop.
+  bool HasPendingBegin() const { return pending_begin_extra_.has_value(); }
+
+  // Whether the underlying input stream still holds bytes the dechunk loop hasn't consumed. Used to decide
+  // whether the post-BEGIN resume re-enters the worker (DoWork) or waits for the next async read (DoRead).
+  bool HasBufferedData() const { return input_stream_.size() > 0; }
+
+  // Stash the BEGIN's decoded extras (and reset the reschedule count) after HandleBegin's bounded-try acquire
+  // bailed with WouldBlock, so FinishPendingBegin_ can retry the Access on the pool without re-decoding.
+  void StashPendingBegin(Value extra) {
+    pending_begin_extra_ = std::move(extra);
+    pending_begin_retries_ = 0;  // fresh BEGIN: start the reschedule fairness count over
+  }
+
+  // Pool-side completion of a BEGIN that bailed in HandleBegin with WouldBlock. Re-runs the FULL begin
+  // (Configure + BeginTransaction) on the worker; Configure re-running is idempotent (it early-outs), so it is
+  // safe to run here and across reschedules. Rather than block the worker on engine_lock_ behind a long write
+  // commit, it uses a bounded-spin acquire (TryBounded) and, on loss, returns Reschedule so the caller re-posts
+  // to the pool. After kBeginRescheduleCap reschedules it falls back to one Blocking acquire so the BEGIN cannot
+  // starve. The stash is consumed (reset) ONLY on a terminal outcome (Done/ClientError); on Reschedule it MUST
+  // stay stashed so the next attempt retries the Access without re-decoding. SUCCESS is emitted here and here
+  // only -- never on HandleBegin's bail path -- so the BEGIN yields exactly one SUCCESS.
+  template <typename TImpl>
+    requires requires(TImpl &impl) {
+      { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
+    }
+  PendingBeginOutcome FinishPendingBegin_(TImpl &impl) {
+    MG_ASSERT(pending_begin_extra_.has_value(), "FinishPendingBegin_ without a pending BEGIN");
+    memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
+    const bool cap_reached = pending_begin_retries_ >= kBeginRescheduleCap;
+    const auto mode =
+        cap_reached ? memgraph::storage::EngineLockMode::Blocking : memgraph::storage::EngineLockMode::TryBounded;
+    const Value &extra = *pending_begin_extra_;  // reference, NOT move -- may need it again on reschedule
+    try {
+      impl.Configure(extra.ValueMap());               // real reconfigure runs here, on the worker (blocking OK)
+      impl.BeginTransaction(extra.ValueMap(), mode);  // bounded-try (or blocking at the cap) Access on the worker
+      if (!encoder_.MessageSuccess({})) {
+        state_ = State::Close;
+        pending_begin_extra_.reset();
+        return PendingBeginOutcome::ClientError;
+      }
+      state_ = State::Idle;
+      pending_begin_extra_.reset();  // consume on success
+      return PendingBeginOutcome::Done;
+    } catch (const memgraph::query::WouldBlockInlineException &) {
+      // Reachable only when mode == TryBounded (Blocking never throws it). Keep extras stashed and reschedule.
+      ++pending_begin_retries_;
+      return PendingBeginOutcome::Reschedule;  // pending_begin_extra_ intentionally NOT reset
+    } catch (const std::exception &e) {
+      state_ = HandleFailure(impl, e);
+      pending_begin_extra_.reset();  // consume on error
+      return PendingBeginOutcome::ClientError;
     }
   }
 
@@ -216,6 +282,16 @@ class Session {
   }
 
  private:
+  // Extras decoded by a BEGIN that bailed in HandleBegin with WouldBlock, carried across the worker->pool
+  // reschedule so FinishPendingBegin_ can retry the Access without re-decoding the chunk.
+  std::optional<Value> pending_begin_extra_{};
+
+  // Number of times FinishPendingBegin_ has lost the bounded-try engine-lock race for the current pending BEGIN.
+  // Reset to 0 when a fresh BEGIN is stashed (StashPendingBegin).
+  uint32_t pending_begin_retries_{0};
+  // After this many reschedules, FinishPendingBegin_ does one blocking acquire (fairness: a BEGIN cannot starve).
+  static constexpr uint32_t kBeginRescheduleCap = 32;
+
   const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
   const std::string login_timestamp_;

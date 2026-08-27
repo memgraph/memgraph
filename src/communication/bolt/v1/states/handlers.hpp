@@ -27,6 +27,8 @@
 #include "communication/exceptions.hpp"
 #include "license/license_sender.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "query/exceptions.hpp"        // WouldBlockInlineException (pending-BEGIN reschedule signal)
+#include "storage/v2/access_type.hpp"  // storage::EngineLockMode
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -436,12 +438,20 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
 
   try {
     session.Configure(extra.ValueMap());
-    session.BeginTransaction(extra.ValueMap());
+    // Bounded-try engine-lock acquire: rather than busy-spin this pool worker behind a long write commit's
+    // durability hold, bail with WouldBlockInlineException on contention and let the completion reschedule.
+    session.BeginTransaction(extra.ValueMap(), storage::EngineLockMode::TryBounded);
     if (!session.encoder_.MessageSuccess({})) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
     return State::Idle;
+  } catch (const memgraph::query::WouldBlockInlineException &) {
+    // The engine lock was contended. Stash the decoded extras and hand off to the pool; the accessor-first
+    // reorder left interpreter txn state pristine (no id consumed). Do NOT MessageSuccess here -- the SUCCESS
+    // is emitted only by FinishPendingBegin_ once the BEGIN actually completes.
+    session.StashPendingBegin(std::move(extra));
+    return State::PendingBegin;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }

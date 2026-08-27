@@ -43,6 +43,7 @@
 #include <boost/beast/websocket/rfc6455.hpp>
 #include <boost/system/detail/error_code.hpp>
 
+#include "communication/bolt/v1/state.hpp"
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
@@ -379,6 +380,15 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     try {
       // Execute until all data has been read
       while (session_.Execute()) {
+        // The websocket path runs the bolt state machine synchronously on the strand (no pool hand-off). A BEGIN
+        // whose bounded-try engine-lock acquire lost the race parks in State::PendingBegin, which makes Execute()
+        // keep returning true. Drive it to a terminal outcome inline here: the pool resume path (DoWork/DoRead)
+        // would switch this connection off the websocket read loop, so it can't be reused. This preserves master's
+        // pre-existing behavior of completing a websocket BEGIN inline on the strand (FinishPendingBegin converges
+        // via the fairness cap: after kBeginRescheduleCap tries it does one blocking acquire).
+        while (session_.HasPendingBegin()) {
+          session_.FinishPendingBegin();
+        }
       }
       // Handled all data,  async wait for new incoming data
       DoReadAsio();
@@ -393,6 +403,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           try {
             while (true) {
               if (shared_this->session_.Execute()) {
+                if (shared_this->session_.HasPendingBegin()) {
+                  // Execute_ bailed with a BEGIN whose engine-lock acquire would block. Finish it off this
+                  // worker (never spin here behind a long write commit); PostFinishPendingBegin re-posts to the
+                  // pool on contention. Return now so no message pipelined behind the BEGIN runs before it does.
+                  shared_this->PostFinishPendingBegin();
+                  return;
+                }
                 // Check if we can just steal this task (loop through)
                 if (thread_priority > shared_this->session_.ApproximateQueryPriority()) {
                   // Task priority lower; reschedule
@@ -404,6 +421,37 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                 shared_this->DoRead();
                 return;
               }
+            }
+          } catch (const std::exception & /* unused */) {
+            boost::asio::post(shared_this->strand_,
+                              [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
+          }
+        },
+        session_.ApproximateQueryPriority());
+  }
+
+  // Post the pool-side completion of a would-block BEGIN. On engine-lock contention FinishPendingBegin() returns
+  // Reschedule and we re-post to the POOL (AddTask) -- never to the strand -- so the worker never blocks behind a
+  // long write commit. After the fairness cap FinishPendingBegin() does one blocking acquire and returns terminally.
+  // On a terminal outcome the normal read path resumes: DoWork if input bytes remain (a message pipelined behind the
+  // BEGIN), else DoRead to await the next chunk. SUCCESS for the BEGIN is emitted exactly once, inside
+  // FinishPendingBegin().
+  void PostFinishPendingBegin() {
+    session_context_->AddTask(
+        [shared_this = shared_from_this()](const auto /*thread_priority*/) {
+          try {
+            switch (shared_this->session_.FinishPendingBegin()) {
+              case memgraph::communication::bolt::PendingBeginOutcome::Reschedule:
+                shared_this->PostFinishPendingBegin();  // re-post to the POOL, never post(strand_)
+                return;
+              case memgraph::communication::bolt::PendingBeginOutcome::Done:
+              case memgraph::communication::bolt::PendingBeginOutcome::ClientError:
+                if (shared_this->session_.HasBufferedData()) {
+                  shared_this->DoWork();
+                } else {
+                  shared_this->DoRead();
+                }
+                return;
             }
           } catch (const std::exception & /* unused */) {
             boost::asio::post(shared_this->strand_,

@@ -12,6 +12,8 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
+#include <exception>
 #include <optional>
 #include <set>
 #include <string>
@@ -387,7 +389,8 @@ class Storage {
 
   virtual void UpdateLabelCount(LabelId label, int64_t change) = 0;
 
-  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
+  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
+                                        EngineLockMode engine_mode = EngineLockMode::Blocking) = 0;
 
   virtual void PrepareForNewEpoch() = 0;
 
@@ -538,11 +541,23 @@ inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
 utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType rw_type,
                                              std::optional<std::chrono::milliseconds> timeout);
 
+// EngineLockMode (Blocking / TryBounded) lives in storage/v2/access_type.hpp (a leaf header
+// included above), so protocol/dbms layers that only name the enum need not pull this header.
+
+// Thrown by CreateTransaction on a non-blocking mode (TryBounded) when the transaction-engine lock
+// is held by a concurrent commit/GC, so a non-blocking probe (TryAccess) can bail instead of
+// blocking. Caught in TryAccess and turned into a nullptr; never surfaces to callers.
+struct TransactionEngineWouldBlock final : std::exception {
+  const char *what() const noexcept override { return "transaction engine lock busy"; }
+};
+
 class Accessor {
  public:
   /// Takes ownership of a hold on `storage`'s main_lock_. The caller acquires it: blocking with a
   /// timeout via AcquireGuardOrThrow, or non-blocking via a try_to_lock guard. Construction itself
-  /// never blocks and never fails, so a probe can decide whether to build an accessor at all.
+  /// never blocks and never fails, EXCEPT on a non-blocking `engine_mode`: TryBounded bounded-tries
+  /// the transaction-engine lock and throws TransactionEngineWouldBlock if it is contended, so a
+  /// probe can decide whether to build an accessor at all without blocking.
   ///
   /// The access type comes from the guard, not alongside it. It is recorded as
   /// original_access_type_, which the WAL carries to replicas to pick the mode they replay under,
@@ -552,7 +567,8 @@ class Accessor {
   /// The isolation level and storage mode are read from `storage` under the guard rather than
   /// passed in: SetIsolationLevel and SetStorageMode write them under UNIQUE, so a caller reading
   /// them before acquiring could build a transaction against a mode that has since changed.
-  Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard);
+  Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard,
+           EngineLockMode engine_mode = EngineLockMode::Blocking);
 
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;
