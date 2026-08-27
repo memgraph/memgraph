@@ -468,8 +468,6 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     // Frequent heartbeat should trigger the recovery. Until then, commits on MAIN won't be allowed
     return false;
   } catch (...) {
-    // The function is noexcept; anything escaping (e.g. bad_alloc while building the stream) would
-    // std::terminate the process instead of failing this replica's 2nd phase.
     return false;
   }
 }
@@ -540,8 +538,6 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
     spdlog::error("Couldn't replicate data to {} because timeout occurred.", client_.name_);
     return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
   } catch (rpc::RpcFailedException const &) {
-    // Catch the whole hierarchy: an escaped sibling (e.g. SlkRpcFailedException) would abort main's
-    // commit after the WAL already recorded it as committed.
     replica_state_.WithLock([&replica_stream](auto &state) {
       replica_stream.reset();
       state = ReplicaState::MAYBE_BEHIND;
@@ -643,8 +639,6 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       spdlog::error("Couldn't replicate data to {} because timeout occurred.", client_.name_);
       return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
     } catch (rpc::RpcFailedException const &) {
-      // Catch the whole hierarchy: an escaped sibling (e.g. SlkRpcFailedException) would abort main's
-      // commit after the WAL already recorded it as committed.
       replica_state_.WithLock([&replica_stream_obj](auto &state) {
         replica_stream_obj.reset();
         state = ReplicaState::MAYBE_BEHIND;
