@@ -2950,6 +2950,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
                                  commit_ts_info.num_committed_txns_,
                                  metric_handles_.unreleased_delta_objects};
   transaction.snapshot_ts = snapshot_ts;
+  transaction.lockfree_snapshot =
+      config_.experimental_lockfree_read_snapshot && isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
   return transaction;
 }
 
