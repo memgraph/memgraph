@@ -13,11 +13,15 @@ worth checking before starting a build rather than after.
 
 Run: verify/stage-vars.py   (or `just check`)
 """
+import os
 import pathlib
 import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+# Version files live in one set per toolchain; the checks read whichever set
+# is selected, the same one a build would resolve.
+VERSIONS = ROOT / "versions" / os.environ.get("TC_VERSION_SET", "v9")
 
 
 def assigned_in(text):
@@ -38,7 +42,7 @@ def sourced_env_vars(text):
     """Variables provided by the version files a script sources."""
     out = set()
     for env in re.findall(r"\$TC_VERSIONS/([a-z0-9-]+)\.env", text):
-        f = ROOT / "versions" / f"{env}.env"
+        f = VERSIONS / f"{env}.env"
         if f.exists():
             out |= assigned_in(f.read_text())
     return out

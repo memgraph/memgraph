@@ -12,11 +12,17 @@
 # Run: verify/runtime-links.sh [prefix]   (or `just check-links`)
 set -uo pipefail
 
-# The version is declared once, in versions/toolchain.env, and the prefix is
-# named after it. Spelling the prefix out here would be a second copy of the
-# version to keep in step when a new toolchain is cut.
+# With no prefix given, describe the toolchain the last resolved version set
+# names. Naming a version here instead would be a second place to edit when a
+# new one is cut, and there is no sensible default before a set is chosen.
 _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$_here/../versions/toolchain.env"
+if [[ -z "${1:-}" && -z "${PREFIX:-}" ]]; then
+    [[ -f "$_here/../resolved/toolchain.env" ]] || {
+        echo "no version set resolved yet: pass a prefix, or run a build first" >&2
+        exit 2
+    }
+    source "$_here/../resolved/toolchain.env"
+fi
 PREFIX="${1:-${PREFIX:-/opt/toolchain-v$TOOLCHAIN_VERSION}}"
 [[ -d "$PREFIX" ]] || { echo "no such prefix: $PREFIX" >&2; exit 2; }
 

@@ -1,0 +1,7 @@
+# The version set the last build selected, copied here from versions/<set>/ so
+# the Dockerfile's COPY paths never mention which toolchain is being built.
+# Generated, and only ever a copy of something tracked.
+resolved/
+
+# The finished tarball.
+output/

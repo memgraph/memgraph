@@ -58,37 +58,37 @@ ENV TC_FOR_ARM=${TC_FOR_ARM} \
 # --------------------------------------------------------------------------
 
 FROM base AS s-linux-headers
-COPY versions/linux-headers.env /tc/versions/
+COPY resolved/linux-headers.env /tc/versions/
 COPY stages/linux-headers.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/linux-headers.sh
 
 FROM s-linux-headers AS s-glibc
-COPY versions/glibc.env /tc/versions/
+COPY resolved/glibc.env /tc/versions/
 COPY stages/glibc.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/glibc.sh
 
 FROM s-glibc AS s-gcc
-COPY versions/gcc.env /tc/versions/
+COPY resolved/gcc.env /tc/versions/
 COPY stages/gcc.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/gcc.sh
 
 FROM s-gcc AS s-gcc-sysroot-libs
-COPY versions/gcc-sysroot-libs.env /tc/versions/
+COPY resolved/gcc-sysroot-libs.env /tc/versions/
 COPY stages/gcc-sysroot-libs.sh /tc/stages/
 RUN /tc/stages/gcc-sysroot-libs.sh
 
 FROM s-gcc-sysroot-libs AS s-gmp
-COPY versions/gmp.env /tc/versions/
+COPY resolved/gmp.env /tc/versions/
 COPY stages/gmp.sh /tc/stages/
 RUN /tc/stages/gmp.sh
 
 FROM s-gmp AS s-mpfr
-COPY versions/mpfr.env /tc/versions/
+COPY resolved/mpfr.env /tc/versions/
 COPY stages/mpfr.sh /tc/stages/
 RUN /tc/stages/mpfr.sh
 
 FROM s-mpfr AS s-binutils
-COPY versions/binutils.env /tc/versions/
+COPY resolved/binutils.env /tc/versions/
 COPY stages/binutils.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/binutils.sh
 
@@ -118,27 +118,27 @@ RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/binutils.
 # --------------------------------------------------------------------------
 
 FROM s-binutils AS s-zlib
-COPY versions/zlib.env /tc/versions/
+COPY resolved/zlib.env /tc/versions/
 COPY stages/zlib.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/zlib.sh
 
 FROM s-zlib AS s-ncurses
-COPY versions/ncurses.env /tc/versions/
+COPY resolved/ncurses.env /tc/versions/
 COPY stages/ncurses.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/ncurses.sh
 
 FROM s-ncurses AS s-openssl
-COPY versions/openssl.env /tc/versions/
+COPY resolved/openssl.env /tc/versions/
 COPY stages/openssl.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/openssl.sh
 
 FROM s-openssl AS s-curl
-COPY versions/curl.env /tc/versions/
+COPY resolved/curl.env /tc/versions/
 COPY stages/curl.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/curl.sh
 
 FROM s-curl AS s-libffi
-COPY versions/libffi.env /tc/versions/
+COPY resolved/libffi.env /tc/versions/
 COPY stages/libffi.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/libffi.sh
 
@@ -146,42 +146,42 @@ RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/libffi.sh
 # LLVM on purpose: neither depends on it, and putting them after would mean an
 # LLVM bump rebuilt them for nothing.
 FROM s-libffi AS s-elfutils
-COPY versions/elfutils.env /tc/versions/
+COPY resolved/elfutils.env /tc/versions/
 COPY stages/elfutils.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/elfutils.sh
 
 FROM s-elfutils AS s-libxml2
-COPY versions/libxml2.env /tc/versions/
+COPY resolved/libxml2.env /tc/versions/
 COPY stages/libxml2.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/libxml2.sh
 
 FROM s-libxml2 AS s-xxhash
-COPY versions/xxhash.env /tc/versions/
+COPY resolved/xxhash.env /tc/versions/
 COPY stages/xxhash.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/xxhash.sh
 
 FROM s-xxhash AS s-zstd
-COPY versions/zstd.env /tc/versions/
+COPY resolved/zstd.env /tc/versions/
 COPY stages/zstd.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/zstd.sh
 
 FROM s-zstd AS s-xz
-COPY versions/xz.env /tc/versions/
+COPY resolved/xz.env /tc/versions/
 COPY stages/xz.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/xz.sh
 
 FROM s-xz AS s-dwz
-COPY versions/dwz.env /tc/versions/
+COPY resolved/dwz.env /tc/versions/
 COPY stages/dwz.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/dwz.sh
 
 FROM s-dwz AS s-libabigail
-COPY versions/libabigail.env /tc/versions/
+COPY resolved/libabigail.env /tc/versions/
 COPY stages/libabigail.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/libabigail.sh
 
 FROM s-libabigail AS s-python
-COPY versions/python.env /tc/versions/
+COPY resolved/python.env /tc/versions/
 COPY stages/python.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/python.sh
 
@@ -190,47 +190,47 @@ RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/python.sh
 # --------------------------------------------------------------------------
 
 FROM s-python AS s-cmake
-COPY versions/cmake.env /tc/versions/
+COPY resolved/cmake.env /tc/versions/
 COPY stages/cmake.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/cmake.sh
 
 FROM s-cmake AS s-mold
-COPY versions/mold.env /tc/versions/
+COPY resolved/mold.env /tc/versions/
 COPY stages/mold.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/mold.sh
 
 FROM s-mold AS s-libipt
-COPY versions/libipt.env /tc/versions/
+COPY resolved/libipt.env /tc/versions/
 COPY stages/libipt.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/libipt.sh
 
 FROM s-libipt AS s-gdb
-COPY versions/gdb.env versions/python.env /tc/versions/
+COPY resolved/gdb.env resolved/python.env /tc/versions/
 COPY stages/gdb.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/gdb.sh
 
 FROM s-gdb AS s-pahole
-COPY versions/pahole.env /tc/versions/
+COPY resolved/pahole.env /tc/versions/
 COPY stages/pahole.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/pahole.sh
 
 FROM s-pahole AS s-gdbinit
-COPY versions/gdbinit.env /tc/versions/
+COPY resolved/gdbinit.env /tc/versions/
 COPY stages/gdbinit.sh /tc/stages/
 RUN /tc/stages/gdbinit.sh
 
 FROM s-gdbinit AS s-cppcheck
-COPY versions/cppcheck.env /tc/versions/
+COPY resolved/cppcheck.env /tc/versions/
 COPY stages/cppcheck.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/cppcheck.sh
 
 FROM s-cppcheck AS s-swig
-COPY versions/swig.env /tc/versions/
+COPY resolved/swig.env /tc/versions/
 COPY stages/swig.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/swig.sh
 
 FROM s-swig AS s-llvm
-COPY versions/llvm.env /tc/versions/
+COPY resolved/llvm.env /tc/versions/
 COPY stages/llvm.sh /tc/stages/
 RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/llvm.sh
 
@@ -242,18 +242,18 @@ RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/llvm.sh
 # against the finished toolchain and source it through clang-env.sh. In the
 # original script that ordering was implicit in the line order.
 FROM s-llvm AS s-activate
-COPY versions/activate.env /tc/versions/
+COPY resolved/activate.env /tc/versions/
 COPY stages/activate.sh /tc/stages/
 RUN /tc/stages/activate.sh
 
 FROM s-activate AS s-mgconsole
-COPY versions/mgconsole.env /tc/versions/
+COPY resolved/mgconsole.env /tc/versions/
 COPY lib/clang-env.sh /tc/lib/
 COPY stages/mgconsole.sh /tc/stages/
 RUN /tc/stages/mgconsole.sh
 
 FROM s-mgconsole AS s-heaptrack
-COPY versions/heaptrack.env /tc/versions/
+COPY resolved/heaptrack.env /tc/versions/
 COPY stages/heaptrack.sh /tc/stages/
 RUN /tc/stages/heaptrack.sh
 
@@ -275,7 +275,7 @@ RUN /tc/stages/relocate.sh
 # here rather than in the base layer, where it would be an input to all 34
 # stages and a version bump would rebuild every one of them.
 FROM s-relocate AS s-package
-COPY versions/toolchain.env /tc/versions/
+COPY resolved/toolchain.env /tc/versions/
 COPY stages/package.sh /tc/stages/
 RUN /tc/stages/package.sh
 

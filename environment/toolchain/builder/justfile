@@ -16,6 +16,17 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 here := justfile_directory()
 output := here / "output"
 
+# Which toolchain to build. A version set is a complete directory of version
+# files under versions/; the recipes and the stage graph are shared, so cutting
+# a new toolchain copies one small directory rather than this whole one.
+#
+# The set is resolved into resolved/ before the build rather than selected with
+# a build argument. An ARG is an input to every command after it in its stage,
+# so changing one re-runs all 34 stages even where the version file is
+# byte-identical. Copying leaves each stage's cache key on the content of its
+# own file, and an unchanged tool stays cached across sets.
+set_name := env_var_or_default("TC_VERSION_SET", "v9")
+
 # Registry-backed cache. Only CI writes to it: a compiler cache is a
 # supply-chain surface, and a cache hit means nobody rebuilds or inspects the
 # thing that compiles everything else.
@@ -38,6 +49,23 @@ _builder-exists:
         docker buildx create --name {{ builder }} --driver docker-container \
             --config "{{ here }}/buildkitd.toml" --bootstrap
 
+# Put the selected version set where the Dockerfile expects it. Everything that
+# builds depends on this, and nothing else should read versions/ directly.
+_resolve:
+    @test -d "{{ here }}/versions/{{ set_name }}" || \
+        { echo "no version set {{ set_name }}; have:" >&2; ls "{{ here }}/versions" >&2; exit 1; }
+    @rm -rf "{{ here }}/resolved"
+    @cp -r "{{ here }}/versions/{{ set_name }}" "{{ here }}/resolved"
+    @echo "version set: {{ set_name }}"
+
+# The version sets on offer.
+sets:
+    @ls "{{ here }}/versions"
+
+# What one version set changes relative to another.
+diff-sets a b:
+    @diff -ru "{{ here }}/versions/{{ a }}" "{{ here }}/versions/{{ b }}" || true
+
 # Static checks. Seconds, and they catch what otherwise fails hours into a build.
 check:
     "{{ here }}/verify/stage-vars.py"
@@ -51,7 +79,7 @@ check:
     @echo "stage scripts executable"
 
 # Build the toolchain; the archive lands in output/.
-build *args: check _builder-exists _space
+build *args: check _resolve _builder-exists _space
     mkdir -p "{{ output }}"
     docker buildx build {{ _builder }} "{{ here }}" \
         --target artifact \
@@ -62,14 +90,14 @@ build *args: check _builder-exists _space
     @ls -lh "{{ output }}"/*.tar.gz
 
 # Build up to one stage only, for iterating on it.
-stage name *args: _builder-exists
+stage name *args: _resolve _builder-exists
     docker buildx build {{ _builder }} "{{ here }}" \
         --target "s-{{ name }}" \
         {{ _cache_from }} \
         {{ args }}
 
 # Open a shell inside a stage, for working out why it failed.
-shell name *args: _builder-exists
+shell name *args: _resolve _builder-exists
     docker buildx build {{ _builder }} "{{ here }}" \
         --target "s-{{ name }}" \
         --load -t "mg-toolchain-stage-{{ name }}" \

@@ -5,16 +5,46 @@ script, so changing one tool rebuilds that tool and what depends on it rather
 than everything.
 
 v8 is not built from here. It stays as it is, in `../v8/`, and this directory
-replaces the copy-the-previous-version model for v9 onwards: the version is a
-variable in `versions/toolchain.env`, so v10 is a bump rather than a new
-directory.
+replaces the copy-the-previous-version model for v9 onwards.
 
 ```
-just build              # build the toolchain, archive lands in output/
+just build              # build the selected version set, archive lands in output/
+just sets               # which toolchains can be built from here
+just diff-sets v9 v10   # what the later one changes
 just stage llvm         # build up to one stage, for iterating on it
 just shell llvm         # shell inside a stage, for debugging a failure
 just fingerprint PREFIX # describe an installed toolchain
 ```
+
+`TC_VERSION_SET` selects the toolchain; it defaults to `v9`.
+
+## Cutting a new toolchain
+
+Copy the version set, edit what changed, build it:
+
+```
+cp -r versions/v9 versions/v10
+$EDITOR versions/v10/llvm.env
+TC_VERSION_SET=v10 just build
+```
+
+Nothing else moves. The recipes and the stage graph are shared, so a fix to a
+recipe reaches every toolchain built from here at once, which is the thing
+copying a directory per version cannot do.
+
+Sets are complete rather than expressing only a delta against their
+predecessor. `diff -ru` then answers what changed, with no inheritance to
+reason about and no way for a value to move under a version that did not ask
+for it -- and a set stays readable top to bottom, which is worth more than the
+hundred-odd lines it duplicates.
+
+Only the tools whose version files actually changed rebuild. The version does
+not reach the build at all: every stage installs into a fixed prefix and the
+packaging stage renames the tree, so bumping a toolchain does not invalidate
+the thirty-three stages that did not change. That is also why the version set
+is copied into `resolved/` rather than selected with a build argument -- an
+argument is an input to every command after it in its stage, so changing one
+re-runs every stage even where the version file is byte-identical.
 
 The archive installs and runs on the host exactly as before:
 
@@ -33,9 +63,10 @@ the floor for where the toolchain itself can run.
 |---|---|
 | `Dockerfile` | the stage graph; one stage per tool |
 | `stages/*.sh` | the build recipes, one per tool |
-| `versions/*.env` | one file per stage, so a bump invalidates only that stage |
+| `versions/<set>/*.env` | one complete set per toolchain, one file per stage |
+| `resolved/` | the selected set, copied here before a build; generated |
 | `lib/common.sh` | the environment every stage script expects |
-| `files/` | `activate.in` and `toolchain.cmake` for the built toolchain |
+| `files/` | `activate` and `toolchain.cmake`, shipped inside the toolchain |
 | `verify/` | the glibc floor gate, the fingerprint, the determinism measurement |
 | `justfile` | argument assembly; BuildKit owns the graph and the caching |
 
