@@ -460,7 +460,7 @@ class Storage {
   // EXPERIMENTAL (lock-free-read-snapshot). All three are inert when the experiment is OFF.
   // Serializes committers across mint->durability->publish and (in that mode) guards the WAL group;
   // acquired only on the experiment's ON path, so the OFF path is byte-for-byte unchanged.
-  std::mutex commit_mutex_;
+  mutable std::mutex commit_mutex_;
   // Runtime-only watermark: the last fully-published commit timestamp. Advanced at publish on the ON
   // path, seeded from recovered max commit ts on startup. NEVER persisted (durable data is flag-independent).
   std::atomic<uint64_t> last_committed_mvcc_ts_{kTimestampInitialId};

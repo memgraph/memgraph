@@ -845,6 +845,13 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                main_uuid = main_uuid_,
                &main_db_name,
                repl_mode = client_.mode_](RecoveryCurrentWal const &current_wal) {
+                // EXPERIMENTAL (lock-free-read-snapshot): serialize against the committer (which holds commit_mutex_,
+                // not engine_lock_, across its WAL window) before reading/flush-toggling the current WAL. Released
+                // with transaction_guard; the subsequent Path()/transfer is covered by DisableFlushing()'s flush_lock_.
+                std::optional<std::unique_lock<std::mutex>> commit_serializer;
+                if (main_mem_storage->config_.experimental_lockfree_read_snapshot) {
+                  commit_serializer.emplace(main_mem_storage->commit_mutex_);
+                }
                 std::unique_lock transaction_guard(main_mem_storage->engine_lock_);
                 if (main_mem_storage->wal_file_ &&
                     main_mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
@@ -852,6 +859,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                       [main_mem_storage]() { main_mem_storage->wal_file_->EnableFlushing(); });
                   main_mem_storage->wal_file_->DisableFlushing();
                   transaction_guard.unlock();
+                  commit_serializer.reset();
                   spdlog::debug("Sending current wal file to {} for db {}.", client_.name_, main_db_name);
 
                   auto const maybe_response = TransferDurabilityFiles<replication::CurrentWalRpc>(
