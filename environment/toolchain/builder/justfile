@@ -76,13 +76,14 @@ shell name *args: _builder-exists
         {{ _cache_from }} {{ args }}
     docker run --rm -it "mg-toolchain-stage-{{ name }}" bash
 
-# Describe an installed toolchain, for comparing two of them.
-fingerprint prefix="/opt/toolchain-v9":
+# Describe an installed toolchain, for comparing two of them. With no
+# argument the script defaults to the prefix this builder produces.
+fingerprint prefix="":
     "{{ here }}/verify/fingerprint.sh" "{{ prefix }}"
 
 # Check an installed toolchain resolves its own libraries rather than the
 # host's. Needs a deployed tree, so it is separate from the static checks.
-check-links prefix="/opt/toolchain-v9":
+check-links prefix="":
     "{{ here }}/verify/runtime-links.sh" "{{ prefix }}"
 
 # Compare two installed toolchains for equivalence.

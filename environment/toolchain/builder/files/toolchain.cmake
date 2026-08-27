@@ -11,12 +11,26 @@ set(CMAKE_SYSTEM_PROCESSOR "${uname_result}")
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# This file is shipped inside the toolchain, so it finds the toolchain by
+# looking at where it is: the directory holding it is the prefix. Naming the
+# prefix here instead would put the version in a second place that has to be
+# edited to cut a new one, which is how two values drift apart.
 if (DEFINED ENV{MG_TOOLCHAIN_ROOT})
     set(MG_TOOLCHAIN_ROOT "$ENV{MG_TOOLCHAIN_ROOT}")
 else()
-    set(MG_TOOLCHAIN_ROOT "/opt/toolchain-v9")
+    set(MG_TOOLCHAIN_ROOT "${CMAKE_CURRENT_LIST_DIR}")
 endif()
 message(STATUS "Toolchain directory: ${MG_TOOLCHAIN_ROOT}")
+
+# Every path below is built from the root, so a wrong root gives a pile of
+# not-found errors that name individual libraries and never the cause.
+if (NOT EXISTS "${MG_TOOLCHAIN_ROOT}/bin/clang")
+    message(FATAL_ERROR
+        "No toolchain at ${MG_TOOLCHAIN_ROOT}: it has no bin/clang. This file "
+        "finds the toolchain by its own location, so use the copy inside an "
+        "installed toolchain rather than the one in the repository, or set "
+        "MG_TOOLCHAIN_ROOT to say where the toolchain is.")
+endif()
 
 # Sysroot: everything the toolchain compiles (conan deps + memgraph itself)
 # must target the bundled glibc 2.31, not the host's. Without --sysroot,
@@ -44,7 +58,15 @@ set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
 
-set(MG_TOOLCHAIN_VERSION 9)
+# Reported, not used to build any path. The activation script exports it; a
+# toolchain used without activating carries it in its directory name.
+if (DEFINED ENV{MG_TOOLCHAIN_VERSION})
+    set(MG_TOOLCHAIN_VERSION "$ENV{MG_TOOLCHAIN_VERSION}")
+elseif (MG_TOOLCHAIN_ROOT MATCHES "toolchain-v([0-9]+)/?$")
+    set(MG_TOOLCHAIN_VERSION "${CMAKE_MATCH_1}")
+else()
+    set(MG_TOOLCHAIN_VERSION "unknown")
+endif()
 
 # Set compiler
 set(CMAKE_C_COMPILER   "${MG_TOOLCHAIN_ROOT}/bin/clang"   CACHE STRING "" FORCE)

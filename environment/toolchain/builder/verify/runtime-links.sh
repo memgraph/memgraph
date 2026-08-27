@@ -12,7 +12,12 @@
 # Run: verify/runtime-links.sh [prefix]   (or `just check-links`)
 set -uo pipefail
 
-PREFIX="${1:-${PREFIX:-/opt/toolchain-v9}}"
+# The version is declared once, in versions/toolchain.env, and the prefix is
+# named after it. Spelling the prefix out here would be a second copy of the
+# version to keep in step when a new toolchain is cut.
+_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$_here/../versions/toolchain.env"
+PREFIX="${1:-${PREFIX:-/opt/toolchain-v$TOOLCHAIN_VERSION}}"
 [[ -d "$PREFIX" ]] || { echo "no such prefix: $PREFIX" >&2; exit 2; }
 
 # The sysroot holds libraries for the target, not for this machine, so runtime
