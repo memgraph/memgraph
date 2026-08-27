@@ -11,11 +11,16 @@
 # mg_split_debug strips the binary -- which removes the skeleton units that
 # llvm-dwp reads to find the .dwo files in the first place.
 #
-# No-op when llvm-dwp is absent or the build type produces no .dwo files, so
-# callers do not need to guard.
+# No-op when llvm-dwp is absent, when the build type produces no .dwo files, or
+# when debug info is not being packaged, so callers do not need to guard.
 
-find_program(MG_LLVM_DWP NAMES llvm-dwp dwp HINTS "${MG_TOOLCHAIN_ROOT}/bin")
-find_program(MG_LLVM_DWARFDUMP NAMES llvm-dwarfdump HINTS "${MG_TOOLCHAIN_ROOT}/bin")
+# Only the toolchain's own copies: a bundler from the machine's PATH can be a
+# different LLVM release than the compiler that wrote the DWARF, and it reports
+# success on input it only partly understands.
+find_program(MG_LLVM_DWP NAMES llvm-dwp dwp
+    PATHS "${MG_TOOLCHAIN_ROOT}/bin" NO_DEFAULT_PATH NO_CACHE)
+find_program(MG_LLVM_DWARFDUMP NAMES llvm-dwarfdump
+    PATHS "${MG_TOOLCHAIN_ROOT}/bin" NO_DEFAULT_PATH NO_CACHE)
 
 if(NOT MG_LLVM_DWP)
     message(STATUS "llvm-dwp not found; split-DWARF bundles will not be produced")
@@ -26,10 +31,14 @@ endif()
 set(MG_BUNDLE_DWARF_DIR "${CMAKE_CURRENT_LIST_DIR}")
 
 function(mg_bundle_dwarf target)
-    # Only RelWithDebInfo carries -g and the dwo_dir link option. Debug emits
-    # .dwo files from the frontend next to each object instead, and Release has
-    # no debug info to bundle.
-    if(NOT MG_LLVM_DWP OR NOT CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+    # Only RelWithDebInfo carries -g and the dwo_dir link option; the other
+    # build types have no .dwo files to bundle.
+    #
+    # A .dwp exists to be shipped, and bundling one costs a pass over every
+    # .dwo on each relink, so it is tied to the same switch as the rest of the
+    # packaged debug info rather than run for every developer build.
+    if(NOT MG_LLVM_DWP OR NOT MG_SPLIT_DEBUG
+            OR NOT CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
         return()
     endif()
 
