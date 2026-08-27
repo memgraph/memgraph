@@ -407,13 +407,20 @@ endif()
 # linker picked up from the machine's PATH is outside the sysroot, and an
 # unmaintained one found that way is what silently linked the compiler for
 # years. A toolchain without mold falls back rather than reaching outward.
+#
+# The choice has to go through CMAKE_LINKER_TYPE. CMake appends that flag after
+# every other link flag, so a -fuse-ld= supplied as a link option loses to it
+# silently -- the build reports the linker it chose and then uses the other one.
+# The -B prefix is what lets the compiler driver resolve the name to the
+# toolchain's ld.mold.
 find_program(MG_MOLD NAMES mold PATHS "${MG_TOOLCHAIN_ROOT}/bin" NO_DEFAULT_PATH NO_CACHE)
 if(MG_MOLD)
     message(STATUS "Linking with mold: ${MG_MOLD}")
-    add_link_options(-fuse-ld=mold -B "${MG_TOOLCHAIN_ROOT}/bin")
+    set(CMAKE_LINKER_TYPE MOLD)
+    add_link_options(-B "${MG_TOOLCHAIN_ROOT}/bin")
 else()
     message(STATUS "mold not in ${MG_TOOLCHAIN_ROOT}/bin; linking with lld")
-    add_link_options(-fuse-ld=lld)
+    set(CMAKE_LINKER_TYPE LLD)
 endif()
 add_link_options(LINKER:--build-id)
 # A prebuilt index, so the debugger does not have to scan the debug info on

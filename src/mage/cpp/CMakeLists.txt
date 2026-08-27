@@ -41,7 +41,7 @@ foreach(_opt IN LISTS _mage_inherited_opts)
 endforeach()
 set_directory_properties(PROPERTIES COMPILE_OPTIONS "${_mage_wrapped_opts}")
 
-# Same for the inherited LINK_OPTIONS (the root's -fuse-ld=lld, --build-id):
+# Same for the inherited LINK_OPTIONS (the root's --build-id, --gdb-index):
 # CUDA targets must not link with clang-only flags.
 get_directory_property(_mage_inherited_link_opts LINK_OPTIONS)
 set(_mage_wrapped_link_opts "")

@@ -60,9 +60,9 @@ if (MG_ENABLE_CUGRAPH)
   set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
   # nvcc host-compiles/links with the system g++ (the only host RAPIDS
-  # headers support — clang chokes on them). g++ resolves the -fuse-ld=lld
+  # headers support — clang chokes on them). g++ resolves the -fuse-ld= flag
   # injected by CMAKE_LINKER_TYPE via -B prefix search, so point it at the
-  # toolchain's ld.lld.
+  # toolchain's own linkers.
   string(APPEND CMAKE_EXE_LINKER_FLAGS " -B${MG_TOOLCHAIN_ROOT}/bin")
   string(APPEND CMAKE_SHARED_LINKER_FLAGS " -B${MG_TOOLCHAIN_ROOT}/bin")
   # The conan profile injects the clang-only --gcc-toolchain= driver flag
