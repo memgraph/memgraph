@@ -2780,6 +2780,11 @@ class Distinct : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::vector<Symbol> value_symbols_;
   std::optional<size_t> parallel_execution_;
+  /// Set where the plan already guarantees the input's rows differ in
+  /// `value_symbols_`, which leaves this operator nothing to catch. It is kept
+  /// in the plan rather than cut out of it, so that a plan still shows what
+  /// permitted the rewrites below it. See RewriteWithPruningBFS.
+  bool input_is_distinct_{false};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };

@@ -386,12 +386,90 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::vector<bool> dedup_stack_;
 };
 
+/// Marks each Distinct whose input the plan already leaves distinct.
+///
+/// A grouped pruning BFS emits a vertex at most once over the whole operator, so
+/// a Distinct reading exactly that vertex has nothing left to catch. Only a
+/// grouped one: a per-source pruning BFS repeats a vertex once for every source
+/// reaching it, which is what the Distinct is there for in the first place.
+///
+/// A grouped expansion is regularly planned under one, because a Distinct is
+/// what licensed the rewrite that grouped it. The two are the same operator seen
+/// from either end, and after the rewrite the second is dead.
+class RedundantDistinctMarker final : public HierarchicalLogicalOperatorVisitor {
+ public:
+  explicit RedundantDistinctMarker(SymbolTable const &symbol_table) : symbol_table_(symbol_table) {}
+
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  bool Visit(Once &) override { return true; }
+
+  bool PreVisit(Distinct &op) override {
+    op.input_is_distinct_ = InputIsAlreadyDistinct(op);
+    return true;
+  }
+
+ private:
+  /// Whether the rows reaching `op` already differ in what it deduplicates on.
+  ///
+  /// Follows the one symbol back down towards the expansion that would have had
+  /// to write it, through operators that can neither repeat a row nor put a
+  /// different vertex under that symbol. Anything else is not answered.
+  bool InputIsAlreadyDistinct(Distinct &op) const {
+    if (op.value_symbols_.size() != 1) return false;
+    auto wanted = op.value_symbols_.front();
+    for (auto *below = op.input_.get(); below;) {
+      if (auto *filter = utils::Downcast<Filter>(below)) {
+        // Only ever drops rows, and a pattern filter's branch adds none.
+        below = filter->input_.get();
+        continue;
+      }
+      if (auto *produce = utils::Downcast<Produce>(below)) {
+        auto const *carried_over = CarriedOverBy(*produce, wanted);
+        if (!carried_over) return false;
+        wanted = symbol_table_.at(*carried_over);
+        below = produce->input_.get();
+        continue;
+      }
+      if (auto *expand = utils::Downcast<ExpandVariable>(below)) {
+        return expand->type_ == EdgeAtom::Type::PRUNING_BFS && expand->group_sources_ &&
+               expand->common_.node_symbol.position() == wanted.position();
+      }
+      return false;
+    }
+    return false;
+  }
+
+  /// The identifier a Produce carries `symbol` over from, or nothing where it
+  /// does not carry it over unchanged. Anything computed from a vertex may land
+  /// distinct vertices on one value, which says nothing about the vertices.
+  Identifier const *CarriedOverBy(Produce const &produce, Symbol const &symbol) const {
+    for (auto *named : produce.named_expressions_) {
+      if (symbol_table_.at(*named).position() != symbol.position()) continue;
+      return utils::Downcast<Identifier>(named->expression_);
+    }
+    return nullptr;
+  }
+
+  SymbolTable const &symbol_table_;
+};
+
 }  // namespace
 
 std::unique_ptr<LogicalOperator> RewriteWithPruningBFS(std::unique_ptr<LogicalOperator> root_op,
                                                        SymbolTable const *symbol_table) {
   auto rewriter = PruningBFSRewriter(*symbol_table);
   root_op->Accept(rewriter);
+
+  // A second walk, and deliberately from in here rather than as its own pass in
+  // the planner's chain. Which Distinct is dead is only known once the rewrite
+  // above has run, and the rewrite needs to see every Distinct to run at all, so
+  // nothing may come between the two or order them the other way round.
+  auto marker = RedundantDistinctMarker(*symbol_table);
+  root_op->Accept(marker);
+
   return root_op;
 }
 

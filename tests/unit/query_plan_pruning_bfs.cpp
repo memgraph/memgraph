@@ -38,6 +38,7 @@ class PruningBFSRewriteTest : public ::testing::Test {
   Symbol inner_node_sym = symbol_table.CreateSymbol("inner_node", false);
 
   std::shared_ptr<ExpandVariable> expand;
+  std::shared_ptr<Distinct> distinct;
 
   /// Knobs the tests vary; defaults describe a plan the rewrite accepts, and
   /// one whose input rows it lets share a single search.
@@ -68,8 +69,10 @@ class PruningBFSRewriteTest : public ::testing::Test {
                                               std::nullopt,
                                               nullptr);
     std::shared_ptr<LogicalOperator> top = above(expand);
+    distinct = nullptr;
     if (deduplicates) {
-      top = std::make_shared<Distinct>(std::move(top), std::vector<Symbol>{target_sym});
+      distinct = std::make_shared<Distinct>(std::move(top), std::vector<Symbol>{target_sym});
+      top = distinct;
     }
     auto *named = storage.Create<NamedExpression>("target", storage.Create<Identifier>("target")->MapTo(target_sym));
     return std::make_unique<Produce>(std::move(top), std::vector<NamedExpression *>{named});
@@ -97,6 +100,15 @@ class PruningBFSRewriteTest : public ::testing::Test {
     auto plan = RewriteWithPruningBFS(MakePlan(above), &symbol_table);
     EXPECT_EQ(expand->type_, EdgeAtom::Type::PRUNING_BFS) << "sharing is only ever offered to a pruning BFS";
     return expand->group_sources_;
+  }
+
+  /// Whether the rewrite found the Distinct above the expansion to have nothing
+  /// left to deduplicate.
+  bool DistinctIsSpentOn(
+      std::function<std::shared_ptr<LogicalOperator>(std::shared_ptr<LogicalOperator>)> const &above) {
+    auto plan = RewriteWithPruningBFS(MakePlan(above), &symbol_table);
+    EXPECT_TRUE(distinct) << "the plan under test is built without one";
+    return distinct && distinct->input_is_distinct_;
   }
 };
 
@@ -227,6 +239,35 @@ TEST_F(PruningBFSRewriteTest, SharesOneSearchWhenTheLambdaReadsOnlyItsOwnRow) {
   auto *identifier = storage.Create<Identifier>("inner_node")->MapTo(inner_node_sym);
   filter_lambda = storage.Create<PropertyLookup>(identifier, storage.GetPropertyIx("keep"));
   EXPECT_TRUE(SharesOneSearch([](auto input) { return input; }));
+}
+
+// === The Distinct that licensed the rewrite is spent by it ===
+
+TEST_F(PruningBFSRewriteTest, SpendsTheDistinctOnASharedSearch) {
+  // A shared search emits each vertex once over the whole operator, so the
+  // Distinct that permitted it has nothing of its own left to catch.
+  EXPECT_TRUE(DistinctIsSpentOn([](auto input) { return input; }));
+}
+
+TEST_F(PruningBFSRewriteTest, SpendsTheDistinctThroughAFilter) {
+  // A filter only ever drops rows, so it cannot put back a duplicate.
+  EXPECT_TRUE(DistinctIsSpentOn([this](auto input) {
+    auto *reads_target = storage.Create<Identifier>("target")->MapTo(target_sym);
+    return std::static_pointer_cast<LogicalOperator>(
+        std::make_shared<Filter>(input, std::vector<std::shared_ptr<LogicalOperator>>{}, reads_target));
+  }));
+}
+
+TEST_F(PruningBFSRewriteTest, KeepsTheDistinctWhereTheSearchIsNotShared) {
+  // A per-source pruning BFS repeats a vertex once for every source reaching
+  // it, which is the whole of what this Distinct is there for.
+  upper_bound = SuppliedBound();
+  EXPECT_FALSE(DistinctIsSpentOn([](auto input) { return input; }));
+}
+
+TEST_F(PruningBFSRewriteTest, KeepsTheDistinctWhereNoRewriteFired) {
+  lower_bound = BoundFromTheRow();
+  EXPECT_FALSE(DistinctIsSpentOn([](auto input) { return input; }));
 }
 
 }  // namespace

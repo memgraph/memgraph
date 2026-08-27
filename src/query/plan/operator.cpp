@@ -32,6 +32,9 @@
 #include <utility>
 
 #include <absl/base/no_destructor.h>
+#include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
+#include <absl/hash/hash.h>
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 #include "ctre.hpp"
@@ -3068,6 +3071,26 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
 namespace {
 
+/// Hashes a vertex for a swiss table, which reads its control byte out of the
+/// high bits of the hash. std::hash of a vertex is its identity, which leaves
+/// those bits nearly constant across a graph, so every lookup would match on the
+/// control byte and fall through to comparing keys. Mixing is what makes an
+/// open addressed table worth reaching for over a node based one.
+struct MixedVertexHash {
+  size_t operator()(VertexAccessor const &vertex) const noexcept {
+    return absl::Hash<size_t>{}(std::hash<VertexAccessor>{}(vertex));
+  }
+};
+
+/// The vertex sets a walk carries, kept flat. Every edge crossed is a lookup,
+/// so a node based table's pointer chase is paid far more often than the
+/// entries are ever iterated.
+template <typename Value>
+using VertexMap = absl::flat_hash_map<VertexAccessor, Value, MixedVertexHash, std::equal_to<VertexAccessor>,
+                                      utils::Allocator<std::pair<const VertexAccessor, Value>>>;
+using VertexSet = absl::flat_hash_set<VertexAccessor, MixedVertexHash, std::equal_to<VertexAccessor>,
+                                      utils::Allocator<VertexAccessor>>;
+
 class PruningBFSCursor : public query::plan::Cursor {
  public:
   PruningBFSCursor(const ExpandVariable &self, utils::MemoryResource *mem,
@@ -3317,9 +3340,9 @@ class PruningBFSCursor : public query::plan::Cursor {
   bool source_pending_{false};
 
   // Per-source visited set: cleared on each new input row
-  utils::pmr::unordered_set<VertexAccessor> visited_;
+  VertexSet visited_;
   // How each vertex was reached, kept only where edges may be crossed either way
-  utils::pmr::unordered_map<VertexAccessor, Arrival> branches_;
+  VertexMap<Arrival> branches_;
   // BFS frontier: current depth level and next depth level
   utils::pmr::vector<VertexAccessor> to_visit_current_;
   utils::pmr::vector<VertexAccessor> to_visit_next_;
@@ -3505,7 +3528,7 @@ class GroupedPruningBFSCursor : public query::plan::Cursor {
   // A source held back by a lower bound of one is the only entry that is false,
   // and it turns true the moment a walk arrives back at it. Held across input
   // rows, which is the whole of what this cursor does differently.
-  utils::pmr::unordered_map<VertexAccessor, bool> answered_;
+  VertexMap<bool> answered_;
   // Vertices owed a row, drained before the search goes any further.
   utils::pmr::vector<VertexAccessor> pending_;
   // Vertices reached but not yet expanded. Without an upper bound no answer
@@ -8228,6 +8251,10 @@ class DistinctCursor : public Cursor {
 
     AbortCheck(context);
 
+    // Nothing below can repeat a row in the symbols read here, so keeping them
+    // to compare the next one against would only ever confirm that.
+    if (self_.input_is_distinct_) return input_cursor_->Pull(frame, context);
+
     while (true) {
       if (!input_cursor_->Pull(frame, context)) {
         seen_rows_.clear();
@@ -8443,6 +8470,7 @@ std::unique_ptr<LogicalOperator> Distinct::Clone(AstStorage *storage) const {
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->value_symbols_ = value_symbols_;
   object->parallel_execution_ = parallel_execution_;
+  object->input_is_distinct_ = input_is_distinct_;
   return object;
 }
 
