@@ -13,6 +13,7 @@
 // Copyright 2017 Memgraph
 // Created by Florijan Stamenkovic on 24.01.17..
 //
+#include <functional>
 #include <limits>
 #include <vector>
 
@@ -299,6 +300,106 @@ TEST(TypedValue, ComparisonWithNull) {
     EXPECT_PROP_ISNULL(other <= null);
     EXPECT_PROP_ISNULL(other > null);
     EXPECT_PROP_ISNULL(other >= null);
+  }
+}
+
+namespace {
+// Every value a comparison can be handed, so a property over them covers the
+// pairs that answer as well as the pairs that raise.
+std::vector<TypedValue> ComparableSamples() {
+  std::vector<TypedValue> values;
+  values.emplace_back();
+  values.emplace_back(true);
+  values.emplace_back(int64_t{1});
+  values.emplace_back(2.5);
+  values.emplace_back(std::numeric_limits<double>::quiet_NaN());
+  values.emplace_back("abc");
+  values.emplace_back(memgraph::utils::Date({2024, 3, 19}));
+  values.emplace_back(memgraph::utils::LocalTime({10, 56, 2, 7, 100}));
+  values.emplace_back(memgraph::utils::Duration(1));
+  values.emplace_back(std::vector<TypedValue>{TypedValue(1)});
+  values.emplace_back(std::map<std::string, TypedValue>{{"a", TypedValue(1)}});
+  values.emplace_back(Enum{EnumTypeId{1}, EnumValueId{11}});
+  values.emplace_back(Point2d{Cartesian_2d, 1.0, 2.0});
+  return values;
+}
+
+// The answer a comparison gave. Raising is an answer too, but which operands
+// the message names is the business of one test only, so it is left out here.
+std::string Outcome(const std::function<TypedValue()> &comparison) {
+  try {
+    auto const result = comparison();
+    if (result.IsNull()) return "null";
+    return result.ValueBool() ? "true" : "false";
+  } catch (const TypedValueException &) {
+    return "raised";
+  }
+}
+
+// The message a comparison raised with, for the one test that reads it.
+std::string RaisedMessage(const std::function<TypedValue()> &comparison) {
+  try {
+    comparison();
+    return "did not raise";
+  } catch (const TypedValueException &e) {
+    return e.what();
+  }
+}
+}  // namespace
+
+TEST(TypedValue, OrderedComparisonsMirrorOneAnother) {
+  // `a > b` asks the same question as `b < a`, and `a >= b` the same as
+  // `b <= a`. Whatever one answers the other must answer, raised messages
+  // included, or the pair of them describes two different orderings.
+  auto const values = ComparableSamples();
+  for (const auto &a : values) {
+    for (const auto &b : values) {
+      EXPECT_EQ(Outcome([&] { return a > b; }), Outcome([&] { return b < a; }))
+          << "a > b disagrees with b < a for " << a.type() << " and " << b.type();
+      EXPECT_EQ(Outcome([&] { return a >= b; }), Outcome([&] { return b <= a; }))
+          << "a >= b disagrees with b <= a for " << a.type() << " and " << b.type();
+    }
+  }
+}
+
+TEST(TypedValue, ComparisonErrorNamesOperandsInTheOrderWritten) {
+  // A comparison that cannot be made says which types it was handed. Reporting
+  // them reversed sends the reader looking at the wrong operand.
+  auto const enum_value = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
+  auto const date = TypedValue(memgraph::utils::Date({2024, 3, 19}));
+
+  EXPECT_NE(RaisedMessage([&] { return enum_value > date; }).find("(enum + date)"), std::string::npos)
+      << "got: " << RaisedMessage([&] { return enum_value > date; });
+  EXPECT_NE(RaisedMessage([&] { return date < enum_value; }).find("(date + enum)"), std::string::npos)
+      << "got: " << RaisedMessage([&] { return date < enum_value; });
+  EXPECT_NE(RaisedMessage([&] { return enum_value >= date; }).find("(enum + date)"), std::string::npos)
+      << "got: " << RaisedMessage([&] { return enum_value >= date; });
+  EXPECT_NE(RaisedMessage([&] { return date <= enum_value; }).find("(date + enum)"), std::string::npos)
+      << "got: " << RaisedMessage([&] { return date <= enum_value; });
+}
+
+TEST(TypedValue, OrderedComparisonsAgreeWithEachOther) {
+  // The four are one ordering seen from four sides: at most one of less,
+  // greater and equal can hold, and `<=` holds exactly when `<` or `=` does.
+  auto const values = ComparableSamples();
+  for (const auto &a : values) {
+    for (const auto &b : values) {
+      auto const less = Outcome([&] { return a < b; });
+      auto const greater = Outcome([&] { return a > b; });
+      auto const less_equal = Outcome([&] { return a <= b; });
+      auto const greater_equal = Outcome([&] { return a >= b; });
+      auto const equal = Outcome([&] { return a == b; });
+      if (less.starts_with("raised")) continue;
+
+      EXPECT_FALSE(less == "true" && greater == "true")
+          << "both less and greater for " << a.type() << " and " << b.type();
+      if (less == "true" || equal == "true") {
+        EXPECT_EQ(less_equal, "true") << "less or equal but not <= for " << a.type() << " and " << b.type();
+      }
+      if (greater == "true" || equal == "true") {
+        EXPECT_EQ(greater_equal, "true") << "greater or equal but not >= for " << a.type() << " and " << b.type();
+      }
+    }
   }
 }
 
