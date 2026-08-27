@@ -582,12 +582,13 @@ TYPED_TEST(QueryPlanTest, AggregateTypes) {
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::SUM), QueryRuntimeException);
 
-  // combination of int and bool, everything except COUNT and COLLECT fails
+  // combination of int and bool: the smallest and the largest are found by
+  // where the two types sit relative to one another, the rest still fail
   aggregate(n_p2, Aggregation::Op::COUNT);
   aggregate(n_p2, Aggregation::Op::COLLECT_LIST);
   aggregate(n_p2, Aggregation::Op::COLLECT_MAP);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MIN), QueryRuntimeException);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MAX), QueryRuntimeException);
+  aggregate(n_p2, Aggregation::Op::MIN);
+  aggregate(n_p2, Aggregation::Op::MAX);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), QueryRuntimeException);
 }
@@ -997,12 +998,13 @@ TYPED_TEST(QueryPlanTest, AggregateTypesWithDistinct) {
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::SUM), QueryRuntimeException);
 
-  // combination of int and bool, everything except COUNT and COLLECT fails
+  // combination of int and bool: the smallest and the largest are found by
+  // where the two types sit relative to one another, the rest still fail
   aggregate(n_p2, Aggregation::Op::COUNT);
   aggregate(n_p2, Aggregation::Op::COLLECT_LIST);
   aggregate(n_p2, Aggregation::Op::COLLECT_MAP);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MIN), QueryRuntimeException);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MAX), QueryRuntimeException);
+  aggregate(n_p2, Aggregation::Op::MIN);
+  aggregate(n_p2, Aggregation::Op::MAX);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), QueryRuntimeException);
 }

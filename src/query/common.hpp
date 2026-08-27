@@ -25,6 +25,8 @@
 #include "query/frontend/ast/ordering.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_edge.hpp"
+#include "query/virtual_node.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
@@ -42,6 +44,83 @@ inline std::weak_ordering AlreadyTotal(std::partial_ordering order) {
   if (std::is_gt(order)) return std::weak_ordering::greater;
   DMG_ASSERT(order == std::partial_ordering::equivalent, "A type that orders every pair reported one unordered");
   return std::weak_ordering::equivalent;
+}
+
+inline std::weak_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b);
+
+/// Orders two paths as the alternating list of nodes and relationships each
+/// runs through, from its start.
+inline std::weak_ordering ComparePathsAsAlternating(Path const &lhs, Path const &rhs) {
+  auto const length = [](Path const &p) { return p.vertices().size() + p.edges().size(); };
+  auto const common = std::min(length(lhs), length(rhs));
+  for (size_t i = 0; i != common; ++i) {
+    // Even positions hold a node, odd positions the relationship after it.
+    auto const order = (i % 2 == 0) ? (lhs.vertices()[i / 2].Gid().AsUint() <=> rhs.vertices()[i / 2].Gid().AsUint())
+                                    : (lhs.edges()[i / 2].Gid().AsUint() <=> rhs.edges()[i / 2].Gid().AsUint());
+    if (order != 0) return order;
+  }
+  return length(lhs) <=> length(rhs);
+}
+
+/// Where a type sits in the global sort order, which is what lets values of
+/// unlike types be ordered against one another at all.
+///
+/// Cypher fixes this order down to NUMBER and then VOID, and requires only that
+/// the types it does not name are not placed after a NaN. The ones it does not
+/// name are put where Neo4j puts them, so that a query ordering a mixed column
+/// answers alike on both.
+///
+/// @throw QueryRuntimeException for a type no order is defined over.
+inline int SortRank(TypedValue::Type type) {
+  switch (type) {
+    using enum TypedValue::Type;
+    case Map:
+      return 0;
+    case Vertex:
+      return 1;
+    case VirtualNode:
+      return 2;
+    case Edge:
+      return 3;
+    case VirtualEdge:
+      return 4;
+    case List:
+      return 5;
+    case Path:
+      return 6;
+    case Point2d:
+      return 7;
+    case Point3d:
+      return 8;
+    case ZonedDateTime:
+      return 9;
+    case LocalDateTime:
+      return 10;
+    case Date:
+      return 11;
+    case LocalTime:
+      return 12;
+    case Duration:
+      return 13;
+    case Enum:
+      return 14;
+    case String:
+      return 15;
+    case Bool:
+      return 16;
+    // The one rank two types share, since an integer and a double are ordered
+    // against each other as numbers rather than by their types.
+    case Int:
+    case Double:
+      return 17;
+    case Null:
+      return 18;
+
+    case Graph:
+    case VirtualGraph:
+    case Function:
+      throw QueryRuntimeException("Comparison is not defined for values of type {}.", type);
+  }
 }
 
 /// Orders two values under orderability, the total order behind ORDER BY.
@@ -66,12 +145,32 @@ std::weak_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b) {
                                                       b.UnsafeValueList().begin(),
                                                       b.UnsafeValueList().end(),
                                                       TypedValueCompare);
-      case Map:
+      case Map: {
+        // By key and then by value, in the order the keys are held, with a map
+        // that runs out first coming before one that continues.
+        auto const &lhs = a.UnsafeValueMap();
+        auto const &rhs = b.UnsafeValueMap();
+        auto lhs_it = lhs.begin();
+        auto rhs_it = rhs.begin();
+        for (; lhs_it != lhs.end() && rhs_it != rhs.end(); ++lhs_it, ++rhs_it) {
+          if (auto const order = lhs_it->first <=> rhs_it->first; order != 0) return order;
+          if (auto const order = TypedValueCompare(lhs_it->second, rhs_it->second); order != 0) return order;
+        }
+        return lhs.size() <=> rhs.size();
+      }
       case Vertex:
+        return a.UnsafeValueVertex().Gid().AsUint() <=> b.UnsafeValueVertex().Gid().AsUint();
       case Edge:
-      case VirtualEdge:
+        return a.UnsafeValueEdge().Gid().AsUint() <=> b.UnsafeValueEdge().Gid().AsUint();
       case VirtualNode:
+        return a.UnsafeValueVirtualNode().Gid().AsUint() <=> b.UnsafeValueVirtualNode().Gid().AsUint();
+      case VirtualEdge:
+        return a.UnsafeValueVirtualEdge().Gid().AsUint() <=> b.UnsafeValueVirtualEdge().Gid().AsUint();
       case Path:
+        // As the list of nodes and relationships the path alternates between,
+        // read from its start.
+        return ComparePathsAsAlternating(a.UnsafeValuePath(), b.UnsafeValuePath());
+
       case Graph:
       case VirtualGraph:
       case Function:
@@ -114,20 +213,11 @@ std::weak_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b) {
     }
   }
 
-  // from this point legal only between values of
-  // int+float combinations or against null
+  // Unlike types are separated by where their types sit, which puts a null
+  // after everything and a map before it.
+  if (auto const order = SortRank(a.type()) <=> SortRank(b.type()); order != 0) return order;
 
-  // in ordering null comes after everything else
-  // at the same time Null is not less that null
-  // first deal with Null < Whatever case
-  if (a.IsNull()) return std::weak_ordering::greater;
-  // now deal with NotNull < Null case
-  if (b.IsNull()) return std::weak_ordering::less;
-
-  if (!(a.IsNumeric() && b.IsNumeric())) [[unlikely]]
-    throw QueryRuntimeException("Can't compare value of type {} to value of type {}.", a.type(), b.type());
-
-  // The one pair of unlike types with an order between them, where the double
+  // The one rank two types share: an integer against a double, where the double
   // may again be a NaN.
   if (a.IsInt()) {
     return TypedValue::CompareDoublesNaNLast(static_cast<double>(a.UnsafeValueInt()), b.UnsafeValueDouble());

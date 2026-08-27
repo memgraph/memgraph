@@ -195,7 +195,9 @@ Feature: Aggregations
             """
             MATCH (a) RETURN MIN(a.x) AS n
             """
-        Then an error should be raised
+        Then the result should be:
+            | n   |
+            | 'x' |
 
     Scenario: Min test 02:
         Given an empty graph
@@ -312,7 +314,9 @@ Feature: Aggregations
             """
             MATCH (a) RETURN MAX(a.x) AS n
             """
-        Then an error should be raised
+        Then the result should be:
+            | n |
+            | 7 |
 
     Scenario: Max test 02:
         Given an empty graph

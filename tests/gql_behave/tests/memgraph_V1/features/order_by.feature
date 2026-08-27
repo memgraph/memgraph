@@ -150,3 +150,98 @@ Feature: Order by
             | '2' |
             | '3' |
             | '9' |
+
+    Scenario: Test values of unlike types are ordered rather than refused
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [[1, 'int'], [true, 'bool'], ['', 'string'], [3.14, 'float'],
+                    [{a: 1}, 'map'], [[2], 'list'], [null, 'null']] AS p
+            WITH p[0] AS v, p[1] AS tag
+            ORDER BY v
+            RETURN tag
+            """
+        Then the result should be, in order:
+            | tag      |
+            | 'map'    |
+            | 'list'   |
+            | 'string' |
+            | 'bool'   |
+            | 'int'    |
+            | 'float'  |
+            | 'null'   |
+
+    Scenario: Test points and temporal values sit before strings in the order
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [['z', 'string'], [1, 'int'], [date('2024-01-01'), 'date'],
+                    [localtime('12:00'), 'localtime'], [localdatetime('2024-01-01T12:00'), 'localdatetime'],
+                    [duration('P1D'), 'duration'], [point({x: 1, y: 2}), 'point']] AS p
+            WITH p[0] AS v, p[1] AS tag
+            ORDER BY v
+            RETURN tag
+            """
+        Then the result should be, in order:
+            | tag             |
+            | 'point'         |
+            | 'localdatetime' |
+            | 'date'          |
+            | 'localtime'     |
+            | 'duration'      |
+            | 'string'        |
+            | 'int'           |
+
+    Scenario: Test descending reverses the order of unlike types
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [[1, 'int'], [true, 'bool'], ['', 'string'], [{a: 1}, 'map'], [null, 'null']] AS p
+            WITH p[0] AS v, p[1] AS tag
+            ORDER BY v DESC
+            RETURN tag
+            """
+        Then the result should be, in order:
+            | tag      |
+            | 'null'   |
+            | 'int'    |
+            | 'bool'   |
+            | 'string' |
+            | 'map'    |
+
+    Scenario: Test maps are ordered by their keys and then their values
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [[{b: 1}, 'b1'], [{a: 1}, 'a1'], [{a: 2}, 'a2'], [{a: 1, b: 2}, 'a1b2']] AS p
+            WITH p[0] AS v, p[1] AS tag
+            ORDER BY v
+            RETURN tag
+            """
+        Then the result should be, in order:
+            | tag    |
+            | 'a1'   |
+            | 'a1b2' |
+            | 'a2'   |
+            | 'b1'   |
+
+    Scenario: Test nodes and relationships are ordered before lists
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A)-[:R]->(:B)
+            """
+        When executing query:
+            """
+            MATCH (a:A)-[r:R]->(b:B)
+            UNWIND [[a, 'node'], [r, 'relationship'], [[2], 'list'], ['z', 'string']] AS p
+            WITH p[0] AS v, p[1] AS tag
+            ORDER BY v
+            RETURN tag
+            """
+        Then the result should be, in order:
+            | tag            |
+            | 'node'         |
+            | 'relationship' |
+            | 'list'         |
+            | 'string'       |
