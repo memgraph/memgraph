@@ -141,8 +141,17 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
 
     auto *stream_ptr = &replica_stream;
     awaited.emplace_back(raw_client, raw_client->ScheduleTask([&, raw_client, stream_ptr]() -> ShipResult {
-      const memory::DbArenaScope db_arena_scope{arena_pool_};
-      return ship_one(raw_client, *stream_ptr);
+      try {
+        const memory::DbArenaScope db_arena_scope{arena_pool_};
+        return ship_one(raw_client, *stream_ptr);
+      } catch (...) {
+        // Containment mirrors ScheduleEncode: left in REPLICATING, the replica would heal only on the
+        // next commit because the recovery checker reacts to MAYBE_BEHIND alone.
+        spdlog::error("Failed to ship transaction to replica {}.", raw_client->Name());
+        stream_ptr->reset();
+        raw_client->SetMaybeBehind();
+        return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+      }
     }));
   }
 
@@ -192,9 +201,19 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
                                                        storage_uuid,
                                                        durability_commit_timestamp,
                                                        stream = std::move(replica_stream)]() mutable {
-                               const memory::DbArenaScope db_arena_scope{arena_pool_};
-                               return raw_client->SendFinalizeCommitRpc(
-                                   decision, storage_uuid, durability_commit_timestamp, std::move(stream));
+                               try {
+                                 const memory::DbArenaScope db_arena_scope{arena_pool_};
+                                 return raw_client->SendFinalizeCommitRpc(
+                                     decision, storage_uuid, durability_commit_timestamp, std::move(stream));
+                               } catch (...) {
+                                 // Containment mirrors ScheduleEncode: left in REPLICATING, the
+                                 // replica would heal only on the next commit because the recovery
+                                 // checker reacts to MAYBE_BEHIND alone.
+                                 spdlog::error("Failed to send the 2PC decision to replica {}.", raw_client->Name());
+                                 stream.reset();
+                                 raw_client->SetMaybeBehind();
+                                 return false;
+                               }
                              }));
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
       if (decision) {
