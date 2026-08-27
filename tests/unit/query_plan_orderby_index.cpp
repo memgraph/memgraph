@@ -1730,8 +1730,8 @@ TYPED_TEST(OrderByIndexTest, EdgeTypePropertyRangeEliminated) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgeTypePropertyRange::kType))
-      << "Plan should use ScanAllByEdgeTypePropertyRange";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgeTypeProperty::kType))
+      << "Plan should use ScanAllByEdgeTypeProperty";
   EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy should be eliminated -- edge type property index provides order";
 }
@@ -1774,8 +1774,7 @@ TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyRangeEliminated) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgePropertyRange::kType))
-      << "Plan should use ScanAllByEdgePropertyRange";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgeProperty::kType)) << "Plan should use ScanAllByEdgeProperty";
   EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy should be eliminated -- global edge property index provides order";
 }
@@ -1796,8 +1795,7 @@ TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyRangeDifferentPropNotEliminated) 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgePropertyRange::kType))
-      << "Plan should use ScanAllByEdgePropertyRange";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgeProperty::kType)) << "Plan should use ScanAllByEdgeProperty";
   EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy must NOT be eliminated -- ORDER BY on different property than index";
 }
@@ -1821,8 +1819,8 @@ TYPED_TEST(OrderByIndexTest, EdgeTypePropertyValueEliminated) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgeTypePropertyValue::kType))
-      << "Plan should use ScanAllByEdgeTypePropertyValue";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgeTypeProperty::kType))
+      << "Plan should use ScanAllByEdgeTypeProperty";
   EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy should be eliminated -- exact-value edge scan trivially provides order";
 }
@@ -1865,8 +1863,7 @@ TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyValueEliminated) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgePropertyValue::kType))
-      << "Plan should use ScanAllByEdgePropertyValue";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgeProperty::kType)) << "Plan should use ScanAllByEdgeProperty";
   EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy should be eliminated -- exact-value global edge scan trivially provides order";
 }
@@ -1887,8 +1884,7 @@ TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyValueDifferentPropNotEliminated) 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgePropertyValue::kType))
-      << "Plan should use ScanAllByEdgePropertyValue";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgeProperty::kType)) << "Plan should use ScanAllByEdgeProperty";
   EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy must NOT be eliminated -- ORDER BY on different property than index";
 }
