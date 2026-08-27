@@ -2089,25 +2089,48 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b) {
 }
 
 bool TypedValue::BoolEqual::operator()(const TypedValue &lhs, const TypedValue &rhs) const {
-  if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && rhs.IsNull();
-
   // Equivalence differs from equality only in holding Null equivalent to Null,
   // and containers hold that of their elements too. Deriving the container
   // cases from equality would instead inherit the Null it propagates and read
-  // it as not equivalent, so they are walked here.
-  if (lhs.IsList() && rhs.IsList()) {
-    const auto &list_lhs = lhs.ValueList();
-    const auto &list_rhs = rhs.ValueList();
-    return list_lhs.size() == list_rhs.size() && std::equal(list_lhs.begin(), list_lhs.end(), list_rhs.begin(), *this);
-  }
-  if (lhs.IsMap() && rhs.IsMap()) {
-    const auto &map_lhs = lhs.ValueMap();
-    const auto &map_rhs = rhs.ValueMap();
-    if (map_lhs.size() != map_rhs.size()) return false;
-    return std::ranges::all_of(map_lhs, [&](const auto &kv) {
-      auto const it = map_rhs.find(kv.first);
-      return it != map_rhs.end() && (*this)(kv.second, it->second);
-    });
+  // it as not equivalent, so they are walked here. Only a pair of the same type
+  // can differ that way, which lets every other pair reach equality below
+  // through a single comparison; this is the hot path, since it is the one a
+  // hash set of query values takes on every probe.
+  if (lhs.type() == rhs.type()) {
+    switch (lhs.type()) {
+      using enum TypedValue::Type;
+      case Null:
+        return true;
+      // Answering directly rather than through equality, which would build and
+      // destroy a whole query value to carry one bit back.
+      case Bool:
+        return lhs.UnsafeValueBool() == rhs.UnsafeValueBool();
+      case Int:
+        return lhs.UnsafeValueInt() == rhs.UnsafeValueInt();
+      case Double:
+        return lhs.UnsafeValueDouble() == rhs.UnsafeValueDouble();
+      case String:
+        return lhs.UnsafeValueString() == rhs.UnsafeValueString();
+      case List: {
+        const auto &list_lhs = lhs.UnsafeValueList();
+        const auto &list_rhs = rhs.UnsafeValueList();
+        return list_lhs.size() == list_rhs.size() &&
+               std::equal(list_lhs.begin(), list_lhs.end(), list_rhs.begin(), *this);
+      }
+      case Map: {
+        const auto &map_lhs = lhs.UnsafeValueMap();
+        const auto &map_rhs = rhs.UnsafeValueMap();
+        if (map_lhs.size() != map_rhs.size()) return false;
+        return std::ranges::all_of(map_lhs, [&](const auto &kv) {
+          auto const it = map_rhs.find(kv.first);
+          return it != map_rhs.end() && (*this)(kv.second, it->second);
+        });
+      }
+      default:
+        break;
+    }
+  } else if (lhs.IsNull() || rhs.IsNull()) {
+    return false;
   }
 
   TypedValue equality_result = lhs == rhs;
