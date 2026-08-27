@@ -55,7 +55,7 @@ using memgraph::query::Symbol;
 using memgraph::query::SymbolTable;
 using Type = memgraph::query::EdgeAtom::Type;
 using Direction = memgraph::query::EdgeAtom::Direction;
-using Bound = ScanAllByEdgeTypePropertyRange::Bound;
+using Bound = memgraph::utils::Bound<memgraph::query::Expression *>;
 namespace ms = memgraph::storage;
 
 namespace {
@@ -1119,10 +1119,7 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
         RETURN("r")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(),
-              symbol_table,
-              ExpectScanAllByEdgeTypePropertyValue(edge_type, property_pair, lit_1),
-              ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(edge_type, property_pair), ExpectProduce());
   }
   {
     // Test MATCH (a)-[r:indexed_edgetype]->() WHERE r.prop=1 RETURN r;
@@ -1133,10 +1130,7 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
         RETURN("r")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(),
-              symbol_table,
-              ExpectScanAllByEdgeTypePropertyValue(edge_type, property_pair, lit_1),
-              ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(edge_type, property_pair), ExpectProduce());
   }
   {
     // Test MATCH ()-[r:indexed_edgetype]->(b) WHERE r.prop=1 RETURN r;
@@ -1147,10 +1141,7 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
         RETURN("r")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(),
-              symbol_table,
-              ExpectScanAllByEdgeTypePropertyValue(edge_type, property_pair, lit_1),
-              ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(edge_type, property_pair), ExpectProduce());
   }
   {
     // Test MATCH (a)-[r:indexed_edgetype]->(b) WHERE r.prop=1 RETURN r;
@@ -1161,10 +1152,7 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
         RETURN("r")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(),
-              symbol_table,
-              ExpectScanAllByEdgeTypePropertyValue(edge_type, property_pair, lit_1),
-              ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(edge_type, property_pair), ExpectProduce());
   }
   {
     // Test MATCH ()-[r:not_indexed_edgetype]->() WHERE r.prop=1 RETURN r;
@@ -1192,7 +1180,7 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(),
               symbol_table,
-              ExpectScanAllByEdgeTypePropertyValue(edge_type, property_pair, lit_1),
+              ExpectScanAllByEdgeTypeProperty(edge_type, property_pair),
               ExpectConstructNamedPath(),
               ExpectProduce());
   }
@@ -1234,13 +1222,7 @@ TYPED_TEST(TestPlanner, EdgeRangeFilterWIndex1) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(),
-            symbol_table,
-            ExpectScanAllByEdgeTypePropertyRange(edge_type,
-                                                 property.second,
-                                                 Bound{LITERAL(1), memgraph::utils::BoundType::EXCLUSIVE},
-                                                 Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE}),
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(edge_type, property), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex2) {
@@ -1279,13 +1261,7 @@ TYPED_TEST(TestPlanner, EdgeRangeFilterWIndex2) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(),
-            symbol_table,
-            ExpectScanAllByEdgeTypePropertyRange(edge_type,
-                                                 property.second,
-                                                 Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE},
-                                                 Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE}),
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(edge_type, property), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex3) {
@@ -1328,10 +1304,7 @@ TYPED_TEST(TestPlanner, EdgeRangeFilterWIndex3) {
 
   CheckPlan(planner.plan(),
             symbol_table,
-            ExpectScanAllByEdgeTypePropertyRange(edge_type,
-                                                 property.second,
-                                                 Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE},
-                                                 Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE}),
+            ExpectScanAllByEdgeTypeProperty(edge_type, property),
             ExpectFilter(),
             ExpectProduce());
 }
@@ -1376,8 +1349,7 @@ TYPED_TEST(TestPlanner, EdgeRangeFilterWIndex4) {
 
   CheckPlan(planner.plan(),
             symbol_table,
-            ExpectScanAllByEdgeTypePropertyRange(
-                edge_type, property.second, std::nullopt, Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE}),
+            ExpectScanAllByEdgeTypeProperty(edge_type, property),
             ExpectFilter(),
             ExpectProduce());
 }
@@ -1422,10 +1394,7 @@ TYPED_TEST(TestPlanner, EdgeRangeFilterWIndex5) {
 
   CheckPlan(planner.plan(),
             symbol_table,
-            ExpectScanAllByEdgeTypePropertyRange(edge_type,
-                                                 property.second,
-                                                 Bound{PARAMETER_LOOKUP(3), memgraph::utils::BoundType::INCLUSIVE},
-                                                 Bound{LITERAL(10), memgraph::utils::BoundType::EXCLUSIVE}),
+            ExpectScanAllByEdgeTypeProperty(edge_type, property),
             ExpectFilter(),
             ExpectProduce());
 }
@@ -6087,7 +6056,7 @@ TYPED_TEST(TestPlanner, MatchRemoveNested) {
 
 TYPED_TEST(TestPlanner, MatchGlobalEdgePropertyIndexWithEdgeTypeFilter) {
   // Test MATCH ()-[e:A {p:1}]->() RETURN e with global edge property index
-  // Should produce: Filter [e :A] -> ScanAllByEdgePropertyValue -> Produce
+  // Should produce: Filter [e :A] -> ScanAllByEdgeProperty -> Produce
   FakeDbAccessor dba;
   auto prop = dba.Property("p");
   const auto property_pair = PROPERTY_PAIR(dba, "p");
@@ -6104,11 +6073,11 @@ TYPED_TEST(TestPlanner, MatchGlobalEdgePropertyIndexWithEdgeTypeFilter) {
     if (expect_edge_type_filter) {
       CheckPlan(planner.plan(),
                 symbol_table,
-                ExpectScanAllByEdgePropertyValue(property_pair, lit_1),
+                ExpectScanAllByEdgeProperty(property_pair),
                 ExpectFilter(std::vector<std::string>{"A"}),
                 ExpectProduce());
     } else {
-      CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgePropertyValue(property_pair, lit_1), ExpectProduce());
+      CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeProperty(property_pair), ExpectProduce());
     }
   };
 

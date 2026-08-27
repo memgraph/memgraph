@@ -1286,9 +1286,11 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgeType::Clone(AstStorage *storage) c
 ScanAllByEdgeTypeProperty::ScanAllByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol,
                                                      Symbol node1_symbol, Symbol node2_symbol,
                                                      EdgeAtom::Direction direction, storage::EdgeTypeId edge_type,
-                                                     storage::PropertyId property, storage::View view)
+                                                     storage::PropertyId property, ExpressionRange expression_range,
+                                                     storage::View view)
     : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {edge_type}, view),
-      property_(property) {}
+      property_(property),
+      expression_range_(expression_range) {}
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeTypeProperty)
 
@@ -1296,9 +1298,21 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
                                                       metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_type_property_operator.Increment();
 
-  const auto get_edges = [this](Frame &, ExecutionContext &context) {
+  auto const get_edges = [this](Frame &frame, ExecutionContext &context)
+      -> std::optional<decltype(context.db_accessor->Edges(
+          view_, common_.edge_types[0], property_, std::nullopt, std::nullopt))> {
     auto *db = context.db_accessor;
-    return std::make_optional(db->Edges(view_, common_.edge_types[0], property_));
+    ExpressionEvaluator evaluator{&frame, context, view_, nullptr, &context.number_of_hops};
+    auto range = expression_range_.Evaluate(evaluator);
+
+    if (range.type_ == storage::PropertyRangeType::INVALID) return std::nullopt;
+    if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
+      return std::make_optional(db->Edges(view_, common_.edge_types[0], property_));
+    }
+    if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
+      return std::nullopt;
+    }
+    return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, range.lower_, range.upper_));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
@@ -1324,77 +1338,11 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgeTypeProperty::Clone(AstStorage *st
   object->common_ = common_;
   object->view_ = view_;
   object->property_ = property_;
+  object->expression_range_ = ExpressionRange(expression_range_, *storage);
   return object;
 }
 
 namespace {
-std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optional<utils::Bound<Expression *>> bound,
-                                                                      ExpressionEvaluator &evaluator) {
-  if (!bound) return std::nullopt;
-  const auto &value = bound->value()->Accept(evaluator);
-  try {
-    const auto &property_value = value.ToPropertyValue(evaluator.GetNameIdMapper());
-    switch (property_value.type()) {
-      case storage::PropertyValue::Type::Bool:
-      case storage::PropertyValue::Type::List:
-      case storage::PropertyValue::Type::NumericList:
-      case storage::PropertyValue::Type::IntList:
-      case storage::PropertyValue::Type::DoubleList:
-      case storage::PropertyValue::Type::Map:
-      case storage::PropertyValue::Type::Enum:
-      case storage::PropertyValueType::Point2d:
-      case storage::PropertyValueType::Point3d:
-      case storage::PropertyValueType::VectorIndexId:
-        // Prevent indexed lookup with something that would fail if we did
-        // the original filter with `operator<`. Note, for some reason,
-        // Cypher does not support comparing boolean values.
-        throw QueryRuntimeException("Range operator does not provide comparison methods for type {}.", value.type());
-      case storage::PropertyValue::Type::Null:
-      case storage::PropertyValue::Type::Int:
-      case storage::PropertyValue::Type::Double:
-      case storage::PropertyValue::Type::String:
-      case storage::PropertyValue::Type::TemporalData:
-      case storage::PropertyValue::Type::ZonedTemporalData:
-        return std::make_optional(utils::Bound<storage::PropertyValue>(property_value, bound->type()));
-    }
-  } catch (const TypedValueException &) {
-    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-  }
-}
-
-// Helper function to evaluate an expression and convert it to a property value.
-std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expression *expression, Frame &frame,
-                                                                        ExecutionContext &context, storage::View view) {
-  ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view, nullptr, &context.number_of_hops};
-
-  auto value = expression->Accept(evaluator);
-  if (value.IsNull()) {
-    return std::nullopt;
-  }
-  if (!value.IsPropertyValue()) {
-    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-  }
-  return value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
-}
-
-// Helper function to convert bounds and check for null values.
-std::pair<std::optional<utils::Bound<storage::PropertyValue>>, std::optional<utils::Bound<storage::PropertyValue>>>
-ConvertBoundsAndCheckNull(std::optional<utils::Bound<Expression *>> lower_bound,
-                          std::optional<utils::Bound<Expression *>> upper_bound, ExpressionEvaluator &evaluator) {
-  auto maybe_lower = TryConvertToBound(lower_bound, evaluator);
-  auto maybe_upper = TryConvertToBound(upper_bound, evaluator);
-
-  // If any bound is null, then the comparison would result in nulls.
-  // This is treated as not satisfying the filter.
-  if (maybe_lower && maybe_lower->value().IsNull()) {
-    return {std::nullopt, std::nullopt};
-  }
-  if (maybe_upper && maybe_upper->value().IsNull()) {
-    return {std::nullopt, std::nullopt};
-  }
-
-  return {maybe_lower, maybe_upper};
-}
 
 // Helper function to evaluate expression ranges and check for null bounds.
 // Returns nullopt if any bound is null.
@@ -1418,131 +1366,13 @@ std::optional<std::vector<storage::PropertyValueRange>> EvaluateExpressionRanges
 }
 }  // namespace
 
-ScanAllByEdgeTypePropertyValue::ScanAllByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input,
-                                                               Symbol edge_symbol, Symbol node1_symbol,
-                                                               Symbol node2_symbol, EdgeAtom::Direction direction,
-                                                               storage::EdgeTypeId edge_type,
-                                                               storage::PropertyId property, Expression *expression,
-                                                               storage::View view)
-    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {edge_type}, view),
-      property_(property),
-      expression_(expression) {}
-
-ACCEPT_WITH_INPUT(ScanAllByEdgeTypePropertyValue)
-
-UniqueCursorPtr ScanAllByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource *mem,
-                                                           metrics::DatabaseMetricHandles &metric_handles) const {
-  metric_handles.scan_all_by_edge_type_property_value_operator.Increment();
-
-  const auto get_edges = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Edges(
-          view_, common_.edge_types[0], property_, storage::PropertyValue()))> {
-    auto *db = context.db_accessor;
-    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
-    if (!maybe_prop_value) return std::nullopt;
-    return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, *maybe_prop_value));
-  };
-
-  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(mem,
-                                                                       *this,
-                                                                       input_->MakeCursor(mem, metric_handles),
-                                                                       view_,
-                                                                       std::move(get_edges),
-                                                                       "ScanAllByEdgeTypePropertyValue");
-}
-
-std::string ScanAllByEdgeTypePropertyValue::ToString(const DbAccessor *dba) const {
-  return fmt::format(
-      "ScanAllByEdgeTypePropertyValue ({0}){1}[{2}{3} {{{4}}}]{5}({6})",
-      common_.node1_symbol.name(),
-      common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
-      common_.edge_symbol.name(),
-      utils::IterableToString(
-          common_.edge_types, "|", [dba](const auto &edge_type) { return ":" + dba->EdgeTypeToName(edge_type); }),
-      dba->PropertyToName(property_),
-      common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
-      common_.node2_symbol.name());
-}
-
-std::unique_ptr<LogicalOperator> ScanAllByEdgeTypePropertyValue::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<ScanAllByEdgeTypePropertyValue>();
-  object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->common_ = common_;
-  object->view_ = view_;
-  object->property_ = property_;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-  return object;
-}
-
-ScanAllByEdgeTypePropertyRange::ScanAllByEdgeTypePropertyRange(
-    const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol, Symbol node2_symbol,
-    EdgeAtom::Direction direction, storage::EdgeTypeId edge_type, storage::PropertyId property,
-    std::optional<Bound> lower_bound, std::optional<Bound> upper_bound, storage::View view)
-    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {edge_type}, view),
-      property_(property),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound) {}
-
-ACCEPT_WITH_INPUT(ScanAllByEdgeTypePropertyRange)
-
-UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem,
-                                                           metrics::DatabaseMetricHandles &metric_handles) const {
-  metric_handles.scan_all_by_edge_type_property_range_operator.Increment();
-
-  const auto get_edges = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Edges(
-          view_, common_.edge_types[0], property_, std::nullopt, std::nullopt))> {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
-
-    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
-    if (!maybe_lower && !maybe_upper) return std::nullopt;
-
-    return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, maybe_lower, maybe_upper));
-  };
-
-  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(mem,
-                                                                       *this,
-                                                                       input_->MakeCursor(mem, metric_handles),
-                                                                       view_,
-                                                                       std::move(get_edges),
-                                                                       "ScanAllByEdgeTypePropertyRange");
-}
-
-std::string ScanAllByEdgeTypePropertyRange::ToString(const DbAccessor *dba) const {
-  return fmt::format(
-      "ScanAllByEdgeTypePropertyRange ({0}){1}[{2}{3} {{{4}}}]{5}({6})",
-      common_.node1_symbol.name(),
-      common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
-      common_.edge_symbol.name(),
-      utils::IterableToString(
-          common_.edge_types, "|", [dba](const auto &edge_type) { return ":" + dba->EdgeTypeToName(edge_type); }),
-      dba->PropertyToName(property_),
-      common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
-      common_.node2_symbol.name());
-}
-
-std::unique_ptr<LogicalOperator> ScanAllByEdgeTypePropertyRange::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<ScanAllByEdgeTypePropertyRange>();
-  object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->common_ = common_;
-  object->view_ = view_;
-  object->property_ = property_;
-  if (lower_bound_) {
-    object->lower_bound_.emplace(
-        utils::Bound<Expression *>(lower_bound_->value()->Clone(storage), lower_bound_->type()));
-  }
-  if (upper_bound_) {
-    object->upper_bound_.emplace(
-        utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
-  }
-  return object;
-}
-
 ScanAllByEdgeProperty::ScanAllByEdgeProperty(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol,
                                              Symbol node1_symbol, Symbol node2_symbol, EdgeAtom::Direction direction,
-                                             storage::PropertyId property, storage::View view)
-    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {}, view), property_(property) {}
+                                             storage::PropertyId property, ExpressionRange expression_range,
+                                             storage::View view)
+    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {}, view),
+      property_(property),
+      expression_range_(expression_range) {}
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeProperty)
 
@@ -1550,9 +1380,20 @@ UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem,
                                                   metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_property_operator.Increment();
 
-  const auto get_edges = [this](Frame &, ExecutionContext &context) {
+  auto const get_edges = [this](Frame &frame, ExecutionContext &context)
+      -> std::optional<decltype(context.db_accessor->Edges(view_, property_, std::nullopt, std::nullopt))> {
     auto *db = context.db_accessor;
-    return std::make_optional(db->Edges(view_, property_));
+    ExpressionEvaluator evaluator{&frame, context, view_, nullptr, &context.number_of_hops};
+    auto range = expression_range_.Evaluate(evaluator);
+
+    if (range.type_ == storage::PropertyRangeType::INVALID) return std::nullopt;
+    if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
+      return std::make_optional(db->Edges(view_, property_));
+    }
+    if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
+      return std::nullopt;
+    }
+    return std::make_optional(db->Edges(view_, property_, range.lower_, range.upper_));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
@@ -1575,112 +1416,7 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgeProperty::Clone(AstStorage *storag
   object->common_ = common_;
   object->view_ = view_;
   object->property_ = property_;
-  return object;
-}
-
-ScanAllByEdgePropertyValue::ScanAllByEdgePropertyValue(const std::shared_ptr<LogicalOperator> &input,
-                                                       Symbol edge_symbol, Symbol node1_symbol, Symbol node2_symbol,
-                                                       EdgeAtom::Direction direction, storage::PropertyId property,
-                                                       Expression *expression, storage::View view)
-    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {}, view),
-      property_(property),
-      expression_(expression) {}
-
-ACCEPT_WITH_INPUT(ScanAllByEdgePropertyValue)
-
-UniqueCursorPtr ScanAllByEdgePropertyValue::MakeCursor(utils::MemoryResource *mem,
-                                                       metrics::DatabaseMetricHandles &metric_handles) const {
-  metric_handles.scan_all_by_edge_property_value_operator.Increment();
-
-  const auto get_edges = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Edges(
-          view_, common_.edge_types[0], property_, storage::PropertyValue()))> {
-    auto *db = context.db_accessor;
-    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
-    if (!maybe_prop_value) return std::nullopt;
-    return std::make_optional(db->Edges(view_, property_, *maybe_prop_value));
-  };
-
-  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
-      mem, *this, input_->MakeCursor(mem, metric_handles), view_, std::move(get_edges), "ScanAllByEdgePropertyValue");
-}
-
-std::string ScanAllByEdgePropertyValue::ToString(const DbAccessor *dba) const {
-  return fmt::format("ScanAllByEdgePropertyValue ({0}){1}[{2} {{{3}}}]{4}({5})",
-                     common_.node1_symbol.name(),
-                     common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
-                     common_.edge_symbol.name(),
-                     dba->PropertyToName(property_),
-                     common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
-                     common_.node2_symbol.name());
-}
-
-std::unique_ptr<LogicalOperator> ScanAllByEdgePropertyValue::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<ScanAllByEdgePropertyValue>();
-  object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->common_ = common_;
-  object->view_ = view_;
-  object->property_ = property_;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-  return object;
-}
-
-ScanAllByEdgePropertyRange::ScanAllByEdgePropertyRange(const std::shared_ptr<LogicalOperator> &input,
-                                                       Symbol edge_symbol, Symbol node1_symbol, Symbol node2_symbol,
-                                                       EdgeAtom::Direction direction, storage::PropertyId property,
-                                                       std::optional<Bound> lower_bound,
-                                                       std::optional<Bound> upper_bound, storage::View view)
-    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {}, view),
-      property_(property),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound) {}
-
-ACCEPT_WITH_INPUT(ScanAllByEdgePropertyRange)
-
-UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *mem,
-                                                       metrics::DatabaseMetricHandles &metric_handles) const {
-  metric_handles.scan_all_by_edge_property_range_operator.Increment();
-
-  const auto get_edges = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Edges(
-          view_, common_.edge_types[0], property_, std::nullopt, std::nullopt))> {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
-
-    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
-    if (!maybe_lower && !maybe_upper) return std::nullopt;
-
-    return std::make_optional(db->Edges(view_, property_, maybe_lower, maybe_upper));
-  };
-
-  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
-      mem, *this, input_->MakeCursor(mem, metric_handles), view_, std::move(get_edges), "ScanAllByEdgePropertyRange");
-}
-
-std::string ScanAllByEdgePropertyRange::ToString(const DbAccessor *dba) const {
-  return fmt::format("ScanAllByEdgePropertyRange ({0}){1}[{2} {{{3}}}]{4}({5})",
-                     common_.node1_symbol.name(),
-                     common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
-                     common_.edge_symbol.name(),
-                     dba->PropertyToName(property_),
-                     common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
-                     common_.node2_symbol.name());
-}
-
-std::unique_ptr<LogicalOperator> ScanAllByEdgePropertyRange::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<ScanAllByEdgePropertyRange>();
-  object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->common_ = common_;
-  object->view_ = view_;
-  object->property_ = property_;
-  if (lower_bound_) {
-    object->lower_bound_.emplace(
-        utils::Bound<Expression *>(lower_bound_->value()->Clone(storage), lower_bound_->type()));
-  }
-  if (upper_bound_) {
-    object->upper_bound_.emplace(
-        utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
-  }
+  object->expression_range_ = ExpressionRange(expression_range_, *storage);
   return object;
 }
 
@@ -10808,8 +10544,12 @@ std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage
 ScanParallelByEdgeTypeProperty::ScanParallelByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input,
                                                                storage::View view, size_t num_threads,
                                                                Symbol state_symbol, storage::EdgeTypeId edge_type,
-                                                               storage::PropertyId property)
-    : ScanParallel(input, view, num_threads, state_symbol), edge_type_(edge_type), property_(property) {}
+                                                               storage::PropertyId property,
+                                                               ExpressionRange expression_range)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      edge_type_(edge_type),
+      property_(property),
+      expression_range_(std::move(expression_range)) {}
 
 ACCEPT_WITH_INPUT(ScanParallelByEdgeTypeProperty)
 
@@ -10817,9 +10557,24 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
                                                            metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_type_property_operator.Increment();
 #ifdef MG_ENTERPRISE
-  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    return db->ChunkedEdges(view_, edge_type_, property_, num_threads_);
+    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
+    auto range = expression_range_.Evaluate(evaluator);
+
+    if (range.type_ == storage::PropertyRangeType::INVALID) {
+      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
+    }
+
+    if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
+      return db->ChunkedEdges(view_, edge_type_, property_, num_threads_);
+    }
+
+    if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
+      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
+    }
+
+    return db->ChunkedEdges(view_, edge_type_, property_, range.lower_, range.upper_, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10844,70 +10599,16 @@ std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypeProperty::Clone(AstStorag
   object->state_symbol_ = state_symbol_;
   object->edge_type_ = edge_type_;
   object->property_ = property_;
-  return object;
-}
-
-ScanParallelByEdgeTypePropertyRange::ScanParallelByEdgeTypePropertyRange(
-    const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads, Symbol state_symbol,
-    storage::EdgeTypeId edge_type, storage::PropertyId property, std::optional<Bound> lower_bound,
-    std::optional<Bound> upper_bound)
-    : ScanParallel(input, view, num_threads, state_symbol),
-      edge_type_(edge_type),
-      property_(property),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound) {}
-
-ACCEPT_WITH_INPUT(ScanParallelByEdgeTypePropertyRange)
-
-UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem,
-                                                                metrics::DatabaseMetricHandles &metric_handles) const {
-  metric_handles.scan_all_by_edge_type_property_range_operator.Increment();
-#ifdef MG_ENTERPRISE
-  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
-
-    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
-    return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_threads_);
-  };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
-      mem, *this, mem, metric_handles, std::move(get_chunks));
-#else
-  (void)mem;
-  throw QueryRuntimeException("ScanParallelByEdgeTypePropertyRange is not supported in the community edition");
-#endif
-}
-
-std::string ScanParallelByEdgeTypePropertyRange::ToString(const DbAccessor *dba) const {
-  return fmt::format("ScanParallelByEdgeTypePropertyRange (threads: {}, -[:{}]- {{{}}})",
-                     num_threads_,
-                     dba->EdgeTypeToName(edge_type_),
-                     dba->PropertyToName(property_));
-}
-
-std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyRange::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<ScanParallelByEdgeTypePropertyRange>();
-  object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->view_ = view_;
-  object->num_threads_ = num_threads_;
-  object->state_symbol_ = state_symbol_;
-  object->edge_type_ = edge_type_;
-  object->property_ = property_;
-  if (lower_bound_) {
-    object->lower_bound_.emplace(
-        utils::Bound<Expression *>(lower_bound_->value()->Clone(storage), lower_bound_->type()));
-  }
-  if (upper_bound_) {
-    object->upper_bound_.emplace(
-        utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
-  }
+  object->expression_range_ = ExpressionRange(expression_range_, *storage);
   return object;
 }
 
 ScanParallelByEdgeProperty::ScanParallelByEdgeProperty(const std::shared_ptr<LogicalOperator> &input,
                                                        storage::View view, size_t num_threads, Symbol state_symbol,
-                                                       storage::PropertyId property)
-    : ScanParallel(input, view, num_threads, state_symbol), property_(property) {}
+                                                       storage::PropertyId property, ExpressionRange expression_range)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      property_(property),
+      expression_range_(std::move(expression_range)) {}
 
 ACCEPT_WITH_INPUT(ScanParallelByEdgeProperty)
 
@@ -10915,9 +10616,24 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
                                                        metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.scan_all_by_edge_property_operator.Increment();
 #ifdef MG_ENTERPRISE
-  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    return db->ChunkedEdges(view_, property_, num_threads_);
+    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
+    auto range = expression_range_.Evaluate(evaluator);
+
+    if (range.type_ == storage::PropertyRangeType::INVALID) {
+      return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, 0);
+    }
+
+    if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL) {
+      return db->ChunkedEdges(view_, property_, num_threads_);
+    }
+
+    if ((range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
+      return db->ChunkedEdges(view_, property_, std::nullopt, std::nullopt, 0);
+    }
+
+    return db->ChunkedEdges(view_, property_, range.lower_, range.upper_, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10939,102 +10655,7 @@ std::unique_ptr<LogicalOperator> ScanParallelByEdgeProperty::Clone(AstStorage *s
   object->num_threads_ = num_threads_;
   object->state_symbol_ = state_symbol_;
   object->property_ = property_;
-  return object;
-}
-
-ScanParallelByEdgePropertyValue::ScanParallelByEdgePropertyValue(const std::shared_ptr<LogicalOperator> &input,
-                                                                 storage::View view, size_t num_threads,
-                                                                 Symbol state_symbol, storage::PropertyId property,
-                                                                 Expression *expression)
-    : ScanParallel(input, view, num_threads, state_symbol), property_(property), expression_(expression) {}
-
-ACCEPT_WITH_INPUT(ScanParallelByEdgePropertyValue)
-
-UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResource *mem,
-                                                            metrics::DatabaseMetricHandles &metric_handles) const {
-  metric_handles.scan_all_by_edge_property_value_operator.Increment();
-#ifdef MG_ENTERPRISE
-  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
-    if (!maybe_prop_value) return db->ChunkedEdges(view_, property_, storage::PropertyValue(), 0);
-    return db->ChunkedEdges(view_, property_, *maybe_prop_value, num_threads_);
-  };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
-      mem, *this, mem, metric_handles, std::move(get_chunks));
-#else
-  (void)mem;
-  throw QueryRuntimeException("ScanParallelByEdgePropertyValue is not supported in the community edition");
-#endif
-}
-
-std::string ScanParallelByEdgePropertyValue::ToString(const DbAccessor *dba) const {
-  return fmt::format(
-      "ScanParallelByEdgePropertyValue (threads: {}, -[]- {{{}}})", num_threads_, dba->PropertyToName(property_));
-}
-
-std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyValue::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<ScanParallelByEdgePropertyValue>();
-  object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->view_ = view_;
-  object->num_threads_ = num_threads_;
-  object->state_symbol_ = state_symbol_;
-  object->property_ = property_;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-  return object;
-}
-
-ScanParallelByEdgePropertyRange::ScanParallelByEdgePropertyRange(const std::shared_ptr<LogicalOperator> &input,
-                                                                 storage::View view, size_t num_threads,
-                                                                 Symbol state_symbol, storage::PropertyId property,
-                                                                 std::optional<Bound> lower_bound,
-                                                                 std::optional<Bound> upper_bound)
-    : ScanParallel(input, view, num_threads, state_symbol),
-      property_(property),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound) {}
-
-ACCEPT_WITH_INPUT(ScanParallelByEdgePropertyRange)
-
-UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResource *mem,
-                                                            metrics::DatabaseMetricHandles &metric_handles) const {
-  metric_handles.scan_all_by_edge_property_range_operator.Increment();
-#ifdef MG_ENTERPRISE
-  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
-
-    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
-    return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_threads_);
-  };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
-      mem, *this, mem, metric_handles, std::move(get_chunks));
-#else
-  (void)mem;
-  throw QueryRuntimeException("ScanParallelByEdgePropertyRange is not supported in the community edition");
-#endif
-}
-
-std::string ScanParallelByEdgePropertyRange::ToString(const DbAccessor *dba) const {
-  return fmt::format(
-      "ScanParallelByEdgePropertyRange (threads: {}, -[]- {{{}}})", num_threads_, dba->PropertyToName(property_));
-}
-
-std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyRange::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<ScanParallelByEdgePropertyRange>();
-  object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->view_ = view_;
-  object->num_threads_ = num_threads_;
-  object->state_symbol_ = state_symbol_;
-  object->property_ = property_;
-  if (lower_bound_) {
-    object->lower_bound_.emplace(
-        utils::Bound<Expression *>(lower_bound_->value()->Clone(storage), lower_bound_->type()));
-  }
-  if (upper_bound_) {
-    object->upper_bound_.emplace(
-        utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
-  }
+  object->expression_range_ = ExpressionRange(expression_range_, *storage);
   return object;
 }
 
@@ -11135,60 +10756,6 @@ std::unique_ptr<LogicalOperator> ScanParallelByEdge::Clone(AstStorage *storage) 
   object->node1_symbol_ = node1_symbol_;
   object->node2_symbol_ = node2_symbol_;
   object->direction_ = direction_;
-  return object;
-}
-
-ScanParallelByEdgeTypePropertyValue::ScanParallelByEdgeTypePropertyValue(
-    const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads, Symbol state_symbol,
-    storage::EdgeTypeId edge_type, storage::PropertyId property, Expression *expression)
-    : ScanParallel(input, view, num_threads, state_symbol),
-      edge_type_(edge_type),
-      property_(property),
-      expression_(expression) {}
-
-ACCEPT_WITH_INPUT(ScanParallelByEdgeTypePropertyValue)
-
-UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource *mem,
-                                                                metrics::DatabaseMetricHandles &metric_handles) const {
-  metric_handles.scan_all_by_edge_type_property_value_operator.Increment();
-#ifdef MG_ENTERPRISE
-  // Note: There's no ChunkedEdges(edge_type, property, value) method, so we use the range version
-  // with equal bounds to simulate the value lookup
-  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
-    if (!maybe_prop_value) {
-      // Return empty chunks
-      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
-    }
-    // Use range with equal bounds to simulate value lookup
-    auto bound = utils::MakeBoundInclusive(*maybe_prop_value);
-    return db->ChunkedEdges(view_, edge_type_, property_, bound, bound, num_threads_);
-  };
-  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
-      mem, *this, mem, metric_handles, std::move(get_chunks));
-#else
-  (void)mem;
-  throw QueryRuntimeException("ScanParallelByEdgeTypePropertyValue is not supported in the community edition");
-#endif
-}
-
-std::string ScanParallelByEdgeTypePropertyValue::ToString(const DbAccessor *dba) const {
-  return fmt::format("ScanParallelByEdgeTypePropertyValue (threads: {}, -[:{}]- {{{}}})",
-                     num_threads_,
-                     dba->EdgeTypeToName(edge_type_),
-                     dba->PropertyToName(property_));
-}
-
-std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyValue::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<ScanParallelByEdgeTypePropertyValue>();
-  object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->view_ = view_;
-  object->num_threads_ = num_threads_;
-  object->state_symbol_ = state_symbol_;
-  object->edge_type_ = edge_type_;
-  object->property_ = property_;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
   return object;
 }
 

@@ -206,30 +206,10 @@ PrometheusMetrics::PrometheusMetrics()
               .Name("memgraph_scan_all_by_edge_type_property_operator_total")
               .Help("Number of times ScanAllByEdgeTypeProperty operator was used")
               .Register(registry_)},
-      scan_all_by_edge_type_property_value_operator_family_{
-          prometheus::BuildCounter()
-              .Name("memgraph_scan_all_by_edge_type_property_value_operator_total")
-              .Help("Number of times ScanAllByEdgeTypePropertyValue operator was used")
-              .Register(registry_)},
-      scan_all_by_edge_type_property_range_operator_family_{
-          prometheus::BuildCounter()
-              .Name("memgraph_scan_all_by_edge_type_property_range_operator_total")
-              .Help("Number of times ScanAllByEdgeTypePropertyRange operator was used")
-              .Register(registry_)},
       scan_all_by_edge_property_operator_family_{prometheus::BuildCounter()
                                                      .Name("memgraph_scan_all_by_edge_property_operator_total")
                                                      .Help("Number of times ScanAllByEdgeProperty operator was used")
                                                      .Register(registry_)},
-      scan_all_by_edge_property_value_operator_family_{
-          prometheus::BuildCounter()
-              .Name("memgraph_scan_all_by_edge_property_value_operator_total")
-              .Help("Number of times ScanAllByEdgePropertyValue operator was used")
-              .Register(registry_)},
-      scan_all_by_edge_property_range_operator_family_{
-          prometheus::BuildCounter()
-              .Name("memgraph_scan_all_by_edge_property_range_operator_total")
-              .Help("Number of times ScanAllByEdgePropertyRange operator was used")
-              .Register(registry_)},
       scan_all_by_edge_id_operator_family_{prometheus::BuildCounter()
                                                .Name("memgraph_scan_all_by_edge_id_operator_total")
                                                .Help("Number of times ScanAllByEdgeId operator was used")
@@ -975,15 +955,7 @@ PrometheusMetrics::Registration PrometheusMetrics::AddDatabase(utils::UUID const
                   .scan_all_by_edge_type_operator = {&scan_all_by_edge_type_operator_family_.Add(labels)},
                   .scan_all_by_edge_type_property_operator = {&scan_all_by_edge_type_property_operator_family_.Add(
                       labels)},
-                  .scan_all_by_edge_type_property_value_operator =
-                      {&scan_all_by_edge_type_property_value_operator_family_.Add(labels)},
-                  .scan_all_by_edge_type_property_range_operator =
-                      {&scan_all_by_edge_type_property_range_operator_family_.Add(labels)},
                   .scan_all_by_edge_property_operator = {&scan_all_by_edge_property_operator_family_.Add(labels)},
-                  .scan_all_by_edge_property_value_operator = {&scan_all_by_edge_property_value_operator_family_.Add(
-                      labels)},
-                  .scan_all_by_edge_property_range_operator = {&scan_all_by_edge_property_range_operator_family_.Add(
-                      labels)},
                   .scan_all_by_edge_id_operator = {&scan_all_by_edge_id_operator_family_.Add(labels)},
                   .scan_all_by_vertex_property_operator = {&scan_all_by_vertex_property_operator_family_.Add(labels)},
                   .scan_all_by_point_distance_operator = {&scan_all_by_point_distance_operator_family_.Add(labels)},
@@ -1118,11 +1090,7 @@ void PrometheusMetrics::ReleaseRegistration(uint64_t entry_id) {
   scan_all_by_edge_operator_family_.Remove(h.scan_all_by_edge_operator.get());
   scan_all_by_edge_type_operator_family_.Remove(h.scan_all_by_edge_type_operator.get());
   scan_all_by_edge_type_property_operator_family_.Remove(h.scan_all_by_edge_type_property_operator.get());
-  scan_all_by_edge_type_property_value_operator_family_.Remove(h.scan_all_by_edge_type_property_value_operator.get());
-  scan_all_by_edge_type_property_range_operator_family_.Remove(h.scan_all_by_edge_type_property_range_operator.get());
   scan_all_by_edge_property_operator_family_.Remove(h.scan_all_by_edge_property_operator.get());
-  scan_all_by_edge_property_value_operator_family_.Remove(h.scan_all_by_edge_property_value_operator.get());
-  scan_all_by_edge_property_range_operator_family_.Remove(h.scan_all_by_edge_property_range_operator.get());
   scan_all_by_edge_id_operator_family_.Remove(h.scan_all_by_edge_id_operator.get());
   scan_all_by_vertex_property_operator_family_.Remove(h.scan_all_by_vertex_property_operator.get());
   scan_all_by_point_distance_operator_family_.Remove(h.scan_all_by_point_distance_operator.get());
@@ -1486,26 +1454,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
                  "Operator",
                  "Counter",
                  static_cast<int64_t>(h.scan_all_by_edge_type_property_operator.Value())});
-  out.push_back({"ScanAllByEdgeTypePropertyValueOperator",
-                 "Operator",
-                 "Counter",
-                 static_cast<int64_t>(h.scan_all_by_edge_type_property_value_operator.Value())});
-  out.push_back({"ScanAllByEdgeTypePropertyRangeOperator",
-                 "Operator",
-                 "Counter",
-                 static_cast<int64_t>(h.scan_all_by_edge_type_property_range_operator.Value())});
   out.push_back({"ScanAllByEdgePropertyOperator",
                  "Operator",
                  "Counter",
                  static_cast<int64_t>(h.scan_all_by_edge_property_operator.Value())});
-  out.push_back({"ScanAllByEdgePropertyValueOperator",
-                 "Operator",
-                 "Counter",
-                 static_cast<int64_t>(h.scan_all_by_edge_property_value_operator.Value())});
-  out.push_back({"ScanAllByEdgePropertyRangeOperator",
-                 "Operator",
-                 "Counter",
-                 static_cast<int64_t>(h.scan_all_by_edge_property_range_operator.Value())});
   out.push_back(
       {"ScanAllByEdgeIdOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_by_edge_id_operator.Value())});
   out.push_back({"ScanAllByVertexPropertyOperator",
@@ -1691,11 +1643,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_scan_all_by_edge_operator = 0;
   int64_t total_scan_all_by_edge_type_operator = 0;
   int64_t total_scan_all_by_edge_type_property_operator = 0;
-  int64_t total_scan_all_by_edge_type_property_value_operator = 0;
-  int64_t total_scan_all_by_edge_type_property_range_operator = 0;
   int64_t total_scan_all_by_edge_property_operator = 0;
-  int64_t total_scan_all_by_edge_property_value_operator = 0;
-  int64_t total_scan_all_by_edge_property_range_operator = 0;
   int64_t total_scan_all_by_edge_id_operator = 0;
   int64_t total_scan_all_by_point_distance_operator = 0;
   int64_t total_scan_all_by_point_withinbbox_operator = 0;
@@ -1790,15 +1738,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
       total_scan_all_by_edge_type_operator += static_cast<int64_t>(h.scan_all_by_edge_type_operator.Value());
       total_scan_all_by_edge_type_property_operator +=
           static_cast<int64_t>(h.scan_all_by_edge_type_property_operator.Value());
-      total_scan_all_by_edge_type_property_value_operator +=
-          static_cast<int64_t>(h.scan_all_by_edge_type_property_value_operator.Value());
-      total_scan_all_by_edge_type_property_range_operator +=
-          static_cast<int64_t>(h.scan_all_by_edge_type_property_range_operator.Value());
       total_scan_all_by_edge_property_operator += static_cast<int64_t>(h.scan_all_by_edge_property_operator.Value());
-      total_scan_all_by_edge_property_value_operator +=
-          static_cast<int64_t>(h.scan_all_by_edge_property_value_operator.Value());
-      total_scan_all_by_edge_property_range_operator +=
-          static_cast<int64_t>(h.scan_all_by_edge_property_range_operator.Value());
       total_scan_all_by_edge_id_operator += static_cast<int64_t>(h.scan_all_by_edge_id_operator.Value());
       total_scan_all_by_point_distance_operator += static_cast<int64_t>(h.scan_all_by_point_distance_operator.Value());
       total_scan_all_by_point_withinbbox_operator +=
@@ -1897,19 +1837,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   out.push_back({"ScanAllByEdgeTypeOperator", "Operator", "Counter", total_scan_all_by_edge_type_operator});
   out.push_back(
       {"ScanAllByEdgeTypePropertyOperator", "Operator", "Counter", total_scan_all_by_edge_type_property_operator});
-  out.push_back({"ScanAllByEdgeTypePropertyValueOperator",
-                 "Operator",
-                 "Counter",
-                 total_scan_all_by_edge_type_property_value_operator});
-  out.push_back({"ScanAllByEdgeTypePropertyRangeOperator",
-                 "Operator",
-                 "Counter",
-                 total_scan_all_by_edge_type_property_range_operator});
   out.push_back({"ScanAllByEdgePropertyOperator", "Operator", "Counter", total_scan_all_by_edge_property_operator});
-  out.push_back(
-      {"ScanAllByEdgePropertyValueOperator", "Operator", "Counter", total_scan_all_by_edge_property_value_operator});
-  out.push_back(
-      {"ScanAllByEdgePropertyRangeOperator", "Operator", "Counter", total_scan_all_by_edge_property_range_operator});
   out.push_back({"ScanAllByEdgeIdOperator", "Operator", "Counter", total_scan_all_by_edge_id_operator});
   out.push_back({"ScanAllByPointDistanceOperator", "Operator", "Counter", total_scan_all_by_point_distance_operator});
   out.push_back(
@@ -2248,11 +2176,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
   int64_t scan_all_edge_op = 0;
   int64_t scan_all_edge_type_op = 0;
   int64_t scan_all_edge_type_prop_op = 0;
-  int64_t scan_all_edge_type_prop_val_op = 0;
-  int64_t scan_all_edge_type_prop_range_op = 0;
   int64_t scan_all_edge_prop_op = 0;
-  int64_t scan_all_edge_prop_val_op = 0;
-  int64_t scan_all_edge_prop_range_op = 0;
   int64_t scan_all_edge_id_op = 0;
   int64_t scan_all_point_dist_op = 0;
   int64_t scan_all_point_bbox_op = 0;
@@ -2346,11 +2270,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
       scan_all_edge_op += static_cast<int64_t>(h.scan_all_by_edge_operator.Value());
       scan_all_edge_type_op += static_cast<int64_t>(h.scan_all_by_edge_type_operator.Value());
       scan_all_edge_type_prop_op += static_cast<int64_t>(h.scan_all_by_edge_type_property_operator.Value());
-      scan_all_edge_type_prop_val_op += static_cast<int64_t>(h.scan_all_by_edge_type_property_value_operator.Value());
-      scan_all_edge_type_prop_range_op += static_cast<int64_t>(h.scan_all_by_edge_type_property_range_operator.Value());
       scan_all_edge_prop_op += static_cast<int64_t>(h.scan_all_by_edge_property_operator.Value());
-      scan_all_edge_prop_val_op += static_cast<int64_t>(h.scan_all_by_edge_property_value_operator.Value());
-      scan_all_edge_prop_range_op += static_cast<int64_t>(h.scan_all_by_edge_property_range_operator.Value());
       scan_all_edge_id_op += static_cast<int64_t>(h.scan_all_by_edge_id_operator.Value());
       scan_all_point_dist_op += static_cast<int64_t>(h.scan_all_by_point_distance_operator.Value());
       scan_all_point_bbox_op += static_cast<int64_t>(h.scan_all_by_point_withinbbox_operator.Value());
@@ -2446,11 +2366,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
     {"ScanAllByEdgeOperator", scan_all_edge_op},
     {"ScanAllByEdgeTypeOperator", scan_all_edge_type_op},
     {"ScanAllByEdgeTypePropertyOperator", scan_all_edge_type_prop_op},
-    {"ScanAllByEdgeTypePropertyValueOperator", scan_all_edge_type_prop_val_op},
-    {"ScanAllByEdgeTypePropertyRangeOperator", scan_all_edge_type_prop_range_op},
     {"ScanAllByEdgePropertyOperator", scan_all_edge_prop_op},
-    {"ScanAllByEdgePropertyValueOperator", scan_all_edge_prop_val_op},
-    {"ScanAllByEdgePropertyRangeOperator", scan_all_edge_prop_range_op},
     {"ScanAllByEdgeIdOperator", scan_all_edge_id_op},
     {"ScanAllByPointDistanceOperator", scan_all_point_dist_op},
     {"ScanAllByPointWithinbboxOperator", scan_all_point_bbox_op},

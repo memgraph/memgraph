@@ -62,11 +62,7 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   bool PreVisit(ScanAllByEdge &) override;
   bool PreVisit(ScanAllByEdgeType &) override;
   bool PreVisit(ScanAllByEdgeTypeProperty &) override;
-  bool PreVisit(ScanAllByEdgeTypePropertyValue &) override;
-  bool PreVisit(ScanAllByEdgeTypePropertyRange &) override;
   bool PreVisit(ScanAllByEdgeProperty &) override;
-  bool PreVisit(ScanAllByEdgePropertyValue &) override;
-  bool PreVisit(ScanAllByEdgePropertyRange &) override;
   bool PreVisit(ScanAllByEdgeId &) override;
   bool PreVisit(ScanAllByVertexProperty &) override;
 
@@ -114,11 +110,7 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   bool PreVisit(ScanParallelByEdge &) override;
   bool PreVisit(ScanParallelByEdgeType &) override;
   bool PreVisit(ScanParallelByEdgeTypeProperty &) override;
-  bool PreVisit(ScanParallelByEdgeTypePropertyValue &) override;
-  bool PreVisit(ScanParallelByEdgeTypePropertyRange &) override;
   bool PreVisit(ScanParallelByEdgeProperty &) override;
-  bool PreVisit(ScanParallelByEdgePropertyValue &) override;
-  bool PreVisit(ScanParallelByEdgePropertyRange &) override;
   bool PreVisit(ScanParallelByVertexProperty &) override;
   bool PreVisit(ScanChunk &) override;
   bool PreVisit(ScanChunkByEdge &) override;
