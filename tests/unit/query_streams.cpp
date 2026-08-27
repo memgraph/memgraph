@@ -9,9 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <unistd.h>
 #include <algorithm>
 #include <filesystem>
 #include <optional>
+#include <string>
 #include <utility>
 
 #include <gtest/gtest.h>
@@ -71,7 +73,10 @@ std::string GetDefaultStreamName() {
 }
 
 std::filesystem::path GetCleanDataDirectory() {
-  const auto path = std::filesystem::temp_directory_path() / "query-streams";
+  // Emptied on every fixture construction, so the path must be private to this process. A path
+  // shared with a concurrently running test deletes that test's storage out from under it.
+  const auto path =
+      std::filesystem::temp_directory_path() / ("query-streams-" + std::to_string(static_cast<int>(getpid())));
   std::filesystem::remove_all(path);
   return path;
 }
