@@ -11,11 +11,12 @@
 
 #pragma once
 
-#include <cmath>
+#include <compare>
 #include <cstdint>
 #include <iosfwd>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -546,9 +547,6 @@ class TypedValue {
   /**  Checks if value is a TypedValue::Null. */
   bool IsNull() const { return type_ == Type::Null; }
 
-  /** Whether the value sits outside the ordering, which only a NaN does. */
-  static bool IsNaN(const TypedValue &value) { return value.type_ == Type::Double && std::isnan(value.double_v); }
-
   /** Convenience function for checking if this TypedValue is either
    * an integer or double */
   bool IsNumeric() const;
@@ -621,16 +619,112 @@ class TypedValue {
   friend TypedValue operator!=(const TypedValue &a, const TypedValue &b) { return !(a == b); }
 
   /**
-   * Compare TypedValues and return true, false or Null.
+   * Where one value falls relative to another under comparability, the relation
+   * the four ordered comparisons below are each one reading of.
    *
-   * Null is returned if either of the two values is Null.
-   * The resulting value uses the same MemoryResource as the left hand side
-   * argument.
+   * The ordering is partial. `unordered` means the two have no order between
+   * them, which is what a NaN is, and all four comparisons are false for such a
+   * pair. Nothing at all is returned when the comparison cannot be made from
+   * what is known, which a Null operand and a pair of unlike types both are,
+   * and all four are then Null.
    *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
+   * @throw TypedValueException if neither value belongs to the ordering.
    */
-  friend TypedValue operator<(const TypedValue &a, const TypedValue &b);
+  static std::optional<std::partial_ordering> Compare(const TypedValue &a, const TypedValue &b);
+
+  /**
+   * Orders two values of one type by what they hold, for the types
+   * comparability admits.
+   *
+   * Nothing is returned for a type it does not admit, which is every type that
+   * carries no order of its own plus the three orderability alone places; see
+   * ComparePayloadOrderOnly for those. Between them the two cover every type
+   * exactly once, so a type gains its ordering in one place only.
+   *
+   * The two values must be of the same type.
+   */
+  static std::optional<std::partial_ordering> ComparePayload(const TypedValue &a, const TypedValue &b) {
+    switch (a.type()) {
+      using enum Type;
+      case Int:
+        return a.UnsafeValueInt() <=> b.UnsafeValueInt();
+      case Double:
+        return a.UnsafeValueDouble() <=> b.UnsafeValueDouble();
+      case String:
+        return a.UnsafeValueString() <=> b.UnsafeValueString();
+      case Date:
+        return a.UnsafeValueDate() <=> b.UnsafeValueDate();
+      case LocalTime:
+        return a.UnsafeValueLocalTime() <=> b.UnsafeValueLocalTime();
+      case LocalDateTime:
+        return a.UnsafeValueLocalDateTime() <=> b.UnsafeValueLocalDateTime();
+      case ZonedDateTime:
+        return a.UnsafeValueZonedDateTime() <=> b.UnsafeValueZonedDateTime();
+      case Duration:
+        return a.UnsafeValueDuration() <=> b.UnsafeValueDuration();
+
+      case Null:
+      case Bool:
+      case Enum:
+      case Point2d:
+      case Point3d:
+      case List:
+      case Map:
+      case Vertex:
+      case Edge:
+      case VirtualEdge:
+      case VirtualNode:
+      case Path:
+      case Graph:
+      case VirtualGraph:
+      case Function:
+        return std::nullopt;
+    }
+  }
+
+  /**
+   * Orders two values of one type by what they hold, for the types orderability
+   * places and comparability does not: a boolean, an enum and the two points.
+   *
+   * Nothing is returned for every other type, which either belongs to
+   * ComparePayload or carries no order at all.
+   *
+   * The two values must be of the same type.
+   */
+  static std::optional<std::partial_ordering> ComparePayloadOrderOnly(const TypedValue &a, const TypedValue &b) {
+    switch (a.type()) {
+      using enum Type;
+      case Bool:
+        return a.UnsafeValueBool() <=> b.UnsafeValueBool();
+      case Enum:
+        return a.UnsafeValueEnum() <=> b.UnsafeValueEnum();
+      case Point2d:
+        return a.UnsafeValuePoint2d() <=> b.UnsafeValuePoint2d();
+      case Point3d:
+        return a.UnsafeValuePoint3d() <=> b.UnsafeValuePoint3d();
+
+      case Null:
+      case Int:
+      case Double:
+      case String:
+      case Date:
+      case LocalTime:
+      case LocalDateTime:
+      case ZonedDateTime:
+      case Duration:
+      case List:
+      case Map:
+      case Vertex:
+      case Edge:
+      case VirtualEdge:
+      case VirtualNode:
+      case Path:
+      case Graph:
+      case VirtualGraph:
+      case Function:
+        return std::nullopt;
+    }
+  }
 
   /**
    * Compare TypedValues and return true, false or Null.
@@ -642,15 +736,22 @@ class TypedValue {
    * @throw TypedValueException if the values cannot be compared, i.e. they are
    *        not either Null, numeric or a character string type.
    */
-  // The ordering is partial: NaN sits outside it, so all four ordered
-  // comparisons are false for it. Negating the opposite comparison would
-  // instead report NaN as ordered, so each of the three below asks `<` in the
-  // direction that suits it and rules out the unordered case explicitly.
+  friend TypedValue operator<(const TypedValue &a, const TypedValue &b) {
+    return FromComparison(a, Compare(a, b), [](auto order) { return std::is_lt(order); });
+  }
+
+  /**
+   * Compare TypedValues and return true, false or Null.
+   *
+   * Null is returned if either of the two values is Null.
+   * The resulting value uses the same MemoryResource as the left hand side
+   * argument.
+   *
+   * @throw TypedValueException if the values cannot be compared, i.e. they are
+   *        not either Null, numeric or a character string type.
+   */
   friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) {
-    auto const greater = b < a;
-    if (greater.IsNull()) return TypedValue(a.alloc_);
-    if (greater.ValueBool()) return TypedValue(false, a.alloc_);
-    return TypedValue(!IsNaN(a) && !IsNaN(b), a.alloc_);
+    return FromComparison(a, Compare(a, b), [](auto order) { return std::is_lteq(order); });
   }
 
   /**
@@ -664,10 +765,7 @@ class TypedValue {
    *        not either Null, numeric or a character string type.
    */
   friend TypedValue operator>(const TypedValue &a, const TypedValue &b) {
-    auto const result = b < a;
-    // Rebuilt so that the result carries the left hand side's memory resource.
-    if (result.IsNull()) return TypedValue(a.alloc_);
-    return TypedValue(result.ValueBool(), a.alloc_);
+    return FromComparison(a, Compare(a, b), [](auto order) { return std::is_gt(order); });
   }
 
   /**
@@ -681,14 +779,18 @@ class TypedValue {
    *        not either Null, numeric or a character string type.
    */
   friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) {
-    auto const less = a < b;
-    if (less.IsNull()) return TypedValue(a.alloc_);
-    if (less.ValueBool()) return TypedValue(false, a.alloc_);
-    // Not less than: either at least as great, or outside the ordering
-    // altogether, which among comparable values only NaN is.
-    return TypedValue(!IsNaN(a) && !IsNaN(b), a.alloc_);
+    return FromComparison(a, Compare(a, b), [](auto order) { return std::is_gteq(order); });
   }
 
+ private:
+  /** Reads a comparison the way one operator asks it, carrying `a`'s memory resource. */
+  template <typename Reading>
+  static TypedValue FromComparison(const TypedValue &a, std::optional<std::partial_ordering> order, Reading reading) {
+    if (!order) return TypedValue(a.alloc_);
+    return TypedValue(reading(*order), a.alloc_);
+  }
+
+ public:
   // arithmetic operators
 
   /**
