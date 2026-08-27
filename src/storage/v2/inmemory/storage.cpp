@@ -4935,6 +4935,12 @@ void InMemoryStorage::FreeMemory(utils::ResourceLockGuard main_guard, bool perio
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
 void InMemoryStorage::PrepareForNewEpoch() {
+  // EXPERIMENTAL (lock-free-read-snapshot): take commit_mutex_ before engine_lock_ (committer order) so this
+  // WAL reset cannot race a committer's WAL append under the flag.
+  std::optional<std::unique_lock<std::mutex>> commit_serializer;
+  if (config_.experimental_lockfree_read_snapshot) {
+    commit_serializer.emplace(commit_mutex_);
+  }
   std::unique_lock engine_guard{engine_lock_};
   if (wal_file_) {
     wal_file_->FinalizeWal();
