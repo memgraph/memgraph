@@ -35,7 +35,7 @@ cache_ref := env_var_or_default("TC_CACHE_REF", "")
 # A builder of our own, so this cache does not compete with every other Docker
 # build on the machine. Its ceiling is in buildkitd.toml; the default builder
 # keeps far less than one toolchain. Set TC_BUILDER= to fall back to whatever
-# builder is currently selected.
+# builder docker has selected.
 builder := env_var_or_default("TC_BUILDER", "mg-toolchain")
 _builder := if builder == "" { "" } else { "--builder " + builder }
 

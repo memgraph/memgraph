@@ -36,12 +36,12 @@ Sets are complete rather than expressing only a delta against their
 predecessor. `diff -ru` then answers what changed, with no inheritance to
 reason about and no way for a value to move under a version that did not ask
 for it -- and a set stays readable top to bottom, which is worth more than the
-hundred-odd lines it duplicates.
+lines it duplicates.
 
 Only the tools whose version files actually changed rebuild. The version does
 not reach the build at all: every stage installs into a fixed prefix and the
 packaging stage renames the tree, so bumping a toolchain does not invalidate
-the thirty-three stages that did not change. That is also why the version set
+the stages that did not change. That is also why the version set
 is copied into `resolved/` rather than selected with a build argument -- an
 argument is an input to every command after it in its stage, so changing one
 re-runs every stage even where the version file is byte-identical.
@@ -69,7 +69,8 @@ the floor for where the toolchain itself can run.
 | `resolved/` | the selected set, copied here before a build; generated |
 | `lib/common.sh` | the environment every stage script expects |
 | `files/` | `activate` and `toolchain.cmake`, shipped inside the toolchain |
-| `verify/` | the glibc floor gate, the fingerprint, the determinism measurement |
+| `stages/manifest` | what each stage needs and copies; the Dockerfile is checked against it |
+| `verify/` | the floor and runtime-link gates, the stage-graph check, the fingerprint and determinism tools |
 | `justfile` | argument assembly; BuildKit owns the graph and the caching |
 
 ## Why it is shaped this way
@@ -88,16 +89,10 @@ why `$DIR` is one directory holding `archives/`, `build/` and the toolchain's
 own files, exactly as it was in the original script. Fanning out the
 independent leaves is worth doing once the port is proven, not before.
 
-**A version set owns its build environment too.** Two things get confused
-because both are glibc versions and both are currently near 2.31: the sysroot
-glibc in `glibc.env` decides where a binary *compiled with* this toolchain
-runs, and the base image in `builder.env` decides where the *toolchain itself*
-runs. They move for different reasons. The base image sets the builder's glibc,
-so it and `TC_BUILDER_GLIBC_FLOOR` are one decision and sit together; raising
-the image without raising the floor leaves the check passing while the
-toolchain has quietly stopped running on the oldest machine that needs it.
-
-The justfile passes these before any argument you add, so `--build-arg
+**A version set owns its build environment too.** The base image and the floor
+for where the toolchain itself runs live in `builder.env`, next to each other
+and next to the versions, because they are one decision; that file says why.
+The justfile passes them before any argument you add, so `--build-arg
 BASE_IMAGE=...` still wins and a one-off build on a different base does not
 need a version set of its own.
 
@@ -110,10 +105,39 @@ a recipe carries more than a couple of these, fork it deliberately and say in
 both copies that the other exists -- a recipe that is half conditional is
 harder to read than two recipes.
 
-**Recipes were moved, not rewritten.** Those commands encode expensive lessons
-about bootstrap ordering, target triples and sysroot layout. The extraction was
-mechanical and checked for coverage: every recipe line landed in exactly one
-stage, with no overlaps.
+**The build commands came from the shipped v8 script.** They encode expensive
+lessons about bootstrap ordering, target triples and sysroot layout, so the
+extraction was mechanical and checked for coverage: every recipe line landed in
+exactly one stage, with no overlaps. Change what a recipe builds when there is a
+reason to; do not tidy one into a shape that reads better.
+
+**Fetching and unpacking are shared, the rest is not.** `fetch` takes a URL and
+a digest and checks it on every build, not only when it downloads, because the
+archive cache outlives the build. `enter_source` unpacks and leaves the shell in
+the tree, and `leave_source` returns, so a recipe cannot leave the directory
+stack unbalanced -- which nothing would report, since it surfaces as a stage
+building in the wrong place. What each tool actually does is left in its own
+recipe.
+
+**The stage graph is declared.** `stages/manifest` says what each stage depends
+on, what it copies beyond its own recipe and version file, and whether it gets
+the download cache; `verify/stage-graph.py` refuses a Dockerfile that disagrees.
+Order is checked as a constraint, so a stage must run after everything it needs
+and two stages that need nothing of each other may be in either order.
+`just impact <tool>` reports what changing one would rebuild.
+
+**There is no path that builds outside a container.** Two implementations
+drift, and the one that runs on the host carries the worse failure: it links
+the toolchain against whatever glibc that host has, producing an artifact that
+runs there and not on an older target, with nothing to say so. The old script
+also wrote straight into the live install prefix with no override, and skipped a
+stage whose configuration had changed whenever the file that stage installs was
+already present.
+
+**Every source is fixed to something that cannot move.** A git tag is a movable
+pointer, so the three stages that clone one check the commit they landed on
+afterwards, and a tag that has moved fails the build. Everything else is pinned
+by digest or verified by signature.
 
 ## Floors
 
@@ -137,12 +161,11 @@ absent one is not a finding. A note *older* than the floor is not a break
 either -- it runs in more places -- but it means the link missed the sysroot's
 startup files, so it is counted and reported.
 
-The glibc check carries an explicit exemption list, currently binutils'
-gprofng collector libraries: those are built against the host glibc rather than
-the sysroot and reference the 2.32 and 2.34 pthread and dl consolidations, so
-they will not load on an older target. They are recorded rather than ignored,
-the check stays enforcing for everything else, and a stale exemption is itself
-an error.
+The glibc check can record a file as knowingly above the floor rather than
+failing on it, so a deliberate exception stays visible and the check stays
+enforcing for everything else. An exemption for a file that is no longer built
+is itself an error. Nothing is exempt; `floors.sh` says what used to be and
+why.
 
 ## What is not done here
 
@@ -152,8 +175,19 @@ not. A snapshot archive is what closes that.
 
 v9 starts from v8's package versions on purpose, so that the restructure can
 be checked against a toolchain we already trust: build v8 with `../v8/build.sh`,
-build this, and compare the two with `just compare`. A version bump on top of an
-unproven restructure has two candidate causes when it fails, and this has one.
+build this, and compare the two with `just compare`. That comparison has not
+been run. The build itself has: it completes from an empty cache, passes its
+gates, and produces a toolchain that builds memgraph. What is missing is the
+evidence that it produces the *same* toolchain rather than merely a working one.
+A version bump on top of an unproven restructure has two candidate causes when
+it fails, and this has one.
+
+libc++ is buildable but not a supported configuration. The standard library is
+a package-id input in the conan profile and must stay there rather than being
+baked into clang as a default: baked, conan would reuse libstdc++-built
+dependencies while clang compiled memgraph against libc++, and the mismatch
+surfaces as a link error at best. The cost is not building the runtime, it is
+that flipping the setting needs a parallel set of dependency binaries.
 
 So the versions here are a starting point, not the shipping set. What v9 adds to
 v8 is already present -- mold, BOLT, dwz, libabigail, zstd-compressed debug info

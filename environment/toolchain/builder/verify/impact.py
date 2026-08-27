@@ -2,8 +2,8 @@
 """What changing one stage costs, as the build runs and as the graph allows.
 
 Bumping a tool rebuilds it and everything downstream. Because the stages run in
-one line, downstream currently means everything after it, whether or not it
-needs it. The manifest says what actually needs what, so the two numbers can be
+one line, downstream means everything after a stage, whether or not it needs
+it. The manifest says what actually needs what, so the two numbers can be
 compared -- the gap is what fanning the graph out would be worth.
 
 Run: verify/impact.py [stage]   (or `just impact llvm`; no argument lists all)

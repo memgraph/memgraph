@@ -1,6 +1,4 @@
 #!/bin/bash
-# linux-headers: build commands moved verbatim from the v8 build script. Only the
-# orchestration around them is new -- edit the recipe here, not its shape.
 set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/linux-headers.env"

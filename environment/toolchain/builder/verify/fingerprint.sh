@@ -51,7 +51,7 @@ echo "### compiler configuration"
 if [[ -x "$PREFIX/bin/gcc" ]]; then
     echo "gcc -dumpmachine: $("$PREFIX/bin/gcc" -dumpmachine)"
     # GCC resolves its sysroot from argv[0], so this reports wherever the tree
-    # currently sits. Two trees being compared are rarely at the same path, and
+    # sits. Two trees being compared are rarely at the same path, and
     # the difference says nothing about the toolchains.
     echo "gcc -print-sysroot: $("$PREFIX/bin/gcc" -print-sysroot | sed "s|$PREFIX|\$PREFIX|")"
     # The full -v output records every configure flag GCC was built with, which

@@ -2,9 +2,9 @@
 # libabigail: abidiff and abidw, for comparing ABIs.
 #
 # memgraph ships a C API for query modules, so third-party modules bind to an
-# ABI that nothing currently checks. abidw records a library's ABI and abidiff
-# compares two of them, which turns "did this release break a module we do not
-# build" from a question nobody can answer into one the build can.
+# ABI whose changes are not otherwise visible. abidw records a library's ABI
+# and abidiff compares two of them, which turns "did this release break a
+# module we do not build" into a question that can be answered.
 set -euo pipefail
 source /tc/lib/common.sh
 source "$TC_VERSIONS/libabigail.env"

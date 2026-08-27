@@ -39,9 +39,9 @@ is_dynamic_elf() {
 # whatever machine they land on. Recorded rather than fixed: the knob for them
 # is LDFLAGS_FOR_TARGET, whose $ORIGIN has to survive configure, make, a
 # sub-make and libtool, and changing that stage invalidates every stage after
-# it. Nothing we ship is exposed today -- a consumer is only affected if it
-# reaches our libstdc++ without needing libgcc_s itself, and memgraph needs
-# both directly -- so this waits for the pass that makes the whole tree
+# it. A consumer is only affected if it reaches our libstdc++ without needing
+# libgcc_s itself, and memgraph needs both directly, so this waits for the pass
+# that makes the whole tree
 # relocatable, which has to rewrite these anyway.
 # Patterns, not names: the file names carry the GCC version, so a bump would
 # turn three tolerated exemptions into three hard failures with nothing saying
