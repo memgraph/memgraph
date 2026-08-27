@@ -1249,6 +1249,11 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   Symbol input_symbol_;
   memgraph::query::plan::ExpandCommon common_;
   EdgeAtom::Type type_;
+  /// Set on a pruning BFS whose input rows may share one visited set. The
+  /// rewrite settles it: nothing above the expansion reads what its input binds,
+  /// so the rows a per-source search repeats are ones nothing can tell apart.
+  /// Meaningless for every other type.
+  bool group_sources_{false};
   /// True if the path should be written as expanding from node_symbol to input_symbol.
   bool is_reverse_;
   /// Optional lower bound of the variable length expansion, defaults are (1, inf)

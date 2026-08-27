@@ -39,8 +39,12 @@ class PruningBFSRewriteTest : public ::testing::Test {
 
   std::shared_ptr<ExpandVariable> expand;
 
-  /// Knobs the tests vary; defaults describe a plan the rewrite accepts.
+  /// Knobs the tests vary; defaults describe a plan the rewrite accepts, and
+  /// one whose input rows it lets share a single search.
   Expression *lower_bound = nullptr;
+  Expression *upper_bound = nullptr;
+  Expression *filter_lambda = nullptr;
+  EdgeAtom::Direction direction = EdgeAtom::Direction::OUT;
   bool deduplicates = true;
 
   /// Once -> ScanAll -> ExpandVariable -> `above` -> Distinct -> Produce, where
@@ -53,13 +57,13 @@ class PruningBFSRewriteTest : public ::testing::Test {
                                               target_sym,
                                               edge_sym,
                                               EdgeAtom::Type::DEPTH_FIRST,
-                                              EdgeAtom::Direction::OUT,
+                                              direction,
                                               std::vector<memgraph::storage::EdgeTypeId>{},
                                               false,
                                               lower_bound,
-                                              nullptr,
+                                              upper_bound,
                                               false,
-                                              ExpansionLambda{inner_edge_sym, inner_node_sym, nullptr},
+                                              ExpansionLambda{inner_edge_sym, inner_node_sym, filter_lambda},
                                               std::nullopt,
                                               std::nullopt,
                                               nullptr);
@@ -86,6 +90,13 @@ class PruningBFSRewriteTest : public ::testing::Test {
       std::function<std::shared_ptr<LogicalOperator>(std::shared_ptr<LogicalOperator>)> const &above) {
     auto plan = RewriteWithPruningBFS(MakePlan(above), &symbol_table);
     return expand->type_;
+  }
+
+  /// Whether the rewrite let the expansion's input rows share one search.
+  bool SharesOneSearch(std::function<std::shared_ptr<LogicalOperator>(std::shared_ptr<LogicalOperator>)> const &above) {
+    auto plan = RewriteWithPruningBFS(MakePlan(above), &symbol_table);
+    EXPECT_EQ(expand->type_, EdgeAtom::Type::PRUNING_BFS) << "sharing is only ever offered to a pruning BFS";
+    return expand->group_sources_;
   }
 };
 
@@ -171,6 +182,51 @@ TEST_F(PruningBFSRewriteTest, LeavesAnExpansionWhoseBoundIsANonTrivialExpression
 TEST_F(PruningBFSRewriteTest, MarksAnExpansionWithNoBoundAtAll) {
   auto const type = RewrittenType([](auto input) { return input; });
   EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
+}
+
+// === One search shared across the input rows ===
+
+TEST_F(PruningBFSRewriteTest, SharesOneSearchWhenTheSourceIsDeadAbove) {
+  // Only `target` is read above, so which source reached a vertex cannot be told
+  // from the rows, and the searches need not be kept apart.
+  EXPECT_TRUE(SharesOneSearch([](auto input) { return input; }));
+}
+
+TEST_F(PruningBFSRewriteTest, DoesNotShareOneSearchUnderAnUpperBound) {
+  // A vertex first reached deep would keep a later source that reaches it early
+  // from walking what that source still has the bound to walk.
+  upper_bound = SuppliedBound();
+  EXPECT_FALSE(SharesOneSearch([](auto input) { return input; }));
+}
+
+TEST_F(PruningBFSRewriteTest, DoesNotShareOneSearchWhenEdgesCrossEitherWay) {
+  // Ruling out a walk that retreads the edge it left a source by takes the
+  // branch it was found on, and a branch belongs to the source it leaves.
+  direction = EdgeAtom::Direction::BOTH;
+  EXPECT_FALSE(SharesOneSearch([](auto input) { return input; }));
+}
+
+TEST_F(PruningBFSRewriteTest, DoesNotShareOneSearchWhenTheSourceIsReadAbove) {
+  // The rows a shared search drops are ones this filter could have told apart.
+  EXPECT_FALSE(SharesOneSearch([this](auto input) {
+    auto *reads_source = storage.Create<Identifier>("source")->MapTo(source_sym);
+    return std::static_pointer_cast<LogicalOperator>(
+        std::make_shared<Filter>(input, std::vector<std::shared_ptr<LogicalOperator>>{}, reads_source));
+  }));
+}
+
+TEST_F(PruningBFSRewriteTest, DoesNotShareOneSearchWhenTheLambdaReadsTheOuterRow) {
+  // A vertex let through under one row's filter would be passed over under the
+  // next one's, but a shared search settles it for every row at once.
+  auto *identifier = storage.Create<Identifier>("source")->MapTo(source_sym);
+  filter_lambda = storage.Create<PropertyLookup>(identifier, storage.GetPropertyIx("keep"));
+  EXPECT_FALSE(SharesOneSearch([](auto input) { return input; }));
+}
+
+TEST_F(PruningBFSRewriteTest, SharesOneSearchWhenTheLambdaReadsOnlyItsOwnRow) {
+  auto *identifier = storage.Create<Identifier>("inner_node")->MapTo(inner_node_sym);
+  filter_lambda = storage.Create<PropertyLookup>(identifier, storage.GetPropertyIx("keep"));
+  EXPECT_TRUE(SharesOneSearch([](auto input) { return input; }));
 }
 
 }  // namespace

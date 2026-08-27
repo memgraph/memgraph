@@ -20,6 +20,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace memgraph::query::plan {
 
@@ -56,8 +57,17 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     // The whole predicate is in expression_, which is what the cursor evaluates.
     // all_filters_ describes it for the planner and is empty for some filters.
     CollectSymbolsFromExpression(op.expression_);
-    return true;
+    // A pattern filter reads what the main pipeline binds, and Filter::Accept
+    // reaches it only after the input. Left to that order, the input would be
+    // analysed against a symbol set the branch had not yet contributed to.
+    for (auto const &pattern_filter : op.pattern_filters_) {
+      VisitSubquery(*pattern_filter);
+    }
+    op.input_->Accept(*this);
+    return false;
   }
+
+  bool PostVisit(Filter &) override { return true; }
 
   bool PreVisit(ConstructNamedPath &op) override {
     used_symbols_.insert(op.path_symbol_.position());
@@ -67,7 +77,12 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(Distinct &) override {
+  bool PreVisit(Distinct &op) override {
+    // Which rows are duplicates of which is read off these, so collapsing rows
+    // below is only invisible where none of them come from there.
+    for (auto const &sym : op.value_symbols_) {
+      used_symbols_.insert(sym.position());
+    }
     dedup_stack_.push_back(deduplicates_);
     deduplicates_ = true;
     return true;
@@ -117,6 +132,9 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     CollectSymbolsFromExpressions(op.order_by_);
+    for (auto const &sym : op.output_symbols_) {
+      used_symbols_.insert(sym.position());
+    }
     return true;
   }
 
@@ -160,6 +178,9 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Apply &) override { return true; }
 
   bool PreVisit(Optional &op) override {
+    for (auto const &sym : op.optional_symbols_) {
+      used_symbols_.insert(sym.position());
+    }
     VisitSubquery(*op.optional_);
     op.input_->Accept(*this);
     return false;
@@ -168,6 +189,15 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Optional &) override { return true; }
 
   bool PreVisit(Cartesian &op) override {
+    // Both branches' frames are read to build the joined row, so a symbol named
+    // here is live in the branch that binds it. VisitBranch restores the set it
+    // finds on entry, which is why these go in first.
+    for (auto const &sym : op.left_symbols_) {
+      used_symbols_.insert(sym.position());
+    }
+    for (auto const &sym : op.right_symbols_) {
+      used_symbols_.insert(sym.position());
+    }
     VisitBranch(*op.left_op_);
     VisitBranch(*op.right_op_);
     return false;
@@ -176,6 +206,11 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Cartesian &) override { return true; }
 
   bool PreVisit(Union &op) override {
+    for (auto const *symbols : {&op.union_symbols_, &op.left_symbols_, &op.right_symbols_}) {
+      for (auto const &sym : *symbols) {
+        used_symbols_.insert(sym.position());
+      }
+    }
     VisitBranch(*op.left_op_);
     VisitBranch(*op.right_op_);
     return false;
@@ -193,6 +228,7 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Merge &) override { return true; }
 
   bool PreVisit(RollUpApply &op) override {
+    used_symbols_.insert(op.list_collection_symbol_.position());
     VisitSubquery(*op.list_collection_branch_);
     op.input_->Accept(*this);
     return false;
@@ -202,7 +238,10 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(EvaluatePatternFilter &) override { return true; }
 
-  bool PreVisit(Expand &) override { return true; }
+  bool PreVisit(Expand &op) override {
+    RecordExpansionInputs(op.input_symbol_, op.common_);
+    return true;
+  }
 
   bool PreVisit(ExpandVariable &op) override {
     CollectSymbolsFromExpression(op.lower_bound_);
@@ -212,6 +251,10 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
       CollectSymbolsFromExpression(op.weight_lambda_->expression);
     }
     CollectSymbolsFromExpression(op.limit_);
+
+    // What this expansion reads of its own input is recorded once the expansion
+    // has been judged, so that it does not count against itself.
+    utils::OnScopeExit const record_inputs{[&] { RecordExpansionInputs(op.input_symbol_, op.common_); }};
 
     if (op.type_ != EdgeAtom::Type::DEPTH_FIRST) return true;
     if (op.common_.existing_node) return true;
@@ -226,10 +269,63 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (!BoundIsResolvable(op.lower_bound_)) return true;
 
     op.type_ = EdgeAtom::Type::PRUNING_BFS;
+    op.group_sources_ = MayShareOneSearch(op);
     return true;
   }
 
  private:
+  /// Records what an expansion reads of the row it starts from: the vertex it
+  /// expands out of, and the one it is pinned to where it matches against a
+  /// vertex already on the frame.
+  void RecordExpansionInputs(Symbol const &input_symbol, ExpandCommon const &common) {
+    used_symbols_.insert(input_symbol.position());
+    if (common.existing_node) used_symbols_.insert(common.node_symbol.position());
+  }
+
+  /// Whether one search may be shared across every row this expansion is given,
+  /// each vertex reached being expanded and emitted once no matter how many
+  /// sources lead into it.
+  ///
+  /// Sharing drops the rows a per-source search would repeat, so it needs
+  /// nothing above to be able to tell those rows from the ones left standing:
+  /// every symbol the input binds must be dead above the expansion, leaving the
+  /// vertex written here as the whole of what the row says. Nor may what the
+  /// search admits vary by row, or a vertex let through under one row's filter
+  /// would be passed over under the next one's.
+  bool MayShareOneSearch(ExpandVariable const &op) const {
+    if (!op.input()) return false;
+    // Crossing edges either way, a walk arriving back at a source may be
+    // retreading the edge it left by. Ruling that out takes the branch the walk
+    // was found on, and branches belong to the source they leave.
+    if (op.common_.direction == EdgeAtom::Direction::BOTH) return false;
+    // Under an upper bound, how far a vertex was reached decides how much of the
+    // graph behind it is still in range. A vertex first reached deep would keep a
+    // later source that reaches it early from walking what that source still has
+    // the bound to walk.
+    if (op.upper_bound_) return false;
+    if (!LambdaReadsOnlyItsOwnRow(op.filter_lambda_)) return false;
+
+    // On a subquery's branch the source is bound outside the branch, where what
+    // the input binds says nothing about it, so it is asked after separately.
+    if (used_symbols_.contains(op.input_symbol_.position())) return false;
+
+    auto const bound_by_input = op.input()->ModifiedSymbols(symbol_table_);
+    return std::ranges::none_of(bound_by_input,
+                                [this](Symbol const &sym) { return used_symbols_.contains(sym.position()); });
+  }
+
+  /// Whether the filter reads nothing beyond the edge and vertex it is being
+  /// asked about, which is what makes its verdict the same for every row.
+  bool LambdaReadsOnlyItsOwnRow(ExpansionLambda const &lambda) const {
+    if (!lambda.expression) return true;
+    UsedSymbolsCollector collector(symbol_table_);
+    lambda.expression->Accept(collector);
+    return std::ranges::all_of(collector.symbols_, [&lambda](Symbol const &sym) {
+      return sym.position() == lambda.inner_edge_symbol.position() ||
+             sym.position() == lambda.inner_node_symbol.position();
+    });
+  }
+
   void CollectSymbolsFromExpression(Expression *expr) {
     if (!expr) return;
     UsedSymbolsCollector collector(symbol_table_);

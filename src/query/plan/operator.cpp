@@ -3325,6 +3325,194 @@ class PruningBFSCursor : public query::plan::Cursor {
   utils::pmr::vector<VertexAccessor> to_visit_next_;
 };
 
+/// A pruning BFS that carries one visited set across all of its input rows.
+///
+/// A pruning BFS answers "which vertices does this row's source reach", but the
+/// rows above ask only "which vertices does any source reach": the source is
+/// dead above the expansion and the rows are deduplicated. Searching per source
+/// then re-walks the same subgraph once for every source leading into it, and
+/// the top throws the repeats away. Where the sources overlap heavily this is
+/// the whole cost of the expansion.
+///
+/// Holding the visited set across rows collapses that. A vertex is expanded the
+/// first time any source reaches it and emitted at most once, so the operator
+/// walks each edge once rather than once per source that reaches it, and the
+/// rows it produces are already distinct.
+///
+/// The set it emits is the one the per-source searches produce between them,
+/// because the visited set is closed under reachability: a source an earlier
+/// search walked through was expanded then, so everything behind it is already
+/// out. Which search reached a vertex is not observable, the rewrite having
+/// established that nothing above reads what the input binds.
+///
+/// ExpandVariable::group_sources_ marks the expansions this is admitted for.
+class GroupedPruningBFSCursor : public query::plan::Cursor {
+ public:
+  GroupedPruningBFSCursor(const ExpandVariable &self, utils::MemoryResource *mem,
+                          metrics::DatabaseMetricHandles &metric_handles)
+      : self_(self),
+        input_cursor_(self_.input()->MakeCursor(mem, metric_handles)),
+        answered_(mem),
+        pending_(mem),
+        to_visit_(mem) {
+    DMG_ASSERT(self_.common_.direction != EdgeAtom::Direction::BOTH,
+               "A grouped pruning BFS cannot cross edges either way: ruling out a walk that retreads the edge it "
+               "left a source by needs the branch it was found on, which is per source.");
+    DMG_ASSERT(!self_.upper_bound_,
+               "A grouped pruning BFS cannot carry an upper bound: a vertex first reached deep would keep a later "
+               "source that reaches it early from walking what is still within the bound behind it.");
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler const oom_exception;
+    if (!profile_name_ && context.is_profile_query) {
+      profile_name_ = self_.ToStringNamed(context.db_accessor, "GroupedPruningBFSExpand");
+    }
+    SCOPED_PROFILE_OP(profile_name_ ? profile_name_->c_str() : "GroupedPruningBFSExpand");
+
+    ExpressionEvaluator evaluator =
+        ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+    while (true) {
+      AbortCheck(context);
+
+      if (!pending_.empty()) {
+        auto const vertex = pending_.back();
+        pending_.pop_back();
+        frame_writer.Write(self_.common_.node_symbol, vertex);
+        return true;
+      }
+
+      // The frontier is spent, so take the next source the input offers. Doing
+      // it only here is what lets an already-answered source be skipped: the
+      // search that reached it ran to exhaustion before this row was pulled.
+      if (to_visit_.empty()) {
+        if (!input_cursor_->Pull(frame, context)) return false;
+        if (context.hops_limit.IsLimitReached()) return false;
+
+        auto const &vertex_value = frame[self_.input_symbol_];
+        // It is possible that the vertex is Null due to optional matching
+        if (vertex_value.IsNull()) continue;
+
+        lower_bound_ =
+            self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in pruning BFS expansion") : 1;
+        if (lower_bound_ < 0) {
+          throw QueryRuntimeException("Variable expansion bound must be a non-negative integer.");
+        }
+
+        ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+        auto const &vertex = vertex_value.ValueVertex();
+
+        // A lower bound of zero makes a source its own answer; one of exactly
+        // one leaves it owing a row until a walk arrives back at it.
+        auto const [it, is_new] = answered_.try_emplace(vertex, lower_bound_ == 0);
+        if (!is_new) continue;
+        if (it->second) pending_.emplace_back(vertex);
+        expand_from_vertex(vertex, evaluator, frame_writer, context);
+        continue;
+      }
+
+      auto const curr_vertex = to_visit_.back();
+      to_visit_.pop_back();
+      if (!context.hops_limit.IsLimitReached()) {
+        expand_from_vertex(curr_vertex, evaluator, frame_writer, context);
+      }
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    answered_.clear();
+    pending_.clear();
+    to_visit_.clear();
+  }
+
+ private:
+  void expand_from_vertex(VertexAccessor const &vertex, ExpressionEvaluator &evaluator, FrameWriter &frame_writer,
+                          ExecutionContext &context) {
+    auto try_visit = [&](EdgeAccessor const &edge, VertexAccessor const &next_vertex) {
+      auto const it = answered_.find(next_vertex);
+      // Reached before and its row already out: the search went on from it then,
+      // so there is nothing behind it left to find and nothing left to emit.
+      // Answering this before the access check and the filter lambda keeps both
+      // off every edge leading back into the searched part of the graph.
+      if (it != answered_.end() && it->second) return;
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !(context.auth_checker->Has(
+                next_vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+            context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+        return;
+      }
+#endif
+      if (self_.filter_lambda_.expression) {
+        frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
+        frame_writer.Write(self_.filter_lambda_.inner_node_symbol, next_vertex);
+        TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
+        switch (result.type()) {
+          case TypedValue::Type::Null:
+            return;
+          case TypedValue::Type::Bool:
+            if (!result.ValueBool()) return;
+            break;
+          default:
+            throw QueryRuntimeException("Expansion condition must evaluate to boolean or null.");
+        }
+      }
+      if (it != answered_.end()) {
+        // A source still owing a row, now arrived at over an edge. Following an
+        // edge's direction into a source can never be retreading the edge the
+        // search left that source by, which points the other way, so the walk
+        // that arrives here is edge-unique and the row stands.
+        it->second = true;
+        pending_.emplace_back(next_vertex);
+        return;
+      }
+      answered_.emplace(next_vertex, true);
+      pending_.emplace_back(next_vertex);
+      to_visit_.emplace_back(next_vertex);
+    };
+
+    if (self_.common_.direction != EdgeAtom::Direction::IN) {
+      auto out_edges_result =
+          UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+      context.number_of_hops += out_edges_result.expanded_count;
+      for (auto const &edge : out_edges_result.edges) {
+        try_visit(edge, edge.To());
+      }
+    }
+    if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+      auto in_edges_result =
+          UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+      context.number_of_hops += in_edges_result.expanded_count;
+      for (auto const &edge : in_edges_result.edges) {
+        try_visit(edge, edge.From());
+      }
+    }
+  }
+
+  const ExpandVariable &self_;
+  const UniqueCursorPtr input_cursor_;
+  std::optional<std::string> profile_name_;
+
+  int64_t lower_bound_{};
+
+  // Every vertex the search has reached, against whether its row is already out.
+  // A source held back by a lower bound of one is the only entry that is false,
+  // and it turns true the moment a walk arrives back at it. Held across input
+  // rows, which is the whole of what this cursor does differently.
+  utils::pmr::unordered_map<VertexAccessor, bool> answered_;
+  // Vertices owed a row, drained before the search goes any further.
+  utils::pmr::vector<VertexAccessor> pending_;
+  // Vertices reached but not yet expanded. Without an upper bound no answer
+  // depends on the depth a vertex is reached at, so the order is free.
+  utils::pmr::vector<VertexAccessor> to_visit_;
+};
+
 /// Only a lower bound of at most one lets a pruning BFS reach the same vertices
 /// as a depth-first walk: a vertex the BFS first arrives at below the bound is
 /// marked visited and never emitted, where the walk would still arrive at it
@@ -3352,9 +3540,12 @@ class PruningBFSDispatchCursor : public query::plan::Cursor {
 
  private:
   UniqueCursorPtr Choose(Frame &frame, ExecutionContext &context) {
-    if (BoundPermitsPruning(frame, context))
-      return MakeUniqueCursorPtr<PruningBFSCursor>(mem_, self_, mem_, metric_handles_);
-    return MakeUniqueCursorPtr<ExpandVariableCursor>(mem_, self_, mem_, metric_handles_);
+    if (!BoundPermitsPruning(frame, context))
+      return MakeUniqueCursorPtr<ExpandVariableCursor>(mem_, self_, mem_, metric_handles_);
+    // Whether the input rows may share a visited set is settled by the plan, not
+    // by the bound, so the rewrite has already answered it.
+    if (self_.group_sources_) return MakeUniqueCursorPtr<GroupedPruningBFSCursor>(mem_, self_, mem_, metric_handles_);
+    return MakeUniqueCursorPtr<PruningBFSCursor>(mem_, self_, mem_, metric_handles_);
   }
 
   /// A walk of at most one edge is the threshold below which a pruning BFS
@@ -4845,6 +5036,7 @@ std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) cons
   object->input_symbol_ = input_symbol_;
   object->common_ = common_;
   object->type_ = type_;
+  object->group_sources_ = group_sources_;
   object->is_reverse_ = is_reverse_;
   object->lower_bound_ = lower_bound_ ? lower_bound_->Clone(storage) : nullptr;
   object->upper_bound_ = upper_bound_ ? upper_bound_->Clone(storage) : nullptr;
@@ -4880,9 +5072,10 @@ std::string_view ExpandVariable::OperatorName(Parameters const *parameters) cons
       // bound can be read would name a walk that may not be the one taken.
       // Must agree with PruningBFSDispatchCursor::BoundPermitsPruning, which
       // makes the runtime decision.
-      if (!parameters || !lower_bound_) return "PruningBFSExpand"sv;
+      auto const pruning = group_sources_ ? "GroupedPruningBFSExpand"sv : "PruningBFSExpand"sv;
+      if (!parameters || !lower_bound_) return pruning;
       auto const bound = ConstExternalPropertyValue(lower_bound_, *parameters);
-      if (bound && bound->IsInt() && bound->ValueInt() <= 1) return "PruningBFSExpand"sv;
+      if (bound && bound->IsInt() && bound->ValueInt() <= 1) return pruning;
       return "ExpandVariable"sv;
     }
     case Type::SINGLE:
