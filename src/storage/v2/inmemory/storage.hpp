@@ -472,10 +472,13 @@ class InMemoryStorage final : public Storage {
     void AbortAndResetCommitTs(ProgressCallback const &on_progress = {});
 
     // Represents the 2nd phase of the 2PC protocol
-    // NOTE: Needs to be called while holding the engine lock
+    // NOTE: The engine lock must be held while this runs. Pass acquire_engine_lock=false when the caller
+    // already holds it (the default: legacy path and the replica FinalizeCommit handler); pass true only on
+    // the lock-free-read-snapshot path, where the caller released engine_lock after the mint and this method
+    // re-acquires it for the brief publish.
     // NOTE: If there is a single instance, PrepareForCommitPhase will call this method, you shouldn't call this method
     // independently of PrepareForCommitPhase.
-    void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
+    void FinalizeCommitPhase(uint64_t durability_commit_timestamp, bool acquire_engine_lock = false);
 
     /// @throw std::bad_alloc
     void Abort() override;

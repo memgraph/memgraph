@@ -35,6 +35,7 @@
 #include "replication_coordination_glue/role.hpp"
 #include "requests/requests.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/commit_probe.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -1054,6 +1055,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  const bool lockfree = config_.experimental_lockfree_read_snapshot;
 
   PublishIndexArming();
 
@@ -1083,6 +1085,11 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     return std::unexpected{validation_result.error()};
   }
 
+  // Serialize committers across mint->durability->publish so mint-order == publish-order
+  // (keeps the watermark contiguous). Acquired BEFORE the mint. Held for the whole function.
+  std::optional<std::unique_lock<std::mutex>> commit_serializer;
+  if (lockfree) commit_serializer.emplace(mem_storage->commit_mutex_);
+
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
@@ -1109,9 +1116,16 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // so the wal files are consistent
   auto const durability_commit_timestamp = commit_args.durable_timestamp(*commit_timestamp_);
 
+  // Release engine_lock so WAL + replication run lock-free (commit_mutex_ still held);
+  // BEGIN can now mint a start_timestamp without waiting on the durability RTT.
+  if (lockfree) {
+    engine_guard.unlock();
+    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_mint);
+  }
+
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
   if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id())) {
-    FinalizeCommitPhase(durability_commit_timestamp);
+    FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/lockfree);
     // No WAL file, hence no need to finalize it
     return {};
   }
@@ -1123,6 +1137,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   // If main executes this: Block until we receive votes from all replicas.
   // If replica executes this:,
+  InvokeProbe(mem_storage->commit_probe_, &CommitProbe::during_durability);
   auto const repl_prepare_phase_ok =
       HandleDurabilityAndReplicate(durability_commit_timestamp, replicating_txn, commit_args);
 
@@ -1132,7 +1147,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If SYNC and ASYNC replica executes this, commit immediately while holding the engine lock
         if (!two_phase_commit) {
           // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp);
+          FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/lockfree);
         }
       });
   if (replica_write_was_applied) {
@@ -1147,7 +1162,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If there are no STRICT_SYNC replicas for the current txn
         if (!replicating_txn.ShouldRunTwoPC()) {
           // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp);
+          FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/lockfree);
 
           auto failures = replicating_txn.CollectAllFailures();
           // update replicas' cached commit info to this txn's absolute committed-txn count
@@ -1164,7 +1179,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
         if (repl_prepare_phase_ok) {
           // All replicas voted yes, hence they want to commit the current transaction
-          FinalizeCommitPhase(durability_commit_timestamp);
+          FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/lockfree);
         }
         // We need to finalize WAL file after running FinalizeCommitPhase because we update there commit value in WAL
 
@@ -1183,7 +1198,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
         if (!failures.empty()) {
           // Release engine lock because we don't have to hold it anymore for abort
-          engine_guard.unlock();
+          if (engine_guard.owns_lock()) engine_guard.unlock();
           AbortAndResetCommitTs();
           return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = false}};
         }
@@ -1194,8 +1209,15 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   return *std::move(res);
 }
 
-void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp) {
+void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp,
+                                                            bool const acquire_engine_lock) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  std::optional<std::unique_lock<utils::SpinLock>> pub_guard;
+  if (acquire_engine_lock) {
+    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::before_publish);
+    pub_guard.emplace(storage_->engine_lock_);
+  }
 
   if (config_.enable_schema_info) {
     // Queue schema update instead of processing immediately. This ensures
@@ -1303,6 +1325,13 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   }
   if (!transaction_.text_edge_index_change_collector_.empty()) {
     transaction_.active_indices_->text_edge_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  }
+
+  if (config_.experimental_lockfree_read_snapshot) {
+    // Publish the watermark: readers that BEGIN after this see this commit. Ordered AFTER the
+    // commit_info->timestamp store and MarkFinished, under the same publish engine_lock hold.
+    mem_storage->last_committed_mvcc_ts_.store(*commit_timestamp_, std::memory_order_release);
+    InvokeProbe(mem_storage->commit_probe_, &CommitProbe::after_publish);
   }
   is_transaction_active_ = false;
 }
