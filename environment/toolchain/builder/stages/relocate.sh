@@ -85,3 +85,29 @@ if (( broke )); then
     exit 1
 fi
 echo "  nothing that resolved before stopped resolving ($still already could not)"
+
+# Runpaths are ELF. A path written into a text file is not, and nothing above
+# touches it: it keeps naming the machine the toolchain was built on, and the
+# tool that reads it fails quietly on every other machine. That is how the gdb
+# init file came to name its own install path.
+#
+# Only the files this build writes itself are checked. A sweep of the whole
+# prefix would also catch libtool .la files, pkg-config .pc files and cmake
+# export files, which bake absolute paths by design and would have to be
+# excused one by one until nobody trusted the check.
+echo "== no generated file may name the install path"
+baked=0
+for rel in etc/gdb/gdbinit activate; do
+    f="$PREFIX/$rel"
+    [[ -f "$f" ]] || continue
+    if grep -qF "$PREFIX" "$f"; then
+        echo "  BAKED PATH: $rel"
+        baked=$((baked + 1))
+    fi
+done
+
+if (( baked )); then
+    echo "  $baked generated file(s) name $PREFIX; derive the path instead" >&2
+    exit 1
+fi
+echo "  no generated file names the prefix"
