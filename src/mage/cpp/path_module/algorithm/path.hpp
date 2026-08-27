@@ -130,6 +130,8 @@ struct RelStep {
   std::unordered_map<std::string, RelDirection, TransparentStringHash, std::equal_to<>> types;
   bool any_incoming = false;
   bool any_outgoing = false;
+  bool needs_incoming = false;
+  bool needs_outgoing = false;
 };
 
 // What may not repeat during a walk. The `*Path` forms forbid a repeat within the current path only;
@@ -197,6 +199,11 @@ class PathHelper {
 
   // Whether a relationship of this type, traversed this way out of a node at `depth`, may be followed.
   [[nodiscard]] bool RelationshipAdmitted(std::string_view rel_type, bool outgoing, int64_t depth) const;
+
+  // Whether the step at `depth` can admit any incoming or outgoing relationship at all.
+  [[nodiscard]] bool NeedsIncoming(int64_t depth) const { return RelStepAt(depth).needs_incoming; }
+
+  [[nodiscard]] bool NeedsOutgoing(int64_t depth) const { return RelStepAt(depth).needs_outgoing; }
 
   [[nodiscard]] static LabelBools GetLabelBools(const mgp::Node &node, const LabelStep &step);
 

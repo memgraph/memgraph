@@ -625,6 +625,8 @@ Path::RelStep Path::PathHelper::ParseRelStep(const mgp::List &list_of_relationsh
   if (list_of_relationships.Size() == 0) {  // no relationships given, so every relationship is allowed
     step.any_outgoing = true;
     step.any_incoming = true;
+    step.needs_outgoing = true;
+    step.needs_incoming = true;
     return step;
   }
 
@@ -680,6 +682,13 @@ Path::RelStep Path::PathHelper::ParseRelStep(const mgp::List &list_of_relationsh
       direction = RelDirection::kOutgoing;
     }
     AddRelationshipDirection(step, std::move(type), direction);
+  }
+
+  step.needs_incoming = step.any_incoming;
+  step.needs_outgoing = step.any_outgoing;
+  for (auto const &[_, dir] : step.types) {
+    step.needs_incoming = step.needs_incoming || dir == RelDirection::kIncoming || dir == RelDirection::kAny;
+    step.needs_outgoing = step.needs_outgoing || dir == RelDirection::kOutgoing || dir == RelDirection::kAny;
   }
 
   return step;
@@ -938,8 +947,12 @@ void Path::PathExpand::DFS(mgp::Path &path, int64_t path_size) {
     return;
   }
 
-  this->ExpandFromRelationships(path, node.InRelationships(), false, path_size);
-  this->ExpandFromRelationships(path, node.OutRelationships(), true, path_size);
+  if (path_data_.helper_.NeedsIncoming(path_size)) {
+    this->ExpandFromRelationships(path, node.InRelationships(), false, path_size);
+  }
+  if (path_data_.helper_.NeedsOutgoing(path_size)) {
+    this->ExpandFromRelationships(path, node.OutRelationships(), true, path_size);
+  }
 }
 
 void Path::PathExpand::StartAlgorithm(const mgp::Node &node) {
@@ -1078,8 +1091,12 @@ void Path::PathExpand::RunNodeGlobalBfs() {
       continue;
     }
 
-    ExpandTreeEntry(index, depth, node.InRelationships(), false, frontier);
-    ExpandTreeEntry(index, depth, node.OutRelationships(), true, frontier);
+    if (path_data_.helper_.NeedsIncoming(depth)) {
+      ExpandTreeEntry(index, depth, node.InRelationships(), false, frontier);
+    }
+    if (path_data_.helper_.NeedsOutgoing(depth)) {
+      ExpandTreeEntry(index, depth, node.OutRelationships(), true, frontier);
+    }
   }
 }
 
@@ -1249,8 +1266,12 @@ mgp::List Path::PathSubgraph::BFS() {
       continue;
     }
 
-    this->ExpandFromRelationships(pair, pair.first.InRelationships(), false, queue);
-    this->ExpandFromRelationships(pair, pair.first.OutRelationships(), true, queue);
+    if (path_data_.helper_.NeedsIncoming(pair.second)) {
+      this->ExpandFromRelationships(pair, pair.first.InRelationships(), false, queue);
+    }
+    if (path_data_.helper_.NeedsOutgoing(pair.second)) {
+      this->ExpandFromRelationships(pair, pair.first.OutRelationships(), true, queue);
+    }
   }
 
   return to_be_returned_nodes_;
