@@ -70,7 +70,16 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     throw ClientError("client sent invalid query");
   }
 
-  std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare() {
+  std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare(
+      memgraph::storage::EngineLockMode try_mode = memgraph::storage::EngineLockMode::Blocking) {
+    // Pool bounded-try (mirrors BeginTransaction): lose the engine-lock race for the first N TryBounded
+    // attempts, then succeed. The first loss bails HandlePrepare into State::PendingPrepare; the rest make
+    // FinishPendingPrepare_ return Reschedule. Blocking (the fairness-cap fallback) is never gated, so the
+    // reschedule loop is guaranteed to terminate.
+    if (try_mode == memgraph::storage::EngineLockMode::TryBounded && try_bounded_fail_count_ > 0) {
+      --try_bounded_fail_count_;
+      throw memgraph::query::WouldBlockInlineException{};
+    }
     if (query_ == kQueryReturn42 || query_ == kQueryEmpty || query_ == kQueryReturnMultiple) {
       return {{"result_name"}, {}};
     }
@@ -180,8 +189,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   void TestHook_ShouldAbort() { should_abort_ = true; }
 
-  // Make the next `n` TryBounded engine-lock acquires lose the race, then succeed. Drives the
-  // HandleBegin bail + FinishPendingBegin_ reschedule path deterministically.
+  // Make the next `n` TryBounded engine-lock acquires lose the race, then succeed. Drives the HandleBegin /
+  // HandlePrepare bail + FinishPendingBegin_ / FinishPendingPrepare_ reschedule paths deterministically.
   void TestHook_FailBoundedTries(int n) { try_bounded_fail_count_ = n; }
 
   void Execute() {
@@ -197,6 +206,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   bool ExecuteStep() { return Execute_(*this); }
 
   memgraph::communication::bolt::PendingBeginOutcome FinishPendingBegin() { return FinishPendingBegin_(*this); }
+
+  memgraph::communication::bolt::PendingPrepareOutcome FinishPendingPrepare() { return FinishPendingPrepare_(*this); }
 
  private:
   std::string query_;
@@ -1485,4 +1496,155 @@ TEST(BoltSession, PendingBeginHoldsBackPipelinedMessageUntilItCompletes) {
   session.Execute();
   EXPECT_EQ(session.state_, State::Result);  // RUN parsed+prepared, awaiting PULL
   CheckSuccessMessage(output, /*clear=*/false);
+}
+
+// ---------------------------------------------------------------------------
+// Pending-PREPARE reschedule (pool-native, no strand inline). A RUN is first parsed (State::Parsed); the
+// follow-up PREPARE, whose bounded-try engine-lock acquire loses the race, bails out of HandlePrepare into
+// State::PendingPrepare (parse retained in SessionHL::parsed_res_). The completion is retried out-of-band via
+// FinishPendingPrepare(), which reschedules on each further loss and, past the fairness cap, does one blocking
+// acquire so the PREPARE cannot starve. Its single header SUCCESS is emitted only on the terminal Done.
+// ---------------------------------------------------------------------------
+
+using memgraph::communication::bolt::PendingPrepareOutcome;
+
+// Count whole bolt frames in `output`, consuming it. A frame is a 2-byte length header, `len` payload bytes,
+// then the 2-byte end marker; used to prove "exactly one header" without pinning exact payload bytes.
+static int DrainFrameCount(std::vector<uint8_t> &output) {
+  int frames = 0;
+  while (output.size() > 0) {
+    const int len = (output[0] << 8) + output[1];
+    output.erase(output.begin(), output.begin() + len + 4);
+    ++frames;
+  }
+  return frames;
+}
+
+TEST(BoltSession, PendingPrepareReschedulesThenCompletesWithOneHeader) {
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+  ASSERT_EQ(session.state_, State::Idle);
+
+  // 4 bounded-try losses: the 1st is consumed by HandlePrepare (PREPARE -> PendingPrepare), leaving 3 for
+  // FinishPendingPrepare -> exactly 3 Reschedule outcomes before the 4th attempt wins.
+  constexpr int kExpectedReschedules = 3;
+  session.TestHook_FailBoundedTries(kExpectedReschedules + 1);
+  WriteRunRequest(input_stream, kQueryReturn42, /*is_v4=*/true);
+  output.clear();
+
+  // First dechunk pass parses the RUN (State::Parsed); the second drives HandlePrepare, whose bounded-try
+  // acquire loses and parks the PREPARE in State::PendingPrepare (parse retained in parsed_res_).
+  ASSERT_TRUE(session.ExecuteStep());
+  ASSERT_EQ(session.state_, State::Parsed);
+  ASSERT_TRUE(session.ExecuteStep());
+  EXPECT_EQ(session.state_, State::PendingPrepare);
+  EXPECT_TRUE(session.HasPendingPrepare());
+  EXPECT_TRUE(output.empty());  // no header emitted on the bail path
+
+  // Each lost bounded-try returns Reschedule and MUST keep the PREPARE pending (parse retained); a premature
+  // reset would trip FinishPendingPrepare_'s MG_ASSERT on the next attempt.
+  int reschedules = 0;
+  constexpr int kSafetyBound = 100;  // fail loudly instead of looping forever if the retry logic regresses
+  for (int i = 0; i < kSafetyBound; ++i) {
+    const auto outcome = session.FinishPendingPrepare();
+    if (outcome == PendingPrepareOutcome::Done) break;
+    ASSERT_EQ(outcome, PendingPrepareOutcome::Reschedule);
+    EXPECT_TRUE(session.HasPendingPrepare());  // pending state survives across reschedules
+    EXPECT_TRUE(output.empty());               // no header while rescheduling
+    EXPECT_EQ(session.state_, State::PendingPrepare);
+    ++reschedules;
+  }
+
+  // Making HandlePrepare/FinishPendingPrepare block instead of bail (never reaching PendingPrepare) breaks this
+  // exact count -> the test is mutation-checkable.
+  EXPECT_EQ(reschedules, kExpectedReschedules);
+  EXPECT_FALSE(session.HasPendingPrepare());  // pending flag cleared on the terminal Done
+  EXPECT_EQ(session.state_, State::Result);
+  // Exactly ONE header SUCCESS, emitted only by FinishPendingPrepare on Done.
+  CheckSuccessMessage(output, /*clear=*/false);
+  EXPECT_EQ(DrainFrameCount(output), 1);
+}
+
+TEST(BoltSession, PendingPrepareFairnessCapForcesBlockingTerminal) {
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+  ASSERT_EQ(session.state_, State::Idle);
+
+  // EVERY bounded-try loses the race: only the fairness cap can end the loop.
+  session.TestHook_FailBoundedTries(1000);
+  WriteRunRequest(input_stream, kQueryReturn42, /*is_v4=*/true);
+  output.clear();
+
+  ASSERT_TRUE(session.ExecuteStep());
+  ASSERT_EQ(session.state_, State::Parsed);
+  ASSERT_TRUE(session.ExecuteStep());
+  EXPECT_EQ(session.state_, State::PendingPrepare);
+  EXPECT_TRUE(session.HasPendingPrepare());
+  EXPECT_TRUE(output.empty());
+
+  // Under unbounded contention the pool-side completion must still terminate: after kPrepareRescheduleCap
+  // reschedules FinishPendingPrepare_ does one Blocking acquire (never gated by the fail hook, never throws
+  // WouldBlock), completing the PREPARE. Count the reschedules to prove it is the cap -- not a lucky
+  // bounded-try -- that breaks the loop. kPrepareRescheduleCap is private, so the expected count is a literal
+  // kept in sync with it.
+  int reschedules = 0;
+  constexpr int kSafetyBound = 100;
+  for (int i = 0; i < kSafetyBound; ++i) {
+    const auto outcome = session.FinishPendingPrepare();
+    if (outcome == PendingPrepareOutcome::Done) break;
+    ASSERT_EQ(outcome, PendingPrepareOutcome::Reschedule);
+    EXPECT_TRUE(session.HasPendingPrepare());
+    EXPECT_TRUE(output.empty());
+    EXPECT_EQ(session.state_, State::PendingPrepare);
+    ++reschedules;
+  }
+  EXPECT_EQ(reschedules, 32);  // == kPrepareRescheduleCap; the terminal Blocking acquire fires on the next call
+  EXPECT_FALSE(session.HasPendingPrepare());
+  EXPECT_EQ(session.state_, State::Result);
+  CheckSuccessMessage(output, /*clear=*/false);  // exactly one header, from the Blocking fallback
+  EXPECT_EQ(DrainFrameCount(output), 1);
+}
+
+TEST(BoltSession, PendingPrepareHoldsBackPipelinedMessageUntilItCompletes) {
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+  ASSERT_EQ(session.state_, State::Idle);
+
+  // One loss (consumed by HandlePrepare) forces the PREPARE onto the pending path; the first
+  // FinishPendingPrepare then wins. Keeps this test focused on ordering, not on the reschedule count.
+  session.TestHook_FailBoundedTries(1);
+  // A RUN immediately followed by its PULL, in one buffer, with the engine lock "contended".
+  WriteRunRequest(input_stream, kQueryReturn42, /*is_v4=*/true);
+  WriteChunkHeader(input_stream, sizeof(v4::pullall_req));
+  input_stream.Write(v4::pullall_req, sizeof(v4::pullall_req));
+  WriteChunkTail(input_stream);
+  output.clear();
+
+  // First pass parses the RUN; the second bails the PREPARE into PendingPrepare. Neither reads the pipelined
+  // PULL: Execute_ stops at PendingPrepare BEFORE the dechunk loop, so the PULL stays queued and unanswered.
+  ASSERT_TRUE(session.ExecuteStep());
+  ASSERT_EQ(session.state_, State::Parsed);
+  ASSERT_TRUE(session.ExecuteStep());
+  EXPECT_EQ(session.state_, State::PendingPrepare);
+  EXPECT_TRUE(session.HasPendingPrepare());
+  EXPECT_TRUE(output.empty());             // no header for the PREPARE yet, and the PULL was not processed
+  EXPECT_TRUE(session.HasBufferedData());  // the PULL is still queued behind the parked PREPARE
+
+  // Complete the PREPARE: exactly one header SUCCESS. The PULL is STILL unread.
+  ASSERT_EQ(session.FinishPendingPrepare(), PendingPrepareOutcome::Done);
+  EXPECT_EQ(session.state_, State::Result);
+  EXPECT_FALSE(session.HasPendingPrepare());
+  CheckSuccessMessage(output, /*clear=*/false);  // only the PREPARE's header -- the PULL produced nothing
+  EXPECT_EQ(DrainFrameCount(output), 1);
+
+  // Only now, after the PREPARE finished, does the resume process the pipelined PULL -- proving ordering.
+  session.Execute();
+  EXPECT_EQ(session.state_, State::Idle);  // PULL drained the RUN's result
+  EXPECT_EQ(DrainFrameCount(output), 2);   // RECORD(42) + SUCCESS from the pipelined PULL
 }
