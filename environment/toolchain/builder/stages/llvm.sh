@@ -11,6 +11,12 @@ pushd "$TC_ARCHIVES"
 if [[ ! -d llvmorg-$LLVM_VERSION ]]; then
     git clone --depth 1 --branch llvmorg-$LLVM_VERSION https://github.com/llvm/llvm-project.git llvmorg-$LLVM_VERSION
 fi
+# Checked on every build, not only after cloning: the clone lives on a cache
+# mount that outlives the build, so a stale or tampered one would otherwise be
+# reused without ever being looked at again.
+pushd "llvmorg-$LLVM_VERSION"
+require_commit "$LLVM_COMMIT"
+popd
 popd
 
 pushd "$TC_BUILD"

@@ -11,6 +11,7 @@ log_tool_name "heaptrack $HEAPTRACK_TAG"
 git clone https://github.com/KDE/heaptrack.git heaptrack
 pushd heaptrack
 git checkout $HEAPTRACK_TAG
+require_commit "$HEAPTRACK_COMMIT"
 # heaptrack links against the HOST's boost/libdw (the sysroot doesn't carry
 # them), so the sysroot-pinning CXXFLAGS/LDFLAGS are cleared below. All of
 # boost, libdw and libstdc++ are linked statically, leaving only glibc

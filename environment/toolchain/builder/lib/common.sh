@@ -60,6 +60,21 @@ fi
 
 TOOLCHAIN_STDCXX="${TOOLCHAIN_STDCXX:-libstdc++}"
 
+# A git tag is a movable pointer, so cloning one says what the source was
+# called rather than what it was. Checking the commit we actually got turns a
+# moved tag into a failed build instead of a toolchain quietly built from
+# something else. Run from inside the clone.
+require_commit () {
+    local want="$1" got
+    got="$(git rev-parse HEAD)"
+    if [[ "$got" != "$want" ]]; then
+        echo "  expected commit $want" >&2
+        echo "  got               $got" >&2
+        echo "  the tag has moved, or the pin is wrong" >&2
+        exit 1
+    fi
+}
+
 # The runtimes LLVM builds depend on which standard library was asked for. Both
 # the llvm stage and the packaging stage need the answer -- one to build it and
 # one to write it in the README -- so the rule is applied here rather than in

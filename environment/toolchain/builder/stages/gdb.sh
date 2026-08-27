@@ -9,11 +9,7 @@ source "$TC_VERSIONS/python.env"
 pushd "$TC_ARCHIVES"
 if [[ ! -f gdb-$GDB_VERSION.tar.gz ]]; then
     wget --https-only https://sourceware.org/pub/gdb/releases/gdb-$GDB_VERSION.tar.gz
-    wget --https-only https://sourceware.org/pub/gdb/releases/sha512.sum
-    # sourceware's sha512.sum lists every gdb release. Feed only our line into
-    # sha512sum -c — otherwise it exits non-zero on the missing-file entries
-    # for the other releases and pipefail kills the script.
-    grep " gdb-$GDB_VERSION.tar.gz\$" sha512.sum | sha512sum -c -
+    echo "$GDB_SHA512  gdb-$GDB_VERSION.tar.gz" | sha512sum -c -
 fi
 popd
 
