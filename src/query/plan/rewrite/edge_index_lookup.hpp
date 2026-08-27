@@ -733,13 +733,13 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     switch (prop_filter.type_) {
       case PropertyFilter::Type::REGEX_MATCH:
-        return {input, ExpressionRange::RegexMatch()};
+        return {input, ExpressionRange::RegexMatch(prop_filter.value_)};
       case PropertyFilter::Type::STARTS_WITH:
         return {input, ExpressionRange::StartsWith(prop_filter.value_)};
       case PropertyFilter::Type::CONTAINS:
-        return {input, ExpressionRange::Contains()};
+        return {input, ExpressionRange::Contains(prop_filter.value_)};
       case PropertyFilter::Type::ENDS_WITH:
-        return {input, ExpressionRange::EndsWith()};
+        return {input, ExpressionRange::EndsWith(prop_filter.value_)};
       case PropertyFilter::Type::IN: {
         auto *membership_list = utils::Downcast<ListLiteral>(prop_filter.value_);
         auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_);
