@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <iosfwd>
 #include <map>
@@ -545,6 +546,9 @@ class TypedValue {
   /**  Checks if value is a TypedValue::Null. */
   bool IsNull() const { return type_ == Type::Null; }
 
+  /** Whether the value sits outside the ordering, which only a NaN does. */
+  static bool IsNaN(const TypedValue &value) { return value.type_ == Type::Double && std::isnan(value.double_v); }
+
   /** Convenience function for checking if this TypedValue is either
    * an integer or double */
   bool IsNumeric() const;
@@ -639,9 +643,15 @@ class TypedValue {
    *        not either Null, numeric or a character string type.
    */
   // The ordering is partial: NaN sits outside it, so all four ordered
-  // comparisons are false for it. Each is therefore built from `<` and `==`
-  // rather than by negating its opposite, which would report NaN as ordered.
-  friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) { return a < b || a == b; }
+  // comparisons are false for it. Negating the opposite comparison would
+  // instead report NaN as ordered, so each of the three below asks `<` in the
+  // direction that suits it and rules out the unordered case explicitly.
+  friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) {
+    auto const greater = b < a;
+    if (greater.IsNull()) return TypedValue(a.alloc_);
+    if (greater.ValueBool()) return TypedValue(false, a.alloc_);
+    return TypedValue(!IsNaN(a) && !IsNaN(b), a.alloc_);
+  }
 
   /**
    * Compare TypedValues and return true, false or Null.
@@ -670,7 +680,14 @@ class TypedValue {
    * @throw TypedValueException if the values cannot be compared, i.e. they are
    *        not either Null, numeric or a character string type.
    */
-  friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) { return a == b || b < a; }
+  friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) {
+    auto const less = a < b;
+    if (less.IsNull()) return TypedValue(a.alloc_);
+    if (less.ValueBool()) return TypedValue(false, a.alloc_);
+    // Not less than: either at least as great, or outside the ordering
+    // altogether, which among comparable values only NaN is.
+    return TypedValue(!IsNaN(a) && !IsNaN(b), a.alloc_);
+  }
 
   // arithmetic operators
 
