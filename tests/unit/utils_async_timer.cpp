@@ -63,14 +63,21 @@ std::chrono::steady_clock::time_point Now() { return std::chrono::steady_clock::
 // Convert milliseconds to seconds for timer constructor
 double ToSeconds(std::chrono::milliseconds ms) { return std::chrono::duration<double>(ms).count(); }
 
-// Helper to wait for timer expiration with timeout
-bool WaitForExpiration(AsyncTimer &timer, std::chrono::milliseconds timeout) {
-  auto deadline = Now() + timeout;
+// Helper to wait for timer expiration until a fixed point in time. A test that waits for several
+// timers in turn has to bound each wait against one origin: bounding each against the moment the
+// previous wait returned lets the bounds accumulate, so a late wait can outlast a timer that a
+// later assertion says has not fired yet.
+bool WaitForExpirationUntil(AsyncTimer &timer, std::chrono::steady_clock::time_point deadline) {
   while (Now() < deadline) {
     if (timer.IsExpired()) return true;
     std::this_thread::sleep_for(kPollInterval);
   }
   return false;
+}
+
+// Helper to wait for timer expiration with timeout
+bool WaitForExpiration(AsyncTimer &timer, std::chrono::milliseconds timeout) {
+  return WaitForExpirationUntil(timer, Now() + timeout);
 }
 
 // Helper to verify timer is NOT expired during a window
@@ -131,25 +138,29 @@ TEST(AsyncTimer, SequentialTimers) {
 }
 
 TEST(AsyncTimer, RelativeTimingOrder) {
+  // Every wait below is bounded against this one origin, taken before the timers are armed, so that
+  // each wait is guaranteed to end before the next timer is due however late the previous one ran.
+  const auto start = Now();
+
   // Create timers with different durations to test ordering
   AsyncTimer timer_short{ToSeconds(kOrderedShortTimer)};
   AsyncTimer timer_medium{ToSeconds(kOrderedMediumTimer)};
   AsyncTimer timer_long{ToSeconds(kOrderedLongTimer)};
 
   // Wait for short timer (should expire first)
-  EXPECT_TRUE(WaitForExpiration(timer_short, kOrderedShortTimeout));
+  EXPECT_TRUE(WaitForExpirationUntil(timer_short, start + kOrderedShortTimeout));
   EXPECT_TRUE(timer_short.IsExpired());
   EXPECT_FALSE(timer_medium.IsExpired());
   EXPECT_FALSE(timer_long.IsExpired());
 
   // Wait for medium timer (should expire second)
-  EXPECT_TRUE(WaitForExpiration(timer_medium, kOrderedMediumTimeout));
+  EXPECT_TRUE(WaitForExpirationUntil(timer_medium, start + kOrderedMediumTimeout));
   EXPECT_TRUE(timer_short.IsExpired());
   EXPECT_TRUE(timer_medium.IsExpired());
   EXPECT_FALSE(timer_long.IsExpired());
 
   // Wait for long timer (should expire last)
-  EXPECT_TRUE(WaitForExpiration(timer_long, kOrderedLongTimeout));
+  EXPECT_TRUE(WaitForExpirationUntil(timer_long, start + kOrderedLongTimeout));
   EXPECT_TRUE(timer_short.IsExpired());
   EXPECT_TRUE(timer_medium.IsExpired());
   EXPECT_TRUE(timer_long.IsExpired());
@@ -200,11 +211,16 @@ TEST(AsyncTimer, MoveAssignment) {
 }
 
 TEST(AsyncTimer, AssignmentToExpiredTimer) {
-  AsyncTimer timer_1{ToSeconds(kVeryLongTimer)};  // Long timer
-  AsyncTimer timer_2{ToSeconds(kShortTimer)};     // Short timer
+  // The point of the test is assigning an unexpired timer onto an expired one, so timer_1 must
+  // still be running when the assignment happens. That is a claim about a timer *not* having fired,
+  // so as in RelativeTimingOrder it is bounded against a single origin and the two timers are
+  // separated by much more than the wait for the first one can overrun.
+  const auto start = Now();
+  AsyncTimer timer_1{ToSeconds(kOrderedLongTimer)};
+  AsyncTimer timer_2{ToSeconds(kShortTimer)};
 
   // First verify timer_2 expires quickly
-  EXPECT_TRUE(WaitForExpiration(timer_2, kShortTimeout));
+  EXPECT_TRUE(WaitForExpirationUntil(timer_2, start + kOrderedShortTimeout));
   EXPECT_TRUE(timer_2.IsExpired());
   EXPECT_FALSE(timer_1.IsExpired());
 
@@ -217,7 +233,7 @@ TEST(AsyncTimer, AssignmentToExpiredTimer) {
 
   // Calculate remaining time windows for the moved timer
   auto remaining_not_expired = kShortTimer + std::chrono::milliseconds(10);  // Should not expire for at least this long
-  auto remaining_should_expire = kVeryLongTimer + kExpirationSlack;
+  auto remaining_should_expire = kOrderedLongTimer + kExpirationSlack;
 
   // Verify timer_2 with the moved timer behavior
   EXPECT_TRUE(VerifyTimerExpiration(timer_2, remaining_not_expired, remaining_should_expire));

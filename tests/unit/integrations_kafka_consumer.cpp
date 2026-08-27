@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <atomic>
 #include <chrono>
 #include <latch>
 #include <optional>
@@ -219,11 +220,15 @@ TEST_F(ConsumerTest, BatchSize) {
   // only the size can. The mock delivers with a delay of a few hundred milliseconds per message, so
   // an interval anywhere near the time it takes to deliver batch_size of them ends batches early
   // and the sizes stop being predictable.
-  static constexpr auto kBatchInterval = std::chrono::seconds{10};
+  // The interval is also the timeout the polling thread blocks in, and Stop() joins that thread, so
+  // it is this test's shutdown cost as well. Keep it comfortably above the delivery time of a full
+  // batch without paying for more than that.
+  static constexpr auto kBatchInterval = std::chrono::seconds{5};
   static constexpr auto kBatchSize = 3;
-  static constexpr auto kBatchCount = 3;
-  // A whole number of batches, so no trailing partial batch depends on the interval to be flushed.
-  static constexpr auto kMessageCount = kBatchCount * kBatchSize;
+  static constexpr auto kFullBatchCount = 3;
+  // One message beyond a whole number of batches, so the last batch is short and is flushed by the
+  // interval rather than by the size. Both halves of the rule stay covered.
+  static constexpr auto kMessageCount = kFullBatchCount * kBatchSize + 1;
   static constexpr std::string_view kMessage = "BatchSizeTestMessage";
 
   auto info = CreateDefaultConsumerInfo();
@@ -232,13 +237,13 @@ TEST_F(ConsumerTest, BatchSize) {
 
   std::vector<size_t> batch_sizes{};
   auto expected_messages_received = true;
-  std::latch received_messages{kMessageCount};
+  std::atomic<int> received_count{0};
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     batch_sizes.push_back(messages.size());
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
-    received_messages.count_down(messages.size());
+    received_count.fetch_add(static_cast<int>(messages.size()), std::memory_order_release);
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
@@ -248,15 +253,24 @@ TEST_F(ConsumerTest, BatchSize) {
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
   }
-  received_messages.wait();
+
+  // Bounded rather than an open-ended wait: if delivery stops short the test has to fail with the
+  // counts in hand, not hang until ctest gives up on it.
+  const auto deadline = std::chrono::steady_clock::now() + 3 * kBatchInterval;
+  while (received_count.load(std::memory_order_acquire) < kMessageCount &&
+         std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+  }
   // Stop() joins the polling thread, which publishes batch_sizes to this one.
   consumer->Stop();
 
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
-  ASSERT_EQ(kBatchCount, batch_sizes.size());
-  for (const auto batch_size : batch_sizes) {
-    EXPECT_EQ(kBatchSize, batch_size);
+  ASSERT_EQ(kMessageCount, received_count.load(std::memory_order_acquire));
+  ASSERT_EQ(kFullBatchCount + 1, batch_sizes.size());
+  for (auto i = 0; i < kFullBatchCount; ++i) {
+    EXPECT_EQ(kBatchSize, batch_sizes[i]) << "Batch " << i << " should have been ended by its size";
   }
+  EXPECT_EQ(1, batch_sizes.back()) << "The trailing batch should have been ended by the interval";
 }
 
 TEST_F(ConsumerTest, InvalidBootstrapServers) {

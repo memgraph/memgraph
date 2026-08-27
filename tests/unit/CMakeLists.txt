@@ -471,6 +471,7 @@ add_unit_test(utils_aws
 # Every iteration starts a thread per barrier participant, so ctest's default cost of one slot per
 # test lets it be scheduled alongside a full machine's worth of other tests. Declaring the slots it
 # needs keeps that from happening; where the machine has fewer, ctest runs this test on its own.
+# PROCESSORS mirrors kN in utils_barrier.cpp and has to be changed with it.
 add_unit_test(utils_barrier
     SOURCES utils_barrier.cpp
     LINK_TARGETS mg-utils
