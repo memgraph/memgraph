@@ -224,6 +224,11 @@ struct Transaction {
 
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
+  // EXPERIMENTAL (lock-free-read-snapshot): frozen last-committed-MVCC-ts captured at BEGIN.
+  // When the experiment is OFF this stays 0 and is never read. Distinct from start_timestamp,
+  // which remains the unique GC/commit-log slot; snapshot_ts (<= start_timestamp) will be the
+  // SI visibility + write-conflict boundary when ON.
+  uint64_t snapshot_ts{};
   // Set at construction; never reassigned. Stable across PeriodicCommit.
   uint64_t original_start_timestamp{};
   // The `Transaction` object is stack allocated, but the `commit_info`

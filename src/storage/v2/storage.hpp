@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -124,6 +125,7 @@ class ReadOnlyAccessTimeout : public utils::BasicException {
 
 struct Transaction;
 class EdgeAccessor;
+struct CommitProbe;
 
 // TODO: list status Populating/Ready
 struct IndicesInfo {
@@ -454,6 +456,17 @@ class Storage {
   mutable utils::SpinLock engine_lock_;
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
+
+  // EXPERIMENTAL (lock-free-read-snapshot). All three are inert when the experiment is OFF.
+  // Serializes committers across mint->durability->publish and (in that mode) guards the WAL group;
+  // acquired only on the experiment's ON path, so the OFF path is byte-for-byte unchanged.
+  std::mutex commit_mutex_;
+  // Runtime-only watermark: the last fully-published commit timestamp. Advanced at publish on the ON
+  // path, seeded from recovered max commit ts on startup. NEVER persisted (durable data is flag-independent).
+  std::atomic<uint64_t> last_committed_mvcc_ts_{kTimestampInitialId};
+  // Test-only instrumentation (null in production). Set by tests to pin the commit path at phase
+  // boundaries. Forward-declared to keep this header light; defined in storage/v2/commit_probe.hpp.
+  CommitProbe *commit_probe_{nullptr};
 
   // Written under a UNIQUE hold on main_lock_. UNIQUE excludes all three shared modes, so any hold
   // pins both values for its life, and releasing one un-pins them: a reader that reacquires must
