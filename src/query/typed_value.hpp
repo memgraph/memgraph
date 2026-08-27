@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <compare>
 #include <cstdint>
 #include <iosfwd>
@@ -631,6 +632,26 @@ class TypedValue {
    * @throw TypedValueException if neither value belongs to the ordering.
    */
   static std::optional<std::partial_ordering> Compare(const TypedValue &a, const TypedValue &b);
+
+  /**
+   * Orders two doubles totally, with NaN after every other value.
+   *
+   * Comparability leaves a NaN beside nothing, which is what `<=>` reports and
+   * what the ordered comparisons read as false. An order that has to place
+   * every value cannot leave it there, and openCypher puts NaN after positive
+   * infinity, so this is where that decision lives.
+   */
+  static std::weak_ordering CompareDoublesNaNLast(double a, double b) {
+    auto const order = a <=> b;
+    if (std::is_lt(order)) return std::weak_ordering::less;
+    if (std::is_gt(order)) return std::weak_ordering::greater;
+    if (order == std::partial_ordering::equivalent) return std::weak_ordering::equivalent;
+
+    // Unordered, so at least one of them is a NaN.
+    auto const a_is_nan = std::isnan(a);
+    if (a_is_nan && std::isnan(b)) return std::weak_ordering::equivalent;
+    return a_is_nan ? std::weak_ordering::greater : std::weak_ordering::less;
+  }
 
   /**
    * Orders two values of one type by what they hold, for the types

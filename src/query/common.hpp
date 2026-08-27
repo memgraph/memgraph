@@ -34,6 +34,16 @@
 namespace memgraph::query {
 
 namespace {
+/// Reads an ordering from a type that leaves no pair unordered as the total one
+/// it already is. Only sound for such a type; the two that are not, a double
+/// and a point, are placed by CompareDoublesNaNLast instead.
+inline std::weak_ordering AlreadyTotal(std::partial_ordering order) {
+  if (std::is_lt(order)) return std::weak_ordering::less;
+  if (std::is_gt(order)) return std::weak_ordering::greater;
+  DMG_ASSERT(order == std::partial_ordering::equivalent, "A type that orders every pair reported one unordered");
+  return std::weak_ordering::equivalent;
+}
+
 /// Orders two values under orderability, the total order behind ORDER BY.
 ///
 /// Unlike comparability, which the `<` family reads, this one places every pair
@@ -42,14 +52,14 @@ namespace {
 /// values order like is not decided here; that is shared with comparability.
 ///
 /// @throw QueryRuntimeException for a type no order is defined over.
-std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b) {
+std::weak_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b) {
   // First assume typical same type comparisons
   if (a.type() == b.type()) {
     switch (a.type()) {
       using enum TypedValue::Type;
       // Null sorts alongside Null here, where comparability would refuse to say.
       case Null:
-        return std::partial_ordering::equivalent;
+        return std::weak_ordering::equivalent;
       case List:
         return std::lexicographical_compare_three_way(a.UnsafeValueList().begin(),
                                                       a.UnsafeValueList().end(),
@@ -67,9 +77,28 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
       case Function:
         throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
 
+      // The two types that can hold a NaN, which has to be given a place here
+      // rather than left beside nothing as comparability leaves it.
+      case Double:
+        return TypedValue::CompareDoublesNaNLast(a.UnsafeValueDouble(), b.UnsafeValueDouble());
+      case Point2d: {
+        auto const &lhs = a.UnsafeValuePoint2d();
+        auto const &rhs = b.UnsafeValuePoint2d();
+        if (auto const order = lhs.crs() <=> rhs.crs(); order != 0) return order;
+        if (auto const order = TypedValue::CompareDoublesNaNLast(lhs.x(), rhs.x()); order != 0) return order;
+        return TypedValue::CompareDoublesNaNLast(lhs.y(), rhs.y());
+      }
+      case Point3d: {
+        auto const &lhs = a.UnsafeValuePoint3d();
+        auto const &rhs = b.UnsafeValuePoint3d();
+        if (auto const order = lhs.crs() <=> rhs.crs(); order != 0) return order;
+        if (auto const order = TypedValue::CompareDoublesNaNLast(lhs.x(), rhs.x()); order != 0) return order;
+        if (auto const order = TypedValue::CompareDoublesNaNLast(lhs.y(), rhs.y()); order != 0) return order;
+        return TypedValue::CompareDoublesNaNLast(lhs.z(), rhs.z());
+      }
+
       case Bool:
       case Int:
-      case Double:
       case String:
       case Date:
       case LocalTime:
@@ -77,12 +106,11 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
       case ZonedDateTime:
       case Duration:
       case Enum:
-      case Point2d:
-      case Point3d:
         // Ordered by what they hold, which comparability orders them by too.
-        // Between them the two cover every type this case admits.
-        if (auto const order = TypedValue::ComparePayload(a, b)) return *order;
-        return *TypedValue::ComparePayloadOrderOnly(a, b);
+        // Between them the two cover every type this case admits, and none of
+        // them holds a value that sits outside its own order.
+        if (auto const order = TypedValue::ComparePayload(a, b)) return AlreadyTotal(*order);
+        return AlreadyTotal(*TypedValue::ComparePayloadOrderOnly(a, b));
     }
   }
 
@@ -92,16 +120,19 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
   // in ordering null comes after everything else
   // at the same time Null is not less that null
   // first deal with Null < Whatever case
-  if (a.IsNull()) return std::partial_ordering::greater;
+  if (a.IsNull()) return std::weak_ordering::greater;
   // now deal with NotNull < Null case
-  if (b.IsNull()) return std::partial_ordering::less;
+  if (b.IsNull()) return std::weak_ordering::less;
 
   if (!(a.IsNumeric() && b.IsNumeric())) [[unlikely]]
     throw QueryRuntimeException("Can't compare value of type {} to value of type {}.", a.type(), b.type());
 
-  // The one pair of unlike types with an order between them.
-  if (a.IsInt()) return a.UnsafeValueInt() <=> b.UnsafeValueDouble();
-  return a.UnsafeValueDouble() <=> b.UnsafeValueInt();
+  // The one pair of unlike types with an order between them, where the double
+  // may again be a NaN.
+  if (a.IsInt()) {
+    return TypedValue::CompareDoublesNaNLast(static_cast<double>(a.UnsafeValueInt()), b.UnsafeValueDouble());
+  }
+  return TypedValue::CompareDoublesNaNLast(a.UnsafeValueDouble(), static_cast<double>(b.UnsafeValueInt()));
 }
 
 }  // namespace
@@ -109,7 +140,7 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
 struct OrderedTypedValueCompare {
   OrderedTypedValueCompare(Ordering ordering) : ordering_{ordering}, ascending{ordering == Ordering::ASC} {}
 
-  auto operator()(const TypedValue &lhs, const TypedValue &rhs) const -> std::partial_ordering {
+  auto operator()(const TypedValue &lhs, const TypedValue &rhs) const -> std::weak_ordering {
     return ascending ? TypedValueCompare(lhs, rhs) : TypedValueCompare(rhs, lhs);
   }
 
@@ -140,8 +171,8 @@ class TypedValueVectorCompare final {
       auto rng = ranges::views::zip(*orderings, lhs, rhs);
       for (auto const &[cmp, l, r] : rng) {
         auto res = cmp(l, r);
-        if (res == std::partial_ordering::less) return true;
-        if (res == std::partial_ordering::greater) return false;
+        if (res == std::weak_ordering::less) return true;
+        if (res == std::weak_ordering::greater) return false;
       }
       DMG_ASSERT(orderings->size() == lhs.size() && lhs.size() == rhs.size());
       return false;

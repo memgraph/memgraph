@@ -7299,12 +7299,14 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::MIN: {
           EnsureOkForMinMax(input_value);
           try {
-            TypedValue comparison_result = input_value < agg_value->values_[pos];
-            // since we skip nulls we either have a valid comparison, or
-            // an exception was just thrown above
-            // safe to assume a bool TypedValue
-            if (comparison_result.ValueBool()) agg_value->values_[pos] = std::move(input_value);
-          } catch (const TypedValueException &) {
+            // Ordered under orderability, the relation these two are defined
+            // over, rather than under comparability. The two differ over a NaN,
+            // which orderability places after every other number and
+            // comparability places beside none of them.
+            if (std::is_lt(TypedValueCompare(input_value, agg_value->values_[pos]))) {
+              agg_value->values_[pos] = std::move(input_value);
+            }
+          } catch (const QueryRuntimeException &) {
             throw QueryRuntimeException(
                 "Unable to get MIN of '{}' and '{}'.", input_value.type(), agg_value->values_[pos].type());
           }
@@ -7314,9 +7316,10 @@ class AggregateCursor : public Cursor {
           //  all comments as for Op::Min
           EnsureOkForMinMax(input_value);
           try {
-            TypedValue comparison_result = input_value > agg_value->values_[pos];
-            if (comparison_result.ValueBool()) agg_value->values_[pos] = std::move(input_value);
-          } catch (const TypedValueException &) {
+            if (std::is_gt(TypedValueCompare(input_value, agg_value->values_[pos]))) {
+              agg_value->values_[pos] = std::move(input_value);
+            }
+          } catch (const QueryRuntimeException &) {
             throw QueryRuntimeException(
                 "Unable to get MAX of '{}' and '{}'.", input_value.type(), agg_value->values_[pos].type());
           }
@@ -11667,13 +11670,15 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           break;
         }
         case Aggregation::Op::MIN: {
-          if ((other_value < main_value).ValueBool()) {
+          // Orderability, for the reason given where the values are first
+          // accumulated; merging two partial results has to order them alike.
+          if (std::is_lt(TypedValueCompare(other_value, main_value))) {
             main_value = std::move(other_value);
           }
           break;
         }
         case Aggregation::Op::MAX: {
-          if ((other_value > main_value).ValueBool()) {
+          if (std::is_gt(TypedValueCompare(other_value, main_value))) {
             main_value = std::move(other_value);
           }
           break;
