@@ -22,8 +22,11 @@ set(CMAKE_SHARED_LIBRARY_PREFIX "")
 
 # LTO off: query modules are dlopen'ed leaf .so's (nothing to gain cross-
 # module, real link-time cost on 40+ targets), and nvcc can't take the flags.
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release FALSE)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo FALSE)
+#
+# Upper case only: CMake reads these per-config variables in upper case, and
+# spelled any other way they opt out of nothing while reading as if they had.
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO FALSE)
 
 # Historic MAGE optimization flag for the numeric-heavy algorithms.
 # (The old standalone build also passed GCC's -fvect-cost-model=dynamic,

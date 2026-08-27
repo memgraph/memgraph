@@ -37,14 +37,14 @@ if(CCACHE_PROGRAM)
     # The directory holding this checkout, so sibling checkouts share and
     # nothing above them is rewritten. An environment setting wins, for a site
     # that keeps its checkouts somewhere else.
-    if(DEFINED ENV{CCACHE_BASEDIR})
+    if(NOT "$ENV{CCACHE_BASEDIR}" STREQUAL "")
         set(MG_CCACHE_BASEDIR "$ENV{CCACHE_BASEDIR}")
     else()
         get_filename_component(MG_CCACHE_BASEDIR "${CMAKE_SOURCE_DIR}" DIRECTORY)
     endif()
     message(STATUS "ccache base_dir: ${MG_CCACHE_BASEDIR}")
 
-    set(_mg_ccache env CCACHE_BASEDIR=${MG_CCACHE_BASEDIR} ${CCACHE_PROGRAM})
+    set(_mg_ccache env "CCACHE_BASEDIR=${MG_CCACHE_BASEDIR}" "${CCACHE_PROGRAM}")
     set(CMAKE_C_COMPILER_LAUNCHER   ${_mg_ccache} CACHE STRING "" FORCE)
     set(CMAKE_CXX_COMPILER_LAUNCHER ${_mg_ccache} CACHE STRING "" FORCE)
 endif()
