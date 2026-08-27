@@ -26,25 +26,20 @@ pushd "$TC_BUILD"
 # mold carries its own TBB, mimalloc, blake3, xxhash, zlib and zstd, so this
 # adds no sysroot library and no stage has to run before it but cmake.
 log_tool_name "mold $MOLD_VERSION"
-if [[ ! -f "$PREFIX/bin/mold" ]]; then
-    if [[ -d "mold-$MOLD_VERSION" ]]; then
-        rm -rf mold-$MOLD_VERSION
-    fi
-    tar -xzf ../archives/mold-$MOLD_VERSION.tar.gz
-    pushd "mold-$MOLD_VERSION"
-    # $ORIGIN, not an absolute path, so the installed tree can be moved: mold
-    # needs the libstdc++ this toolchain builds, which is newer than the
-    # sysroot's. The vendored dependencies are linked statically, which is
-    # their default and why nothing here points at the system's copies.
-    cmake -S . -B build \
-        -DCMAKE_INSTALL_PREFIX=$PREFIX \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib64 -Wl,-rpath,\$ORIGIN/../lib64" \
-        -DMOLD_USE_SYSTEM_TBB=OFF \
-        -DMOLD_USE_SYSTEM_MIMALLOC=OFF
-    cmake --build build -j$CPUS
-    cmake --install build
-    popd
-fi
+tar -xzf ../archives/mold-$MOLD_VERSION.tar.gz
+pushd "mold-$MOLD_VERSION"
+# $ORIGIN, not an absolute path, so the installed tree can be moved: mold
+# needs the libstdc++ this toolchain builds, which is newer than the
+# sysroot's. The vendored dependencies are linked statically, which is
+# their default and why nothing here points at the system's copies.
+cmake -S . -B build \
+    -DCMAKE_INSTALL_PREFIX=$PREFIX \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib64 -Wl,-rpath,\$ORIGIN/../lib64" \
+    -DMOLD_USE_SYSTEM_TBB=OFF \
+    -DMOLD_USE_SYSTEM_MIMALLOC=OFF
+cmake --build build -j$CPUS
+cmake --install build
+popd
 
 popd

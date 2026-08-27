@@ -9,23 +9,21 @@ source "$TC_VERSIONS/gcc.env"
 pushd "$TC_BUILD"
 # Host deps (apt): make (gmp comes from $PREFIX above).
 log_tool_name "mpfr (from gcc)"
-if [[ ! -f "$PREFIX/lib/libmpfr.a" ]]; then
-    pushd $DIR/build/gcc-$GCC_VERSION/mpfr
-    if [[ "$for_arm" = true ]]; then
-        CFLAGS="${CFLAGS:-} -std=gnu17" ./configure \
-            --build=aarch64-linux-gnu \
-            --host=aarch64-linux-gnu \
-            --prefix=$PREFIX \
-            --with-gmp=$PREFIX
-    else
-        CFLAGS="${CFLAGS:-} -std=gnu17" ./configure \
-            --build=x86_64-linux-gnu \
-            --host=x86_64-linux-gnu \
-            --prefix=$PREFIX \
-            --with-gmp=$PREFIX
-    fi
-    make install
-    popd
+pushd $DIR/build/gcc-$GCC_VERSION/mpfr
+if [[ "$for_arm" = true ]]; then
+    CFLAGS="${CFLAGS:-} -std=gnu17" ./configure \
+        --build=aarch64-linux-gnu \
+        --host=aarch64-linux-gnu \
+        --prefix=$PREFIX \
+        --with-gmp=$PREFIX
+else
+    CFLAGS="${CFLAGS:-} -std=gnu17" ./configure \
+        --build=x86_64-linux-gnu \
+        --host=x86_64-linux-gnu \
+        --prefix=$PREFIX \
+        --with-gmp=$PREFIX
 fi
+make install
+popd
 
 popd

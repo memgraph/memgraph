@@ -18,26 +18,21 @@ popd
 pushd "$TC_BUILD"
 # Host deps: make. zlib comes from the sysroot.
 log_tool_name "libxml2 $LIBXML2_VERSION (sysroot)"
-if [[ ! -f "$SYSROOT/usr/lib/libxml2.a" ]]; then
-    if [[ -d "libxml2-$LIBXML2_VERSION" ]]; then
-        rm -rf libxml2-$LIBXML2_VERSION
-    fi
-    tar -xJf ../archives/libxml2-$LIBXML2_VERSION.tar.xz
-    pushd "libxml2-$LIBXML2_VERSION"
-    # Static, and trimmed to what libabigail reads: no python bindings, and no
-    # network fetching, which an ABI comparison has no business doing.
-    ./configure \
-        --prefix=/usr \
-        --libdir=/usr/lib \
-        --disable-shared \
-        --enable-static \
-        --with-pic \
-        --without-python \
-        --without-http \
-        --without-lzma
-    make -j$CPUS
-    make install DESTDIR=$SYSROOT
-    popd
-fi
+tar -xJf ../archives/libxml2-$LIBXML2_VERSION.tar.xz
+pushd "libxml2-$LIBXML2_VERSION"
+# Static, and trimmed to what libabigail reads: no python bindings, and no
+# network fetching, which an ABI comparison has no business doing.
+./configure \
+    --prefix=/usr \
+    --libdir=/usr/lib \
+    --disable-shared \
+    --enable-static \
+    --with-pic \
+    --without-python \
+    --without-http \
+    --without-lzma
+make -j$CPUS
+make install DESTDIR=$SYSROOT
+popd
 
 popd

@@ -16,8 +16,7 @@ source "$TC_VERSIONS/llvm.env"
 
 pushd "$TC_BUILD"
 # create README
-if [[ ! -f "$PREFIX/README.md" ]]; then
-    cat >$PREFIX/README.md <<EOF
+cat >$PREFIX/README.md <<EOF
 # Memgraph Toolchain v$TOOLCHAIN_VERSION
 
 ## Included tools
@@ -52,12 +51,9 @@ source $PREFIX/activate
 On the other hand, \`deactivate\` will get back your original setup by restoring
 the initial environment variables.
 EOF
-fi
 
 # create activation script from template
-if [[ ! -f "$PREFIX/activate" ]]; then
-    sed -e "s|@NAME@|$NAME|g" \
-        -e "s|@TOOLCHAIN_VERSION@|$TOOLCHAIN_VERSION|g" \
-        "$DIR/activate.in" > "$PREFIX/activate"
-fi
+sed -e "s|@NAME@|$NAME|g" \
+    -e "s|@TOOLCHAIN_VERSION@|$TOOLCHAIN_VERSION|g" \
+    "$DIR/activate.in" > "$PREFIX/activate"
 popd

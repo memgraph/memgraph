@@ -23,28 +23,23 @@ pushd "$TC_BUILD"
 # Host deps: make. Only the library is wanted; the command line tools would
 # shadow the host's xz on PATH for no benefit.
 log_tool_name "xz $XZ_VERSION (sysroot)"
-if [[ ! -f "$SYSROOT/usr/lib/liblzma.a" ]]; then
-    if [[ -d "xz-$XZ_VERSION" ]]; then
-        rm -rf xz-$XZ_VERSION
-    fi
-    tar -xJf ../archives/xz-$XZ_VERSION.tar.xz
-    pushd "xz-$XZ_VERSION"
-    ./configure \
-        --prefix=/usr \
-        --libdir=/usr/lib \
-        --disable-shared \
-        --enable-static \
-        --with-pic \
-        --disable-xz \
-        --disable-xzdec \
-        --disable-lzmadec \
-        --disable-lzmainfo \
-        --disable-scripts \
-        --disable-doc \
-        --disable-nls
-    make -j$CPUS
-    make install DESTDIR=$SYSROOT
-    popd
-fi
+tar -xJf ../archives/xz-$XZ_VERSION.tar.xz
+pushd "xz-$XZ_VERSION"
+./configure \
+    --prefix=/usr \
+    --libdir=/usr/lib \
+    --disable-shared \
+    --enable-static \
+    --with-pic \
+    --disable-xz \
+    --disable-xzdec \
+    --disable-lzmadec \
+    --disable-lzmainfo \
+    --disable-scripts \
+    --disable-doc \
+    --disable-nls
+make -j$CPUS
+make install DESTDIR=$SYSROOT
+popd
 
 popd

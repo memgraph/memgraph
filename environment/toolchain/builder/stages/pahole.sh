@@ -15,9 +15,7 @@ popd
 pushd "$TC_BUILD"
 # Host deps (apt): unzip.
 log_tool_name "install pahole"
-if [[ ! -d "$PREFIX/share/pahole-gdb" ]]; then
-    unzip ../archives/pahole-gdb-master.zip
-    mv pahole-gdb-master $PREFIX/share/pahole-gdb
-fi
+unzip ../archives/pahole-gdb-master.zip
+mv pahole-gdb-master $PREFIX/share/pahole-gdb
 
 popd

@@ -7,9 +7,8 @@ source "$TC_VERSIONS/gdbinit.env"
 
 pushd "$TC_BUILD"
 log_tool_name "setup system gdbinit"
-if [[ ! -f "$PREFIX/etc/gdb/gdbinit" ]]; then
-    mkdir -p $PREFIX/etc/gdb
-    cat >$PREFIX/etc/gdb/gdbinit <<EOF
+mkdir -p $PREFIX/etc/gdb
+cat >$PREFIX/etc/gdb/gdbinit <<EOF
 # improve formatting
 set print pretty on
 set print object on
@@ -30,6 +29,5 @@ import offsets
 import pahole
 end
 EOF
-fi
 
 popd

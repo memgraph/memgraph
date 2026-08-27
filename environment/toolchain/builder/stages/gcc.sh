@@ -19,90 +19,85 @@ pushd "$TC_BUILD"
 # Host deps (apt): build-essential, m4 (in-tree gmp), wget + bzip2
 # (download_prerequisites fetches gmp/mpfr/mpc/isl as .tar.bz2).
 log_tool_name "GCC $GCC_VERSION"
-if [[ ! -f "$PREFIX/bin/gcc" ]]; then
-    if [[ -d "gcc-$GCC_VERSION" ]]; then
-        rm -rf gcc-$GCC_VERSION
-    fi
-    tar -xvf ../archives/gcc-$GCC_VERSION.tar.gz
-    pushd "gcc-$GCC_VERSION"
-    ./contrib/download_prerequisites
-    mkdir build && pushd build
-    # influenced by: https://buildd.debian.org/status/fetch.php?pkg=gcc-11&arch=arm64&ver=11.2.0-14&stamp=1642052446&raw=0
-    if [[ "$for_arm" = true ]]; then
-        ../configure -v \
-            --prefix=$PREFIX \
-            --with-sysroot=$SYSROOT \
-            --with-build-sysroot=$SYSROOT \
-            --with-glibc-version=$GLIBC_VERSION \
-            --disable-multilib \
-            --enable-languages=c,c++,fortran \
-            --enable-gold=yes \
-            --enable-ld=yes \
-            --disable-vtable-verify \
-            --enable-libmpx \
-            --without-cuda-driver \
-            --enable-shared \
-            --enable-linker-build-id \
-            --without-included-gettext \
-            --enable-threads=posix \
-            --enable-nls \
-            --enable-bootstrap \
-            --enable-clocale=gnu \
-            --enable-libstdcxx-debug \
-            --enable-libstdcxx-time=yes \
-            --with-default-libstdcxx-abi=new \
-            --enable-gnu-unique-object \
-            --disable-libquadmath \
-            --disable-libquadmath-support \
-            --enable-plugin \
-            --enable-default-pie \
-            --enable-libphobos-checking=release \
-            --enable-objc-gc=auto \
-            --enable-multiarch \
-            --enable-fix-cortex-a53-843419 \
-            --disable-werror \
-            --enable-checking=release \
-            --build=aarch64-linux-gnu \
-            --host=aarch64-linux-gnu \
-            --target=aarch64-linux-gnu \
-            --with-build-config=bootstrap-lto-lean \
-            --enable-link-serialization=4
-    else
-        # influenced by: https://buildd.debian.org/status/fetch.php?pkg=gcc-8&arch=amd64&ver=8.3.0-6&stamp=1554588545
-        ../configure -v \
-            --build=x86_64-linux-gnu \
-            --host=x86_64-linux-gnu \
-            --target=x86_64-linux-gnu \
-            --prefix=$PREFIX \
-            --with-sysroot=$SYSROOT \
-            --with-build-sysroot=$SYSROOT \
-            --with-glibc-version=$GLIBC_VERSION \
-            --disable-multilib \
-            --enable-checking=release \
-            --enable-languages=c,c++,fortran \
-            --enable-gold=yes \
-            --enable-ld=yes \
-            --enable-lto \
-            --enable-bootstrap \
-            --disable-vtable-verify \
-            --disable-werror \
-            --without-included-gettext \
-            --enable-threads=posix \
-            --enable-nls \
-            --enable-clocale=gnu \
-            --enable-libstdcxx-debug \
-            --enable-libstdcxx-time=yes \
-            --enable-gnu-unique-object \
-            --enable-libmpx \
-            --enable-plugin \
-            --enable-default-pie \
-            --with-tune=generic \
-            --without-cuda-driver
-    fi
-    make -j$CPUS
-    make install
-    popd && popd
+tar -xvf ../archives/gcc-$GCC_VERSION.tar.gz
+pushd "gcc-$GCC_VERSION"
+./contrib/download_prerequisites
+mkdir build && pushd build
+# influenced by: https://buildd.debian.org/status/fetch.php?pkg=gcc-11&arch=arm64&ver=11.2.0-14&stamp=1642052446&raw=0
+if [[ "$for_arm" = true ]]; then
+    ../configure -v \
+        --prefix=$PREFIX \
+        --with-sysroot=$SYSROOT \
+        --with-build-sysroot=$SYSROOT \
+        --with-glibc-version=$GLIBC_VERSION \
+        --disable-multilib \
+        --enable-languages=c,c++,fortran \
+        --enable-gold=yes \
+        --enable-ld=yes \
+        --disable-vtable-verify \
+        --enable-libmpx \
+        --without-cuda-driver \
+        --enable-shared \
+        --enable-linker-build-id \
+        --without-included-gettext \
+        --enable-threads=posix \
+        --enable-nls \
+        --enable-bootstrap \
+        --enable-clocale=gnu \
+        --enable-libstdcxx-debug \
+        --enable-libstdcxx-time=yes \
+        --with-default-libstdcxx-abi=new \
+        --enable-gnu-unique-object \
+        --disable-libquadmath \
+        --disable-libquadmath-support \
+        --enable-plugin \
+        --enable-default-pie \
+        --enable-libphobos-checking=release \
+        --enable-objc-gc=auto \
+        --enable-multiarch \
+        --enable-fix-cortex-a53-843419 \
+        --disable-werror \
+        --enable-checking=release \
+        --build=aarch64-linux-gnu \
+        --host=aarch64-linux-gnu \
+        --target=aarch64-linux-gnu \
+        --with-build-config=bootstrap-lto-lean \
+        --enable-link-serialization=4
+else
+    # influenced by: https://buildd.debian.org/status/fetch.php?pkg=gcc-8&arch=amd64&ver=8.3.0-6&stamp=1554588545
+    ../configure -v \
+        --build=x86_64-linux-gnu \
+        --host=x86_64-linux-gnu \
+        --target=x86_64-linux-gnu \
+        --prefix=$PREFIX \
+        --with-sysroot=$SYSROOT \
+        --with-build-sysroot=$SYSROOT \
+        --with-glibc-version=$GLIBC_VERSION \
+        --disable-multilib \
+        --enable-checking=release \
+        --enable-languages=c,c++,fortran \
+        --enable-gold=yes \
+        --enable-ld=yes \
+        --enable-lto \
+        --enable-bootstrap \
+        --disable-vtable-verify \
+        --disable-werror \
+        --without-included-gettext \
+        --enable-threads=posix \
+        --enable-nls \
+        --enable-clocale=gnu \
+        --enable-libstdcxx-debug \
+        --enable-libstdcxx-time=yes \
+        --enable-gnu-unique-object \
+        --enable-libmpx \
+        --enable-plugin \
+        --enable-default-pie \
+        --with-tune=generic \
+        --without-cuda-driver
 fi
+make -j$CPUS
+make install
+popd && popd
 
 
 popd

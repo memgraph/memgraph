@@ -21,15 +21,10 @@ pushd "$TC_BUILD"
 # Host deps: make. Static only: LLVM links it in, and a shared copy in the
 # sysroot would become another runtime dependency of every clang invocation.
 log_tool_name "zstd $ZSTD_VERSION (sysroot)"
-if [[ ! -f "$SYSROOT/usr/lib/libzstd.a" ]]; then
-    if [[ -d "zstd-$ZSTD_VERSION" ]]; then
-        rm -rf zstd-$ZSTD_VERSION
-    fi
-    tar -xzf ../archives/zstd-$ZSTD_VERSION.tar.gz
-    pushd "zstd-$ZSTD_VERSION"
-    make -j$CPUS -C lib libzstd.a
-    make -C lib install-static install-includes PREFIX=/usr LIBDIR=/usr/lib DESTDIR=$SYSROOT
-    popd
-fi
+tar -xzf ../archives/zstd-$ZSTD_VERSION.tar.gz
+pushd "zstd-$ZSTD_VERSION"
+make -j$CPUS -C lib libzstd.a
+make -C lib install-static install-includes PREFIX=/usr LIBDIR=/usr/lib DESTDIR=$SYSROOT
+popd
 
 popd

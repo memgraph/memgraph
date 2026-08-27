@@ -19,16 +19,11 @@ popd
 pushd "$TC_BUILD"
 # Host deps: make.
 log_tool_name "xxhash $XXHASH_VERSION (sysroot)"
-if [[ ! -f "$SYSROOT/usr/lib/libxxhash.a" ]]; then
-    # the tarball unpacks to xxHash-$VERSION, capitalised differently
-    if [[ -d "xxHash-$XXHASH_VERSION" ]]; then
-        rm -rf xxHash-$XXHASH_VERSION
-    fi
-    tar -xzf ../archives/xxhash-$XXHASH_VERSION.tar.gz
-    pushd "xxHash-$XXHASH_VERSION"
-    make -j$CPUS libxxhash.a
-    make install PREFIX=/usr LIBDIR=/usr/lib DESTDIR=$SYSROOT
-    popd
-fi
+# the tarball unpacks to xxHash-$VERSION, capitalised differently
+tar -xzf ../archives/xxhash-$XXHASH_VERSION.tar.gz
+pushd "xxHash-$XXHASH_VERSION"
+make -j$CPUS libxxhash.a
+make install PREFIX=/usr LIBDIR=/usr/lib DESTDIR=$SYSROOT
+popd
 
 popd

@@ -20,24 +20,19 @@ pushd "$TC_BUILD"
 # Host deps: make. libxml2 and elfutils come from the sysroot, found through
 # the PKG_CONFIG_LIBDIR that common.sh points at it.
 log_tool_name "libabigail $LIBABIGAIL_VERSION"
-if [[ ! -f "$PREFIX/bin/abidiff" ]]; then
-    if [[ -d "libabigail-$LIBABIGAIL_VERSION" ]]; then
-        rm -rf libabigail-$LIBABIGAIL_VERSION
-    fi
-    tar -xJf ../archives/libabigail-$LIBABIGAIL_VERSION.tar.xz
-    pushd "libabigail-$LIBABIGAIL_VERSION"
-    # fedabipkgdiff compares distro packages and wants python and rpm; nothing
-    # here uses it. The test suite pulls in a large corpus and is not run.
-    ./configure \
-        --prefix=$PREFIX \
-        --disable-shared \
-        --enable-static \
-        --disable-fedabipkgdiff \
-        --disable-zip-archive \
-        --with-sysroot=$SYSROOT
-    make -j$CPUS
-    make install
-    popd
-fi
+tar -xJf ../archives/libabigail-$LIBABIGAIL_VERSION.tar.xz
+pushd "libabigail-$LIBABIGAIL_VERSION"
+# fedabipkgdiff compares distro packages and wants python and rpm; nothing
+# here uses it. The test suite pulls in a large corpus and is not run.
+./configure \
+    --prefix=$PREFIX \
+    --disable-shared \
+    --enable-static \
+    --disable-fedabipkgdiff \
+    --disable-zip-archive \
+    --with-sysroot=$SYSROOT
+make -j$CPUS
+make install
+popd
 
 popd

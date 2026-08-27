@@ -18,29 +18,24 @@ popd
 pushd "$TC_BUILD"
 # Host deps: make, m4, bzip2. zlib comes from the sysroot.
 log_tool_name "elfutils $ELFUTILS_VERSION (sysroot)"
-if [[ ! -f "$SYSROOT/usr/lib/libdw.a" ]]; then
-    if [[ -d "elfutils-$ELFUTILS_VERSION" ]]; then
-        rm -rf elfutils-$ELFUTILS_VERSION
-    fi
-    tar -xjf ../archives/elfutils-$ELFUTILS_VERSION.tar.bz2
-    pushd "elfutils-$ELFUTILS_VERSION"
-    # Static only, matching the other sysroot libraries: nothing the toolchain
-    # ships should acquire a runtime dependency on a .so inside the sysroot.
-    # The debuginfod client and its server are not built -- they pull in
-    # libcurl and libmicrohttpd, and nothing here consumes them.
-    ./configure \
-        --prefix=/usr \
-        --libdir=/usr/lib \
-        --disable-shared \
-        --enable-static \
-        --with-pic \
-        --disable-debuginfod \
-        --disable-libdebuginfod \
-        --disable-nls \
-        --program-prefix=eu-
-    make -j$CPUS
-    make install DESTDIR=$SYSROOT
-    popd
-fi
+tar -xjf ../archives/elfutils-$ELFUTILS_VERSION.tar.bz2
+pushd "elfutils-$ELFUTILS_VERSION"
+# Static only, matching the other sysroot libraries: nothing the toolchain
+# ships should acquire a runtime dependency on a .so inside the sysroot.
+# The debuginfod client and its server are not built -- they pull in
+# libcurl and libmicrohttpd, and nothing here consumes them.
+./configure \
+    --prefix=/usr \
+    --libdir=/usr/lib \
+    --disable-shared \
+    --enable-static \
+    --with-pic \
+    --disable-debuginfod \
+    --disable-libdebuginfod \
+    --disable-nls \
+    --program-prefix=eu-
+make -j$CPUS
+make install DESTDIR=$SYSROOT
+popd
 
 popd
