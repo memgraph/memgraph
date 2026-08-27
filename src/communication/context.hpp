@@ -29,6 +29,25 @@
 
 namespace memgraph::communication {
 
+/// Applies the TLS version policy to a freshly built context.
+///
+/// In approved mode this pins a TLS 1.2 floor, as SP 800-52r2 requires (RFC
+/// 8996 deprecates TLS 1.0/1.1 outright). It is set explicitly rather than
+/// left to the FIPS provider because a TLS 1.0/1.1 handshake would fail there
+/// only incidentally -- those versions need MD5+SHA-1 in the PRF -- surfacing
+/// as an obscure handshake error instead of a clean policy rejection.
+///
+/// Outside approved mode this is a no-op, deliberately: raising the floor
+/// unconditionally would drop TLS 1.0/1.1 for existing non-FIPS deployments,
+/// which is a breaking change that belongs behind an operator-facing
+/// `--tls-min-version` flag rather than arriving as a side effect of the FIPS
+/// work.
+///
+/// Returns false only if OpenSSL rejects the version, which callers must treat
+/// as fatal: silently serving TLS 1.0 in approved mode is worse than refusing
+/// to start.
+[[nodiscard]] bool ApplyTlsVersionPolicy(SSL_CTX *ctx);
+
 /**
  * This class represents a context that should be used with network clients. One
  * context can be reused between multiple clients (note: this mainly depends on

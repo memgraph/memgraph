@@ -21,6 +21,7 @@
 #include <openssl/provider.h>
 
 #include <array>
+#include <atomic>
 
 #include <fmt/format.h>
 
@@ -67,6 +68,14 @@ void SetupThreading() {}
 void Cleanup() {}
 #endif
 }  // namespace
+
+namespace {
+std::atomic<bool> fips_mode{false};
+}  // namespace
+
+bool FipsMode() { return fips_mode.load(std::memory_order_relaxed); }
+
+void SetFipsMode(bool enabled) { fips_mode.store(enabled, std::memory_order_relaxed); }
 
 void EnableFipsMode() {
   // Activates the provider if openssl.cnf configured one, so this both proves
@@ -125,6 +134,10 @@ void EnableFipsMode() {
                version != nullptr ? version : "unknown");
 
   OSSL_PROVIDER_unload(provider);
+
+  // Set last, so `FipsMode()` implies the provider was actually verified
+  // rather than merely requested.
+  SetFipsMode(true);
 }
 
 SSLInit::SSLInit() {
