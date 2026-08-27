@@ -338,17 +338,22 @@ add_compile_options(
 )
 
 # Split DWARF: emit per-TU .dwo files so debug info does not pass through the
-# linker. RelWithDebInfo carries -g and is the config we bundle debug info for;
-# Debug gets it from the frontend instead, a different codepath with no LTO.
+# linker. RelWithDebInfo carries -g and is the config we bundle debug info for.
 # Release has no -g, so this would only produce empty .dwo files and the binary
 # is stripped afterwards anyway.
+#
+# Debug is left out. Nothing bundles a .dwp for it, and the file-prefix-map
+# below leaves a relative comp_dir behind, which is what a debugger resolves
+# the .dwo names against -- so a split Debug binary yields its debug info only
+# to a debugger started from the top of the checkout. Keeping Debug unsplit
+# costs a slower link, which it can afford, and works from anywhere.
 #
 # Only the memgraph binary gets a .dwp bundling those .dwo files back together,
 # so only it can ship split. The query modules and the module support library
 # turn this back off in their own directories: a shipped artifact without a
 # .dwp would leave its debug info in .dwo files that never leave the build
 # tree, and its installed sidecar would hold nothing but skeletons.
-add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gsplit-dwarf>)
+add_compile_options($<$<CONFIG:RelWithDebInfo>:-gsplit-dwarf>)
 
 # The matching --plugin-opt=dwo_dir is set per-target on the memgraph
 # executable, in src/CMakeLists.txt, and must never be a global link option:
