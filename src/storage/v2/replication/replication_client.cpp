@@ -594,9 +594,9 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
                commit_num_committed_txns,
                is_async,
                arena_pool]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
-    const memory::DbArenaScope db_arena_scope{arena_pool};
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
+      const memory::DbArenaScope db_arena_scope{arena_pool};
       auto response = replica_stream_obj->Finalize();
       // NOLINTNEXTLINE
       return replica_state_.WithLock(
@@ -639,6 +639,15 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       spdlog::error("Couldn't replicate data to {} because timeout occurred.", client_.name_);
       return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
     } catch (rpc::RpcFailedException const &) {
+      replica_state_.WithLock([&replica_stream_obj](auto &state) {
+        replica_stream_obj.reset();
+        state = ReplicaState::MAYBE_BEHIND;
+      });
+      LogRpcFailure();
+      return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+    } catch (...) {
+      // In ASYNC mode this task runs raw on the client's worker, where an escaping exception (e.g.
+      // bad_alloc while decoding the response) terminates the whole process.
       replica_state_.WithLock([&replica_stream_obj](auto &state) {
         replica_stream_obj.reset();
         state = ReplicaState::MAYBE_BEHIND;
