@@ -1053,7 +1053,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  const bool lockfree = config_.experimental_lockfree_read_snapshot;
+  const bool lockfree = mem_storage->config_.experimental_lockfree_read_snapshot;
 
   PublishIndexArming();
 
@@ -1325,7 +1325,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     transaction_.active_indices_->text_edge_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   }
 
-  if (config_.experimental_lockfree_read_snapshot) {
+  if (mem_storage->config_.experimental_lockfree_read_snapshot) {
     // Publish the watermark: readers that BEGIN after this see this commit. Ordered AFTER the
     // commit_info->timestamp store and MarkFinished, under the same publish engine_lock hold.
     mem_storage->last_committed_mvcc_ts_.store(*commit_timestamp_, std::memory_order_release);
@@ -1363,6 +1363,10 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
   transaction_.start_timestamp = new_transaction.start_timestamp;
   transaction_.transaction_id = new_transaction.transaction_id;
+  // PERIODIC COMMIT advances the SI snapshot boundary too, so the next batch sees the batch just
+  // committed above (and does not pin GC). Unconditional: with the experiment OFF, snapshot_ts equals
+  // start_timestamp and is unused by the read path, so this copy is inert.
+  transaction_.snapshot_ts = new_transaction.snapshot_ts;
   transaction_.commit_info.reset();
   // Do NOT touch `original_start_timestamp` — it must remain stable per-query
   // (procedures use it as a cache key across PERIODIC COMMIT).
@@ -2902,6 +2906,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   // `timestamp`) below.
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
+  uint64_t snapshot_ts = 0;
   CommitTsInfo commit_ts_info;
   std::optional<PointIndexContext> point_index_context;
   ActiveIndicesPtr active_indices;
@@ -2910,6 +2915,13 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
     start_timestamp = timestamp_++;
+    // Capture the SI snapshot boundary under the same engine_lock as the mint so it is consistent with
+    // start_timestamp. When the lock-free-read-snapshot experiment is ON, SI reads use this frozen
+    // last-published-commit watermark (snapshot_ts < start_timestamp, since the watermark holds an
+    // earlier commit ts). When OFF it equals start_timestamp (legacy semantics; SI reads still key off
+    // start_timestamp in mvcc.hpp, so this is inert).
+    snapshot_ts = config_.experimental_lockfree_read_snapshot ? last_committed_mvcc_ts_.load(std::memory_order_acquire)
+                                                              : start_timestamp;
     // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
     point_index_context = indices_.point_index_.CreatePointIndexContext();
     // Needed by snapshot to sync the durable and logical ts. Load ldt and num_committed_txns from the same atomic
@@ -2923,18 +2935,20 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   auto async_index_helper = AsyncIndexHelper{config_, *active_indices, start_timestamp};
 
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
-  return {transaction_id,
-          start_timestamp,
-          isolation_level,
-          storage_mode,
-          false,
-          *std::move(point_index_context),
-          std::move(active_indices),
-          std::move(active_constraints),
-          std::move(async_index_helper),
-          commit_ts_info.ldt_,
-          commit_ts_info.num_committed_txns_,
-          metric_handles_.unreleased_delta_objects};
+  auto transaction = Transaction{transaction_id,
+                                 start_timestamp,
+                                 isolation_level,
+                                 storage_mode,
+                                 false,
+                                 *std::move(point_index_context),
+                                 std::move(active_indices),
+                                 std::move(active_constraints),
+                                 std::move(async_index_helper),
+                                 commit_ts_info.ldt_,
+                                 commit_ts_info.num_committed_txns_,
+                                 metric_handles_.unreleased_delta_objects};
+  transaction.snapshot_ts = snapshot_ts;
+  return transaction;
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
