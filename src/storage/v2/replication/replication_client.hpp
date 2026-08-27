@@ -125,7 +125,7 @@ class ReplicationStorageClient {
 
   void AbortRpcClient() const { client_.rpc_client_.Shutdown(); }
 
-  void SetMaybeBehind() {
+  void SetMaybeBehind() const {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
   }
 

@@ -215,10 +215,17 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
       state = ReplicaState::RECOVERY;
       client_.maintenance_pool_.AddTask(
           [main_storage, gk = protector.clone(), this, arena_pool = main_storage->DbArenaPool()] {
-            const memory::DbArenaScope db_arena_scope{arena_pool};
-            this->RecoverReplica(/*replica_last_commit_ts*/ 0,
-                                 main_storage,
-                                 true);  // needs force reset so we need to recover from 0.
+            try {
+              const memory::DbArenaScope db_arena_scope{arena_pool};
+              this->RecoverReplica(/*replica_last_commit_ts*/ 0,
+                                   main_storage,
+                                   true);  // needs force reset so we need to recover from 0.
+            } catch (...) {
+              // The task runs raw on the maintenance worker; left in RECOVERY the replica would never
+              // be rechecked, the frequent check reacts to MAYBE_BEHIND alone.
+              spdlog::error("Recovery of replica {} failed.", client_.name_);
+              this->SetMaybeBehind();
+            }
           });
     });
 #else
@@ -295,8 +302,15 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                                          gk = protector.clone(),
                                          arena_pool = main_storage->DbArenaPool(),
                                          this] {
-        const memory::DbArenaScope db_arena_scope{arena_pool};
-        this->RecoverReplica(current_commit_timestamp, main_storage);
+        try {
+          const memory::DbArenaScope db_arena_scope{arena_pool};
+          this->RecoverReplica(current_commit_timestamp, main_storage);
+        } catch (...) {
+          // The task runs raw on the maintenance worker; left in RECOVERY the replica would never be
+          // rechecked, the frequent check reacts to MAYBE_BEHIND alone.
+          spdlog::error("Recovery of replica {} failed.", client_.name_);
+          this->SetMaybeBehind();
+        }
       });
     }
   });
@@ -318,8 +332,15 @@ void ReplicationStorageClient::LogRpcFailure() const {
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, DatabaseProtector const &protector) {
   client_.maintenance_pool_.AddTask(
       [main_storage, protector = protector.clone(), arena_pool = main_storage->DbArenaPool(), this]() {
-        const memory::DbArenaScope db_arena_scope{arena_pool};
-        this->TryCheckReplicaStateSync(main_storage, *protector);
+        try {
+          const memory::DbArenaScope db_arena_scope{arena_pool};
+          this->TryCheckReplicaStateSync(main_storage, *protector);
+        } catch (...) {
+          // The task runs raw on the maintenance worker; the frequent check retries a MAYBE_BEHIND
+          // replica.
+          spdlog::error("State check of replica {} failed.", client_.name_);
+          this->SetMaybeBehind();
+        }
       });
 }
 
@@ -330,10 +351,17 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
     state = ReplicaState::RECOVERY;
     client_.maintenance_pool_.AddTask(
         [main_storage, gk = protector.clone(), this, arena_pool = main_storage->DbArenaPool()] {
-          const memory::DbArenaScope db_arena_scope{arena_pool};
-          this->RecoverReplica(/*replica_last_commit_ts*/ 0,
-                               main_storage,
-                               true);  // needs force reset so we need to recover from 0.
+          try {
+            const memory::DbArenaScope db_arena_scope{arena_pool};
+            this->RecoverReplica(/*replica_last_commit_ts*/ 0,
+                                 main_storage,
+                                 true);  // needs force reset so we need to recover from 0.
+          } catch (...) {
+            // The task runs raw on the maintenance worker; left in RECOVERY the replica would never be
+            // rechecked, the frequent check reacts to MAYBE_BEHIND alone.
+            spdlog::error("Recovery of replica {} failed.", client_.name_);
+            this->SetMaybeBehind();
+          }
         });
   });
 }
