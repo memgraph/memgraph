@@ -60,6 +60,37 @@ void AtomicAuthOverlay::PutAndDeleteMultiple(std::map<std::string, std::string> 
   }
 }
 
+bool AtomicAuthOverlay::PutMultiple(std::map<std::string, std::string> const &items) {
+  for (auto const &[key, value] : items) {
+    Put(key, value);
+  }
+  return true;
+}
+
+bool AtomicAuthOverlay::DeleteMultiple(std::vector<std::string> const &keys) {
+  for (auto const &key : keys) {
+    Delete(key);
+  }
+  return true;
+}
+
+size_t AtomicAuthOverlay::Size(std::string const &prefix) const {
+  size_t count = 0;
+  // This is an approximation: count base entries not tombstoned, plus new write-set entries
+  for (auto it = base_.begin(prefix); it != base_.end(prefix); ++it) {
+    auto ws = write_set_.find(it->first);
+    if (ws == write_set_.end() || ws->second.has_value()) {
+      ++count;
+    }
+  }
+  for (auto it = write_set_.lower_bound(prefix); it != write_set_.end() && it->first.starts_with(prefix); ++it) {
+    if (it->second.has_value() && !base_.Get(it->first).has_value()) {
+      ++count;
+    }
+  }
+  return count;
+}
+
 bool AtomicAuthOverlay::Flush() {
   // Validate read-set against current base state
   for (auto const &[key, snapshot_val] : read_set_) {

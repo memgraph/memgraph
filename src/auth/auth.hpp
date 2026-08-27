@@ -13,6 +13,7 @@
 #include <regex>
 #include <vector>
 
+#include "auth/atomic_auth_overlay.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "auth/module.hpp"
@@ -500,6 +501,10 @@ class Auth final {
   bool HasUser(std::string_view name) const;
   bool HasRole(std::string_view name) const;
 
+  void SetOverlay(AtomicAuthOverlay *overlay) { overlay_ = overlay; }
+
+  AtomicAuthOverlay *GetOverlay() const { return overlay_; }
+
  private:
   /**
    * @brief
@@ -511,6 +516,79 @@ class Auth final {
   bool NameRegexMatch(const std::string &user_or_role) const;
 
   void UpdateEpoch() { ++epoch_; }
+
+  // Storage dispatch helpers: route through overlay when active, otherwise direct to storage_
+  std::optional<std::string> StorageGet(std::string_view key) const {
+    return overlay_ ? overlay_->Get(key) : storage_.Get(key);
+  }
+
+  bool StoragePut(std::string_view key, std::string_view value) {
+    if (overlay_) {
+      overlay_->Put(key, value);
+      return true;
+    }
+    return storage_.Put(key, value);
+  }
+
+  bool StoragePutMultiple(std::map<std::string, std::string> const &items) {
+    if (overlay_) return overlay_->PutMultiple(items);
+    return storage_.PutMultiple(items);
+  }
+
+  bool StoragePutAndDeleteMultiple(std::map<std::string, std::string> const &puts,
+                                   std::vector<std::string> const &deletes) {
+    if (overlay_) {
+      overlay_->PutAndDeleteMultiple(puts, deletes);
+      return true;
+    }
+    return storage_.PutAndDeleteMultiple(puts, deletes);
+  }
+
+  bool StorageDelete(std::string_view key) {
+    if (overlay_) {
+      overlay_->Delete(key);
+      return true;
+    }
+    return storage_.Delete(key);
+  }
+
+  bool StorageDeleteMultiple(std::vector<std::string> const &keys) {
+    if (overlay_) return overlay_->DeleteMultiple(keys);
+    return storage_.DeleteMultiple(keys);
+  }
+
+  size_t StorageSize(std::string const &prefix = "") const {
+    return overlay_ ? overlay_->Size(prefix) : storage_.Size(prefix);
+  }
+
+  // Fn receives std::pair<std::string, std::string> const &
+  template <typename Fn>
+  void StorageForEach(std::string const &prefix, Fn &&fn) const {
+    if (overlay_) {
+      for (auto it = overlay_->begin(prefix); it != overlay_->end(prefix); ++it) fn(*it);
+    } else {
+      for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) fn(*it);
+    }
+  }
+
+  // Returns true on first match; short-circuits.
+  template <typename Pred>
+  bool StorageAnyOf(std::string const &prefix, Pred &&pred) const {
+    if (overlay_) {
+      for (auto it = overlay_->begin(prefix); it != overlay_->end(prefix); ++it) {
+        if (pred(*it)) return true;
+      }
+    } else {
+      for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
+        if (pred(*it)) return true;
+      }
+    }
+    return false;
+  }
+
+  bool StorageHasAny(std::string const &prefix) const {
+    return StorageAnyOf(prefix, [](auto const &) { return true; });
+  }
 
   /**
    * Returns whether the prerequisites for authentication aided by external module are met:
@@ -546,6 +624,7 @@ class Auth final {
   // Auth is not thread-safe because modifying users and roles might require
   // more than one operation on the storage.
   kvstore::KVStore storage_;
+  mutable AtomicAuthOverlay *overlay_{nullptr};
 #ifdef MG_ENTERPRISE
   UserProfiles user_profiles_{storage_};
   utils::ResourceMonitoring *user_resources_;

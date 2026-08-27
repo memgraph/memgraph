@@ -43,6 +43,12 @@ class AtomicAuthOverlay {
 
   void PutAndDeleteMultiple(std::map<std::string, std::string> const &puts, std::vector<std::string> const &deletes);
 
+  bool PutMultiple(std::map<std::string, std::string> const &items);
+
+  bool DeleteMultiple(std::vector<std::string> const &keys);
+
+  size_t Size(std::string const &prefix = "") const;
+
   /// Merging iterator over base + write-set for a given prefix.
   class iterator {
    public:
