@@ -1,0 +1,20 @@
+# BuildKit settings for the toolchain's own builder.
+#
+# The point of this file is the ceiling. A toolchain's layers run to several GB
+# each, and the default garbage collector keeps far less than a whole toolchain,
+# so the expensive early stages are evicted between runs and a rebuild starts
+# from glibc rather than from the stage that changed. That is the latency this
+# build exists to remove.
+#
+# A dedicated builder rather than a larger ceiling on the shared one: this cache
+# would otherwise compete with every other Docker build on the machine, and each
+# would keep evicting the other.
+
+[worker.oci]
+  gc = true
+  # Keep up to this much, but yield when the disk is genuinely short: minFree
+  # wins over maxUsed, so a full disk still reclaims rather than wedging the
+  # machine.
+  [[worker.oci.gcpolicy]]
+    maxUsedSpace = "80GB"
+    minFreeSpace = "40GB"

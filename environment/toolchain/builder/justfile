@@ -1,0 +1,169 @@
+# Toolchain build entry point.
+#
+# A front door, not a build engine: BuildKit owns the dependency graph, the
+# caching and the scheduling. Everything here assembles arguments.
+#
+# On cache and disk. A toolchain's layers are several GB each, and the default
+# BuildKit ceiling keeps less than one whole toolchain, so the expensive early
+# layers are evicted between runs and a rebuild starts from glibc rather than
+# from the stage you changed -- exactly the latency this build exists to remove.
+# The builder named below has its own ceiling, set in buildkitd.toml, and its
+# own cache, so it neither evicts nor is evicted by other work on the machine.
+# `just cache` shows what it holds; `just clean` trims it.
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+here := justfile_directory()
+output := here / "output"
+
+# Which toolchain to build. A version set is a complete directory of version
+# files under versions/; the recipes and the stage graph are shared, so cutting
+# a new toolchain copies one small directory rather than this whole one.
+#
+# The set is resolved into resolved/ before the build rather than selected with
+# a build argument. An ARG is an input to every command after it in its stage,
+# so changing one re-runs all 34 stages even where the version file is
+# byte-identical. Copying leaves each stage's cache key on the content of its
+# own file, and an unchanged tool stays cached across sets.
+set_name := env_var_or_default("TC_VERSION_SET", "v9")
+
+# Registry-backed cache. Only CI writes to it: a compiler cache is a
+# supply-chain surface, and a cache hit means nobody rebuilds or inspects the
+# thing that compiles everything else.
+cache_ref := env_var_or_default("TC_CACHE_REF", "")
+
+# A builder of our own, so this cache does not compete with every other Docker
+# build on the machine. Its ceiling is in buildkitd.toml; the default builder
+# keeps far less than one toolchain. Set TC_BUILDER= to fall back to whatever
+# builder is currently selected.
+builder := env_var_or_default("TC_BUILDER", "mg-toolchain")
+_builder := if builder == "" { "" } else { "--builder " + builder }
+
+_cache_from := if cache_ref == "" { "" } else { "--cache-from=type=registry,ref=" + cache_ref }
+_cache_to := if env_var_or_default("TC_CACHE_WRITE", "") == "" { "" } else { "--cache-to=type=registry,ref=" + cache_ref + ",mode=max" }
+
+# Create the builder the recipes above name, with the ceiling in buildkitd.toml.
+# Idempotent, so it is safe as a dependency of anything that builds.
+_builder-exists:
+    @docker buildx inspect {{ builder }} >/dev/null 2>&1 || \
+        docker buildx create --name {{ builder }} --driver docker-container \
+            --config "{{ here }}/buildkitd.toml" --bootstrap
+
+# Put the selected version set where the Dockerfile expects it.
+_resolve:
+    @test -d "{{ here }}/versions/{{ set_name }}" || \
+        { echo "no version set {{ set_name }}; have:" >&2; ls "{{ here }}/versions" >&2; exit 1; }
+    @rm -rf "{{ here }}/resolved"
+    @cp -r "{{ here }}/versions/{{ set_name }}" "{{ here }}/resolved"
+    @echo "version set: {{ set_name }}"
+
+# What changing one stage costs; no argument reports every stage.
+impact stage="":
+    @"{{ here }}/verify/impact.py" {{ stage }}
+
+# The version sets on offer.
+sets:
+    @ls "{{ here }}/versions"
+
+# What one version set changes relative to another.
+diff-sets a b:
+    @diff -ru "{{ here }}/versions/{{ a }}" "{{ here }}/versions/{{ b }}" || true
+
+# Static checks. Seconds, and they catch what otherwise fails hours into a build.
+check:
+    "{{ here }}/verify/stage-vars.py"
+    "{{ here }}/verify/stage-graph.py"
+    @for f in "{{ here }}"/stages/*.sh "{{ here }}"/lib/*.sh "{{ here }}"/verify/*.sh; do bash -n "$f" || exit 1; done
+    @echo "stage scripts parse"
+    # A stage script without its exec bit fails as "Permission denied" inside
+    # the container, which reads like a sandbox problem rather than a missing
+    # chmod on a newly written file.
+    @for f in "{{ here }}"/stages/*.sh; do [ -x "$f" ] || { echo "not executable: $f"; exit 1; }; done
+    @echo "stage scripts executable"
+
+# Build the toolchain; the archive lands in output/.
+build *args: check _resolve _builder-exists _space
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # The build environment comes from the set's builder.env, passed before any
+    # extra arguments so a --build-arg on the command line still wins: a one-off
+    # build on a different base does not need a version set of its own.
+    source "{{ here }}/resolved/builder.env"
+    mkdir -p "{{ output }}"
+    docker buildx build {{ _builder }} "{{ here }}" \
+        --target artifact \
+        --build-arg BASE_IMAGE="$BASE_IMAGE" \
+        --build-arg TC_DISTRO="$TC_DISTRO" \
+        --build-arg TC_BUILDER_GLIBC_FLOOR="$TC_BUILDER_GLIBC_FLOOR" \
+        --output "type=local,dest={{ output }}" \
+        {{ _cache_from }} {{ _cache_to }} \
+        {{ args }}
+    echo
+    ls -lh "{{ output }}"/*.tar.gz
+
+# Build up to one stage only, for iterating on it.
+stage name *args: _resolve _builder-exists
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "{{ here }}/resolved/builder.env"
+    docker buildx build {{ _builder }} "{{ here }}" \
+        --target "s-{{ name }}" \
+        --build-arg BASE_IMAGE="$BASE_IMAGE" \
+        --build-arg TC_DISTRO="$TC_DISTRO" \
+        --build-arg TC_BUILDER_GLIBC_FLOOR="$TC_BUILDER_GLIBC_FLOOR" \
+        {{ _cache_from }} \
+        {{ args }}
+
+# Open a shell inside a stage, for working out why it failed.
+shell name *args: _resolve _builder-exists
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "{{ here }}/resolved/builder.env"
+    docker buildx build {{ _builder }} "{{ here }}" \
+        --target "s-{{ name }}" \
+        --load -t "mg-toolchain-stage-{{ name }}" \
+        --build-arg BASE_IMAGE="$BASE_IMAGE" \
+        --build-arg TC_DISTRO="$TC_DISTRO" \
+        --build-arg TC_BUILDER_GLIBC_FLOOR="$TC_BUILDER_GLIBC_FLOOR" \
+        {{ _cache_from }} {{ args }}
+    docker run --rm -it "mg-toolchain-stage-{{ name }}" bash
+
+# Describe an installed toolchain, for comparing two of them.
+fingerprint prefix="":
+    "{{ here }}/verify/fingerprint.sh" "{{ prefix }}"
+
+# Check an installed toolchain resolves its own libraries, not the host's.
+check-links prefix="":
+    "{{ here }}/verify/runtime-links.sh" "{{ prefix }}"
+
+# Compare two installed toolchains for equivalence.
+compare a b:
+    "{{ here }}/verify/compare.sh" "{{ a }}" "{{ b }}"
+
+# Build twice and report how much of the result is not reproducible.
+determinism:
+    "{{ here }}/verify/determinism.sh"
+
+# Show what the build cache holds and how much disk is left.
+cache:
+    @docker buildx du {{ _builder }} | tail -3
+    @df -h / | awk 'NR==2 {print "disk: "$4" free ("$5" used)"}'
+
+# Reclaim disk, trimming the cache to a ceiling but keeping recent entries.
+clean max="60GB":
+    rm -rf "{{ output }}"
+    docker buildx prune {{ _builder }} --force --max-used-space {{ max }}
+    @just cache
+
+# Drop the whole cache; the next build rebuilds glibc and GCC from source.
+clean-all:
+    rm -rf "{{ output }}"
+    docker buildx prune {{ _builder }} --all --force
+    @just cache
+
+# Trim week-old cache entries so they do not crowd out this build's layers.
+# Scoped to our own builder: pruning the shared one would throw away cache
+# belonging to every other build on the machine.
+_space:
+    @docker buildx prune {{ _builder }} --force --filter until=168h > /dev/null 2>&1 || true
+    @df -h / | awk 'NR==2 {if (0+$5 > 90) print "  WARNING: disk "$5" used; expect cache eviction and slow rebuilds"; else print "  disk: "$4" free"}'

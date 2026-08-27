@@ -1,0 +1,46 @@
+# Packages the build machine needs, and nothing else.
+#
+# Everything here is used to build the toolchain and is never part of it. A
+# library listed here is either a build tool, or something a stage compiles
+# against and links statically -- boost and elfutils go into heaptrack that way,
+# and libzstd into LLVM. None of them becomes a runtime dependency of anything
+# shipped, and none of them belongs in the sysroot; see the Dockerfile for where
+# that line is drawn.
+#
+# The base image is pinned by digest but apt still resolves against the live
+# archive, so these versions can move even when the image does not.
+autoconf
+automake
+bison
+build-essential
+bzip2
+ca-certificates
+coreutils
+file
+g++
+gawk
+gcc
+git
+gnupg
+gzip
+libboost-filesystem-dev
+libboost-iostreams-dev
+libboost-program-options-dev
+libboost-system-dev
+libbz2-dev
+libdw-dev
+liblzma-dev
+libtool
+libzstd-dev
+m4
+make
+patchelf
+perl
+pkg-config
+python3
+rsync
+tar
+unzip
+wget
+xz-utils
+zlib1g-dev

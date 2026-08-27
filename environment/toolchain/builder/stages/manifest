@@ -1,0 +1,50 @@
+# The stage graph: what each stage is, and what it needs.
+#
+# One line per stage: the name, the stages it depends on, then any input it
+# copies beyond its own recipe and its own version file, marked with +. A stage
+# marked @archives gets the download cache mounted. A dependency of * means the
+# stage reads the finished tree and so depends on all of them.
+#
+# gcc is not listed: every stage after it compiles with the toolchain gcc, which
+# common.sh puts on PATH, so naming it thirty times would say nothing. The
+# bootstrap stages are the exception and state it, because for them it is the
+# whole dependency.
+#
+# Declaring a dependency that is not real only constrains the order further,
+# which is safe. Missing one is not, so err towards listing it.
+
+linux-headers      @archives
+glibc              linux-headers @archives
+gcc                glibc @archives
+gcc-sysroot-libs   gcc
+gmp                gcc
+mpfr               gmp
+binutils           gcc @archives
+zlib               @archives
+ncurses            @archives
+openssl            @archives
+curl               openssl zlib @archives
+libffi             @archives
+elfutils           curl zlib @archives
+libxml2            zlib @archives
+xxhash             @archives
+zstd               @archives
+xz                 @archives
+dwz                elfutils @archives
+libabigail         elfutils libxml2 @archives
+python             libffi ncurses openssl zlib @archives
+cmake              curl ncurses openssl zlib @archives
+mold               cmake xxhash zlib zstd @archives
+libipt             cmake @archives
+gdb                gmp libipt mpfr ncurses python xxhash zlib +resolved/python.env @archives
+pahole             @archives
+gdbinit            pahole
+cppcheck           @archives
+swig               @archives
+llvm               binutils cmake libffi swig zlib zstd @archives
+activate           llvm +files/activate
+mgconsole          activate cmake elfutils llvm openssl xz zlib zstd +lib/clang-env.sh
+heaptrack          activate cmake elfutils llvm xz zlib zstd
+verify             * +verify/
+relocate           *
+package            * +files/toolchain.cmake +resolved/toolchain.env
