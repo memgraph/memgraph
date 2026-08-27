@@ -9,6 +9,11 @@ GREEN_BOLD='\033[1;32m'
 RESET='\033[0m'
 
 CONTAINER_NAME=mgbuild
+# The toolchain to activate inside the container. MG_TOOLCHAIN_ROOT overrides
+# it, for a container where the toolchain is not where it usually is.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+source "$SCRIPT_DIR/../../environment/toolchain/default_toolchain.sh"
+TOOLCHAIN_ROOT="${MG_TOOLCHAIN_ROOT:-/opt/toolchain-$MG_TOOLCHAIN_DEFAULT}"
 CI=false
 CACHE_PRESENT=false
 CUDA=false
@@ -61,7 +66,7 @@ echo -e "${GREEN_BOLD}Installing Rust${RESET}"
 docker exec -i -u mg $CONTAINER_NAME bash -c "source \$HOME/memgraph/environment/util.sh && retry_install install_rust $RUST_VERSION"
 
 echo -e "${GREEN_BOLD}Running Rust tests${RESET}"
-docker exec -i -u mg $CONTAINER_NAME bash -c "source /opt/toolchain-v8/activate && source \$HOME/.cargo/env && cd \$HOME/memgraph/src/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
+docker exec -i -u mg $CONTAINER_NAME bash -c "source $TOOLCHAIN_ROOT/activate && source \$HOME/.cargo/env && cd \$HOME/memgraph/src/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
 
 
 echo -e "${GREEN_BOLD}Running C++ tests${RESET}"

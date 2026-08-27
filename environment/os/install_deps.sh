@@ -24,10 +24,15 @@ for script in "$SCRIPT_DIR"/*.sh; do
     SUPPORTED_OS+=("$name")
 done
 
-# Define toolchain download URLs for supported OS and architectures
+# Which toolchain to download. Named once, in the file that also tells build.sh
+# what to build against, so the two cannot disagree about which one this
+# repository expects.
+source "$SCRIPT_DIR/../toolchain/default_toolchain.sh"
+TOOLCHAIN_NAME="toolchain-$MG_TOOLCHAIN_DEFAULT"
+TOOLCHAIN_BASE_URL="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/$TOOLCHAIN_NAME"
 declare -A TOOLCHAIN_URLS=(
-    [x86_64]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-x86_64.tar.gz"
-    [aarch64]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-aarch64.tar.gz"
+    [x86_64]="$TOOLCHAIN_BASE_URL/$TOOLCHAIN_NAME-binaries-x86_64.tar.gz"
+    [aarch64]="$TOOLCHAIN_BASE_URL/$TOOLCHAIN_NAME-binaries-aarch64.tar.gz"
 )
 
 # Parse command line arguments to extract --set-os flag

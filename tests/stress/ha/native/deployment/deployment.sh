@@ -10,6 +10,11 @@ if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
     exit 1
 fi
 
+# Where the toolchain lives if nobody says otherwise. Read rather than written
+# out, so this does not have to be found and edited when a new one is cut.
+source "$SCRIPT_DIR/../../../../../environment/toolchain/default_toolchain.sh"
+DEFAULT_TOOLCHAIN_ROOT="/opt/toolchain-$MG_TOOLCHAIN_DEFAULT"
+
 MEMGRAPH_BINARY="$BUILD_DIR/memgraph"
 
 if [[ ! -x "$MEMGRAPH_BINARY" ]]; then
@@ -22,8 +27,8 @@ if [[ -x "$BUILD_DIR/mgconsole" ]]; then
     MGCONSOLE_BINARY="$BUILD_DIR/bin/mgconsole"
 elif [[ -n "$MG_TOOLCHAIN_ROOT" && -x "$MG_TOOLCHAIN_ROOT/bin/mgconsole" ]]; then
     MGCONSOLE_BINARY="$MG_TOOLCHAIN_ROOT/bin/mgconsole"
-elif [[ -x "/opt/toolchain-v8/bin/mgconsole" ]]; then
-    MGCONSOLE_BINARY="/opt/toolchain-v8/bin/mgconsole"
+elif [[ -x "$DEFAULT_TOOLCHAIN_ROOT/bin/mgconsole" ]]; then
+    MGCONSOLE_BINARY="$DEFAULT_TOOLCHAIN_ROOT/bin/mgconsole"
 elif command -v mgconsole &>/dev/null; then
     MGCONSOLE_BINARY="$(command -v mgconsole)"
 else
