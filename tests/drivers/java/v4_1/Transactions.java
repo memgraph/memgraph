@@ -53,13 +53,15 @@ public class Transactions {
 
       System.out.println("All ok!");
 
+      // The query below has to outlast the server's query timeout. Seed the nodes it matches so its
+      // cost is set here rather than by whatever an earlier test left in the database.
+      session.run("UNWIND range(1, 100000) AS i CREATE ()").consume();
+
       boolean timed_out = false;
       try {
         session.writeTransaction(new TransactionWork<String>() {
           @Override
           public String execute(Transaction tx) {
-            // NOTE: The following line is tricky because maybe fast hardware can get it done ->
-            // auto generate the MATCH pattern.
             Result result =
                 tx.run("MATCH (a), (b), (c), (d), (e), (f), (g), (h), (i) RETURN COUNT(*) AS cnt");
             return result.single().get(0) + "";
