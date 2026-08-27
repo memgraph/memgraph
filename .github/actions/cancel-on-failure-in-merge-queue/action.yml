@@ -1,34 +1,115 @@
 name: 'Cancel run on merge_group failure'
-description: 'Emits an error annotation naming the failing job, then cancels the current workflow run via the GitHub API to fail fast. The annotation makes the real culprit identifiable in the run summary even though cancellation marks every job as cancelled. The caller must gate this with `if: failure() && github.event_name == ''merge_group''` because composite actions cannot read the calling job''s runtime status.'
+description: 'Emits an error annotation naming the failing job, removes the pull request from the merge queue, then cancels the current workflow run to fail fast. Dequeuing first frees the queue immediately: waiting for the cancelled run to be reported keeps the doomed entry in place until the entries ahead of it finish, which also blocks the entries behind it from moving up. The annotation makes the real culprit identifiable in the run summary even though cancellation marks every job as cancelled. The caller must gate this with `if: failure() && github.event_name == ''merge_group''` because composite actions cannot read the calling job''s runtime status.'
 
 inputs:
   job-name:
     description: 'Name used to identify the failing job in the annotation. Defaults to `github.job`, the job id, which is ambiguous when several reusable workflows in the same run share an id (e.g. the `core` job of every `diff_*` workflow) — pass a qualified name such as "Release / Core tests" in that case.'
     required: false
     default: ''
+  token:
+    description: 'Token used for the API calls. Needs `pull-requests: write` to dequeue and `actions: write` to cancel the run. Defaults to the workflow token; pass an app or PAT token if the default one is not allowed to modify the merge queue.'
+    required: false
+    default: ${{ github.token }}
 
 runs:
   using: 'composite'
   steps:
-    - name: Cancel workflow run
+    - name: Annotate failing job
       shell: bash
       env:
-        GH_TOKEN: ${{ github.token }}
-        GH_REPO: ${{ github.repository }}
-        RUN_ID: ${{ github.run_id }}
         JOB: ${{ inputs.job-name != '' && inputs.job-name || github.job }}
+        RUN_ID: ${{ github.run_id }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         set -euo pipefail
         # Cancelling the run marks every still-running job as "cancelled", which
         # hides which job actually failed. Emit an error annotation from this
         # (the failing) job first: it is attributed to this job and shows up in
-        # the run summary, pointing reviewers at the real culprit.
-        echo "::error title=Merge queue fail-fast triggered by job '${JOB}'::Job '${JOB}' failed and is cancelling run ${RUN_ID} to fail fast. Other jobs reported as 'cancelled' were stopped as a side effect — '${JOB}' is the job that actually failed. ${RUN_URL}"
+        # the run summary, pointing reviewers at the real culprit. It is also
+        # the only trace left on the run once the entry leaves the queue.
+        echo "::error title=Merge queue fail-fast triggered by job '${JOB}'::Job '${JOB}' failed, so its pull request is being removed from the merge queue and run ${RUN_ID} is being cancelled to fail fast. Other jobs reported as 'cancelled' were stopped as a side effect — '${JOB}' is the job that actually failed. ${RUN_URL}"
+
+    - name: Remove pull request from merge queue
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        JOB: ${{ inputs.job-name != '' && inputs.job-name || github.job }}
+      run: |
+        set -euo pipefail
+
+        # A merge group ref is refs/heads/gh-readonly-queue/<base>/pr-<number>-<base_sha>,
+        # where <number> is the last pull request added to the group. Groups here
+        # are normally a single entry; if this one holds several, the remaining
+        # entries are re-grouped and rebuilt by GitHub after this dequeue.
+        if [[ ! "${HEAD_REF}" =~ /pr-([0-9]+)-[0-9a-f]+$ ]]; then
+          echo "::warning title=Merge queue fail-fast::Could not read a pull request number from merge group ref '${HEAD_REF}'; not dequeuing. Cancelling the run still drops the entry, but only once the queue gets to it."
+          exit 0
+        fi
+        PR_NUMBER="${BASH_REMATCH[1]}"
+
+        graphql() {
+          # GraphQL reports its own errors with HTTP 200, so no --fail here; the
+          # caller inspects the body instead.
+          curl -sS -X POST \
+            --proto '=https' --proto-redir '=https' \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            --data "$1" \
+            https://api.github.com/graphql
+        }
+
+        # dequeuePullRequest takes the node id of the pull request, not its number.
+        QUERY='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){id}}}'
+        RESPONSE="$(graphql "$(jq -n \
+          --arg query "${QUERY}" \
+          --arg owner "${GH_REPO%%/*}" \
+          --arg name "${GH_REPO##*/}" \
+          --argjson number "${PR_NUMBER}" \
+          '{query: $query, variables: {owner: $owner, name: $name, number: $number}}')")"
+        PR_NODE_ID="$(printf '%s' "${RESPONSE}" | jq -r '.data.repository.pullRequest.id // empty' || true)"
+        if [[ -z "${PR_NODE_ID}" ]]; then
+          echo "::warning title=Merge queue fail-fast::Could not resolve the node id of PR #${PR_NUMBER}; not dequeuing. Response: ${RESPONSE}"
+          exit 0
+        fi
+
+        echo "Removing PR #${PR_NUMBER} from the ${GH_REPO} merge queue after merge_group failure in job '${JOB}'"
+        MUTATION='mutation($id:ID!){dequeuePullRequest(input:{id:$id}){mergeQueueEntry{position}}}'
+        RESPONSE="$(graphql "$(jq -n \
+          --arg query "${MUTATION}" \
+          --arg id "${PR_NODE_ID}" \
+          '{query: $query, variables: {id: $id}}')")"
+        if ! printf '%s' "${RESPONSE}" | jq -e '.errors == null and .data.dequeuePullRequest != null' >/dev/null 2>&1; then
+          # Losing the race with GitHub (or with another failing job in this run)
+          # is fine — the entry is gone either way, so keep going and cancel.
+          echo "::warning title=Merge queue fail-fast::Dequeuing PR #${PR_NUMBER} failed or it was already out of the queue. Response: ${RESPONSE}"
+          exit 0
+        fi
+        echo "PR #${PR_NUMBER} removed from the merge queue"
+
+    - name: Cancel workflow run
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        RUN_ID: ${{ github.run_id }}
+        JOB: ${{ inputs.job-name != '' && inputs.job-name || github.job }}
+      run: |
+        set -euo pipefail
         echo "Cancelling workflow run ${RUN_ID} in ${GH_REPO} after merge_group failure in job '${JOB}'"
-        curl -fsSL -X POST \
+        HTTP_CODE="$(curl -sS -o "${RUNNER_TEMP}/cancel-response.json" -w '%{http_code}' -X POST \
           --proto '=https' --proto-redir '=https' \
           -H "Accept: application/vnd.github+json" \
           -H "Authorization: Bearer ${GH_TOKEN}" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
-          "https://api.github.com/repos/${GH_REPO}/actions/runs/${RUN_ID}/cancel"
+          "https://api.github.com/repos/${GH_REPO}/actions/runs/${RUN_ID}/cancel")"
+        # 409 means the run is already finishing — dropping the merge group can
+        # cancel it for us, so that is a success for our purposes.
+        if [[ "${HTTP_CODE}" == "202" || "${HTTP_CODE}" == "409" ]]; then
+          echo "Cancellation request returned HTTP ${HTTP_CODE}"
+          exit 0
+        fi
+        echo "Cancelling run ${RUN_ID} failed with HTTP ${HTTP_CODE}: $(cat "${RUNNER_TEMP}/cancel-response.json")"
+        exit 1
