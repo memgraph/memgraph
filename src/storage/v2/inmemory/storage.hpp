@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include <atomic>
 #include <concepts>
 #include <cstdint>
+#include <limits>
 #include <list>
 #include <memory>
 #include <optional>
@@ -896,6 +898,10 @@ class InMemoryStorage final : public Storage {
   /// @throw std::bad_alloc
   void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
 
+  // EXPERIMENTAL (lock-free-read-snapshot): compute the GC visibility horizon = min(active snapshot_ts).
+  // OFF (flag disabled): returns oldest_active_start_timestamp, byte-identical to today.
+  uint64_t GcVisibilityHorizon(uint64_t oldest_active_start_timestamp);
+
   // Objects leave storage only through these, and only from a collection pass. An index entry
   // holds a raw pointer that nothing keeps alive, so an object may be retired only once that same
   // pass has removed every index entry naming it.
@@ -1122,6 +1128,20 @@ class InMemoryStorage final : public Storage {
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
+
+  // EXPERIMENTAL (lock-free-read-snapshot) GC visibility tracker: maps an active txn's start_timestamp
+  // to its frozen snapshot_ts, so GC can compute min(active snapshot_ts) = the OldestActive txn's snapshot.
+  // Tag-validated ring; any miss falls back to a monotone non-regressing floor (never OldestActive(start_ts)).
+  struct SnapshotSlot {
+    std::atomic<uint64_t> tag{std::numeric_limits<uint64_t>::max()};  // owning start_timestamp; max = empty
+    std::atomic<uint64_t> snap{0};                                    // that txn's snapshot_ts
+  };
+
+  static constexpr size_t kSnapshotSlots = 1ULL
+                                           << 16;  // ring; correctness is independent of size (tag-validated,
+                                                   // relies on the invalidate-first slot write in CreateTransaction)
+  std::unique_ptr<SnapshotSlot[]> snapshot_slots_;
+  std::atomic<uint64_t> gc_visibility_floor_{kTimestampInitialId};
 
   free_mem_fn free_memory_func_;
 

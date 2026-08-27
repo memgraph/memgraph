@@ -334,6 +334,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
+  snapshot_slots_ = std::make_unique<SnapshotSlot[]>(kSnapshotSlots);
   MG_ASSERT(!config_.salient.items.storage_light_edge || config_.salient.items.properties_on_edges,
             "Light edges require properties on edges (--storage-light-edge implies "
             "--storage-properties-on-edges=true).");
@@ -2924,6 +2925,19 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // start_timestamp in mvcc.hpp, so this is inert).
     snapshot_ts = config_.experimental_lockfree_read_snapshot ? last_committed_mvcc_ts_.load(std::memory_order_acquire)
                                                               : start_timestamp;
+    // Publish this active txn's snapshot_ts into the GC visibility ring (snap first, tag last, release-ordered)
+    // so GC can recover min(active snapshot_ts). Only meaningful under the flag; harmless (and warm) when OFF.
+    {
+      // Invalidate-first message passing (writers serialized under engine_lock_; the GC reader is lock-free):
+      // publish the empty sentinel into tag BEFORE overwriting snap, so a concurrent GC read can never pair
+      // this slot's NEW snap with the PREVIOUS owner's tag. If the reader's acquire-load of snap observes the
+      // new value, it synchronizes-with the release store below and therefore also observes tag == sentinel
+      // (or the final tag), never the stale predecessor start_ts. tag last, as the commit point.
+      auto &gc_slot = snapshot_slots_[start_timestamp % kSnapshotSlots];
+      gc_slot.tag.store(std::numeric_limits<uint64_t>::max(), std::memory_order_relaxed);  // invalidate old owner
+      gc_slot.snap.store(snapshot_ts, std::memory_order_release);                          // carries the invalidation
+      gc_slot.tag.store(start_timestamp, std::memory_order_release);                       // publish, tag last
+    }
     // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
     point_index_context = indices_.point_index_.CreatePointIndexContext();
     // Needed by snapshot to sync the durable and logical ts. Load ldt and num_committed_txns from the same atomic
@@ -3089,6 +3103,24 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   }
 }
 
+uint64_t InMemoryStorage::GcVisibilityHorizon(uint64_t oldest_active_start_timestamp) {
+  if (!config_.experimental_lockfree_read_snapshot) return oldest_active_start_timestamp;  // OFF: byte-identical
+  auto const &gc_slot = snapshot_slots_[oldest_active_start_timestamp % kSnapshotSlots];
+  uint64_t const snap = gc_slot.snap.load(std::memory_order_acquire);
+  uint64_t const tag = gc_slot.tag.load(std::memory_order_acquire);
+  if (tag == oldest_active_start_timestamp) {
+    // Advance the monotone floor to this confirmed min(active snapshot_ts).
+    uint64_t cur = gc_visibility_floor_.load(std::memory_order_acquire);
+    while (snap > cur && !gc_visibility_floor_.compare_exchange_weak(
+                             cur, snap, std::memory_order_release, std::memory_order_acquire)) {
+    }
+    return std::max(snap, cur);
+  }
+  // Slot recycled / mid-BEGIN / no owner: fall back to the non-regressing floor. NEVER return
+  // oldest_active_start_timestamp here — that is the too-large value that would over-reclaim under the flag.
+  return gc_visibility_floor_.load(std::memory_order_acquire);
+}
+
 void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic) {
   // NOTE: A single call need not handle objects deleted under a different storage mode: SetStorageMode
   // runs GC before any transaction in the new mode can start.
@@ -3177,6 +3209,12 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
       oldest_active_start_timestamp = std::min(min_queued_start_ts, oldest_active_start_timestamp);
     }
   }
+
+  // EXPERIMENTAL (lock-free-read-snapshot): the physical horizon (oldest_active_start_timestamp, above)
+  // still bounds delta-buffer freeing and object retirement, but MVCC visibility now keys off the OldestActive
+  // txn's snapshot_ts, which is <= its start_ts. Compute that min(active snapshot_ts) once here; OFF path
+  // returns oldest_active_start_timestamp unchanged (byte-identical).
+  uint64_t const visibility_horizon = GcVisibilityHorizon(oldest_active_start_timestamp);
 
   // When a transaction commits with non-sequential deltas, its deltas may be mixed with
   // deltas from other transactions in the same delta chains. We cannot immediately unlink
@@ -3301,7 +3339,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     auto const unlinkable_timestamp = linked_entry->unlinkable_timestamp_;
 
     // only process those that are no longer active
-    if (unlinkable_timestamp >= oldest_active_start_timestamp) {
+    if (unlinkable_timestamp >= visibility_horizon) {
       ++linked_entry;  // can not process, skip
       continue;        // must continue to next transaction, because committed_transactions_ was not ordered
     }
@@ -3388,6 +3426,8 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
             //            ▲
             //            │
             //  oldest_active_start_timestamp
+            // EXPERIMENTAL (lock-free-read-snapshot): when the flag is ON the boundary used just below is
+            // visibility_horizon (= min active snapshot_ts), which sits at or before this start-ts boundary.
 
             if (prev.delta->commit_info == commit_info_ptr) {
               // The delta that is newer than this one is also a delta from this
@@ -3396,7 +3436,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
               break;
             }
 
-            if (prev.delta->commit_info->timestamp.load() < oldest_active_start_timestamp) {
+            if (prev.delta->commit_info->timestamp.load() < visibility_horizon) {
               if (IsDeltaNonSequential(*prev.delta)) {
                 // Non-sequential predecessor: readers follow next, so we must
                 // null it to stop traversal into freed memory. We can skip the
@@ -3407,7 +3447,10 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
                 // - the GC is serialized via gc_lock_.
                 // Safe for concurrent readers: all deltas beyond this point are
                 // also inactive (guaranteed by waiting_gc_deltas_), so no
-                // active transaction needs to read past here.
+                // active transaction needs to read past here. Under the flag the
+                // horizon is visibility_horizon (min active snapshot_ts), not a
+                // start-ts, so "no active transaction needs to read past here"
+                // holds against snapshot-based visibility as well.
                 prev.delta->next.store(nullptr, std::memory_order_release);
               }
               break;
@@ -3536,12 +3579,12 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   if (auto token = stop_source.get_token(); !token.stop_requested()) {
     uint64_t swept = 0;
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
-      swept += indices_.RemoveObsoleteVertexEntries(this, oldest_active_start_timestamp, token, sweep_arming);
+      swept += indices_.RemoveObsoleteVertexEntries(this, visibility_horizon, token, sweep_arming);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-      swept += mem_unique_constraints->RemoveObsoleteEntries(this, oldest_active_start_timestamp, token, sweep_arming);
+      swept += mem_unique_constraints->RemoveObsoleteEntries(this, visibility_horizon, token, sweep_arming);
     }
     if (index_cleanup_edge_needed || index_cleanup_edge_performance) {
-      swept += indices_.RemoveObsoleteEdgeEntries(this, oldest_active_start_timestamp, token, sweep_arming);
+      swept += indices_.RemoveObsoleteEdgeEntries(this, visibility_horizon, token, sweep_arming);
     }
     metric_handles_.gc_index_sweeps.Increment(static_cast<double>(swept));
   }
