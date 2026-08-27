@@ -610,7 +610,7 @@ jobs:
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
     name: "End to end tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    runs-on: [self-hosted, Linux, X64, death-dealer]
     timeout-minutes: 110
     steps:
       - name: Set up repository

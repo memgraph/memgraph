@@ -56,7 +56,7 @@ jobs:
   core:
     if: ${{ inputs.run_core == 'true' }}
     name: "Core tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    runs-on: [self-hosted, Linux, X64, death-dealer]
     timeout-minutes: 70
     steps:
       - name: Set up repository
