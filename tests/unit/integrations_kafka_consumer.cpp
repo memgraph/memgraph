@@ -45,6 +45,11 @@ inline constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
 inline constexpr int64_t kDefaultBatchSize{1000};
 
 inline constexpr double kTimingTolerance = 1.2;  // tolerance for all timings to prevent flakes
+
+// How long a test will wait for messages it has already sent. Generous, because it exists to turn a
+// consumer that never delivers into a failure with the counts in hand rather than a hung job; a
+// working consumer reaches the condition long before this and stops waiting.
+inline constexpr auto kConsumerReadyTimeout = std::chrono::seconds{60};
 }  // namespace
 
 struct ConsumerTest : public ::testing::Test {
@@ -96,14 +101,27 @@ struct ConsumerTest : public ::testing::Test {
     // Send messages to the topic until the consumer starts to receive them. In the first few seconds the consumer
     // doesn't get messages because there is no leader in the consumer group. If consumer group leader election timeout
     // could be lowered (didn't find anything in librdkafka docs), then this mechanism will become unnecessary.
-    while (last_received_message->load() == 0) {
+    // Both loops are bounded: a consumer that never receives anything has to fail the test that asked for it, not
+    // hang until the whole job is abandoned.
+    auto deadline = std::chrono::steady_clock::now() + kConsumerReadyTimeout;
+    while (last_received_message->load() == 0 && std::chrono::steady_clock::now() < deadline) {
       std::this_thread::sleep_for(std::chrono::milliseconds(500));
       SeedTopicWithInt(kTopicName, ++sent_messages);
     }
+    if (last_received_message->load() == 0) {
+      ADD_FAILURE() << "Consumer received no messages while warming up";
+      return nullptr;
+    }
 
-    while (last_received_message->load() != sent_messages) {
+    deadline = std::chrono::steady_clock::now() + kConsumerReadyTimeout;
+    while (last_received_message->load() != sent_messages && std::chrono::steady_clock::now() < deadline) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    };
+    }
+    if (last_received_message->load() != sent_messages) {
+      ADD_FAILURE() << "Consumer stopped short while warming up: received " << last_received_message->load() << " of "
+                    << sent_messages;
+      return nullptr;
+    }
 
     consumer->Stop();
     std::this_thread::sleep_for(std::chrono::seconds(4));
@@ -146,11 +164,17 @@ TEST_F(ConsumerTest, BatchInterval) {
 
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
-    // Sleep for a bit to allow the consumer to receive the message.
+    // Spacing the messages out is what puts each one in a batch of its own, which is the point of
+    // this test rather than a wait for something to happen.
     std::this_thread::sleep_for(kBatchInterval);
   }
-  // Wait for all messages to be delivered
-  sent_messages.wait();
+  // Wait for all messages to be delivered, bounded so that a message which never arrives fails the
+  // test rather than hanging it.
+  const auto deadline = std::chrono::steady_clock::now() + kConsumerReadyTimeout;
+  while (!sent_messages.try_wait() && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+  }
+  EXPECT_TRUE(sent_messages.try_wait()) << "Not every message was delivered";
 
   consumer->Stop();
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
