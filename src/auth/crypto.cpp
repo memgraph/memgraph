@@ -20,7 +20,6 @@
 #include <openssl/types.h>
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <expected>
@@ -40,6 +39,7 @@
 #include "auth/exceptions.hpp"
 #include "utils/enum.hpp"
 #include "utils/exit_codes.hpp"
+#include "utils/fips.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/startup_failure.hpp"
@@ -120,7 +120,7 @@ auto AsBytes(std::string_view sv) -> std::span<const unsigned char> {
 /// on their own: bcrypt bypasses OpenSSL entirely, and the sha256 variants use
 /// an approved digest in an unapproved construction.
 void EnsureFipsApproved(PasswordHashAlgorithm hash_algo) {
-  if (FipsMode() && !IsFipsApproved(hash_algo)) {
+  if (utils::FipsEnabled() && !IsFipsApproved(hash_algo)) {
     throw AuthException("The '{}' password hash algorithm is not permitted in FIPS mode; use '{}'.",
                         AsString(hash_algo),
                         AsString(PasswordHashAlgorithm::PBKDF2_SHA256));
@@ -453,14 +453,6 @@ std::optional<HashedPassword> UserDefinedHash(std::string_view password) {
 
 auto CurrentHashAlgorithm() -> PasswordHashAlgorithm { return InternalCurrentHashAlgorithm(); }
 
-namespace {
-std::atomic<bool> fips_mode{false};
-}  // namespace
-
-void SetFipsMode(bool enabled) { fips_mode.store(enabled, std::memory_order_relaxed); }
-
-auto FipsMode() -> bool { return fips_mode.load(std::memory_order_relaxed); }
-
 auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool {
   switch (hash_algo) {
     case PasswordHashAlgorithm::BCRYPT:
@@ -473,7 +465,7 @@ auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool {
 }
 
 void EnableFipsMode() {
-  SetFipsMode(true);
+  utils::SetFipsStatus({.enabled = true});
 
   // Fail here rather than at the first login. bcrypt does not go through EVP,
   // so without this check it would keep hashing happily under an active FIPS

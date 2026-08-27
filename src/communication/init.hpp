@@ -32,22 +32,6 @@ namespace memgraph::communication {
 void EnableFipsMode();
 
 /**
- * Whether approved mode is active, i.e. `EnableFipsMode()` completed and the
- * validated provider was confirmed operational.
- *
- * Kept local to communication rather than read from `--fips-mode` because
- * mg-communication does not link mg-flags, and because it keeps the TLS policy
- * testable without an OpenSSL FIPS provider present.
- */
-[[nodiscard]] bool FipsMode();
-
-/**
- * Set the approved-mode toggle directly, without verifying the provider.
- * For tests; production goes through `EnableFipsMode()`.
- */
-void SetFipsMode(bool enabled);
-
-/**
  * Create this object in each `main` file that uses the Communication stack. It
  * is used to initialize all libraries (primarily OpenSSL) and to fix some
  * issues also related to OpenSSL (handling of SIGPIPE).

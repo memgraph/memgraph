@@ -5656,6 +5656,19 @@ TEST_P(CypherMainVisitorTest, TestShowStorageInfo) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, TestShowFipsInfo) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW FIPS INFO"));
+  ASSERT_TRUE(query);
+  EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::FIPS);
+}
+
+TEST_P(CypherMainVisitorTest, FipsKeywordStillUsableAsIdentifier) {
+  auto &ast_generator = *GetParam();
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (n:fips) RETURN n.fips AS fips"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("CREATE (n:Fips {fips: 1})"));
+}
+
 TEST_P(CypherMainVisitorTest, TestShowIndexInfo) {
   {
     auto &ast_generator = *GetParam();

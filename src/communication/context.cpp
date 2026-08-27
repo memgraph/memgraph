@@ -21,12 +21,13 @@
 
 #include "communication/cluster_tls.hpp"
 #include "communication/init.hpp"
+#include "utils/fips.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::communication {
 
 bool ApplyTlsVersionPolicy(SSL_CTX *ctx) {
-  if (!FipsMode()) return true;
+  if (!utils::FipsEnabled()) return true;
 
   // Raise the floor, never lower it.
   if (SSL_CTX_get_min_proto_version(ctx) >= TLS1_2_VERSION) return true;

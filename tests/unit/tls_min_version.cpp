@@ -37,6 +37,7 @@
 #include "communication/cluster_tls.hpp"
 #include "communication/context.hpp"
 #include "communication/init.hpp"
+#include "utils/fips.hpp"
 #include "utils/logging.hpp"
 #include "utils/tls.hpp"
 
@@ -67,7 +68,7 @@ auto BareContextFloor() -> int {
 // FIPS mode is process-global, so it must be reset even when a test fails.
 class TlsMinVersion : public ::testing::Test {
  protected:
-  void TearDown() override { memgraph::communication::SetFipsMode(false); }
+  void TearDown() override { memgraph::utils::SetFipsStatus({}); }
 };
 
 /// For tests that read the floor off a context Memgraph built and compare it
@@ -97,7 +98,7 @@ TEST_F(TlsMinVersionVsEnvironment, ClientContext) {
         << "non-FIPS deployments must keep whatever TLS version range they already had";
   }
 
-  memgraph::communication::SetFipsMode(true);
+  memgraph::utils::SetFipsStatus({.enabled = true});
   auto client = memgraph::communication::ClientContext{true};
   ASSERT_TRUE(client.use_ssl());
   EXPECT_EQ(SSL_CTX_get_min_proto_version(client.context()->native_handle()), TLS1_2_VERSION);
@@ -112,7 +113,7 @@ TEST_F(TlsMinVersionVsEnvironment, ServerContext) {
         << "non-FIPS deployments must keep whatever TLS version range they already had";
   }
 
-  memgraph::communication::SetFipsMode(true);
+  memgraph::utils::SetFipsStatus({.enabled = true});
   auto server = memgraph::communication::ServerContext{cfg.key_file, cfg.cert_file, cfg.ca_file, false};
   ASSERT_TRUE(server.use_ssl());
   EXPECT_EQ(SSL_CTX_get_min_proto_version(server.context_clone()->native_handle()), TLS1_2_VERSION);
@@ -125,7 +126,7 @@ TEST_F(TlsMinVersionVsEnvironment, ClusterServerContext) {
   ASSERT_TRUE(res.has_value()) << res.error().msg;
   EXPECT_LT(SSL_CTX_get_min_proto_version(instance.CurrentContext()->native_handle()), TLS1_2_VERSION);
 
-  memgraph::communication::SetFipsMode(true);
+  memgraph::utils::SetFipsStatus({.enabled = true});
   res = instance.Init(TestTlsConfig());
   ASSERT_TRUE(res.has_value()) << res.error().msg;
   EXPECT_EQ(SSL_CTX_get_min_proto_version(instance.CurrentContext()->native_handle()), TLS1_2_VERSION);
@@ -138,7 +139,7 @@ TEST_F(TlsMinVersionVsEnvironment, ClusterClientContext) {
   ASSERT_TRUE(res.has_value()) << res.error().msg;
   EXPECT_LT(SSL_CTX_get_min_proto_version(instance.CurrentContext()->native_handle()), TLS1_2_VERSION);
 
-  memgraph::communication::SetFipsMode(true);
+  memgraph::utils::SetFipsStatus({.enabled = true});
   res = instance.Init(TestTlsConfig());
   ASSERT_TRUE(res.has_value()) << res.error().msg;
   EXPECT_EQ(SSL_CTX_get_min_proto_version(instance.CurrentContext()->native_handle()), TLS1_2_VERSION);
@@ -148,7 +149,7 @@ TEST_F(TlsMinVersionVsEnvironment, ClusterClientContext) {
 // openssl.cnf that demands TLS 1.3 by pre-setting the floor, then checks that
 // the policy leaves it alone.
 TEST_F(TlsMinVersion, DoesNotLowerAStricterFloor) {
-  memgraph::communication::SetFipsMode(true);
+  memgraph::utils::SetFipsStatus({.enabled = true});
 
   auto *raw = SSL_CTX_new(TLS_client_method());
   ASSERT_NE(raw, nullptr);

@@ -45,19 +45,10 @@ auto CurrentHashAlgorithm() -> PasswordHashAlgorithm;
  * initialised. `communication::EnableFipsMode()` covers the OpenSSL module;
  * this covers the password hashing that never goes through EVP and would
  * otherwise keep working unnoticed.
+ *
+ * Reads and publishes `utils::FipsStatus`.
  */
 void EnableFipsMode();
-
-/**
- * @brief Set the FIPS policy toggle directly, without the startup validation.
- *
- * The policy is kept local to auth rather than read from `--fips-mode`
- * because mg-auth does not link mg-flags, and because it keeps the policy
- * testable without an OpenSSL FIPS provider present.
- */
-void SetFipsMode(bool enabled);
-
-[[nodiscard]] auto FipsMode() -> bool;
 
 /**
  * @brief Return algorithm name. Needs to be stable; auth queries depend on it.

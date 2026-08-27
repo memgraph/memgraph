@@ -24,6 +24,7 @@
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "utils/file.hpp"
+#include "utils/fips.hpp"
 
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <nlohmann/json.hpp>
@@ -2895,7 +2896,7 @@ class AuthFipsMode : public ::testing::Test {
   void SetUp() override { SetHashAlgorithm("bcrypt"); }
 
   void TearDown() override {
-    SetFipsMode(false);
+    memgraph::utils::SetFipsStatus({});
     SetHashAlgorithm("bcrypt");
   }
 };
@@ -2908,7 +2909,7 @@ TEST_F(AuthFipsMode, OnlyPBKDF2IsApproved) {
 }
 
 TEST_F(AuthFipsMode, HashingRefusesNonApprovedAlgorithms) {
-  SetFipsMode(true);
+  memgraph::utils::SetFipsStatus({.enabled = true});
   for (auto const algo :
        {PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE}) {
     ASSERT_THROW(HashPassword("hello", algo), AuthException) << AsString(algo);
@@ -2922,7 +2923,7 @@ TEST_F(AuthFipsMode, VerificationRefusesLegacyHashes) {
   auto legacy = HashPassword("hello", PasswordHashAlgorithm::BCRYPT);
   ASSERT_TRUE(legacy.VerifyPassword("hello"));
 
-  SetFipsMode(true);
+  memgraph::utils::SetFipsStatus({.enabled = true});
   ASSERT_THROW(legacy.VerifyPassword("hello"), AuthException);
 }
 
@@ -2930,13 +2931,13 @@ TEST_F(AuthFipsMode, UserSuppliedLegacyHashIsRejected) {
   auto const supplied = std::string{"bcrypt:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy"};
   ASSERT_TRUE(UserDefinedHash(supplied).has_value());
 
-  SetFipsMode(true);
+  memgraph::utils::SetFipsStatus({.enabled = true});
   ASSERT_THROW(UserDefinedHash(supplied), AuthException);
 }
 
 // Everything must behave exactly as before when the flag is off.
 TEST_F(AuthFipsMode, LegacyAlgorithmsUnaffectedWhenDisabled) {
-  ASSERT_FALSE(FipsMode());
+  ASSERT_FALSE(memgraph::utils::FipsEnabled());
   for (auto const *algo : {"bcrypt", "sha256", "sha256-multiple", "pbkdf2-sha256"}) {
     SetHashAlgorithm(algo);
     auto hash = HashPassword("hello");

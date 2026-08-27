@@ -21,11 +21,11 @@
 #include <openssl/provider.h>
 
 #include <array>
-#include <atomic>
 
 #include <fmt/format.h>
 
 #include "utils/exit_codes.hpp"
+#include "utils/fips.hpp"
 #include "utils/logging.hpp"
 #include "utils/signals.hpp"
 #include "utils/startup_failure.hpp"
@@ -68,14 +68,6 @@ void SetupThreading() {}
 void Cleanup() {}
 #endif
 }  // namespace
-
-namespace {
-std::atomic<bool> fips_mode{false};
-}  // namespace
-
-bool FipsMode() { return fips_mode.load(std::memory_order_relaxed); }
-
-void SetFipsMode(bool enabled) { fips_mode.store(enabled, std::memory_order_relaxed); }
 
 void EnableFipsMode() {
   // Activates the provider if openssl.cnf configured one, so this both proves
@@ -127,17 +119,21 @@ void EnableFipsMode() {
         fmt::format("--fips-mode=true but the OpenSSL FIPS provider is not operational (status {}).", status));
   }
 
-  // Module identity belongs in the log: customers under audit are asked to
-  // demonstrate approved mode, not merely assert it.
-  spdlog::info("FIPS mode enabled (OpenSSL provider '{}' version {}).",
-               name != nullptr ? name : "unknown",
-               version != nullptr ? version : "unknown");
+  // Copy the identity out before unloading: `name` and `version` point into
+  // storage owned by the provider.
+  auto fips_status = utils::FipsStatus{.enabled = true,
+                                       .provider_name = name != nullptr ? name : "unknown",
+                                       .provider_version = version != nullptr ? version : "unknown"};
 
   OSSL_PROVIDER_unload(provider);
 
-  // Set last, so `FipsMode()` implies the provider was actually verified
-  // rather than merely requested.
-  SetFipsMode(true);
+  // Module identity belongs in the log as well as in SHOW FIPS INFO.
+  spdlog::info(
+      "FIPS mode enabled (OpenSSL provider '{}' version {}).", fips_status.provider_name, fips_status.provider_version);
+
+  // Published last, so an enabled status implies the provider was actually
+  // verified rather than merely requested.
+  utils::SetFipsStatus(std::move(fips_status));
 }
 
 SSLInit::SSLInit() {
