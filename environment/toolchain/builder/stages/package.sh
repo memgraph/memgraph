@@ -24,6 +24,9 @@ source "$TC_VERSIONS/dwz.env"
 source "$TC_VERSIONS/libabigail.env"
 source "$TC_VERSIONS/heaptrack.env"
 source "$TC_VERSIONS/mgconsole.env"
+# the floors this toolchain builds for, recorded below
+source "$TC_VERSIONS/glibc.env"
+source "$TC_VERSIONS/linux-headers.env"
 
 # copy toolchain.cmake to the prefix
 cp -v $DIR/toolchain.cmake $PREFIX/
@@ -31,6 +34,18 @@ cp -v $DIR/toolchain.cmake $PREFIX/
 NAME=toolchain-v$TOOLCHAIN_VERSION
 RELEASE=/opt/$NAME
 mv "$PREFIX" "$RELEASE"
+
+# What a binary built with this toolchain will run on. Anything that has to
+# agree with it can read it here rather than restate it: memgraph's conan
+# profiles put these in the package id, because a dependency compiled against
+# one floor is not the same binary as one compiled against another.
+#
+# The kernel floor is the two-component form of the headers version, which is
+# what the floor gate and glibc's --enable-kernel both use.
+cat >$RELEASE/floors.env <<EOF
+MG_TOOLCHAIN_GLIBC_FLOOR=$GLIBC_VERSION
+MG_TOOLCHAIN_KERNEL_FLOOR=${LINUX_HEADERS_VERSION%.*}
+EOF
 
 cat >$RELEASE/README.md <<EOF
 # Memgraph Toolchain v$TOOLCHAIN_VERSION

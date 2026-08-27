@@ -8,6 +8,12 @@ compiler.cppstd=gnu23
 compiler.libcxx=libstdc++11
 compiler.version=22
 os=Linux
+# What this toolchain's sysroot targets: the oldest glibc and kernel a binary
+# built with it will run on. Declared rather than read from the install so the
+# package id does not change with whatever happens to be on the machine; the
+# toolchain ships the same values in floors.env and build.sh checks they agree.
+os.glibc=2.31
+os.kernel=5.4
 
 {% set sysroot_path = os.path.join(toolchain_path, "sysroot") %}
 

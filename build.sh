@@ -347,6 +347,28 @@ else
     echo "Toolchain: $MG_TOOLCHAIN"
 fi
 
+# The profile states the floors the toolchain targets, and they are part of
+# every dependency's package id. A toolchain built for different floors than
+# its profile claims would produce binaries filed under the wrong id and reused
+# for builds they do not suit, so check the two agree where the toolchain says.
+# Toolchains predating floors.env do not report, and are not checked.
+_tc_root="${MG_TOOLCHAIN_ROOT:-/opt/toolchain-$MG_TOOLCHAIN}"
+if [[ -f "$_tc_root/floors.env" ]]; then
+    # shellcheck disable=SC1091
+    source "$_tc_root/floors.env"
+    for _f in glibc kernel; do
+        _declared=$(sed -n "s/^os\.$_f=//p" "conan_config/profiles/$TOOLCHAIN_PROFILE")
+        _var="MG_TOOLCHAIN_$(echo "$_f" | tr '[:lower:]' '[:upper:]')_FLOOR"
+        _actual="${!_var}"
+        if [[ -n "$_declared" && "$_declared" != "$_actual" ]]; then
+            echo "Error: $TOOLCHAIN_PROFILE says os.$_f=$_declared, but the toolchain at" >&2
+            echo "       $_tc_root was built for $_actual." >&2
+            echo "       Dependencies would be cached under a floor they were not built for." >&2
+            exit 1
+        fi
+    done
+fi
+
 # Initialize arrays for arguments
 HOST_PROFILES=("-pr:h" "$TOOLCHAIN_PROFILE")
 CONAN_COMMON_ARGS=(

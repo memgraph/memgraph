@@ -1,6 +1,16 @@
 os:
   Linux:
     distro: [null, ANY]
+    # The oldest system a binary is built to run on. These come from the
+    # toolchain's sysroot, and two dependencies compiled against different
+    # floors are genuinely different binaries, so they belong in the package
+    # id: without them conan hands a build against one toolchain the binaries
+    # it built against another, because nothing else in the settings differs.
+    #
+    # ANY rather than a list, so raising a floor is a change to the toolchain
+    # and its profile, not to this file as well.
+    glibc: [null, ANY]
+    kernel: [null, ANY]
 compiler:
   gcc:
     asan: [null, True]
