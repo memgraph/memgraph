@@ -15,10 +15,14 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <filesystem>
 #include <optional>
 #include <semaphore>
+#include <string>
 #include <thread>
 #include <variant>
+#include <vector>
 
 #include "storage/v2/commit_probe.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
@@ -665,4 +669,113 @@ TEST(LockFreeReadSnapshot, AbortAfterMint_DoesNotAdvanceWatermark_OFF_AB) {
     EXPECT_EQ(CountVertices(*fresh), 2);
     EXPECT_FALSE(fresh->FindVertex(*gid_b, View::OLD).has_value());
   }
+}
+
+// Phase 2, batch 5: RECOV / INV-DURABLE. The flag is a runtime-only choice about how live readers
+// compute their snapshot boundary; it must never bleed into on-disk artifacts. A database written
+// with the flag ON must recover into an instance with the flag OFF, and vice versa. If a
+// cross-recovery case here loses or corrupts data, the flag leaked into durable state -- a real
+// design-invariant violation, not a test problem. Do NOT weaken these tests to make them pass.
+//
+// Durability idiom mirrors storage_v2_durability_inmemory.cpp: a plain InMemoryStorage over a
+// PERIODIC_SNAPSHOT_WITH_WAL storage_directory, an explicit forced CreateSnapshot so the data is on
+// disk before the storage is destroyed, then a second InMemoryStorage with recover_on_startup=true
+// on the same directory.
+
+namespace {
+
+// Builds durable storage on `dir` with the flag as given, writes 5 vertices carrying p = index,
+// commits, forces a snapshot so the dataset is persisted, then destroys the storage cleanly.
+void WriteDurable(const std::filesystem::path &dir, bool flag_on) {
+  Config config{};
+  config.durability.storage_directory = dir;
+  config.durability.recover_on_startup = false;
+  config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  config.experimental_lockfree_read_snapshot = flag_on;
+
+  auto store = std::make_unique<InMemoryStorage>(config);
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < 5; ++i) {
+      auto vertex = acc->CreateVertex();
+      ASSERT_TRUE(vertex.SetProperty(store->NameToProperty("p"), PropertyValue(i)).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Force the snapshot so the dataset is on disk regardless of WAL flush timing.
+  ASSERT_TRUE(store->CreateSnapshot(/*force=*/true).has_value());
+  store.reset();
+}
+
+// Recovers a fresh InMemoryStorage on `dir` with the (possibly different) flag value and asserts the
+// recovered vertices carry exactly p = {0, .., expected_count-1}.
+void RecoverAndCheck(const std::filesystem::path &dir, bool flag_on, int expected_count) {
+  Config config{};
+  config.durability.storage_directory = dir;
+  config.durability.recover_on_startup = true;
+  config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  config.experimental_lockfree_read_snapshot = flag_on;
+
+  auto store = std::make_unique<InMemoryStorage>(config);
+  auto acc = store->Access(memgraph::storage::READ);
+
+  std::vector<int64_t> props;
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    auto value = vertex.GetProperty(store->NameToProperty("p"), View::OLD);
+    ASSERT_TRUE(value.has_value());
+    props.push_back(value->ValueInt());
+  }
+  std::sort(props.begin(), props.end());
+
+  std::vector<int64_t> expected;
+  expected.reserve(expected_count);
+  for (int i = 0; i < expected_count; ++i) expected.push_back(i);
+
+  EXPECT_EQ(props, expected) << "CROSS-RECOVERY DATA MISMATCH: the recovered vertex/property set differs from what "
+                                "was written. The experimental_lockfree_read_snapshot flag leaked into durable "
+                                "state -- a real violation of the runtime-only invariant, not a test problem.";
+}
+
+// Per-test unique storage_directory, cleaned up on both ends of the test to avoid cross-test
+// contamination -- the remove_all cleanup idiom from DurabilityTest.
+class LockFreeReadSnapshotRecovery : public ::testing::Test {
+ protected:
+  void SetUp() override { Clear(); }
+
+  void TearDown() override { Clear(); }
+
+  void Clear() {
+    if (std::filesystem::exists(storage_directory)) std::filesystem::remove_all(storage_directory);
+  }
+
+  std::filesystem::path storage_directory{
+      std::filesystem::temp_directory_path() /
+      ("MG_test_unit_storage_v2_lockfree_read_snapshot_" +
+       std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()))};
+};
+
+}  // namespace
+
+// Wrote with the feature ON, restarted with it OFF: the durable data is fully recovered.
+TEST_F(LockFreeReadSnapshotRecovery, WriteOn_RecoverOff_DataIntact) {
+  WriteDurable(storage_directory, /*flag_on=*/true);
+  RecoverAndCheck(storage_directory, /*flag_on=*/false, 5);
+}
+
+// Reverse direction: wrote with the feature OFF, restarted with it ON.
+TEST_F(LockFreeReadSnapshotRecovery, WriteOff_RecoverOn_DataIntact) {
+  WriteDurable(storage_directory, /*flag_on=*/false);
+  RecoverAndCheck(storage_directory, /*flag_on=*/true, 5);
+}
+
+// Sanity: ON -> ON round-trips.
+TEST_F(LockFreeReadSnapshotRecovery, WriteOn_RecoverOn_DataIntact) {
+  WriteDurable(storage_directory, /*flag_on=*/true);
+  RecoverAndCheck(storage_directory, /*flag_on=*/true, 5);
+}
+
+// Baseline: OFF -> OFF round-trips.
+TEST_F(LockFreeReadSnapshotRecovery, WriteOff_RecoverOff_DataIntact) {
+  WriteDurable(storage_directory, /*flag_on=*/false);
+  RecoverAndCheck(storage_directory, /*flag_on=*/false, 5);
 }
