@@ -342,6 +342,12 @@ add_compile_options(
 # Debug gets it from the frontend instead, a different codepath with no LTO.
 # Release has no -g, so this would only produce empty .dwo files and the binary
 # is stripped afterwards anyway.
+#
+# Only the memgraph binary gets a .dwp bundling those .dwo files back together,
+# so only it can ship split. The query modules and the module support library
+# turn this back off in their own directories: a shipped artifact without a
+# .dwp would leave its debug info in .dwo files that never leave the build
+# tree, and its installed sidecar would hold nothing but skeletons.
 add_compile_options($<$<OR:$<CONFIG:RelWithDebInfo>,$<CONFIG:Debug>>:-gsplit-dwarf>)
 
 # The matching --plugin-opt=dwo_dir is set per-target on the memgraph

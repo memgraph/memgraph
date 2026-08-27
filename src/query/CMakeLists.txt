@@ -22,6 +22,9 @@ set_target_properties(mg-module-support  PROPERTIES
     OUTPUT_NAME "memgraph_module_support"
 )
 
+# Ships without a .dwp, so its debug info stays in the object.
+target_compile_options(mg-module-support PRIVATE -gno-split-dwarf)
+
 mg_split_debug(mg-module-support INSTALL_DESTINATION lib/memgraph)
 
 find_package(antlr4-runtime REQUIRED)

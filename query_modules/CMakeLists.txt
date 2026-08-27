@@ -9,6 +9,9 @@ disallow_in_source_build()
 find_package(fmt REQUIRED)
 find_package(Boost REQUIRED CONFIG)
 
+# Ships without a .dwp, so its debug info stays in the object.
+add_compile_options(-gno-split-dwarf)
+
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 function(add_post_build_strip_in_release target build_type_var)

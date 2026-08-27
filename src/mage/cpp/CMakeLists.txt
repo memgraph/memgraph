@@ -53,6 +53,9 @@ foreach(_opt IN LISTS _mage_inherited_link_opts)
 endforeach()
 set_directory_properties(PROPERTIES LINK_OPTIONS "${_mage_wrapped_link_opts}")
 
+# Ships without a .dwp, so its debug info stays in the object.
+add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:-gno-split-dwarf>")
+
 find_package(Threads REQUIRED)
 find_package(OpenMP REQUIRED)
 
