@@ -10,6 +10,10 @@ Build script for Memgraph using Conan 2 and CMake.
 
 OPTIONS:
     --build-type TYPE       Build type: Release, RelWithDebInfo, or Debug (default: Release)
+    --toolchain NAME        Bundled toolchain to build against, named by its conan
+                            profile suffix (e.g. v7, v8). Defaults to the value in
+                            environment/toolchain/default_toolchain.sh. Run without a
+                            valid NAME to list what is available.
     --target TARGET...      CMake target(s) to build (default: all targets). Accepts
                             multiple targets in one sequence, e.g.
                             --target memgraph memgraph__unit
@@ -36,6 +40,9 @@ OPTIONS:
     --help                  Show this help message
 
 ENVIRONMENT VARIABLES:
+    MG_TOOLCHAIN            Same as --toolchain.
+    MG_TOOLCHAIN_ROOT       Where the selected toolchain is installed. Only needed
+                            when it is not at the location its profile expects.
     VENV_DIR                Path to Python virtual environment (default: env)
     MG_PYTHON               Python interpreter to use (must be >= 3.10). By
                             default the newest suitable python3/python3.X on
@@ -80,6 +87,9 @@ EXAMPLES:
     # MAGE-only with GPU modules against a prebuilt cuGraph
     ./build.sh --mage only --cugraph -DMG_CUGRAPH_ROOT=/opt/conda
 
+    # Build against a different bundled toolchain
+    ./build.sh --toolchain v7
+
     # Configure only, don't build
     ./build.sh --config-only
 
@@ -89,6 +99,12 @@ EXAMPLES:
 EOF
     exit 0
 }
+
+# Which bundled toolchain to build against. The default lives in one place;
+# MG_TOOLCHAIN and --toolchain override it, and MG_TOOLCHAIN_ROOT overrides
+# the install path the selected profile would otherwise pick.
+source "$(dirname "${BASH_SOURCE[0]}")/environment/toolchain/default_toolchain.sh"
+MG_TOOLCHAIN="${MG_TOOLCHAIN:-$MG_TOOLCHAIN_DEFAULT}"
 
 # Default values
 BUILD_TYPE="Release"
@@ -114,6 +130,10 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --build-type)
             BUILD_TYPE="$2"
+            shift 2
+            ;;
+        --toolchain)
+            MG_TOOLCHAIN="$2"
             shift 2
             ;;
         --target)
@@ -306,8 +326,29 @@ if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD
     exit 1
 fi
 
+# Resolve the toolchain profile, failing here rather than inside conan where a
+# missing profile reports only the generated name.
+TOOLCHAIN_PROFILE="memgraph_toolchain_$MG_TOOLCHAIN"
+if [[ ! -f "conan_config/profiles/$TOOLCHAIN_PROFILE" ]]; then
+    echo "Error: unknown toolchain '$MG_TOOLCHAIN' (no conan_config/profiles/$TOOLCHAIN_PROFILE)" >&2
+    echo "Available:" >&2
+    for p in conan_config/profiles/memgraph_toolchain_*; do
+        echo "    ${p##*/memgraph_toolchain_}" >&2
+    done
+    exit 1
+fi
+
+# Each toolchain profile knows where its own toolchain is installed, so the
+# root is only exported when the caller is overriding that.
+if [[ -n "${MG_TOOLCHAIN_ROOT:-}" ]]; then
+    export MG_TOOLCHAIN_ROOT
+    echo "Toolchain: $MG_TOOLCHAIN (root $MG_TOOLCHAIN_ROOT)"
+else
+    echo "Toolchain: $MG_TOOLCHAIN"
+fi
+
 # Initialize arrays for arguments
-HOST_PROFILES=("-pr:h" "memgraph_toolchain_v8")
+HOST_PROFILES=("-pr:h" "$TOOLCHAIN_PROFILE")
 CONAN_COMMON_ARGS=(
   -pr:b memgraph_build_profile
   -s build_type="$BUILD_TYPE"
@@ -425,7 +466,7 @@ fi
 # generate dependency graph and exit early
 if [[ "$graph_info" = true ]]; then
     echo "Generating dependency graph -> graph.html"
-    MG_TOOLCHAIN_ROOT="/opt/toolchain-v8" conan graph info . \
+    conan graph info . \
       "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
       --format=html > graph.html
     echo "Open graph.html in a browser to view the dependency graph"
@@ -437,7 +478,7 @@ if [[ "$update_lockfile" = true ]]; then
     echo "Updating conan.lock"
     # Resolve recipe revisions from remotes (including local-recipes-index),
     # not from any stale local cache export, so lockfiles stay portable.
-    MG_TOOLCHAIN_ROOT="/opt/toolchain-v8" conan lock create . \
+    conan lock create . \
       "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
       --update \
       --lockfile="" \
@@ -445,7 +486,7 @@ if [[ "$update_lockfile" = true ]]; then
 fi
 
 # install conan dependencies
-MG_TOOLCHAIN_ROOT="/opt/toolchain-v8" conan install . --build=missing \
+conan install . --build=missing \
   "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}"
 
 source build/generators/conanbuild.sh

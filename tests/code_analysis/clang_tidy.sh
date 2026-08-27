@@ -78,7 +78,8 @@ fi
 source build/generators/conanbuild.sh
 
 # Add toolchain to PATH for clang-tidy
-MG_TOOLCHAIN_ROOT="${MG_TOOLCHAIN_ROOT:-/opt/toolchain-v8}"
+source "$PROJECT_ROOT/environment/toolchain/default_toolchain.sh"
+MG_TOOLCHAIN_ROOT="${MG_TOOLCHAIN_ROOT:-/opt/toolchain-$MG_TOOLCHAIN_DEFAULT}"
 if [[ -d "$MG_TOOLCHAIN_ROOT/bin" ]]; then
   export PATH="$MG_TOOLCHAIN_ROOT/bin:$PATH"
 else
