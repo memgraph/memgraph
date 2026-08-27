@@ -191,3 +191,135 @@ TEST(LockFreeReadSnapshot, OffPath_SameVisibility_AB) {
     EXPECT_EQ(ReadProp(*fresh_reader, gid), 2) << "flag_on=" << flag_on;
   }
 }
+
+// Phase 2, batch 2: concern-C (write-conflict / lost-update). The write-conflict predicate
+// shares the snapshot boundary with reads (Transaction::CommittedBeforeSnapshot): a delta whose
+// head commit ts is at/below the writer's snapshot is writable; one published above it is a
+// conflict. These tests pin the two happy-path directions and the lost-update interleaving.
+
+// A writer whose head commit sits at or below its snapshot must NOT be falsely aborted: X=1 is
+// published, so W's snapshot includes it (head ts <= W.snapshot), and W's overwrite commits.
+TEST(LockFreeReadSnapshot, WriterHappyPath_HeadBelowSnapshot_NoFalseAbort) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  const auto gid = CreateVertexWithProp(*store, 1);
+
+  auto w = store->Access(memgraph::storage::WRITE);
+  auto vertex = w->FindVertex(gid, View::OLD);
+  ASSERT_TRUE(vertex.has_value());
+  ASSERT_TRUE(vertex->SetProperty(store->NameToProperty("p"), PropertyValue(2)).has_value());
+  ASSERT_TRUE(w->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+
+  auto reader = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*reader, gid), 2);
+}
+
+// A transaction rewriting its OWN uncommitted delta is not a conflict: the head delta carries
+// this txn's transaction_id, so the second SetProperty is allowed. Commit publishes the last write.
+TEST(LockFreeReadSnapshot, WriterRewritesOwnUncommittedDelta_Succeeds) {
+  auto store = MakeStorage(/*flag_on=*/true);
+
+  auto w = store->Access(memgraph::storage::WRITE);
+  auto vertex = w->CreateVertex();
+  const auto gid = vertex.Gid();
+  ASSERT_TRUE(vertex.SetProperty(store->NameToProperty("p"), PropertyValue(1)).has_value());
+  ASSERT_TRUE(vertex.SetProperty(store->NameToProperty("p"), PropertyValue(2)).has_value());
+  ASSERT_TRUE(w->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+
+  auto reader = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*reader, gid), 2);
+}
+
+// THE lost-update test. A committer C is parked at after_mint (C_ts minted, engine_lock released,
+// watermark NOT yet advanced). A writer W is opened in that window: W's snapshot excludes C. After
+// C publishes X=2, W tries to overwrite the SAME vertex. Under the flag the head commit ts C_ts >
+// W.snapshot, so X is invisible to W and the write MUST conflict (serialization error) rather than
+// silently clobber C's value -- that is the lost update this feature prevents.
+TEST(LockFreeReadSnapshot, LostUpdatePrevented_GapCommitPublishesAfterSnapshot_ON) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  const auto gid = CreateVertexWithProp(*store, 1);
+
+  std::binary_semaphore reached{0};
+  std::binary_semaphore resume{0};
+  std::optional<bool> c_ok;
+
+  memgraph::storage::CommitProbe probe;
+  probe.after_mint = [&] {
+    reached.release();
+    resume.acquire();
+  };
+  store->SetCommitProbe(&probe);
+
+  std::thread committer([&] {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(vertex->SetProperty(store->NameToProperty("p"), PropertyValue(2)).has_value());
+    c_ok = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
+  });
+
+  // C has minted C_ts but not published; open W now so W's snapshot is below C_ts.
+  reached.acquire();
+  auto w = store->Access(memgraph::storage::WRITE);
+
+  // Let C finish publishing X=2, then confirm it committed.
+  resume.release();
+  committer.join();
+  ASSERT_TRUE(c_ok.has_value());
+  EXPECT_TRUE(*c_ok);
+  store->SetCommitProbe(nullptr);
+
+  // W now overwrites the same vertex. The conflict surfaces either at the mutation or at commit;
+  // capture whichever, and assert the write did NOT silently succeed.
+  auto w_vertex = w->FindVertex(gid, View::OLD);
+  ASSERT_TRUE(w_vertex.has_value());
+  auto set_res = w_vertex->SetProperty(store->NameToProperty("p"), PropertyValue(3));
+  bool serialization_observed = false;
+  if (!set_res.has_value()) {
+    EXPECT_EQ(set_res.error(), memgraph::storage::Error::SERIALIZATION_ERROR);
+    serialization_observed = true;
+  } else {
+    serialization_observed = !w->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
+  }
+  ASSERT_TRUE(serialization_observed)
+      << "LOST UPDATE: W overwrote a gap-committed value it never saw; no serialization error was raised. "
+         "This is a real feature bug, not a test problem -- the write-conflict predicate failed to reject a "
+         "head commit published above W's snapshot.";
+  w.reset();
+
+  // C's value survives; W's write was rejected, not clobbered over C.
+  auto reader = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*reader, gid), 2);
+}
+
+// A/B contrast to the test above with the flag OFF. Under OFF the write predicate is
+// `ts < start_timestamp`, so a committed head below the writer's start is writable -- OFF prevents
+// the lost update by a DIFFERENT mechanism: W SEES C's X=2 and updates on top of it (final X=3),
+// rather than being told to retry. NOTE: the mid-window begin used by the ON test is flag-only and
+// unreachable here. The OFF commit path never invokes after_mint (that InvokeProbe is gated on the
+// flag), and engine_lock is held straight through mint->publish, so a concurrent Access(WRITE)
+// would simply block until C finishes -- there is no unpublished window to open W in. We therefore
+// let C commit fully first; W then necessarily observes C's commit (start_ts > C_ts) and writes on
+// top, which is exactly the OFF no-lost-update mechanism.
+TEST(LockFreeReadSnapshot, SameGapScenario_OFF_WriteSucceeds_AB) {
+  auto store = MakeStorage(/*flag_on=*/false);
+  const auto gid = CreateVertexWithProp(*store, 1);
+
+  {
+    auto c = store->Access(memgraph::storage::WRITE);
+    auto vertex = c->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(vertex->SetProperty(store->NameToProperty("p"), PropertyValue(2)).has_value());
+    ASSERT_TRUE(c->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto w = store->Access(memgraph::storage::WRITE);
+  // W's start is above C's commit, so C's X=2 is visible; W updates on top rather than conflicting.
+  EXPECT_EQ(ReadProp(*w, gid), 2);
+  auto w_vertex = w->FindVertex(gid, View::OLD);
+  ASSERT_TRUE(w_vertex.has_value());
+  ASSERT_TRUE(w_vertex->SetProperty(store->NameToProperty("p"), PropertyValue(3)).has_value());
+  ASSERT_TRUE(w->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+
+  auto reader = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*reader, gid), 3);
+}
