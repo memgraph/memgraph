@@ -16,6 +16,8 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <semaphore>
@@ -498,6 +500,118 @@ TEST(LockFreeReadSnapshot, LongReaderVersionRetainedAcrossGc_OFF_AB) {
 
   auto fresh_reader = store->Access(memgraph::storage::READ);
   EXPECT_EQ(ReadProp(*fresh_reader, gid), 3);
+}
+
+// Phase 2, batch 3 (stress): concern-D racy surfaces under real concurrency. The deterministic
+// batch-1..4 tests park a single commit at a CommitProbe seam to assert one interleaving at a time;
+// this test instead drives the feature's shared mutable state -- the BEGIN-time snapshot-ring writes,
+// GC's concurrent reads of that ring at OldestActive, the read watermark, and the commit path -- with
+// many threads at once, with no probe. It is a crash/consistency smoke test under the normal build
+// and a race detector under ThreadSanitizer. kWriters committers mint fresh-vertex commits (no
+// write-write conflict, so every commit must succeed) while kReaders readers open frozen SI snapshots
+// and a GC thread collects garbage concurrently. Two invariants are asserted: (1) within one reader
+// accessor a repeated read of the same vertex's "p" returns the same value (a frozen snapshot is
+// stable), and (2) after every writer has joined, exactly kWriters*kWritesPerWriter vertices are
+// committed and all are visible -- none lost, none double-counted. Any crash, hang, or violated
+// invariant is a real feature bug, not a test problem. Do NOT weaken it.
+TEST(LockFreeReadSnapshot, ConcurrentReadersWritersGc_NoCrash_SnapshotStable_ON) {
+  auto store = MakeStorageManualGc(/*flag_on=*/true);
+  const auto p = store->NameToProperty("p");
+
+  constexpr int kWriters = 4;
+  constexpr int kReaders = 4;
+  constexpr int kWritesPerWriter = 500;
+
+  std::atomic<bool> stop{false};
+  std::atomic<uint64_t> committed{0};
+
+  auto writer_fn = [&](int writer_id) {
+    for (int i = 0; i < kWritesPerWriter; ++i) {
+      auto acc = store->Access(memgraph::storage::WRITE);
+      auto vertex = acc->CreateVertex();
+      // Globally unique value across all (writer, iteration) pairs; never re-used, so no writer ever
+      // collides with another and every commit is a clean fresh-vertex append.
+      const int value = writer_id * kWritesPerWriter + i;
+      ASSERT_TRUE(vertex.SetProperty(p, PropertyValue(value)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value())
+          << "concurrent fresh-vertex commit failed unexpectedly (writer " << writer_id << ", iter " << i << ")";
+      committed.fetch_add(1, std::memory_order_relaxed);
+    }
+  };
+
+  auto reader_fn =
+      [&] {
+        while (!stop.load(std::memory_order_relaxed)) {
+          auto r = store->Access(memgraph::storage::READ);
+
+          // Snapshot-stability invariant: the first vertex's "p" read twice within this one accessor must
+          // agree. A frozen SI snapshot may not shift under concurrent commits/GC. Guard against an empty
+          // graph (no committed vertex yet) by skipping the check that iteration.
+          std::optional<memgraph::storage::VertexAccessor> first;
+          for (auto vertex : r->Vertices(View::OLD)) {
+            first.emplace(vertex);
+            break;
+          }
+          if (first.has_value()) {
+            auto v1 = first->GetProperty(p, View::OLD);
+            ASSERT_TRUE(v1.has_value());
+            const int64_t read1 = v1->ValueInt();
+            // A little unrelated work between the two reads to widen the window for a racing writer/GC.
+            int64_t churn = 0;
+            for (int k = 0; k < 32; ++k) churn += k;
+            (void)churn;
+            auto v2 = first->GetProperty(p, View::OLD);
+            ASSERT_TRUE(v2.has_value());
+            ASSERT_EQ(read1, v2->ValueInt())
+                << "SNAPSHOT INSTABILITY: two reads of the same vertex's \"p\" within one frozen SI accessor "
+                   "returned different values. A committed write or GC mutated a version the reader's snapshot "
+                   "still pins -- a real feature bug, not a test problem.";
+          }
+
+          // Full concurrent walk of the version chains: every visible vertex must yield a valid int for
+          // "p". This is the surface GC unlinks under; a crash or a missing property here is a bug.
+          for (auto vertex : r->Vertices(View::OLD)) {
+            auto value = vertex.GetProperty(p, View::OLD);
+            ASSERT_TRUE(value.has_value());
+            (void)value->ValueInt();
+          }
+          // r closes here, releasing its snapshot so the GC horizon can advance.
+        }
+      };
+
+  auto gc_fn = [&] {
+    while (!stop.load(std::memory_order_relaxed)) {
+      // GC concurrent with live readers/writers is exactly the path that reads the snapshot ring at
+      // OldestActive to compute the visibility horizon.
+      RunGc(*store);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  };
+
+  std::vector<std::thread> readers;
+  readers.reserve(kReaders);
+  for (int i = 0; i < kReaders; ++i) readers.emplace_back(reader_fn);
+  std::thread gc(gc_fn);
+
+  std::vector<std::thread> writers;
+  writers.reserve(kWriters);
+  for (int i = 0; i < kWriters; ++i) writers.emplace_back(writer_fn, i);
+  for (auto &w : writers) w.join();
+
+  // Writers are done; stop the open-ended readers and GC.
+  stop.store(true, std::memory_order_relaxed);
+  for (auto &r : readers) r.join();
+  gc.join();
+
+  ASSERT_EQ(committed.load(), static_cast<uint64_t>(kWriters) * kWritesPerWriter);
+
+  // Every committed vertex is visible exactly once at a fresh snapshot: nothing was lost to a racing
+  // GC pass and nothing was double-counted by a torn snapshot-ring write.
+  auto final_reader = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(CountVertices(*final_reader), static_cast<int64_t>(committed.load()))
+      << "COMMIT/VISIBILITY LOSS: the fresh-snapshot vertex count does not match the number of committed "
+         "transactions. A committed vertex was lost or double-counted under concurrent commits + GC + reads "
+         "-- a real feature bug, not a test problem.";
 }
 
 // Phase 2, batch 4: concern-E (abort semantics). A committer that mints a commit timestamp and then
