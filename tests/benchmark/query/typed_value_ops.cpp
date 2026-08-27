@@ -22,16 +22,20 @@
 
 #include <benchmark/benchmark.h>
 
+#include <algorithm>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
 
 #include "query/typed_value.hpp"
+#include "query/value_relations.hpp"
 #include "utils/memory.hpp"
 
 namespace {
 
 using memgraph::query::TypedValue;
+namespace relations = memgraph::query::relations;
 
 memgraph::utils::MemoryResource *Mem() { return memgraph::utils::NewDeleteResource(); }
 
@@ -216,6 +220,58 @@ void EqualityOfListsWithNull(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations());
 }
 
+// Orderability, the relation ORDER BY, min and max read. A sort calls it once per comparison, which
+// is the granularity that decides where it may be defined.
+void Orderability(benchmark::State &state, std::string_view what) {
+  auto const lhs = Make(what);
+  auto const rhs = Make(what);
+  for (auto _ : state) benchmark::DoNotOptimize(relations::orderability::Compare(lhs, rhs));
+  state.SetItemsProcessed(state.iterations());
+}
+
+// The pair only this relation admits, where the answer comes from where the two types sit rather
+// than from either value.
+void OrderabilityOfUnlikeTypes(benchmark::State &state) {
+  auto const lhs = Make("String");
+  auto const rhs = Make("Int");
+  for (auto _ : state) benchmark::DoNotOptimize(relations::orderability::Compare(lhs, rhs));
+  state.SetItemsProcessed(state.iterations());
+}
+
+// The placement comparability leaves undone, and the one path where the ordering does more work
+// than a plain three-way comparison.
+void OrderabilityOfNaN(benchmark::State &state) {
+  auto const lhs = TypedValue{std::numeric_limits<double>::quiet_NaN(), Mem()};
+  auto const rhs = TypedValue{1.0, Mem()};
+  for (auto _ : state) benchmark::DoNotOptimize(relations::orderability::Compare(lhs, rhs));
+  state.SetItemsProcessed(state.iterations());
+}
+
+// What the relation exists for. Sorting is where its cost is actually paid, and a per-comparison
+// figure alone hides how often a sort calls it.
+void SortMixedColumn(benchmark::State &state) {
+  auto const source = std::vector<TypedValue>{Make("Int"),
+                                              Make("String"),
+                                              Make("Bool"),
+                                              Make("List"),
+                                              Make("Double"),
+                                              TypedValue{Mem()},
+                                              Make("Date"),
+                                              Make("Int"),
+                                              Make("String"),
+                                              Make("Double"),
+                                              Make("Bool"),
+                                              Make("List")};
+  for (auto _ : state) {
+    auto values = source;
+    std::ranges::sort(values, [](TypedValue const &a, TypedValue const &b) {
+      return std::is_lt(relations::orderability::Compare(a, b));
+    });
+    benchmark::DoNotOptimize(values);
+  }
+  state.SetItemsProcessed(state.iterations() * source.size());
+}
+
 #define FOR_EACH_TYPE(op)                                                \
   BENCHMARK_CAPTURE(op, Int, "Int")->Unit(benchmark::kNanosecond);       \
   BENCHMARK_CAPTURE(op, Double, "Double")->Unit(benchmark::kNanosecond); \
@@ -248,6 +304,10 @@ BENCHMARK(EquivalenceOfNestedLists)->Unit(benchmark::kNanosecond);
 BENCHMARK_CAPTURE(EqualityOfMaps, Plain, false)->Unit(benchmark::kNanosecond);
 BENCHMARK_CAPTURE(EqualityOfMaps, WithNull, true)->Unit(benchmark::kNanosecond);
 BENCHMARK(EqualityOfListsWithNull)->Unit(benchmark::kNanosecond);
+FOR_EACH_TYPE(Orderability)
+BENCHMARK(OrderabilityOfUnlikeTypes)->Unit(benchmark::kNanosecond);
+BENCHMARK(OrderabilityOfNaN)->Unit(benchmark::kNanosecond);
+BENCHMARK(SortMixedColumn)->Unit(benchmark::kNanosecond);
 
 #undef FOR_EACH_TYPE
 #undef FOR_EACH_ORDERED_TYPE
