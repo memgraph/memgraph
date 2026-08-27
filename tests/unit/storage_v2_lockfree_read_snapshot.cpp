@@ -25,6 +25,7 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/resource_lock.hpp"
 
 using memgraph::storage::Config;
 using memgraph::storage::Gid;
@@ -61,6 +62,36 @@ int64_t ReadProp(Accessor &acc, Gid gid) {
   auto value = vertex->GetProperty(acc.NameToProperty("p"), View::OLD);
   EXPECT_TRUE(value.has_value());
   return value->ValueInt();
+}
+
+// Concern-D (GC visibility horizon) storage: PERIODIC GC with a 3600s interval so the timer never
+// auto-fires; every collection in these tests is driven manually via RunGc. Default SNAPSHOT
+// isolation; the flag selects which horizon GC computes.
+std::unique_ptr<InMemoryStorage> MakeStorageManualGc(bool flag_on) {
+  Config config{};
+  config.gc.type = Config::Gc::Type::PERIODIC;
+  config.gc.interval = std::chrono::seconds(3600);
+  config.experimental_lockfree_read_snapshot = flag_on;
+  return std::make_unique<InMemoryStorage>(config);
+}
+
+// Forces a synchronous GC pass. Passes an EMPTY guard (not the UNIQUE-adopt idiom in
+// storage_v2_gc.cpp): those tests reset every accessor before GC, whereas this batch keeps a reader
+// open across the pass. An open accessor holds main_lock_ SHARED for its lifetime, so an adopted
+// UNIQUE hold would deadlock. The empty guard makes CollectGarbage take its own READ (shared) hold
+// -- the exact concurrent-GC path production's periodic scheduler uses (storage.cpp: FreeMemory({},
+// true)). FreeMemory -> free_memory_func_ -> CollectGarbage, where the visibility horizon is
+// computed and deltas are unlinked; the horizon logic is identical regardless of the hold mode.
+void RunGc(InMemoryStorage &s) { s.FreeMemory({}, false); }
+
+// Re-finds vertex `gid` in a fresh WRITE accessor, overwrites "p", and publishes -- appending a new
+// committed version to the delta chain (the update-then-commit pattern from storage_v2.cpp).
+void CommitProp(InMemoryStorage &store, Gid gid, int value) {
+  auto acc = store.Access(memgraph::storage::WRITE);
+  auto vertex = acc->FindVertex(gid, View::OLD);
+  ASSERT_TRUE(vertex.has_value());
+  ASSERT_TRUE(vertex->SetProperty(store.NameToProperty("p"), PropertyValue(value)).has_value());
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 }  // namespace
@@ -322,4 +353,105 @@ TEST(LockFreeReadSnapshot, SameGapScenario_OFF_WriteSucceeds_AB) {
 
   auto reader = store->Access(memgraph::storage::READ);
   EXPECT_EQ(ReadProp(*reader, gid), 3);
+}
+
+// Phase 2, batch 3: concern-D (GC visibility horizon). Validates the 1.4 GC split -- under the flag
+// GC's visibility horizon is min(active snapshot_ts), so a long-lived low-snapshot reader keeps
+// reading its own version even after newer versions are committed and GC unlinks the chain.
+
+// A long-lived reader R (snapshot sees X=1) survives two later commits (X=2, X=3) plus a GC pass:
+// the visibility horizon is pinned to R's snapshot_ts, so R's version is NOT unlinked and R still
+// reads 1. After R is released and GC runs again, a fresh reader reads the latest (3).
+TEST(LockFreeReadSnapshot, LongReaderVersionRetainedAcrossGc_ON) {
+  auto store = MakeStorageManualGc(/*flag_on=*/true);
+  const auto gid = CreateVertexWithProp(*store, 1);
+
+  auto long_reader = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*long_reader, gid), 1);
+
+  CommitProp(*store, gid, 2);
+  CommitProp(*store, gid, 3);
+
+  RunGc(*store);
+
+  // CORE SAFETY ASSERTION: R's snapshot version must not have been reclaimed. A wrong value or a
+  // crash here means GC over-reclaimed past the visibility horizon -- a real feature bug, not a
+  // test problem. Do NOT weaken this.
+  EXPECT_EQ(ReadProp(*long_reader, gid), 1)
+      << "GC OVER-RECLAIM: long reader lost its snapshot version (X=1) after newer commits + GC. "
+         "The visibility horizon advanced past the oldest active snapshot_ts.";
+
+  long_reader.reset();
+  RunGc(*store);
+
+  auto fresh_reader = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*fresh_reader, gid), 3);
+}
+
+// Two readers with different snapshots: R1 sees 1, R2 sees 2. The horizon is min(active snapshot_ts)
+// = R1's snapshot (the OldestActive txn), which protects BOTH older versions across GC. Releasing
+// R1 lifts the floor to R2; releasing R2 lets GC reclaim down to the latest.
+TEST(LockFreeReadSnapshot, MultipleReadersDifferentSnapshots_OldestHorizon_ON) {
+  auto store = MakeStorageManualGc(/*flag_on=*/true);
+  const auto gid = CreateVertexWithProp(*store, 1);
+
+  auto r1 = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*r1, gid), 1);
+
+  CommitProp(*store, gid, 2);
+  auto r2 = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*r2, gid), 2);
+
+  CommitProp(*store, gid, 3);
+
+  RunGc(*store);
+
+  // Horizon = R1's snapshot; both R1's version (1) and R2's version (2) are retained.
+  EXPECT_EQ(ReadProp(*r1, gid), 1)
+      << "GC OVER-RECLAIM: R1 lost its snapshot version (X=1); horizon advanced past the oldest active snapshot_ts.";
+  EXPECT_EQ(ReadProp(*r2, gid), 2)
+      << "GC OVER-RECLAIM: R2 lost its snapshot version (X=2) while R1 still pinned an older horizon.";
+
+  r1.reset();
+  RunGc(*store);
+
+  // R1 gone: floor rises to R2's snapshot. R2 still reads its version; a fresh reader reads latest.
+  EXPECT_EQ(ReadProp(*r2, gid), 2)
+      << "GC OVER-RECLAIM: R2 lost its snapshot version (X=2) after R1 released; horizon overshot R2's snapshot_ts.";
+  {
+    auto fresh_reader = store->Access(memgraph::storage::READ);
+    EXPECT_EQ(ReadProp(*fresh_reader, gid), 3);
+  }
+
+  r2.reset();
+  RunGc(*store);
+
+  auto fresh_reader = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*fresh_reader, gid), 3);
+}
+
+// A/B equivalence to LongReaderVersionRetainedAcrossGc_ON with the flag OFF. The observable outcome
+// is identical: OFF pins the version via the start_ts horizon, ON via the snapshot_ts horizon. The
+// flag changes the horizon computation, not the observable read result.
+TEST(LockFreeReadSnapshot, LongReaderVersionRetainedAcrossGc_OFF_AB) {
+  auto store = MakeStorageManualGc(/*flag_on=*/false);
+  const auto gid = CreateVertexWithProp(*store, 1);
+
+  auto long_reader = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*long_reader, gid), 1);
+
+  CommitProp(*store, gid, 2);
+  CommitProp(*store, gid, 3);
+
+  RunGc(*store);
+
+  EXPECT_EQ(ReadProp(*long_reader, gid), 1)
+      << "GC OVER-RECLAIM (flag OFF): long reader lost its snapshot version (X=1); the start_ts horizon "
+         "failed to retain a version an active reader still needs.";
+
+  long_reader.reset();
+  RunGc(*store);
+
+  auto fresh_reader = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*fresh_reader, gid), 3);
 }
