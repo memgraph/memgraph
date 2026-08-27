@@ -57,6 +57,10 @@ _resolve:
     @cp -r "{{ here }}/versions/{{ set_name }}" "{{ here }}/resolved"
     @echo "version set: {{ set_name }}"
 
+# What changing one stage costs; no argument reports every stage.
+impact stage="":
+    @"{{ here }}/verify/impact.py" {{ stage }}
+
 # The version sets on offer.
 sets:
     @ls "{{ here }}/versions"
@@ -68,7 +72,7 @@ diff-sets a b:
 # Static checks. Seconds, and they catch what otherwise fails hours into a build.
 check:
     "{{ here }}/verify/stage-vars.py"
-    "{{ here }}/verify/stage-order.py"
+    "{{ here }}/verify/stage-graph.py"
     @for f in "{{ here }}"/stages/*.sh "{{ here }}"/lib/*.sh "{{ here }}"/verify/*.sh; do bash -n "$f" || exit 1; done
     @echo "stage scripts parse"
     # A stage script without its exec bit fails as "Permission denied" inside
