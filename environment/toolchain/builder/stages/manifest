@@ -42,9 +42,9 @@ gdbinit            pahole
 cppcheck           @archives
 swig               @archives
 llvm               binutils cmake libffi swig zlib zstd @archives
-activate           llvm
+activate           llvm +files/activate
 mgconsole          activate cmake elfutils llvm openssl xz zlib zstd +lib/clang-env.sh
 heaptrack          activate cmake elfutils llvm xz zlib zstd
 verify             * +verify/
 relocate           *
-package            * +resolved/toolchain.env
+package            * +files/toolchain.cmake +resolved/toolchain.env

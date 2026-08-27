@@ -40,5 +40,4 @@ COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX
 COMMON_CONFIGURE_FLAGS="--enable-shared=no --prefix=$PREFIX"
 COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
 
-MGCONSOLE_TAG="v1.7.0"
 # Host deps (apt): git, make — OpenSSL comes from the sysroot.

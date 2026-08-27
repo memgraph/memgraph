@@ -10,7 +10,7 @@ else
     return 1 2>/dev/null || exit 1
 fi
 
-readonly SCRIPT_DIR=$( cd -- "$( dirname -- "${SCRIPT_SOURCE}" )" &> /dev/null && pwd )
+SCRIPT_DIR=$( cd -- "$( dirname -- "${SCRIPT_SOURCE}" )" &> /dev/null && pwd )
 PREFIX=$SCRIPT_DIR
 
 # The toolchain is named by the directory it was extracted to, not by a value

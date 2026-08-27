@@ -43,8 +43,7 @@ RUN apt-get update && \
 # $DIR in the recipes: holds archives/, build/, and the version's own
 # activate.in and toolchain.cmake.
 WORKDIR /work
-COPY files/ /work/
-COPY lib/ /tc/lib/
+COPY lib/common.sh /tc/lib/
 
 # Build arguments so they are part of every stage's cache key rather than
 # detected at run time. TC_FOR_ARM selects the cross-target and is a knob;
@@ -249,6 +248,7 @@ RUN --mount=type=cache,target=/work/archives,sharing=locked /tc/stages/llvm.sh
 # original script that ordering was implicit in the line order.
 FROM s-llvm AS s-activate
 COPY resolved/activate.env /tc/versions/
+COPY files/activate /work/
 COPY stages/activate.sh /tc/stages/
 RUN /tc/stages/activate.sh
 
@@ -282,6 +282,7 @@ RUN /tc/stages/relocate.sh
 # stages and a version bump would rebuild every one of them.
 FROM s-relocate AS s-package
 COPY resolved/toolchain.env /tc/versions/
+COPY files/toolchain.cmake /work/
 COPY stages/package.sh /tc/stages/
 RUN /tc/stages/package.sh
 
