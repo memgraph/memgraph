@@ -99,11 +99,7 @@ struct DatabaseMetricHandles {
   CounterHandle scan_all_by_edge_operator;
   CounterHandle scan_all_by_edge_type_operator;
   CounterHandle scan_all_by_edge_type_property_operator;
-  CounterHandle scan_all_by_edge_type_property_value_operator;
-  CounterHandle scan_all_by_edge_type_property_range_operator;
   CounterHandle scan_all_by_edge_property_operator;
-  CounterHandle scan_all_by_edge_property_value_operator;
-  CounterHandle scan_all_by_edge_property_range_operator;
   CounterHandle scan_all_by_edge_id_operator;
   CounterHandle scan_all_by_vertex_property_operator;
   CounterHandle scan_all_by_point_distance_operator;

@@ -145,11 +145,7 @@ class ScanAllById;
 class ScanAllByEdge;
 class ScanAllByEdgeType;
 class ScanAllByEdgeTypeProperty;
-class ScanAllByEdgeTypePropertyValue;
-class ScanAllByEdgeTypePropertyRange;
 class ScanAllByEdgeProperty;
-class ScanAllByEdgePropertyValue;
-class ScanAllByEdgePropertyRange;
 class ScanAllByEdgeId;
 class ScanAllByVertexProperty;
 class ScanAllByPointDistance;
@@ -201,28 +197,22 @@ class ScanParallelByLabelProperties;
 class ScanParallelByEdge;
 class ScanParallelByEdgeType;
 class ScanParallelByEdgeTypeProperty;
-class ScanParallelByEdgeTypePropertyValue;
-class ScanParallelByEdgeTypePropertyRange;
 class ScanParallelByEdgeProperty;
-class ScanParallelByEdgePropertyValue;
-class ScanParallelByEdgePropertyRange;
 class ScanParallelByVertexProperty;
 class ScanChunk;
 class ScanChunkByEdge;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelProperties, ScanAllById, ScanAllByEdge,
-    ScanAllByEdgeType, ScanAllByEdgeTypeProperty, ScanAllByEdgeTypePropertyValue, ScanAllByEdgeTypePropertyRange,
-    ScanAllByEdgeProperty, ScanAllByEdgePropertyValue, ScanAllByEdgePropertyRange, ScanAllByEdgeId,
-    ScanAllByVertexProperty, ScanAllByPointDistance, ScanAllByPointWithinbbox, Expand, ExpandVariable,
-    ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
-    EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union,
-    Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin,
-    RollUpApply, PeriodicCommit, PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl,
-    AggregateParallel, OrderByParallel, ScanParallel, ScanParallelByLabel, ScanParallelByLabelProperties,
-    ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty, ScanParallelByEdge, ScanParallelByEdgeTypePropertyValue,
-    ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty, ScanParallelByEdgePropertyValue,
-    ScanParallelByEdgePropertyRange, ScanParallelByVertexProperty, ScanChunk, ScanChunkByEdge, ParallelMerge>;
+    ScanAllByEdgeType, ScanAllByEdgeTypeProperty, ScanAllByEdgeProperty, ScanAllByEdgeId, ScanAllByVertexProperty,
+    ScanAllByPointDistance, ScanAllByPointWithinbbox, Expand, ExpandVariable, ConstructNamedPath, Filter, Produce,
+    Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate,
+    Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
+    Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
+    PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl, AggregateParallel,
+    OrderByParallel, ScanParallel, ScanParallelByLabel, ScanParallelByLabelProperties, ScanParallelByEdgeType,
+    ScanParallelByEdgeTypeProperty, ScanParallelByEdge, ScanParallelByEdgeProperty, ScanParallelByVertexProperty,
+    ScanChunk, ScanChunkByEdge, ParallelMerge>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -723,7 +713,8 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAllByEdge {
   ScanAllByEdgeTypeProperty() = default;
   ScanAllByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
                             Symbol node2_symbol, EdgeAtom::Direction direction, storage::EdgeTypeId edge_type,
-                            storage::PropertyId property, storage::View view = storage::View::OLD);
+                            storage::PropertyId property, ExpressionRange expression_range,
+                            storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
@@ -736,66 +727,7 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAllByEdge {
   std::string ToString(const DbAccessor *dba) const override;
 
   storage::PropertyId property_;
-
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
-};
-
-class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAllByEdge {
- public:
-  static const utils::TypeInfo kType;
-
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  ScanAllByEdgeTypePropertyValue() = default;
-  ScanAllByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
-                                 Symbol node2_symbol, EdgeAtom::Direction direction, storage::EdgeTypeId edge_type,
-                                 storage::PropertyId property, Expression *expression,
-                                 storage::View view = storage::View::OLD);
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
-
-  bool HasSingleInput() const override { return true; }
-
-  std::shared_ptr<LogicalOperator> input() const override { return input_; }
-
-  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
-
-  std::string ToString(const DbAccessor *dba) const override;
-
-  storage::PropertyId property_;
-  Expression *expression_;
-
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
-};
-
-class ScanAllByEdgeTypePropertyRange : public memgraph::query::plan::ScanAllByEdge {
- public:
-  static const utils::TypeInfo kType;
-
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  /** Bound with expression which when evaluated produces the bound value. */
-  using Bound = utils::Bound<Expression *>;
-  ScanAllByEdgeTypePropertyRange() = default;
-
-  ScanAllByEdgeTypePropertyRange(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
-                                 Symbol node2_symbol, EdgeAtom::Direction direction, storage::EdgeTypeId edge_type,
-                                 storage::PropertyId property, std::optional<Bound> lower_bound,
-                                 std::optional<Bound> upper_bound, storage::View view = storage::View::OLD);
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
-
-  bool HasSingleInput() const override { return true; }
-
-  std::shared_ptr<LogicalOperator> input() const override { return input_; }
-
-  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
-
-  std::string ToString(const DbAccessor *dba) const override;
-
-  storage::PropertyId property_;
-  std::optional<Bound> lower_bound_;
-  std::optional<Bound> upper_bound_;
+  ExpressionRange expression_range_{ExpressionRange::IsNotNull()};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
@@ -809,7 +741,7 @@ class ScanAllByEdgeProperty : public memgraph::query::plan::ScanAllByEdge {
   ScanAllByEdgeProperty() = default;
   ScanAllByEdgeProperty(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
                         Symbol node2_symbol, EdgeAtom::Direction direction, storage::PropertyId property,
-                        storage::View view = storage::View::OLD);
+                        ExpressionRange expression_range, storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
@@ -822,65 +754,7 @@ class ScanAllByEdgeProperty : public memgraph::query::plan::ScanAllByEdge {
   std::string ToString(const DbAccessor *dba) const override;
 
   storage::PropertyId property_;
-
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
-};
-
-class ScanAllByEdgePropertyValue : public memgraph::query::plan::ScanAllByEdge {
- public:
-  static const utils::TypeInfo kType;
-
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  ScanAllByEdgePropertyValue() = default;
-  ScanAllByEdgePropertyValue(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
-                             Symbol node2_symbol, EdgeAtom::Direction direction, storage::PropertyId property,
-                             Expression *expression, storage::View view = storage::View::OLD);
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
-
-  bool HasSingleInput() const override { return true; }
-
-  std::shared_ptr<LogicalOperator> input() const override { return input_; }
-
-  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
-
-  std::string ToString(const DbAccessor *dba) const override;
-
-  storage::PropertyId property_;
-  Expression *expression_;
-
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
-};
-
-class ScanAllByEdgePropertyRange : public memgraph::query::plan::ScanAllByEdge {
- public:
-  static const utils::TypeInfo kType;
-
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  /** Bound with expression which when evaluated produces the bound value. */
-  using Bound = utils::Bound<Expression *>;
-  ScanAllByEdgePropertyRange() = default;
-
-  ScanAllByEdgePropertyRange(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
-                             Symbol node2_symbol, EdgeAtom::Direction direction, storage::PropertyId property,
-                             std::optional<Bound> lower_bound, std::optional<Bound> upper_bound,
-                             storage::View view = storage::View::OLD);
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
-
-  bool HasSingleInput() const override { return true; }
-
-  std::shared_ptr<LogicalOperator> input() const override { return input_; }
-
-  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
-
-  std::string ToString(const DbAccessor *dba) const override;
-
-  storage::PropertyId property_;
-  std::optional<Bound> lower_bound_;
-  std::optional<Bound> upper_bound_;
+  ExpressionRange expression_range_{ExpressionRange::IsNotNull()};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
@@ -2193,7 +2067,8 @@ class ScanParallelByEdgeTypeProperty : public memgraph::query::plan::ScanParalle
 
   ScanParallelByEdgeTypeProperty() = default;
   ScanParallelByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
-                                 Symbol state_symbol, storage::EdgeTypeId edge_type, storage::PropertyId property);
+                                 Symbol state_symbol, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                                 ExpressionRange expression_range = ExpressionRange::IsNotNull());
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
@@ -2202,31 +2077,7 @@ class ScanParallelByEdgeTypeProperty : public memgraph::query::plan::ScanParalle
 
   storage::EdgeTypeId edge_type_;
   storage::PropertyId property_;
-};
-
-/// Parallel scan variant for edges with edge type, property, and range.
-class ScanParallelByEdgeTypePropertyRange : public memgraph::query::plan::ScanParallel {
- public:
-  static const utils::TypeInfo kType;
-
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  using Bound = utils::Bound<Expression *>;
-  ScanParallelByEdgeTypePropertyRange() = default;
-  ScanParallelByEdgeTypePropertyRange(const std::shared_ptr<LogicalOperator> &input, storage::View view,
-                                      size_t num_threads, Symbol state_symbol, storage::EdgeTypeId edge_type,
-                                      storage::PropertyId property, std::optional<Bound> lower_bound,
-                                      std::optional<Bound> upper_bound);
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
-
-  std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
-
-  storage::EdgeTypeId edge_type_;
-  storage::PropertyId property_;
-  std::optional<Bound> lower_bound_;
-  std::optional<Bound> upper_bound_;
+  ExpressionRange expression_range_{ExpressionRange::IsNotNull()};
 };
 
 /// Parallel scan variant for edges with property only.
@@ -2238,7 +2089,8 @@ class ScanParallelByEdgeProperty : public memgraph::query::plan::ScanParallel {
 
   ScanParallelByEdgeProperty() = default;
   ScanParallelByEdgeProperty(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
-                             Symbol state_symbol, storage::PropertyId property);
+                             Symbol state_symbol, storage::PropertyId property,
+                             ExpressionRange expression_range = ExpressionRange::IsNotNull());
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
@@ -2246,49 +2098,7 @@ class ScanParallelByEdgeProperty : public memgraph::query::plan::ScanParallel {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
   storage::PropertyId property_;
-};
-
-/// Parallel scan variant for edges with property and value.
-class ScanParallelByEdgePropertyValue : public memgraph::query::plan::ScanParallel {
- public:
-  static const utils::TypeInfo kType;
-
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  ScanParallelByEdgePropertyValue() = default;
-  ScanParallelByEdgePropertyValue(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
-                                  Symbol state_symbol, storage::PropertyId property, Expression *expression);
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
-
-  std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
-
-  storage::PropertyId property_;
-  Expression *expression_;
-};
-
-/// Parallel scan variant for edges with property and range.
-class ScanParallelByEdgePropertyRange : public memgraph::query::plan::ScanParallel {
- public:
-  static const utils::TypeInfo kType;
-
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  using Bound = utils::Bound<Expression *>;
-  ScanParallelByEdgePropertyRange() = default;
-  ScanParallelByEdgePropertyRange(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
-                                  Symbol state_symbol, storage::PropertyId property, std::optional<Bound> lower_bound,
-                                  std::optional<Bound> upper_bound);
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
-
-  std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
-
-  storage::PropertyId property_;
-  std::optional<Bound> lower_bound_;
-  std::optional<Bound> upper_bound_;
+  ExpressionRange expression_range_{ExpressionRange::IsNotNull()};
 };
 
 /// Parallel scan variant for vertices with global property index.
@@ -2332,28 +2142,6 @@ class ScanParallelByEdge : public memgraph::query::plan::ScanParallel {
   Symbol node1_symbol_;
   Symbol node2_symbol_;
   EdgeAtom::Direction direction_;
-};
-
-/// Parallel scan variant for edges by edge type, property, and value.
-class ScanParallelByEdgeTypePropertyValue : public memgraph::query::plan::ScanParallel {
- public:
-  static const utils::TypeInfo kType;
-
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  ScanParallelByEdgeTypePropertyValue() = default;
-  ScanParallelByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input, storage::View view,
-                                      size_t num_threads, Symbol state_symbol, storage::EdgeTypeId edge_type,
-                                      storage::PropertyId property, Expression *expression);
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
-
-  std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
-
-  storage::EdgeTypeId edge_type_;
-  storage::PropertyId property_;
-  Expression *expression_;
 };
 
 class ScanChunk : public memgraph::query::plan::ScanAll {

@@ -107,11 +107,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   DEFAULT_VISITS(ScanAllByEdge)
   DEFAULT_VISITS(ScanAllByEdgeType)
   DEFAULT_VISITS(ScanAllByEdgeTypeProperty)
-  DEFAULT_VISITS(ScanAllByEdgeTypePropertyValue)
-  DEFAULT_VISITS(ScanAllByEdgeTypePropertyRange)
   DEFAULT_VISITS(ScanAllByEdgeProperty)
-  DEFAULT_VISITS(ScanAllByEdgePropertyValue)
-  DEFAULT_VISITS(ScanAllByEdgePropertyRange)
   DEFAULT_VISITS(ScanAllByEdgeId)
   DEFAULT_VISITS(ScanAllByVertexProperty)
   DEFAULT_VISITS(ScanAllByPointDistance)
@@ -124,11 +120,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   DEFAULT_VISITS(ScanParallelByEdge)
   DEFAULT_VISITS(ScanParallelByEdgeType)
   DEFAULT_VISITS(ScanParallelByEdgeTypeProperty)
-  DEFAULT_VISITS(ScanParallelByEdgeTypePropertyValue)
-  DEFAULT_VISITS(ScanParallelByEdgeTypePropertyRange)
   DEFAULT_VISITS(ScanParallelByEdgeProperty)
-  DEFAULT_VISITS(ScanParallelByEdgePropertyValue)
-  DEFAULT_VISITS(ScanParallelByEdgePropertyRange)
   DEFAULT_VISITS(ScanParallelByVertexProperty)
   DEFAULT_VISITS(ParallelMerge)
   DEFAULT_VISITS(AggregateParallel)
@@ -540,44 +532,18 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (scan_type == ScanAllByEdgeTypeProperty::kType) {
       auto *scan = dynamic_cast<ScanAllByEdgeTypeProperty *>(scan_op);
-      return std::make_shared<ScanParallelByEdgeTypeProperty>(
-          input, scan->view_, num_threads_, state_symbol, scan->common_.edge_types[0], scan->property_);
-    }
-    if (scan_type == ScanAllByEdgeTypePropertyValue::kType) {
-      auto *scan = dynamic_cast<ScanAllByEdgeTypePropertyValue *>(scan_op);
-      return std::make_shared<ScanParallelByEdgeTypePropertyValue>(input,
-                                                                   scan->view_,
-                                                                   num_threads_,
-                                                                   state_symbol,
-                                                                   scan->common_.edge_types[0],
-                                                                   scan->property_,
-                                                                   scan->expression_->Clone(ast_storage));
-    }
-    if (scan_type == ScanAllByEdgeTypePropertyRange::kType) {
-      auto *scan = dynamic_cast<ScanAllByEdgeTypePropertyRange *>(scan_op);
-      return std::make_shared<ScanParallelByEdgeTypePropertyRange>(input,
-                                                                   scan->view_,
-                                                                   num_threads_,
-                                                                   state_symbol,
-                                                                   scan->common_.edge_types[0],
-                                                                   scan->property_,
-                                                                   scan->lower_bound_,
-                                                                   scan->upper_bound_);
+      return std::make_shared<ScanParallelByEdgeTypeProperty>(input,
+                                                              scan->view_,
+                                                              num_threads_,
+                                                              state_symbol,
+                                                              scan->common_.edge_types[0],
+                                                              scan->property_,
+                                                              scan->expression_range_);
     }
     if (scan_type == ScanAllByEdgeProperty::kType) {
       auto *scan = dynamic_cast<ScanAllByEdgeProperty *>(scan_op);
       return std::make_shared<ScanParallelByEdgeProperty>(
-          input, scan->view_, num_threads_, state_symbol, scan->property_);
-    }
-    if (scan_type == ScanAllByEdgePropertyValue::kType) {
-      auto *scan = dynamic_cast<ScanAllByEdgePropertyValue *>(scan_op);
-      return std::make_shared<ScanParallelByEdgePropertyValue>(
-          input, scan->view_, num_threads_, state_symbol, scan->property_, scan->expression_);
-    }
-    if (scan_type == ScanAllByEdgePropertyRange::kType) {
-      auto *scan = dynamic_cast<ScanAllByEdgePropertyRange *>(scan_op);
-      return std::make_shared<ScanParallelByEdgePropertyRange>(
-          input, scan->view_, num_threads_, state_symbol, scan->property_, scan->lower_bound_, scan->upper_bound_);
+          input, scan->view_, num_threads_, state_symbol, scan->property_, scan->expression_range_);
     }
     if (scan_type == ScanAllByVertexProperty::kType) {
       auto *scan = dynamic_cast<ScanAllByVertexProperty *>(scan_op);
