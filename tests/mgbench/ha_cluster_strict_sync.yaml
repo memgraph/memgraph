@@ -17,6 +17,16 @@
 # Log level stays at WARNING. Trace-level logging on the commit path would dominate the
 # measurement rather than the replication it is meant to expose.
 #
+# Snapshot recovery runs in parallel. --data-recovery-on-startup pairs with
+# storage_snapshot_on_exit, so every instance reloads a snapshot on each of the restarts a run
+# makes, and a replica syncing from main loads one too. The thread count is pinned rather than
+# left to the default, which derives from the host's CPU count and so ignores the cpuset the
+# benchmark container is confined to; parallel schema recovery only engages above one thread.
+#
+# Edges carry properties, which is not the flag's default but is what the standalone Memgraph
+# runner forces on itself. The two series are only comparable while both sides store edges the
+# same way, and the replication tax this suite reports is a ratio between them.
+#
 # Each instance's console output is discarded, since a run restarts them all once per measurement and
 # every start would otherwise print a banner and a couple of notices. The log files are unaffected.
 # Set silence_output: false on an instance to watch it start.
@@ -27,6 +37,9 @@ instance_1:
     - "--bolt-port=7687"
     - "--management-port=10011"
     - "--data-recovery-on-startup=true"
+    - "--storage-recovery-thread-count=8"
+    - "--storage-parallel-schema-recovery=true"
+    - "--storage-properties-on-edges=true"
   log_file: "mgbench_ha_instance_1.log"
   storage_snapshot_on_exit: true
   setup_queries: []
@@ -37,6 +50,9 @@ instance_2:
     - "--bolt-port=7688"
     - "--management-port=10012"
     - "--data-recovery-on-startup=true"
+    - "--storage-recovery-thread-count=8"
+    - "--storage-parallel-schema-recovery=true"
+    - "--storage-properties-on-edges=true"
   log_file: "mgbench_ha_instance_2.log"
   storage_snapshot_on_exit: true
   setup_queries: []

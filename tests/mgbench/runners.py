@@ -612,6 +612,18 @@ class BaseRunner(ABC):
     def get_database_port(self):
         return self._bolt_port
 
+    def supports_snapshot_recovery(self):
+        """
+        Whether recover_snapshot can load a dataset on this runner. Off by default, and a runner
+        that says yes changes what its import phase means: loading a snapshot is one query, so the
+        import stops being measurable and stops being comparable with a run that replays the
+        dataset's import queries.
+        """
+        return False
+
+    def recover_snapshot(self, path, expected_size):
+        raise NotImplementedError("{} cannot recover a snapshot".format(type(self).__name__))
+
 
 class ExternalVendor(BaseRunner):
     def __init__(self, benchmark_context: BenchmarkContext):
@@ -813,6 +825,10 @@ class MemgraphHA(BaseRunner):
     READY_REPORT_SEC = 10
     CATCHUP_TIMEOUT_SEC = 600
     WRITE_PROBE_QUERY = "CREATE (n:__mgbench_ha_probe) DELETE n;"
+    SNAPSHOT_TIMEOUT_SEC = 900
+    # Slower than the readiness poll: every SHOW STORAGE INFO walks the instance's storage directory
+    # to total its disk usage, and the directory holds the dataset being waited for.
+    SNAPSHOT_POLL_SEC = 2.0
 
     def __init__(self, benchmark_context: BenchmarkContext):
         super().__init__(benchmark_context=benchmark_context)
@@ -1057,6 +1073,91 @@ class MemgraphHA(BaseRunner):
         elapsed = time.time() - started_at
         if elapsed >= 1.0:
             log.info("Replicas caught up in {:.1f}s, which is not counted in the throughput.".format(elapsed))
+
+    def _storage_counts(self, instance_name):
+        """(vertices, edges) an instance holds in its own storage. Both are exact counts."""
+        rows = self._fetch(instance_name, "SHOW STORAGE INFO ON CURRENT DATABASE;")
+        info = {row[0]: row[1] for row in rows}
+        return info["vertex_count"], info["edge_count"]
+
+    def _wait_for_replicas_to_hold(self, expected):
+        """
+        Blocks until every replica's own storage holds `expected` (vertices, edges).
+
+        Nothing has to prompt the transfer: recovering a snapshot force-recovers every replication
+        client from scratch, so by the time the query returns each replica is already being sent the
+        new dataset. What is left is knowing when it arrived, and the counts answer that about the
+        data itself rather than about a counter that tracks it.
+        """
+        replicas = [name for name in self._data_instances if name != self._main_name]
+        started_at = time.time()
+        deadline = started_at + self.SNAPSHOT_TIMEOUT_SEC
+        reported_at = 0.0
+        while True:
+            behind = {}
+            for name in replicas:
+                try:
+                    counts = self._storage_counts(name)
+                except Exception as error:
+                    behind[name] = "not answering ({})".format(error)
+                    continue
+                if counts != expected:
+                    behind[name] = "{} vertices, {} edges".format(*counts)
+            if not behind:
+                log.info("Replicas hold the snapshot after {:.1f}s.".format(time.time() - started_at))
+                return
+
+            if time.time() > deadline:
+                raise Exception(
+                    "Replicas did not receive the snapshot within {}s. Expected {} vertices and {} "
+                    "edges, but: {}".format(self.SNAPSHOT_TIMEOUT_SEC, expected[0], expected[1], behind)
+                )
+            if time.time() - reported_at >= self.READY_REPORT_SEC:
+                reported_at = time.time()
+                log.info("Waiting for replicas ({:.0f}s): {}".format(time.time() - started_at, behind))
+            time.sleep(self.SNAPSHOT_POLL_SEC)
+
+    def supports_snapshot_recovery(self):
+        return True
+
+    def recover_snapshot(self, path, expected_size):
+        """
+        Loads the dataset on main from a durability snapshot and blocks until every replica holds it
+        too, in place of replaying the dataset's import queries -- which on a cluster costs one
+        replicated transaction each.
+
+        FORCE because the recovery is refused on a storage that already holds data, and a phase can
+        start from a populated cluster. It is only accepted on main, which force-recovers every
+        replica as part of the same query; the wait below is for those transfers to land, so that
+        none of them overlaps a measurement.
+        """
+        if self._main_name is None:
+            raise Exception("The HA cluster is not running, cannot recover a snapshot!")
+        if "'" in path:
+            raise Exception("The snapshot path cannot contain a quote: {}".format(path))
+
+        started_at = time.time()
+        log.info("Recovering the dataset on main {} from {}.".format(self._main_name, path))
+        self._fetch(self._main_name, "RECOVER SNAPSHOT '{}' FORCE;".format(path))
+        log.info("Main loaded the snapshot in {:.1f}s.".format(time.time() - started_at))
+
+        # Checked before anything is written, so the counts are the snapshot's own. A snapshot of
+        # some other dataset would otherwise be benchmarked as though it were this one.
+        expected = (expected_size["vertices"], expected_size["edges"])
+        on_main = self._storage_counts(self._main_name)
+        if on_main != expected:
+            raise Exception(
+                "Main {} holds {} vertices and {} edges after loading {}, but the workload expects "
+                "{} and {}.".format(self._main_name, on_main[0], on_main[1], path, expected[0], expected[1])
+            )
+        # The snapshot carries its own indexes, and a query benchmark run against a dataset missing
+        # them measures something else entirely, so the count is logged rather than left implicit.
+        indexes = len(self._fetch(self._main_name, "SHOW INDEX INFO;"))
+        log.info("Main holds {} vertices, {} edges and {} indexes.".format(on_main[0], on_main[1], indexes))
+
+        self._wait_for_replicas_to_hold(expected)
+        log.info("The cluster loaded the dataset from a snapshot in {:.1f}s.".format(time.time() - started_at))
+        return True
 
     def _stop_cluster(self):
         # Read the usage first, so main's peak memory covers the measured run rather than the

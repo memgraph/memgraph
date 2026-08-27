@@ -746,9 +746,18 @@ def setup_cache_config(benchmark_context, cache):
         return helpers.RecursiveDict()
 
 
-def save_import_results(workload, results, import_results, rss_usage):
+def save_import_results(workload, results, import_results, rss_usage, snapshot_seconds=None):
     log.info("Summarized importing benchmark results:")
     import_key = [workload.NAME, workload.get_variant(), IMPORT]
+    if snapshot_seconds is not None:
+        # Stands in for the throughput summary below, which has nothing to report on this path: the
+        # dataset arrived as one snapshot load rather than as a query per vertex and edge.
+        size = workload.get_size()
+        log.success(
+            "Loaded a snapshot of {} vertices and {} edges in {:.1f} seconds.".format(
+                size["vertices"], size["edges"], snapshot_seconds
+            )
+        )
     if import_results is not None and rss_usage is not None:
         # Display import statistics.
         for row in import_results:
@@ -882,6 +891,27 @@ def run_isolated_workload_without_authorization(
         save_to_results(results, ret, workload, group, query, WITHOUT_FINE_GRAINED_AUTHORIZATION)
 
 
+def import_dataset_from_snapshot(vendor_runner, workload):
+    """
+    Loads the dataset from a durability snapshot instead of replaying its import queries, when both
+    the runner and the workload's variant offer one. Returns how long that took, or None when the
+    dataset has to be imported the usual way.
+
+    The duration is all there is to report. A snapshot load is one query, so there is no per-query
+    throughput to summarize, and the import phase of a run that takes this path is not comparable
+    with one that replays the dataset's queries.
+    """
+    if not vendor_runner.supports_snapshot_recovery() or workload.get_snapshot_url() is None:
+        return None
+    log.info("Loading the dataset from a snapshot rather than replaying its import queries.")
+    path = workload.prepare_snapshot(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
+    # Timed here rather than inside the runner, so the figure covers everything the import phase
+    # replaces: the load on main and the wait for the replicas to hold it.
+    started_at = time.time()
+    vendor_runner.recover_snapshot(path, workload.get_size())
+    return time.time() - started_at
+
+
 def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload, storage_mode):
     if benchmark_context.vendor_name != GraphVendors.NEO4J:
         # Neo4j will get started just before import -> without this if statement it would try to start it twice
@@ -889,7 +919,10 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
     log.info("Executing database index setup")
     start_time = time.time()
     import_results = None
-    if generated_queries:
+    snapshot_seconds = import_dataset_from_snapshot(vendor_runner, workload)
+    if snapshot_seconds is not None:
+        log.info("Dataset loaded from a snapshot, indexes included.")
+    elif generated_queries:
         client.execute(queries=workload.indexes_generator(), num_workers=1)
         log.info("Finished setting up indexes.")
         log.info("Started importing dataset")
@@ -918,7 +951,7 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
     log.info(f"Finished importing dataset in {time.time() - start_time}s")
     rss_usage = vendor_runner.stop_db_init(VENDOR_RUNNER_IMPORT)
 
-    return import_results, rss_usage
+    return import_results, rss_usage, snapshot_seconds
 
 
 def save_memory_usage_of_empty_db(vendor_runner, workload, results):
@@ -959,10 +992,10 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
         log.warning(
             f"The dataset_generator of workload {workload.NAME} produced no queries, so there is nothing to import."
         )
-    import_results, rss_usage = setup_indices_and_import_dataset(
+    import_results, rss_usage, snapshot_seconds = setup_indices_and_import_dataset(
         client, vendor_runner, generated_queries, workload, storage_mode
     )
-    save_import_results(workload, results, import_results, rss_usage)
+    save_import_results(workload, results, import_results, rss_usage, snapshot_seconds)
     memory_usage_with_imported_data = save_memory_usage_of_imported_data(
         vendor_runner, workload, results, memory_usage_of_empty_db
     )
