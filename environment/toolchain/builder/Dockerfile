@@ -53,8 +53,6 @@ ENV TC_FOR_ARM=${TC_FOR_ARM} \
     TC_BUILDER_GLIBC_FLOOR=${TC_BUILDER_GLIBC_FLOOR} \
     SOURCE_DATE_EPOCH=0
 
-COPY versions/toolchain.env /tc/versions/toolchain.env
-
 # --------------------------------------------------------------------------
 # Bootstrap: kernel headers -> glibc -> GCC -> binutils.
 # --------------------------------------------------------------------------
@@ -273,7 +271,11 @@ FROM s-verify AS s-relocate
 COPY stages/relocate.sh /tc/stages/
 RUN /tc/stages/relocate.sh
 
+# The only stage that knows which version is being cut. toolchain.env arrives
+# here rather than in the base layer, where it would be an input to all 34
+# stages and a version bump would rebuild every one of them.
 FROM s-relocate AS s-package
+COPY versions/toolchain.env /tc/versions/
 COPY stages/package.sh /tc/stages/
 RUN /tc/stages/package.sh
 

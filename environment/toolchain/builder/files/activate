@@ -13,6 +13,15 @@ fi
 readonly SCRIPT_DIR=$( cd -- "$( dirname -- "${SCRIPT_SOURCE}" )" &> /dev/null && pwd )
 PREFIX=$SCRIPT_DIR
 
+# The toolchain is named by the directory it was extracted to, not by a value
+# written in when it was built. The build produces one tree and the packaging
+# stage names it, so a version bump does not reach back into the build.
+MG_NAME=$( basename "$PREFIX" )
+case "$MG_NAME" in
+    toolchain-v*) MG_VERSION=${MG_NAME#toolchain-v} ;;
+    *)            MG_VERSION=unknown ;;
+esac
+
 # This file must be used with "source /path/to/toolchain/activate" *from bash*
 # You can't run it directly!
 
@@ -50,12 +59,12 @@ export ORIG_CFLAGS=${CFLAGS:-}
 
 # activate new environment
 export PATH=$PREFIX:$PREFIX/bin:${PATH:-}
-export PS1="(@NAME@) ${PS1:-}"
+export PS1="($MG_NAME) ${PS1:-}"
 export LD_LIBRARY_PATH=$PREFIX/lib:$PREFIX/lib64
 export CXXFLAGS=-isystem\ $PREFIX/include\ ${CXXFLAGS:-}
 export CFLAGS=-isystem\ $PREFIX/include\ ${CFLAGS:-}
 export MG_TOOLCHAIN_ROOT=$PREFIX
-export MG_TOOLCHAIN_VERSION=@TOOLCHAIN_VERSION@
+export MG_TOOLCHAIN_VERSION=$MG_VERSION
 
 # disable root
 function su () {
@@ -75,6 +84,7 @@ function deactivate() {
     export CXXFLAGS=${ORIG_CXXFLAGS:-}
     export CFLAGS=${ORIG_CFLAGS:-}
     unset ORIG_PATH ORIG_PS1 ORIG_LD_LIBRARY_PATH ORIG_CXXFLAGS ORIG_CFLAGS 2>/dev/null || true
+    unset MG_NAME MG_VERSION 2>/dev/null || true
     unset MG_TOOLCHAIN_ROOT MG_TOOLCHAIN_VERSION 2>/dev/null || true
     unset -f su sudo deactivate
 }

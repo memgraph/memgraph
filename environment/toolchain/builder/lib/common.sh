@@ -39,10 +39,13 @@ export LC_ALL=C
 # is what lets those references work unchanged.
 DIR="$TC_WORK"
 
-source "$TC_VERSIONS/toolchain.env"
-
-NAME=toolchain-v$TOOLCHAIN_VERSION
-PREFIX=/opt/$NAME
+# The build does not know which toolchain version it is producing, and must
+# not: the version would have to reach every stage, which means the base layer
+# they all descend from, and then bumping it rebuilds all of them even though
+# one tool changed. The prefix is fixed here and the packaging stage renames
+# the tree, which is safe because the relocate stage leaves every runpath
+# $ORIGIN-relative and nothing generated names the prefix.
+PREFIX=/opt/toolchain
 SYSROOT=$PREFIX/sysroot
 mkdir -p "$PREFIX"
 
