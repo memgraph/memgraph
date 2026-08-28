@@ -903,6 +903,16 @@ jobs:
           --cpuset-mems="0" \
           "mgbuild_${TOOLCHAIN}_${OS}"
 
+      - name: Run lockfree-read-snapshot A/B smoke
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph lockfree-read-snapshot-ab
+
       - name: Run micro benchmarks
         run: |
           ./release/package/mgbuild.sh \
