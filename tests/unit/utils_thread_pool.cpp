@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <latch>
 #include <memory>
 #include <thread>
 
@@ -139,11 +140,12 @@ TEST(ThreadPool, AddTaskRejectedAfterShutDown) {
   memgraph::utils::ThreadPool pool{1};
 
   std::atomic<int> ran{0};
-  ASSERT_TRUE(pool.AddTask([&] { ran.fetch_add(1); }));
-
-  while (pool.UnfinishedTasksNum() != 0) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
+  std::latch task_done{1};
+  ASSERT_TRUE(pool.AddTask([&] {
+    ran.fetch_add(1);
+    task_done.count_down();
+  }));
+  task_done.wait();  // block until the task has actually run -- no polling
 
   pool.ShutDown();
 
@@ -157,21 +159,19 @@ TEST(ThreadPool, ShutDownDrainsNothingButFinishesTheRunningTask) {
 
   memgraph::utils::ThreadPool pool{1};
 
-  std::atomic<bool> started{false};
-  std::atomic<bool> release{false};
+  // Two one-shot std::latch gates instead of hand-rolled atomic spin loops: latch::wait() blocks
+  // (lock-free, no polling) until count_down() drops the counter to zero.
+  std::latch worker_started{1};
+  std::latch may_release{1};
   std::atomic<bool> finished{false};
 
   pool.AddTask([&] {
-    started = true;
-    while (!release.load()) {
-      std::this_thread::sleep_for(1ms);
-    }
+    worker_started.count_down();
+    may_release.wait();
     finished = true;
   });
 
-  while (!started.load()) {
-    std::this_thread::sleep_for(1ms);
-  }
+  worker_started.wait();  // block until the worker is actually executing the task
 
   std::atomic<int> ran{0};
   for (size_t i = 0; i < queued_after_start; ++i) {
@@ -181,7 +181,7 @@ TEST(ThreadPool, ShutDownDrainsNothingButFinishesTheRunningTask) {
   std::atomic<size_t> discarded{0};
   std::jthread shutdown_thread([&] { discarded.store(pool.ShutDown()); });
 
-  release = true;
+  may_release.count_down();
   shutdown_thread.join();
 
   // Guaranteed, not racy: the running task has no stop-token early-out, so the worker can only leave it by
