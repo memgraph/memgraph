@@ -116,7 +116,7 @@ class Memgraph(ConanFile):
         self.requires("gflags/2.2.0-memgraph", force=True)
         self.requires("jemalloc/5.2.1-memgraph")
         self.requires("libbcrypt/1.0-memgraph")
-        self.requires("librdkafka/2.6.1")
+        self.requires("librdkafka/2.14.2")
         self.requires("librdtsc/0.3-memgraph")
         self.requires("libseccomp/2.6.0", options={"shared": True})
         self.requires("mgclient/1.8.0")
