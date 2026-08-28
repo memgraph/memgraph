@@ -33,15 +33,32 @@ namespace memgraph::dbms {
 // across that. Concurrent because ~Database -> AbortTwoPCForTenant may run on DeferDelete's
 // defer_pool_ thread (dbms/handler.hpp) tearing down tenant B while the RPC thread serves tenant A.
 //
-// Slot() is heap-allocated and deliberately never freed. No static destructor: a populated static
-// slot would be destroyed after main() returns, once every Database/InMemoryStorage is gone, so
-// destroying the cached accessor would dereference freed storage. main's shutdown clears the slot in
-// order while storages are alive; on paths that bypass that, leaking (not aborting) is strictly
-// safer. Also avoids a cross-TU destruction-order dependency with ~Database (dbms/database.cpp).
+// Slot lifetime is owned by a single Owner (below), constructed early in main() BEFORE the
+// DbmsHandler so it is destroyed AFTER it: by then ~DbmsHandler has run every ~Database, each
+// draining its own tenant's entry (dbms/database.cpp) while its storage is still alive, so the slot
+// is empty and freeing it dereferences no storage. This replaces the older "never freed" slot, whose
+// only purpose was to dodge a static destructor running after main() once every Database was already
+// gone. A populated slot must still never be DESTROYED against dead storage, so ~Owner detaches
+// (leaks) any stray accessor instead of aborting it -- reachable only if the ordered ~Database drain
+// were bypassed. When no Owner is installed (unit tests, embedded), Slot() falls back to a lazily
+// created leaked singleton, preserving the pre-Owner behaviour for those short-lived processes.
 class TwoPCCommitCache {
  public:
   // Static-only utility; all state lives in Slot().
   TwoPCCommitCache() = delete;
+
+  // RAII owner of the process-wide slot. Construct EXACTLY ONE, early in main() and BEFORE the
+  // DbmsHandler, so the slot outlives every Database yet is freed deterministically inside main()
+  // rather than at static-destruction time. See the class comment for the ordering contract.
+  class Owner {
+   public:
+    Owner();
+    ~Owner();
+    Owner(Owner const &) = delete;
+    Owner &operator=(Owner const &) = delete;
+    Owner(Owner &&) = delete;
+    Owner &operator=(Owner &&) = delete;
+  };
 
   // Captures the tenant uuid from storage->uuid() rather than re-deriving it from accessor->uuid()
   // later, so TakeForTenant/TakeMatching don't depend on destroy-before-extract ordering at the call
@@ -71,10 +88,13 @@ class TwoPCCommitCache {
   // Kept incomplete here so this header does not have to pull in the full storage definition.
   struct Record;
 
-  // The Synchronized<Record> backing the cache, heap-allocated and never freed -- see the class
-  // comment above for why. Returning it via a function (rather than a member field) lets Record
-  // stay incomplete in this header.
+  // The live slot: the Owner-installed one when present, else a leaked fallback (see the class
+  // comment). A member function rather than a data member so Record can stay incomplete here.
   static auto Slot() -> utils::Synchronized<Record, std::mutex> &;
+
+  // Installed by Owner's constructor, cleared by its destructor; nullptr when no Owner exists, in
+  // which case Slot() uses the fallback. Pointer-to-incomplete is fine.
+  static utils::Synchronized<Record, std::mutex> *installed_slot_;
 };
 
 }  // namespace memgraph::dbms
