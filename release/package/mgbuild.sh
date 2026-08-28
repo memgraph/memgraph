@@ -132,8 +132,8 @@ print_help () {
   echo -e "  --no-conan-cache              Disable conan cache volume mounting (default \"$DEFAULT_CONAN_CACHE_ENABLED\") -> this allows sharing conan cache between containers"
   echo -e "  --no-mgbench-cache            Disable mgbench cache volume mounting (default \"$DEFAULT_MGBENCH_CACHE_ENABLED\") -> without it mgbench recalibrates query counts and re-downloads datasets every run"
   echo -e "  --mgbench-cache-dir string    Specify host directory for the mgbench cache (default \"\$HOME/.cache/mgbench-ci\")"
-  echo -e "  --no-cargo-cache              Disable cargo registry volume mounting (default \"$DEFAULT_CARGO_CACHE_ENABLED\") -> without it every build re-downloads crates from crates.io"
-  echo -e "  --cargo-cache-dir string      Specify host directory for the cargo registry cache (default \"\$HOME/.cargo-ci\")"
+  echo -e "  --no-cargo-cache              Disable cargo cache volume mounting (default \"$DEFAULT_CARGO_CACHE_ENABLED\") -> without it every build re-downloads crates from crates.io"
+  echo -e "  --cargo-cache-dir string      Specify host directory for the cargo registry and git caches (default \"\$HOME/.cargo-ci\")"
   echo -e "  --enable-monitoring           Ship test metrics/logs to a remote monitoring stack (default \"false\"); requires --monitoring-host, --cluster-id and --cluster-env"
   echo -e "  --monitoring-host string      Hostname or IP of the remote monitoring stack (required with --enable-monitoring)"
   echo -e "  --cluster-id string           Cluster identifier label attached to exported metrics/logs (required with --enable-monitoring)"
@@ -3433,6 +3433,7 @@ case $command in
       if [[ "$cargo_cache_enabled" == "true" ]]; then
         echo "Setting up cargo cache directory permissions..."
         docker exec -u root $build_container bash -c "
+          mkdir -p $CARGO_CACHE_CONTAINER_DIR/registry $CARGO_CACHE_CONTAINER_DIR/git
           chown mg:mg $CARGO_CACHE_CONTAINER_DIR/registry $CARGO_CACHE_CONTAINER_DIR/git
           chmod a+rwX $CARGO_CACHE_CONTAINER_DIR/registry $CARGO_CACHE_CONTAINER_DIR/git
           echo 'Cargo cache directory permissions set'
