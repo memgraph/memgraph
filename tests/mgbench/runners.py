@@ -366,7 +366,9 @@ class BoltClientDocker(BaseClient):
         # Wait until the container is started
         time.sleep(2)
 
-        while True:
+        # A client that cannot run at all (e.g. missing shared libs) fails the
+        # same way as a database that is not up yet, so give up eventually.
+        for attempt in range(1, max_retries + 1):
             try:
                 run_command(command)
                 break
@@ -374,6 +376,11 @@ class BoltClientDocker(BaseClient):
                 log.log("Checking if database is up and running failed!")
                 log.warning("Reported errors from client:")
                 log.warning("Error: {}".format(e.stderr))
+                if attempt == max_retries:
+                    raise Exception(
+                        f"Client could not reach the database after {max_retries} attempts; "
+                        f"last client error: {e.stderr.strip() or e.stdout.strip()}"
+                    ) from e
                 log.warning("Database is not up yet, waiting 3 second")
                 time.sleep(3)
                 log.warning("Continuing execution...")
