@@ -12,6 +12,7 @@
 #include "dbms/inmemory/two_pc_commit_cache.hpp"
 
 #include "storage/v2/inmemory/storage.hpp"
+#include "utils/logging.hpp"
 
 #include <utility>
 
@@ -33,9 +34,38 @@ struct TwoPCCommitCache::Record {
   Record &operator=(Record const &) = delete;
 };
 
+utils::Synchronized<TwoPCCommitCache::Record, std::mutex> *TwoPCCommitCache::installed_slot_ = nullptr;
+
 auto TwoPCCommitCache::Slot() -> utils::Synchronized<Record, std::mutex> & {
-  static auto *slot = new utils::Synchronized<Record, std::mutex>{};
-  return *slot;
+  if (installed_slot_ != nullptr) return *installed_slot_;
+  // No Owner installed (unit tests, embedded use): fall back to a lazily-created, leaked singleton --
+  // the lifetime the whole slot used to have. Production installs an Owner in main() before any
+  // replica RPC can populate the slot, so this branch is never taken there.
+  static auto *fallback = new utils::Synchronized<Record, std::mutex>{};
+  return *fallback;
+}
+
+TwoPCCommitCache::Owner::Owner() {
+  MG_ASSERT(installed_slot_ == nullptr, "TwoPCCommitCache::Owner constructed more than once");
+  installed_slot_ = new utils::Synchronized<Record, std::mutex>{};
+}
+
+TwoPCCommitCache::Owner::~Owner() {
+  auto *slot = std::exchange(installed_slot_, nullptr);
+  if (slot == nullptr) return;
+  // The ordered ~Database drain (dbms/database.cpp) should have emptied the slot before we get here.
+  // If anything is somehow still cached its storage is already gone, so DESTROYING the accessor would
+  // be a use-after-free -- detach and leak it (release()) instead, exactly as the old never-freed slot
+  // did implicitly. Only then free the now-empty Synchronized shell.
+  slot->WithLock([](Record &cache) {
+    if (cache.commit_accessor_) {
+      spdlog::error(
+          "TwoPCCommitCache::~Owner: slot still populated at shutdown -- leaking the accessor rather than aborting "
+          "it against freed storage.");
+      (void)cache.commit_accessor_.release();
+    }
+  });
+  delete slot;
 }
 
 void TwoPCCommitCache::Store(std::unique_ptr<storage::ReplicationAccessor> accessor,

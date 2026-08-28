@@ -32,7 +32,7 @@
 #include "coordination/data_instance_management_server_handlers.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
-#include "dbms/inmemory/replication_handlers.hpp"
+#include "dbms/inmemory/two_pc_commit_cache.hpp"
 #include "flags/all.hpp"
 #include "flags/bolt.hpp"
 #include "flags/coord_flag_env_handler.hpp"
@@ -801,6 +801,12 @@ int main(int argc, char **argv) {
 
 #endif
 
+  // Owns the process-wide 2PC commit-accessor slot. Declared BEFORE dbms_handler so it is destroyed
+  // AFTER it: ~DbmsHandler runs every ~Database, each draining its own tenant's cached 2PC while its
+  // storage is still alive, leaving an empty slot for this Owner to free. Unconditional: harmless on
+  // a coordinator, which never populates the replica-only slot.
+  memgraph::dbms::TwoPCCommitCache::Owner two_pc_cache_owner;
+
   std::optional<memgraph::dbms::DbmsHandler> dbms_handler;
   if (!is_coordinator_instance) {
     dbms_handler.emplace(db_config);
@@ -1137,15 +1143,6 @@ int main(int argc, char **argv) {
         locked_repl_state->Shutdown();
       }
     }
-
-    // Defense-in-depth, not a UAF fix: the 2PC commit-accessor slot is a deliberately-leaked heap
-    // singleton with no static destructor (TwoPCCommitCache::Slot()), so skipping this would
-    // just defer the abort to ~Database during ~DbmsHandler teardown instead of crashing. Doing it here
-    // aborts the in-flight prepared txn now, while storages are alive, and TakeAny() (not uuid-scoped) is
-    // safe because Shutdown() above already joined the replica's RPC worker threads, so nothing can
-    // repopulate the slot afterwards. Left unconditional: a coordinator never populates this replica-only
-    // slot, so it's a no-op there.
-    memgraph::dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
 
     if (dbms_handler.has_value()) {
       dbms_handler->ForEach([](memgraph::dbms::DatabaseAccess acc) {
