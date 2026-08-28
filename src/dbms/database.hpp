@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -18,6 +19,7 @@
 #include <string>
 
 #include "memory/db_arena_fwd.hpp"
+#include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
@@ -170,6 +172,21 @@ class Database {
    */
   void AddTask(utils::ThreadPool::TaskSignature new_task) { after_commit_trigger_pool_.AddTask(std::move(new_task)); }
 
+  /// Stop signal for `after_commit_trigger_pool_`'s in-flight task; hand this to `Trigger::Execute`'s
+  /// `StoppingContext::transaction_status` so a running after-commit trigger can be asked to abort.
+  std::atomic<query::TransactionStatus> *after_commit_trigger_status() { return &after_commit_trigger_status_; }
+
+  /// Cooperatively request that any after-commit trigger currently running on `after_commit_trigger_pool_`
+  /// abort itself via `StoppingContext::MustAbort()` -- nothing is forcibly unblocked. The store must
+  /// land before `StopAllBackgroundTasks()` joins the pool's worker thread; setting it after that join has
+  /// already started is too late, since the join is blocked on a trigger that was never told to stop. Once
+  /// called, the tenant's after-commit triggers stay stopped for the rest of its life (safe to call again;
+  /// idempotent, any thread, any order). `noexcept`: callers store this as the terminal step of an unwind
+  /// sequence whose earlier steps may throw, and that unwind must not be able to fail here.
+  void StopAfterCommitTriggers() noexcept {
+    after_commit_trigger_status_.store(query::TransactionStatus::TERMINATED, std::memory_order_release);
+  }
+
   /**
    * @brief Returns the PlanCache vector raw pointer
    *
@@ -259,8 +276,10 @@ class Database {
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers
-  std::unique_ptr<query::stream::Streams> streams_;     //!< Streams associated with the storage
-  query::PlanCacheLRU plan_cache_;                      //!< Plan cache associated with the storage
+  // Stop signal for after_commit_trigger_pool_; see StopAfterCommitTriggers().
+  std::atomic<query::TransactionStatus> after_commit_trigger_status_{query::TransactionStatus::ACTIVE};
+  std::unique_ptr<query::stream::Streams> streams_;  //!< Streams associated with the storage
+  query::PlanCacheLRU plan_cache_;                   //!< Plan cache associated with the storage
 };
 
 }  // namespace memgraph::dbms

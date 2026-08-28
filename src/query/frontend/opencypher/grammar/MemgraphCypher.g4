@@ -21,6 +21,7 @@ import Cypher ;
 
 /* Also update src/query/frontend/stripped_lexer_constants.hpp */
 memgraphCypherKeyword : cypherKeyword
+                      | ABORT
                       | ABORTING
                       | ACTIVE
                       | ADD
@@ -824,7 +825,8 @@ multiDatabaseQuery : createDatabase
 
 createDatabase : CREATE DATABASE databaseName ;
 
-dropDatabase: DROP DATABASE databaseName ( FORCE)?;
+// ABORT is nested under FORCE so plain FORCE keeps its existing meaning.
+dropDatabase: DROP DATABASE databaseName ( FORCE ( ABORT )? )?;
 
 renameDatabase : RENAME DATABASE databaseName TO databaseName ;
 

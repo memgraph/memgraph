@@ -8594,8 +8594,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
       .rw_type = RWType::NONE};
 }
 
-PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
-                                        Interpreter &interpreter) {
+PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, std::vector<Notification> *notifications,
+                                        InterpreterContext *interpreter_context, Interpreter &interpreter) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryRuntimeException(
@@ -8666,9 +8666,11 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [db_name = query->db_name_,
                             force = query->force_,
+                            force_abort = query->force_abort_,
                             db_handler,
                             interpreter_context,
                             auth = interpreter_context->auth,
+                            notifications,
                             interpreter = &interpreter](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             if (!interpreter->system_transaction_) {
@@ -8676,31 +8678,57 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             }
 
             std::vector<std::vector<TypedValue>> status;
+            // Declared here, not inside `force`, so it survives the try/catch, where its outcome gates
+            // the notification below; Delete() runs synchronously, so it's fully written by then (else NOT_REQUESTED).
+            dbms::DbmsHandler::DrainReport drain_report;
 
             try {
               // Remove database
               dbms::DbmsHandler::DeleteResult success;
               if (force) {
-                success = db_handler->Delete(db_name, &*interpreter->system_transaction_);
-                if (success) {
-                  // Try to terminate all interpreters using the database
-                  // Best effort approach, if it fails, user will continue using the db until they commit/abort
-                  // Get access to the interpreter context to notify all active interpreters
-                  interpreter_context->interpreters.WithLock(
-                      [db_name, interpreter_context, interpreter](auto &interpreters) {
-                        auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
-                          return user_or_role &&
-                                 user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
-                                                            db_name,
-                                                            &query::up_to_date_policy);
-                        };
-                        interpreter_context->TerminateTransactions(
-                            interpreters,
-                            InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
-                            interpreter->user_or_role_.get(),
-                            privilege_checker);
-                      });
+                // Runs from Delete_'s Phase 2, before the trigger pool/stream consumers are joined, so a
+                // transaction still pinning the tenant (e.g. an explicit transaction, which keeps its
+                // DatabaseAccess because Prepare() skips ResetInterpreter() while in_explicit_transaction_)
+                // is asked to stop while that still helps -- the old post-Delete() placement asked too late.
+                // Consequence: it can also fire on a drop attempt that later fails Phase 3's re-validation,
+                // which is harmless.
+                // Best effort: on failure the user keeps using the db until commit/abort.
+                // Safe to invoke repeatedly: TerminateTransactions only CASes interpreters still ACTIVE and
+                // restores ACTIVE for the ones it doesn't kill, so a repeat call can't disturb an
+                // already-terminated one.
+                // Must swallow: privilege_checker's IsAuthorized() can throw outside Memgraph's exception
+                // hierarchy (hence catch(...)); letting that escape mid-sweep would unwind past
+                // rollback_drain with some interpreters already TERMINATED while the drop itself rolls
+                // back -- sessions killed for a drop that never happened. Swallowing lets the drop proceed,
+                // making those terminations correct after the fact.
+                auto cooperative_cancel = [db_name, interpreter_context, interpreter]() {
+                  try {
+                    interpreter_context->interpreters.WithLock(
+                        [db_name, interpreter_context, interpreter](auto &interpreters) {
+                          auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
+                            return user_or_role &&
+                                   user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
+                                                              db_name,
+                                                              &query::up_to_date_policy);
+                          };
+                          interpreter_context->TerminateTransactions(
+                              interpreters,
+                              InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
+                              interpreter->user_or_role_.get(),
+                              privilege_checker);
+                        });
+                  } catch (...) {
+                    spdlog::warn("Cooperative cancel of transactions using {} failed; continuing drop.", db_name);
+                  }
+                };
+
+                std::optional<dbms::DbmsHandler::DrainRequest> drain;
+                if (force_abort) {
+                  drain.emplace(dbms::DbmsHandler::DrainRequest{.deadline = dbms::DbmsHandler::kDrainDeadline,
+                                                                .report = &drain_report});
                 }
+                success = db_handler->Delete(
+                    db_name, &*interpreter->system_transaction_, cooperative_cancel, drain ? &*drain : nullptr);
               } else {
                 success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
               }
@@ -8723,6 +8751,23 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
               }
             } catch (const utils::BasicException &e) {
               throw QueryRuntimeException(e.what());
+            }
+
+            // Stays silent on CONVERGED so FORCE ABORT is a drop-in for plain FORCE; dbms already spdlog::warn's
+            // EXPIRED, this is just the operator-facing half. No throw reached here, so Phase 3 did land DETACHED.
+            if (notifications != nullptr && drain_report.outcome == dbms::DbmsHandler::DrainOutcome::EXPIRED) {
+              std::string description = fmt::format(
+                  "\"{}\" was force-dropped, but {} holder(s) still had it after waiting {} ms, so the database is "
+                  "now DETACHED and its memory stays accounted for until the last holder releases it. The name "
+                  "\"{}\" is free for immediate reuse; watch the tenant retire with SHOW DATABASES.",
+                  db_name,
+                  drain_report.holders_remaining,
+                  drain_report.waited.count(),
+                  db_name);
+              notifications->emplace_back(SeverityLevel::WARNING,
+                                          NotificationCode::DROP_DATABASE_DETACHED,
+                                          fmt::format("Database \"{}\" was dropped but is not destroyed yet.", db_name),
+                                          std::move(description));
             }
 
             status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully deleted " + db_name)});
@@ -8889,6 +8934,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;
+  (void)notifications;
   (void)interpreter_context;
   (void)interpreter;
   throw EnterpriseOnlyException();
@@ -11072,7 +11118,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       }
       /// SYSTEM (Replication) + INTERPRETER
       // DMG_ASSERT(system_guard);
-      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), interpreter_context_, *this);
+      prepared_query = PrepareMultiDatabaseQuery(
+          std::move(parsed_query), &query_execution->notifications, interpreter_context_, *this);
     } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw UseDatabaseQueryInMulticommandTxException();
@@ -11400,7 +11447,18 @@ auto make_commit_arg(bool is_main, dbms::DatabaseAccess const &db_acc) {
 void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
                             TriggerContext original_trigger_context, std::shared_ptr<QueryUserOrRole> triggering_user) {
   // Run the triggers
+  //
+  // db_acc->after_commit_trigger_status() is a member of the Database this task pins via its captured
+  // db_acc, so it stays valid for the whole loop even for a trigger already running when a drop calls
+  // StopAfterCommitTriggers(): the running trigger's periodic MustAbort() throws HintedAbortError (a
+  // utils::BasicException), caught right below so it can't escape into this thread-pool worker. The
+  // loop-top break exists because the catch handler would otherwise fall into the next trigger's
+  // untimeboxed Access(WRITE) wait on the storage lock.
   for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
+    if (db_acc->after_commit_trigger_status()->load(std::memory_order_acquire) == TransactionStatus::TERMINATED) {
+      break;
+    }
+
     QueryAllocator execution_memory{db_acc->DbQueryMemoryTracker()};
 
     // create a new transaction for each trigger
@@ -11418,7 +11476,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                       execution_memory.resource(),
                       flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down,
-                      /* transaction_status = */ nullptr,
+                      db_acc->after_commit_trigger_status(),
                       trigger_context,
                       is_main,
                       triggering_user,

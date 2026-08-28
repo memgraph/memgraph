@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,13 @@ using DatabaseAccess = memgraph::utils::Gatekeeper<memgraph::dbms::Database>::Ac
 struct DatabaseProtector : storage::DatabaseProtector {
   explicit DatabaseProtector(DatabaseAccess access);
   auto clone() const -> storage::DatabaseProtectorPtr override;
+
+  /// The flag backing this is an std::atomic_bool inside the gatekeeper's internals (see
+  /// utils::Gatekeeper<T>::Accessor::is_marked_for_deletion), so this read takes no gatekeeper
+  /// mutex and adds no lock-order edge for a caller that may be holding its own locks. access_
+  /// keeps those internals alive for as long as this protector exists, so the read can never
+  /// dangle.
+  auto is_tenant_marked_for_deletion() const -> bool override;
 
  private:
   DatabaseAccess access_;
