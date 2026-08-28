@@ -10,8 +10,6 @@ on:
       loop_count:
         type: number
         description: "Number of times to run the benchmarks. Default is 10. Not applied to HA suites"
-          # Each of those runs once however this is set, because a single iteration
-          # already restarts a cluster per measurement and eight of them take hours."
         default: 10
   schedule:
     - cron: "0 0 * * *"
@@ -20,7 +18,7 @@ jobs:
   release_benchmarks:
     name: "Daily benchmarks"
     runs-on: [self-hosted, Linux, benchmark]
-    timeout-minutes: 1200
+    timeout-minutes: 900
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"
