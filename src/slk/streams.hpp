@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -45,7 +46,7 @@ static_assert(kSegmentMaxDataSize <= std::numeric_limits<SegmentSize>::max(),
 /// SLK splits binary data into segments. Segments are used to avoid the need to
 /// have all the encoded data in memory at once during the building process.
 /// That enables streaming during the building process and makes the whole
-/// process make zero memory allocations because only one static buffer is used.
+/// process use a single reusable buffer.
 /// During the reading process you must have all of the data in memory.
 ///
 /// SLK segments are just chunks of binary data. They start with a `size` field
@@ -66,7 +67,7 @@ class Builder {
   explicit Builder(std::function<void(const uint8_t *, size_t, bool)> write_func);
 
   Builder(Builder &&other, std::function<void(const uint8_t *, size_t, bool)> write_func)
-      : write_func_{std::move(write_func)}, pos_{std::exchange(other.pos_, 0)}, segment_{other.segment_} {
+      : write_func_{std::move(write_func)}, pos_{std::exchange(other.pos_, 0)}, segment_{std::move(other.segment_)} {
     other.write_func_ = [](const uint8_t *, size_t, bool) { /* Moved builder is defunct, no write possible */ };
   }
 
@@ -102,7 +103,7 @@ class Builder {
 
   std::function<void(const uint8_t *, size_t, bool)> write_func_;
   size_t pos_{0};
-  std::array<uint8_t, kSegmentMaxTotalSize> segment_;
+  std::unique_ptr<std::array<uint8_t, kSegmentMaxTotalSize>> segment_;
 };
 
 /// Exception that will be thrown if segments can't be decoded from the byte
