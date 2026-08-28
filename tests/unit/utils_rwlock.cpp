@@ -101,6 +101,9 @@ TEST(RWLock, ReadPriority) {
    * so a succession of readers keeps the writer out for as long as it lasts.
    */
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
+
+  // Held across every one of the reader's acquisitions below, so the number of readers never falls
+  // back to zero between them and the waiting writer is never offered the lock in the gap.
   rwlock.lock_shared();
 
   constexpr int kAdmissions = 64;
@@ -129,9 +132,9 @@ TEST(RWLock, ReadPriority) {
     for (int i = 0; i < kAdmissions; ++i) {
       auto lock = std::shared_lock{rwlock};
       ++admissions;
-      // Signalled while the lock is held, so the shared lock this thread waits behind is given up
-      // only once this one is in. Releasing on a timer instead would let a slow machine hand the
-      // lock to the waiting writer first, failing the test for want of scheduling.
+      // Signalled while this lock is held, so the main thread gives up its own shared lock only
+      // once this reader is in. Releasing that on a timer instead would let a slow machine hand
+      // the lock to the waiting writer first, failing the test for want of scheduling.
       if (i + 1 == kAdmissions) reader_holds_lock.release();
     }
   });
