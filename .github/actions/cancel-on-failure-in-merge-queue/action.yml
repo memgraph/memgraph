@@ -68,7 +68,7 @@ runs:
           --arg owner "${GH_REPO%%/*}" \
           --arg name "${GH_REPO##*/}" \
           --argjson number "${PR_NUMBER}" \
-          '{query: $query, variables: {owner: $owner, name: $name, number: $number}}')")"
+          '{query: $query, variables: {owner: $owner, name: $name, number: $number}}')" || true)"
         PR_NODE_ID="$(printf '%s' "${RESPONSE}" | jq -r '.data.repository.pullRequest.id // empty' || true)"
         if [[ -z "${PR_NODE_ID}" ]]; then
           echo "::warning title=Merge queue fail-fast::Could not resolve the node id of PR #${PR_NUMBER}; not dequeuing. Response: ${RESPONSE}"
@@ -80,7 +80,7 @@ runs:
         RESPONSE="$(graphql "$(jq -n \
           --arg query "${MUTATION}" \
           --arg id "${PR_NODE_ID}" \
-          '{query: $query, variables: {id: $id}}')")"
+          '{query: $query, variables: {id: $id}}')" || true)"
         if ! printf '%s' "${RESPONSE}" | jq -e '.errors == null and .data.dequeuePullRequest != null' >/dev/null 2>&1; then
           # Losing the race with GitHub (or with another failing job in this run)
           # is fine — the entry is gone either way, so keep going and cancel.
@@ -90,6 +90,9 @@ runs:
         echo "PR #${PR_NUMBER} removed from the merge queue"
 
     - name: Cancel workflow run
+      # Cancelling is the whole point of the action, so it must not be skipped
+      # because the dequeue above failed.
+      if: ${{ always() }}
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
