@@ -79,6 +79,8 @@ DEFAULT_CCACHE_ENABLED="true"
 DEFAULT_CONAN_CACHE_ENABLED="true"
 DEFAULT_MGBENCH_CACHE_ENABLED="true"
 MGBENCH_CACHE_CONTAINER_DIR="/home/mg/.cache/mgbench"
+DEFAULT_CARGO_CACHE_ENABLED="true"
+CARGO_CACHE_CONTAINER_DIR="/home/mg/.cargo"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
 DEFAULT_RUST_VERSION="1.89"
 
@@ -130,6 +132,8 @@ print_help () {
   echo -e "  --no-conan-cache              Disable conan cache volume mounting (default \"$DEFAULT_CONAN_CACHE_ENABLED\") -> this allows sharing conan cache between containers"
   echo -e "  --no-mgbench-cache            Disable mgbench cache volume mounting (default \"$DEFAULT_MGBENCH_CACHE_ENABLED\") -> without it mgbench recalibrates query counts and re-downloads datasets every run"
   echo -e "  --mgbench-cache-dir string    Specify host directory for the mgbench cache (default \"\$HOME/.cache/mgbench-ci\")"
+  echo -e "  --no-cargo-cache              Disable cargo cache volume mounting (default \"$DEFAULT_CARGO_CACHE_ENABLED\") -> without it every build re-downloads crates from crates.io"
+  echo -e "  --cargo-cache-dir string      Specify host directory for the cargo registry and git caches (default \"\$HOME/.cargo-ci\")"
   echo -e "  --enable-monitoring           Ship test metrics/logs to a remote monitoring stack (default \"false\"); requires --monitoring-host, --cluster-id and --cluster-env"
   echo -e "  --monitoring-host string      Hostname or IP of the remote monitoring stack (required with --enable-monitoring)"
   echo -e "  --cluster-id string           Cluster identifier label attached to exported metrics/logs (required with --enable-monitoring)"
@@ -377,11 +381,35 @@ version_lt() {
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
 ##################################################
 
+# Returns 0 (true) if at least one host cache is mounted into the containers.
+any_cache_enabled() {
+  [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]] \
+    || [[ "$mgbench_cache_enabled" == "true" ]] || [[ "$cargo_cache_enabled" == "true" ]]
+}
+
+# Emits the enabled cache bind mounts, indented as entries of a compose
+# service's `volumes:` list.
+emit_cache_volumes() {
+  if [[ "$ccache_enabled" == "true" ]]; then
+    echo "      - ~/.cache/ccache:/home/mg/.cache/ccache"
+  fi
+  if [[ "$conan_cache_enabled" == "true" ]]; then
+    echo "      - $conan_cache_dir:/home/mg/.conan2"
+  fi
+  if [[ "$mgbench_cache_enabled" == "true" ]]; then
+    echo "      - $mgbench_cache_dir:$MGBENCH_CACHE_CONTAINER_DIR"
+  fi
+  if [[ "$cargo_cache_enabled" == "true" ]]; then
+    echo "      - $cargo_cache_dir/registry:$CARGO_CACHE_CONTAINER_DIR/registry"
+    echo "      - $cargo_cache_dir/git:$CARGO_CACHE_CONTAINER_DIR/git"
+  fi
+}
+
 # Function to handle cache override file creation and cleanup
 setup_cache_override() {
   local compose_files="-f ${arch}-builders-${toolchain_version}.yml"
 
-  if [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]] || [[ "$mgbench_cache_enabled" == "true" ]]; then
+  if any_cache_enabled; then
     cat > cache-override.yml << EOF
 services:
 EOF
@@ -392,29 +420,13 @@ EOF
         service_name=$(echo "$line" | sed 's/://')
         echo "  $service_name:" >> cache-override.yml
         echo "    volumes:" >> cache-override.yml
-        if [[ "$ccache_enabled" == "true" ]]; then
-          echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> cache-override.yml
-        fi
-        if [[ "$conan_cache_enabled" == "true" ]]; then
-          echo "      - $conan_cache_dir:/home/mg/.conan2" >> cache-override.yml
-        fi
-        if [[ "$mgbench_cache_enabled" == "true" ]]; then
-          echo "      - $mgbench_cache_dir:$MGBENCH_CACHE_CONTAINER_DIR" >> cache-override.yml
-        fi
+        emit_cache_volumes >> cache-override.yml
       done
     else
       # For specific OS, only add volume to the target service
       echo "  $build_container:" >> cache-override.yml
       echo "    volumes:" >> cache-override.yml
-      if [[ "$ccache_enabled" == "true" ]]; then
-        echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> cache-override.yml
-      fi
-      if [[ "$conan_cache_enabled" == "true" ]]; then
-        echo "      - $conan_cache_dir:/home/mg/.conan2" >> cache-override.yml
-      fi
-      if [[ "$mgbench_cache_enabled" == "true" ]]; then
-        echo "      - $mgbench_cache_dir:$MGBENCH_CACHE_CONTAINER_DIR" >> cache-override.yml
-      fi
+      emit_cache_volumes >> cache-override.yml
     fi
     compose_files="$compose_files -f cache-override.yml"
   fi
@@ -423,7 +435,7 @@ EOF
 }
 
 cleanup_cache_override() {
-  if [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]] || [[ "$mgbench_cache_enabled" == "true" ]]; then
+  if any_cache_enabled; then
     rm -f cache-override.yml
   fi
 }
@@ -461,6 +473,15 @@ setup_host_cache_permissions() {
     chmod -R a+rwX -- "$mgbench_cache_dir" 2>/dev/null || true
 
     echo "Host mgbench cache directory permissions set to a+rwX (open access)"
+  fi
+
+  if [[ "$cargo_cache_enabled" == "true" ]]; then
+    echo "Setting up host cargo cache directory permissions..."
+    mkdir -pv -- "$cargo_cache_dir/registry" "$cargo_cache_dir/git"
+
+    chmod a+rwX -- "$cargo_cache_dir" "$cargo_cache_dir/registry" "$cargo_cache_dir/git" 2>/dev/null || true
+
+    echo "Host cargo cache directory permissions set to a+rwX (open access)"
   fi
 }
 
@@ -572,6 +593,40 @@ report_libpython_link () {
   printf '\033[1;38;5;208m%s\033[0m\n' "Memgraph libpython link (${label}): ${info:-<unknown>}"
 }
 
+
+# Warm cargo's registry cache in a dedicated, retried step. Arg: <mage mode>.
+prefetch_cargo_deps () {
+  local mage_mode="$1"
+  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
+  local crate_dirs=()
+  # Mirrors what the build actually compiles: mgcxx is part of memgraph proper
+  # (skipped for --mage only), the rust query modules come with MAGE.
+  if [[ "$mage_mode" != "only" ]]; then
+    crate_dirs+=("mgcxx/text_search")
+  fi
+  if [[ "$mage_mode" != "off" ]]; then
+    crate_dirs+=("src/mage/rust/rsmgp-example")
+  fi
+
+  local crate_dir attempt
+  for crate_dir in "${crate_dirs[@]}"; do
+    if ! docker exec -u mg "$build_container" bash -c "test -f $MGBUILD_ROOT_DIR/$crate_dir/Cargo.toml"; then
+      continue
+    fi
+    echo "Fetching cargo dependencies for $crate_dir..."
+    for attempt in 1 2 3; do
+      if docker exec -u mg "$build_container" bash -c "$ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/$crate_dir && cargo fetch"; then
+        break
+      fi
+      if [[ "$attempt" -eq 3 ]]; then
+        echo "Warning: cargo fetch for $crate_dir failed after $attempt attempts, continuing anyway"
+        break
+      fi
+      echo "cargo fetch for $crate_dir failed (attempt $attempt), retrying in $((attempt * 10))s..."
+      sleep $((attempt * 10))
+    done
+  done
+}
 
 build_memgraph () {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
@@ -952,6 +1007,8 @@ build_memgraph () {
     fi
     return
   fi
+
+  prefetch_cargo_deps "$mage_mode"
 
   # Build using Conan preset
   echo "Building with Conan preset: $PRESET"
@@ -3016,6 +3073,8 @@ conan_cache_enabled=$DEFAULT_CONAN_CACHE_ENABLED
 conan_cache_dir=""
 mgbench_cache_enabled=$DEFAULT_MGBENCH_CACHE_ENABLED
 mgbench_cache_dir=""
+cargo_cache_enabled=$DEFAULT_CARGO_CACHE_ENABLED
+cargo_cache_dir=""
 command=""
 build_container=""
 cugraph=false
@@ -3098,6 +3157,14 @@ while [[ $# -gt 0 ]]; do
       mgbench_cache_dir=$2
       shift 2
     ;;
+    --no-cargo-cache)
+      cargo_cache_enabled="false"
+      shift 1
+    ;;
+    --cargo-cache-dir)
+      cargo_cache_dir=$2
+      shift 2
+    ;;
     --enable-monitoring)
       enable_monitoring=true
       shift 1
@@ -3145,6 +3212,10 @@ fi
 
 if [[ -z "$mgbench_cache_dir" ]]; then
   mgbench_cache_dir="$HOME/.cache/mgbench-ci"
+fi
+
+if [[ -z "$cargo_cache_dir" ]]; then
+  cargo_cache_dir="$HOME/.cargo-ci"
 fi
 
 # Points mgbench at the mounted cache so query counts and datasets survive between runs.
@@ -3279,6 +3350,9 @@ case $command in
       if [[ "$mgbench_cache_enabled" == "true" ]]; then
         echo "Setting mgbench cache directory: $mgbench_cache_dir"
       fi
+      if [[ "$cargo_cache_enabled" == "true" ]]; then
+        echo "Setting cargo cache directory: $cargo_cache_dir"
+      fi
 
       # Set up host ccache permissions
       setup_host_cache_permissions
@@ -3354,6 +3428,29 @@ case $command in
           echo 'Conan cache directory permissions set for cross-container access'
         "
       fi
+
+      # Set up cargo cache directory permissions if the cargo cache is enabled
+      if [[ "$cargo_cache_enabled" == "true" ]]; then
+        echo "Setting up cargo cache directory permissions..."
+        docker exec -u root $build_container bash -c "
+          mkdir -p $CARGO_CACHE_CONTAINER_DIR/registry $CARGO_CACHE_CONTAINER_DIR/git
+          chown mg:mg $CARGO_CACHE_CONTAINER_DIR/registry $CARGO_CACHE_CONTAINER_DIR/git
+          chmod a+rwX $CARGO_CACHE_CONTAINER_DIR/registry $CARGO_CACHE_CONTAINER_DIR/git
+          echo 'Cargo cache directory permissions set'
+        "
+      fi
+
+      # Make cargo more tolerant of the transient crates.io connectivity blips
+      echo "Writing cargo network configuration..."
+      docker exec -i -u mg $build_container bash -c "mkdir -p $CARGO_CACHE_CONTAINER_DIR && cat > $CARGO_CACHE_CONTAINER_DIR/config.toml" << 'EOF'
+# Managed by release/package/mgbuild.sh - changes here are overwritten on `run`.
+[net]
+retry = 10
+git-fetch-with-cli = true
+
+[http]
+timeout = 60
+EOF
 
       # This network will allo w the mgbuild container to access the mgdeps cache container
       # check for `mgbuild_network` network and create it if it doesn't exist
