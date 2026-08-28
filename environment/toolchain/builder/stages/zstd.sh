@@ -14,8 +14,12 @@ fetch https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZS
 
 # Host deps: make. Static only: LLVM links it in, and a shared copy in the
 # sysroot would become another runtime dependency of every clang invocation.
+#
+# The pkg-config file is part of the install because bfd looks for zstd that
+# way rather than by trying to link it, and fails the build outright when it
+# is missing.
 log_tool_name "zstd $ZSTD_VERSION (sysroot)"
 enter_source zstd-$ZSTD_VERSION.tar.gz zstd-$ZSTD_VERSION
 make -j$CPUS -C lib libzstd.a
-make -C lib install-static install-includes PREFIX=/usr LIBDIR=/usr/lib DESTDIR=$SYSROOT
+make -C lib install-static install-includes install-pc PREFIX=/usr LIBDIR=/usr/lib DESTDIR=$SYSROOT
 leave_source

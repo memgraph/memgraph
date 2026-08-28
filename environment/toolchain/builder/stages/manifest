@@ -36,7 +36,7 @@ python             libffi ncurses openssl zlib @archives
 cmake              curl ncurses openssl zlib @archives
 mold               cmake xxhash zlib zstd @archives
 libipt             cmake @archives
-gdb                gmp libipt mpfr ncurses python xxhash zlib +resolved/python.env @archives
+gdb                gmp libipt mpfr ncurses python xxhash zlib zstd +resolved/python.env @archives
 pahole             @archives
 gdbinit            pahole
 cppcheck           @archives

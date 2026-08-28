@@ -29,6 +29,14 @@ mkdir build && pushd build
 # It costs relocation for these three files, which the pass that makes the
 # whole tree relocatable has to rewrite anyway.
 #
+# The pkg-config variables are what make --with-zstd resolvable: the .pc file
+# is in the sysroot, and its paths are relative to it.
+#
+# --with-zstd is required, not optional: clang here compresses debug sections
+# with zstd, and a BFD without it cannot read the result at all -- gdb rejects
+# the whole file as "not in executable format" rather than degrading to no
+# symbols. The static libzstd in the sysroot is what it links against.
+#
 # GDB is built sysroot-aware via the toolchain GCC. --with-python points
 # at the libpython we installed into the sysroot above. Features that
 # require libraries not in the sysroot (expat, lzma, babeltrace,
@@ -39,6 +47,8 @@ mkdir build && pushd build
 if [[ "$for_arm" = true ]]; then
     # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=arm64&ver=10.1-2&stamp=1614889767&raw=0
     env \
+        PKG_CONFIG_PATH=$SYSROOT/usr/lib/pkgconfig \
+        PKG_CONFIG_SYSROOT_DIR=$SYSROOT \
         CC=$PREFIX/bin/gcc \
         CXX=$PREFIX/bin/g++ \
         CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
@@ -60,6 +70,7 @@ if [[ "$for_arm" = true ]]; then
             --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
             --without-expat \
             --without-lzma \
+            --with-zstd \
             --without-babeltrace \
             --without-intel-pt \
             --enable-tui \
@@ -67,6 +78,8 @@ if [[ "$for_arm" = true ]]; then
 else
     # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=amd64&ver=8.2.1-2&stamp=1550831554&raw=0
     env \
+        PKG_CONFIG_PATH=$SYSROOT/usr/lib/pkgconfig \
+        PKG_CONFIG_SYSROOT_DIR=$SYSROOT \
         CC=$PREFIX/bin/gcc \
         CXX=$PREFIX/bin/g++ \
         CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
@@ -88,6 +101,7 @@ else
             --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
             --without-expat \
             --without-lzma \
+            --with-zstd \
             --without-babeltrace \
             --with-intel-pt \
             --enable-tui \
