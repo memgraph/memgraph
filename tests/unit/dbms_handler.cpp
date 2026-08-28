@@ -75,8 +75,9 @@ SeededRoot MakeSeededRoot(std::string_view tag) {
 // rel_dir rooted at kMultiTenantDir/<uuid> as New_/UpdateDurability recompute it (dbms_handler.cpp:860).
 struct SeededHotEntry {
   memgraph::utils::UUID uuid;
-  // Bytes written for this entry; read back verbatim by RenameMovesTenantDurabilityRecordVerbatim to catch
-  // a rename that parses/mutates/re-dumps the record. Do not delete this field as write-only.
+  // Bytes that SeedHotEntry wrote for this entry. Previously read back verbatim by
+  // RenameMovesTenantDurabilityRecordVerbatim; that test now captures the live post-construction value
+  // directly, so this field is no longer read but kept to avoid reshaping the return type.
   std::string json_str;
 };
 
@@ -847,6 +848,21 @@ TEST(DBMS_Handler, RenameMovesTenantDurabilityRecordVerbatim) {
   std::unique_ptr<DbmsHandler> handler;
   ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf));
 
+  // Capture the live durable value the ctor (New_->UpdateDurability) wrote for "before". The handler
+  // holds the KVStore lock (one-writer-at-a-time contract, see comment above SeedHotEntry), so reset
+  // it first, read in a fresh KVStore scope, then reconstruct. UpdateDurability is deterministic for
+  // the same (uuid, rel_dir) pair, so the second construction leaves "before"'s value unchanged and
+  // live_before remains equal to whatever the rename will consume.
+  std::string live_before;
+  {
+    handler.reset();
+    memgraph::kvstore::KVStore snap_kv{sr.durability_dir};
+    auto v = snap_kv.Get(std::string{kDBPrefixLiteral} + "before");
+    ASSERT_TRUE(v.has_value()) << "database:before must exist after handler construction";
+    live_before = *v;
+  }
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf));
+
   auto res = handler->Rename("before", "after");
   ASSERT_TRUE(res.has_value()) << "a plain, healthy rename must succeed";
 
@@ -857,15 +873,16 @@ TEST(DBMS_Handler, RenameMovesTenantDurabilityRecordVerbatim) {
 
   {
     memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
-    auto new_val = verify_kv.Get(std::string{kDBPrefixLiteral} + "after");
-    ASSERT_TRUE(new_val.has_value()) << "database:after must exist";
-    EXPECT_EQ(*new_val, seeded.json_str)
-        << "the moved record must be byte-identical to what was seeded -- parsing and re-dumping it (the "
-           "pre-fix behavior) would not round-trip to the exact same bytes";
+    auto after_val = verify_kv.Get(std::string{kDBPrefixLiteral} + "after");
+    ASSERT_TRUE(after_val.has_value()) << "database:after must exist";
+    EXPECT_EQ(*after_val, live_before)
+        << "the moved record must be byte-identical to the live value that was under database:before "
+           "immediately before the rename; the pre-fix behavior (parse -> inject \"name\" field -> dump) "
+           "would produce a different byte string and fail this comparison";
     EXPECT_FALSE(verify_kv.Get(std::string{kDBPrefixLiteral} + "before").has_value())
         << "database:before must no longer exist";
 
-    const auto entry_json = nlohmann::json::parse(*new_val);
+    const auto entry_json = nlohmann::json::parse(*after_val);
     EXPECT_FALSE(entry_json.contains("name"))
         << "the pre-fix code injected a \"name\" field on every rename; Durability::GenVal never writes one "
            "and nothing reads it back -- it was write-only litter";
