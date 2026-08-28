@@ -70,7 +70,7 @@ the floor for where the toolchain itself can run.
 | `lib/common.sh` | the environment every stage script expects |
 | `files/` | `activate` and `toolchain.cmake`, shipped inside the toolchain |
 | `stages/manifest` | what each stage needs and copies; the Dockerfile is checked against it |
-| `verify/` | the floor and runtime-link gates, the stage-graph check, the fingerprint and determinism tools |
+| `verify/` | the floor, assertion and runtime-link gates, the stage-graph check, the fingerprint and determinism tools |
 | `justfile` | argument assembly; BuildKit owns the graph and the caching |
 
 ## Why it is shaped this way
@@ -151,6 +151,15 @@ exceeded:
 
 All three break silently otherwise. A binary needing a newer glibc or kernel
 does not fail at build time; it fails to start on a machine nobody tested on.
+
+`verify/expectations.sh` asks a different question, after relocation: not what
+the binaries require, but whether the toolchain is what it says it is. It
+checks the sysroot holds the glibc the version set names and targets the
+declared kernel, that the compilers resolve that sysroot rather than the host's
+headers, that clang has no sysroot baked in to override the cmake toolchain
+file, and that every runpath is relative so the tree survives being installed
+somewhere other than where it was built. Comparing two builds cannot catch any
+of these: a mistake reproduced in both passes.
 
 Kernel conformance is read from `.note.ABI-tag`, which records the oldest
 kernel an executable will run on and is put there by glibc's
