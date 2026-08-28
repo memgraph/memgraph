@@ -12,6 +12,42 @@
 from workload_mode import *
 
 
+class DockerOptions:
+    """
+    How the docker runners create their containers (--installation-type docker).
+    """
+
+    def __init__(
+        self,
+        image: str = "memgraph/memgraph:3.2.1",
+        client_image: str = "memgraph/mgbench-client",
+        name_suffix: str = "",  # Appended to container names so several benchmarks can run side by side
+        cpuset_cpus: str = None,  # docker --cpuset-cpus, applied to both the database and client containers
+        cpuset_mems: str = None,  # docker --cpuset-mems, applied to both the database and client containers
+        volumes: list = None,  # docker -v entries for the database container, passed verbatim
+    ) -> None:
+        self.image = image
+        self.client_image = client_image
+        self.name_suffix = name_suffix
+        self.cpuset_cpus = cpuset_cpus
+        self.cpuset_mems = cpuset_mems
+        self.volumes = volumes if volumes is not None else []
+
+    def resource_flags(self) -> list:
+        flags = []
+        if self.cpuset_cpus:
+            flags += ["--cpuset-cpus", self.cpuset_cpus]
+        if self.cpuset_mems:
+            flags += ["--cpuset-mems", self.cpuset_mems]
+        return flags
+
+    def volume_flags(self) -> list:
+        flags = []
+        for volume in self.volumes:
+            flags += ["-v", volume]
+        return flags
+
+
 class BenchmarkContext:
     """
     Class for holding information on what type of benchmark is being executed
@@ -47,6 +83,7 @@ class BenchmarkContext:
         customer_workloads: str = None,
         vendor_args: dict = {},
         use_parallel_execution: bool = False,
+        docker_options: DockerOptions = None,
     ) -> None:
         self.benchmark_target_workload = benchmark_target_workload
         self.databases = databases
@@ -90,6 +127,7 @@ class BenchmarkContext:
         self.customer_workloads = customer_workloads
         self.vendor_args = vendor_args
         self.use_parallel_execution = use_parallel_execution
+        self.docker_options = docker_options if docker_options is not None else DockerOptions()
         self.active_workload = None
         self.active_variant = None
 

@@ -28,7 +28,7 @@ import helpers
 import log
 import runners
 import setup
-from benchmark_context import BenchmarkContext
+from benchmark_context import BenchmarkContext, DockerOptions
 from benchmark_results import BenchmarkResults
 from constants import *
 from workload_mode import BENCHMARK_MODE_MIXED, BENCHMARK_MODE_REALISTIC
@@ -278,6 +278,46 @@ def parse_args():
         default=BenchmarkClientLanguage.CPP,
         choices=BenchmarkClientLanguage.get_all_client_languages(),
         help="Client language implementation (cpp or python)",
+    )
+
+    docker_defaults = DockerOptions()
+    benchmark_parser.add_argument(
+        "--docker-image",
+        type=str,
+        default=docker_defaults.image,
+        help="Database image used with --installation-type docker (memgraph only)",
+    )
+    benchmark_parser.add_argument(
+        "--docker-client-image",
+        type=str,
+        default=docker_defaults.client_image,
+        help="Bolt client image used with --installation-type docker",
+    )
+    benchmark_parser.add_argument(
+        "--docker-name-suffix",
+        type=str,
+        default=docker_defaults.name_suffix,
+        help="Suffix appended to the database and client container names, so that several docker "
+        "benchmarks can run on the same host at once",
+    )
+    benchmark_parser.add_argument(
+        "--docker-cpuset-cpus",
+        type=str,
+        default=None,
+        help="Pin the database and client containers to these CPUs (docker --cpuset-cpus)",
+    )
+    benchmark_parser.add_argument(
+        "--docker-cpuset-mems",
+        type=str,
+        default=None,
+        help="Pin the database and client containers to these memory nodes (docker --cpuset-mems)",
+    )
+    benchmark_parser.add_argument(
+        "--docker-volume",
+        action="append",
+        default=[],
+        help="Bind mount for the database container (docker -v), e.g. to expose files that LOAD "
+        "PARQUET/CSV queries reference by host path. May be repeated.",
     )
 
     return benchmark_parser.parse_args()
@@ -1115,6 +1155,14 @@ if __name__ == "__main__":
         vendor_args=vendor_specific_args,
         use_parallel_execution=args.use_parallel_execution,
         database_workers=args.database_workers,
+        docker_options=DockerOptions(
+            image=args.docker_image,
+            client_image=args.docker_client_image,
+            name_suffix=args.docker_name_suffix,
+            cpuset_cpus=args.docker_cpuset_cpus,
+            cpuset_mems=args.docker_cpuset_mems,
+            volumes=args.docker_volume,
+        ),
     )
 
     log_benchmark_arguments(benchmark_context)
