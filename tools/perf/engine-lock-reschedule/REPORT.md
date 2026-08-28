@@ -1,0 +1,184 @@
+# Perf-box validation — engine-lock BEGIN/PREPARE reschedule stack
+
+**For:** perf engineer running throughput measurements on a stable, isolated box.
+**Author context:** the numbers below were gathered on a *non-perf-stable* dev VM and are
+**preliminary/directional only** — the point of this task is to confirm (or refute) them on real
+hardware. Everything needed (root cause, per-PR hypotheses, scripts, exact scenarios, expected
+shape) is in this directory.
+
+---
+
+## 1. The customer symptom
+
+Fast, few-millisecond reads collapse in throughput when the number of concurrent clients exceeds the
+number of Bolt workers, **amplified by explicit transactions and by slow commits** (SYNC /
+STRICT_SYNC replication). Reads that should be unaffected by a slow writer instead stall behind it.
+
+## 2. Root cause (verified in code + micro-repro)
+
+A write **COMMIT** holds the storage `engine_lock_` (a `SpinLock`) across its **entire durability
+phase** — WAL append *and* `HandleDurabilityAndReplicate`, which for a SYNC/STRICT_SYNC replica is a
+network round-trip to the replica and back (`storage/v2/inmemory/storage.cpp`, commit path
+~`:1079→:1185`).
+
+Every new transaction's **admission** also takes that same `engine_lock_` to mint its
+timestamp/transaction-id (`CreateTransaction`, ~`:2876`). So while a slow commit holds the lock, each
+arriving BEGIN (explicit) or first-query admission (autocommit) **busy-spins a whole Bolt/pool
+worker** waiting for it. With clients > workers, all workers end up spinning on admission behind one
+slow commit → reads collapse. STRICT_SYNC (2-phase commit) holds the lock ~2× longer → worse.
+
+**Non-fix (ruled out):** narrowing the `engine_lock_` critical section around the durability wait is
+**not viable** — the WAL/commit-timestamp ordering under that lock is load-bearing for replication
+correctness. The only safe lever is to **stop workers from spinning on admission**: attempt the lock
+with a tiny bounded try, and on contention **reschedule the admission onto the pool** so the worker
+is freed to do other (non-admission) work while the commit finishes.
+
+## 3. The stack under test
+
+| PR | Branch | What it does | Perf hypothesis to confirm |
+|----|--------|--------------|-----------------------------|
+| **#4669** | `perf/begin-engine-lock-tryresched` | Bounded-try + reschedule the **explicit `BEGIN`** admission. | Under concurrent slow commits, **explicit-transaction** read throughput improves substantially; **flat on autocommit**; no regression when there is no stall. |
+| **#4684** | `perf/prepare-reschedule` (stacked on #4669) | Extends the same mechanism to the **autocommit `RUN`→PREPARE** admission (the majority path). | Same shape as #4669 but for **autocommit** workloads — the row where #4669 is flat. |
+| **#4662** | `perf/query-timeout-deadline` | Replaces per-query `AsyncTimer` (POSIX timer + skiplist) with a `steady_clock` deadline read against a coarse 100 ms cached clock in `MustAbort()`. | Small **single-thread fast-op** gain (removes fixed per-query timer setup). No regression elsewhere. |
+| **#4663** | `perf/adaptive-worker-spin` | Gates the worker idle-spin so the pool only spins when it is **not** oversubscribed (`HotMask::Count() < budget`). | Safety/scheduling; no throughput regression, possible small gain at moderate concurrency. |
+| **#4668** | `perf/read-commit-high-priority` | Routes a **read-only** transaction's COMMIT to HIGH priority so read txns drain fast under a commit pile-up. | Helps read-txn drain latency when commits queue; no regression. |
+
+Baseline: **master** (`origin/master`).
+
+> The two reschedule PRs (#4669, #4684) are the ones that move the customer number. #4662/#4663/#4668
+> are supporting/safety changes; validate them mainly for *no regression* plus their small local wins.
+
+## 4. What you need on the box
+
+- Linux, **passwordless `sudo`** for `ip netns` / `tc` (the harness builds isolated network namespaces).
+- **≥ 12 online cores.** The harness pins the server to cores `0-7` and the client load-gen to `8-11`
+  (disjoint — server and client never share a core). Override with `SRV_CORES` / `CLI_CORES`.
+- `python3` + the `neo4j` driver (`pip install neo4j`, 5.28.x used).
+- Memgraph build toolchain (v8) at `/opt/toolchain-v8` (override `TOOLCHAIN=`). ccache recommended.
+- `tc`, `ip`, `taskset`, `ping`, `bc`.
+
+Ideally run on a **quiesced** box (no other load, fixed CPU governor = `performance`, turbo/SMT
+settled) — the whole reason for this task is that the dev VM was too noisy to trust.
+
+## 5. Setup / build
+
+```bash
+cd tools/perf/engine-lock-reschedule
+
+# 5a. sanity-check the netns + pinning harness WITHOUT memgraph (proves the box is ready)
+./scripts/dry_run.sh 10          # 10ms one-way -> ~20ms RTT; must exit 0
+
+# 5b. build all six binaries into relocatable bundles under ./bins/<label>/
+#     (label:branch pairs; branches are already pushed to origin)
+REPO=/path/to/your/memgraph/checkout ./scripts/build_binaries.sh
+#   -> bins/{master,p4662,p4663,p4668,p4669,p4684}/memgraph (+ src/query/*.so beside each)
+```
+
+The bundles are relocatable: each `bins/<label>/memgraph` RUNPATHs to `$ORIGIN/src/query`, so the
+matching `src/query/*.so` sit beside it. `build_binaries.sh` verifies each relocated bundle runs
+before trusting it.
+
+## 6. The measurement — Phase-3 grid
+
+The harness models the real topology: a **fast client link** and a **separate, slow replication
+link**, so a SYNC/STRICT_SYNC writer's COMMIT blocks on the netem-delayed replica ack (= the "slow
+commit") while reads over the fast link stay quick.
+
+```
+client netns (10.0.0.1) --fast veth/netem-- main netns (10.0.0.2) --SLOW veth/netem-- replica netns (10.0.1.3)
+```
+
+`phase3.py` runs `n_readers` readers + `n_writers` writers concurrently and reports **read q/s, read
+txn/s, read latency p50/p99, and write op/s**. It is parameterized by env (see the header of
+`scripts/phase3.py`):
+
+- `RMODE` = `explicit` (BEGIN + `NQ` PULLs + COMMIT) or `auto` (per-query implicit txn)
+- `RQROWS` = read cost (`~130000` fast, `~1000000` long)
+- `NQ` = PULLs per explicit read txn (the engine-lock-free "other work" a freed worker can do)
+- `WMODE` = writer txn mode; `WQROWS` = `0` short CREATE, `>0` long UNWIND-range CREATE
+- writers' COMMIT blocks on the replica ack (`REPL_MS` netem delay) = the slow commit
+
+### Run the full spectrum (8 scenarios × {SYNC, STRICT_SYNC} × reader/writer combos):
+
+```bash
+# master vs #4669 (default). Combos: 16,0 (no-stall baseline) 16,2 16,4 (readers + slow writers).
+GRID_OUT=grid_master_vs_4669.txt \
+  BINS="master:$PWD/bins/master/memgraph p4669:$PWD/bins/p4669/memgraph" \
+  REPL_MS=20 DUR=15 REPS=3 \
+  ./scripts/phase3_grid.sh
+```
+
+Run the grid **once per binary you care about**, pointing `BINS` at the pair (baseline + candidate),
+e.g. `master` vs `p4684`, `master` vs `p4662`, etc. Or list all six in `BINS` for a single sweep
+(longer). The eight scenarios already cover fast/long reads × short/long writes × explicit/auto.
+
+**Key knobs for the perf box:** raise `DUR` (15–30 s) and `REPS` (3–5) for stable medians; `REPL_MS`
+sets how slow the commit is (20 ms is a moderate WAN; try 5/20/50 to sweep commit slowness);
+`SRV_CORES`/`CLI_CORES` to match the box.
+
+### The rows that matter most
+
+- **#4669 win** shows in `longread-expl` and `longR-longW-expl` at `W=2`/`W=4` (readers stalled by
+  slow writers), **explicit** reader mode.
+- **#4684 win** shows in the **`*-auto`** scenarios (`longread-auto`, `longR-longW-auto`) at
+  `W=2`/`W=4` — the autocommit rows where #4669 alone is flat.
+- **No-regression** check: the `W=0` column (no writer = no stall) must be ≈ master for every binary.
+
+## 7. Expected results (preliminary — from the noisy dev VM; CONFIRM these)
+
+Directional shape observed on the dev VM (single runs, ±10–15% CI-grade noise — treat as hypotheses):
+
+| Scenario (readers stalled by slow writers) | master | #4669 | #4684 |
+|---|---|---|---|
+| **explicit** long read, SYNC, W=4 | baseline | **+14 – +22%** | ≈ #4669 (inherits it) |
+| **explicit** long read + long write, STRICT_SYNC, W=4 | baseline | **+28 – +50%** | ≈ #4669 |
+| **autocommit** long read, SYNC/STRICT, W=4 | baseline | ≈ master (flat) | **expected win (unmeasured)** |
+| any scenario, **W=0** (no stall) | baseline | ≈ master | ≈ master |
+
+- **#4669**: consistent large positive under stall, **explicit-txn only**; robust across SYNC and
+  STRICT_SYNC; STRICT_SYNC shows the bigger gain (longer lock hold). Flat on autocommit by design.
+- **#4684**: **not yet benchmarked** — only unit-tested and CI-green. The hypothesis is that it turns
+  the flat autocommit rows into wins of a similar shape, largest under STRICT_SYNC.
+- **#4662 / #4663**: CI mgbench (isolated single-query) showed **+6–9% on fast point read/write** for
+  #4662/#4663 vs master — plausibly real (fixed per-op overhead removed) but confounded by CI noise
+  and a slightly older master baseline; confirm in isolation.
+- **#4668**: expect improved read-txn drain latency (lower read p99) when commits pile up; no
+  throughput regression.
+
+### Success criteria (what to report back)
+
+1. **#4669**: explicit-BEGIN read throughput under concurrent slow writers **≥ +10% vs master** at
+   `W≥2` (SYNC), larger under STRICT_SYNC; **no regression at `W=0`**.
+2. **#4684**: the same win shape on the **autocommit** (`*-auto`) rows where #4669 is flat.
+3. **All PRs**: **no regression** on any `W=0` (no-stall) cell, and no regression on the fast-read
+   `fastread-*` scenarios.
+4. #4662/#4663: confirm or deny the small single-thread fast-op gain.
+
+## 8. Caveats & known residuals
+
+- **In-memory only.** `#4669`/`#4684` reschedule only for READ/WRITE accessor acquisition on
+  **in-memory** storage. **On-disk** storage has no non-blocking probe, so an on-disk BEGIN/PREPARE
+  reschedules up to the cap (32×) then blocks — correct but not optimized (a tracked one-hop
+  follow-up). Benchmark **in-memory transactional** mode.
+- **UNIQUE / READ_ONLY** acquires always block (never reschedule) — DDL/schema-assert queries are out
+  of scope; they won't show a win.
+- **CI mgbench does NOT exercise this.** The GitHub `Release / Benchmark` job is *isolated
+  single-query* — no concurrent slow commit — so it correctly shows #4669/#4684 ≈ master. The win
+  only appears under the concurrent-slow-commit workload this harness creates.
+- The harness is a **single-box netns simulation** with disjoint CPU pinning. It is a faithful
+  stand-in for a fast-client / slow-replica topology, but if you have two real machines + a real
+  replica link, that is even better — the same `phase3.py` driver works against any `bolt://` URI.
+- **Correctness is already covered** (unit tests, concurrency-model audit, CI matrix green). This task
+  is purely throughput confirmation.
+
+## 9. Files in this directory
+
+- `REPORT.md` — this file.
+- `scripts/dry_run.sh` — verify netns + pinning before spending a build/bench.
+- `scripts/setup_repl.sh` — build the 3-netns fast-client / slow-replica topology.
+- `scripts/phase3.py` — the reader+writer load driver (env-parameterized; see its header).
+- `scripts/phase3_run.sh` — start main + SYNC/STRICT replica (WAL on), register, run one binary set.
+- `scripts/phase3_grid.sh` — the full 8-scenario × {SYNC,STRICT_SYNC} sweep.
+- `scripts/build_binaries.sh` — build all six branches into relocatable `bins/<label>/` bundles.
+
+Teardown is automatic; stray namespaces: `sudo ip netns del mgcli mgsrv mgrepl`.
