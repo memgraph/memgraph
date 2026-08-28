@@ -1,0 +1,11 @@
+# Wraps an already-built mgbench client binary (build/tests/mgbench/client)
+# into the same runtime image layout as Dockerfile.mgbench_client, without
+# rebuilding Memgraph. Build context must be a directory containing `client`.
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y wget libcurl4 && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY client /bin/client
+
+ENTRYPOINT ["/bin/client"]
