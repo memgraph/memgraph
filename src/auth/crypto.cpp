@@ -474,10 +474,17 @@ void EnableFipsMode() {
   if (!IsFipsApproved(configured)) {
     utils::FailStartup(
         utils::ExitCode::FipsModeUnsupportedPasswordAlgorithm,
-        fmt::format("--fips-mode=true is incompatible with --password-encryption-algorithm={}. Only '{}' is approved.",
+        fmt::format("--fips-mode=true is incompatible with --password-encryption-algorithm={}. Only '{}' is approved. "
+                    "Note that switching also locks out existing users: their password hashes cannot be migrated, so "
+                    "they have to be re-created.",
                     AsString(configured),
                     AsString(PasswordHashAlgorithm::PBKDF2_SHA256)));
   }
+
+  spdlog::warn(
+      "FIPS mode is experimental. Existing users whose passwords were hashed with an algorithm other than '{}' can no "
+      "longer authenticate and must be re-created; there is no upgrade path.",
+      AsString(PasswordHashAlgorithm::PBKDF2_SHA256));
 }
 
 void SetHashAlgorithm(std::string_view algo) {

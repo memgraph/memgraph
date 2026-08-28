@@ -101,7 +101,8 @@ startup_config_dict = {
         "false",
         "false",
         "Run Memgraph in FIPS 140-3 approved mode. Requires the validated OpenSSL FIPS provider to be available "
-        "and restricts password hashing and TLS to FIPS-approved algorithms.",
+        "and restricts password hashing and TLS to FIPS-approved algorithms. Experimental: existing users must be "
+        "re-created, as their password hashes cannot be migrated.",
     ),
     "isolation_level": (
         "SNAPSHOT_ISOLATION",
