@@ -893,3 +893,86 @@ TEST_F(LockFreeReadSnapshotRecovery, WriteOff_RecoverOff_DataIntact) {
   WriteDurable(storage_directory, /*flag_on=*/false);
   RecoverAndCheck(storage_directory, /*flag_on=*/false, 5);
 }
+
+// Post-restart read of a multiply-updated vertex, flag ON. Under the flag a live reader's SI snapshot
+// boundary is last_committed_mvcc_ts_ (mvcc.hpp: CommittedBeforeSnapshot -> ts <= snapshot_ts), which
+// starts at 0 on a fresh restart; Fix B (storage.cpp recovery) lifts it back to the recovered
+// last-durable-timestamp. The concern being guarded is that a reader whose snapshot_ts froze at 0
+// would reject any recovered value carried by a committed delta (commit ts > 0) and revert to the
+// oldest version in the chain.
+//
+// The vertex is driven through FOUR separate committed transactions (p = 1,2,3,4) persisted via WAL
+// replay -- an early forced snapshot captures p=1 and p=2,3,4 land as WAL deltas replayed on restart,
+// the recovery path most likely to rebuild a version chain. The post-restart reader must read the
+// LATEST value 4, with exactly the one recovered vertex present.
+//
+// EMPIRICAL NOTE (verified by A/B, both storage.cpp restore sites neutralized + rebuilt): in-memory
+// recovery reconstructs FLAT vertices -- both snapshot load (snapshot.cpp: Vertex{gid, nullptr} +
+// InitProperties) and WAL replay (wal.cpp: Vertex{gid, nullptr} + in-place SetProperty) leave
+// delta()==nullptr, so the read returns the in-place latest value regardless of snapshot_ts. This
+// test therefore still reads 4 with Fix B removed; it locks in correct recovered-read behavior but
+// does NOT on its own fail if Fix B regresses (no in-memory recovery path produces a committed delta
+// chain to expose the watermark). Do not weaken the value/count assertions.
+TEST_F(LockFreeReadSnapshotRecovery, RecoveredUpdateChain_ReadsLatestUnderFlagOn) {
+  Gid gid{};
+  {
+    Config config{};
+    config.durability.storage_directory = storage_directory;
+    config.durability.recover_on_startup = false;
+    config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    config.experimental_lockfree_read_snapshot = true;
+
+    auto store = std::make_unique<InMemoryStorage>(config);
+    const auto p = store->NameToProperty("p");
+
+    // Create the vertex at p=1 and commit.
+    {
+      auto acc = store->Access(memgraph::storage::WRITE);
+      auto vertex = acc->CreateVertex();
+      gid = vertex.Gid();
+      ASSERT_TRUE(vertex.SetProperty(p, PropertyValue(1)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    // Snapshot the p=1 baseline so the subsequent updates persist as WAL deltas, not folded into the
+    // snapshot -- the recovery path most likely to rebuild a version chain.
+    ASSERT_TRUE(store->CreateSnapshot(/*force=*/true).has_value());
+
+    // Three more separate committed transactions: p = 2, 3, 4. In a live store this is a four-version
+    // MVCC delta chain on the vertex.
+    for (const int value : {2, 3, 4}) {
+      auto acc = store->Access(memgraph::storage::WRITE);
+      auto vertex = acc->FindVertex(gid, View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_TRUE(vertex->SetProperty(p, PropertyValue(value)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    store.reset();
+  }
+
+  // Restart with the flag ON and recover from snapshot + WAL.
+  {
+    Config config{};
+    config.durability.storage_directory = storage_directory;
+    config.durability.recover_on_startup = true;
+    config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    config.experimental_lockfree_read_snapshot = true;
+
+    auto store = std::make_unique<InMemoryStorage>(config);
+    const auto p = store->NameToProperty("p");
+
+    auto reader = store->Access(memgraph::storage::READ);
+
+    // Exactly one vertex survived recovery: the repeated updates targeted the same object.
+    EXPECT_EQ(CountVertices(*reader), 1);
+
+    auto vertex = reader->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    auto value = vertex->GetProperty(p, View::OLD);
+    ASSERT_TRUE(value.has_value());
+    EXPECT_EQ(value->ValueInt(), 4)
+        << "RECOVERED-READ STALE: a post-restart reader read an older version of a multiply-updated "
+           "vertex instead of the latest. If recovery ever begins reconstructing a committed delta "
+           "chain, this means the reader's snapshot_ts is below the head commit ts -- i.e. the "
+           "recovery watermark restore (last_committed_mvcc_ts_ <- last-durable-timestamp) is missing.";
+  }
+}
