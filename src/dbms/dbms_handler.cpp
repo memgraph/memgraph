@@ -476,12 +476,7 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
     return std::unexpected{DeleteError::NON_EXISTENT};
   }
 
-  // Delete the key here only if the detach did not retire it: no profile attached, or a durability error.
-  bool retired_with_detach = false;
-  if (tenant_profiles_) {
-    retired_with_detach = tenant_profiles_->DetachFromDatabase(db_name, {Durability::GenKey(db_name)}).has_value();
-  }
-  if (!retired_with_detach && durability_) durability_->Delete(Durability::GenKey(db_name));
+  DetachProfileAndRetireDurabilityKey_(db_name);
 
   // Delete disk storage
   std::error_code ec;
@@ -599,23 +594,31 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
     if (old_val) {
       // The stored value is name-independent (only "uuid"/"rel_dir"/cold fields; the name lives in
       // the key), so move it verbatim instead of parsing and rewriting it.
-      const std::map<std::string, std::string> to_put{{new_key, *old_val}};
+      const std::map<std::string, std::string> to_put{{new_key, std::move(*old_val)}};
       const std::vector<std::string> to_delete{old_key};
       // Atomic batch: a separate Put-then-Delete could leave the tenant durably recorded under BOTH
       // names if the process died mid-way, and the restore loop would then restore the same uuid twice.
       if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) {
-        spdlog::error("Failed to persist rename of database {} to {}; still durably recorded as {}.",
-                      old_name,
-                      new_name,
-                      old_name);
+        // The batch is atomic, so on failure old_name still stands alone durably -- but the in-memory
+        // rename above has already taken effect. Roll it back and fail the operation rather than
+        // replicate a rename MAIN never durably committed: otherwise a crash leaves MAIN recovering
+        // old_name while the replica has new_name, and any later DDL on the phantom new_name compounds
+        // the divergence (its durable key was never written, so the durability update silently no-ops).
+        spdlog::error(
+            "Failed to persist rename of database {} to {}; rolling back in-memory rename.", old_name, new_name);
+        [[maybe_unused]] auto rolled_back = db_handler_.Rename(new_name, old_name);
+        (*new_db)->storage()->config_.salient.name = old_name;
+        return std::unexpected{RenameError::FAIL};
       }
     }
   }
 
-  // Update tenant profile membership (no-op if database had no profile attached).
+  // Update tenant profile membership (no-op if database had no profile attached). Reached only after the
+  // tenant durability record has durably moved (the failure branch above returned), so this profile
+  // rewrite is the sole remaining durable write.
   if (tenant_profiles_) {
-    // The rename already committed (in-memory + durably); a profile-membership failure here must not skip
-    // the fallthrough to AddAction<RenameDatabase> below — that gap used to cause MAIN/replica divergence.
+    // A profile-membership failure here must NOT skip the AddAction<RenameDatabase> below: the rename is
+    // already durable, so refusing to replicate it is exactly what would diverge MAIN and its replicas.
     auto renamed = tenant_profiles_->RenameDatabase(old_name, new_name);
     if (!renamed.has_value() && renamed.error() == TenantProfiles::RenameError::DURABILITY_ERROR) {
       spdlog::warn("Failed to persist tenant profile membership rename for database {} (was {}).", new_name, old_name);
@@ -802,12 +805,7 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
   const std::string name_copy{name};
   suspended_.erase(it);
   db_handler_.EraseColdShell(name_copy);  // guaranteed to succeed: we just verified state==COLD above
-  // Delete the key here only if the detach did not retire it: no profile attached, or a durability error.
-  bool retired_with_detach = false;
-  if (tenant_profiles_) {
-    retired_with_detach = tenant_profiles_->DetachFromDatabase(name_copy, {Durability::GenKey(name_copy)}).has_value();
-  }
-  if (!retired_with_detach && durability_) durability_->Delete(Durability::GenKey(name_copy));
+  DetachProfileAndRetireDurabilityKey_(name_copy);
   std::error_code ec;
   (void)std::filesystem::remove_all(data_dir, ec);
   if (ec) {
@@ -846,12 +844,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     database.streams()->DropAll();
   }
 
-  // Delete the key here only if the detach did not retire it: no profile attached, or a durability error.
-  bool retired_with_detach = false;
-  if (tenant_profiles_) {
-    retired_with_detach = tenant_profiles_->DetachFromDatabase(db_name, {Durability::GenKey(db_name)}).has_value();
-  }
-  if (!retired_with_detach && durability_) durability_->Delete(Durability::GenKey(db_name));
+  DetachProfileAndRetireDurabilityKey_(db_name);
 
   // Check if db exists
   // Low level handlers
@@ -865,6 +858,14 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   });
 
   return {};  // Success
+}
+
+void DbmsHandler::DetachProfileAndRetireDurabilityKey_(std::string_view db_name) {
+  bool retired_with_detach = false;
+  if (tenant_profiles_) {
+    retired_with_detach = tenant_profiles_->DetachFromDatabase(db_name, {Durability::GenKey(db_name)}).has_value();
+  }
+  if (!retired_with_detach && durability_) durability_->Delete(Durability::GenKey(db_name));
 }
 
 void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir) {

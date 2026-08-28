@@ -964,6 +964,11 @@ class DbmsHandler {
   // Caller must hold lock_ (write).
   std::expected<utils::UUID, DeleteError> DeleteCold_(std::string_view name);
 
+  // Retire the tenant's own durability key together with its profile detach in one atomic kvstore batch
+  // when a profile is attached; otherwise delete the key on its own. Safe (no-op on the key) when the
+  // database has no attached profile. Caller must hold lock_.
+  void DetachProfileAndRetireDurabilityKey_(std::string_view db_name);
+
   // Cold-tenant fast path shared by every Delete/TryDelete overload: if `name` is currently in
   // suspended_, drop it via DeleteCold_ (bypassing the HOT gatekeeper path, which would otherwise
   // return NON_EXISTENT for a no-value shell) and return the DeleteResult. Records a DropDatabase
