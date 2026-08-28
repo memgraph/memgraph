@@ -27,10 +27,6 @@ on:
         type: string
         description: "Should the stress and durability tests be run? Default is true."
         default: "true"
-      run_query_modules:
-        type: string
-        description: "Should the query modules tests be run? Default is true."
-        default: "true"
       run_id:
         type: string
         description: "The ID of the run that triggered this workflow."
@@ -188,6 +184,42 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
+
+      - name: Run query modules unit tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          test-memgraph query_modules_unit
+
+      - name: Run query modules e2e tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph query_modules_e2e \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION}
+
+      - name: Copy query modules logs
+        if: failure()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --memgraph-logs --dest-dir build/memgraph-logs-query-modules
+
+      - name: Save query modules test data
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: failure()
+        with:
+          name: "Query modules tests(Release build)${{ env.RUN_ID }}"
+          path: build/memgraph-logs-query-modules
 
       - name: Create enterprise DEB package
         run: |
@@ -951,141 +983,3 @@ jobs:
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
         with:
           job-name: "Release / Stress tests"
-
-  query_modules:
-    if: ${{ inputs.run_query_modules == 'true' }}
-    name: "Query modules tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-          fetch-depth: 0
-
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
-
-      - name: Build release binary
-        run: |
-          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.0)
-          echo "Linking with $LINK_THREADS threads"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --build-type $BUILD_TYPE \
-          --threads 12 \
-          build-memgraph \
-          --link-threads $LINK_THREADS \
-          --split-debug \
-          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
-          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
-          --conan-remote $CONAN_REMOTE \
-          --conan-username $CONAN_USERNAME \
-          --conan-password $CONAN_PASSWORD
-
-      - name: Initialize tests
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          init-tests
-
-      - name: Run query modules unit tests
-        run: |
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os $OS \
-            --arch $ARCH \
-            test-memgraph query_modules_unit
-
-      - name: Run query modules e2e tests
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph query_modules_e2e \
-          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION}
-
-      - name: Copy memgraph logs
-        if: failure()
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          copy --memgraph-logs --dest-dir build/memgraph-logs-query-modules
-
-      - name: Save test data
-        continue-on-error: true
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        if: failure()
-        with:
-          name: "Query modules tests(Release build)${{ env.RUN_ID }}"
-          path: build/memgraph-logs-query-modules
-
-      - name: Collect core dumps
-        if: failure()
-        continue-on-error: true
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-        run: |
-          ./tools/ci/core-dumps/collect.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --run-id "${{ github.run_id }}" \
-          --job-id "${{ github.job }}-${{ github.run_attempt }}"
-
-      - name: Stop mgbuild container
-        if: always()
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          stop --remove
-
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
-        uses: ./.github/actions/cancel-on-failure-in-merge-queue
-        with:
-          job-name: "Release / Query modules tests"

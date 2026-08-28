@@ -25,10 +25,10 @@ class DiffSetup:
                     release = inputs.pop("release", "")
                     # Check for "none" to skip all release tests
                     if release.lower() == "none":
-                        for test in ["core", "benchmark", "e2e", "stress", "query_modules"]:
+                        for test in ["core", "benchmark", "e2e", "stress"]:
                             self._gh_context["event"]["inputs"][f"release_{test}"] = "false"
                     else:
-                        for test in ["core", "benchmark", "e2e", "stress", "query_modules"]:
+                        for test in ["core", "benchmark", "e2e", "stress"]:
                             self._gh_context["event"]["inputs"][f"release_{test}"] = (
                                 "true" if test in release else "false"
                             )
@@ -83,7 +83,7 @@ class DiffSetup:
             "coverage": {"core": value, "clang_tidy": value},
             "debug": {"core": value, "integration": value},
             "jepsen": {"core": value},
-            "release": {"core": value, "benchmark": value, "e2e": value, "stress": value, "query_modules": value},
+            "release": {"core": value, "benchmark": value, "e2e": value, "stress": value},
             "malloc": {"build": value},
             "mage": {"amd": value, "arm": value, "cuda": False},
             "mgcxx": {"unit": value},
