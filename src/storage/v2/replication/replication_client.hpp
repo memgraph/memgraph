@@ -113,8 +113,8 @@ class ReplicationStorageClient {
   auto Mode() const -> replication_coordination_glue::ReplicationMode { return client_.mode_; }
 
   bool TwoPhaseCommit() const {
-    // SYNC and ASYNC replicas should commit immediately when receiving deltas
-    // STRICT_SYNC we are doing two phase commit
+    // SYNC replicas commit immediately when receiving deltas. ASYNC replicas don't receive transaction deltas and
+    // recover from durability files instead. STRICT_SYNC uses two-phase commit.
     return client_.mode_ == replication_coordination_glue::ReplicationMode::STRICT_SYNC;
   }
 
@@ -190,8 +190,7 @@ class ReplicationStorageClient {
                                                 uint64_t durability_commit_timestamp) const
       -> std::expected<void, io::network::ClientCommunicationError>;
 
-  auto FinalizeTransactionReplication(DatabaseProtector const &protector, std::optional<ReplicaStream> &&replica_stream,
-                                      uint64_t durability_commit_timestamp, uint64_t commit_num_committed_txns) const
+  auto FinalizeTransactionReplication(std::optional<ReplicaStream> &&replica_stream) const
       -> std::expected<void, io::network::ClientCommunicationError>;
 
   [[nodiscard]] bool SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid,

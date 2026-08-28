@@ -372,6 +372,20 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
   auto locked_state = replica_state_.Lock();
   spdlog::trace(
       "Starting transaction replication for replica {} in state {}", client_.name_, StateToString(*locked_state));
+
+  // ASYNC replication deliberately doesn't stream individual transactions. Mark the replica as potentially behind
+  // and let the periodic replica check recover it exclusively from durability files (snapshot/WAL/current WAL).
+  // In particular, don't enqueue a per-transaction finalize task on the replication client's thread pool.
+  if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+    if (*locked_state == ReplicaState::DIVERGED_FROM_MAIN) {
+      return std::unexpected{StartTxnReplicationError{ReplicaDivergedErr{}}};
+    }
+    if (*locked_state != ReplicaState::RECOVERY) {
+      *locked_state = ReplicaState::MAYBE_BEHIND;
+    }
+    return std::unexpected{StartTxnReplicationError{ReplicaNotInSyncErr{}}};
+  }
+
   switch (*locked_state) {
     using enum ReplicaState;
     case RECOVERY: {
@@ -545,10 +559,7 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   }
 }
 
-auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector const &protector,
-                                                              std::optional<ReplicaStream> &&replica_stream,
-                                                              uint64_t durability_commit_timestamp,
-                                                              uint64_t commit_num_committed_txns) const
+auto ReplicationStorageClient::FinalizeTransactionReplication(std::optional<ReplicaStream> &&replica_stream) const
     -> std::expected<void, io::network::ClientCommunicationError> {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
@@ -583,14 +594,12 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
     return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
   }
 
-  bool const is_async = client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC;
+  MG_ASSERT(client_.mode_ != replication_coordination_glue::ReplicationMode::ASYNC,
+            "ASYNC replicas must recover from durability files instead of finalizing transaction streams");
+
   auto *arena_pool = replica_stream->DbArenaPool();
   auto task = [this,
-               protector = protector.clone(),
                replica_stream_obj = std::move(replica_stream),
-               durability_commit_timestamp,
-               commit_num_committed_txns,
-               is_async,
                arena_pool]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
     const memory::DbArenaScope db_arena_scope{arena_pool};
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
@@ -598,8 +607,8 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       auto response = replica_stream_obj->Finalize();
       // NOLINTNEXTLINE
       return replica_state_.WithLock(
-          [this, response, &replica_stream_obj, durability_commit_timestamp, commit_num_committed_txns, is_async](
-              auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
+          [response,
+           &replica_stream_obj](auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
             replica_stream_obj.reset();
 
             // If we didn't receive successful response to PrepareCommitReq, or we got into MAYBE_BEHIND state since the
@@ -612,18 +621,6 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
             if (!response.success) {
               state = ReplicaState::MAYBE_BEHIND;
               return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
-            }
-
-            // ASYNC replicas update their own commit_ts_info_ here upon confirmed
-            // success rather than optimistically in the main commit path.
-            // Advance-only merge to this txn's absolute (ldt, num_committed_txns) rather than a blind +1: the
-            // heartbeat may have already folded in the replica's self-reported count for this txn, and a +1 on top
-            // would double-count it (and, being monotonic, never self-correct), showing up as a negative lag.
-            if (is_async) {
-              CommitTsInfo const observed{.ldt_ = durability_commit_timestamp,
-                                          .num_committed_txns_ = commit_num_committed_txns};
-              atomic_struct_update<CommitTsInfo>(commit_ts_info_,
-                                                 [observed](CommitTsInfo const &info) { return Max(info, observed); });
             }
 
             state = ReplicaState::READY;
@@ -646,13 +643,6 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
     }
   };
 
-  if (is_async) {
-    // When in ASYNC mode, we ignore the return value from task() and always return true
-    client_.thread_pool_.AddTask(std::move(task));
-    return {};
-  }
-
-  // If we are in SYNC mode, we return the result of task().
   return task();
 }
 
