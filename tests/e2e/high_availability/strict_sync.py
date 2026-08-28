@@ -406,7 +406,7 @@ def test_mt_strict_sync_commit(test_name):
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
     execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
 
-    with Pool(processes=4) as pool:
+    with Pool(processes=3) as pool:
         res_a = pool.apply_async(task, ("A",))
         res_b = pool.apply_async(task, ("B",))
         res_mg = pool.apply_async(task, ("memgraph",))
