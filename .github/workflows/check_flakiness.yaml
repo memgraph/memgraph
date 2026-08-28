@@ -11,37 +11,59 @@ on:
       community_core:
         type: boolean
         default: true
-        description: ""
+        description: "Community: Core"
       coverage_core:
         type: boolean
         default: true
-        description: ""
+        description: "Coverage: Core"
       debug_core:
         type: boolean
         default: true
-        description: ""
+        description: "Debug: Core"
       debug_integration:
         type: boolean
         default: true
-        description: ""
+        description: "Debug: Integration"
       jepsen_core:
         type: boolean
         default: true
-        description: ""
-      release:
-        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress)'
-        default: 'core,e2e,stress'
+        description: "Jepsen: Core"
+      release_core:
+        type: boolean
+        default: true
+        description: "Release: Core"
+      release_benchmark:
+        type: boolean
+        default: false
+        description: "Release: Benchmark"
+      release_e2e:
+        type: boolean
+        default: true
+        description: "Release: E2E"
+      release_stress:
+        type: boolean
+        default: true
+        description: "Release: Stress"
       malloc_build:
         type: boolean
         default: true
-      mage:
-        type: string
-        default: 'amd'
-        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
+        description: "Malloc: Build"
+      mage_amd:
+        type: boolean
+        default: true
+        description: "MAGE: AMD"
+      mage_arm:
+        type: boolean
+        default: false
+        description: "MAGE: ARM"
+      mage_cuda:
+        type: boolean
+        default: false
+        description: "MAGE: CUDA"
       mgcxx_unit:
         type: boolean
         default: true
-        description: "Run the mgcxx tests."
+        description: "MGCXX: Unit"
       flakiness_runs:
         type: number
         default: 3

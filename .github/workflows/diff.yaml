@@ -11,32 +11,63 @@ on:
       community_core:
         type: boolean
         default: true
-      coverage:
-        description: 'Comma-separated list of coverage tests to run (e.g. core,clang_tidy). Use "none" to skip all coverage tests.'
-        default: 'core,clang_tidy'
+        description: "Community: Core"
+      coverage_core:
+        type: boolean
+        default: true
+        description: "Coverage: Core"
+      coverage_clang_tidy:
+        type: boolean
+        default: true
+        description: "Coverage: Clang-Tidy"
       debug_core:
         type: boolean
         default: true
+        description: "Debug: Core"
       debug_integration:
         type: boolean
         default: true
+        description: "Debug: Integration"
       jepsen_core:
         type: boolean
         default: true
-      release:
-        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress). Use "none" to skip all release tests.'
-        default: 'core,benchmark,e2e,stress'
+        description: "Jepsen: Core"
+      release_core:
+        type: boolean
+        default: true
+        description: "Release: Core"
+      release_benchmark:
+        type: boolean
+        default: true
+        description: "Release: Benchmark"
+      release_e2e:
+        type: boolean
+        default: true
+        description: "Release: E2E"
+      release_stress:
+        type: boolean
+        default: true
+        description: "Release: Stress"
       malloc_build:
         type: boolean
         default: true
-      mage:
-        type: string
-        default: 'amd,arm,cuda'
-        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
+        description: "Malloc: Build"
+      mage_amd:
+        type: boolean
+        default: true
+        description: "MAGE: AMD"
+      mage_arm:
+        type: boolean
+        default: true
+        description: "MAGE: ARM"
+      mage_cuda:
+        type: boolean
+        default: true
+        description: "MAGE: CUDA"
       mgcxx_unit:
         type: boolean
         default: true
-        description: "Run the mgcxx tests."
+        description: "MGCXX: Unit"
       python_build_version:
         type: string
         default: ''
@@ -50,34 +81,63 @@ on:
       community_core:
         type: boolean
         default: true
-      coverage:
-        description: 'Comma-separated list of coverage tests to run (e.g. core,clang_tidy). Use "none" to skip all coverage tests.'
-        default: 'core,clang_tidy'
-        type: string
+        description: "Community: Core"
+      coverage_core:
+        type: boolean
+        default: true
+        description: "Coverage: Core"
+      coverage_clang_tidy:
+        type: boolean
+        default: true
+        description: "Coverage: Clang-Tidy"
       debug_core:
         type: boolean
         default: true
+        description: "Debug: Core"
       debug_integration:
         type: boolean
         default: true
+        description: "Debug: Integration"
       jepsen_core:
         type: boolean
         default: true
-      release:
-        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress). Use "none" to skip all release tests.'
-        default: 'core,benchmark,e2e,stress'
-        type: string
+        description: "Jepsen: Core"
+      release_core:
+        type: boolean
+        default: true
+        description: "Release: Core"
+      release_benchmark:
+        type: boolean
+        default: true
+        description: "Release: Benchmark"
+      release_e2e:
+        type: boolean
+        default: true
+        description: "Release: E2E"
+      release_stress:
+        type: boolean
+        default: true
+        description: "Release: Stress"
       malloc_build:
         type: boolean
         default: true
-      mage:
-        type: string
-        default: 'amd,arm,cuda'
-        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
+        description: "Malloc: Build"
+      mage_amd:
+        type: boolean
+        default: true
+        description: "MAGE: AMD"
+      mage_arm:
+        type: boolean
+        default: true
+        description: "MAGE: ARM"
+      mage_cuda:
+        type: boolean
+        default: true
+        description: "MAGE: CUDA"
       mgcxx_unit:
         type: boolean
         default: true
-        description: "Run the mgcxx tests."
+        description: "MGCXX: Unit"
       python_build_version:
         type: string
         default: ''
