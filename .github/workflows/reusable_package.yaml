@@ -342,7 +342,9 @@ jobs:
             --mgconsole
 
       - name: "Build smoke image from package"
-        if: ${{ inputs.run_smoke_tests }}
+        # Not for fips: this image installs the deb onto a stock distro base,
+        # which has no FIPS provider, so memgraph would exit 14 on startup.
+        if: ${{ inputs.run_smoke_tests && !inputs.fips }}
         run: |
           for smoke_os in $SMOKE_OS_LIST; do
             image_tag="smoke-${smoke_os}-${ARCH}-${BUILD_TYPE}"
@@ -538,12 +540,19 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ env.S3_REGION }}
 
-      - name: "Run smoke tests (prod docker)"
+      - name: "Run smoke tests (prod / prod-fips docker)"
         if: ${{ inputs.run_smoke_tests && (inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both') }}
         env:
           MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
           MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
         run: |
+          # The FIPS image has no embedded Python, so the full feature list
+          # would fail on the modules it cannot load; --fips selects the subset
+          # that applies and adds the compliance checks.
+          FIPS_ARG=""
+          if [[ "$FIPS" == "true" ]]; then
+            FIPS_ARG="--fips"
+          fi
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os $OS \
@@ -551,7 +560,8 @@ jobs:
             --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
             --organization-name $MEMGRAPH_ORGANIZATION_NAME \
             test-memgraph smoke \
-            --image "memgraph/memgraph:${PROD_IMAGE_TAG}"
+            --image "memgraph/memgraph:${PROD_IMAGE_TAG}" \
+            $FIPS_ARG
 
       - name: "Run smoke tests (debug docker)"
         if: ${{ inputs.run_smoke_tests && (inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both') }}
@@ -569,7 +579,7 @@ jobs:
             --image "memgraph/memgraph:${DEBUG_IMAGE_TAG}"
 
       - name: "Run smoke tests (package smoke image)"
-        if: ${{ inputs.run_smoke_tests }}
+        if: ${{ inputs.run_smoke_tests && !inputs.fips }}
         env:
           MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
           MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}

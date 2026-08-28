@@ -106,6 +106,8 @@ print_help () {
   echo -e "  run [OPTIONS]                      Run mgbuild container"
   echo -e "  stop [OPTIONS]                     Stop mgbuild container"
   echo -e "  test-memgraph TEST                 Run a selected test TEST (see supported tests below) inside mgbuild container"
+  echo -e "                                     'smoke' accepts --image IMAGE and --fips (FIPS image: the feature subset"
+  echo -e "                                     available without embedded Python, plus the FIPS compliance checks)"
   echo -e "  check-core-dumps                   Check the runner is configured to produce Memgraph core dumps (warn-only)"
   echo -e "  test-mage TEST                     Run a selected test TEST (see supported tests below) inside MAGE docker image"
   echo -e "  generate-memgraph-build-sbom       Generate Memgraph build SBOM"
@@ -2237,6 +2239,7 @@ test_memgraph() {
       shift 1
       smoke_image=""
       reuse_env=false
+      smoke_fips=""
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --image)
@@ -2246,6 +2249,12 @@ test_memgraph() {
           --reuse-env)
             reuse_env=$2
             shift 2
+          ;;
+          --fips)
+            # Runs the subset of features available without an embedded Python
+            # interpreter, plus the FIPS compliance checks.
+            smoke_fips="--fips"
+            shift
           ;;
           *)
             echo "Error: Unknown flag '$1'"
@@ -2275,7 +2284,7 @@ test_memgraph() {
         source env/bin/activate
         pip install -r "$PROJECT_ROOT/tests/smoke/requirements.txt"
       fi
-      ./test_single.bash "memgraph"
+      ./test_single.bash "memgraph"  $smoke_fips
     ;;
     *)
       echo "Error: Unknown test '$1'"
