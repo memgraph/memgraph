@@ -16,17 +16,16 @@ os.glibc=2.31
 os.kernel=5.4
 
 {% set sysroot_path = os.path.join(toolchain_path, "sysroot") %}
-{% set base_flags = '"--sysroot=' ~ sysroot_path ~ '", "--gcc-toolchain=' ~ toolchain_path ~ '"' %}
 
 [conf]
 # NOTE: for cross-compilation, set tools.gnu:host_triplet (e.g. aarch64-unknown-linux-gnu).
 # The vendored Boost recipe passes it as <triple> to b2 for correct --target resolution.
 m4/*:tools.build:cflags=["-std=gnu17"]
-# clang 23 added -Wunused-but-set-global to -Wall, and this package builds
-# with -Werror. Scoped to the one package so everything else still gets the
-# diagnostic. A package-scoped value replaces the global one rather than adding
-# to it, so it has to repeat the flags every build needs.
-aws-sdk-cpp/*:tools.build:cxxflags=[{{ base_flags }}, "-Wno-unused-but-set-global"]
+# clang 23 added -Wunused-but-set-global to -Wall, which this package trips and
+# builds as an error. Its own option is the way off: adding -Wno- to the flags
+# does not work, because the package appends -Wall after them and re-enables it.
+# The warnings still print, they just stop being fatal.
+aws-sdk-cpp/*:tools.cmake.cmaketoolchain:extra_variables={"AWS_SDK_WARNINGS_ARE_ERRORS": "OFF"}
 tools.cmake.cmaketoolchain:generator=Ninja
 # The cmake toolchain file that ships inside the toolchain, not the copy in this
 # repository. It finds the toolchain from its own location, so the installed one
@@ -41,7 +40,7 @@ tools.build:compiler_executables={"c": "{{ os.path.join(toolchain_path, "bin/cla
 # (__isoc23_strtol, pthread_*@GLIBC_2.34, etc.).
 # --gcc-toolchain points clang at the bundled GCC's libdir so it finds
 # libstdc++, libgcc_s, libatomic.
-tools.build:cflags=[{{ base_flags }}]
-tools.build:cxxflags=[{{ base_flags }}]
+tools.build:cflags=["--sysroot={{ sysroot_path }}", "--gcc-toolchain={{ toolchain_path }}"]
+tools.build:cxxflags=["--sysroot={{ sysroot_path }}", "--gcc-toolchain={{ toolchain_path }}"]
 tools.build:sharedlinkflags=["--sysroot={{ sysroot_path }}", "--gcc-toolchain={{ toolchain_path }}"]
 tools.build:exelinkflags=["--sysroot={{ sysroot_path }}", "--gcc-toolchain={{ toolchain_path }}"]
