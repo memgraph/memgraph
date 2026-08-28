@@ -1,0 +1,67 @@
+# Idle-Session Reaper Concurrency Stress Workload
+#
+# Exercises the generic idle-session accessor reaper. The server is launched with
+# --experimental-enabled=idle-session-reaper and --session-idle-accessor-release-sec=N:
+# after a Bolt session is idle > N seconds a background sweep releases its DB
+# accessor (the socket stays open); the next query transparently re-acquires it,
+# and if the tenant was dropped/suspended meanwhile the session falls back
+# db-less and the query errors cleanly (no crash, no hang). The reaper only reaps
+# NON-default tenants.
+#
+# Four concurrent worker groups race the reaper:
+#   1. idle_holders: USE a stable keep_db (seeded, never dropped), then sit idle;
+#      periodically re-query and assert the count is unchanged (transparent
+#      re-acquire proof).
+#   2. query_churn: create-on-miss churn tenants, read/write, sometimes go idle
+#      > N then re-query; tolerate server-side drop/suspend races.
+#   3. tenant_lifecycle: CREATE / SUSPEND+RESUME / DROP DATABASE churn_x FORCE.
+#   4. reconnect_churn: connect -> USE random tenant -> 1 query -> close loop.
+#
+# Non-vacuity gate: a dedicated prober_db holder stays idle with its socket open;
+# after > (N + sweep + margin) an admin SUSPEND DATABASE prober_db MUST succeed —
+# proving the reaper actually released the idle pin (else the run is vacuous and
+# exits non-zero).
+#
+# NOTE: Run against an ASan or TSan build for sanitizer coverage of the reaper
+# sweep and the transparent re-acquire path. The idle windows are the feature
+# under test, sized generously above N so a sweep is guaranteed even under the
+# 3-5x slowdown of sanitizer builds.
+
+memgraph:
+  deployment:
+    externally_managed: false
+  args:
+    - "--experimental-enabled=idle-session-reaper"
+    - "--session-idle-accessor-release-sec=2"
+    - "--storage-wal-enabled=true"
+    - "--storage-snapshot-interval-sec=300"
+    - "--data-recovery-on-startup=true"
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: idle-session-reaper-stress
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/idle_session_reaper/workload.py
+      script_args:
+        - "--endpoint"
+        - "127.0.0.1:7687"
+        - "--parallelism"
+        - "8"
+        - "--num-tenants"
+        - "6"
+        - "--duration-sec"
+        - "120"
+        - "--idle-timeout-sec"
+        - "2"
+      timeout_min: 15
