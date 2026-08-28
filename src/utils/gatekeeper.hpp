@@ -129,9 +129,8 @@ struct GKInternals {
   template <typename... Args>
   explicit GKInternals(Args &&...args) : value_{std::make_unique<T>(std::forward<Args>(args)...)} {}
 
-  // COLD-shell construction: value_ stays null, state_ starts COLD. Non-template so it is preferred
-  // over the variadic ctor for an exact cold_shell_t argument (which would otherwise try
-  // make_unique<T>(cold_shell) and fail to compile for managed types with no such constructor).
+  // COLD-shell: value_ stays null, state_ starts COLD. Non-template so it wins over the variadic
+  // ctor for a cold_shell_t arg (otherwise make_unique<T>(cold_shell) fails for managed types).
   explicit GKInternals(cold_shell_t /*tag*/) : state_{GatekeeperState::COLD} {}
 
   std::unique_ptr<T> value_;
@@ -273,30 +272,21 @@ struct Gatekeeper {
     }
 
     // Completely invalidates the accessor if it returns true.
-    //
-    // ~T runs AFTER mutex_ is released (see the pointer move below), never under it: ~T (e.g.
-    // ~Database -> ~InMemoryStorage -> StopAllBackgroundTasks()) joins background threads (async
-    // indexer, TTL scheduler) that re-enter this gatekeeper through access() to mint their own
-    // Accessor. If the destroying thread still held mutex_ here, that mint would block on the very
-    // mutex the joiner is holding while it waits for the join -- an AB-BA deadlock reachable from a
-    // plain, non-FORCE DROP DATABASE. Do NOT move the destruction back under the lock.
+    // ~T runs AFTER mutex_ is released: ~Database->StopAllBackgroundTasks() joins threads that call
+    // access() — holding mutex_ here is an AB-BA deadlock. Do NOT move destruction back under lock.
     template <typename Func = decltype([](T &) { return true; })>
     [[nodiscard]] bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100),
                                   Func &&predicate = {}) {
       if (!owner_) return false;
-      std::unique_ptr<T> dying;  // destroyed at scope exit below, AFTER mutex_ is released
+      std::unique_ptr<T> dying;
       {
-        // Prevent new access
         auto guard = std::unique_lock{owner_->mutex_};
         if (!owner_->cv_.wait_for(guard, timeout, [this] { return owner_->count_ == 1; })) {
           return false;
         }
         // Already deleted
         if (!owner_->value_) return true;
-        // Delete value if ok
         if (!predicate(*owner_->value_)) return false;
-        // Pointer move: transfers ownership without running ~T or moving T under the lock. Every
-        // locked observer sees value_ == nullptr the instant this commits.
         dying = std::move(owner_->value_);
         owner_->cv_.notify_all();
       }  // <-- mutex_ released here
@@ -306,10 +296,8 @@ struct Gatekeeper {
       return true;
     }
 
-    // Unlocked, advisory only: reads owner_ and the atomic is_marked_for_deletion without mutex_, so
-    // it must NOT also read the non-atomic value_ (that would race try_delete()'s unlocked move-out).
-    // May report true while get()/operator->() return nullptr — callers that need the value must
-    // check the pointer, not rely on this alone.
+    // Unlocked, advisory: reads only the atomic is_marked_for_deletion (not value_, which would race
+    // try_delete()'s move-out). May report true while get()/operator->() return nullptr.
     explicit operator bool() const {
       return owner_ != nullptr                    // we have access
              && !owner_->is_marked_for_deletion;  // AND we are allowed to use it
@@ -369,9 +357,7 @@ struct Gatekeeper {
   // the managed value, then call finish_suspend().
   bool try_begin_suspend(std::chrono::milliseconds timeout = std::chrono::milliseconds(100)) {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    // value_ is refused too: try_delete() briefly holds count_ == 1 / state_ == HOT while ~T runs
-    // unlocked after moving value_ out, and a gatekeeper with nothing to suspend must not enter
-    // SUSPENDING.
+    // Also refuse null value_: try_delete()'s unlocked window holds count_==1/HOT with value_ moved out.
     if (!pimpl_->value_ || pimpl_->state_ != GatekeeperState::HOT) return false;
     if (!pimpl_->cv_.wait_for(guard, timeout, [this] { return pimpl_->count_ == 1; })) {
       return false;
@@ -404,24 +390,15 @@ struct Gatekeeper {
     {
       // Opt-in lifetime guard around object destruction (mirrors the dtor).
       [[maybe_unused]] typename GatekeeperGuardFor<T>::type arena_guard;
-      // INTENTIONAL: pimpl_->mutex_ is held across value_.reset() (Database destruction +
-      // WAL finalization).  This is the load-bearing suspend->resume directory handoff:
-      // begin_resume() (which transitions COLD->RESUMING) also runs under pimpl_->mutex_,
-      // so a concurrent Resume_ CANNOT start recovering from the on-disk directory until the
-      // old Database has finished finalizing its WAL and all its files are closed.
-      // Do NOT "optimize" this by releasing the mutex before destruction — doing so would
-      // open a window where a concurrent begin_resume() starts reading the directory while
-      // the old Database is still writing its final WAL segment.
+      // mutex_ held across value_.reset() intentionally — suspend->resume WAL handoff:
+      // begin_resume() also runs under mutex_, so a concurrent Resume_ cannot read the on-disk
+      // directory until the old Database finishes writing its final WAL. Do NOT release early.
       //
-      // INVARIANT (load-bearing, CALLER precondition): ~Database -> ~InMemoryStorage DOES reach a
-      // gatekeeper path -- StopAllBackgroundTasks() joins the TTL scheduler and async indexer, and
-      // those threads call make_database_protector() -> Handler::Get() -> Gatekeeper::access(),
-      // which needs pimpl_->mutex_. Destroying value_ under this non-recursive mutex is safe ONLY
-      // because the suspend caller (Suspend_) has already run StopAllBackgroundTasks() OUTSIDE this
-      // mutex, before finish_suspend(): those two threads are joined by now, so the in-destructor
-      // join is a no-op. (try_delete() destroys the same chain UNLOCKED precisely because it has no
-      // such pre-stop.) If you remove the caller's pre-stop, or add a destruction-time hook that
-      // calls access()/try_*(), this self-deadlocks.
+      // Destroying under the lock is safe ONLY because Suspend_ (dbms_handler.cpp) already ran
+      // StopAllBackgroundTasks() OUTSIDE this mutex before calling finish_suspend(): TTL/
+      // async-indexer threads that call access() (needing mutex_) are already joined — the
+      // in-destructor join is a no-op. try_delete() has no such pre-stop so it destroys UNLOCKED.
+      // Remove the caller's pre-stop and this deadlocks.
       DMG_ASSERT(pimpl_->count_ == 0, "finish_suspend() must not destroy value_ while accessors are live");
       pimpl_->value_.reset();
     }
