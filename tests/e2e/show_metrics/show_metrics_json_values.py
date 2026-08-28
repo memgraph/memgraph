@@ -262,6 +262,10 @@ EXPECTED_JSON_METRICS = {
         "GCSkiplistCleanupLatency_us_90p",
         "GCSkiplistCleanupLatency_us_99p",
     },
+    "MultiTenancy": {
+        "PendingTenantDestructions",
+        "DeferredTenantDestructions",
+    },
     "SchemaInfo": {
         "ShowSchema",
     },
