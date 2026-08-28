@@ -207,4 +207,6 @@ class JemallocConan(ConanFile):
         if not self.options.shared:
             self.cpp_info.defines = ["JEMALLOC_EXPORT="]
         if self.settings.os in ["Linux", "FreeBSD"]:
-            self.cpp_info.system_libs.extend(["dl", "pthread", "rt"])
+            self.cpp_info.system_libs.extend(["dl", "pthread"])
+        if self.settings.os == "Linux":
+            self.cpp_info.system_libs.append("rt")

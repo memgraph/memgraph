@@ -9,3 +9,6 @@ patches:
     - patch_file: "patches/1.88.0-locale-iconv-library-option.patch"
       patch_description: "Optional flag to specify iconv from either libc of libiconv"
       patch_type: "conan"
+    - patch_file: "patches/1.88.0-dll-freebsd-program-location.patch"
+      patch_description: "Fix sizeof(buf) -> sizeof(path) in the FreeBSD program_location_impl (fixed upstream in boostorg/dll develop)"
+      patch_type: "portability"

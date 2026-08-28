@@ -1,6 +1,8 @@
 os:
   Linux:
     distro: [null, ANY]
+  FreeBSD:
+    distro: [null, ANY]
 compiler:
   gcc:
     asan: [null, True]
