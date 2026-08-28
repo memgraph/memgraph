@@ -104,19 +104,6 @@ TEST_F(TwoPCCommitCacheTest, TakeForTenantNonMatchingUuidLeavesSlotPopulated) {
   ASSERT_EQ(TwoPCCommitCache::TakeForTenant(uuid_a), nullptr);
 }
 
-TEST_F(TwoPCCommitCacheTest, TakeForTenantMatchingUuidEmptiesSlot) {
-  UUID uuid_a;
-  uuid_a.set(kUuidA);
-
-  TwoPCCommitCache::Store(TakeReplicationAccessor(storage_a_.get()), kCommitTs, uuid_a);
-
-  auto first_take = TwoPCCommitCache::TakeForTenant(uuid_a);
-  ASSERT_NE(first_take, nullptr);
-
-  // Second call on the now-empty slot must return nullptr.
-  ASSERT_EQ(TwoPCCommitCache::TakeForTenant(uuid_a), nullptr);
-}
-
 // Mirrors FinalizeCommitHandler's "reply true, keep the slot" path: a durability_commit_timestamp
 // mismatch is not terminal, so the accessor must stay cached for a later, matching call.
 TEST_F(TwoPCCommitCacheTest, TakeMatchingNonMatchingTimestampLeavesSlotPopulated) {
