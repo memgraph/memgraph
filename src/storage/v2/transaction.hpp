@@ -229,6 +229,16 @@ struct Transaction {
     return lockfree_snapshot ? ts <= snapshot_ts : ts < start_timestamp;
   }
 
+  // Exclusive upper-bound timestamp for schema-info delta reconstruction: a committed delta at `ts`
+  // is folded into this transaction's base snapshot iff `ts < bound`. Encodes CommittedBeforeSnapshot
+  // as a single value so it can be threaded into the schema-info reconstruction primitives (which key
+  // off a bare timestamp). Under the lock-free experiment this is snapshot_ts + 1 (so `ts < bound`
+  // means the inclusive `ts <= snapshot_ts`); OFF it is start_timestamp, making the OFF reconstruction
+  // byte-identical to the legacy `ts < start_timestamp`.
+  [[nodiscard]] uint64_t SchemaReconstructionBound() const noexcept {
+    return lockfree_snapshot ? snapshot_ts + 1 : start_timestamp;
+  }
+
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
   // EXPERIMENTAL (lock-free-read-snapshot): frozen last-committed-MVCC-ts captured at BEGIN.

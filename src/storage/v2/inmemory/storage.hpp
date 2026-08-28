@@ -1173,15 +1173,19 @@ class InMemoryStorage final : public Storage {
   struct SchemaUpdateData {
     LocalSchemaTracking schema_diff;
     SchemaInfoPostProcess post_process;
-    uint64_t start_ts;
+    // Exclusive upper-bound timestamp for deferred delta reconstruction (Transaction::
+    // SchemaReconstructionBound): start_timestamp with the lock-free experiment OFF, snapshot_ts + 1
+    // when ON. Captured at commit so the deferred ProcessTransaction reconstructs the same pre-state
+    // the committing transaction actually saw.
+    uint64_t snapshot_bound;
     uint64_t commit_ts;
     bool property_on_edges;
 
-    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t start, uint64_t commit,
+    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t bound, uint64_t commit,
                      bool prop_on_edges)
         : schema_diff(std::move(diff)),
           post_process(std::move(post_proc)),
-          start_ts(start),
+          snapshot_bound(bound),
           commit_ts(commit),
           property_on_edges(prop_on_edges) {}
   };
