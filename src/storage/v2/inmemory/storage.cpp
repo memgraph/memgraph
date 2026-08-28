@@ -442,6 +442,14 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
       timestamp_ = std::max(timestamp_, info->next_timestamp);
+      // EXPERIMENTAL (lock-free-read-snapshot): restore the read-snapshot watermark to the highest recovered
+      // committed timestamp so a post-recovery reader sees every recovered commit (and a new commit, minted
+      // at next_timestamp > LDT, stays invisible). Runtime-only; gated so the OFF path is unchanged.
+      if (config_.experimental_lockfree_read_snapshot) {
+        last_committed_mvcc_ts_.store(
+            std::max(last_committed_mvcc_ts_.load(std::memory_order_relaxed), info->last_durable_timestamp),
+            std::memory_order_release);
+      }
       CommitTsInfo const new_info{.ldt_ = info->last_durable_timestamp,
                                   .num_committed_txns_ = info->num_committed_txns};
       repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
@@ -3102,21 +3110,26 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   }
 }
 
-uint64_t InMemoryStorage::GcVisibilityHorizon(uint64_t oldest_active_start_timestamp) {
-  if (!config_.experimental_lockfree_read_snapshot) return oldest_active_start_timestamp;  // OFF: byte-identical
-  auto const &gc_slot = snapshot_slots_[oldest_active_start_timestamp % kSnapshotSlots];
+uint64_t InMemoryStorage::GcVisibilityHorizon(uint64_t raw_oldest_active, bool no_active_txns) {
+  if (!config_.experimental_lockfree_read_snapshot) return raw_oldest_active;  // OFF: byte-identical
+  auto const &gc_slot = snapshot_slots_[raw_oldest_active % kSnapshotSlots];
   uint64_t const snap = gc_slot.snap.load(std::memory_order_acquire);
   uint64_t const tag = gc_slot.tag.load(std::memory_order_acquire);
-  if (tag == oldest_active_start_timestamp) {
-    // Advance the monotone floor to this confirmed min(active snapshot_ts).
+  if (tag == raw_oldest_active) {
+    // The oldest active txn owns this slot: min(active snapshot_ts) == its snapshot. Advance the floor.
     uint64_t cur = gc_visibility_floor_.load(std::memory_order_acquire);
     while (snap > cur && !gc_visibility_floor_.compare_exchange_weak(
                              cur, snap, std::memory_order_release, std::memory_order_acquire)) {
     }
     return std::max(snap, cur);
   }
-  // Slot recycled / mid-BEGIN / no owner: fall back to the non-regressing floor. NEVER return
-  // oldest_active_start_timestamp here — that is the too-large value that would over-reclaim under the flag.
+  // Tag mismatch: raw_oldest_active does not name an active txn's slot. If there are NO active transactions
+  // there is nothing to protect -> reclaim fully (same as OFF). Otherwise a real older reader's slot was
+  // recycled or not yet written; fall back to the monotone floor (<= min active snapshot_ts).
+  // no_active_txns is `raw_oldest_active >= timestamp_` (the next-to-mint id), computed by the caller under
+  // engine_lock_. We gate on that, NOT on `raw > last_committed`, which would false-positive on a leapfrogged
+  // reader whose slot recycled while its snapshot stayed low (a leapfrogged reader has raw < timestamp_).
+  if (no_active_txns) return raw_oldest_active;
   return gc_visibility_floor_.load(std::memory_order_acquire);
 }
 
@@ -3193,6 +3206,10 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
 
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
 
+  // EXPERIMENTAL (lock-free-read-snapshot): the visibility ring is keyed by the ACTUAL oldest active
+  // start_timestamp, so capture it before the schema-info fold below lowers oldest_active_start_timestamp.
+  uint64_t const raw_oldest_active = oldest_active_start_timestamp;
+
   // Also consider unprocessed schema updates as a safety horizon.
   // `pending_schema_updates_` contains raw pointers to vertices (in SchemaInfoEdge.from/.to
   // and SchemaInfoPostProcess.vertex_cache). We cannot delete these vertices until their
@@ -3209,11 +3226,20 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     }
   }
 
-  // EXPERIMENTAL (lock-free-read-snapshot): the physical horizon (oldest_active_start_timestamp, above)
-  // still bounds delta-buffer freeing and object retirement, but MVCC visibility now keys off the OldestActive
-  // txn's snapshot_ts, which is <= its start_ts. Compute that min(active snapshot_ts) once here; OFF path
-  // returns oldest_active_start_timestamp unchanged (byte-identical).
-  uint64_t const visibility_horizon = GcVisibilityHorizon(oldest_active_start_timestamp);
+  // EXPERIMENTAL (lock-free-read-snapshot): idle == "no active transactions" iff the oldest active start
+  // timestamp has reached the next-to-mint counter timestamp_ (every issued id is finished). Read timestamp_
+  // under engine_lock_ (as the fast-discard checks below already do). A leapfrogged reader has
+  // raw_oldest_active < timestamp_, so this correctly protects it (unlike a `raw > last_committed` test).
+  bool no_active_txns = false;
+  if (config_.experimental_lockfree_read_snapshot) {
+    auto const engine_guard = std::lock_guard{engine_lock_};
+    no_active_txns = raw_oldest_active >= timestamp_;
+  }
+
+  // Key the snapshot-based horizon on the RAW oldest active, then clamp to the (possibly lower) physical
+  // horizon so pending schema-update deltas are still protected. OFF: min(raw, folded) == folded (byte-identical).
+  uint64_t const visibility_horizon =
+      std::min(GcVisibilityHorizon(raw_oldest_active, no_active_txns), oldest_active_start_timestamp);
 
   // When a transaction commits with non-sequential deltas, its deltas may be mixed with
   // deltas from other transactions in the same delta chains. We cannot immediately unlink
@@ -4675,6 +4701,11 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     vertex_id_.store(recovery_info.next_vertex_id, std::memory_order_release);
     edge_id_.store(recovery_info.next_edge_id, std::memory_order_release);
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
+    if (config_.experimental_lockfree_read_snapshot) {
+      last_committed_mvcc_ts_.store(std::max(last_committed_mvcc_ts_.load(std::memory_order_relaxed),
+                                             recovered_snapshot.snapshot_info.durable_timestamp),
+                                    std::memory_order_release);
+    }
     loaded_snapshot_uuid = recovered_snapshot.snapshot_info.uuid;
 
     auto const update_func = [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp,
