@@ -332,8 +332,10 @@ if (NOT ipo_supported)
 endif()
 
 
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
+# The config suffix on a per-config variable is upper case. Spelled any other
+# way the variable is simply never read, and the build silently gets no LTO.
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE)
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
