@@ -63,6 +63,10 @@ on:
         type: boolean
         description: "Upload .debug sidecars to the debuginfod-layout S3 bucket."
         default: false
+      fips:
+        type: boolean
+        description: "Build the FIPS 140-3 variant: a Python-less Memgraph package plus, when build_docker_image is 'prod', the prod-fips image (validated OpenSSL FIPS provider in approved mode). Not compatible with build_docker_image 'debug' or 'both'."
+        default: false
     outputs:
       package_s3_url:
         description: "The URL of the package in the S3 bucket."
@@ -78,6 +82,7 @@ env:
   # passing the flag unconditionally is safe.
   SPLIT_DEBUG: ${{ inputs.build_type == 'RelWithDebInfo' && 'true' || 'false' }}
   BUILD_DOCKER_IMAGE: ${{ inputs.build_docker_image }}
+  FIPS: ${{ inputs.fips }}
   OS: ${{ inputs.os }}
   PACKAGE_SMOKE_OS: ${{ inputs.package_smoke_os }}
   ADDITIONAL_BUILD_ARGS: ${{ inputs.additional_build_args }}
@@ -142,6 +147,16 @@ jobs:
             pkg_artifact_name_rpm="${pkg_artifact_name_rpm}-malloc"
           fi
 
+          # The packages and the image are named for different things on
+          # purpose: the package's distinguishing feature is that it has no
+          # embedded Python (independently useful), while the image's is that
+          # it runs the validated FIPS provider.
+          if [[ "$FIPS" == "true" ]]; then
+            pkg_artifact_name="${pkg_artifact_name}-no-python"
+            pkg_artifact_name_deb="${pkg_artifact_name_deb}-no-python"
+            pkg_artifact_name_rpm="${pkg_artifact_name_rpm}-no-python"
+          fi
+
           echo "PKG_ARTIFACT_NAME=$pkg_artifact_name" >> $GITHUB_ENV
           echo "PKG_ARTIFACT_NAME_DEB=$pkg_artifact_name_deb" >> $GITHUB_ENV
           echo "PKG_ARTIFACT_NAME_RPM=$pkg_artifact_name_rpm" >> $GITHUB_ENV
@@ -153,6 +168,9 @@ jobs:
             [[ "$ARCH" == "arm" ]] && docker_base="${docker_base}-aarch64" || docker_base="${docker_base}-x86_64"
             if [[ "$malloc" == "true" ]]; then
               docker_base="${docker_base}-malloc"
+            fi
+            if [[ "$FIPS" == "true" ]]; then
+              docker_base="${docker_base}-fips"
             fi
             echo "DOCKER_PROD_ARTIFACT_NAME=${docker_base}" >> $GITHUB_ENV
             echo "DOCKER_DEBUG_ARTIFACT_NAME=${docker_base}-relwithdebinfo" >> $GITHUB_ENV
@@ -180,12 +198,20 @@ jobs:
             fi
           fi
 
+          if [[ "$FIPS" == "true" && "$BUILD_DOCKER_IMAGE" != "none" && "$BUILD_DOCKER_IMAGE" != "prod" ]]; then
+            echo "Error: fips=true supports build_docker_image 'none' or 'prod' (got '$BUILD_DOCKER_IMAGE')" >&2
+            exit 1
+          fi
+
       - name: Set Additional Build Args
         run: |
           if [[ -z "$ADDITIONAL_BUILD_ARGS" ]]; then
             args="--disable-testing"
           else
             args="$ADDITIONAL_BUILD_ARGS --disable-testing"
+          fi
+          if [[ "$FIPS" == "true" ]]; then
+            args="$args --no-python"
           fi
           echo "ADDITIONAL_BUILD_ARGS=$args" >> $GITHUB_ENV
           echo "Final build args: $args"
@@ -351,9 +377,14 @@ jobs:
           # anything within the container that depends on OpenSSL should use our version.
           # We cache the packages locally in CI inside a Docker container, and fallback
           # to S3.
+          FIPS_ARG=""
+          if [[ "$FIPS" == "true" ]]; then
+            FIPS_ARG="--fips"
+          fi
           ./tools/ci/openssl/fetch-openssl-packages.sh \
             --arch $ARCH \
             --version "3.5.4" \
+            $FIPS_ARG \
             --dest-dir build
 
       - name: "Generate Memgraph build SBOM"
@@ -380,11 +411,16 @@ jobs:
           --arch $ARCH \
           stop --remove
 
-      - name: "Create docker image (prod)"
+      - name: "Create docker image (prod / prod-fips)"
         if: ${{ inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both' }}
         run: |
           [[ "$MALLOC" == "true" ]] && malloc=true ||malloc=false
           USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
+
+          package_flavour=prod
+          if [[ "$FIPS" == "true" ]]; then
+            package_flavour=fips
+          fi
 
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -396,7 +432,7 @@ jobs:
           --dest-dir $DOCKER_PROD_ARTIFACT_DIR \
           --malloc $malloc \
           --custom-mirror $USE_CUSTOM_MIRROR \
-          --package-flavour prod \
+          --package-flavour $package_flavour \
           --keep-image-loaded ${{ inputs.run_smoke_tests }}
 
           image_archive="$(ls -1t "$DOCKER_PROD_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
@@ -593,9 +629,11 @@ jobs:
             docker_core="$(tools/ci/get_master_package_version.sh docker)"
           fi
           if [[ "$BUILD_DOCKER_IMAGE" == "prod" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            prod_suffix=""
+            [[ "$FIPS" == "true" ]] && prod_suffix="-fips"
             for old_name in "$DOCKER_PROD_ARTIFACT_DIR"/memgraph*-docker.tar.gz; do
               [ -e "$old_name" ] || continue
-              new_name="memgraph-${docker_core}-docker.tar.gz"
+              new_name="memgraph-${docker_core}${prod_suffix}-docker.tar.gz"
               mv -v "$old_name" "$DOCKER_PROD_ARTIFACT_DIR/$new_name"
             done
           fi
