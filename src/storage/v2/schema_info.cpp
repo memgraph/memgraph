@@ -62,8 +62,12 @@ inline auto PropertyTypes_ActionMethod(std::map<PropertyId, ExtendedPropertyType
   });
 }
 
-// Apply deltas from other transactions
-inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, auto &&callback) {
+// Apply deltas from other transactions. `snapshot_bound` is the reconstructing transaction's
+// exclusive visibility boundary (Transaction::SchemaReconstructionBound): a delta committed at
+// `ts < snapshot_bound` is part of the base snapshot and stops the walk; deltas at/after it are
+// rolled back by the callback to recover the pre-snapshot view. OFF the bound is start_timestamp
+// (legacy `ts < start_timestamp`); ON it is snapshot_ts + 1, i.e. the inclusive `ts <= snapshot_ts`.
+inline void ApplyDeltasForRead(const Delta *delta, uint64_t snapshot_bound, auto &&callback) {
   // Avoid work if no deltas
   if (!delta) return;
 
@@ -71,7 +75,7 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
     auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
     bool const is_delta_non_sequential = IsDeltaNonSequential(*delta);
 
-    if (ts < start_timestamp) {
+    if (ts < snapshot_bound) {
       if (is_delta_non_sequential) {
         delta = delta->next.load(std::memory_order_acquire);
         continue;
@@ -89,7 +93,15 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
 
 enum State { NO_CHANGE, THIS_TX, ANOTHER_TX };
 
-inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t commit_timestamp,
+// `snapshot_bound` is the reconstructing transaction's exclusive visibility boundary
+// (Transaction::SchemaReconstructionBound): a delta committed at `ts < snapshot_bound` is at/before
+// this transaction's snapshot (NO_CHANGE), one at/after it belongs to another transaction
+// (ANOTHER_TX). The ANOTHER_TX comparisons are `>= snapshot_bound` (not `>`) so that the inclusive
+// ON boundary is exact: with snapshot_bound == snapshot_ts + 1, a delta committed at exactly
+// snapshot_ts + 1 is correctly ANOTHER_TX. OFF (snapshot_bound == start_timestamp) this is behaviour-
+// identical to the legacy `> start_timestamp`: no committed delta ever carries ts == start_timestamp
+// (a transaction's own start mint is never a commit timestamp), so `>=` and `>` never differ.
+inline State GetState(const Delta *delta, uint64_t snapshot_bound, uint64_t commit_timestamp,
                       bool traverse_chain = false) {
   // This tx is running, so no deltas means there are no changes made after the tx started
   if (delta == nullptr) return State::NO_CHANGE;
@@ -103,7 +115,7 @@ inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t com
   // transaction modified it, its delta will be at the head.
   if (!traverse_chain) {
     if (head_ts == commit_timestamp) return State::THIS_TX;
-    if (head_ts > start_timestamp) return State::ANOTHER_TX;
+    if (head_ts >= snapshot_bound) return State::ANOTHER_TX;
     return State::NO_CHANGE;
   }
 
@@ -117,13 +129,13 @@ inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t com
   for (const Delta *current = delta; current != nullptr; current = current->next.load(std::memory_order_acquire)) {
     const auto ts = current->commit_info->timestamp.load(std::memory_order_acquire);
 
-    if (ts < start_timestamp) break;
+    if (ts < snapshot_bound) break;
 
     if (ts == commit_timestamp) {
       found_this_tx = true;
     }
 
-    if (ts > start_timestamp && ts != commit_timestamp) {
+    if (ts >= snapshot_bound && ts != commit_timestamp) {
       found_another_tx = true;
       break;
     }
@@ -134,14 +146,15 @@ inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t com
   return State::NO_CHANGE;
 }
 
-// Keep v locked as we could return a reference to labels
-inline const VertexKey *GetLabelsViewOld(const Vertex *v, uint64_t start_timestamp, auto &cache) {
+// Keep v locked as we could return a reference to labels. `snapshot_bound` is the reconstructing
+// transaction's exclusive visibility boundary (Transaction::SchemaReconstructionBound).
+inline const VertexKey *GetLabelsViewOld(const Vertex *v, uint64_t snapshot_bound, auto &cache) {
   // Check if already cached
   auto v_cached = cache.find(v);
   if (v_cached != cache.end()) return &v_cached->second;
   // Apply deltas and cache values
   auto labels_copy = v->labels;
-  ApplyDeltasForRead(v->delta(), start_timestamp, [&labels_copy](const Delta &delta) {
+  ApplyDeltasForRead(v->delta(), snapshot_bound, [&labels_copy](const Delta &delta) {
     // clang-format off
     DeltaDispatch(delta, utils::ChainedOverloaded{
       Labels_ActionMethod(labels_copy)
@@ -207,10 +220,12 @@ struct Properties {
   bool needs_pp{false};
 };
 
-inline std::map<PropertyId, ExtendedPropertyType> GetPropertiesViewOld(const Edge *edge, uint64_t start_timestamp) {
+// `snapshot_bound` is the reconstructing transaction's exclusive visibility boundary
+// (Transaction::SchemaReconstructionBound).
+inline std::map<PropertyId, ExtendedPropertyType> GetPropertiesViewOld(const Edge *edge, uint64_t snapshot_bound) {
   auto edge_props = edge->properties.ExtendedPropertyTypes();
   // Apply deltas
-  ApplyDeltasForRead(edge->delta(), start_timestamp, [&edge_props](const Delta &delta) {
+  ApplyDeltasForRead(edge->delta(), snapshot_bound, [&edge_props](const Delta &delta) {
     // clang-format off
     DeltaDispatch(delta, utils::ChainedOverloaded{
       PropertyTypes_ActionMethod(edge_props)
