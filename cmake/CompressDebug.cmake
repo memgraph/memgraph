@@ -15,10 +15,9 @@ set(MG_COMPRESS_DEBUG "auto" CACHE STRING
     "Compress DWARF sections: auto, zstd, zlib or none.")
 set_property(CACHE MG_COMPRESS_DEBUG PROPERTY STRINGS auto zstd zlib none)
 
-# zstd decompresses several times faster than zlib at a better ratio, but
-# needs an LLVM built against libzstd; zlib support is unconditional. Probing
-# the real toolchain is the only reliable test -- a clang that cannot compress
-# only warns, while lld hard-errors, so the check must link, not just compile.
+# Probing the real toolchain is the only reliable test of whether a format can
+# be produced -- a clang that cannot compress only warns, while lld hard-errors,
+# so the check must link, not just compile.
 function(_mg_debug_compression_works format out_var)
     set(_probe "${CMAKE_BINARY_DIR}/CMakeFiles/mg_gz_probe_${format}")
     file(WRITE "${_probe}/probe.cpp" "int main() { return 0; }\n")
@@ -29,17 +28,18 @@ function(_mg_debug_compression_works format out_var)
     set(${out_var} ${_ok} PARENT_SCOPE)
 endfunction()
 
+# auto picks zlib, not the best format the compiler can emit. Producing a
+# format is not the same as being able to read it back: a toolchain whose gdb
+# was configured without zstd rejects a zstd-compressed binary outright, as "not
+# in executable format", rather than reporting missing symbols. zlib is readable
+# by every toolchain here and gives up little, so it is what auto selects; ask
+# for zstd explicitly when the toolchain's debugger is known to read it.
 if(MG_COMPRESS_DEBUG STREQUAL "auto")
-    _mg_debug_compression_works(zstd _mg_have_zstd)
-    if(_mg_have_zstd)
-        set(MG_COMPRESS_DEBUG_FORMAT zstd)
+    _mg_debug_compression_works(zlib _mg_have_zlib)
+    if(_mg_have_zlib)
+        set(MG_COMPRESS_DEBUG_FORMAT zlib)
     else()
-        _mg_debug_compression_works(zlib _mg_have_zlib)
-        if(_mg_have_zlib)
-            set(MG_COMPRESS_DEBUG_FORMAT zlib)
-        else()
-            set(MG_COMPRESS_DEBUG_FORMAT none)
-        endif()
+        set(MG_COMPRESS_DEBUG_FORMAT none)
     endif()
 else()
     set(MG_COMPRESS_DEBUG_FORMAT ${MG_COMPRESS_DEBUG})
