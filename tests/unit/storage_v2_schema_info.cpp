@@ -16,7 +16,11 @@
 #include <exception>
 #include <filesystem>
 
+#include <optional>
+#include <semaphore>
+
 #include "dbms/constants.hpp"
+#include "storage/v2/commit_probe.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/point.hpp"
@@ -3231,4 +3235,120 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeDeletedAndRecreatedAfterLabelChange) {
     ASSERT_TRUE(ConfrontJSON(json, expected))
         << "After T2 (delete/recreate), edge should be counted once. Actual: " << json.dump(2);
   }
+}
+
+// Regression guard for the schema-info gap-commit boundary skew under
+// experimental_lockfree_read_snapshot. Deterministic (CommitProbe + semaphores, GC disabled to prove
+// GC-independence). A committer C flips an edge property's TYPE (Integer -> String) and is parked in
+// the commit gap (commit ts minted, engine_lock released, read watermark NOT yet advanced). A writer
+// W begins in that gap (W.snapshot_ts < C_ts < W.start_ts), so W's snapshot EXCLUDES C; W relabels an
+// endpoint, which routes the edge through schema-info's edge reconstruction, then commits AFTER C
+// publishes.
+//
+// Before the fix, schema-info reconstructed the edge's pre-state on start_timestamp
+// (schema_info.cpp ApplyDeltasForRead/GetState), folding in C's committed String that W never saw and
+// recording p="Integer" (the value W's snapshot did see) under start_node_labels=["L1"] -- i.e.
+// schema-info diverged from the physically-committed truth (p="String"). This is the deterministic
+// single-bucket reduction of the same root cause behind the count:2 / two-bucket double-count in the
+// concurrent EdgePropertyStressTest (which additionally needs a third, genuinely-concurrent mutation
+// to drive the post_process 4-way reconciliation; commit_mutex_ serialization makes that unreachable
+// with only C + W). The fix threads the transaction's own inclusive snapshot boundary
+// (Transaction::SchemaReconstructionBound) into all three reconstruction supply sites, so schema-info
+// reconstructs exactly what the committing transaction saw. With the fix this test observes p="String".
+TEST(SchemaInfoLockFreeReadSnapshot, EdgePropertyTypeGapSkew) {
+  using memgraph::storage::Config;
+  Config config{};
+  config.salient.name = memgraph::dbms::kDefaultDB;
+  memgraph::storage::UpdatePaths(config, storage_directory);
+  config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  config.salient.items.properties_on_edges = true;
+  config.salient.items.enable_schema_info = true;
+  config.salient.storage_mode = StorageMode::IN_MEMORY_TRANSACTIONAL;
+  config.experimental_lockfree_read_snapshot = true;
+  config.gc.type = Config::Gc::Type::NONE;  // prove GC-independence
+
+  std::filesystem::remove_all(storage_directory);
+  auto store = std::make_unique<memgraph::storage::InMemoryStorage>(config);
+  auto *in_memory = store.get();
+  auto &schema_info = in_memory->schema_info_;
+
+  const auto l1 = in_memory->NameToLabel("L1");
+  const auto e = in_memory->NameToEdgeType("E");
+  const auto p = in_memory->NameToProperty("p");
+
+  Gid v1_gid, v2_gid, edge_gid;
+
+  // Seed: edge (E: v1->v2) with p = Integer(123). Schema-process runs synchronously in commit.
+  {
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    auto v2 = acc->CreateVertex();
+    v2_gid = v2.Gid();
+    auto edge = acc->CreateEdge(&v1, &v2, e);
+    ASSERT_TRUE(edge.has_value());
+    edge_gid = edge->Gid();
+    ASSERT_TRUE(edge->SetProperty(p, PropertyValue(123)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    ASSERT_EQ(json["edges"].size(), 1) << json.dump(2);
+    ASSERT_EQ(json["edges"][0]["properties"][0]["types"][0]["type"], "Integer") << json.dump(2);
+  }
+
+  std::binary_semaphore reached{0};
+  std::binary_semaphore resume{0};
+  std::optional<bool> c_ok;
+
+  memgraph::storage::CommitProbe probe;
+  probe.before_publish = [&] {
+    reached.release();
+    resume.acquire();
+  };
+  in_memory->SetCommitProbe(&probe);
+
+  // Committer C: flip the edge property TYPE Integer -> String, then park before publish.
+  std::thread committer([&] {
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
+    auto edge = acc->FindEdge(edge_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(edge->SetProperty(p, PropertyValue(std::string{"strval"})).has_value());
+    c_ok = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
+  });
+
+  // C is now parked at before_publish: C_ts minted, engine_lock free, watermark unmoved.
+  reached.acquire();
+
+  // W begins in the gap: W.snapshot_ts < C_ts < W.start_ts. W must still SEE Integer.
+  auto w = in_memory->Access(memgraph::storage::WRITE);
+  {
+    auto w_edge = w->FindEdge(edge_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(w_edge.has_value());
+    auto w_val = w_edge->GetProperty(p, memgraph::storage::View::OLD);
+    ASSERT_TRUE(w_val.has_value());
+    EXPECT_TRUE(w_val->IsInt()) << "W's snapshot must exclude C: expected Integer, got " << w_val->type();
+  }
+  // W relabels the from-endpoint -> routes the edge through schema-info edge reconstruction.
+  {
+    auto w_v1 = w->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(w_v1.has_value());
+    ASSERT_TRUE(w_v1->AddLabel(l1).has_value());
+  }
+
+  // Let C publish (edge delta now carries C_ts; C's own schema diff processed), then release
+  // commit_mutex_ so W can finalize + schema-process.
+  resume.release();
+  committer.join();
+  in_memory->SetCommitProbe(nullptr);
+  ASSERT_TRUE(c_ok.has_value() && *c_ok);
+
+  ASSERT_TRUE(w->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  w.reset();
+
+  // Physical truth after both commits: edge from=[L1] to=[] with p = String, count 1, single bucket.
+  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p","types":[{"count":1,"type":"String"}]}],"start_node_labels":["L1"],"type":"E"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+  EXPECT_TRUE(ConfrontJSON(json, expected)) << "SCHEMA-INFO CORRUPTION (boundary skew). Actual: " << json.dump(2);
 }
