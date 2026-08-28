@@ -28,6 +28,8 @@ OPTIONS:
     --update-lockfile       Update conan.lock before installing dependencies
     --graph-info            Generate dependency graph as graph.html and exit
     --split-debug           Extract debug info into sidecar .debug files (requires RelWithDebInfo/Debug)
+    --lto                   Optimize across translation units; for packaged builds, and
+                            several times slower to build
     --mage MODE             MAGE query modules (C++, Python, Rust). MODE is one of:
                               off  = no MAGE (default)
                               on   = build MAGE together with Memgraph
@@ -122,6 +124,7 @@ COMPILE_JOBS=""
 LINK_JOBS=""
 JOB_MEMORY_CAP=on
 SPLIT_DEBUG=off
+LTO=off
 PROFILING=""
 MAGE=off
 CUGRAPH=off
@@ -199,6 +202,10 @@ while [[ $# -gt 0 ]]; do
             SPLIT_DEBUG=on
             shift
             ;;
+        --lto)
+            LTO=on
+            shift
+            ;;
         --mage)
             MAGE="$2"
             shift 2
@@ -257,6 +264,10 @@ fi
 
 if [[ "$SPLIT_DEBUG" == "on" ]]; then
     CMAKE_ARGS="$CMAKE_ARGS -DMG_SPLIT_DEBUG=ON"
+fi
+
+if [[ "$LTO" == "on" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_ENABLE_LTO=ON"
 fi
 
 if [[ "$MAGE" != "off" && "$MAGE" != "on" && "$MAGE" != "only" ]]; then

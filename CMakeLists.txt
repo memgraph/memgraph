@@ -322,20 +322,30 @@ add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
 link_directories("${MG_TOOLCHAIN_ROOT}/lib")
 
-# After linker is set, check we can use link-time optimization
-include(CheckIPOSupported)
 message(STATUS "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: ${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
-check_ipo_supported(RESULT ipo_supported OUTPUT output) # fatal error if IPO is not supported
-if (NOT ipo_supported)
-    message(SEND_ERROR "IPO test failed")
-    message(FATAL_ERROR "${output}")
+
+# Link-time optimization, for the builds that are packaged and shipped.
+#
+# Off by default because it is paid on every link rather than once: clang emits
+# bitcode and each link then runs the LTO backend over it, which lengthens a
+# full build several times over and, worse for anyone iterating, makes a
+# one-file edit expensive to relink. Both configs that get packaged can use it,
+# so the packaging scripts pass this rather than it being inferred from the
+# build type -- RelWithDebInfo is also what CI and local development use.
+option(MG_ENABLE_LTO "Optimize across translation units; for packaged builds" OFF)
+if (MG_ENABLE_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT ipo_supported OUTPUT output)
+    if (NOT ipo_supported)
+        message(SEND_ERROR "MG_ENABLE_LTO is on, but this toolchain cannot do IPO")
+        message(FATAL_ERROR "${output}")
+    endif()
+    # The config suffix on a per-config variable is upper case. Spelled any
+    # other way the variable is never read, and the build silently gets no LTO.
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE)
 endif()
-
-
-# The config suffix on a per-config variable is upper case. Spelled any other
-# way the variable is simply never read, and the build silently gets no LTO.
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE)
+message(STATUS "MG_ENABLE_LTO: ${MG_ENABLE_LTO}")
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")

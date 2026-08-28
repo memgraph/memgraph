@@ -150,6 +150,7 @@ print_help () {
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
   echo -e "  --link-threads int            Pin the number of concurrent link steps (default 0: derived from the memory available to the container). Compile parallelism is unaffected."
   echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
+  echo -e "  --lto                         Optimize across translation units (requires --build-type Release or RelWithDebInfo); for packaged builds, and several times slower to build"
   echo -e "  --mage MODE                   MAGE query modules: off (default), on (build alongside memgraph), only (just MAGE; trims the conan graph). Mirrors build.sh's --mage. Combine with global --cugraph for GPU modules."
   echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph)."
   echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
@@ -575,6 +576,7 @@ build_memgraph () {
   local build_dependency=""
   local link_threads=0
   local split_debug=false
+  local lto=false
   local mage_mode="off"
   local mage_cuda=false
   local python_build_version=""
@@ -640,6 +642,10 @@ build_memgraph () {
       ;;
       --split-debug)
         split_debug=true
+        shift 1
+      ;;
+      --lto)
+        lto=true
         shift 1
       ;;
       --mage)
@@ -884,6 +890,16 @@ build_memgraph () {
       exit 1
     fi
     additional_options="$additional_options -DMG_SPLIT_DEBUG=ON"
+  fi
+
+  # Optimize across translation units. Only the two configs that get packaged;
+  # a Debug build with LTO is slow to produce and not what anyone ships.
+  if [[ "$lto" = true ]]; then
+    if [[ "$build_type" != "Release" && "$build_type" != "RelWithDebInfo" ]]; then
+      echo "Error: --lto requires --build-type Release or RelWithDebInfo (got '$build_type')" >&2
+      exit 1
+    fi
+    additional_options="$additional_options -DMG_ENABLE_LTO=ON"
   fi
 
   # MAGE's query-module python deps (torch/PyG/DGL) ship only as cp312 wheels,
