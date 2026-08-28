@@ -793,8 +793,14 @@ build_memgraph () {
   # (or any tar/copy that resets /opt/toolchain-v8/bin/clang++ mtime) would
   # otherwise invalidate every ccache entry. Content hashing of the 191 KB
   # clang frontend driver is sub-millisecond, so the overhead is negligible.
+  #
+  # One cache serves every configuration a runner builds, and each keeps its own entries for the
+  # same sources, so ccache's default size holds a fraction of that set and a build misses on
+  # entries another configuration evicted. Set from the environment where a runner has less disk
+  # to spare.
   if [[ "$ccache_enabled" == "true" ]]; then
     CMD_START="$CMD_START && export CCACHE_COMPILERCHECK=content"
+    CMD_START="$CMD_START && export CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-20G}"
   fi
 
   # Set up Conan environment
