@@ -47,4 +47,5 @@ mgconsole          activate cmake elfutils llvm openssl xz zlib zstd +lib/clang-
 heaptrack          activate cmake elfutils llvm xz zlib zstd
 verify             * +verify/
 relocate           *
+expectations       relocate
 package            * +files/toolchain.cmake +resolved/toolchain.env

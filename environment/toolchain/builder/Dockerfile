@@ -280,7 +280,11 @@ RUN /tc/stages/relocate.sh
 # The only stage that knows which version is being cut. toolchain.env arrives
 # here rather than in the base layer, where it would be an input to all 34
 # stages and a version bump would rebuild every one of them.
-FROM s-relocate AS s-package
+# Runs after relocate.sh: the runpath assertions describe the tree as it ships.
+FROM s-relocate AS s-expectations
+RUN /tc/verify/expectations.sh
+
+FROM s-expectations AS s-package
 COPY resolved/toolchain.env /tc/versions/
 COPY files/toolchain.cmake /work/
 COPY stages/package.sh /tc/stages/
