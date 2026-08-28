@@ -219,6 +219,9 @@ class Runner:
             record.finished_at = now_iso()
             status = "ok" if record.returncode == 0 else f"FAILED rc={record.returncode}"
             print(f"[node{slot.node}] done  {stem} in {record.duration_sec:.0f}s: {status}", flush=True)
+            if record.returncode != 0 and log_file.is_file():
+                tail = log_file.read_text(errors="replace").splitlines()[-40:]
+                print(f"----- last lines of {log_file.name} -----\n" + "\n".join(tail) + "\n-----", flush=True)
         finally:
             with self.lock:
                 self.in_flight.pop(stem, None)

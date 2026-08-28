@@ -127,10 +127,17 @@ jobs:
           --package \
           --dest-dir $PACKAGE_ARTIFACT_DIR
 
-      - name: Copy mgbench client binary
+      - name: Copy mgbench client binary and toolchain runtime libs
         run: |
-          mkdir -p "$CLIENT_BUILD_DIR"
-          docker cp "mgbuild_${TOOLCHAIN}_${OS}:/home/mg/memgraph/build/tests/mgbench/client" "$CLIENT_BUILD_DIR/client"
+          # The client links against the toolchain's libstdc++ (newer GLIBCXX
+          # than Ubuntu 24.04 ships), so bundle it like the memgraph package does.
+          mkdir -p "$CLIENT_BUILD_DIR/lib"
+          container="mgbuild_${TOOLCHAIN}_${OS}"
+          docker cp "$container:/home/mg/memgraph/build/tests/mgbench/client" "$CLIENT_BUILD_DIR/client"
+          for lib in libstdc++.so.6 libgcc_s.so.1; do
+            docker cp -L "$container:/opt/toolchain-${TOOLCHAIN}/lib64/$lib" "$CLIENT_BUILD_DIR/lib/$lib"
+          done
+          ls -l "$CLIENT_BUILD_DIR" "$CLIENT_BUILD_DIR/lib"
 
       - name: Stop mgbuild container
         if: always()
@@ -187,6 +194,13 @@ jobs:
             -f tests/mgbench/Dockerfile.mgbench_client_prebuilt \
             -t "$CLIENT_IMAGE" \
             "$CLIENT_BUILD_DIR"
+          # Fail here, not in a silent retry loop, if the binary cannot load.
+          ldd_out="$(docker run --rm --entrypoint ldd "$CLIENT_IMAGE" /bin/client)"
+          echo "$ldd_out"
+          if grep -q "not found" <<<"$ldd_out"; then
+            echo "Error: mgbench client has unresolved shared libraries" >&2
+            exit 1
+          fi
 
       - name: Run benchmarks across NUMA nodes
         run: |
