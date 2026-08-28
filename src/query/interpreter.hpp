@@ -352,16 +352,12 @@ struct CurrentDB {
   // Must NOT be a spinlock: foreign_db_view() calls Storage::name(), which blocks on a shared_mutex inside
   // utils::SafeString.
   //
-  // LEAF LOCK: every writer above swaps the outgoing Accessor out under this lock and destroys it only
-  // after releasing it -- no Accessor may be destroyed while this lock is held. An Accessor's dtor takes
-  // its GKInternals::mutex_, which finish_suspend() holds across the whole ~Database + WAL finalization,
-  // and GetActiveUsersInfo() takes this lock (via foreign_db_view()) while holding the interpreters
-  // SpinLock -- so nesting the two would put a busy-wait spinlock over the entire session table behind a
-  // tenant suspend. That pile-up is NOT reachable today: try_begin_suspend() waits for count_ == 1 before
-  // entering SUSPENDING, so a session holding this accessor keeps its tenant out of the suspend path
-  // entirely. Keeping this a leaf lock means correctness here does not depend on that remote invariant
-  // holding -- note finish_suspend()'s own count_ precondition is only a DMG_ASSERT, which compiles out
-  // under NDEBUG.
+  // GKInternals-MUTEX-FREE (not a textbook leaf lock -- it does take SafeString's shared_mutex via name()
+  // above): every writer swaps the outgoing Accessor out under this lock and destroys it after releasing, so
+  // no Accessor dtor -- and thus no GKInternals::mutex_ -- ever runs beneath it. That matters because
+  // GetActiveUsersInfo holds the interpreters SpinLock across this lock, and an Accessor dtor can block on a
+  // GKInternals::mutex_ that finish_suspend() holds across a whole ~Database; nesting them would stall the
+  // session table behind a tenant suspend.
   mutable std::mutex db_acc_mutex_;
 };
 
@@ -420,6 +416,8 @@ class Interpreter final {
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
   SessionInfo session_info_;
+  // Leaf lock for session_info_; only the foreign GetActiveUsersInfo reader locks (owning-thread reads serialized).
+  mutable std::mutex session_info_mutex_;
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
 
@@ -619,6 +617,11 @@ class Interpreter final {
 #endif
 
   void SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp);
+
+  SessionInfo GetSessionInfoSnapshot() const {
+    std::lock_guard lock{session_info_mutex_};
+    return session_info_;
+  }
 
   std::optional<memgraph::system::Transaction> system_transaction_{};
 

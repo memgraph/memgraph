@@ -6650,8 +6650,10 @@ std::vector<ActiveUserInfo> GetActiveUsersInfo(InterpreterContext *interpreter_c
     std::vector<ActiveUserInfo> info;
     info.reserve(interpreters_.size());
     for (const auto &interpreter : interpreters_) {
+      // Not an atomic snapshot: db and user come from separate locked reads, so they may skew -- ok here.
       auto db_view = interpreter->current_db_.foreign_db_view();
-      info.push_back({interpreter->session_info_, std::move(db_view.name), db_view.marked_for_deletion});
+      auto session_info = interpreter->GetSessionInfoSnapshot();
+      info.push_back({std::move(session_info), std::move(db_view.name), db_view.marked_for_deletion});
     }
 
     return info;
@@ -11843,6 +11845,7 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
 
 void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
   session_log_ctx_.SetSessionUuid(uuid);
+  std::lock_guard lock{session_info_mutex_};
   session_info_ = {
       .uuid = std::move(uuid), .username = std::move(username), .login_timestamp = std::move(login_timestamp)};
 }

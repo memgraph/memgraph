@@ -145,7 +145,7 @@ constexpr std::string_view GatekeeperStateName(GatekeeperState state) {
 
 // HOT and COLD (see the enum above) are the terminal states; SUSPENDING/RESUMING are in-flight —
 // ~Gatekeeper's teardown wait (below) blocks on this predicate, the sole reason it exists.
-// Exhaustive on purpose (no `default:`): -Werror=switch (CMakeLists.txt:303) turns a future 5th
+// Exhaustive on purpose (no `default:`): -Werror=switch turns a future 5th
 // enumerator into a compile error instead of silently classifying it as terminal or not.
 constexpr bool IsTerminalGatekeeperState(GatekeeperState state) noexcept {
   switch (state) {
@@ -491,6 +491,7 @@ struct Gatekeeper {
         return IsTerminalGatekeeperState(pimpl_->state_) && pimpl_->count_ == 0;
       };
       constexpr auto kDiagInterval = std::chrono::minutes{5};
+      auto const teardown_start = std::chrono::steady_clock::now();
       while (!pimpl_->cv_.wait_for(lock, kDiagInterval, terminal_and_drained)) {
         auto const state = pimpl_->state_;
         auto const count = pimpl_->count_;
@@ -498,9 +499,14 @@ struct Gatekeeper {
         // Everything below (label/prefix strings, fmt::format, spdlog) can allocate or throw; ~Gatekeeper
         // is implicitly noexcept, so an escaping exception would call std::terminate — swallow it all.
         try {
+          auto const elapsed_min =
+              std::chrono::duration_cast<std::chrono::minutes>(std::chrono::steady_clock::now() - teardown_start)
+                  .count();
           // value_ is empty in COLD and RESUMING (finish_suspend/begin_resume); guard on has_value() to
           // avoid a null deref — COLD-with-count>0 is reachable in release since finish_suspend's DMG_ASSERT is a no-op
           // under NDEBUG.
+          // name() takes SafeString's shared_mutex under mutex_ (held here); no cycle -- Rename's name write
+          // sits between its Accessor's two brief mutex_ windows (mint, dtor), never under either.
           auto const label = pimpl_->value_ ? GatekeeperLabelFor<T>::get(*pimpl_->value_) : std::string{};
           auto const prefix = label.empty() ? std::string{"~Gatekeeper"} : "~Gatekeeper[" + label + "]";
           std::string reason;
@@ -517,15 +523,21 @@ struct Gatekeeper {
                 "destruction during SUSPENDING/RESUMING is a caller ordering error - in-flight transitions "
                 "must be quiesced before destroying.",
                 GatekeeperStateName(state));
-          } else {
+          } else if (state == GatekeeperState::HOT) {
             reason = fmt::format(
-                "state is {} (terminal, so this is not a state-transition problem) but {} accessor(s) are "
+                "state is HOT (terminal, so this is not a state-transition problem) but {} accessor(s) are "
                 "still outstanding. A holder has not released - either a leaked accessor or a long-running "
                 "operation.",
-                GatekeeperStateName(state),
+                count);
+          } else {
+            // COLD means finish_suspend() already cleared value_, so a live accessor here is a UAF, not a drain.
+            reason = fmt::format(
+                "state is COLD (terminal) with {} outstanding accessor(s), but value_ has already been "
+                "destroyed by finish_suspend(). A live accessor dereference at this point is undefined "
+                "behaviour / use-after-free — a lifetime ordering violation.",
                 count);
           }
-          spdlog::warn("{} has waited >{} min for teardown: {}", prefix, kDiagInterval.count(), reason);
+          spdlog::warn("{} has waited >{} min for teardown: {}", prefix, elapsed_min, reason);
         } catch (...) {  // NOLINT(bugprone-empty-catch)
         }
       }
