@@ -14,12 +14,7 @@ on:
           # already restarts a cluster per measurement and eight of them take hours."
         default: 10
   schedule:
-    # Two entries at the same time rather than one, so that a step can tell which day it is: the
-    # schedule that triggered a run is readable as github.event.schedule, the weekday is not. The
-    # Sunday entry is matched by string in the ASYNC steps' if: conditions, so editing it here without
-    # editing them there stops those suites running on any schedule, silently.
-    - cron: "0 1 * * 1-6"
-    - cron: "0 1 * * 0"
+    - cron: "0 0 * * *"
 
 jobs:
   release_benchmarks:
@@ -114,9 +109,6 @@ jobs:
           "mgbuild_${TOOLCHAIN}_${OS}"
 
 
-      # All topologies with ASYNC replica are run weekly rather than nightly: Sunday's schedule, or any manual run. Draining a replica
-      # after every measurement is what makes these the slow ones, and the four together are
-      # about 106 of the high availability suites' 226 minutes.
       - name: Run and upload mgbench-ha
         id: mgbench-ha
         continue-on-error: true
@@ -149,7 +141,6 @@ jobs:
 
       - name: Run and upload mgbench-ha-async
         id: mgbench-ha-async
-        if: github.event_name != 'schedule' || github.event.schedule == '0 1 * * 0'
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -195,7 +186,6 @@ jobs:
 
       - name: Run and upload mgbench-ha-sync-async
         id: mgbench-ha-sync-async
-        if: github.event_name != 'schedule' || github.event.schedule == '0 1 * * 0'
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -211,7 +201,6 @@ jobs:
 
       - name: Run and upload mgbench-ha-strict-sync-async
         id: mgbench-ha-strict-sync-async
-        if: github.event_name != 'schedule' || github.event.schedule == '0 1 * * 0'
         continue-on-error: true
         env:
           LOOP_COUNT: 1
@@ -227,7 +216,6 @@ jobs:
 
       - name: Run and upload mgbench-ha-2-async
         id: mgbench-ha-2-async
-        if: github.event_name != 'schedule' || github.event.schedule == '0 1 * * 0'
         continue-on-error: true
         env:
           LOOP_COUNT: 1
