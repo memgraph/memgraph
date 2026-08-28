@@ -38,9 +38,8 @@ utils::Synchronized<TwoPCCommitCache::Record, std::mutex> *TwoPCCommitCache::ins
 
 auto TwoPCCommitCache::Slot() -> utils::Synchronized<Record, std::mutex> & {
   if (installed_slot_ != nullptr) return *installed_slot_;
-  // No Owner installed (unit tests, embedded use): fall back to a lazily-created, leaked singleton --
-  // the lifetime the whole slot used to have. Production installs an Owner in main() before any
-  // replica RPC can populate the slot, so this branch is never taken there.
+  // No Owner installed (unit tests, embedded use): lazily-created leaked singleton fallback.
+  // Production installs an Owner before any replica RPC, so this path is never taken there.
   static auto *fallback = new utils::Synchronized<Record, std::mutex>{};
   return *fallback;
 }
@@ -53,10 +52,8 @@ TwoPCCommitCache::Owner::Owner() {
 TwoPCCommitCache::Owner::~Owner() {
   auto *slot = std::exchange(installed_slot_, nullptr);
   if (slot == nullptr) return;
-  // The ordered ~Database drain (dbms/database.cpp) should have emptied the slot before we get here.
-  // If anything is somehow still cached its storage is already gone, so DESTROYING the accessor would
-  // be a use-after-free -- detach and leak it (release()) instead, exactly as the old never-freed slot
-  // did implicitly. Only then free the now-empty Synchronized shell.
+  // ~Database drain (dbms/database.cpp) should have emptied the slot. If not, storage is gone and
+  // DESTROYING the accessor would be a use-after-free -- release() without calling Abort() instead.
   slot->WithLock([](Record &cache) {
     if (cache.commit_accessor_) {
       spdlog::error(

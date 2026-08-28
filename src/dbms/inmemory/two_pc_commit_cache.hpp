@@ -24,32 +24,24 @@
 namespace memgraph::dbms {
 
 // Process-wide single slot holding the in-flight 2PC commit accessor between PrepareCommitRpc and
-// FinalizeCommitRpc; single slot rather than per-tenant, per AbortTwoPCForTenant's declaration
-// comment (dbms/inmemory/replication_handlers.hpp).
+// FinalizeCommitRpc.
 //
-// Lock discipline (load-bearing): every method EXTRACTS the accessor under the slot lock and returns
-// with the lock released; callers run AbortAndResetCommitTs()/FinalizeCommitPhase()/destruction on
-// the extracted local OUTSIDE the lock. Those take engine_lock_, and the slot lock must never be held
-// across that. Concurrent because ~Database -> AbortTwoPCForTenant may run on DeferDelete's
-// defer_pool_ thread (dbms/handler.hpp) tearing down tenant B while the RPC thread serves tenant A.
+// Lock discipline (load-bearing): every method extracts the accessor under the slot lock and runs
+// AbortAndResetCommitTs()/FinalizeCommitPhase()/destruction on it OUTSIDE the lock -- those take
+// engine_lock_, which must never be held under the slot lock. ~Database -> AbortTwoPCForTenant can
+// run on the defer_pool_ thread (dbms/handler.hpp) concurrently with an RPC handler, so the slot
+// lock is what serialises them.
 //
-// Slot lifetime is owned by a single Owner (below), constructed early in main() BEFORE the
-// DbmsHandler so it is destroyed AFTER it: by then ~DbmsHandler has run every ~Database, each
-// draining its own tenant's entry (dbms/database.cpp) while its storage is still alive, so the slot
-// is empty and freeing it dereferences no storage. This replaces the older "never freed" slot, whose
-// only purpose was to dodge a static destructor running after main() once every Database was already
-// gone. A populated slot must still never be DESTROYED against dead storage, so ~Owner detaches
-// (leaks) any stray accessor instead of aborting it -- reachable only if the ordered ~Database drain
-// were bypassed. When no Owner is installed (unit tests, embedded), Slot() falls back to a lazily
-// created leaked singleton, preserving the pre-Owner behaviour for those short-lived processes.
+// The slot is owned by an RAII Owner (below) held in main(), freed before static destruction -- the
+// same pattern as utils::PageCacheReleaser. With no Owner installed (unit tests) Slot() uses a leaked
+// fallback.
 class TwoPCCommitCache {
  public:
-  // Static-only utility; all state lives in Slot().
   TwoPCCommitCache() = delete;
 
-  // RAII owner of the process-wide slot. Construct EXACTLY ONE, early in main() and BEFORE the
-  // DbmsHandler, so the slot outlives every Database yet is freed deterministically inside main()
-  // rather than at static-destruction time. See the class comment for the ordering contract.
+  // RAII owner of the process-wide slot; construct exactly one in main() BEFORE the DbmsHandler, so
+  // the slot outlives every Database and is freed only after ~DbmsHandler has drained it (~Database
+  // empties each tenant's entry while its storage is still alive).
   class Owner {
    public:
     Owner();
@@ -60,9 +52,8 @@ class TwoPCCommitCache {
     Owner &operator=(Owner &&) = delete;
   };
 
-  // Captures the tenant uuid from storage->uuid() rather than re-deriving it from accessor->uuid()
-  // later, so TakeForTenant/TakeMatching don't depend on destroy-before-extract ordering at the call
-  // sites (robustness, not a fix for a reachable use-after-free).
+  // Captures the tenant uuid at populate time rather than re-deriving it from the accessor later, so
+  // Take* never depend on destroy-before-extract ordering (robustness, not a reachable-UAF fix).
   static void Store(std::unique_ptr<storage::ReplicationAccessor> accessor, uint64_t durability_commit_timestamp,
                     utils::UUID uuid);
 
