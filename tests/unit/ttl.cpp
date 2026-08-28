@@ -34,11 +34,16 @@
 #include "utils/settings.hpp"
 
 namespace {
-// Emptied wholesale by the tests here, so the path must be private to this process. A path shared
-// with a concurrently running test deletes that test's storage out from under it.
-std::filesystem::path GetDataDirectory() {
-  return std::filesystem::temp_directory_path() / ("ttl-" + std::to_string(static_cast<int>(getpid())));
+// The storage directories here are emptied wholesale, so their names must be private to this
+// process: a name shared with a concurrently running test deletes that test's storage out from
+// under it. Resolved once, so a directory is removed under the name it was created under even if
+// the process forks in between.
+const std::string &ProcessId() {
+  static const std::string id = std::to_string(static_cast<int>(getpid()));
+  return id;
 }
+
+std::filesystem::path GetDataDirectory() { return std::filesystem::temp_directory_path() / ("ttl-" + ProcessId()); }
 
 std::filesystem::path GetCleanDataDirectory() {
   const auto path = GetDataDirectory();
@@ -610,8 +615,7 @@ TEST(TtlInfo, String) {
 TEST(TTLUserCheckTest, UserCheckFunctionality) {
   // Create a simple storage for testing
   memgraph::storage::Config config{};
-  config.durability.storage_directory =
-      std::filesystem::temp_directory_path() / ("ttl_user_check_test-" + std::to_string(static_cast<int>(getpid())));
+  config.durability.storage_directory = std::filesystem::temp_directory_path() / ("ttl_user_check_test-" + ProcessId());
   std::filesystem::remove_all(config.durability.storage_directory);
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};

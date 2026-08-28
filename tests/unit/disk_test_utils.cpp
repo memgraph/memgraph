@@ -27,7 +27,10 @@ namespace {
 // private to this process: test binaries run concurrently out of a shared working directory, and a
 // name two of them agree on has one deleting the other's storage mid-use.
 std::string DirectoryPrefix(const std::string &testName) {
-  return "rocksdb_" + testName + "_" + std::to_string(static_cast<int>(getpid())) + "_";
+  // Resolved once, so a directory is removed under the name it was created under even if the
+  // process forks in between, as a death test does.
+  static const std::string id = std::to_string(static_cast<int>(getpid()));
+  return "rocksdb_" + testName + "_" + id + "_";
 }
 }  // namespace
 
