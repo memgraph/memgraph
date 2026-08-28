@@ -27,6 +27,12 @@ except ImportError:
 
 _DEFAULT_SYSTEM_PROMPT = "Complete the following text."
 
+# OrcaRouter (https://www.orcarouter.ai) is an OpenAI-compatible AI gateway
+# that exposes its model namespace through the "orcarouter/" prefix. Model
+# names (e.g. "orcarouter/free") are forwarded to the gateway via LiteLLM's
+# "openai" provider, mirroring how LiteLLM treats the "openrouter/" prefix.
+_ORCAROUTER_API_BASE = "https://api.orcarouter.ai/v1"
+
 
 @mgp.function
 def complete(
@@ -39,7 +45,11 @@ def complete(
     Args:
         text: Input text to summarize or complete (e.g. concatenated node texts).
         config: Optional configuration dictionary. Keys:
-        model: Model name (e.g. ollama/llama2, openai/gpt-4o-mini).
+        provider: Optional named provider. Currently supports "orcarouter" for
+                  the OrcaRouter AI gateway; defaults to LiteLLM's provider
+                  inferred from the model name.
+        model: Model name (e.g. ollama/llama2, openai/gpt-4o-mini,
+               orcarouter/free).
         api_base: Base URL for the API (e.g. http://localhost:11434 for Ollama).
         system_prompt: System prompt for the completion.
 
@@ -48,10 +58,13 @@ def complete(
 
     Environment:
         Set API key for your provider, e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY.
+        For the OrcaRouter provider set ORCAROUTER_API_KEY.
         Optional: LITELLM_MODEL to set default model.
 
     Example Cypher (Ollama):
         RETURN llm.complete("Hello", {model: "ollama/llama2", api_base: "http://localhost:11434"});
+    Example Cypher (OrcaRouter):
+        RETURN llm.complete("Hello", {provider: "orcarouter", model: "orcarouter/free"});
     """
     if not HAS_LITELLM:
         raise Exception("llm.complete requires litellm.")
@@ -75,6 +88,24 @@ def complete(
     }
     if api_base is not None and str(api_base).strip():
         completion_kwargs["api_base"] = str(api_base).strip()
+
+    if config.get("provider") == "orcarouter":
+        # Route the "orcarouter/" model namespace through the OrcaRouter
+        # gateway. LiteLLM resolves providers from the model prefix, so we
+        # prefix with "openai/" and point it at the gateway's OpenAI-compatible
+        # endpoint, mirroring how OpenRouter is wired up.
+        if not str(effective_model).startswith("orcarouter/"):
+            raise Exception(
+                'llm.complete: provider "orcarouter" requires a model with the '
+                '"orcarouter/" prefix, e.g. "orcarouter/free".'
+            )
+        completion_kwargs["model"] = "openai/" + effective_model
+        completion_kwargs["api_base"] = _ORCAROUTER_API_BASE
+        completion_kwargs["api_key"] = os.environ.get("ORCAROUTER_API_KEY")
+        if not completion_kwargs["api_key"]:
+            raise Exception(
+                'llm.complete: provider "orcarouter" requires the ' "ORCAROUTER_API_KEY environment variable."
+            )
 
     try:
         response = litellm_completion(**completion_kwargs)
