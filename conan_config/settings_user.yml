@@ -17,6 +17,10 @@ compiler:
     ubsan: [null, True]
     tsan: [null, True]
   clang:
+    # Conan ships a fixed list of clang versions and this release stops at 22,
+    # so a toolchain built on a newer clang is rejected as an invalid setting
+    # until its major is added here.
+    version: ["23"]
     asan: [null, True]
     ubsan: [null, True]
     ubsan_ignorelist_hash: [null, ANY]
