@@ -2908,6 +2908,19 @@ TEST_F(AuthFipsMode, OnlyPBKDF2IsApproved) {
   ASSERT_TRUE(IsFipsApproved(PasswordHashAlgorithm::PBKDF2_SHA256));
 }
 
+TEST_F(AuthFipsMode, EnableSelectsApprovedAlgorithmWhenUnset) {
+  if (!gflags::GetCommandLineFlagInfoOrDie("password_encryption_algorithm").is_default) {
+    GTEST_SKIP() << "--password-encryption-algorithm has already been set in this process, so the "
+                    "default-selection branch cannot be exercised.";
+  }
+  SetHashAlgorithm("bcrypt");
+
+  EnableFipsMode();
+
+  EXPECT_EQ(CurrentHashAlgorithm(), PasswordHashAlgorithm::PBKDF2_SHA256);
+  EXPECT_EQ(FLAGS_password_encryption_algorithm, "pbkdf2-sha256");
+}
+
 TEST_F(AuthFipsMode, HashingRefusesNonApprovedAlgorithms) {
   memgraph::utils::SetFipsStatus({.enabled = true});
   for (auto const algo :

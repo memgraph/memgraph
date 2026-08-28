@@ -467,18 +467,25 @@ auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool {
 void EnableFipsMode() {
   utils::SetFipsStatus({.enabled = true});
 
-  // Fail here rather than at the first login. bcrypt does not go through EVP,
-  // so without this check it would keep hashing happily under an active FIPS
-  // provider and ship a silent compliance violation.
+  auto const approved = AsString(PasswordHashAlgorithm::PBKDF2_SHA256);
+
+  if (gflags::GetCommandLineFlagInfoOrDie("password_encryption_algorithm").is_default) {
+    // Set the flag itself, not just the cached value, so that SHOW CONFIG and
+    // SHOW FIPS INFO agree about what is hashing passwords.
+    gflags::SetCommandLineOption("password_encryption_algorithm", std::string{approved}.c_str());
+    SetHashAlgorithm(approved);
+    spdlog::info("--fips-mode=true and no --password-encryption-algorithm given; selecting '{}'.", approved);
+  }
+
   auto const configured = CurrentHashAlgorithm();
   if (!IsFipsApproved(configured)) {
     utils::FailStartup(
         utils::ExitCode::FipsModeUnsupportedPasswordAlgorithm,
-        fmt::format("--fips-mode=true is incompatible with --password-encryption-algorithm={}. Only '{}' is approved. "
-                    "Note that switching also locks out existing users: their password hashes cannot be migrated, so "
-                    "they have to be re-created.",
+        fmt::format("--fips-mode=true is incompatible with --password-encryption-algorithm={}. Only '{}' is approved; "
+                    "omit the flag entirely and it will be selected automatically. Note that switching also locks out "
+                    "existing users: their password hashes cannot be migrated, so they have to be re-created.",
                     AsString(configured),
-                    AsString(PasswordHashAlgorithm::PBKDF2_SHA256)));
+                    approved));
   }
 
   spdlog::warn(

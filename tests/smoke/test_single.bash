@@ -30,7 +30,7 @@ echo "Testing container with image type: $IMAGE_TYPE (mode: $MODE)"
 # Starts the container in approved mode. Exported so utils.bash picks it up
 # when it runs the container.
 if [[ "$MODE" == "fips" ]]; then
-  export MEMGRAPH_FIPS_FLAGS="--fips-mode=true --password-encryption-algorithm=pbkdf2-sha256"
+  export MEMGRAPH_FIPS_FLAGS="--fips-mode=true"
 fi
 
 # NOTE: The arg is how to pull the image under test.
