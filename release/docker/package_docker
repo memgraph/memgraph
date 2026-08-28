@@ -8,6 +8,7 @@ function print_help () {
     echo -e "\t-h|--help\t\tPrint help."
     echo -e "\t--latest\t\tTag image as latest version."
     echo -e "\t--keep-image-loaded <true|false>\tKeep built image loaded in local Docker daemon (default false)."
+    echo -e "\t--package-flavour <prod|debug|fips>\tImage variant to build (default prod)."
 }
 
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -77,9 +78,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$package_flavour" in
-  prod|debug) ;;
+  prod|debug|fips) ;;
   *)
-    echo "Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')"
+    echo "Error: --package-flavour must be 'prod', 'debug' or 'fips' (got '$package_flavour')"
     exit 1
   ;;
 esac
@@ -89,23 +90,30 @@ if [[ "$package_path" == "" || ! -f "$package_path" ]]; then
   exit 1
 fi
 
-# Map the user-facing --package-flavour onto the dockerfile stage name. Both
-# flavours now share a single dockerfile per (toolchain, extension); the
-# 'debug' flavour is just a thin layer on top of 'prod' that adds the
-# memgraph-debuginfo package and debug tooling.
+# Map the user-facing --package-flavour onto the dockerfile stage name. All
+# flavours share a single dockerfile per (toolchain, extension); 'debug' is a
+# thin layer on top of 'prod' adding the memgraph-debuginfo package and debug
+# tooling, while 'fips' is a parallel stage (it cannot layer on prod — see the
+# comment on prod-fips in the dockerfile).
 docker_target="prod"
 docker_arg_source_code=""
 tag_extension=""
-if [[ "$package_flavour" == "debug" ]]; then
-  if [[ -z "$src_path" ]]; then
-    echo "Error: --package-flavour debug requires --src-path"
-    exit 1
-  fi
-  cp -r "$src_path" "${working_dir}/src"
-  docker_target="relwithdebinfo"
-  docker_arg_source_code="--build-arg SOURCE_CODE=src"
-  tag_extension="-relwithdebinfo"
-fi
+case "$package_flavour" in
+  debug)
+    if [[ -z "$src_path" ]]; then
+      echo "Error: --package-flavour debug requires --src-path"
+      exit 1
+    fi
+    cp -r "$src_path" "${working_dir}/src"
+    docker_target="relwithdebinfo"
+    docker_arg_source_code="--build-arg SOURCE_CODE=src"
+    tag_extension="-relwithdebinfo"
+  ;;
+  fips)
+    docker_target="prod-fips"
+    tag_extension="-fips"
+  ;;
+esac
 
 if [[ "$malloc" == true ]]; then
   tag_extension="${tag_extension}-malloc"
@@ -145,6 +153,21 @@ cd ${working_dir}
 mkdir -p "${working_dir}/openssl"
 cp -v ../../build/openssl*.deb "${working_dir}/openssl"
 cp -v ../../build/libssl3t64*.deb "${working_dir}/openssl"
+
+if [[ "$package_flavour" == "fips" ]]; then
+  if ! ls "${working_dir}"/openssl/openssl-fips-provider*.deb >/dev/null 2>&1; then
+    echo "Error: --package-flavour fips needs the openssl-fips-provider package."
+    echo "       Re-fetch with: tools/ci/openssl/fetch-openssl-packages.sh --fips --dest-dir build"
+    exit 1
+  fi
+  # The provider Depends on libssl3t64 (= <version>+fips<fips-version>), so a
+  # stock libssl3t64 left over from a previous fetch would break the install.
+  if ! ls "${working_dir}"/openssl/libssl3t64*+fips*.deb >/dev/null 2>&1; then
+    echo "Error: the staged libssl3t64 package is not the FIPS build."
+    echo "       Re-fetch with: tools/ci/openssl/fetch-openssl-packages.sh --fips --dest-dir build"
+    exit 1
+  fi
+fi
 
 cp -v ../../src/auth/reference_modules/requirements.txt "${working_dir}/auth-module-requirements.txt"
 

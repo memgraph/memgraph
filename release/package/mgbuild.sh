@@ -188,7 +188,7 @@ print_help () {
   echo -e "  --src-dir string              Specify a custom path for the source directory on host. Provide relative path inside memgraph directory."
   echo -e "                                This directory should contain the memgraph package."
   echo -e "  --keep-image-loaded bool      Keep built Docker image loaded after packaging (default false)."
-  echo -e "  --package-flavour string        Docker package flavour: 'prod' or 'debug' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and produces an image with source and debug tooling."
+  echo -e "  --package-flavour string        Docker package flavour: 'prod', 'debug' or 'fips' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and produces an image with source and debug tooling. 'fips' builds the FIPS 140-3 image and requires a package built with --no-python plus the FIPS OpenSSL packages staged in build/ (fetch-openssl-packages.sh --fips)."
 
   echo -e "\npackage-mage-deb / package-mage-rpm options:"
   echo -e "  --malloc                      Variant flag — affects the output filename only"
@@ -1254,8 +1254,9 @@ package_docker() {
         exit 1
       fi
     ;;
+    fips) ;;
     *)
-      echo "Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')" >&2
+      echo "Error: --package-flavour must be 'prod', 'debug' or 'fips' (got '$package_flavour')" >&2
       exit 1
     ;;
   esac
@@ -1274,6 +1275,9 @@ package_docker() {
   if [[ "$package_flavour" == "prod" ]]; then
     echo "Package prod flavour"
     ./package_docker --latest --package-flavour prod --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --malloc $malloc --keep-image-loaded $keep_image_loaded
+  elif [[ "$package_flavour" == "fips" ]]; then
+    echo "Package fips flavour"
+    ./package_docker --package-flavour fips --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --malloc $malloc --keep-image-loaded $keep_image_loaded
   else
     echo "Package debug flavour"
     ./package_docker --package-flavour debug --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --malloc $malloc --keep-image-loaded $keep_image_loaded
