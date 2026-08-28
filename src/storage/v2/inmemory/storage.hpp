@@ -899,8 +899,10 @@ class InMemoryStorage final : public Storage {
   void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
 
   // EXPERIMENTAL (lock-free-read-snapshot): compute the GC visibility horizon = min(active snapshot_ts).
-  // OFF (flag disabled): returns oldest_active_start_timestamp, byte-identical to today.
-  uint64_t GcVisibilityHorizon(uint64_t oldest_active_start_timestamp);
+  // Takes the RAW OldestActive() (pre-schema-fold), which keys the visibility ring; the caller clamps the
+  // result to the (possibly lower) folded physical horizon. OFF (flag disabled): returns raw_oldest_active,
+  // byte-identical to today.
+  uint64_t GcVisibilityHorizon(uint64_t raw_oldest_active, bool no_active_txns);
 
   // Objects leave storage only through these, and only from a collection pass. An index entry
   // holds a raw pointer that nothing keeps alive, so an object may be retired only once that same
