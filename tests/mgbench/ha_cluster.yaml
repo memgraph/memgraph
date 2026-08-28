@@ -9,11 +9,12 @@
 # Log level stays at WARNING. Trace-level logging on the commit path would dominate the
 # measurement rather than the replication it is meant to expose.
 #
-# Snapshot recovery runs in parallel. --data-recovery-on-startup pairs with
-# storage_snapshot_on_exit, so every instance reloads a snapshot on each of the restarts a run
-# makes, and a replica syncing from main loads one too. The thread count is pinned rather than
-# left to the default, which derives from the host's CPU count and so ignores the cpuset the
-# benchmark container is confined to; parallel schema recovery only engages above one thread.
+# Snapshot recovery runs in parallel. Importing the dataset leaves a snapshot in each instance's
+# data directory and the WAL carries whatever the measurements write, so --data-recovery-on-startup
+# restores both on every restart a run makes and nothing has to be written out on the way down.
+# The thread count is pinned rather than left to the default, which derives from the host's CPU
+# count and so ignores the cpuset the benchmark container is confined to; parallel schema
+# recovery only engages above one thread.
 #
 # Edges carry properties, which is not the flag's default but is what the standalone Memgraph
 # runner forces on itself. The two series are only comparable while both sides store edges the
@@ -32,8 +33,9 @@ instance_1:
     - "--storage-recovery-thread-count=8"
     - "--storage-parallel-schema-recovery=true"
     - "--storage-properties-on-edges=true"
+    - "--storage-wal-enabled=true"
   log_file: "mgbench_ha_instance_1.log"
-  storage_snapshot_on_exit: true
+  storage_snapshot_on_exit: false
   setup_queries: []
 
 instance_2:
@@ -45,8 +47,9 @@ instance_2:
     - "--storage-recovery-thread-count=8"
     - "--storage-parallel-schema-recovery=true"
     - "--storage-properties-on-edges=true"
+    - "--storage-wal-enabled=true"
   log_file: "mgbench_ha_instance_2.log"
-  storage_snapshot_on_exit: true
+  storage_snapshot_on_exit: false
   setup_queries: []
 
 coordinator_1:
