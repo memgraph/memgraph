@@ -109,6 +109,10 @@ struct GatekeeperGuardFor<T, std::void_t<typename T::GatekeeperGuard>> {
 //   RESUMING -> HOT    : move-assign a fresh HOT Gatekeeper over the shell
 // INVARIANT: Gatekeeper::access() mints Accessors only in HOT.
 //
+// DRAINING (GKInternals::draining_, set by Gatekeeper::begin_drain()) is an orthogonal flag layered
+// on top of HOT, NOT a fifth state: it is set/cleared without moving state_, so it never appears in
+// the transition table above and cannot desynchronize from it.
+//
 // Declared at namespace scope so headers that forward-declare the managed type
 // T can use GatekeeperState without forcing T to be complete.
 enum class GatekeeperState : uint8_t { HOT, SUSPENDING, COLD, RESUMING };
@@ -124,6 +128,14 @@ struct cold_shell_t {
 
 inline constexpr cold_shell_t cold_shell{};
 
+// Tag to bypass the DRAINING refusal in access() below (see Gatekeeper::access(drain_bypass_t)'s
+// doc comment for exactly who may pass it and why).
+struct drain_bypass_t {
+  explicit drain_bypass_t() = default;
+};
+
+inline constexpr drain_bypass_t drain_bypass{};
+
 template <typename T>
 struct GKInternals {
   template <typename... Args>
@@ -137,6 +149,9 @@ struct GKInternals {
   std::unique_ptr<T> value_;
   uint64_t count_ = 0;
   std::atomic_bool is_marked_for_deletion = false;
+  // Plain bool, not atomic: every access already happens under mutex_, and begin_drain() needs the
+  // HOT check plus the set to be one indivisible step, which a bare atomic<bool> would not give.
+  bool draining_ = false;
   std::mutex mutex_;  // TODO change to something cheaper?
   std::condition_variable cv_;
   GatekeeperState state_ = GatekeeperState::HOT;
@@ -332,6 +347,17 @@ struct Gatekeeper {
     GKInternals<T> *owner_ = nullptr;
   };
 
+ private:
+  // Shared mint condition for both access() overloads below; caller must hold pimpl_->mutex_.
+  // Factored out so the plain and drain_bypass_t overloads cannot drift apart.
+  std::optional<Accessor> access_locked(bool bypass_drain) {
+    if (pimpl_->value_ && pimpl_->state_ == GatekeeperState::HOT && (bypass_drain || !pimpl_->draining_)) {
+      return Accessor{this};
+    }
+    return std::nullopt;
+  }
+
+ public:
   std::optional<Accessor> access() {
     auto guard = std::unique_lock{pimpl_->mutex_};
     // Intentionally gated ONLY on state_ == HOT, NOT on is_marked_for_deletion: a tenant being deleted
@@ -339,10 +365,28 @@ struct Gatekeeper {
     // caller checks it and releases). access() minting on a marked-but-HOT shell is benign — the minted
     // Accessor's operator bool is false, so callers won't use it, and the count returns to 0 so a
     // waiting ~Gatekeeper proceeds. Adding a marked check here is NOT a correctness requirement.
-    if (pimpl_->value_ && pimpl_->state_ == GatekeeperState::HOT) {
-      return Accessor{this};
-    }
-    return std::nullopt;
+    //
+    // draining_ is different: it IS a hard refusal, not advisory. It is the single choke point that
+    // stops the database-protector factory (dbms::DatabaseHandler::MakeDatabaseProtectorFactory ->
+    // Handler::Get -> here) from re-arming TTL and async-index work on a tenant that is being dropped
+    // — without this refusal the drain would never converge, because freshly-minted work would keep
+    // the tenant HOT and its own Accessor count above the drop's single-flight expectations forever.
+    return access_locked(/*bypass_drain=*/false);
+  }
+
+  // Bypasses the draining_ refusal above. Restricted to deletion/teardown machinery:
+  // DbmsHandler::Delete_'s own accessor right after begin_drain(), Handler<T>::DeferDelete, and
+  // DatabaseHandler's destructor / its New() directory-collision scan.
+  // Mandatory, not a convenience: Handler<T>::DeferDelete does
+  //   auto db_acc = itr->second.access(utils::drain_bypass); if (!db_acc) return;
+  // *before* its unconditional items_.erase(itr) — minting via the plain (non-bypass) overload
+  // there would strand the tenant in items_ forever: unreachable by name, never destroyed, its
+  // name permanently unusable.
+  // Do NOT use this from anything that could win Accessor::try_delete() behind the drop's back —
+  // that is exactly why Handler<T>::TryDelete stays gated on the non-bypass overload above.
+  std::optional<Accessor> access(drain_bypass_t /*tag*/) {
+    auto guard = std::unique_lock{pimpl_->mutex_};
+    return access_locked(/*bypass_drain=*/true);
   }
 
   std::optional<bool> is_marked_for_deletion() const {
@@ -377,10 +421,12 @@ struct Gatekeeper {
   // the managed value, then call finish_suspend().
   bool try_begin_suspend(std::chrono::milliseconds timeout = std::chrono::milliseconds(100)) {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    // value_ is refused too: try_delete() briefly holds count_ == 1 / state_ == HOT while ~T runs
-    // unlocked after moving value_ out, and a gatekeeper with nothing to suspend must not enter
-    // SUSPENDING.
-    if (!pimpl_->value_ || pimpl_->state_ != GatekeeperState::HOT) return false;
+    // draining_ is refused upfront, alongside the HOT check, NOT folded into the wait_for predicate
+    // below (which must stay count_ == 1 only): a tenant already accepted for deletion must not be
+    // frozen out from under the drop by a competing suspend. value_ is refused too: try_delete()
+    // briefly holds count_ == 1 / state_ == HOT / draining_ == false while ~T runs unlocked after
+    // moving value_ out, and a gatekeeper with nothing to suspend must not enter SUSPENDING.
+    if (!pimpl_->value_ || pimpl_->state_ != GatekeeperState::HOT || pimpl_->draining_) return false;
     if (!pimpl_->cv_.wait_for(guard, timeout, [this] { return pimpl_->count_ == 1; })) {
       return false;
     }
@@ -467,6 +513,41 @@ struct Gatekeeper {
     pimpl_->cv_.notify_all();
   }
 
+  // HOT -> HOT, draining_: false -> true — an orthogonal flag, not a GatekeeperState transition
+  // (see the note on GatekeeperState above).
+  //
+  // Single-flight CAS *and* the concurrent-SUSPEND/RESUME guard in one atomic step: requires
+  // state_ == HOT (refuses an in-flight SUSPENDING/RESUMING gatekeeper, and a COLD one) AND
+  // !draining_ (a second concurrent DROP loses). Because draining_ can only ever be set here, from
+  // HOT, it is HOT-exclusive for its entire life — that is exactly why ~Gatekeeper's terminal
+  // predicate, begin_resume() (COLD-only), and EraseColdShell/DeleteCold_ (COLD-only) all stay valid
+  // unchanged: none of them can ever observe draining_ == true.
+  //
+  // Returning false is a normal, non-asserting outcome (unlike abort_drain() below): a concurrent
+  // drop or a mid-transition tenant is a legal race that the caller turns into a retriable error.
+  bool begin_drain() {
+    auto guard = std::unique_lock{pimpl_->mutex_};
+    // value_ term: see try_begin_suspend() above -- you cannot drain a gatekeeper that holds nothing.
+    if (!pimpl_->value_ || pimpl_->state_ != GatekeeperState::HOT || pimpl_->draining_) return false;
+    pimpl_->draining_ = true;
+    pimpl_->cv_.notify_all();
+    return true;
+  }
+
+  // Rolls back begin_drain(). Single disciplined caller (unlike begin_drain()'s legal-race false), so
+  // a DMG_ASSERT tripwire, matching abort_suspend()/abort_resume() above.
+  void abort_drain() {
+    auto guard = std::unique_lock{pimpl_->mutex_};
+    DMG_ASSERT(pimpl_->draining_, "abort_drain() called while not draining");
+    pimpl_->draining_ = false;
+    pimpl_->cv_.notify_all();
+  }
+
+  bool is_draining() const {
+    auto guard = std::unique_lock{pimpl_->mutex_};
+    return pimpl_->draining_;
+  }
+
   ~Gatekeeper() {
     if (!pimpl_) return;  // Moved out, nothing to do
     pimpl_->is_marked_for_deletion = true;
@@ -478,6 +559,8 @@ struct Gatekeeper {
     {
       auto lock = std::unique_lock{pimpl_->mutex_};
       auto const terminal_and_drained = [this] {
+        // draining_ deliberately excluded (orthogonal flag, not a state — see GatekeeperState above),
+        // so a draining HOT/COLD gatekeeper stays destructible; a new GatekeeperState value must be added here too.
         return (pimpl_->state_ == GatekeeperState::HOT || pimpl_->state_ == GatekeeperState::COLD) &&
                pimpl_->count_ == 0;
       };
