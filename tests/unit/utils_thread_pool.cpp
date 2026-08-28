@@ -184,6 +184,9 @@ TEST(ThreadPool, ShutDownDrainsNothingButFinishesTheRunningTask) {
   release = true;
   shutdown_thread.join();
 
+  // Guaranteed, not racy: the running task has no stop-token early-out, so the worker can only leave it by
+  // setting finished=true; ShutDown()'s thread_pool_.clear() joins that worker, and the shutdown_thread.join()
+  // above sequences that join before this line.
   ASSERT_TRUE(finished.load());
 
   // Unlike the pool-size-0 test above, a real worker may drain any number of the queued tasks before

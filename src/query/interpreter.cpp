@@ -11716,8 +11716,7 @@ void Interpreter::Commit() {
         error);
   }
 
-  bool const txn_committed =
-      maybe_commit_error.has_value() || storage::TransactionWasCommitted(maybe_commit_error.error());
+  bool const txn_committed = maybe_commit_error.has_value() || replication_error_committed;
 
   // The ordered execution of after commit triggers is heavily depending on the exclusiveness of
   // db_accessor_->Commit(): only one of the transactions can be commiting at the same time, so when the commit is
