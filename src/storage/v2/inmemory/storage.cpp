@@ -1239,7 +1239,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
         durability_commit_timestamp,
         SchemaUpdateData(std::move(transaction_.schema_diff_),
                          std::move(transaction_.post_process_),
-                         transaction_.start_timestamp,
+                         transaction_.SchemaReconstructionBound(),
                          durability_commit_timestamp,
                          mem_storage->config_.salient.items.properties_on_edges));
   }
@@ -1881,7 +1881,7 @@ void InMemoryStorage::ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts) {
 
   for (auto &update : to_process) {
     schema_info_.ProcessTransaction(
-        update.schema_diff, update.post_process, update.start_ts, update.commit_ts, update.property_on_edges);
+        update.schema_diff, update.post_process, update.snapshot_bound, update.commit_ts, update.property_on_edges);
   }
 }
 
@@ -3219,12 +3219,15 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   if (config_.salient.items.enable_schema_info) {
     std::lock_guard<std::mutex> const lock{schema_queue_mutex_};
     if (!pending_schema_updates_.empty()) {
-      // Establish earliest start time
-      uint64_t min_queued_start_ts = std::numeric_limits<uint64_t>::max();
+      // Establish the earliest reconstruction boundary still queued: each pending update's deferred
+      // reconstruction walks version chains down to `ts < snapshot_bound`, so no delta at or after
+      // that boundary may be unlinked yet. snapshot_bound <= start_timestamp, so this is at least as
+      // conservative as (and correctly aligned with) the boundary the reconstruction actually uses.
+      uint64_t min_queued_bound = std::numeric_limits<uint64_t>::max();
       for (const auto &[commit_ts, update_data] : pending_schema_updates_) {
-        min_queued_start_ts = std::min(min_queued_start_ts, update_data.start_ts);
+        min_queued_bound = std::min(min_queued_bound, update_data.snapshot_bound);
       }
-      oldest_active_start_timestamp = std::min(min_queued_start_ts, oldest_active_start_timestamp);
+      oldest_active_start_timestamp = std::min(min_queued_bound, oldest_active_start_timestamp);
     }
   }
 
@@ -3234,7 +3237,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // raw_oldest_active < timestamp_, so this correctly protects it (unlike a `raw > last_committed` test).
   bool no_active_txns = false;
   if (config_.experimental_lockfree_read_snapshot) {
-    auto const engine_guard = std::lock_guard{engine_lock_};
+    auto const engine_guard = std::scoped_lock{engine_lock_};
     no_active_txns = raw_oldest_active >= timestamp_;
   }
 
