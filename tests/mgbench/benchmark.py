@@ -32,6 +32,7 @@ from benchmark_context import BenchmarkContext
 from benchmark_results import BenchmarkResults
 from constants import *
 from workload_mode import BENCHMARK_MODE_MIXED, BENCHMARK_MODE_REALISTIC
+from workloads.base import Workload
 
 SETUP_AUTH_QUERIES = [
     ("CREATE USER user IDENTIFIED BY 'test';", {}),
@@ -84,8 +85,8 @@ def parse_args():
         "--installation-type",
         type=str,
         default=BenchmarkInstallationType.NATIVE,
-        choices=BenchmarkInstallationType.get_all_installation_types(),
-        help="Installation type (native, docker, external)",
+        choices=BenchmarkInstallationType.get_selectable_installation_types(),
+        help="How a single Memgraph is installed and run (native, docker, external)",
     )
 
     benchmark_parser.add_argument(
@@ -173,10 +174,66 @@ def parse_args():
     )
 
     benchmark_parser.add_argument(
-        "--no-authorization",
-        action="store_false",
+        "--export-results-ha",
+        default=None,
+        help="File path into which the results of the high availability leg should be exported. Required when ha is "
+        "combined with another installation type, and unused otherwise.",
+    )
+
+    # High availability is its own axis rather than an installation type: a cluster is a topology, not a
+    # way of installing Memgraph. --run-ha measures it alongside the single instance, --ha-only measures
+    # only the cluster.
+    high_availability = benchmark_parser.add_mutually_exclusive_group()
+    high_availability.add_argument(
+        "--run-ha",
+        action="store_true",
+        default=False,
+        help="Also measure the target workloads against a high availability cluster, in the same invocation, so both "
+        "legs share one query count calibration. Requires --export-results-ha.",
+    )
+    high_availability.add_argument(
+        "--ha-only",
+        action="store_true",
+        default=False,
+        help="Measure only against a high availability cluster. Results go to --export-results, as for any other "
+        "single target.",
+    )
+
+    benchmark_parser.add_argument(
+        "--ha-authorization",
+        action="store_true",
+        default=False,
+        help="Also run the fine-grained authorization pass on the high availability leg added by --run-ha, which "
+        "doubles that leg's measurements and so its cluster restarts. Off by default because the cost lands on the "
+        "slowest leg. Does not apply to --ha-only, where the cluster is the whole run and --authorization governs it.",
+    )
+
+    benchmark_parser.add_argument(
+        "--ha-target-workload",
+        action="append",
+        default=None,
+        help="One workload description for the high availability leg, in the same dataset/variant/group/query form as "
+        "the positional arguments; repeat the flag for several. Defaults to the same workloads as the single instance "
+        "leg, and worth narrowing, since every query measured against a cluster costs a restart of each instance in "
+        "it. Takes one value per occurrence on purpose: a multi-value option here would swallow the positional "
+        "workload arguments.",
+    )
+
+    # One attribute, both spellings. The value says what it does: True runs the fine-grained
+    # authorization pass in addition to the anonymous one, so each query is measured twice.
+    # --no-authorization is kept because it is what existing scripts pass to turn the pass off.
+    benchmark_parser.add_argument(
+        "--authorization",
+        dest="authorization",
+        action="store_true",
         default=True,
-        help="Run each query with authorization",
+        help="Measure each query a second time as an authorized user (default)",
+    )
+    benchmark_parser.add_argument(
+        "--no-authorization",
+        dest="authorization",
+        action="store_false",
+        help="Skip the fine-grained authorization pass",
     )
 
     benchmark_parser.add_argument(
@@ -283,7 +340,39 @@ def parse_args():
     return benchmark_parser.parse_args()
 
 
+def resolve_high_availability_args(args):
+    """
+    High availability is orthogonal to how a single Memgraph is installed, so it arrives as its own flag
+    and is reconciled here with the installation type every other reader expects. --ha-only turns the
+    whole run into a cluster run; --run-ha leaves the installation type alone and adds a second leg.
+    """
+    args.run_ha_leg = False
+    if not (args.run_ha or args.ha_only):
+        return
+
+    # A cluster is started from binaries on this machine, so it cannot be measured through a type that
+    # runs the database in a container or expects one to be running already.
+    if args.installation_type not in BenchmarkInstallationType.get_local_binary_installation_types():
+        raise ValueError(
+            f"A high availability cluster is started from local binaries, so it cannot be measured with "
+            f"--installation-type {args.installation_type}. Supported types are "
+            f"{BenchmarkInstallationType.get_selectable_installation_types_for_ha()}."
+        )
+
+    if args.ha_only:
+        args.installation_type = BenchmarkInstallationType.HA
+        return
+
+    args.run_ha_leg = True
+    if args.export_results_ha is None:
+        raise ValueError(
+            "--run-ha measures a single instance and a cluster in one invocation, which writes two result sets, so "
+            "--export-results-ha is required to say where the cluster results go."
+        )
+
+
 def sanitize_args(args):
+    resolve_high_availability_args(args)
     assert args.benchmarks is not None, helpers.list_available_workloads()
     assert args.num_workers_for_import > 0
     assert args.num_workers_for_benchmark > 0
@@ -293,13 +382,19 @@ def sanitize_args(args):
         args.workload_realistic is None or args.workload_mixed is None
     ), "Cannot run both realistic and mixed workload, only one mode run at the time"
 
-    # Auto-detect vendor binary if not specified and installation type is native
-    if args.installation_type == BenchmarkInstallationType.NATIVE and args.vendor_binary is None:
+    # Auto-detect vendor binary if not specified and the installation type starts a local binary
+    if (
+        args.installation_type in BenchmarkInstallationType.get_local_binary_installation_types()
+        and args.vendor_binary is None
+    ):
         args.vendor_binary = helpers.get_binary_path(GraphVendors.MEMGRAPH)
         log.log(f"Auto-detected vendor binary: {args.vendor_binary}")
 
     # Validate vendor binary path if specified (after auto-detection)
-    if args.installation_type == BenchmarkInstallationType.NATIVE and args.vendor_binary is not None:
+    if (
+        args.installation_type in BenchmarkInstallationType.get_local_binary_installation_types()
+        and args.vendor_binary is not None
+    ):
         if not os.path.isfile(args.vendor_binary):
             raise FileNotFoundError(
                 f"Vendor binary not found at specified path: {args.vendor_binary}\n"
@@ -453,6 +548,7 @@ def realistic_workload(
     ret = client.execute(
         queries=prepared_queries,
         num_workers=benchmark_context.num_workers_for_benchmark,
+        log_args=True,
     )[0]
 
     usage_workload = vendor.stop_db(rss_db)
@@ -530,6 +626,7 @@ def mixed_workload(
         ret = client.execute(
             queries=prepared_queries,
             num_workers=benchmark_context.num_workers_for_benchmark,
+            log_args=True,
         )[0]
 
         usage_workload = vendor.stop_db(rss_db)
@@ -649,9 +746,18 @@ def setup_cache_config(benchmark_context, cache):
         return helpers.RecursiveDict()
 
 
-def save_import_results(workload, results, import_results, rss_usage):
+def save_import_results(workload, results, import_results, rss_usage, snapshot_seconds=None):
     log.info("Summarized importing benchmark results:")
     import_key = [workload.NAME, workload.get_variant(), IMPORT]
+    if snapshot_seconds is not None:
+        # Stands in for the throughput summary below, which has nothing to report on this path: the
+        # dataset arrived as one snapshot load rather than as a query per vertex and edge.
+        size = workload.get_size()
+        log.success(
+            "Loaded a snapshot of {} vertices and {} edges in {:.1f} seconds.".format(
+                size["vertices"], size["edges"], snapshot_seconds
+            )
+        )
     if import_results is not None and rss_usage is not None:
         # Display import statistics.
         for row in import_results:
@@ -711,6 +817,7 @@ def run_isolated_workload_with_authorization(
         ret = client.execute(
             queries=get_queries(func, count, benchmark_context),
             num_workers=benchmark_context.num_workers_for_benchmark,
+            log_args=True,
         )[0]
         usage = vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
         usage[MEMORY] -= memory_usage_with_imported_data
@@ -768,6 +875,7 @@ def run_isolated_workload_without_authorization(
             queries=get_queries(func, count, benchmark_context),
             num_workers=benchmark_context.num_workers_for_benchmark,
             time_dependent_execution=benchmark_context.time_dependent_execution,
+            log_args=True,
         )[0]
 
         time_elapsed = time.time() - start_time
@@ -783,6 +891,27 @@ def run_isolated_workload_without_authorization(
         save_to_results(results, ret, workload, group, query, WITHOUT_FINE_GRAINED_AUTHORIZATION)
 
 
+def import_dataset_from_snapshot(vendor_runner, workload):
+    """
+    Loads the dataset from a durability snapshot instead of replaying its import queries, when both
+    the runner and the workload's variant offer one. Returns how long that took, or None when the
+    dataset has to be imported the usual way.
+
+    The duration is all there is to report. A snapshot load is one query, so there is no per-query
+    throughput to summarize, and the import phase of a run that takes this path is not comparable
+    with one that replays the dataset's queries.
+    """
+    if not vendor_runner.supports_snapshot_recovery() or workload.get_snapshot_url() is None:
+        return None
+    log.info("Loading the dataset from a snapshot rather than replaying its import queries.")
+    path = workload.prepare_snapshot(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
+    # Timed here rather than inside the runner, so the figure covers everything the import phase
+    # replaces: the load on main and the wait for the replicas to hold it.
+    started_at = time.time()
+    vendor_runner.recover_snapshot(path, workload.get_size())
+    return time.time() - started_at
+
+
 def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload, storage_mode):
     if benchmark_context.vendor_name != GraphVendors.NEO4J:
         # Neo4j will get started just before import -> without this if statement it would try to start it twice
@@ -790,11 +919,16 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
     log.info("Executing database index setup")
     start_time = time.time()
     import_results = None
-    if generated_queries:
+    snapshot_seconds = import_dataset_from_snapshot(vendor_runner, workload)
+    if snapshot_seconds is not None:
+        log.info("Dataset loaded from a snapshot, indexes included.")
+    elif generated_queries:
         client.execute(queries=workload.indexes_generator(), num_workers=1)
         log.info("Finished setting up indexes.")
         log.info("Started importing dataset")
-        import_results = client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
+        import_results = client.execute(
+            queries=generated_queries, num_workers=benchmark_context.num_workers_for_import, log_args=True
+        )
     else:
         log.info("Using workload information for importing dataset and creating indices")
         log.info("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
@@ -805,11 +939,11 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
             log.info("Finished setting up indexes.")
             log.info("Started importing dataset")
             if storage_mode == ON_DISK_TRANSACTIONAL:
-                import_results = client.execute(file_path=workload.get_node_file(), num_workers=1)
-                import_results = client.execute(file_path=workload.get_edge_file(), num_workers=1)
+                import_results = client.execute(file_path=workload.get_node_file(), num_workers=1, log_args=True)
+                import_results = client.execute(file_path=workload.get_edge_file(), num_workers=1, log_args=True)
             else:
                 import_results = client.execute(
-                    file_path=workload.get_file(), num_workers=benchmark_context.num_workers_for_import
+                    file_path=workload.get_file(), num_workers=benchmark_context.num_workers_for_import, log_args=True
                 )
         else:
             log.info("Custom import executed")
@@ -817,7 +951,7 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
     log.info(f"Finished importing dataset in {time.time() - start_time}s")
     rss_usage = vendor_runner.stop_db_init(VENDOR_RUNNER_IMPORT)
 
-    return import_results, rss_usage
+    return import_results, rss_usage, snapshot_seconds
 
 
 def save_memory_usage_of_empty_db(vendor_runner, workload, results):
@@ -849,12 +983,19 @@ def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_
 def run_target_workload(benchmark_context, workload, bench_queries, vendor_runner, client, results, storage_mode):
     memory_usage_of_empty_db = save_memory_usage_of_empty_db(vendor_runner, workload, results)
     generated_queries = workload.dataset_generator()
-    if not generated_queries:
-        log.warning("Generated import dataset is empty, probably dataset_generator under workload function is wrong.")
-    import_results, rss_usage = setup_indices_and_import_dataset(
+    # A workload either generates its dataset or imports one, and Workload.__init_subclass__ refuses
+    # a class that does neither or both. So an inherited generator returning nothing is the normal
+    # case for every file-imported workload, and only a workload that defines its own generator has
+    # something to complain about when that generator comes back empty.
+    generates_its_dataset = type(workload).dataset_generator is not Workload.dataset_generator
+    if not generated_queries and generates_its_dataset:
+        log.warning(
+            f"The dataset_generator of workload {workload.NAME} produced no queries, so there is nothing to import."
+        )
+    import_results, rss_usage, snapshot_seconds = setup_indices_and_import_dataset(
         client, vendor_runner, generated_queries, workload, storage_mode
     )
-    save_import_results(workload, results, import_results, rss_usage)
+    save_import_results(workload, results, import_results, rss_usage, snapshot_seconds)
     memory_usage_with_imported_data = save_memory_usage_of_imported_data(
         vendor_runner, workload, results, memory_usage_of_empty_db
     )
@@ -895,7 +1036,7 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
                 benchmark_context,
             )
 
-        if benchmark_context.no_authorization:
+        if benchmark_context.authorization:
             run_isolated_workload_with_authorization(
                 vendor_runner,
                 client,
@@ -927,17 +1068,55 @@ def run_target_workloads(benchmark_context, target_workloads, bench_results):
                     benchmark_context, workload, bench_queries, bench_results.in_memory_analytical_results
                 )
 
+    if benchmark_context.run_ha_leg:
+        run_ha_target_workloads(benchmark_context, bench_results.ha_results)
+
+
+def run_ha_target_workloads(benchmark_context, ha_results):
+    """
+    The HA leg is a separate pass rather than another leg inside the loop above, because it needs its
+    own target set. Every query measured against a cluster costs a restart of every instance in it, so
+    running the single-instance target set unchanged would multiply the wall-clock by the size of that
+    set. --ha-target-workload narrows it; without it the HA leg measures the same queries as the
+    single-instance leg.
+    """
+    ha_benchmark_context = deepcopy(benchmark_context)
+    ha_benchmark_context.installation_type = BenchmarkInstallationType.HA
+    # Scoped to this leg only: the context is already a copy, so the single instance leg keeps whatever
+    # --authorization said while the cluster leg measures each query once unless asked otherwise.
+    ha_benchmark_context.authorization = benchmark_context.ha_authorization
+    if benchmark_context.ha_target_workload:
+        ha_benchmark_context.benchmark_target_workload = benchmark_context.ha_target_workload
+
+    ha_target_workloads = helpers.filter_workloads(
+        available_workloads=helpers.get_available_workloads(benchmark_context.customer_workloads),
+        benchmark_context=ha_benchmark_context,
+    )
+    validate_target_workloads(ha_benchmark_context, ha_target_workloads)
+
+    for workload, bench_queries in ha_target_workloads:
+        log.info(f"Started running {str(workload.NAME)} workload against a cluster")
+        ha_benchmark_context.set_active_workload(workload.NAME)
+        ha_benchmark_context.set_active_variant(workload.get_variant())
+        run_ha_benchmark(ha_benchmark_context, workload, bench_queries, ha_results)
+
 
 def get_runner_client(runner, benchmark_context):
+    # Only the HA runner can move the database to another port mid-run, when a cluster restart
+    # leaves a different instance as main. Every other runner derives its port from the same
+    # vendor_args value the client already reads, so it is left resolving the port itself.
+    dynamic_runner = runner if benchmark_context.installation_type == BenchmarkInstallationType.HA else None
     if benchmark_context.client_language == BenchmarkClientLanguage.CPP:
         if (
             benchmark_context.vendor_name is None
             or benchmark_context.installation_type != BenchmarkInstallationType.DOCKER
         ):
-            return runners.BoltClient(benchmark_context=benchmark_context)
+            return runners.BoltClient(benchmark_context=benchmark_context, runner=dynamic_runner)
         return runners.BoltClientDocker(benchmark_context=benchmark_context)
     elif benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
-        return runners.PythonClient(benchmark_context=benchmark_context, database_port=runner.get_database_port())
+        return runners.PythonClient(
+            benchmark_context=benchmark_context, database_port=runner.get_database_port(), runner=dynamic_runner
+        )
     else:
         raise Exception("Unknown runner client type!")
 
@@ -991,6 +1170,31 @@ def run_in_memory_transactional_benchmark(benchmark_context, workload, bench_que
         IN_MEMORY_TRANSACTIONAL,
     )
     log.info(f"Finished running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
+
+
+def run_ha_benchmark(benchmark_context, workload, bench_queries, ha_results):
+    """
+    Runs the target workloads a second time against a coordinator-managed HA cluster, in the same
+    invocation as the single-instance leg. Sharing the invocation is the point: the query count cache
+    is a module-level dict here, so both legs execute the same number of queries by construction
+    rather than by depending on which one calibrated first.
+    """
+    log.info(f"Running benchmarks against a {BenchmarkInstallationType.HA} cluster.")
+    # The context arrives with installation_type already set to HA, which is what selects the cluster
+    # runner and, through get_runner_client, what lets the client follow whichever instance is main.
+    ha_vendor_runner = client_runner_factory(benchmark_context)
+    ha_client = get_runner_client(ha_vendor_runner, benchmark_context)
+
+    run_target_workload(
+        benchmark_context,
+        workload,
+        bench_queries,
+        ha_vendor_runner,
+        ha_client,
+        ha_results,
+        IN_MEMORY_TRANSACTIONAL,
+    )
+    log.info(f"Finished running benchmarks against a {BenchmarkInstallationType.HA} cluster.")
 
 
 def client_runner_factory(benchmark_context):
@@ -1084,13 +1288,18 @@ if __name__ == "__main__":
 
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
-        vendor_binary=args.vendor_binary if args.installation_type == BenchmarkInstallationType.NATIVE else None,
+        vendor_binary=(
+            args.vendor_binary
+            if args.installation_type in BenchmarkInstallationType.get_local_binary_installation_types()
+            else None
+        ),
         vendor_name=args.vendor_name,
         installation_type=args.installation_type,
-        # Client binary present in native and external installation types
+        # Client binary present in every installation type that is not a container
         client_binary=(
             args.client_binary
-            if args.installation_type in [BenchmarkInstallationType.NATIVE, BenchmarkInstallationType.EXTERNAL]
+            if args.installation_type
+            in BenchmarkInstallationType.get_local_binary_installation_types() + [BenchmarkInstallationType.EXTERNAL]
             else None
         ),
         client_language=args.client_language,
@@ -1104,13 +1313,17 @@ if __name__ == "__main__":
         export_results=args.export_results,
         export_results_in_memory_analytical=args.export_results_in_memory_analytical,
         export_results_on_disk_txn=args.export_results_on_disk_txn,
+        export_results_ha=args.export_results_ha,
+        run_ha_leg=args.run_ha_leg,
+        ha_target_workload=args.ha_target_workload,
+        ha_authorization=args.ha_authorization,
         temporary_directory=temp_dir.absolute(),
         workload_mixed=args.workload_mixed,
         workload_realistic=args.workload_realistic,
         time_dependent_execution=args.time_depended_execution,
         warm_up=args.warm_up,
         performance_tracking=args.performance_tracking,
-        no_authorization=args.no_authorization,
+        authorization=args.authorization,
         customer_workloads=args.customer_workloads,
         vendor_args=vendor_specific_args,
         use_parallel_execution=args.use_parallel_execution,
@@ -1142,10 +1355,15 @@ if __name__ == "__main__":
     on_disk_transactional_run_config = deepcopy(in_memory_txn_run_config)
     on_disk_transactional_run_config[STORAGE_MODE] = ON_DISK_TRANSACTIONAL
 
+    # Same storage mode as the single-instance leg; what differs is the cluster behind it.
+    ha_run_config = deepcopy(in_memory_txn_run_config)
+    ha_run_config[INSTALLATION_TYPE] = BenchmarkInstallationType.HA
+
     bench_results = BenchmarkResults()
     bench_results.in_memory_txn_results.set_value(RUN_CONFIGURATION, value=in_memory_txn_run_config)
     bench_results.in_memory_analytical_results.set_value(RUN_CONFIGURATION, value=in_memory_analytical_run_config)
     bench_results.disk_results.set_value(RUN_CONFIGURATION, value=on_disk_transactional_run_config)
+    bench_results.ha_results.set_value(RUN_CONFIGURATION, value=ha_run_config)
 
     available_workloads = helpers.get_available_workloads(benchmark_context.customer_workloads)
 
@@ -1164,14 +1382,19 @@ if __name__ == "__main__":
     log_benchmark_summary(bench_results.in_memory_txn_results.get_data(), IN_MEMORY_TRANSACTIONAL)
     if benchmark_context.export_results:
         with open(benchmark_context.export_results, "w") as f:
-            json.dump(bench_results.in_memory_txn_results.get_data(), f)
+            json.dump(bench_results.in_memory_txn_results.get_data(), f, indent=2)
 
     log_benchmark_summary(bench_results.in_memory_analytical_results.get_data(), IN_MEMORY_ANALYTICAL)
     if benchmark_context.export_results_in_memory_analytical:
         with open(benchmark_context.export_results_in_memory_analytical, "w") as f:
-            json.dump(bench_results.in_memory_analytical_results.get_data(), f)
+            json.dump(bench_results.in_memory_analytical_results.get_data(), f, indent=2)
 
     log_benchmark_summary(bench_results.disk_results.get_data(), ON_DISK_TRANSACTIONAL)
     if benchmark_context.export_results_on_disk_txn:
         with open(benchmark_context.export_results_on_disk_txn, "w") as f:
-            json.dump(bench_results.disk_results.get_data(), f)
+            json.dump(bench_results.disk_results.get_data(), f, indent=2)
+
+    if benchmark_context.run_ha_leg:
+        log_benchmark_summary(bench_results.ha_results.get_data(), f"{BenchmarkInstallationType.HA} cluster")
+        with open(benchmark_context.export_results_ha, "w") as f:
+            json.dump(bench_results.ha_results.get_data(), f, indent=2)

@@ -9,29 +9,16 @@ on:
     inputs:
       loop_count:
         type: number
-        description: "Number of times to run the benchmarks. Default is 10."
+        description: "Number of times to run the benchmarks. Default is 10. Not applied to HA suites"
         default: 10
   schedule:
-    - cron: "0 1 * * *"
+    - cron: "0 0 * * *"
 
 jobs:
   release_benchmarks:
     name: "Daily benchmarks"
     runs-on: [self-hosted, Linux, benchmark]
-    timeout-minutes: 550
-    #  The timeout above is calculated based on a previous run where the loop count was 100
-    #  Rough times per test:
-    #  - macro-benchmark: 3 minutes
-    #  - mgbench: 20 minutes
-    #  - extended planner improvements mgbench: 15 minutes
-    #  - mgbench-supernode: 1.5 minute
-    #  - mgbench-load-parquet: 4 minutes
-    #  - mgbench-vector-search-index: 5 minutes
-    #  - mgbench-vector-search-edge-index: 5 minutes
-    #  - mgbench-text-search-index: 5 minutes
-    #  - mgbench-text-search-edge-index: 5 minutes
-    #  10 iterations would take about 500 minutes, leaving 50 minutes to allow
-    #  for building memgraph and variations in benchmark times.
+    timeout-minutes: 900
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"
@@ -40,6 +27,14 @@ jobs:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
+      DEFAULT_MGBENCH_HA_EXPORT_RESULTS_FILE: 'benchmark_result_ha.json'
+      DEFAULT_MGBENCH_HA_2_REPLICAS_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2_replicas.json'
+      DEFAULT_MGBENCH_HA_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_async.json'
+      DEFAULT_MGBENCH_HA_STRICT_SYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_strict_sync.json'
+      DEFAULT_MGBENCH_HA_2_STRICT_SYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2_strict_sync.json'
+      DEFAULT_MGBENCH_HA_2_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2_async.json'
+      DEFAULT_MGBENCH_HA_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_sync_async.json'
+      DEFAULT_MGBENCH_HA_STRICT_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_strict_sync_async.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
       CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -110,6 +105,127 @@ jobs:
           --cpuset-cpus="$numagroup" \
           --cpuset-mems="0" \
           "mgbuild_${TOOLCHAIN}_${OS}"
+
+
+      - name: Run and upload mgbench-ha
+        id: mgbench-ha
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-ha \
+            mgbench-ha \
+            ${{ env.DEFAULT_MGBENCH_HA_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-2-replicas
+        id: mgbench-ha-2-replicas
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_2_replicas.yaml" \
+            mgbench-ha-2-replicas \
+            ${{ env.DEFAULT_MGBENCH_HA_2_REPLICAS_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-async
+        id: mgbench-ha-async
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_async.yaml" \
+            mgbench-ha-async \
+            ${{ env.DEFAULT_MGBENCH_HA_ASYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-strict-sync
+        id: mgbench-ha-strict-sync
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_strict_sync.yaml" \
+            mgbench-ha-strict-sync \
+            ${{ env.DEFAULT_MGBENCH_HA_STRICT_SYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-2-strict-sync
+        id: mgbench-ha-2-strict-sync
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_2_strict_sync.yaml" \
+            mgbench-ha-2-strict-sync \
+            ${{ env.DEFAULT_MGBENCH_HA_2_STRICT_SYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-sync-async
+        id: mgbench-ha-sync-async
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_sync_async.yaml" \
+            mgbench-ha-sync-async \
+            ${{ env.DEFAULT_MGBENCH_HA_SYNC_ASYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-strict-sync-async
+        id: mgbench-ha-strict-sync-async
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_strict_sync_async.yaml" \
+            mgbench-ha-strict-sync-async \
+            ${{ env.DEFAULT_MGBENCH_HA_STRICT_SYNC_ASYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-2-async
+        id: mgbench-ha-2-async
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_2_async.yaml" \
+            mgbench-ha-2-async \
+            ${{ env.DEFAULT_MGBENCH_HA_2_ASYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
 
       - name: Run and upload load_parquet benchmark
         id: load-parquet
@@ -254,11 +370,30 @@ jobs:
 
       - name: Set Job Status
         run: |
-          success=${{ steps.macro-benchmark.outcome == 'success' && steps.mgbench-supernode.outcome == 'success' && steps.mgbench.outcome == 'success' && steps.planner.outcome == 'success' && steps.load-parquet.outcome == 'success' && steps.mgbench-vector-search-index.outcome == 'success' && steps.mgbench-vector-search-edge-index.outcome == 'success' && steps.mgbench-text-search-index.outcome == 'success' && steps.mgbench-text-search-edge-index.outcome == 'success' }}
-          echo "success=$success" >> $GITHUB_OUTPUT
-          if [ "$success" == "true" ]; then
-            echo "All benchmarks succeeded"
-          else
-            echo "Some benchmarks failed"
+          # Only an explicit failure fails the job. A step disabled with `if: false`, or never
+          # reached, reports "skipped" or nothing, and must not be read as a failed benchmark.
+          check() {
+            case "$2" in
+              failure) echo "FAILED   $1"; failed="$failed $1" ;;
+              success) echo "ok       $1" ;;
+              *)       echo "skipped  $1" ;;
+            esac
+          }
+          failed=""
+          check mgbench-ha                       "${{ steps.mgbench-ha.outcome }}"
+          check load-parquet                     "${{ steps.load-parquet.outcome }}"
+          check mgbench-vector-search-index      "${{ steps.mgbench-vector-search-index.outcome }}"
+          check mgbench-vector-search-edge-index "${{ steps.mgbench-vector-search-edge-index.outcome }}"
+          check mgbench-text-search-index        "${{ steps.mgbench-text-search-index.outcome }}"
+          check mgbench-text-search-edge-index   "${{ steps.mgbench-text-search-edge-index.outcome }}"
+          check macro-benchmark                  "${{ steps.macro-benchmark.outcome }}"
+          check mgbench-supernode                "${{ steps.mgbench-supernode.outcome }}"
+          check mgbench                          "${{ steps.mgbench.outcome }}"
+          check planner                          "${{ steps.planner.outcome }}"
+          if [ -n "$failed" ]; then
+            echo "success=false" >> $GITHUB_OUTPUT
+            echo "Failed benchmarks:$failed"
             exit 1
           fi
+          echo "success=true" >> $GITHUB_OUTPUT
+          echo "All benchmarks that ran succeeded"

@@ -228,6 +228,14 @@ print_help () {
   echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
   echo -e "  --no-authorization            Skip the fine-grained authorization run of each workload"
 
+
+
+  echo -e "\nmgbench-ha options:"
+  echo -e "  --size string                 Specify dataset size: small, medium, large (default \"medium\")"
+  echo -e "  --export-results-file string  Output file for results (default \"benchmark_result_ha.json\")"
+  echo -e "  --cluster-description string  Cluster description in tests/mgbench (default \"ha_cluster.yaml\"; ha_cluster_2_replicas.yaml for two replicas)"
+  echo -e "  Measures only a main with one SYNC replica behind three coordinators. Needs an enterprise license."
+
   echo -e "\ngenerate-memgraph-build-sbom options:"
   echo -e "  --conan-remote string         Specify conan remote (optional)"
   echo -e "  --sbom-scripts-dir string     Path to the infra SBOM scripts (required)"
@@ -1720,6 +1728,7 @@ test_memgraph() {
   local EXPORT_AWS_SECRET_KEY="export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
   local default_benchmark_result_file='benchmark_result.json'
+  local default_benchmark_result_ha_file='benchmark_result_ha.json'
 
   # Parse key=value output from a deployment.sh monitoring-targets invocation
   # and export recognized vars if not already set. Uses `<<<` (not a pipe) so
@@ -1951,6 +1960,37 @@ test_memgraph() {
 
       check_support pokec_size $DATASET_SIZE
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION $DATASET/$DATASET_SIZE/*/*"
+    ;;
+    mgbench-ha)
+      shift 1
+      local DATASET_SIZE='medium'
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_ha_file"
+      local CLUSTER_DESCRIPTION='ha_cluster.yaml'
+
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --size)
+            DATASET_SIZE="$2"
+            shift 2
+          ;;
+          --export-results-file)
+            EXPORT_RESULTS_FILE="$2"
+            shift 2
+          ;;
+          --cluster-description)
+            CLUSTER_DESCRIPTION="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench-ha"
+            echo "Supported flags: --size, --export-results-file, --cluster-description"
+            exit 1
+          ;;
+        esac
+      done
+
+      check_support pokec_size $DATASET_SIZE
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
     ;;
     mgbench-supernode)
       shift 1
