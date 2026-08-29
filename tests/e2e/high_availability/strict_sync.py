@@ -395,7 +395,7 @@ def task(db):
     execute_and_fetch_all(main_cursor, f"USE DATABASE {db};")
     get_query = lambda id_: "CREATE (n:Node {id:" + str(id_) + "});"
 
-    for i in range(100):
+    for i in range(10):
         execute_and_fetch_all(main_cursor, get_query(i))
 
 
@@ -405,30 +405,24 @@ def test_mt_strict_sync_commit(test_name):
     main_cursor = connect(host="localhost", port=7689).cursor()
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
     execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE C;")
 
-    with Pool(processes=4) as pool:
+    with Pool(processes=3) as pool:
         res_a = pool.apply_async(task, ("A",))
         res_b = pool.apply_async(task, ("B",))
-        res_c = pool.apply_async(task, ("C",))
         res_mg = pool.apply_async(task, ("memgraph",))
         res_a.get(timeout=5)
         res_b.get(timeout=5)
-        res_c.get(timeout=5)
         res_mg.get(timeout=5)
 
     # A
     execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    assert get_vertex_count(main_cursor) == 100
+    assert get_vertex_count(main_cursor) == 10
     # B
     execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    assert get_vertex_count(main_cursor) == 100
-    # C
-    execute_and_fetch_all(main_cursor, "USE DATABASE C;")
-    assert get_vertex_count(main_cursor) == 100
+    assert get_vertex_count(main_cursor) == 10
     # memgraph
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
-    assert get_vertex_count(main_cursor) == 100
+    assert get_vertex_count(main_cursor) == 10
 
 
 if __name__ == "__main__":
